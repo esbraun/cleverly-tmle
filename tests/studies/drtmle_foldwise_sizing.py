@@ -54,10 +54,12 @@ over the other rows.  A bias row is never set aside, and no margin moves.
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from functools import cached_property
+from functools import cache, cached_property
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -66,7 +68,7 @@ from scipy.optimize import brentq
 from scipy.stats import chi2, norm
 from scipy.stats import t as student
 
-from tests.studies.evidence.registry import Margins
+from tests.studies.evidence.registry import ROOT, Margins
 from tests.studies.evidence.schema import truth_on_inference_scale
 
 #: The clauses the rule reads.  ``se_ratio`` and ``coverage`` bind only the rows whose pilot
@@ -854,6 +856,147 @@ def ladder_plan_from_rows(
         calibration=False,
     )
     return LadderPlan(source, tuple(labels), size, pilot.bias, pilot.correlation, pilot.replicates)
+
+
+def second_order_pool(top: LadderPlan, low: LadderPlan) -> LadderPlan:
+    """The top rung's planning values pooled with the lower rung's, carried up as second order.
+
+    Under a second-order bias the standardized bias scales as ``sqrt(low.size / top.size)``
+    between the rungs, so the lower rung's value times that factor is a second estimate of the
+    top rung's, with variance ``(low.size / top.size) / low.replicates``.  The pool is their
+    inverse-variance mean, with the top rung's correlation and the pooled precision as its
+    replicates.  This is the hypothesis the ladder's acceptance tests, not a margin.
+
+    Parameters
+    ----------
+    top : LadderPlan
+        The values at the top rung.
+    low : LadderPlan
+        The values at a lower rung, for the same labels.
+
+    Returns
+    -------
+    LadderPlan
+        The pooled plan at the top rung.
+    """
+    if top.labels != low.labels:
+        raise ValueError("the two plans must read the same labels")
+    ratio = low.size / top.size
+    carried = [value * math.sqrt(ratio) for value in low.standardized]
+    weight_top, weight_low = top.replicates, low.replicates / ratio
+    pooled = tuple(
+        round((a * weight_top + b * weight_low) / (weight_top + weight_low), 4)
+        for a, b in zip(top.standardized, carried, strict=True)
+    )
+    return LadderPlan(
+        f"{top.source}, pooled with {low.source} carried up as second order",
+        top.labels,
+        top.size,
+        pooled,
+        top.correlation,
+        round(weight_top + weight_low),
+    )
+
+
+def write_planning(
+    path: Path, pilots: Mapping[str, Pilot | LadderPlan], seconds: Mapping[str, float]
+) -> None:
+    """Write planning summaries and seconds per fit as JSON, the form a record commits.
+
+    Parameters
+    ----------
+    path : Path
+        The file.
+    pilots : Mapping
+        Name to :class:`Pilot` or :class:`LadderPlan`.
+    seconds : Mapping
+        Group to its mean seconds per fit.
+    """
+    body = {
+        "pilots": {
+            name: {"kind": type(value).__name__, **dataclasses.asdict(value)}
+            for name, value in pilots.items()
+        },
+        "seconds_per_fit": {name: round(float(value), 3) for name, value in seconds.items()},
+    }
+    path.write_text(json.dumps(body, indent=1) + "\n", encoding="utf-8")
+
+
+#: The committed planning summaries of the Fix-6 records: the sizing pilot's merged groups
+#: (1,000 replications per primary and cell group, 600 per ladder rung), written by
+#: ``python -m tests.diagnostics.fix6_foldwise_sizing.run --planning``.
+PLANNING_PATH = ROOT / "tests" / "studies" / "drtmle_foldwise_pilot.json"
+
+
+def _tuples(value: Any) -> Any:
+    if isinstance(value, list):
+        return tuple(_tuples(item) for item in value)
+    return value
+
+
+def read_planning(path: Path) -> tuple[dict[str, Pilot | LadderPlan], dict[str, float]]:
+    """Read what :func:`write_planning` wrote.
+
+    Parameters
+    ----------
+    path : Path
+        The file.
+
+    Returns
+    -------
+    tuple
+        Name to :class:`Pilot` or :class:`LadderPlan`, and group to seconds per fit.
+    """
+    body = json.loads(path.read_text(encoding="utf-8"))
+    kinds = {"Pilot": Pilot, "LadderPlan": LadderPlan}
+    pilots: dict[str, Pilot | LadderPlan] = {}
+    for name, fields in body["pilots"].items():
+        kind = kinds[fields.pop("kind")]
+        pilots[name] = kind(**{key: _tuples(value) for key, value in fields.items()})
+    return pilots, {name: float(value) for name, value in body["seconds_per_fit"].items()}
+
+
+@cache
+def committed_planning() -> tuple[dict[str, Pilot | LadderPlan], dict[str, float]]:
+    """The committed planning summaries (:data:`PLANNING_PATH`).
+
+    Returns
+    -------
+    tuple
+        Pilot group to its summary, and group to its mean seconds per fit.
+    """
+    return read_planning(PLANNING_PATH)
+
+
+def planned(planning: Mapping[str, Pilot | LadderPlan] | None, group: str, kind: type[Any]) -> Any:
+    """One pilot group's planning summary, checked to be of ``kind``.
+
+    Parameters
+    ----------
+    planning : Mapping or None
+        Pilot group to its summary; :func:`committed_planning` when ``None``.
+    group : str
+        The group.
+    kind : type
+        :class:`Pilot` or :class:`LadderPlan`.
+
+    Returns
+    -------
+    Pilot or LadderPlan
+        The summary.
+
+    Raises
+    ------
+    TypeError
+        When the group's summary is not of ``kind``.
+    """
+    plans = committed_planning()[0] if planning is None else planning
+    value = plans[group]
+    if not isinstance(value, kind):
+        raise TypeError(
+            f"planning group {group!r} is a {type(value).__name__}, not {kind.__name__}"
+        )
+    return value
 
 
 def ladder_resolution_pass(

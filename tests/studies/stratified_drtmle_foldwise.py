@@ -35,18 +35,33 @@ contract.
 budget is sized over the other rows.  If it is red, :func:`small_stratum_reading` reads it: an
 SE-ratio interval containing 1, a coverage interval containing the pooled coverage and a bias
 row that passes make it ``expected finite-sample``, owned by ``X8-drtmle-small-stratum``;
-anything else is a defect suspect.
+anything else is a defect suspect.  Any other red primary row is a defect suspect: the
+declaration names no other finite-sample owner.
 
-**Budgets are planning values.**  :data:`PLANNING_REPLICATES` is the primaries' floor, and
-:func:`assert_declared` refuses a declared run, of the primary phase or of the ladder, until
-the declaration commit sets the budgets from the arm-pooled predictive rule (:func:`rule`) and
-the ladder's outer-rung rule over the sizing pilot's rows.
+**Declared before any run** (the Fix-6 declaration).  The primary budget is 4,000
+replications (:data:`PRIMARY_REPLICATES`), the budget :func:`rule` gives over the committed
+pilot summaries (:data:`~tests.studies.drtmle_foldwise_sizing.PLANNING_PATH`) on
+:data:`SIZED_ESTIMANDS`: predictive pass 0.957, target 0.95.  ``ey[1][V=2]`` is excluded from
+the sizing and read as above.  No other row is set aside.  The ladder's budgets, its reading and
+the ``X8-drtmle-one-sided-bias`` acceptance are declared in
+:mod:`tests.studies.stratified_drtmle_foldwise_ladder`.  The primary phase costs about
+:data:`CPU_HOURS` CPU-hours at the pilot's seconds per fit.
+
+The diagnosis item of the plan review is closed: the ``both_correct`` marginal ATE, 0.19 SD in
+the 200-draw pilot, reads 0.035 SD on the pilot's 1,000 draws, below the 0.12 SD at which it
+would have been diagnosed before this declaration.
+
+Every coverage row, the ladder's rungs included, gates the interval the library ships at this
+declaration, the normal Wald interval on the identity scale
+(:func:`tests.studies.evidence.schema.reported_inference`); a later change to the shipped
+interval is re-read by that row's owner.  A property row carries ``estimate``, ``std_error``,
+``truth`` and ``covered`` and no bounds: its identity-scale bounds are ``estimate`` plus or
+minus ``z * std_error`` from those committed columns.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import cache
 from typing import Any
 
 import pandas as pd
@@ -54,7 +69,14 @@ import pandas as pd
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_stratified_drtmle as canonical
 from tests.studies import drtmle_foldwise as foldwise
-from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows, without
+from tests.studies.drtmle_foldwise_sizing import (
+    LadderPlan,
+    Pilot,
+    Rule,
+    committed_planning,
+    planned,
+    without,
+)
 from tests.studies.evidence import replication
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -155,86 +177,64 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
 }
 
 # --------------------------------------------------------------------------------- the sizes
-#: A planning budget, not a declared one: the primaries' floor of 1,000 (plan section 5 plans
-#: 1,200 to 2,400).
-PLANNING_REPLICATES = 1_000
-#: ``False`` until the declaration commit sets the budget from :func:`rule` and the pilot.
-BUDGETS_DECLARED = False
-PRIMARY_REPLICATES = PLANNING_REPLICATES
 #: The floor of the primary budget.
 PRIMARY_FLOOR = 1_000
+#: Set by the declaration commit from :func:`rule` and the ladder's rules over the committed
+#: pilot summaries.
+BUDGETS_DECLARED = True
+#: The declared primary budget.  :func:`rule` gives it with predictive pass 0.957 over
+#: :data:`SIZED_ESTIMANDS`.
+PRIMARY_REPLICATES = 4_000
 #: The seed of the rule's planning draws.
 PLANNING_SEED = 2026111223
+#: The pilot group whose summary plans the primary unit.
+PLANNING_GROUP = "s_primary"
+#: The primary phase's cost in CPU-hours at the pilot's seconds per fit
+#: (:data:`~tests.studies.drtmle_foldwise_sizing.PLANNING_PATH`); the ladder's is
+#: :data:`tests.studies.stratified_drtmle_foldwise_ladder.CPU_HOURS`.
+CPU_HOURS = 8.4
 
 
-@cache
-def registered_pilots() -> dict[str, Pilot]:
-    """The planning summaries of the registered pooled rows, before the sizing pilot.
-
-    ``primary``: ``canonical-stratified-drtmle``'s subject rows of the stratum names at
-    n = 2,000, R = 800, less :data:`EXPECTED_FINITE_SAMPLE`.  ``marginal``: the marginal ATE of that study's calibration fits
-    (``interval_calibration/marginal_ate__correctly_specified``, the same both-correct fit at
-    n = 2,000, R = 2,000), which are other draws, so the two summaries are independent.  Both
-    fit ``reduced_crossfit="pooled"``; the X83 probe P1 read fold-wise ``|bias|`` at or below
-    pooled ``|bias|``, so each is an upper planning value.  The sizing pilot's fold-wise rows of
-    one fit replace both.
-
-    Returns
-    -------
-    dict
-        ``{"primary": Pilot, "marginal": Pilot}``.
-    """
-    rows = pd.read_parquet(canonical.STUDY.artifact("replicates.parquet"))
-    own = rows.loc[rows["implementation"] == canonical.STUDY.implementation]
-    primary = pilot_from_rows(
-        own,
-        source="canonical-stratified-drtmle replicates.parquet, pooled, n = 2,000",
-        estimands=tuple(name for name in canonical.ESTIMANDS if name in SIZED_ESTIMANDS),
-    )
-    calibration = pd.read_parquet(canonical.STUDY.artifact("property-replicates.parquet"))
-    marginal = calibration.loc[
-        (calibration["property"] == "interval_calibration")
-        & (calibration["cell"] == "marginal_ate__correctly_specified")
-    ].assign(estimand=MARGINAL)
-    return {
-        "primary": primary,
-        "marginal": pilot_from_rows(
-            marginal,
-            source=(
-                "canonical-stratified-drtmle property-replicates.parquet, "
-                "interval_calibration/marginal_ate__correctly_specified, pooled, n = 2,000"
-            ),
-            estimands=(MARGINAL,),
-        ),
-    }
-
-
-def rule(pilots: dict[str, Pilot] | None = None) -> Rule:
+def rule(planning: Mapping[str, Pilot | LadderPlan] | None = None) -> Rule:
     """The arm-pooled predictive rule of the primary unit, every sized estimand jointly.
 
-    A pilot's :data:`EXPECTED_FINITE_SAMPLE` rows are dropped before the rule reads it.
+    The pilot's :data:`EXPECTED_FINITE_SAMPLE` rows are dropped before the rule reads it.
 
     Parameters
     ----------
-    pilots : dict or None
-        The planning summaries; the registered pooled rows when ``None``.  A sizing pilot that
-        reads all ten rows on one fit passes ``{"primary": Pilot}``.
+    planning : Mapping or None
+        Pilot group to its summary (the rule reads :data:`PLANNING_GROUP`); the committed
+        summaries when ``None``.
 
     Returns
     -------
     Rule
         The rule, with the record's family-wise target 0.95 on its single unit.
     """
-    chosen = registered_pilots() if pilots is None else pilots
-    chosen = {
-        name: without(pilot, [row for row in EXPECTED_FINITE_SAMPLE if row in pilot.rows])
-        for name, pilot in chosen.items()
-    }
+    pilot = planned(planning, PLANNING_GROUP, Pilot)
+    sized = without(pilot, [row for row in EXPECTED_FINITE_SAMPLE if row in pilot.rows])
     return Rule(
-        pilots=chosen,
-        units={"primary": (tuple(chosen), PRIMARY_FLOOR)},
+        pilots={"primary": sized},
+        units={"primary": (("primary",), PRIMARY_FLOOR)},
         seed=PLANNING_SEED,
     )
+
+
+def cpu_hours(seconds: Mapping[str, float] | None = None) -> float:
+    """The primary phase's cost in CPU-hours at the pilot's mean seconds per fit.
+
+    Parameters
+    ----------
+    seconds : Mapping or None
+        Pilot group to its seconds per fit; the committed values when ``None``.
+
+    Returns
+    -------
+    float
+        The CPU-hours of :data:`PRIMARY_REPLICATES`.
+    """
+    per_fit = committed_planning()[1] if seconds is None else seconds
+    return PRIMARY_REPLICATES * per_fit[PLANNING_GROUP] / 3_600
 
 
 def assert_declared() -> None:

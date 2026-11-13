@@ -23,17 +23,20 @@ cells' stream, so replication ``r < 800`` is the X8 cells' registered replicatio
 later replications continue that stream.  Every other rung draws a fresh named stream of the
 record, whose resampling seed is fresh.
 
-**Budgets.**  Planning values (:data:`PLANNING_BUDGETS`): 3,300 at each outer
-``treatment_correct`` rung and 800 at the middle one, whose slope weight is zero; 400 per
+**Budgets, declared before any run** (the Fix-6 declaration, :data:`BUDGETS`).  6,000 at each
+outer ``treatment_correct`` rung and 800 at the middle one, whose slope weight is zero; 400 per
 control rung.  Each ``treatment_correct`` rung's level rows are read at
 :data:`VERDICT_REPLICATES` (800, the X8 cells' budget); the extra outer replications serve the
 slope only.  :func:`planned_outer_budget` sizes the outer rungs so that, when the bias is second
 order, the predictive probability that the marginal's and ``v1``'s slope intervals both reach the
-resolution target is at least 0.95 (:data:`POSITIVE_PLAN`, the pilot's n = 8,000 values with their
-uncertainty); :func:`planned_control_budget` sizes the control so that it fails to contract with
-probability at least 0.99.
-The record's :func:`~tests.studies.stratified_drtmle_foldwise.assert_declared` refuses a
-declared run until then.
+resolution target is at least 0.95; it reads 0.962 at 6,000.  Its planning values
+(:func:`positive_plan`) are the inverse-variance pool of the pilot's n = 8,000 rung and half its
+n = 2,000 rung (marginal 0.246, ``v1`` 0.145 SD), because a second-order bias halves in SD units
+from 2,000 to 8,000; that is the hypothesis the reading tests, and no margin moves.
+:func:`planned_control_budget` sizes the control so that it fails to contract with probability
+at least 0.99; it reads 1.000 at 400.  The ladder costs about :data:`CPU_HOURS` CPU-hours at the
+pilot's seconds per fit.  Every rung's coverage row gates the shipped identity-scale normal
+Wald interval, as the record's module docstring states.
 
 **Reading, declared before the run** (:func:`slope_reading`, :func:`calibration_reading`,
 :func:`x8_acceptance`).  The marginal and ``v1`` ``treatment_correct`` slopes are always read:
@@ -62,9 +65,12 @@ contains 0.95, and ``defect suspect`` otherwise.  The control's level rows are `
 label's ``treatment_correct`` rate row passes when it reads ``consistent with second order``, and
 its control rate row when it fails to contract.  The ``not read`` rows pass by declaration.
 
-The ``X8`` acceptance (:func:`x8_acceptance`) holds when the marginal and ``v1`` read
-``consistent with second order``, the control fails to contract, and no level row is a
-``defect suspect``.  Otherwise the red is a defect suspect and is diagnosed.
+The ``X8-drtmle-one-sided-bias`` acceptance, declared verbatim before any run, is Fix-6's D4
+text as rev 2.1 left it, unchanged (:data:`X8_ACCEPTANCE`).  It names the record by its earlier
+slug, ``stratified-drtmle-foldwise-ladder``; these cells are now the property cells of
+``stratified-drtmle-foldwise``.  :func:`x8_acceptance` reads it: it holds when the marginal and
+``v1`` read ``consistent with second order``, the control fails to contract, and no level row
+is a ``defect suspect``.  Otherwise the red is a defect suspect and is diagnosed.
 """
 
 from __future__ import annotations
@@ -80,9 +86,13 @@ from tests.studies import canonical_stratified_drtmle as canonical
 from tests.studies import stratified_drtmle_foldwise as primary
 from tests.studies.drtmle_foldwise_sizing import (
     LadderPlan,
+    Pilot,
+    committed_planning,
     control_budget,
     ladder_plan_from_rows,
+    planned,
     predictive_outer_budget,
+    second_order_pool,
 )
 from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence import property_verdicts, replication
@@ -137,6 +147,18 @@ DEFECT_SUSPECT = "defect suspect"
 ACCEPTED = "X8 acceptance holds"
 DEFECT = "defect suspect: diagnose"
 DESIGN_FAILURE = "design failure: the control contracts"
+
+#: The ``X8-drtmle-one-sided-bias`` acceptance, declared verbatim before any run.
+X8_ACCEPTANCE = (
+    'The four cells fit `reduced_crossfit="pooled"` and keep their verdicts. The owner closes '
+    "as a finite-sample limit of the default when, in `stratified-drtmle-foldwise-ladder`, the "
+    "99% slope interval of log |bias| on log n has its upper end below -1/2 for the marginal "
+    "ATE and for `v1` (each read whatever its realised half-width; a half-width above 0.25 for "
+    "either reads `not resolved`, and the owner does not close), the `both_wrong` control "
+    "fails to contract, and no rung's SE-ratio or coverage row is a defect suspect under the "
+    "finite-sample rule. Otherwise the red is a defect suspect and is diagnosed, and this "
+    "owner does not close."
+)
 
 #: The columns this family adds to the summary.
 EXTRA_COLUMNS = ("reading", "half_width")
@@ -211,14 +233,13 @@ def calibration_reading(coverage: Interval, se_ratio: Interval, margins: Margins
 
 
 # --------------------------------------------------------------------------------- the sizes
-#: Planning budgets, not declared ones: ``(n = 2,000, 4,000, 8,000)`` per regime.
-PLANNING_BUDGETS: Mapping[str, tuple[int, int, int]] = {
-    POSITIVE: (3_300, 800, 3_300),
+#: The declared budgets, ``(n = 2,000, 4,000, 8,000)`` per regime: :func:`planned_outer_budget`
+#: gives the outer ``treatment_correct`` rungs (predictive pass 0.962) and
+#: :func:`planned_control_budget` the control (predictive pass 1.000).
+BUDGETS: Mapping[str, tuple[int, int, int]] = {
+    POSITIVE: (6_000, 800, 6_000),
     CONTROL: (400, 400, 400),
 }
-#: The budgets the run uses.  They equal :data:`PLANNING_BUDGETS` until the declaration commit,
-#: and the record's guard refuses a declared run until then.
-BUDGETS: Mapping[str, tuple[int, int, int]] = PLANNING_BUDGETS
 #: The replications each ``treatment_correct`` rung's level rows are read at.
 VERDICT_REPLICATES = 800
 
@@ -228,19 +249,34 @@ PLANNING_SEED = 2026111224
 RESOLUTION_PROBABILITY = 0.95
 #: The predictive probability the control must fail to contract with.
 CONTROL_PROBABILITY = 0.99
+#: The pilot groups of the ``treatment_correct`` rungs: the top rung's and the lower rung's
+#: whose values :func:`positive_plan` carries up as second order.
+PLANNING_GROUPS = ("ladder_tc_8000", "ladder_tc_2000")
+#: The ladder's cost in CPU-hours at the pilot's seconds per fit
+#: (:data:`~tests.studies.drtmle_foldwise_sizing.PLANNING_PATH`).
+CPU_HOURS = 54.7
 
-#: The read labels' planning values at the top rung: the Fix-6 sizing pilot's fold-wise
-#: ``treatment_correct`` fits at n = 8,000 (group ``ladder_tc_8000``, 200 replications, marginal
-#: 0.1781 and ``v1`` 0.1639 SD, error correlation 0.4595).  The second-order hypothesis the slope
-#: must resolve carries them down the ladder (:func:`ladder_resolution_pass`).
-POSITIVE_PLAN = LadderPlan(
-    "Fix-6 sizing pilot, ladder_tc_8000, fold-wise, 200 replications",
-    READ_LABELS,
-    8_000,
-    (0.1781, 0.1639),
-    ((1.0, 0.4595), (0.4595, 1.0)),
-    200,
-)
+
+def positive_plan(planning: Mapping[str, Pilot | LadderPlan] | None = None) -> LadderPlan:
+    """The read labels' planning values at the top rung, under the second-order hypothesis.
+
+    The inverse-variance pool of the n = 8,000 rung's standardized biases and half the
+    n = 2,000 rung's (:func:`~tests.studies.drtmle_foldwise_sizing.second_order_pool`), with the
+    top rung's error correlation.  A second-order bias halves in SD units from n = 2,000 to
+    8,000, which is the hypothesis the slope reading tests.
+
+    Parameters
+    ----------
+    planning : Mapping or None
+        Pilot group to its summary; the committed summaries when ``None``.
+
+    Returns
+    -------
+    LadderPlan
+        The plan at n = 8,000.
+    """
+    top, low = (planned(planning, group, LadderPlan) for group in PLANNING_GROUPS)
+    return second_order_pool(top, low)
 
 
 @cache
@@ -267,13 +303,16 @@ def control_plan() -> LadderPlan:
     )
 
 
-def planned_outer_budget(plan: LadderPlan = POSITIVE_PLAN) -> tuple[int, float, bool]:
+def planned_outer_budget(
+    planning: Mapping[str, Pilot | LadderPlan] | None = None,
+) -> tuple[int, float, bool]:
     """The outer ``treatment_correct`` budget that resolves every read label (module docstring).
 
     Parameters
     ----------
-    plan : LadderPlan
-        The read labels' planning values.
+    planning : Mapping or None
+        Pilot group to its summary, read by :func:`positive_plan`; the committed summaries
+        when ``None``.
 
     Returns
     -------
@@ -282,7 +321,7 @@ def planned_outer_budget(plan: LadderPlan = POSITIVE_PLAN) -> tuple[int, float, 
         middle rung at :data:`VERDICT_REPLICATES`.
     """
     return predictive_outer_budget(
-        plan,
+        positive_plan(planning),
         SIZES,
         VERDICT_REPLICATES,
         target=RESOLUTION_TARGET,
@@ -314,6 +353,33 @@ def planned_control_budget(plan: LadderPlan | None = None) -> tuple[int, float, 
         probability=CONTROL_PROBABILITY,
         seed=PLANNING_SEED,
     )
+
+
+def cpu_hours(seconds: Mapping[str, float] | None = None) -> float:
+    """The ladder's cost in CPU-hours at the pilot's mean seconds per fit.
+
+    The pilot timed ``treatment_correct`` fits at n = 2,000 and 8,000; a fit at 4,000 is
+    costed at their mean, and a ``both_wrong`` fit as a ``treatment_correct`` fit of its size.
+
+    Parameters
+    ----------
+    seconds : Mapping or None
+        Pilot group to its seconds per fit; the committed values when ``None``.
+
+    Returns
+    -------
+    float
+        The CPU-hours of :data:`BUDGETS`.
+    """
+    per_fit = committed_planning()[1] if seconds is None else seconds
+    low, top = per_fit["ladder_tc_2000"], per_fit["ladder_tc_8000"]
+    by_size = (low, (low + top) / 2, top)
+    total = sum(
+        budget * cost
+        for regime in REGIMES
+        for budget, cost in zip(BUDGETS[regime], by_size, strict=True)
+    )
+    return total / 3_600
 
 
 # ----------------------------------------------------------------------------- the ladder

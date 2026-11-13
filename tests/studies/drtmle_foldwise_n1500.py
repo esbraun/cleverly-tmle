@@ -33,27 +33,41 @@ SE inside the union-model band.  The pooled-minus-fold-wise displacement is publ
 gated.  ``publication_policy="gated"``.  A red row is a defect suspect, diagnosed and fixed
 under a fresh declaration; no replication is added after a verdict.
 
-**Budgets are planning values.**  :data:`PLANNING_BUDGETS` holds them, and
-:func:`assert_declared` refuses a declared run until the declaration commit sets
-:data:`BUDGETS_DECLARED` from the sizing rule (:func:`rule`), which sizes the primary rows and
-the paired cells as one family.
+**Declared before any run** (the Fix-6 declaration).  The budgets (:data:`BUDGETS`) are
+2,000 ``both_correct`` replications and 5,600 per paired cell, the budgets :func:`rule` gives
+over the committed pilot summaries
+(:data:`~tests.studies.drtmle_foldwise_sizing.PLANNING_PATH`): predictive pass 0.979 for the
+primary rows and 0.975 for the cells, family-wise target 0.95.  No row is set aside.  The run
+costs about :data:`CPU_HOURS` CPU-hours at the pilot's seconds per fit.
+
+Every coverage row gates the interval the library ships at this declaration, the normal Wald
+interval on the identity scale (:func:`tests.studies.evidence.schema.reported_inference`); a
+later change to the shipped interval is re-read by this row's owner.  A property row carries
+``estimate``, ``std_error``, ``truth`` and ``covered`` and no bounds: its identity-scale bounds
+are ``estimate`` plus or minus ``z * std_error`` from those committed columns.
+
+The ``RM18-one-sided-bias`` acceptance, verbatim (:data:`RM18_ACCEPTANCE`): the D2 text, with
+the closing clause as the R-a ruling amended it.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Mapping
-from functools import cache
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_drtmle as canonical
 from tests.studies import drtmle_foldwise as foldwise
 from tests.studies import drtmle_properties as rm18
-from tests.studies.drtmle_foldwise_sizing import Pilot, Rule, pilot_from_rows, single
+from tests.studies.drtmle_foldwise_sizing import (
+    LadderPlan,
+    Pilot,
+    Rule,
+    committed_planning,
+    planned,
+)
 from tests.studies.evidence import property_verdicts, replication
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
@@ -80,69 +94,43 @@ FAMILY = "double_robustness"
 REGISTERED_REPLICATES = rm18.DOUBLE_ROBUST_REPLICATES
 
 # --------------------------------------------------------------------------------- the sizes
-#: Planning budgets, not declared ones: ``primary`` per regime at the primaries' floor, and
-#: ``cells`` per cell at the paired floor (each RM18 cell's 800).  The sizing rule may raise
-#: either.
-PLANNING_BUDGETS: Mapping[str, int] = {"primary": 1_000, "cells": 800}
-#: ``False`` until the declaration commit sets the budgets from :func:`rule` and the pilot.
-BUDGETS_DECLARED = False
-#: The budgets the run uses.  They equal :data:`PLANNING_BUDGETS` until the declaration.
-BUDGETS: Mapping[str, int] = PLANNING_BUDGETS
+#: The floors the sizing rule starts from: ``primary`` at the primaries' 1,000 and ``cells`` at
+#: each RM18 cell's registered 800.
+FLOORS: Mapping[str, int] = {"primary": 1_000, "cells": REGISTERED_REPLICATES}
+#: Set by the declaration commit from :func:`rule` over the committed pilot summaries.
+BUDGETS_DECLARED = True
+#: The declared budgets: ``primary`` for the ``both_correct`` regime and ``cells`` per cell.
+#: :func:`rule` gives them with predictive pass 0.979 (``primary``) and 0.975 (``cells``).
+BUDGETS: Mapping[str, int] = {"primary": 2_000, "cells": 5_600}
 PRIMARY_REPLICATES = BUDGETS["primary"]
 #: The seed of the rule's planning draws.
 PLANNING_SEED = 2026111221
+#: The pilot groups whose summaries plan each sized pilot of :func:`rule`.
+PLANNING_GROUPS: Mapping[str, str] = {
+    "primary_both_correct": "b_both_correct",
+    **{f"cell_{scenario}": f"b_{scenario}" for scenario in SCENARIOS},
+}
+#: The run's cost in CPU-hours at the pilot's seconds per fit
+#: (:data:`~tests.studies.drtmle_foldwise_sizing.PLANNING_PATH`).
+CPU_HOURS = 7.9
 
-#: The cells' planning values: the Fix-6 sizing pilot's fold-wise fits at n = 1,500 (groups
-#: ``b_outcome_correct`` and ``b_treatment_correct``, 200 replications), ``ate`` at 0.0124 and
-#: 0.1555 SD.  The pilot extension replaces them.
-CELL_PLAN: Mapping[str, float] = {"outcome_correct": 0.0124, "treatment_correct": 0.1555}
-CELL_PLAN_SOURCE = "Fix-6 sizing pilot, b_<regime>, fold-wise, n = 1,500"
-CELL_PLAN_REPLICATES = 200
-#: The primary's planning summary before its pilot group (``b_both_correct``) runs:
-#: ``drtmle-foldwise``'s fold-wise ``both_correct`` primary at n = 3,000 (R = 6,000), each
-#: standardized bias scaled by ``sqrt(2)`` to n = 1,500, with the uncertainty of 200
-#: replications.
-PRIMARY_PLAN_REPLICATES = 200
-
-
-@cache
-def planning_pilots() -> dict[str, Pilot]:
-    """The planning summaries of the primary rows and the cells (:data:`CELL_PLAN`).
-
-    Returns
-    -------
-    dict
-        ``primary_both_correct`` and ``cell_<regime>`` for each paired regime.
-    """
-    rows = pd.read_parquet(foldwise.STUDY.artifact("replicates.parquet"))
-    measured = pilot_from_rows(
-        rows.loc[rows["scenario"] == "both_correct"],
-        source="drtmle-foldwise replicates.parquet, both_correct, n = 3,000",
-        estimands=ESTIMANDS,
-    )
-    out = {
-        "primary_both_correct": dataclasses.replace(
-            measured,
-            source=f"{measured.source}, scaled to n = 1,500",
-            replicates=PRIMARY_PLAN_REPLICATES,
-            bias=tuple(round(value * float(np.sqrt(2)), 4) for value in measured.bias),
-        )
-    }
-    for scenario in SCENARIOS:
-        out[f"cell_{scenario}"] = single(
-            CELL_PLAN_SOURCE.replace("<regime>", scenario),
-            CELL_PLAN_REPLICATES,
-            "ate",
-            CELL_PLAN[scenario],
-        )
-    return out
-
+#: The ``RM18-one-sided-bias`` acceptance, declared verbatim before any run.
+RM18_ACCEPTANCE = (
+    'Standing record of `reduced_crossfit="pooled"`, the R `drtmle` `cvFolds` construction. '
+    "Corrected on the default: the foldwise reduced regressions (X83) pass on the binary law "
+    "for `treatment_correct` at n = 1,000 and for both regimes at n = 3,000 "
+    "(`drtmle-foldwise`), and on the multi-arm law at n = 2,000 on this cell's draws "
+    "(`drtmle-foldwise`). The owner closes when both paired cells of `drtmle-foldwise-n1500`, "
+    "the default on the binary cells' own draws at n = 1,500, pass, with the record's primary "
+    "rows passing; a red cell there is a defect suspect and the owner does not close. The "
+    "three cells keep their verdicts."
+)
 
 #: The rows an acceptance text reads: both paired cells (RM18).
 PROTECTED = frozenset((f"cell_{scenario}", "ate") for scenario in SCENARIOS)
 
 
-def rule(pilots: Mapping[str, Pilot] | None = None) -> Rule:
+def rule(planning: Mapping[str, Pilot | LadderPlan] | None = None) -> Rule:
     """The predictive rule of the record's family: the primary rows and the cells, jointly.
 
     Two units share the family-wise target 0.95: ``primary`` (the ``both_correct`` rows, from
@@ -150,28 +138,43 @@ def rule(pilots: Mapping[str, Pilot] | None = None) -> Rule:
 
     Parameters
     ----------
-    pilots : Mapping or None
-        ``primary_both_correct`` and ``cell_<regime>`` summaries; :func:`planning_pilots`
-        when ``None``.
+    planning : Mapping or None
+        Pilot group to its summary (:data:`PLANNING_GROUPS` names the groups read); the
+        committed summaries when ``None``.
 
     Returns
     -------
     Rule
         The rule.
     """
-    chosen = planning_pilots() if pilots is None else dict(pilots)
     return Rule(
-        pilots=chosen,
+        pilots={name: planned(planning, group, Pilot) for name, group in PLANNING_GROUPS.items()},
         units={
-            "primary": (("primary_both_correct",), PLANNING_BUDGETS["primary"]),
-            "cells": (
-                tuple(f"cell_{scenario}" for scenario in SCENARIOS),
-                PLANNING_BUDGETS["cells"],
-            ),
+            "primary": (("primary_both_correct",), FLOORS["primary"]),
+            "cells": (tuple(f"cell_{scenario}" for scenario in SCENARIOS), FLOORS["cells"]),
         },
         seed=PLANNING_SEED,
         protected=PROTECTED,
     )
+
+
+def cpu_hours(seconds: Mapping[str, float] | None = None) -> float:
+    """The declared run's cost in CPU-hours at the pilot's mean seconds per fit.
+
+    Parameters
+    ----------
+    seconds : Mapping or None
+        Pilot group to its seconds per fit; the committed values when ``None``.
+
+    Returns
+    -------
+    float
+        The CPU-hours of :data:`BUDGETS`.
+    """
+    per_fit = committed_planning()[1] if seconds is None else seconds
+    total = BUDGETS["primary"] * per_fit["b_both_correct"]
+    total += sum(BUDGETS["cells"] * per_fit[f"b_{scenario}"] for scenario in SCENARIOS)
+    return total / 3_600
 
 
 def assert_declared() -> None:

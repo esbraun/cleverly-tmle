@@ -27,13 +27,21 @@ entropy their first 200 replications drew with, the retired ladder record's
 continues a group's stream on new indices, and ``--rows`` (repeatable) adds earlier per-draw
 rows to the summary and the sizing.  The summary goes to ``--output``, one row per group and
 estimand, and this run's per-draw rows beside it as ``<stem>-rows.csv.gz``.  The script prints
-what each record's sizing rule returns, and the rows each rule would set aside.
+what each record's sizing rule returns, and the rows each rule would set aside; a group the
+run does not hold keeps its committed summary.  ``--planning`` writes the planning summaries
+and seconds per fit as JSON.  The declaration committed the merged pilot (1,000 replications
+per primary or cell group, 600 per ladder rung) as
+:data:`tests.studies.drtmle_foldwise_sizing.PLANNING_PATH`, written by the last command below
+from every group's per-draw rows.
 
     python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/pilot.csv --jobs 4
     python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/p.csv \\
         --start 200 --replicates 800 --group b_both_correct
     python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/all.csv \\
         --replicates 0 --rows /scratch/p-rows.csv.gz --rows /scratch/q-rows.csv.gz
+    python -m tests.diagnostics.fix6_foldwise_sizing.run --output /scratch/all.csv \
+        --replicates 0 --planning tests/studies/drtmle_foldwise_pilot.json \
+        --rows /scratch/<group>-rows.csv.gz ...
 """
 
 from __future__ import annotations
@@ -58,11 +66,15 @@ from tests.studies import stratified_drtmle_foldwise as unit_s
 from tests.studies import stratified_drtmle_foldwise_ladder as ladder
 from tests.studies.drtmle_foldwise_sizing import (
     SET_ASIDE_THRESHOLD,
+    LadderPlan,
+    Pilot,
     Rule,
     as_rows,
+    committed_planning,
     ladder_plan_from_rows,
     pilot_from_rows,
     set_aside_rows,
+    write_planning,
 )
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.point_study_helpers import primary_rows
@@ -228,6 +240,60 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out).loc[:, columns]
 
 
+def _groups(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    return {
+        str(name): frame.dropna(axis=1, how="all")
+        for name, frame in rows.groupby("group", sort=False)
+    }
+
+
+def planning(rows: pd.DataFrame) -> tuple[dict[str, Pilot | LadderPlan], dict[str, float]]:
+    """The planning summaries the records' rules read, by pilot group, and seconds per fit.
+
+    ``b_both_correct``, ``m_primary`` and ``s_primary`` carry every row with its coverage and
+    SE ratio; ``b_outcome_correct``, ``b_treatment_correct`` and ``m_outcome_correct`` plan a
+    property cell on its bias alone (unit B's from ``ate``); the ladder groups carry the read
+    labels' standardized biases and correlation at their rung.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The per-draw rows of every group piloted.
+
+    Returns
+    -------
+    tuple
+        Group to its summary, and group to its mean seconds per fit.
+    """
+    groups = _groups(rows)
+    pilots: dict[str, Pilot | LadderPlan] = {}
+    for name, frame in groups.items():
+        count = frame["replicate"].nunique()
+        source = f"Fix-6 sizing pilot, {name}, {count:,} replications"
+        if name == "b_both_correct":
+            pilots[name] = pilot_from_rows(frame, source=source, estimands=unit_b.ESTIMANDS)
+        elif name in ("b_outcome_correct", "b_treatment_correct"):
+            pilots[name] = pilot_from_rows(
+                frame, source=source, estimands=("ate",), calibration=False
+            )
+        elif name == "m_outcome_correct":
+            pilots[name] = pilot_from_rows(frame, source=source, calibration=False)
+        elif name in ("m_primary", "s_primary"):
+            pilots[name] = pilot_from_rows(frame, source=source)
+        else:
+            pilots[name] = ladder_plan_from_rows(
+                frame,
+                source=source,
+                labels={label: stratified.ate_name(label) for label in unit_s.READ_LABELS},
+                size=GROUPS[name][1],
+            )
+    seconds = {
+        name: float(frame.drop_duplicates("replicate")["seconds"].mean())
+        for name, frame in groups.items()
+    }
+    return pilots, seconds
+
+
 def sizing(rows: pd.DataFrame) -> list[str]:
     """What each record's sizing rule returns from the pilot's values.
 
@@ -239,12 +305,11 @@ def sizing(rows: pd.DataFrame) -> list[str]:
     Returns
     -------
     list of str
-        One line per rule whose groups the pilot ran.
+        Lines for each rule whose groups the pilot ran; a group not piloted keeps its
+        committed planning value.
     """
-    groups = {
-        str(name): frame.dropna(axis=1, how="all")
-        for name, frame in rows.groupby("group", sort=False)
-    }
+    pilots, _ = planning(rows)
+    plans = {**committed_planning()[0], **pilots}
     lines = []
 
     def report(name: str, rule: Rule) -> None:
@@ -258,51 +323,16 @@ def sizing(rows: pd.DataFrame) -> list[str]:
                 + ", ".join(f"{u} {aside.budget(u)}" for u in aside.units)
             )
 
-    if {"b_outcome_correct", "b_treatment_correct"} <= set(groups):
-        pilots = dict(unit_b.planning_pilots())
-        for scenario in unit_b.SCENARIOS:
-            pilots[f"cell_{scenario}"] = pilot_from_rows(
-                groups[f"b_{scenario}"],
-                source=f"pilot b_{scenario}",
-                estimands=("ate",),
-                calibration=False,
-            )
-        if "b_both_correct" in groups:
-            pilots["primary_both_correct"] = pilot_from_rows(
-                groups["b_both_correct"], source="pilot b_both_correct", estimands=unit_b.ESTIMANDS
-            )
-        report("unit B (a primary not piloted keeps its planning value)", unit_b.rule(pilots))
-    if groups.keys() & {"m_primary", "m_outcome_correct"}:
-        primary = (
-            pilot_from_rows(groups["m_primary"], source="pilot m_primary")
-            if "m_primary" in groups
-            else None
-        )
-        cell = (
-            pilot_from_rows(
-                groups["m_outcome_correct"], source="pilot m_outcome_correct", calibration=False
-            )
-            if "m_outcome_correct" in groups
-            else None
-        )
+    if pilots.keys() & {"b_both_correct", "b_outcome_correct", "b_treatment_correct"}:
+        report("unit B", unit_b.rule(plans))
+    if pilots.keys() & {"m_primary", "m_outcome_correct"}:
+        report("unit M", unit_m.rule(plans))
+    if "s_primary" in pilots:
         report(
-            "unit M (a group not piloted keeps its registered planning value)",
-            unit_m.rule(primary, cell),
+            f"unit S primary (less {', '.join(unit_s.EXPECTED_FINITE_SAMPLE)})", unit_s.rule(plans)
         )
-    if "s_primary" in groups:
-        pilot = pilot_from_rows(groups["s_primary"], source="pilot s_primary")
-        report(
-            f"unit S primary (less {', '.join(unit_s.EXPECTED_FINITE_SAMPLE)})",
-            unit_s.rule({"primary": pilot}),
-        )
-    if "ladder_tc_8000" in groups:
-        plan = ladder_plan_from_rows(
-            groups["ladder_tc_8000"],
-            source="pilot ladder_tc_8000",
-            labels={label: stratified.ate_name(label) for label in unit_s.READ_LABELS},
-            size=8_000,
-        )
-        lines.append(f"ladder outer rungs: {ladder.planned_outer_budget(plan)}")
+    if pilots.keys() & {"ladder_tc_2000", "ladder_tc_8000"}:
+        lines.append(f"ladder outer rungs: {ladder.planned_outer_budget(plans)}")
         lines.append(f"ladder control per rung: {ladder.planned_control_budget()}")
     return lines
 
@@ -319,6 +349,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--output", type=Path, required=True, help="the summary CSV")
     parser.add_argument("--replicates", type=int, default=REPLICATES)
     parser.add_argument("--start", type=int, default=0, help="the first replicate index")
+    parser.add_argument(
+        "--planning", type=Path, default=None, help="write the planning summaries as JSON"
+    )
     parser.add_argument(
         "--rows", type=Path, action="append", default=[], help="earlier per-draw rows (repeatable)"
     )
@@ -347,6 +380,8 @@ def main(argv: list[str] | None = None) -> None:
     with pd.option_context("display.width", 200, "display.max_columns", 20):
         print(summary.drop(columns="source").to_string(index=False))
     if rows.groupby("group")["replicate"].nunique().min() >= 3:
+        if args.planning is not None:
+            write_planning(args.planning, *planning(rows))
         for line in sizing(rows):
             print(line)
 

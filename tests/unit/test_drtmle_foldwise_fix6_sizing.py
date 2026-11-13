@@ -23,12 +23,15 @@ from tests.studies.drtmle_foldwise_sizing import (
     SET_ASIDE_CLAUSES,
     SET_ASIDE_THRESHOLD,
     LadderPlan,
+    Pilot,
     Rule,
     control_budget,
     control_fails_pass,
     ladder_resolution_pass,
     pilot_from_rows,
     predictive_outer_budget,
+    read_planning,
+    second_order_pool,
     set_aside_rows,
     single,
     without,
@@ -189,6 +192,18 @@ def test_a_first_order_control_fails_to_contract_at_the_floor() -> None:
     assert control_budget(strong, SIZES, first_order=-0.5, level=0.99)[::2] == (400, True)
 
 
+def test_the_second_order_pool_carries_the_lower_rung_up_by_inverse_variance() -> None:
+    low = dataclasses.replace(PLAN, size=2_000, standardized=(0.8, 0.4), replicates=600)
+    top = dataclasses.replace(PLAN, standardized=(0.4, 0.4), replicates=600)
+    pooled = second_order_pool(top, low)
+    # Half the lower rung's value, with variance (1/4)/600, so four times the top's weight.
+    assert pooled.standardized == (pytest.approx(0.4), pytest.approx(0.24))
+    assert pooled.replicates == 3_000
+    assert (pooled.size, pooled.correlation, pooled.labels) == (8_000, top.correlation, top.labels)
+    with pytest.raises(ValueError, match="same labels"):
+        second_order_pool(top, dataclasses.replace(low, labels=("m", "w")))
+
+
 # ------------------------------------------------------------------------------- the pilot
 def test_the_pilot_continues_its_streams() -> None:
     assert "b_both_correct" in pilot.GROUPS
@@ -220,12 +235,18 @@ def test_the_pilot_starts_at_its_index_and_merges_earlier_rows(tmp_path: Path) -
             "1",
             "--rows",
             str(tmp_path / "first-rows.csv.gz"),
+            "--planning",
+            str(tmp_path / "planning.json"),
         ]
     )
     rows = pd.read_csv(tmp_path / "second-rows.csv.gz")
     assert list(rows["replicate"]) == [3]
     summary = pd.read_csv(second)
     assert int(summary["replicates"].iloc[0]) == 4
+    plans, seconds = read_planning(tmp_path / "planning.json")
+    (cell,) = plans.values()
+    assert set(plans) == set(seconds) == {"m_outcome_correct"}
+    assert isinstance(cell, Pilot) and cell.replicates == 4 and cell.rows == ("outcome_correct",)
     with pytest.raises(SystemExit, match="repeat"):
         pilot.main(
             [
