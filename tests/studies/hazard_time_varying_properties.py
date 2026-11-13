@@ -16,17 +16,18 @@ family                          cells, replications and size
                                 with the shrunken-SE and noise controls on
                                 ``one_cause_contrast``; the calibration count of fits per
                                 fit label at n = 2,000
-``double_robustness``           ``one_cause_contrast`` in four nuisance configurations;
-                                1,200 at n = 2,000 (the wrong-learner arm as the pilot rule
-                                sizes it)
-``targeting_necessity``         ``one_cause_contrast``: the targeted contrast with the wrong
-                                hazard and continuation and the correct mechanism, and the
-                                untargeted backward plug-in of the same draw; 1,200 at
-                                n = 2,000
+``double_robustness``           ``one_cause_contrast`` in five nuisance configurations, and
+                                the ``mechanism_correct`` configuration on
+                                ``competing_contrast`` and ``three_arm_contrast``; 1,200 at
+                                n = 2,000, each arm with a wrong learner as its pilot sizes it
+``targeting_necessity``         ``one_cause_contrast``: the targeted contrast of the
+                                ``double_robustness`` ``mechanism_correct`` fits, and the
+                                untargeted backward plug-in of the same draws
 ``root_n_and_efficiency``       ``one_cause_contrast`` and ``one_cause_risk`` at n = 1,000,
                                 2,000 and 8,000; 800 each.  The 1,000 rung is a rate rung
                                 that carries no claim
-``power``                       ``one_cause_contrast`` at n = 2,000; 800
+``power``                       ``one_cause_contrast`` against zero, read on the
+                                ``one_cause`` calibration fits
 ``simultaneous_coverage``       the band over every estimate of the ``one_cause`` and the
                                 ``competing`` calibration fits, and its pointwise control
 ``iterated_mean_difference``    reported, no verdict: :data:`DIFFERENCE_REPLICATES` draws at
@@ -43,9 +44,26 @@ family                          cells, replications and size
 The wrong hazard and continuation learners omit ``L`` (:class:`~tests.studies.
 hazard_time_varying_law.NoL`).  The drop-out reads :math:`L_k`, so their plug-in treats it as
 ignorable given :math:`(W, A)`, and its contrast lies 4.2 efficiency standard errors from the
-truth at n = 2,000 (``tests/unit/test_hazard_time_varying_study_design.py``).  The wrong
-mechanism is the censoring model without :math:`L_k`; the treatment is baseline and its model
-is correct in every configuration.
+truth at n = 2,000 on ``one_cause``, 3.2 on ``competing`` and 3.6 on ``three_arm``
+(``tests/unit/test_hazard_time_varying_study_design.py``).  The wrong mechanism is the
+censoring model without :math:`L_k`; the treatment is baseline and its model is correct in
+every configuration.
+
+**What each robustness arm witnesses.**  With a hazard that omits :math:`L`, every fitted
+continuation is a function of :math:`(W, A)` and the covariate term of the walk is zero before
+targeting, so the ``mechanism_correct`` arms and the targeted necessity arm witness the hazard
+fluctuation, whose weights read :math:`L_k`.  With the hazard correct the hazard term is zero,
+so the ``continuation_wrong`` arm (hazard correct, continuation without :math:`L`, mechanism
+correct; plug-in 1.37 efficiency SEs from the truth) witnesses the covariate term alone.  The
+``both_wrong`` control and the untargeted plug-in read one bias, the bias of treating the
+drop-out as ignorable given :math:`(W, A)`: with every factor a function of :math:`(W, A)` the
+walk barely moves, so they are not two independent witnesses.  The ``competing`` and
+``three_arm`` arms witness the two-cause soft-label panel and the policy ratio times the
+retention that reads :math:`L_k`.
+
+**Shared fits.**  The necessity cells read the ``one_cause`` ``mechanism_correct`` robustness
+fits, adding only the untargeted pass of the same draw, and the power cell reads the
+``one_cause`` calibration fits, as ``hazard-multinode`` does.
 
 **The agreement reading** is reported with no floor (plan X70 rev 2.6 and open question 11).
 Both fits are efficient, so where both nuisance fits are correct they differ by
@@ -100,23 +118,33 @@ from tests.studies.evidence.simultaneous import (
 )
 
 STUDY = study.STUDY
-#: The replicates of a positive robustness arm, and of the wrong-learner arms until the
-#: 800-draw wrong-learner pilot sizes them under the rule of plan X70 rev 2.7 (the design test
-#: recomputes it once the pilot is committed).
+#: The replicates of a positive robustness arm, and of each wrong-learner arm until its
+#: 800-draw pilot sizes it under the rule of plan X70 rev 2.7 (the design test recomputes it
+#: once the pilot is committed).
 DOUBLE_ROBUST_REPLICATES = 1_200
-#: The replicates of the arms that fit the wrong hazard and continuation with the correct
-#: mechanism: the ``mechanism_correct`` robustness arm and the targeted necessity arm.
-WRONG_LEARNER_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
-NECESSITY_N = 2_000
+DOUBLE_ROBUST_ARMS = study.DOUBLE_ROBUST_ARMS
+#: The arms that fit a wrong outcome learner with the correct mechanism, each with its pilot
+#: label and its replicates: provisional until the pilot label is committed.
+WRONG_LEARNER_ARMS: dict[tuple[str, str], str] = {
+    ("one_cause", "mechanism_correct"): "wrong_learner_one_cause",
+    ("one_cause", "continuation_wrong"): "wrong_learner_continuation",
+    ("competing", "mechanism_correct"): "wrong_learner_competing",
+    ("three_arm", "mechanism_correct"): "wrong_learner_three_arm",
+}
+WRONG_LEARNER_REPLICATES: dict[tuple[str, str], int] = dict.fromkeys(WRONG_LEARNER_ARMS, 1_200)
+#: The robustness fits the necessity family reads.
+NECESSITY_ARM = ("one_cause", "mechanism_correct")
+NECESSITY_N = DOUBLE_ROBUST_N
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
 #: Provisional: the arm-pooled rule over the eight calibration arms at a pilot that reads a
 #: ratio of one.  The committed calibration pilot sets it (the design test).
 CALIBRATION_REPLICATES = 4_000
-POWER_REPLICATES = 800
-POWER_N = 2_000
+#: The power cell reads the ``one_cause`` calibration fits.
+POWER_REPLICATES = CALIBRATION_REPLICATES
+POWER_N = CALIBRATION_N
 DIFFERENCE_REPLICATES = 800
 DIFFERENCE_N = 2_000
 
@@ -135,14 +163,17 @@ IC_GAP_SIZES = (2_000, 20_000)
 IC_GAP_DRAWS = 5
 IC_GAP_BOUND = {2_000: 0.30, 20_000: 0.10}
 IC_GAP_FALL = 0.5
-CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
+CONFIGURATIONS = tuple(study.CONFIGURATIONS)
 DIFFERENCE_FAMILY = "iterated_mean_difference"
 MECHANISM_DIFFERENCE = "mechanism_correct_difference"
 CONTRAST = study.CONTRAST_LABEL
 FITS = study.FITS
 ARMS = ("contrast", "risk")
-#: The per-row record of each fit, and the summary columns that count it.
-CONVERGENCE_COLUMNS = ("converged", "final_score", "unexpected_warnings")
+#: The per-row record of each fit, and the summary columns that count it.  The influence
+#: measures are the smallest Kish count, largest relative SD and largest Edgeworth loss over
+#: the fit's estimates (:class:`~tests.studies.canonical_hazard_time_varying.FitRecord`).
+INFLUENCE_COLUMNS = ("smallest_kish", "largest_relative_sd", "largest_edgeworth_loss")
+CONVERGENCE_COLUMNS = ("converged", "final_score", "unexpected_warnings", *INFLUENCE_COLUMNS)
 CONVERGENCE_SUMMARY = (
     "nonconverged_fits",
     "max_final_score",
@@ -327,36 +358,33 @@ def fits_differ_reading(
 
 # ------------------------------------------------------------------ the grid
 
-#: Every fit set: ``(family, stream label, configuration, n, replicates, fit label)``.
+
+def dr_stream(fit: str, configuration: str) -> str:
+    """The stream of one robustness arm: the configuration on ``one_cause``, else prefixed."""
+    return configuration if fit == "one_cause" else f"{fit}_{configuration}"
+
+
+def dr_replicates(fit: str, configuration: str) -> int:
+    """The replicates of one robustness arm (:data:`WRONG_LEARNER_REPLICATES` or the default)."""
+    return WRONG_LEARNER_REPLICATES.get((fit, configuration), DOUBLE_ROBUST_REPLICATES)
+
+
+#: Every fit set: ``(family, stream label, configuration, n, replicates, fit label)``.  The
+#: necessity cells ride on the ``one_cause`` ``mechanism_correct`` robustness fits and the
+#: power cell on the ``one_cause`` calibration fits, so neither has a fit set of its own.
 FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
     *(
         ("interval_calibration", fit, "both_correct", CALIBRATION_N, CALIBRATION_REPLICATES, fit)
         for fit in CALIBRATION_FITS
     ),
     *(
-        (
-            "double_robustness",
-            c,
-            c,
-            DOUBLE_ROBUST_N,
-            WRONG_LEARNER_REPLICATES if c == "mechanism_correct" else DOUBLE_ROBUST_REPLICATES,
-            "one_cause",
-        )
-        for c in CONFIGURATIONS
-    ),
-    (
-        "targeting_necessity",
-        "wrong_learners",
-        "mechanism_correct",
-        NECESSITY_N,
-        WRONG_LEARNER_REPLICATES,
-        "one_cause",
+        ("double_robustness", dr_stream(fit, c), c, DOUBLE_ROBUST_N, dr_replicates(fit, c), fit)
+        for fit, c in DOUBLE_ROBUST_ARMS
     ),
     *(
         ("root_n_and_efficiency", f"n_{size}", "both_correct", size, RATE_REPLICATES, "one_cause")
         for size in RATE_SIZES
     ),
-    ("power", "alternative", "both_correct", POWER_N, POWER_REPLICATES, "one_cause"),
     *(
         (DIFFERENCE_FAMILY, fit, "both_correct", DIFFERENCE_N, DIFFERENCE_REPLICATES, fit)
         for fit in study.DIFFERENCE_FITS
@@ -442,19 +470,18 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     fit,
                 )
     one_cause = DeclaredEstimates("one_cause")
-    for configuration in CONFIGURATIONS:
+    for fit, configuration in DOUBLE_ROBUST_ARMS:
         add(
             "double_robustness",
-            f"{CONTRAST}__{configuration}",
+            f"{fit}_contrast__{configuration}",
             "control" if configuration == "both_wrong" else "positive",
-            one_cause,
-            ESTIMAND[CONTRAST],
+            DeclaredEstimates(fit),
+            ESTIMAND[f"{fit}_contrast"],
             DOUBLE_ROBUST_N,
-            WRONG_LEARNER_REPLICATES
-            if configuration == "mechanism_correct"
-            else DOUBLE_ROBUST_REPLICATES,
-            configuration,
+            dr_replicates(fit, configuration),
+            dr_stream(fit, configuration),
         )
+    necessity_replicates = dr_replicates(*NECESSITY_ARM)
     for label, _ in COEFFICIENTS["one_cause"]:
         add(
             DIFFERENCE_FAMILY,
@@ -463,8 +490,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             DeclaredDifference(),
             "paired_difference",
             DOUBLE_ROBUST_N,
-            WRONG_LEARNER_REPLICATES,
-            "mechanism_correct",
+            necessity_replicates,
+            dr_stream(*NECESSITY_ARM),
             draws_of="double_robustness",
         )
     for arm, role in (("targeted", "positive"), ("untargeted", "control")):
@@ -475,8 +502,9 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             one_cause,
             ESTIMAND[CONTRAST],
             NECESSITY_N,
-            WRONG_LEARNER_REPLICATES,
-            "wrong_learners",
+            necessity_replicates,
+            dr_stream(*NECESSITY_ARM),
+            draws_of="double_robustness",
         )
     for size in RATE_SIZES:
         for label, name in COEFFICIENTS["one_cause"]:
@@ -498,7 +526,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         ESTIMAND[CONTRAST],
         POWER_N,
         POWER_REPLICATES,
-        "alternative",
+        "one_cause",
+        draws_of="interval_calibration",
     )
     for joint in JOINT_LABELS:
         cells.extend(
@@ -577,17 +606,20 @@ def cells_of(key: _Key) -> list[str]:
         joint = f"{label}_curve"
         if joint in JOINT_LABELS:
             names += [f"{JOINT_FAMILY}/{cell}" for cell in joint_cells(joint)]
+        if label == "one_cause":
+            names.append(f"power/{CONTRAST}__alternative")
         return names
     if family == "double_robustness":
-        names = [f"{family}/{CONTRAST}__{configuration}"]
-        if configuration == "mechanism_correct":
+        names = [f"{family}/{label}_contrast__{configuration}"]
+        if (label, configuration) == NECESSITY_ARM:
             names += [
                 f"{DIFFERENCE_FAMILY}/{cell_label}__{MECHANISM_DIFFERENCE}"
                 for cell_label, _ in COEFFICIENTS[label]
             ]
+            names += [
+                f"targeting_necessity/{CONTRAST}__{arm}" for arm in ("targeted", "untargeted")
+            ]
         return names
-    if family == "targeting_necessity":
-        return [f"{family}/{CONTRAST}__targeted", f"{family}/{CONTRAST}__untargeted"]
     if family == "root_n_and_efficiency":
         return [f"{family}/{cell_label}__n_{n}" for cell_label, _ in COEFFICIENTS[label]]
     if family == DIFFERENCE_FAMILY:
@@ -602,7 +634,7 @@ def cells_of(key: _Key) -> list[str]:
         if label in study.COHERENCE_FITS:
             names += [f"{family}/{label}__{arm}" for arm in study.COHERENCE_ARMS]
         return names
-    return [f"{family}/{CONTRAST}__alternative"]
+    raise ValueError(f"no fit set of family {family!r}")
 
 
 def cell_of(key: _Key) -> str:
@@ -666,7 +698,10 @@ class FitRecords:
         return result
 
     def untargeted(self, label: str, frame: pd.DataFrame, **settings: Any) -> Any:
-        """The untargeted backward pass: its warnings are recorded; it has no walk to converge."""
+        """The untargeted backward pass: its warnings are recorded; it has no walk to converge.
+
+        Its influence measures are not the subject's, so they are not recorded.
+        """
         result, record = study.recorded(lambda: study.untargeted_fit(label, frame, **settings))
         self.records.append(study.FitRecord(True, record.unexpected_warnings))
         return result
@@ -678,10 +713,18 @@ class FitRecords:
         return result
 
     def columns(self) -> dict[str, float]:
+        def extreme(values: list[float], pick: Any) -> float:
+            finite = [value for value in values if np.isfinite(value)]
+            return float(pick(finite)) if finite else float("nan")
+
+        hazards = [r for r in self.records if np.isfinite(r.smallest_kish)]
         return {
             "converged": int(all(record.converged for record in self.records)),
             "final_score": max((r.final_score for r in self.records), default=0.0),
             "unexpected_warnings": sum(len(r.unexpected_warnings) for r in self.records),
+            "smallest_kish": extreme([r.smallest_kish for r in hazards], min),
+            "largest_relative_sd": extreme([r.largest_relative_sd for r in hazards], max),
+            "largest_edgeworth_loss": extreme([r.largest_edgeworth_loss for r in hazards], max),
         }
 
 
@@ -821,6 +864,18 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
                     pointwise_critical=CRITICAL,
                 )
             )
+        if label == "one_cause":
+            rows.append(
+                replicate_row(
+                    property_name="power",
+                    cell=f"{CONTRAST}__alternative",
+                    role="positive",
+                    truth=TRUTHS[CONTRAST],
+                    estimate=result[ESTIMAND[CONTRAST]],
+                    alpha=STUDY.margins.alpha,
+                    **shared,
+                )
+            )
         return rows
     result = records.hazard(label, frame, configuration=configuration)
     if family == "root_n_and_efficiency":
@@ -829,28 +884,37 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
             row(cell_label, f"{cell_label}__n_{n}", role, result[name])
             for cell_label, name in COEFFICIENTS[label]
         ]
-    estimate = result[ESTIMAND[CONTRAST]]
-    if family == "double_robustness":
-        role = "control" if configuration == "both_wrong" else "positive"
-        rows = [row(CONTRAST, f"{CONTRAST}__{configuration}", role, estimate)]
-        if configuration == "mechanism_correct":
-            rows += mechanism_difference_rows(frame, result, common_row, label, records)
-        return rows
-    if family == "targeting_necessity":
+    if family != "double_robustness":
+        raise ValueError(f"no fit set of family {family!r}")
+    contrast = f"{label}_contrast"
+    estimate = result[ESTIMAND[contrast]]
+    role = "control" if configuration == "both_wrong" else "positive"
+    rows = [row(contrast, f"{contrast}__{configuration}", role, estimate)]
+    if (label, configuration) == NECESSITY_ARM:
+        rows += mechanism_difference_rows(frame, result, common_row, label, records)
         plug_in = records.untargeted(label, frame, configuration=configuration)
-        return [
-            row(CONTRAST, f"{CONTRAST}__targeted", "positive", estimate),
+        necessity = {**shared}
+        rows += [
+            replicate_row(
+                property_name="targeting_necessity",
+                cell=f"{CONTRAST}__targeted",
+                role="positive",
+                truth=TRUTHS[CONTRAST],
+                estimate=estimate,
+                alpha=STUDY.margins.alpha,
+                **necessity,
+            ),
             control_row(
-                property_name=family,
+                property_name="targeting_necessity",
                 cell=f"{CONTRAST}__untargeted",
                 truth=TRUTHS[CONTRAST],
                 estimate=float(plug_in[ESTIMAND[CONTRAST]].psi),
                 standard_error=float(estimate.std_error),
                 critical=CRITICAL,
-                **shared,
+                **necessity,
             ),
         ]
-    return [row(CONTRAST, f"{CONTRAST}__alternative", "positive", estimate)]
+    return rows
 
 
 def _payloads(

@@ -2,7 +2,10 @@
 
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
-``tests/canonical/hazard_time_varying/pilot.csv.gz``, with the fit's refusal when it had one.
+``tests/canonical/hazard_time_varying/pilot.csv.gz``.  A draw whose fit held a node-hazard cell
+(:class:`~tests.studies.canonical_hazard_time_varying.HeldCellError`) writes one row with
+``held`` 1, as the declared run records a lost replicate; any other exception writes one row
+with its class in ``refusal``.
 Run it as ``python -m tests.studies.hazard_time_varying_pilot --jobs N --labels <label>``, one
 label per run: the pilot writes only when the label finishes, so a restart loses at most one
 label.  A label that runs replaces its rows and keeps the others.
@@ -15,11 +18,18 @@ label                              what it measures
                                    n = 2,000, 8,000 draws each
                                    (:data:`~tests.studies.repeated_sizing.CALIBRATION_PILOT_DRAWS`).
                                    They size the calibration family, and the primary fit labels'
-                                   pilots size the primary rows, whose fits they are
-``wrong_learner_one_cause``        the hazard and continuation without ``L`` with the correct
-                                   mechanism on ``one_cause`` at n = 2,000, 800 draws (plan X70
-                                   rev 2.7): the untargeted backward plug-in and the targeted
-                                   estimate of each draw.  It sizes the wrong-learner arms
+                                   pilots size the primary rows, whose fits they are.  The
+                                   ``one_cause`` and ``competing`` fits carry the band, as the
+                                   declared fits do, and add the rows ``joint_band`` and
+                                   ``joint_pointwise``
+``wrong_learner_<fit>``            the hazard and continuation without ``L`` with the correct
+                                   mechanism on ``one_cause``, ``competing`` and ``three_arm`` at
+                                   n = 2,000, 800 draws each (plan X70 rev 2.7): the untargeted
+                                   backward plug-in and the targeted estimate of each draw.
+                                   Each sizes its law's ``mechanism_correct`` arm
+``wrong_learner_continuation``     the correct hazard and mechanism with the continuation
+                                   without ``L`` on ``one_cause``, 800 draws: it sizes the
+                                   ``continuation_wrong`` arm
 ``fits_differ_<fit>``              the ``iterated_mean_difference`` family on ``one_cause`` and
                                    ``competing`` at n = 2,000, 200 draws each: the hazard fit,
                                    the iterated-mean fit and the isotonic iterated-mean fit
@@ -64,6 +74,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.studies import canonical_hazard_time_varying as study
 from tests.studies import hazard_time_varying_properties as properties
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import joint_coverage_rows
 
 OUTPUT = study.STUDY.artifacts / "pilot.csv.gz"
 PILOT_N = 2_000
@@ -84,10 +95,19 @@ IC_GAP_JOBS: tuple[tuple[str, int, int], ...] = (
     *((fit, BOUND_N, 0) for fit in properties.CALIBRATION_FITS),
 )
 
+#: Each wrong-learner label: ``label -> (fit label, configuration)``, one per arm of
+#: :data:`~tests.studies.hazard_time_varying_properties.WRONG_LEARNER_ARMS`.
+WRONG_LEARNER_LABELS: dict[str, tuple[str, str]] = {
+    label: arm for arm, label in properties.WRONG_LEARNER_ARMS.items()
+}
+#: The rows a banded calibration draw adds: whether the band, and every pointwise interval,
+#: covered every estimate of the fit.
+JOINT_ROWS = ("joint_band", "joint_pointwise")
+
 #: ``label -> (fit label, draws)``; ``ic_gap`` runs :data:`IC_GAP_JOBS`, one fit label each.
 PILOTS: dict[str, tuple[str, int]] = {
     **{f"calibration_{fit}": (fit, CALIBRATION_DRAWS) for fit in properties.CALIBRATION_FITS},
-    "wrong_learner_one_cause": ("one_cause", WRONG_LEARNER_DRAWS),
+    **{label: (fit, WRONG_LEARNER_DRAWS) for label, (fit, _) in WRONG_LEARNER_LABELS.items()},
     **{f"fits_differ_{fit}": (fit, FITS_DIFFER_DRAWS) for fit in study.DIFFERENCE_FITS},
     "fits_differ_mechanism_correct": ("one_cause", MECHANISM_DIFFER_DRAWS),
     "ic_gap": ("", len(IC_GAP_JOBS)),
@@ -113,13 +133,15 @@ COLUMNS = (
     "converged",
     "final_score",
     "unexpected_warnings",
+    *properties.INFLUENCE_COLUMNS,
+    "held",
     "refusal",
 )
 
 
 def _row(label: str, replicate: int, **values: Any) -> dict[str, Any]:
     row: dict[str, Any] = dict.fromkeys(COLUMNS, np.nan)
-    row.update(label=label, replicate=replicate, n=PILOT_N, refusal="")
+    row.update(label=label, replicate=replicate, n=PILOT_N, held=0, refusal="")
     row.update(values)
     return row
 
@@ -212,12 +234,39 @@ def _mechanism_differ(
     return _paired_rows(label, replicate, "one_cause", hazard, iterated)
 
 
+def _calibration(
+    label: str, replicate: int, frame: pd.DataFrame, records: Any
+) -> list[dict[str, Any]]:
+    """Every estimate of a calibration fit, and the joint band's rows where it has one."""
+    fit, draws = PILOTS[label]
+    joint = f"{fit}_curve"
+    banded = joint in properties.JOINT_LABELS
+    result = records.hazard(fit, frame, simultaneous=banded)
+    rows = _estimate_rows(label, replicate, fit, result)
+    if banded:
+        band, pointwise = joint_coverage_rows(
+            result,
+            study.truths(study.FITS[fit][0]),
+            tuple(result.estimates),
+            label=joint,
+            replicate=replicate,
+            n=PILOT_N,
+            requested=draws,
+            pointwise_critical=properties.CRITICAL,
+        )
+        for name, reading in zip(JOINT_ROWS, (band, pointwise), strict=True):
+            rows.append(
+                _row(label, replicate, fit_label=fit, estimand=name, covered=reading["covered"])
+            )
+    return rows
+
+
 def _wrong_learner(
     label: str, replicate: int, frame: pd.DataFrame, records: Any
 ) -> list[dict[str, Any]]:
-    fit, _ = PILOTS[label]
-    wrong = records.hazard(fit, frame, configuration="mechanism_correct")
-    plug_in = records.untargeted(fit, frame, configuration="mechanism_correct")
+    fit, configuration = WRONG_LEARNER_LABELS[label]
+    wrong = records.hazard(fit, frame, configuration=configuration)
+    plug_in = records.untargeted(fit, frame, configuration=configuration)
     rows = _estimate_rows(label, replicate, fit, wrong)
     for row in rows:
         name = str(row["estimand"])
@@ -263,6 +312,8 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
     if label == "ic_gap":
         try:
             return _ic_gap(replicate)
+        except study.HeldCellError:  # the declared run's lost replicate, recorded as one
+            return [_row(label, replicate, held=1)]
         except Exception as error:  # a refusal is a pilot finding, recorded with its class
             return [_row(label, replicate, refusal=type(error).__name__)]
     fit_label, _ = PILOTS[label]
@@ -273,10 +324,12 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
             rows = _mechanism_differ(label, replicate, frame, records)
         elif label.startswith("fits_differ_"):
             rows = _fits_differ(label, replicate, frame, records)
-        elif label.startswith("wrong_learner_"):
+        elif label in WRONG_LEARNER_LABELS:
             rows = _wrong_learner(label, replicate, frame, records)
         else:
-            rows = _estimate_rows(label, replicate, fit_label, records.hazard(fit_label, frame))
+            rows = _calibration(label, replicate, frame, records)
+    except study.HeldCellError:  # the declared run's lost replicate, recorded as one
+        return [_row(label, replicate, fit_label=fit_label, held=1)]
     except Exception as error:  # a refusal is a pilot finding, recorded with its class
         return [_row(label, replicate, fit_label=fit_label, refusal=type(error).__name__)]
     columns = records.columns()

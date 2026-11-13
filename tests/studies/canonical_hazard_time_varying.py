@@ -24,6 +24,14 @@ errors at n = 2,000 (``tests/unit/test_hazard_time_varying_study_design.py``).
 cross-fitted law for (b1).  The cross-fitted fit label is added so that the declared support row
 ``G63.held.cross_fitted`` has a cell; it is a calibration cell only.
 
+**Held cells.**  When no unit at risk at a node with one treatment level has an event of a
+cause, the shipped fit holds that node-hazard cell, and every estimate that reads it reports
+the plug-in with no interval (status ``constant_node_plugin``).  The continuation's soft labels
+come from logistic hazards and are never held.  :func:`refuse_held_cells` turns such a fit into
+a recorded lost replicate on every path, primary, property and pilot, as ``hazard-multinode``
+does.  The rarest cell is level 2 at node 1 on ``three_arm`` (mass 0.0065 per unit), and the
+design test bounds the expected count of held fits over the whole study and its pilot.
+
 **Truths and bounds** are exact sums over the finite support (:math:`W`, the treatment, the
 covariate paths and the outcomes), computed by code that never calls the estimator.  The design
 test checks each by an independent route.
@@ -48,7 +56,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cleverly._support_rows import long_row
+from cleverly._support_rows import _LONG_BAND, _LONG_WALD, long_row
+from cleverly.exceptions import DataError
 from cleverly.interventions import ModifiedPolicy, Piece
 from cleverly.longitudinal import LTMLE
 from cleverly.longitudinal.hazard_backward import untargeted
@@ -201,6 +210,26 @@ DIFFERENCE_ARMS = ("paired_difference", "hazard_fit", "iterated_fit", "isotonic_
 COHERENCE_FITS = ("competing",)
 COHERENCE_ARMS = ("hazard_excess", "iterated_excess", "isotonic_excess")
 
+#: ``(fit label, configuration)`` of every robustness arm.  ``one_cause`` carries five
+#: configurations: both correct, the outcome side correct, the mechanism correct, the
+#: continuation alone wrong, and both wrong.  ``competing`` and ``three_arm`` carry the
+#: ``mechanism_correct`` arm, which witnesses the two-cause soft-label panel and the policy
+#: ratio times the retention that reads ``L_k`` (design review b1, finding 4).
+DOUBLE_ROBUST_ARMS: tuple[tuple[str, str], ...] = (
+    *(
+        ("one_cause", configuration)
+        for configuration in (
+            "both_correct",
+            "outcome_correct",
+            "mechanism_correct",
+            "continuation_wrong",
+            "both_wrong",
+        )
+    ),
+    ("competing", "mechanism_correct"),
+    ("three_arm", "mechanism_correct"),
+)
+
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(
         cell
@@ -211,8 +240,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
             else _cells(label, "correctly_specified")
         )
     ),
-    "double_robustness": _cells(
-        CONTRAST_LABEL, "both_correct", "outcome_correct", "mechanism_correct", "both_wrong"
+    "double_robustness": tuple(
+        f"{fit}_contrast__{configuration}" for fit, configuration in DOUBLE_ROBUST_ARMS
     ),
     "targeting_necessity": _cells(CONTRAST_LABEL, "targeted", "untargeted"),
     "root_n_and_efficiency": tuple(
@@ -304,13 +333,44 @@ CONFIGURATION = {
 #: :mod:`cleverly.longitudinal.hazard_backward`, and the rows stay out of
 #: :data:`cleverly._support_rows.LONGITUDINAL_ROWS`, whose evidence must be registered.  The
 #: support key has no axis for covariates after baseline, so a held hazard fit without them on
-#: the same design has the same key (``tests/unit/test_hazard_time_varying_study_design.py``).
-#: Registration therefore adds that axis to ``longitudinal_key`` with these rows.
+#: the same design has the same key, and ``G31`` and ``G32`` cover these fits today
+#: (``tests/unit/test_hazard_time_varying_study_design.py``).  The chosen registration path is
+#: a new key option :data:`LATER_COVARIATES_AXIS`, ``("later_covariates", bool)``, computed as
+#: ``survival_model == "hazard"`` and a ``time_varying=`` block at a node after the first, with
+#: ``long_row(..., later_covariates=False)`` as the default; these rows then pass True.  Every
+#: existing row keeps False, which is right: before (b1) every hazard fit with covariates after
+#: baseline was refused (H2), and the iterated-mean path keeps False whatever its design.  The
+#: axis and the removal of the X70 condition land in one change, never the condition first, or
+#: ``G31`` and ``G32`` would license fits this study has not covered.  The rows'
+#: ``limits`` state what the key cannot: the covariate type and law and the regimen kinds the
+#: evidence covers.
 G63_CELLS: dict[str, tuple[str, ...]] = {
     "G63.held.in_sample": ("one_cause_contrast", "one_cause_risk"),
     "G63.held.competing": ("competing_contrast", "competing_risk"),
     "G63.held.mtp": ("three_arm_contrast", "three_arm_risk"),
     "G63.held.cross_fitted": ("crossfit_contrast", "crossfit_risk"),
+}
+#: The key option registration adds (see :data:`G63_CELLS`).
+LATER_COVARIATES_AXIS = "later_covariates"
+#: The rows whose fit labels carry a gated ``simultaneous_coverage`` band.
+G63_BANDED = ("G63.held.in_sample", "G63.held.competing")
+#: What every ``G63.held`` row's evidence does not cover, which the key cannot say.
+G63_LIMITS = (
+    "Evidence covers one scalar binary covariate per node after baseline on Markov laws (each "
+    "factor at node k reads L_k only); a continuous, multivariate or non-Markov L_k rests on "
+    "tests/unit/test_hazard_time_varying.py.",
+    "Evidence covers targeting='one_step' with correctly specified or misspecified logistic and "
+    "cell-mean learners, without observation weights, clusters or node_bounds.",
+)
+#: Row id -> what that row's regimens cover.
+G63_REGIMEN_LIMITS = {
+    "G63.held.in_sample": "Regimens: static arms only; a rule or known policy on a held design "
+    "rests on the unit tests.",
+    "G63.held.competing": "Regimens: static arms only, two causes.",
+    "G63.held.mtp": "Regimens: one modified treatment policy at node 1 on a three-level "
+    "treatment, against the natural course.",
+    "G63.held.cross_fitted": "Regimens: static arms only. The cross-fitted stitch has the same "
+    "limit as the in-sample one under parametric learners, so it rests on the unit tests.",
 }
 #: Row id -> the fit label whose fit the row's key is read from.
 G63_FITS = {
@@ -325,6 +385,7 @@ def declared_support_rows() -> tuple[Any, ...]:
     """The ``G63.held.*`` rows as :func:`~cleverly._support_rows.long_row` would build them.
 
     Each row's key is that of its fit label's fit; the design test checks it against a fit.
+    The rows whose fit labels carry the gated band take ``_LONG_BAND``.
     """
     common: dict[str, Any] = {
         "held": True,
@@ -344,24 +405,37 @@ def declared_support_rows() -> tuple[Any, ...]:
                 regimens=("mtp",) if current.arms == 3 else ("static",),
                 treatment=(str(current.arms),) * current.n_times,
                 splitting=("cross_fitted",) if folds > 1 else ("in_sample",),
+                kinds=_LONG_BAND if row_id in G63_BANDED else _LONG_WALD,
+                limits=(*G63_LIMITS, G63_REGIMEN_LIMITS[row_id]),
                 **{**common, "cells": G63_CELLS[row_id]},
             )
         )
     return tuple(rows)
 
 
+#: Every nuisance configuration: ``(hazard correct, continuation correct, censoring correct)``.
+#: ``continuation_wrong`` keeps the hazard and the mechanism correct and drops ``L`` from the
+#: continuation alone, so the covariate term of the walk carries the whole correction.
+CONFIGURATIONS: dict[str, tuple[bool, bool, bool]] = {
+    "both_correct": (True, True, True),
+    "outcome_correct": (True, True, False),
+    "mechanism_correct": (False, False, True),
+    "continuation_wrong": (True, False, True),
+    "both_wrong": (False, False, False),
+}
+
+
 def learners(configuration: str = "both_correct") -> dict[str, Any]:
-    """The learners of one nuisance configuration.
+    """The learners of one nuisance configuration (:data:`CONFIGURATIONS`).
 
     The wrong outcome side is the hazard and the continuation without ``L``; the wrong mechanism
     is the censoring model without ``L_k``.  The treatment is baseline and reads no ``L``, so its
     model is correct in every configuration.
     """
-    outcome = configuration in {"both_correct", "outcome_correct"}
-    mechanism = configuration in {"both_correct", "mechanism_correct"}
+    hazard, continuation, mechanism = CONFIGURATIONS[configuration]
     return {
-        "outcome_learner": law.hazard_learner(outcome),
-        "pseudo_learner": law.continuation_learner(outcome),
+        "outcome_learner": law.hazard_learner(hazard),
+        "pseudo_learner": law.continuation_learner(continuation),
         "treatment_learner": law.Logistic(),
         "censoring_learner": law.censoring_learner(mechanism),
     }
@@ -379,58 +453,70 @@ class FitRecord:
         The class names of the warnings outside :data:`EXPECTED_WARNINGS`, one entry per
         warning.
     final_score : float
-        The largest final relative score over the fit's hazard walks,
-        ``max |score| / score_scale``, at the reported hazards.
+        The largest final relative score over the fit's hazard walks at the reported hazards.
+        On a backward pass it is the largest over the node walks, each on its own scale
+        (:func:`final_score`).
+    smallest_kish : float
+        The smallest Kish count of an estimate's influence curve over every estimate of the
+        fit (``result.diagnostics.influence()``); ``nan`` when the fit reports none.
+    largest_relative_sd : float
+        The largest relative SD of an estimate's variance estimate over the same estimates.
+    largest_edgeworth_loss : float
+        The largest Edgeworth-predicted Wald coverage loss over the same estimates.
     """
 
     converged: bool
     unexpected_warnings: tuple[str, ...]
     final_score: float = 0.0
+    smallest_kish: float = float("nan")
+    largest_relative_sd: float = float("nan")
+    largest_edgeworth_loss: float = float("nan")
 
 
 def final_score(walk: Any) -> float:
-    """``max |score| / score_scale`` of one hazard walk at its reported hazards."""
-    score = np.abs(np.asarray(walk.score, dtype=float)).reshape(-1)
-    if score.size == 0:
-        return 0.0
-    scale = np.asarray(walk.score_scale, dtype=float).reshape(-1)
-    return float(np.max(score / np.maximum(scale, 1e-300)))
+    """The final relative score of one regimen's hazard record at its reported hazards.
+
+    On a backward pass the record's summed score is divided by the scale summed over every
+    node, so a stalled node walk would be diluted and could cancel against another node.  The
+    record's ``relative_score`` reads the largest node walk's own relative score instead
+    (:attr:`cleverly.longitudinal.hazard.HazardFit.relative_score`).
+    """
+    return float(walk.relative_score)
 
 
-#: The warning a fit is expected to raise, with why.  The risks at the first node are near 0.02,
-#: so their influence curves read few events and ``SparseInfluenceWarning`` names them.  The
-#: warning is unexpected, and counted, when it names a gated estimate: a contrast or a risk at
-#: the last node (:func:`unexpected`).
+#: The warnings a fit is expected to raise, with why.  ``SparseInfluenceWarning`` names the
+#: risks at node 1, which are near 0.02: their influence curves have Kish counts of 20 to 24 and
+#: skewness of 9 to 10, and the package's Edgeworth loss is about 0.009 each.  Those estimates
+#: carry verdicts: every primary row reads every estimand, and the gated
+#: ``simultaneous_coverage`` bands read every estimate of ``one_cause`` and ``competing``.  The
+#: primary coverage floor of 0.90 absorbs a loss of 0.01, and the band's own pilot rule decides
+#: whether the band is safe (``tests/unit/test_hazard_time_varying_study_design.py``).  The
+#: warning text lists only the first five flagged estimates, so it is not parsed: every row
+#: records its fit's smallest Kish count, largest relative SD and largest Edgeworth loss instead
+#: (:class:`FitRecord`).
 EXPECTED_WARNINGS = {
-    "SparseInfluenceWarning": "the first nodes' risks are near 0.02, so their influence curves "
-    "read few events; the gated estimates at the last node are not expected in it",
+    "SparseInfluenceWarning": "the node-1 risks are near 0.02, so their influence curves read few "
+    "events; each row records its fit's influence-curve measures instead",
 }
 
 
-def gated_names() -> tuple[str, ...]:
-    """The reported names a calibration cell reads: the contrast and risk at each last node."""
-    names: list[str] = []
-    for law_name in {spec[0] for spec in FITS.values()}:
-        last = law.LAWS[law_name].n_times
-        names += [contrast_name(law_name, last), risk_name(law_name, labels(law_name)[0], last)]
-    return tuple(sorted(names))
-
-
 def unexpected(caught: Sequence[Any]) -> tuple[str, ...]:
-    """The class names of the caught warnings outside :data:`EXPECTED_WARNINGS`.
+    """The class names of the caught warnings outside :data:`EXPECTED_WARNINGS`."""
+    return tuple(
+        item.category.__name__ for item in caught if item.category.__name__ not in EXPECTED_WARNINGS
+    )
 
-    A ``SparseInfluenceWarning`` that names a gated estimate counts as unexpected.
-    """
-    gated = gated_names()
-    out = []
-    for item in caught:
-        name = item.category.__name__
-        if name in EXPECTED_WARNINGS and not any(
-            f"{label} (" in str(item.message) for label in gated
-        ):
-            continue
-        out.append(name)
-    return tuple(out)
+
+def influence_measures(result: Any) -> tuple[float, float, float]:
+    """The smallest Kish count, largest relative SD and largest Edgeworth loss of a fit."""
+    rows = result.diagnostics.influence().rows
+    if not rows:
+        return float("nan"), float("nan"), float("nan")
+    return (
+        float(min(row.kish for row in rows)),
+        float(max(row.variance_rel_sd for row in rows)),
+        float(max(row.edgeworth_loss for row in rows)),
+    )
 
 
 def recorded(call: Any) -> tuple[Any, FitRecord]:
@@ -443,7 +529,30 @@ def recorded(call: Any) -> tuple[Any, FitRecord]:
     walks = [walk for walk in found if walk is not None]
     converged = all(bool(walk.converged) for walk in walks)
     score = max((final_score(walk) for walk in walks), default=0.0)
-    return result, FitRecord(converged, unexpected_names, score)
+    return result, FitRecord(converged, unexpected_names, score, *influence_measures(result))
+
+
+class HeldCellError(DataError):  # numpydoc ignore=PR01
+    """A fit reported an estimate without the influence-curve interval (a held cell)."""
+
+
+def refuse_held_cells(result: Any) -> None:
+    """Turn a fit with a non-inferential estimate into a recorded lost replicate.
+
+    A node-hazard cell where no unit at risk with one treatment level has an event of a cause
+    is held by the shipped fit, and every estimate that reads it reports the plug-in with no
+    interval (status ``constant_node_plugin``).  The study measures the influence-curve
+    interval, so the draw is a lost replicate: :class:`HeldCellError` is a ``DataError``, which
+    the harness records under the failure bound.  It is checked on every estimate of the fit
+    before any row reads one, so the primary rows, the property rows (the joint band among
+    them) and the pilot treat the draw alike.  The design test bounds the expected count.
+    """
+    for name, estimate in result.estimates.items():
+        status = estimate.inference
+        if status != "influence_curve":
+            raise HeldCellError(
+                f"{name} reports the inference status {status!r}, not the influence curve"
+            )
 
 
 def _estimator(fit_label: str, configuration: str, simultaneous: bool) -> LTMLE:
@@ -469,13 +578,18 @@ def fit_recorded(
     simultaneous: bool = False,
     weights: str | None = None,
 ) -> tuple[Any, FitRecord]:
-    """The subject's fit of one fit label's sample, with its :class:`FitRecord`."""
+    """The subject's fit of one fit label's sample, with its :class:`FitRecord`.
+
+    A fit with a held cell raises :class:`HeldCellError` (:func:`refuse_held_cells`).
+    """
     current = law_of(fit_label)
-    return recorded(
+    result, record = recorded(
         lambda: _estimator(fit_label, configuration, simultaneous).fit(
             frame, **current.columns(weights=weights)
         )
     )
+    refuse_held_cells(result)
+    return result, record
 
 
 def fit(
