@@ -13,15 +13,16 @@ with :math:`dY = (1 - Y_1) Q^*_{22} \\ge 0` on the followers and
 :math:`dQ^* = Q^*_{21} - Q^*_{11}` (:func:`tests.studies._isotonic_binding_law.score_identity`).
 
 * On a fixed sample of the study law ``LG2`` (continuous ``W``, logistic outcome learner,
-  linear pseudo learner) the identity holds at ``1e-8``, its second term is negative and larger
+  linear pseudo learner) the identity holds at ``1e-12``, its second term is negative and larger
   than the first, so ``D < 0`` and the never regimen's horizon-1 level moves by more than 0.1 SE
   at the logistic tolerances ``1e-13`` and ``1e-10`` alike.  The moved level's interval is
   centred at the moved level with the unprojected SE.
 * On a fixed sample of the discrete survival law ``LG`` fitted with saturated cell means, the
   identity holds, its second term is 0, ``D >= 0`` and nothing moves.
 
-The mutation controls drop the second term, replace :math:`H_1` by the follower indicator, and
-centre the interval at the unprojected level; each fails a check.  The pool-adjacent-violators
+The mutation controls drop the second term, replace :math:`H_1` by the follower indicator (whose
+node-1 score residual does not vanish), and centre the interval at the unprojected level; each
+fails a check.  The pool-adjacent-violators
 checks of ``tests/unit/test_isotonic_projection.py`` (E9, M10, M13) stay as they are.
 """
 
@@ -50,7 +51,10 @@ LG2_N = 2_000
 #: The fixed ``LG`` sample.
 LG_SEED = 7_000
 LG_N = 2_000
-IDENTITY = 1e-8
+#: The identity, residual term included, holds to rounding; the residual itself is the
+#: node-1 scores' solver residual and is bounded on its own.
+IDENTITY = 1e-12
+SCORE_RESIDUAL = 1e-8
 EXACT = 1e-15
 #: Law ``LG``: the always path's node-2 hazard and node-2 retention (rev 2.1 plan, 5.8).
 LG_HAZARD = 0.02
@@ -126,8 +130,21 @@ def lg_fit() -> Any:
 
 
 def identity_gap(terms: law.ScoreIdentity, *, drop_second: bool = False) -> float:
-    explained = terms.followers + terms.residual + (0.0 if drop_second else terms.others)
+    """``|D - (followers - residual + others)|``; ``residual`` is ``P_n[H dY] - P_n[H dQ*]``.
+
+    With the residual term the decomposition holds for any ``H`` once ``D`` is the weighted
+    mean of the node-1 gap ``dQ*``, so the gap ties the reported levels to the targeted
+    regressions.  The covariate ``H_1`` enters through the residual: the node-1 fluctuation
+    solves its score in ``H_1``, so the residual vanishes for ``H_1`` and not for another
+    covariate (:func:`identity_holds`).
+    """
+    explained = terms.followers - terms.residual + (0.0 if drop_second else terms.others)
     return abs(explained - terms.difference)
+
+
+def identity_holds(terms: law.ScoreIdentity) -> bool:
+    """The plan 2.7 identity: the decomposition to rounding, and a solved node-1 score."""
+    return identity_gap(terms) < IDENTITY and abs(terms.residual) < SCORE_RESIDUAL
 
 
 def centred(result: Any, regimen: str = "never", horizon: int = 1) -> bool:
@@ -171,7 +188,8 @@ class TestTheScoreIdentity:
         for regimen in law.REGIMENS:
             terms = law.score_identity(lg2_fit(), regimen)
             assert identity_gap(terms) < IDENTITY
-            assert abs(terms.residual) < IDENTITY
+            assert abs(terms.residual) < SCORE_RESIDUAL
+            assert identity_holds(terms)
 
     def test_the_identity_reads_the_same_terms_off_the_unprojected_fit(self) -> None:
         projected = law.score_identity(lg2_fit())
@@ -194,7 +212,7 @@ class TestTheScoreIdentity:
         assert result.isotonic_moves == ()
         for regimen in ("never", "always"):
             terms = law.score_identity(result, regimen)
-            assert identity_gap(terms) < IDENTITY
+            assert identity_holds(terms)
             assert abs(terms.others) < 1e-12
             assert terms.difference >= 0.0
 
@@ -218,7 +236,9 @@ class TestTheMutations:
     def test_mutation_replacing_the_clever_covariate_by_the_follower_indicator_fails(
         self,
     ) -> None:
-        assert identity_gap(law.score_identity(lg2_fit(), indicator=True)) > 1e-3
+        terms = law.score_identity(lg2_fit(), indicator=True)
+        assert abs(terms.residual) > 1e-3
+        assert not identity_holds(terms)
 
     def test_mutation_centring_the_interval_at_the_unprojected_level_fails(
         self, monkeypatch: pytest.MonkeyPatch

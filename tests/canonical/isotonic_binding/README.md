@@ -22,16 +22,20 @@ Declared, not run. No artifact is committed, so the record is not in `registered
 registration `G31.isotonic` gains the evidence `[curve, "isotonic-binding"]` and the cells
 `["isotonic_t2", "projected_t1", "binding_witness", "material_move"]`, and the evidence page
 `docs/technical-reference/method-evidence/isotonic-binding.md` lands. A red gated cell becomes a
-shortfall of `G31.isotonic` instead (`SupportRow.shortfalls`). The row's limit is to read, with
-the measured numbers:
+shortfall of `G31.isotonic` instead (`SupportRow.shortfalls`). A red calibration control is a
+defect suspect, and a red calibration positive follows the shared finite-sample reading. A red
+witness (`binding_witness` or `material_move`) is a shortfall whose sentence states the
+measured share, and the design test checks that the row carries it. The row's limit is to read,
+with the measured numbers:
 
 > On the isotonic-binding law (two nodes, a continuous baseline covariate, a strictly
-> increasing risk) the projection moved the horizon-1 level on {share} of draws, by at least
-> 0.1 SE on {share_01} and by at most {max} SE, and the interval at the projected level read
+> increasing risk) the projection moved the never regimen's horizon-1 level on {share} of
+> draws, by at least 0.1 SE on {share_01} and by at most {max} SE, and the interval at the projected level read
 > coverage {cov}. The projected and unprojected intervals disagreed on {disagree} of draws, so
 > the projection changed coverage by at most that ({coverage difference and its interval}). On
 > the larger-move law (treatment slope 2.0) the moves reached {max_gs2} SE and the coverage
-> difference read {difference_gs2}. The moves arise because the two horizons' node-1
+> difference read {difference_gs2}, but there the unprojected interval itself under-covers
+> (SE ratio {se_ratio_gs2}, about 0.94 in the pre-read). The moves arise because the two horizons' node-1
 > regressions use different learner classes; a flat truth and other learner pairings are
 > untested.
 
@@ -48,7 +52,15 @@ unprojected, with an SE ratio of 0.937, so that law is reported only.
 Five of the 7,200 pre-read draws had one logistic fit that stopped at `max_iter` at
 `tol=1e-13`. On the three of them among the fresh draws, refits at `tol=1e-10` converged and
 moved every level by the same amount to 1e-9 relative. The 300 draws of the tolerance table
-had none.
+had none. The run publishes each stream's count of such fits as `stalled_fits` on the
+`reported_levels/stalled_fits` and `reported_large_move/stalled_fits` rows.
+
+The plan's tolerance rule asks the design test to refit 300 draws. It instead asserts the plan's
+four conditions on the committed 300-draw table (`tests/studies/isotonic_binding_tolerance.csv`)
+and refits three of its draws at both tolerances: draw 1, whose never level does not move;
+draw 0, which moves by 0.095 SE, just under the material threshold; and draw 9, which moves by
+0.107 SE, so a refit sets the gated 0.1 SE indicator. That checks the table is current and
+keeps about 40 s of fits out of the fast tier.
 
 ## Run
 

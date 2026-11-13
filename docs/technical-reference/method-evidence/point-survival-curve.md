@@ -217,8 +217,12 @@ The reason is the cell's learners, not the size of the step. Each horizon's leve
 its targeted node-1 regression, and the node-1 fluctuation solves its score. The difference of
 two levels is therefore $D = P_n[H_1\, dY] + P_n[(1 - H_1)\, dQ^*]$, up to the score
 residuals. Here $H_1$ is the node-1 clever covariate, $dY = (1 - Y_1) Q^*_{2}$ is nonnegative,
-and $dQ^*$ is the gap between the two horizons' node-1 regressions. The cell's regressions are
-saturated cell means, so the second term is zero and $D \ge 0$ whatever the number of events.
+and $dQ^*$ is the gap between the two horizons' node-1 regressions.
+
+The second term is zero when the regressions are saturated cell means and the treatment and censoring mechanisms are cell
+shares that no `g_bounds` truncation touches, because $H_1$ then sums to the cell count in each
+cell. Given a solved node-1 score, $D \ge 0$ whatever the number of events. The cell meets
+both conditions, and it solves the score to `tol=1e-10`.
 
 A projection can bind only when the two horizons' node-1 fits differ, as with a logistic
 outcome learner beside a linear pseudo-outcome learner on a continuous covariate. It binds when

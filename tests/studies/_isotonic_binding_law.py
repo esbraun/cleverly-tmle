@@ -348,7 +348,8 @@ class ScoreIdentity:
         ``P_n[(1 - H_1) dQ*]``.
     residual : float
         The difference of the two horizons' node-1 score residuals,
-        ``P_n[H_1 (Y~_2 - Q*_21)] - P_n[H_1 (Y~_1 - Q*_11)]``.
+        ``P_n[H_1 (Y~_2 - Q*_21)] - P_n[H_1 (Y~_1 - Q*_11)]``, so that
+        ``difference = followers - residual + others`` exactly.
     difference : float
         ``theta_2 - theta_1`` of the unprojected levels (:func:`levels`).
     """

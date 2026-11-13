@@ -84,8 +84,9 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         "always_binding_t1",
         "always_projected_t2",
         "always_se_present_t2",
+        "stalled_fits",
     ),
-    "reported_large_move": ("projected_t1", "unprojected_t1", "binding_t1"),
+    "reported_large_move": ("projected_t1", "unprojected_t1", "binding_t1", "stalled_fits"),
 }
 
 STUDY = StudyRecord(

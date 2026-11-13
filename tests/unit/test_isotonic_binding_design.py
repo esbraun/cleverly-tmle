@@ -11,6 +11,7 @@ count and the witnesses' pass probabilities, the pooled pre-read
 from __future__ import annotations
 
 import functools
+import re
 import warnings
 
 import numpy as np
@@ -24,7 +25,7 @@ from tests.studies import isotonic_binding_pilot as pilot
 from tests.studies import isotonic_binding_properties as properties
 from tests.studies import repeated_sizing as sizing
 from tests.studies.evidence import property_verdicts
-from tests.studies.evidence.registry import Margins, registered
+from tests.studies.evidence.registry import ROOT, Margins, registered
 
 MARGINS = Margins()
 #: Plan 5.0: the single-cell product floor, at which a perfectly calibrated cell passes with
@@ -41,6 +42,10 @@ WITNESS_PASS = 0.9999
 MOVE_AGREEMENT = 1e-4
 DEAD_BAND = (1e-9, 1e-5)
 TOLERANCE_DRAWS = 300
+#: The tolerance-table draws refitted in the fast tier (a deviation from plan 5.8's 300 refits,
+#: recorded in the study README): a never level that does not move, one that moves just under
+#: the material threshold, and one that moves just over it.
+REFIT_DRAWS = {1: (False, False), 0: (True, False), 9: (True, True)}
 #: The plan's quoted truths (5.8), to five places.
 PLAN_TRUTHS = {
     ("never", 1): 0.26074,
@@ -294,7 +299,7 @@ class TestTheTolerance:
         assert (tolerance["stalled_pinned"] == 0).all()
         assert (tolerance["stalled_refit"] == 0).all()
 
-    @pytest.mark.parametrize("draw", [0, 3])
+    @pytest.mark.parametrize("draw", sorted(REFIT_DRAWS))
     def test_the_table_reproduces(self, tolerance: pd.DataFrame, draw: int) -> None:
         rows = tolerance.loc[tolerance["draw"] == draw]
         for tol, column in ((law.LOGISTIC_TOL, "move_pinned"), (law.REFIT_TOL, "move_refit")):
@@ -302,28 +307,135 @@ class TestTheTolerance:
             for _, row in rows.iterrows():
                 move = levels[(row["regimen"], int(row["horizon"]))].move
                 assert move == pytest.approx(float(row[column]), rel=1e-6, abs=1e-12)
+                assert properties.binds(move) == properties.binds(float(row[column]))
+                assert properties.moves_materially(move) == properties.moves_materially(
+                    float(row[column])
+                )
+            never = levels[("never", 1)].move
+            assert (properties.binds(never), properties.moves_materially(never)) == REFIT_DRAWS[
+                draw
+            ]
 
 
-#: The cells whose red verdict gates the study.
-GATED = (
+#: The calibration cells, whose red verdict follows the shared reading: a red control is a
+#: defect suspect, and a red positive is admissible only as an owned finite-sample red.
+CALIBRATION_GATED = (
     "interval_calibration/projected_t1__correctly_specified",
     "interval_calibration/projected_t1__shrunken_se_control",
     "interval_calibration/projected_t1__noise_control",
-    "binding_witness/never_t1",
-    "material_move/never_t1",
 )
+#: The witnesses, whose red verdict is a shortfall of ``G31.isotonic`` (plan 5.8): with the
+#: law, learners and tolerance fixed, a red share is a measured fact the row states.
+WITNESSES = ("binding_witness/never_t1", "material_move/never_t1")
+GATED = (*CALIBRATION_GATED, *WITNESSES)
+#: The support row the study backs.
+ROW = "G31.isotonic"
+
+
+def red_witnesses(tables: dict[str, pd.DataFrame]) -> dict[str, float]:
+    """Each red witness of committed tables, with its measured share."""
+    out = {}
+    for row in tables["properties"].itertuples():
+        name = f"{row.property}/{row.cell}"
+        if name in WITNESSES and not (bool(row.passed) and bool(row.property_passed)):
+            out[name] = float(row.coverage)
+    return out
+
+
+def unstated_witnesses(red: dict[str, float], shortfalls: tuple[tuple[str, str], ...]) -> list[str]:
+    """The red witnesses whose share no shortfall sentence of the row states (to 3 places)."""
+    texts = [text for _, text in shortfalls]
+    return [
+        name
+        for name, share in red.items()
+        if not any(name.split("/")[0] in text and f"{share:.3f}" in text for text in texts)
+    ]
 
 
 class TestTheRedCellReading:
     def test_the_gated_cells_are_every_cell_that_is_not_reported(self) -> None:
         assert set(GATED) == set(properties.gated_cells())
 
-    def test_no_gated_cell_reads_an_inadmissible_red(self) -> None:
-        """The declared red-cell reading, applied mechanically.
+    def test_no_calibration_cell_reads_an_inadmissible_red(self) -> None:
+        """The shared red-cell reading, applied mechanically to the calibration cells.
 
         Empty until the run commits its tables; at registration a red control, or a red
-        positive without its finite-sample owner, fails here.
+        positive without its finite-sample owner, fails here.  The primary's truth rows gate
+        here too.
         """
         from tests.studies.mtp_study_tools import gating_findings
 
-        assert gating_findings(study.STUDY, GATED, truth_implementations=("cleverly",)) == []
+        assert (
+            gating_findings(study.STUDY, CALIBRATION_GATED, truth_implementations=("cleverly",))
+            == []
+        )
+
+    def test_every_red_witness_is_a_shortfall_of_the_row(self) -> None:
+        """A red witness labels ``G31.isotonic`` experimental with its measured share.
+
+        Empty until the run commits its tables.
+        """
+        from cleverly._support import registered_rows
+        from tests.studies.evidence import red_cells
+
+        if not study.STUDY.artifact(red_cells.FRAMES["properties"]).exists():
+            return
+        tables = red_cells.frames(study.STUDY)
+        assert set(WITNESSES) <= {
+            f"{row.property}/{row.cell}" for row in tables["properties"].itertuples()
+        }
+        (row,) = (row for row in registered_rows() if row.id == ROW)
+        assert unstated_witnesses(red_witnesses(tables), row.shortfalls) == []
+
+    def test_a_red_witness_without_its_shortfall_fails_the_check(self) -> None:
+        """The control of the check above, on a synthetic red witness."""
+        table = pd.DataFrame(
+            {
+                "property": ["binding_witness", "material_move"],
+                "cell": ["never_t1", "never_t1"],
+                "passed": [False, True],
+                "property_passed": [False, True],
+                "coverage": [0.2412, 0.19],
+            }
+        )
+        red = red_witnesses({"properties": table})
+        assert red == {"binding_witness/never_t1": 0.2412}
+        assert unstated_witnesses(red, ()) == ["binding_witness/never_t1"]
+        stated = (("wald", "The binding_witness share read 0.241, below its floor 0.25."),)
+        assert unstated_witnesses(red, stated) == []
+
+
+#: A cited summary value on a method-evidence page.
+CITED = re.compile(r"properties\[(?P<family>\w+)/(?P<cell>\w+)\]:(?P<column>\w+)")
+
+
+def placeholder_citations(text: str) -> list[str]:
+    """The citations of a share cell's placeholder-derived columns in ``text``."""
+    shares = set(properties.SHARE_CELLS)
+    return [
+        match.group(0)
+        for match in CITED.finditer(text)
+        if (match.group("family"), match.group("cell")) in shares
+        and match.group("column") not in properties.SHARE_COLUMNS
+    ]
+
+
+class TestThePlaceholderColumns:
+    def test_every_share_cell_is_declared(self) -> None:
+        declared = {
+            (family, cell) for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+        }
+        assert set(properties.SHARE_CELLS) <= declared
+
+    def test_the_evidence_page_cites_no_placeholder_column(self) -> None:
+        page = ROOT / study.STUDY.document
+        if page.exists():
+            assert placeholder_citations(page.read_text(encoding="utf-8")) == []
+
+    def test_a_placeholder_citation_is_found(self) -> None:
+        text = (
+            "`properties[binding_witness/never_t1]:coverage_ci_lower` and "
+            "`properties[binding_witness/never_t1]:se_ratio` and "
+            "`properties[interval_calibration/projected_t1__correctly_specified]:se_ratio`"
+        )
+        assert placeholder_citations(text) == ["properties[binding_witness/never_t1]:se_ratio"]

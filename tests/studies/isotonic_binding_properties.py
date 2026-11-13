@@ -27,7 +27,14 @@ coverage interval is the share's Clopper-Pearson interval:
 * ``binding_witness``: the never regimen's horizon-1 level moved by more than
   :data:`BINDING_SE` SE;
 * ``material_move``: the same level moved by at least :data:`MATERIAL_SE` SE;
-* ``se_present_*``: the level reports ``std_error`` (no constant node-2 target).
+* ``se_present_*``: the level reports ``std_error`` (no constant node-2 target);
+* ``stalled_fits``: a logistic fit of the replication stopped at ``max_iter``.  Its row holds
+  the replication's count of such fits in ``estimate``, and the summary publishes the total in
+  ``stalled_fits``.
+
+The placeholder SE makes a share row's ``bias``, ``se_ratio`` and ``rejection_rate`` columns
+meaningless, so a document cites only the columns of :data:`SHARE_COLUMNS` for the cells of
+:data:`SHARE_CELLS` (the design test checks the evidence page).
 
 **Rules.**
 
@@ -54,7 +61,7 @@ A replication that raises is not redrawn; the failure accounting of
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -101,6 +108,17 @@ BINDING_SE = 1e-6
 MATERIAL_SE = 0.1
 #: The least lower 99% Clopper-Pearson limit of each witness share (plan 5.8).
 SHARE_FLOORS = {"binding_witness": 0.25, "material_move": 0.10}
+
+
+def binds(move: float) -> bool:
+    """Whether a move in SEs counts as binding: strictly above :data:`BINDING_SE`."""
+    return bool(move > BINDING_SE)
+
+
+def moves_materially(move: float) -> bool:
+    """Whether a move in SEs is material: at least :data:`MATERIAL_SE`."""
+    return bool(move >= MATERIAL_SE)
+
 
 CALIBRATION_LABELS = study.CALIBRATION_LABELS
 #: ``sqrt(E[D*^2])`` of the never regimen's horizon-1 risk on ``LG2``, which sizes the noise
@@ -159,7 +177,35 @@ EXTRA_COLUMNS = (
     "mean_move_moved",
     "max_move",
     "coverage_with_se",
+    "stalled_fits",
 )
+#: The cells whose row is a share with a placeholder SE, and the only summary columns of those
+#: rows a document may cite.
+SHARE_CELLS = (
+    ("binding_witness", "never_t1"),
+    ("material_move", "never_t1"),
+    ("reported_levels", "se_present_t2"),
+    ("reported_levels", "always_binding_t1"),
+    ("reported_levels", "always_se_present_t2"),
+    ("reported_levels", "stalled_fits"),
+    ("reported_large_move", "binding_t1"),
+    ("reported_large_move", "stalled_fits"),
+)
+SHARE_COLUMNS = frozenset(
+    {
+        "coverage",
+        "coverage_ci_lower",
+        "coverage_ci_upper",
+        "passed",
+        "property_passed",
+        "n",
+        "replicates",
+        "failed_replicates",
+        "stalled_fits",
+    }
+)
+#: The cells that count each replication's stalled logistic fits.
+STALLED_CELLS = (("reported_levels", "stalled_fits"), ("reported_large_move", "stalled_fits"))
 
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
@@ -225,9 +271,9 @@ def _cells_of(key: _Key) -> list[str]:
 
 
 def _share_row(
-    family: str, cell: str, replicate: int, n: int, requested: int, move: float, event: bool
+    family: str, cell: str, replicate: int, n: int, requested: int, value: float, event: bool
 ) -> dict[str, Any]:
-    """A share cell's row: the move against 0, a unit placeholder SE, the event as ``covered``."""
+    """A share cell's row: ``value`` against 0, a unit placeholder SE, the event as ``covered``."""
     return {
         "property": family,
         "cell": cell,
@@ -237,7 +283,7 @@ def _share_row(
         "requested_replicates": requested,
         "failed_replicates": 0,
         "truth": 0.0,
-        "estimate": float(move),
+        "estimate": float(value),
         "std_error": 1.0,
         "covered": int(event),
         "rejected": int(event),
@@ -246,7 +292,7 @@ def _share_row(
 
 def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     _, stream, replicate, n, requested, _, _ = key[0]
-    result = law.fit(frame)
+    result, stalls = law.fit_counted(frame)
     level = law.levels(result)
     common = {"replicate": replicate, "n": n, "requested": requested}
 
@@ -274,10 +320,14 @@ def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
             **common,
         )
 
-    def moved(family: str, cell: str, regimen: str, threshold: float) -> dict[str, Any]:
+    def moved(
+        family: str, cell: str, regimen: str, event: Callable[[float], bool]
+    ) -> dict[str, Any]:
         move = level[(regimen, 1)].move
-        event = move > threshold if threshold == BINDING_SE else move >= threshold
-        return _share_row(family, cell, replicate, n, requested, move, event)
+        return _share_row(family, cell, replicate, n, requested, move, event(move))
+
+    def stalled(family: str) -> dict[str, Any]:
+        return _share_row(family, "stalled_fits", replicate, n, requested, stalls, stalls > 0)
 
     def present(family: str, cell: str, regimen: str) -> dict[str, Any]:
         found = level[(regimen, 2)]
@@ -288,21 +338,23 @@ def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
         return [
             interval(family, "projected_t1", "never", 1),
             unprojected(family, "unprojected_t1", "never", 1),
-            moved(family, "binding_t1", "never", BINDING_SE),
+            moved(family, "binding_t1", "never", binds),
+            stalled(family),
         ]
     family = "reported_levels"
     return [
         interval("interval_calibration", "projected_t1__correctly_specified", "never", 1),
-        moved("binding_witness", "never_t1", "never", BINDING_SE),
-        moved("material_move", "never_t1", "never", MATERIAL_SE),
+        moved("binding_witness", "never_t1", "never", binds),
+        moved("material_move", "never_t1", "never", moves_materially),
         unprojected(family, "unprojected_t1", "never", 1),
         interval(family, "projected_t2", "never", 2),
         unprojected(family, "unprojected_t2", "never", 2),
         present(family, "se_present_t2", "never"),
         interval(family, "always_projected_t1", "always", 1),
-        moved(family, "always_binding_t1", "always", BINDING_SE),
+        moved(family, "always_binding_t1", "always", binds),
         interval(family, "always_projected_t2", "always", 2),
         present(family, "always_se_present_t2", "always"),
+        stalled(family),
     ]
 
 
@@ -472,6 +524,13 @@ def with_se_columns(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             summary.loc[_locate(summary, family, cell), "coverage_with_se"] = float(covered.mean())
 
 
+def stalled_columns(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Publish each stream's total count of logistic fits that stopped at ``max_iter``."""
+    for family, cell in STALLED_CELLS:
+        counts = _cell(rows, family, cell)["estimate"].to_numpy(dtype=float)
+        summary.loc[_locate(summary, family, cell), "stalled_fits"] = float(counts.sum())
+
+
 def reported_verdicts(summary: pd.DataFrame) -> None:
     """Publish the reported families' rows, which state no verdict."""
     mask = summary["property"].isin(REPORTED_FAMILIES)
@@ -490,6 +549,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         share_floor_verdicts(summary, family=family, floor=floor)
     paired_columns(summary, rows)
     with_se_columns(summary, rows)
+    stalled_columns(summary, rows)
     reported_verdicts(summary)
     return finish(summary, rates)
 
@@ -525,6 +585,8 @@ __all__ = [
     "PROPERTY_RULES",
     "PROPERTY_WITNESS",
     "REPLICATES",
+    "SHARE_CELLS",
+    "SHARE_COLUMNS",
     "SHARE_FLOORS",
     "STREAMS",
     "declared_cells",

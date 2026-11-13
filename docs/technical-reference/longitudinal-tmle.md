@@ -1407,9 +1407,13 @@ fits `isotonic=True` with saturated cell-mean learners, so the projection moved 
 4,800 replications. On a two-horizon iterated-mean fit the difference of the two levels is
 $D = P_n[H_1\, dY] + P_n[(1 - H_1)\, dQ^*]$ up to the node-1 score residuals, with
 $dY = (1 - Y_1) Q^*_{2} \ge 0$ and $dQ^*$ the gap between the two horizons' node-1 regressions.
-Saturated regressions make the second term zero, so such a fit never binds. A logistic outcome
-learner beside a linear pseudo-outcome learner on a continuous covariate can bind. No
-registered study measures an interval after a projection that moves a level. The declared study
+The second term is zero when the node regressions are saturated cell means and the treatment
+and censoring mechanisms are cell shares that no `g_bounds` truncation touches, because $H_1$
+then sums to the cell count in each cell. Such a fit never binds once the node-1 score is
+solved, while a residual left by a loose solver tolerance can still move a level slightly.
+
+A logistic outcome learner beside a linear pseudo-outcome learner on a continuous covariate can
+bind. No registered study measures an interval after a projection that moves a level. The declared study
 `isotonic-binding` measures it on a two-node law with a continuous covariate, where pilots moved
 the level on 0.36 of draws and by at least 0.1 standard errors on 0.19, and it has not run.
 
