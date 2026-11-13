@@ -231,7 +231,8 @@ print(round(gained.psi, 3), round(lost.psi, 3), round(ratio.psi, 2), ratio.suppo
 ```
 
 The first number is the time without relapse or death that treating everyone adds, on average,
-over the first 2 time units, and the second is the time lost to relapse that it saves. The third
+over the first 2 time units. The second is the change in time lost to relapse over the same
+window, negative when treatment saves time. The third
 is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci`. All three read
 `experimental`, because no simulation study has measured them yet.
 

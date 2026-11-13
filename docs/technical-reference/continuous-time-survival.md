@@ -42,7 +42,8 @@ An event and a censoring at one time are ordered event first, so the censoring h
 event out of its risk set. The weight $1 / \{\pi(a \mid L)\, S_c(u^- \mid a, L)\}$ is bounded by
 raising its denominator to `g_bounds`, by default $5 / (\sqrt n \log n)$. Two checks read the
 initial fits and raise a `DataError`, which a study records as a failed fit: a combined hazard jump
-of one or more, and an initial survival that reaches zero before the last target time.
+of one or more, and an initial survival that reaches zero before the grid's end, the last target
+time or restricted horizon.
 
 ## The one-step walk
 
@@ -78,7 +79,7 @@ accepted steps, at `2 * max_iter` rejected ones, or at a step below $10^{-8}$, w
 Two departures from `concrete` 1.0.5 are deliberate. Each arm's hazard is tilted for every unit,
 as the source's submodel tilts the hazard function; `concrete` tilts only the units whose received
 arm is the target's arm, which a mutation test shows is not doubly robust. And a step that would
-take some unit's survival at the last target time below $10^{-8}$ holds that (unit, arm) pair
+take some unit's survival at the grid's end below $10^{-8}$ holds that (unit, arm) pair
 still for that step and tries the step again; the pair moves on the next step. The record's
 `frozen_share` counts the pairs ever held.
 
@@ -143,9 +144,10 @@ The result reads only targeted estimates and smooth functions of them:
 | `curve(scale=, times=)` | the risks and risk differences at the target times, with the band columns when the fit has one; `scale="survival"` reports $1 - F$ on a fit with one event type |
 | `to_dict()` | every estimate's record, the selected models, the walk's record and the settings, ready for JSON |
 
-An RMTL and an RMST carry the bounds $(0, \tau)$, and their differences $(-\tau, \tau)$. Their
-interval stays on the identity scale: the range-logit interval of [small-sample
-scale](inference.md#small-sample-scale) applies to a mean bounded by 0 and 1 only.
+An RMTL and an RMST carry the bounds $(0, \tau)$, and their differences $(-\tau, \tau)$. A
+level's interval is the range-logit interval on $(0, \tau)$ of [small-sample
+scale](inference.md#small-sample-scale), so it stays inside its range. A difference keeps the
+identity scale, as a risk difference does.
 `cleverly.sensitivity.evalue(result, (numerator, denominator))` reads the E-value of
 `result.ratio(numerator, denominator)`, the two arms' risks at one cause and time. The bound needs
 the unmeasured confounder to affect the treatment and the event only, and not censoring given

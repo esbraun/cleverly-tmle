@@ -61,7 +61,7 @@ def _gap(text: str) -> CapabilityError:
 
 
 ROADMAP: Final = "roadmap X6"
-#: An initial survival at or below this before the last target time is refused.
+#: An initial survival at or below this before the last time a target reads is refused.
 SURVIVAL_FLOOR: Final = 1e-12
 #: Off-grid times drawn for the diagnostic of item 10 Table 4.
 OFF_GRID_TIMES: Final = 100
@@ -120,15 +120,18 @@ class ContinuousSurvivalRecord:
         whose :math:`\\pi S_c(u^-)` was raised to the positivity floor.
     last_time_floor_share : float
         The share of (unit, arm) pairs, over both arms whatever the unit received, whose
-        :math:`\\pi S_c(t_K^-)` at the last target time is below the floor: the
-        counterfactual reach of the positivity bound.
+        :math:`\\pi S_c(u_M^-)` at the grid's end is below the floor: the counterfactual
+        reach of the positivity bound.  The grid ends at the last target time, or at the last
+        restricted horizon when that is later.
     frozen_share : float
         The share of (unit, arm) pairs, over both arms, that the walk held for at least one
-        trial step because that step would have taken their survival at the last target time
-        below its floor.  A pair is held for one step only.
+        trial step because that step would have taken their survival at the grid's end below
+        its floor.  A pair is held for one step only.
     off_grid_share : float
         The share of random times in the window, among those where a score is not identically
-        zero, at which the score equation holds to the cutoff.
+        zero, at which the score equation holds to the cutoff.  The window runs to the grid's
+        end, so on a fit with a restricted horizon past the last target time the share is not
+        comparable with the registered study's reading over the target times.
     cross_fitted : bool
         Whether the nuisances were fitted out of fold.
     n_folds : int
@@ -604,15 +607,16 @@ class ContinuousSurvivalTMLE:
             raise DataError(
                 "An initial hazard fit puts a combined jump of one or more at some time, so the "
                 "product-limit survival is not a probability there. A Breslow jump can exceed "
-                "one where few units are at risk; choose earlier target times or a smaller "
-                "library."
+                "one where few units are at risk; choose earlier target times or restricted "
+                "horizons, or a smaller library."
             )
         survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
         if np.any(survival[..., -1] <= SURVIVAL_FLOOR):
             raise DataError(
-                "The initial survival reaches zero before the last target time for some unit "
-                "and arm, so the clever covariate divides by zero. The estimator needs "
-                "S(t_K | a, L) bounded away from zero; choose an earlier last target time."
+                "The initial survival reaches zero before the last time a target reads (the "
+                "last target time or restricted horizon) for some unit and arm, so the clever "
+                "covariate divides by zero. The estimator needs the survival bounded away from "
+                "zero there; choose an earlier last target time or restricted horizon."
             )
         retention = np.cumprod(1.0 - np.clip(dgam, 0.0, 1.0), axis=-1)
         retention_before = np.concatenate([np.ones((2, n, 1)), retention[..., :-1]], axis=-1)
