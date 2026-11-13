@@ -6098,6 +6098,8 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     "G44.law_i": (_band("longitudinal_repeated_crossfit", "i_ipsi"),),
     # long_horizon_properties.fit_key: the joint arm of the K = 5 binary fit set.
     "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
+    # hazard_msm_properties: the joint fit of the four survival-law coefficients.
+    "G60.survival": (_band("hazard_msm", "survival_logit_coefficients"),),
 }
 
 _DEFAULT_BANDS_REASON = (
