@@ -15,6 +15,16 @@ the correction; a withheld interval is published as the point, a miss. The shipp
 the same fits, the baseline the rule replaces, is in ``primary-shipped.csv``, which no verdict
 reads.
 
+Declaration (plan rev 4, section 7 item 5, after review ``impl-review-pr1.md`` and its
+remediation). Every number is the design test's (``tests/unit/test_small_sample_wald_design.py``):
+the 14 gated two-sided cells, both paired gains and the non-H1 pair pass together with
+probability 0.952 at perfect calibration, withholding and H2's empty design cells included; at
+the exploratory readings the designed chance of at least one red gated row is 0.094, most of it
+``lognormal06_ey1`` (0.057). The primary publishes the rule's interval of
+``strata-boundary-mean``'s law at R = 1,000; its ``ey[1][V=2]`` row is the rule's
+``boundary_mean`` reading at half the replicates, read by the same declared reading. The
+held-out laws H1 to H3 had no estimator fitted on them before this declaration.
+
 Red-cell reading (declared before any run; plan 5.4 and ``guide/studies.md``).
 
 * A lower-leg red on a positive cell: read the falsifiers of plan 5.3 first
