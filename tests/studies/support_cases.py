@@ -2703,6 +2703,27 @@ def _survival_dr_tmle_cases() -> tuple[RowCase, ...]:
     return (case("G51.estimated", "both_1k"), case("G51.declared", "known_1k"))
 
 
+def _hazard_msm_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-msm`` (X70 part (d)): ``G60``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_msm", "hazard-msm"
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            f"G60.{scenario}",
+            slug,
+            scenario,
+            f"{module}.py:245",
+            module,
+            lambda study: study.SCENARIOS[scenario].draw(1_000, 0),
+            lambda study, frame: study.fit(scenario, frame),
+        )
+
+    return (case("survival"), case("competing"))
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -3097,6 +3118,7 @@ CASES: tuple[RowCase, ...] = (
     *_separable_cases(),
     *_survival_ctmle_cases(),
     *_survival_dr_tmle_cases(),
+    *_hazard_msm_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

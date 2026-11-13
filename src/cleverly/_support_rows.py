@@ -5007,7 +5007,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
-#: collaborative TMLE of a risk curve (``G50``) and the drift-corrected survival TMLE (``G51``).
+#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``) and
+#: the working model over the hazard curve (``G60``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5320,6 +5321,66 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_msm_rows() -> tuple[SupportRow, ...]:
+    """The working model over the hazard curve of ``hazard-msm`` (X70 part (d)): ``G60``.
+
+    ``LTMLE(msm=..., survival_model="hazard", targeting="one_step")`` keys ``msm`` on the hazard
+    ``LTMLE`` key, with a two-level baseline treatment held over the visits.  The rows were added
+    because every declared verdict passed: 12 of 12 primary tests and 51 of 51 property cells
+    with a verdict (calibration with its controls, the simultaneous band, robustness on both
+    laws, targeting necessity, the root-n rate and power), with no failed fit.  The numbers are
+    the committed results (``tests/canonical/hazard_msm``).
+    """
+    slug = ["hazard-msm"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a logistic arm and visit dropout, "
+        "and logistic pseudo-hazards with an a x W1 term; the logit working model "
+        "(1, a, t, a W1) with uniform cell weights and V = W1, and one identity-link "
+        "coefficient. Correctly specified low-dimensional logistic learners at n = 2,000, one "
+        "fold; a wrong hazard learner or wrong mechanisms only in the robustness cells. A "
+        "flexible learner, a weight that varies with V or the cell, cross-fitting, observation "
+        "weights or clusters rest on the exact-law tests alone. No comparator: no maintained "
+        "package targets these coefficient scores."
+    )
+    common: dict[str, Any] = {
+        "held": True,
+        "msm": True,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+    }
+    return (
+        long_row(
+            "G60.survival",
+            slug,
+            outcome_kind="survival",
+            treatment=("2",) * 5,
+            kinds=_LONG_BAND,
+            cells=["survival"],
+            limits=[
+                "One event type over five visits. The primary rows read coverage 0.948 to 0.954 "
+                "over 2,400 draws, the calibration cells SE ratio 0.988 to 1.014 over 5,200, and "
+                "the max-t band over the four coefficients joint coverage 0.946.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G60.competing",
+            slug,
+            outcome_kind="competing",
+            treatment=("2",) * 4,
+            cells=["competing"],
+            limits=[
+                "Relapse and death over four visits, each cause with its own projection. The "
+                "primary rows read coverage 0.940 to 0.956 over 2,400 draws; no band is "
+                "validated on this law.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each empty until its
 # study passes: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -5348,6 +5409,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_separable_rows(),
         *_survival_ctmle_rows(),
         *_survival_dr_tmle_rows(),
+        *_hazard_msm_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
