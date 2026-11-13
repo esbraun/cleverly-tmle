@@ -333,3 +333,181 @@ def captured(name: str) -> Iterator[list[Any]]:
         if hasattr(estimator_module, name):
             patch.setattr(estimator_module, name, spy)
         yield calls
+
+
+def _g(law: GridLaw, frame: pd.DataFrame) -> np.ndarray:
+    """``(n,)`` the true ``g(A | W, F)`` of every row of the exact sample."""
+    w = frame["W"].to_numpy(dtype=int)
+    f = frame["F"].to_numpy(dtype=int) if law.flag else np.zeros_like(w)
+    return np.asarray(DOSE[(w + f) % 2, frame["A"].to_numpy(dtype=int)], dtype=float)
+
+
+# ------------------------------------------------------------------ exact witnesses
+
+#: Every reading, policy and ratio route the witnesses cover.
+CASES = [
+    ("categorical", "up", "density"),
+    ("categorical", "random", "density"),
+    *[
+        (reading, kind, ratio)
+        for reading in ("continuous", "mixed")
+        for kind in ("up", "random")
+        for ratio in ("density", "classifier")
+    ],
+]
+
+
+def _law(reading: str, **settings: Any) -> GridLaw:
+    return GridLaw(flag=True, n_times=1, **settings) if reading == "mixed" else GridLaw(**settings)
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+@pytest.mark.parametrize(("reading", "kind", "ratio"), CASES)
+def test_a_policy_on_a_wrong_hazard_is_exact(
+    reading: str, kind: str, ratio: str, targeting: str
+) -> None:
+    """The weighted walk returns ``E sum_b p_b F(t | d_b(A), W)`` exactly (4.2 witnesses).
+
+    The categorical reading is the three-level witness, the continuous reading the
+    Gaussian-location witness in its exact form, and the mixed reading the vector witness,
+    each with a deterministic policy and a two-branch randomizer, on both ratio routes.
+    """
+    law = _law(reading)
+    result = fit(law, {kind: policy(reading, kind)}, reading, targeting=targeting, ratio=ratio)
+    for t in range(1, law.n_times + 1):
+        truth = law.truth(BRANCHES[kind], t)
+        assert risk(result, kind, t) == pytest.approx(truth, abs=EXACT)
+        assert abs(initial_level(result, kind, t) - truth) > MISSED
+        assert result.fits[f"{kind} @ t={t}"].hazard.converged
+
+
+# ------------------------------------------------------------------ the weight
+
+def _drop(law: GridLaw, part: str) -> Callable[..., Any]:
+    """An ``mtp_inputs`` that drops the density ratio, or ``1 / G_k``, from the weight."""
+    original = hazard_module.mtp_inputs
+    g = _g(law, law.frame())
+
+    def mutated(data: Any, plan: Any, slots: Any, cumulative: Any, *args: Any, **kw: Any) -> Any:
+        inputs = original(data, plan, slots, cumulative, *args, **kw)
+        # The cumulative holds g G_k at a categorical node and G_k elsewhere.
+        retention = cumulative / g[:, None] if slots is None else cumulative
+        numerator = plan.cumulative_numerator(data)
+        ratio = numerator / g[:, None] if slots is None else numerator
+        kept = 1.0 / retention if part == "ratio" else ratio
+        return replace(
+            inputs,
+            inverse=np.repeat(kept[:, :, None], inputs.n_levels, axis=2),
+            loss_weight=inputs.weights[:, None] * kept,
+        )
+
+    return mutated
+
+
+@pytest.mark.parametrize("reading", ["categorical", "continuous"])
+@pytest.mark.parametrize("part", ["ratio", "retention"])
+def test_dropping_a_factor_of_the_weight_misses(
+    reading: str, part: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the ratio, or without ``1 / G_k``, the walk solves the wrong scores.
+
+    Each control law makes the dropped factor one: the natural course for the ratio, and a
+    law without dropout for the retention.  There the mutated fit stays exact, so the miss
+    is the dropped factor's and not the mutation's.
+    """
+    law = _law(reading)
+    control = _law(reading, censored=False) if part == "retention" else law
+    kind_control = "up" if part == "retention" else "natural"
+    from cleverly.longitudinal import estimator as estimator_module
+
+    monkeypatch.setattr(estimator_module, "mtp_inputs", _drop(law, part))
+    missed = fit(law, {"up": policy(reading, "up")}, reading)
+    assert abs(risk(missed, "up", 2) - law.truth(UP, 2)) > MISSED
+    monkeypatch.setattr(estimator_module, "mtp_inputs", _drop(control, part))
+    kept = fit(control, {kind_control: policy(reading, kind_control)}, reading)
+    truth = control.truth(BRANCHES[kind_control], 2)
+    assert risk(kept, kind_control, 2) == pytest.approx(truth, abs=EXACT)
+
+
+@pytest.mark.parametrize(
+    ("reading", "ratio"),
+    [
+        ("categorical", "density"),
+        ("continuous", "density"),
+        ("continuous", "classifier"),
+        ("mixed", "density"),
+        ("mixed", "classifier"),
+    ],
+)
+def test_the_weight_is_the_iterated_mean_clever_weight(reading: str, ratio: str) -> None:
+    """``omega / w`` is the iterated-mean fit's clever covariate of the same plan, node by node.
+
+    This ties the classifier ratio to the validated iterated-mean route as well as the
+    density one.
+    """
+    law = _law(reading)
+    with captured("mtp_inputs") as calls:
+        fit(law, {"up": policy(reading, "up")}, reading, ratio=ratio)
+    (inputs,) = calls
+    iterated = fit(
+        law,
+        {"up": policy(reading, "up")},
+        reading,
+        ratio=ratio,
+        survival_model="iterated_mean",
+        targeting="iterative",
+        pseudo_learner=CellMeans(),
+    )
+    weights = inputs.weights
+    for step in iterated.fits[f"up @ t={law.n_times}"].steps:
+        k = step.time - 1
+        rows = step.trained_on & inputs.at_risk[:, k]
+        assert np.count_nonzero(rows) > 0
+        assert np.array_equal(step.trained_on, inputs.at_risk[:, k])
+        np.testing.assert_allclose(
+            inputs.inverse_observed()[rows, k], step.clever[rows], rtol=1e-12, atol=0.0
+        )
+        np.testing.assert_allclose(
+            inputs.loss_weight[rows, k], weights[rows] * step.clever[rows], rtol=1e-12, atol=0.0
+        )
+    # The ratio is not one on this law, so the agreement is not a tautology of the weights.
+    assert np.ptp(inputs.inverse_observed()[inputs.at_risk]) > 0.1
+
+
+def test_the_loss_is_weighted_by_omega() -> None:
+    """The walk loss's derivative along each covariate is minus ``n`` times its weighted score.
+
+    The weighted submodel puts :math:`\\omega` in the loss, so
+    :math:`d/d\\epsilon\\, L(\\eta + \\epsilon \\kappa) = -\\sum_i \\sum_k \\omega_{ik} \\kappa
+    (dN - \\lambda)`.  The mutation weights the loss by the observation weight alone, and the
+    identity fails by more than the derivative's error.
+    """
+    law = _law("continuous")
+    with captured("mtp_inputs") as calls, captured("fit_hazards") as initial:
+        fit(law, {"up": policy("continuous", "up")}, "continuous")
+    (inputs,) = calls
+    empty, full = inputs.held_cells()
+    state = hazard_module.HazardState.from_hazards(
+        initial[0].slots["up"], inputs.bounds, empty, full
+    )
+    horizons = (1, 2)
+
+    def derivative(at: Any) -> np.ndarray:
+        out = []
+        for m in range(len(horizons)):
+            unit = np.zeros((1, 1, len(horizons)))
+            unit[0, 0, m] = 1.0
+            move = hazard_module.direction(state, at, horizons, unit)
+            eps = 1e-6
+            ahead = hazard_module.walk_loss(state.moved(eps * move, at.bounds), at)
+            behind = hazard_module.walk_loss(state.moved(-eps * move, at.bounds), at)
+            out.append((ahead - behind) / (2.0 * eps))
+        return np.array(out)
+
+    score, _ = hazard_module.scores(state, inputs, horizons)
+    expected = -inputs.n * score.reshape(-1)
+    assert np.max(np.abs(expected)) > 1.0
+    np.testing.assert_allclose(derivative(inputs), expected, rtol=1e-5)
+    unweighted = replace(inputs, loss_weight=np.repeat(inputs.weights[:, None], 2, axis=1))
+    gap = np.abs(derivative(unweighted) - expected)
+    assert np.max(gap) > 1e-2 * np.max(np.abs(expected))
