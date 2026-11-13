@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from dataclasses import replace
 from functools import cache
 from typing import Any
 
@@ -18,6 +19,8 @@ import pytest
 
 from cleverly._refusal import RefusalReason
 from cleverly.exceptions import CapabilityError
+from cleverly.inference.delta import Transform
+from cleverly.inference.influence import make_estimate
 from cleverly.inference.results import _reported_curve
 from cleverly.sensitivity import evalue, evalue_from_rr
 from cleverly.survival import ContinuousSurvivalTMLE, StratifiedNelsonAalen, _targeting
@@ -609,19 +612,47 @@ def test_the_walk_does_not_depend_on_the_unit_of_time() -> None:
 
 def test_a_restricted_mean_takes_the_range_logit_interval_of_its_range() -> None:
     fit = _fit()
+    scale = Transform.range_logit(0.0, 1.5)
     for name in ("rmtl_regimen[treated, death @ t=1.5]", "rmst_regimen[control @ t=1.5]"):
         estimate = fit[name]
         assert estimate.interval_scale == "range_logit"
+        assert estimate.transform is None
         assert estimate.bounds == (0.0, 1.5)
+        # The standard error is the time-unit one, from the curve in time units (review R1).
+        curve = np.asarray(estimate.influence_curve)
+        natural = float(np.std(curve, ddof=1) / np.sqrt(curve.size))
+        assert estimate.std_error == pytest.approx(natural, rel=1e-3)
+        frame = fit.to_frame().set_index("estimand")
+        assert frame.loc[name, "std_err"] == pytest.approx(estimate.std_error)
+        # The interval is formed on the logit of the estimate's place in (0, tau).
         low, high = estimate.ci
         assert 0.0 < low < estimate.psi < high < 1.5
-        forward = estimate.transform.forward
-        half = (forward(high) - forward(low)) / 2
-        assert half == pytest.approx(1.959963984540054 * estimate.std_error, rel=1e-6)
-        assert forward(estimate.psi) == pytest.approx((forward(high) + forward(low)) / 2)
+        logit_se = estimate.std_error * scale.slope(estimate.psi)
+        half = (scale.forward(high) - scale.forward(low)) / 2
+        assert half == pytest.approx(1.959963984540054 * logit_se, rel=1e-6)
+        assert scale.forward(estimate.psi) == pytest.approx(
+            (scale.forward(high) + scale.forward(low)) / 2
+        )
     difference = fit["rmst_regimen[treated vs control @ t=1.5]"]
     assert difference.interval_scale == "identity"
     assert difference.bounds == (-1.5, 1.5)
+
+
+def test_only_a_restricted_mean_opts_in_to_its_own_range() -> None:
+    # A risk keeps the (0, 1) rule, and a level estimate with other finite bounds that does
+    # not opt in keeps the identity interval, so no other bounded mean changes (review R1).
+    fit = _fit()
+    risk = fit["cif_regimen[treated, relapse @ t=1]"]
+    assert risk.interval_scale == "range_logit" and not risk.range_interval
+    curve = np.asarray(fit["rmst_regimen[control @ t=1.5]"].influence_curve)
+    plain = make_estimate(
+        "m", 0.6, curve, n=curve.size, scale="level", bounds=(0.0, 1.5), rule_widened=False
+    )
+    opted = replace(plain, range_interval=True)
+    assert plain.interval_scale == "identity"
+    assert opted.interval_scale == "range_logit"
+    assert opted.std_error == plain.std_error
+    assert opted.ci != plain.ci
 
 
 # ------------------------------- an independent brute force past the last target (review M1)

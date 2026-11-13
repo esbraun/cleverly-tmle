@@ -372,9 +372,10 @@ def restricted_level(
 ) -> ParameterEstimate:
     """A restricted mean of one arm, with its interval on the range-logit scale of ``(0, tau)``.
 
-    A restricted mean lies in :math:`[0, \\tau]`, as a risk lies in :math:`[0, 1]`, so its
-    interval is formed on the logit of its position in that range and mapped back, the rule
-    the risks follow.  A value on the boundary has no logit and keeps the identity scale.
+    A restricted mean lies in :math:`[0, \\tau]`, as a risk lies in :math:`[0, 1]`, so it takes
+    the risks' treatment: its curve and standard error stay in time units, and its interval
+    and test are formed on the logit of its position in that range and mapped back
+    (``range_interval``).  A value on the boundary has no logit and keeps the identity scale.
 
     Parameters
     ----------
@@ -396,25 +397,20 @@ def restricted_level(
     Returns
     -------
     ParameterEstimate
-        The estimate, with ``transform`` the range-logit map of ``(0, tau)``.
+        The estimate, with bounds ``(0, tau)`` and ``range_interval`` set.
     """
-    from ..inference.results import transform_estimate
-
-    bounds = (0.0, float(tau))
-    estimate = make_estimate(
+    return make_estimate(
         name,
         value,
         curve,
         n=n,
         scale="level",
         alpha=alpha,
-        bounds=bounds,
+        bounds=(0.0, float(tau)),
         rule_widened=False,
         support=support,
+        range_interval=True,
     )
-    if not 0.0 < value < tau:
-        return estimate
-    return replace(transform_estimate(estimate, Transform.range_logit(*bounds)), bounds=bounds)
 
 
 def build_estimates(

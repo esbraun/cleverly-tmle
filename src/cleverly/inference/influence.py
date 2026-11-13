@@ -197,6 +197,12 @@ def outside_bounds(psi: float, bounds: tuple[float, float] | None) -> bool:
     return not (low < psi < high)
 
 
+def _finite_range(bounds: tuple[float, float]) -> bool:
+    """Whether ``bounds`` is a finite, non-empty open range a logit can map."""
+    low, high = bounds
+    return bool(np.isfinite(low) and np.isfinite(high) and low < high)
+
+
 def family_of(data: Any) -> OutcomeFamily | None:
     """The outcome family an estimate of ``data`` records: its resolved family, or ``None``.
 
@@ -1020,6 +1026,12 @@ class ParameterEstimate:
         it: ``"binomial"`` for a binary outcome and ``"gaussian"`` for a continuous one.
         ``None`` when the builder does not record it. A contrast keeps the family its inputs
         share. It decides :attr:`effective_df`.
+    range_interval : bool
+        Whether a ``"level"`` estimate with finite :attr:`bounds` other than ``(0, 1)`` forms
+        its interval and test on the logit of its position in that range, as a mean of a
+        binary outcome does. The curve and :attr:`std_error` stay on the reported scale.
+        ``True`` for a restricted mean of a continuous-time survival fit, whose range is
+        ``(0, tau)``; ``False`` for every other estimate.
 
     Attributes
     ----------
@@ -1113,6 +1125,7 @@ class ParameterEstimate:
     bounds: tuple[float, float] | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
+    range_interval: bool = False
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -1151,7 +1164,8 @@ class ParameterEstimate:
 
         The transform's name for a transformed estimate, ``"log"`` for a ratio,
         ``"range_logit"`` for an unclustered mean of a binary outcome (:attr:`bounds`
-        ``(0, 1)`` on the ``"level"`` scale) and ``"identity"`` otherwise.
+        ``(0, 1)`` on the ``"level"`` scale) or an estimate under :attr:`range_interval`, and
+        ``"identity"`` otherwise.
         """
         if self.transform is not None:
             return self.transform.name
@@ -1162,16 +1176,20 @@ class ParameterEstimate:
     def _range_scale(self) -> Transform | None:
         """The range-logit map of a bounded unclustered mean, or ``None``.
 
-        An unclustered estimate with :attr:`bounds` ``(0, 1)``, the ``"level"`` scale and no
-        :attr:`transform` forms its interval and test on the logit scale with the normal
-        reference. A difference keeps the identity scale, and a clustered estimate keeps its
-        reference. An estimate with a Student t reference keeps it too, which covers singleton
-        clusters: their count equals :attr:`n`, but a stratum with few of them reads a t.
+        An unclustered estimate with :attr:`bounds` ``(0, 1)``, or finite bounds under
+        :attr:`range_interval`, the ``"level"`` scale and no :attr:`transform` forms its
+        interval and test on the logit scale with the normal reference. A difference keeps the
+        identity scale, and a clustered estimate keeps its reference. An estimate with a
+        Student t reference keeps it too, which covers singleton clusters: their count equals
+        :attr:`n`, but a stratum with few of them reads a t.
         """
         if (
             self.transform is not None
             or self.scale != "level"
-            or self.bounds != (0.0, 1.0)
+            or self.bounds is None
+            or not (
+                self.bounds == (0.0, 1.0) or (self.range_interval and _finite_range(self.bounds))
+            )
             or self.n_clusters < self.n
             or self.reference_df is not None
         ):
@@ -1839,6 +1857,7 @@ def make_estimate(
     support: Support = UNCLASSIFIED,
     bounds: tuple[float, float] | None = None,
     outcome_family: OutcomeFamily | None = None,
+    range_interval: bool = False,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1892,6 +1911,9 @@ def make_estimate(
         on or outside it takes ``"out_of_range_plugin"`` (:func:`bounded_status`).
     outcome_family : {"binomial", "gaussian"} or None, default=None
         The family of the outcome, when the caller knows it.
+    range_interval : bool, default=False
+        Whether a level estimate with finite ``bounds`` forms its interval on the logit of its
+        position in them (:attr:`ParameterEstimate.range_interval`).
 
     Returns
     -------
@@ -1929,6 +1951,7 @@ def make_estimate(
         bounds=bounds,
         rule_widened=rule_widened,
         outcome_family=outcome_family,
+        range_interval=range_interval,
     )
 
 

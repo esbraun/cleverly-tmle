@@ -146,7 +146,8 @@ The result reads only targeted estimates and smooth functions of them:
 
 An RMTL and an RMST carry the bounds $(0, \tau)$, and their differences $(-\tau, \tau)$. A
 level's interval is the range-logit interval on $(0, \tau)$ of [small-sample
-scale](inference.md#small-sample-scale), so it stays inside its range. A difference keeps the
+scale](inference.md#small-sample-scale), so it stays inside its range, while its standard
+error and curve stay in time units, as a risk's stay on the risk scale. A difference keeps the
 identity scale, as a risk difference does.
 `cleverly.sensitivity.evalue(result, (numerator, denominator))` reads the E-value of
 `result.ratio(numerator, denominator)`, the two arms' risks at one cause and time. The bound needs
