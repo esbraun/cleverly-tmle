@@ -1,0 +1,22 @@
+=== mtp-policy-variance declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' tests/canonical/mtp_policy_variance/regenerate.py --output 'C:\Users\erics\study-runs\mtp-policy-variance-20261113T1715Z' --jobs 16
+commit: a1c62db0601796d5c61b2c8ee14f77d075043f32; upstream a1c62db0601796d5c61b2c8ee14f77d075043f32
+clean tree: True
+cleverly 0.2.4 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 abd701a921e373fce350777589111aafe00d4dd021197fb228e5726e03d9d302
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-13T17:03:17+00:00
+finished: 2026-11-13T23:43:01+00:00
+wall seconds: 23981.3
+exit code: 0
+sha256 coverage-controls.csv: 2cc9d48e81958cc3e800d38c372ccf469c8723fdce741b2e945da22f13ac3e7b
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: e9537625e0eb56da260891e3176b5c1966f5b2097437ec08e21a8834b26ed2b3
+sha256 performance-tests.csv: 535d2943d8d4cfe3829bc8894633f0163509c9b0cbadb13858efb967004402ca
+sha256 properties.csv: 1eee220ea3f49878a319f7d9f41b4a480ac3a4b91ba75a0682d193725237c2df
+sha256 property-replicates.parquet: c84ae7b719c1bb08a3139906504a593f9b8c38c73fd7eb2caade93ee5437af15
+sha256 replicates.parquet: 38b4d4907a0484aac0bbebb27f80e2ead2b7db76e54de6857db4463dacea7c24
+sha256 summary.csv: 9c5066ae354b9ac9992d52cc3c82affcc2b8fd1fe4d04eb970990e87917d6b0f
+
