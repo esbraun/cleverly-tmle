@@ -1786,7 +1786,7 @@ the SD is the limit fit's plug-in curve SD, $\sqrt{E[D^2]/n}$, not the estimator
 On a second law the treatment reads only $A_{t-1}$, which the order-0 window keeps, and the
 outcome leans on $L_3$, which it drops. There the order-0 fit is unbiased for
 $E[Y^{\text{never}}]$ through its mechanisms, and with intercept-only mechanisms it misses by
-0.54 SDs, so the mechanisms do the rescue.
+0.54 plug-in SDs (about 1.2 sampling SDs), so the mechanisms do the rescue.
 
 A first version of the law had a heavy-tailed cumulative ratio, from weak support for the
 always-treated path. Its order-1 and full-history fits both covered 0.919 for $E[Y^{\text{always}}]$ at $n = 2{,}000$. The shortfall
