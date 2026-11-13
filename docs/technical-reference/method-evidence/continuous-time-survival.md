@@ -156,12 +156,28 @@ from the committed results and checked at the precision printed.
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
+| `margin:bootstrap_replicates` | 10000 | bootstrap replications |
 | `margin:standardized_bias` | 0.2000 | standardized-bias margin |
 | `margin:coverage_floor` | 0.9000 | primary coverage floor |
+| `margin:over_coverage_ceiling` | 0.9900 | descriptive overcoverage threshold |
+| `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio lower screen |
+| `margin:se_ratio_sanity_upper` | 1.2000 | primary SE-ratio upper screen |
 | `margin:calibration_se_ratio_lower` | 0.9300 | calibration SE-ratio lower bound |
 | `margin:calibration_se_ratio_upper` | 1.0700 | calibration SE-ratio upper bound |
 | `margin:calibration_coverage_lower` | 0.9200 | calibration coverage lower bound |
 | `margin:calibration_coverage_upper` | 0.9800 | calibration coverage upper bound |
+| `margin:type_i_ceiling` | 0.1000 | type-I upper bound. No cell of this study reads it |
+| `margin:paired_difference` | 0.1500 | paired similarity margin in pooled SDs. No cell of this study reads it |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio noninferiority bound. No cell of this study reads it |
+| `margin:coverage_noninferiority` | -0.0250 | coverage-difference noninferiority bound. No cell of this study reads it |
+| `margin:calibration_noninferiority` | 0.0500 | calibration-excess noninferiority bound. No cell of this study reads it |
+| `margin:minimum_power` | 0.8000 | minimum power lower bound. No cell of this study reads it |
+| `margin:root_n_slope` | -0.5000 | expected root-n slope. No cell of this study reads it |
+| `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound. No cell of this study reads it |
+| `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound. No cell of this study reads it |
+| `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude. No cell of this study reads it |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 76 | the same bound, in primary replications |
