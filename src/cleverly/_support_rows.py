@@ -2431,9 +2431,14 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         "failures 32 of 10000 (worst case fails)",
     ),
     "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
-    "D01": ("RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",),
+    "D01": (
+        "RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",
+        "RM18-one-sided-bias: bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888",
+        "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
+    ),
     "D02": (
         "RM18-boundary: coverage 0.8988 to 0.9542, bias 0.000900",
+        "RM18-one-sided-bias: bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998",
         "RM18-boundary: coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123",
         "RM18-boundary: bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888",
     ),

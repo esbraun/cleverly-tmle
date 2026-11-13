@@ -63,6 +63,9 @@ LIMIT_OWNERS = frozenset(
         "RM18-ordinary-weighted",
         "RM18-fixed-weights",
         "RM18-boundary",
+        # Fix-6 (D2): the standing record of the pooled reduced regressions; the foldwise
+        # default passes on the cells' own draws (drtmle-foldwise-n1500).
+        "RM18-one-sided-bias",
         "X8-identity-small-stratum",
         "X8-drtmle-small-stratum",
         "X16-plugin-variance",
@@ -81,7 +84,6 @@ LIMIT_OWNERS = frozenset(
 FLAGGED_EXPERIMENTAL = {
     "X8-logit-small-stratum": "the logit slope at a small stratum reads an SE ratio of 0.78 to 0.94",
     "X8-drtmle-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
-    "RM18-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
     "F28": "the informative-size t cells read a bias of 0.11 to 0.13 and an SE ratio of 0.83",
     "F27": "the boundary truth rows read a coverage of 0.894 and an SE ratio of 0.82",
     "mtp-pricing-calibration": (
@@ -498,9 +500,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/outcome_correct",
         "D01",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "RM18-one-sided-bias: bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888",
         "",
-        "Q6",
     ),
     (
         "canonical-drtmle",
@@ -508,9 +510,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/treatment_correct",
         "D01",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
         "",
-        "Q6",
     ),
     (
         "canonical-multi-arm-drtmle",
@@ -528,9 +530,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/treatment_correct",
         "D02",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "RM18-one-sided-bias: bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998",
         "",
-        "Q6",
     ),
     (
         "canonical-multi-arm-drtmle",

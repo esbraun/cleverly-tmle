@@ -118,6 +118,40 @@ class TestDefaults:
         assert entry.limit == "X13-finite-sample: coverage 0.931 to 0.944"
         assert entry.flag == ""
 
+    def test_the_rm18_one_sided_bias_owner_states_the_pooled_leak_as_a_limit(self) -> None:
+        """Fix-6 D2: the owner is the standing record of the pooled option, not a flag."""
+        assert "RM18-one-sided-bias" in sd.LIMIT_OWNERS
+        assert "RM18-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
+        assert "X8-drtmle-one-sided-bias" in sd.FLAGGED_EXPERIMENTAL
+        (entry,) = self.draft(
+            positive(
+                "study-b",
+                "property",
+                "double_robustness/treatment_correct",
+                owner="RM18-one-sided-bias",
+                measured="bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
+            )
+        )
+        assert entry.disposition == "supported with a stated limit"
+        assert entry.limit == (
+            "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671"
+        )
+        assert entry.flag == ""
+
+    def test_the_committed_rm18_lines_are_stated_limits_of_d01_and_d02(self) -> None:
+        lines = {
+            (key.slug, key.key): entry
+            for key, entry in sd.DISPOSITIONS.items()
+            if entry.limit.startswith("RM18-one-sided-bias:")
+        }
+        assert set(lines) == {
+            ("canonical-drtmle", "double_robustness/outcome_correct"),
+            ("canonical-drtmle", "double_robustness/treatment_correct"),
+            ("canonical-multi-arm-drtmle", "double_robustness/treatment_correct"),
+        }
+        assert {entry.row for entry in lines.values()} == {"D01", "D02"}
+        assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
+
     def test_the_x20_crossfit_cell_is_experimental_and_the_clustered_cell_is_flagged(self) -> None:
         crossfit, clustered = self.draft(
             positive(
@@ -140,7 +174,7 @@ class TestDefaults:
 
     @pytest.mark.parametrize(
         "owner",
-        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "RM18-one-sided-bias", "F28", "F27"],
+        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "F28", "F27"],
     )
     def test_the_flagged_experimental_owners_are_flagged(self, owner: str) -> None:
         (entry,) = self.draft(

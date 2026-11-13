@@ -397,6 +397,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]",
         ),
     ),
+    # The standing record of ``reduced_crossfit="pooled"``, the R drtmle cvFolds construction:
+    # the three cells keep their verdicts. Corrected on the default (Fix-6 D2): both paired
+    # cells of ``drtmle-foldwise-n1500``, the foldwise default on the binary cells' own draws
+    # at n = 1,500, pass with the record's primary rows passing, and ``drtmle-foldwise`` passes
+    # on the multi-arm cell's draws at n = 2,000.
     "RM18-one-sided-bias": (
         *_keys(
             "canonical-drtmle",
