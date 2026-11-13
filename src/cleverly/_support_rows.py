@@ -5595,13 +5595,13 @@ def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
 _TRIM_LIMIT = (
     "The trimmed point estimate is consistent when every iterated outcome regression is. "
     "The trim removes the double robustness on the trimmed share: with an outcome regression "
-    "that ignores W the trimmed fit is biased by 1.92 SD for LTMLE and 2.47 SD for SDR, where "
+    "that ignores W the trimmed fit is biased by 1.90 SD for LTMLE and 2.43 SD for SDR, where "
     "the untrimmed fit is not (study option-ratio-trim, cells trim_necessity). Measured only "
     "with LinearRegression outcome and pseudo-outcome regressions on a law where they are "
     "correct; any other outcome learner reads experimental, and pinning the class does not "
     "make a linear regression correct. No interval is given (F30): the plug-in standard "
-    "error is a diagnostic, 0.56 to 0.58 of the spread of the trimmed estimate, with "
-    "coverage 0.72 to 0.74."
+    "error is a diagnostic, 0.55 to 0.58 of the spread of the trimmed estimate, with "
+    "coverage 0.72 to 0.73."
 )
 
 

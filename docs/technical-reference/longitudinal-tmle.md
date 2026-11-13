@@ -1760,9 +1760,9 @@ robustness removes it. The study claims the point estimate only, and only with t
 outcome regressions; the `G56` rows pin that learner, so a trimmed fit with another outcome
 learner reads `experimental`.
 
-In the committed run the trimmed fits' biases are within 0.005 SD
-and the controls read 1.92 (LTMLE) and 2.47 (SDR) SDs. The untrimmed fits with correct
-regressions cover 0.884 (LTMLE) and 0.898 (SDR) on this law, with SE ratios 0.910 and 0.921.
+In the committed run the trimmed fits' biases are within 0.025 SD
+and the controls read 1.90 (LTMLE) and 2.43 (SDR) SDs. The untrimmed fits with correct
+regressions cover 0.896 (LTMLE) and 0.905 (SDR) on this law, with SE ratios 0.928 and 0.939.
 No registered cell measures a larger n. A separate diagnosis outside the study found the
 shortfall to be a finite-sample effect of the heavy weight tail: coverage rose to 0.946 at
 $n = 16{,}000$, and $n$ times the mean squared standard error converged to the exact efficient

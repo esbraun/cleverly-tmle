@@ -24,7 +24,7 @@ experimental. Their limit says that the trimmed point is consistent only when ev
 outcome regression is correct, that no interval is given (F30), and that the plug-in diagnostic
 is not a standard error. The evidence page,
 `docs/technical-reference/method-evidence/option-ratio-trim.md`, narrates the default untrimmed
-fit's under-coverage on this law (0.884 for LTMLE and 0.898 for SDR in the committed run). No
+fit's under-coverage on this law (0.896 for LTMLE and 0.905 for SDR in the committed run). No
 cell can tell whether it is a finite-sample effect.
 
 The primary row is point-only, so it passes on the bias leg alone. A smoke run cannot pass it:
