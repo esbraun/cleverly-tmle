@@ -826,3 +826,29 @@ def test_the_falsifier_hook_reads_unstamped_rows() -> None:
     table = props.falsifier_table(rows).set_index(["falsifier", "cell"])
     assert bool(table.loc[("df", cell), "fired"])
     assert props.stamped(rows)["failed_replicates"].unique().tolist() == [3]
+
+
+def test_the_cell_descriptions_name_the_study_cells() -> None:
+    """The evidence descriptions word each cell and its controls; a renamed cell must reach them."""
+    from tests.studies.evidence import descriptions
+
+    cells = [cell for group in study.GROUPS for cell in group.cells]
+    gated = {
+        family: tuple(cell.name for cell in cells if cell.family == family)
+        for family in study.COVERAGE_FAMILIES
+    }
+    assert gated == descriptions._SSW_GATED
+    assert set(descriptions._SSW_REPORTED) == {
+        cell.name for cell in cells if cell.family == study.REPORTED
+    }
+    assert set(descriptions._SSW_CELLS) == {
+        cell.name for cell in cells if cell.family != study.NON_H1
+    }
+    for group in study.GROUPS:
+        for cell in group.cells:
+            if cell.family in study.COVERAGE_FAMILIES:
+                assert descriptions._ssw_controls(cell.name) == study.controls_of(group, cell)
+    from tests.studies.evidence import document
+
+    assert document._PAIRED_GAIN_CELLS == study.PAIRED_GAIN_CELLS
+    assert {*study.COVERAGE_FAMILIES, study.REPORTED, study.CONTROL} == document._TWO_LEG_FAMILIES

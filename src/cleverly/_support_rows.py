@@ -5319,6 +5319,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "SCORE_PAIRED_MEASURED, not a support row, record the configurations the study "
         "licenses."
     ),
+    "small-sample-wald": (
+        "It measures the small-sample Wald interval rule, computed from the public inference "
+        "functions, while the shipped intervals stay unchanged. No shipped fit reports the "
+        "interval it measures, so no row can name it until the default reads the rule."
+    ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
         "Target and no fit of a point row. cleverly.estimators.dose_response."

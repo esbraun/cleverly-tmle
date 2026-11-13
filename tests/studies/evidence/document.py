@@ -352,6 +352,22 @@ def measured(row: Any) -> str:
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
         return measured
+    if family in _TWO_LEG_FAMILIES:
+        # ``small-sample-wald``: a coverage cell is judged on two legs that read different
+        # denominators, the lower leg over every requested fit and the upper leg over the
+        # shown ones, so the row prints both rather than one coverage interval.
+        measured = (
+            f"lower leg {_interval(row.lower_leg_ci_lower, row.lower_leg_ci_upper)}, "
+            f"shown {_interval(row.shown_ci_lower, row.shown_ci_upper)}"
+        )
+        if str(row.cell) in _PAIRED_GAIN_CELLS:
+            measured += (
+                f", paired gain {int(row.gain_b)} against {int(row.gain_c)}, "
+                f"lower bound {render(float(row.gain_lower))}"
+            )
+        return measured
+    if family in {"non_h1", "witness"}:
+        return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
     if family == "misspecification_control":
@@ -808,6 +824,21 @@ def _has_exact_efficiency(row: Any) -> bool:
         row.efficiency_empirical_ci_lower
     )
 
+
+#: The ``small-sample-wald`` coverage families and their re-read rows, each judged or reported
+#: on its two coverage legs, and the two cells whose verdict also reads the paired gain.
+#: Mirrored from ``tests.studies.small_sample_wald``, which this module cannot import.
+_TWO_LEG_FAMILIES = frozenset(
+    {
+        "corrected_coverage",
+        "diagnosis_bounded",
+        "diagnosis_continuous",
+        "heldout_coverage",
+        "reported",
+        "control",
+    }
+)
+_PAIRED_GAIN_CELLS = ("boundary_mean", "student_ey1")
 
 #: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
 #: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.

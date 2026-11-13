@@ -94,6 +94,7 @@ ep-assessment
 learned-rule-ep
 targeting-curves
 score-assessment
+small-sample-wald-intervals
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response

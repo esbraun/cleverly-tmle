@@ -174,10 +174,19 @@ def rule_vectors(frame: pd.DataFrame, *, alpha: float) -> tuple[np.ndarray, np.n
     return out_low, out_high
 
 
+def withheld_triggers(frame: pd.DataFrame) -> np.ndarray:
+    """Each row's withheld trigger, ``""`` for a shown interval.
+
+    A fit writes ``""`` for a shown interval, and the committed Parquet file reads it back as
+    null, so the summary recomputed from the committed rows normalizes both to ``""``.
+    """
+    return frame["withheld"].fillna("").astype(str).to_numpy()
+
+
 def _covers(frame: pd.DataFrame, low: np.ndarray, high: np.ndarray) -> np.ndarray:
     """Shown and covering; a withheld or undefined interval is a miss."""
     truth = frame["truth"].to_numpy(dtype=float)
-    shown = frame["withheld"].to_numpy() == ""
+    shown = withheld_triggers(frame) == ""
     with np.errstate(invalid="ignore"):
         return shown & (low <= truth) & (truth <= high)
 
@@ -398,7 +407,7 @@ def cell_readings(block: pd.DataFrame) -> dict[str, Any]:
     control = str(block["property"].iloc[0]) == study.CONTROL
     requested = int(block["requested_replicates"].iloc[0])
     covered = block["covered"].to_numpy(dtype=int)
-    withheld = block["withheld"].to_numpy()
+    withheld = withheld_triggers(block)
     shown = withheld == ""
     truth = block["truth"].to_numpy(dtype=float)
     psi = block["estimate"].to_numpy(dtype=float)
@@ -504,7 +513,7 @@ def _law_of(cell: str) -> tuple[str, str] | None:
 def witness_row(rows: pd.DataFrame, columns: Sequence[str]) -> dict[str, Any]:
     """The ``constant_cell_witness`` summary row, from the source cell's constant-cell fits."""
     source = rows.loc[rows["cell"] == study.WITNESS_SOURCE]
-    fired = source.loc[source["withheld"] == "constant_cell"]
+    fired = source.loc[withheld_triggers(source) == "constant_cell"]
     row: dict[str, Any] = dict.fromkeys(columns, math.nan)
     row.update(
         {

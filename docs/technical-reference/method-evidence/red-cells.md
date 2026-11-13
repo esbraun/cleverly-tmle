@@ -127,7 +127,9 @@ The test fails on four states.
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 1 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) | 2 | sequentially doubly robust longitudinal estimation, long-horizon sequentially doubly robust estimation |
-| [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 1 | stratified incremental and MSM targeting |
+| [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | stratified incremental and MSM targeting, Small-sample Wald intervals |
+| [`F3-difference-near-bound`](../../roadmap.md#red-cell-owners) | 1 | Small-sample Wald intervals |
+| [`F3-skewed-continuous`](../../roadmap.md#red-cell-owners) | 2 | Small-sample Wald intervals |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
@@ -153,7 +155,7 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 211 | 41 studies |
+| total | 216 | 42 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -216,6 +218,11 @@ same text as the "measured" column of its study page.
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000748 to 0.000535, coverage 0.8938, SE ratio 0.8211 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000514 to 0.000732, coverage 0.8948, SE ratio 0.8314 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [Targeting curves (TOC, cumulative gain, AUTOC, Qini)](targeting-curves.md) | property | `interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified` | positive | its own rule | coverage 0.9559 to 0.9687, SE ratio 1.0350 to 1.0857 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `diagnosis_continuous/lognormal06_ey1` | positive | its own rule | lower leg 0.9178 to 0.9471, shown 0.9178 to 0.9471 | [`F3-skewed-continuous`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_hurdle_ey1` | positive | its own rule | lower leg 0.9135 to 0.9435, shown 0.9145 to 0.9443, failures 2 of 2000 (complete case fails) | [`F3-skewed-continuous`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_logit_msm_a` | positive | its own rule | lower leg 0.9195 to 0.9484, shown 0.9195 to 0.9484 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_logit_msm_w` | positive | its own rule | lower leg 0.8638 to 0.9013, shown 0.8638 to 0.9013 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_sparse_treat_ate` | positive | its own rule | lower leg 0.9124 to 0.9426, shown 0.9124 to 0.9426 | [`F3-difference-near-bound`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=2.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000134 to 0.000323 within 0.0039, RMSE ratio bound 0.9870 vs 1.1000, coverage difference bound -0.000834 vs -0.0250, calibration excess bound 0.0391 vs 0.0500, resolution 0.0079, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=3.5]` | paired | inconclusive: calibration leg | difference -0.000247 to 0.000594 within 0.0045, RMSE ratio bound 1.0392 vs 1.1000, coverage difference bound 0.0015 vs -0.0250, calibration excess bound 0.0558 vs 0.0500, resolution 0.0141, failures 6 of 4800 (complete case fails) | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2.5,a=3.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000187 to 0.000730 within 0.0043, RMSE ratio bound 1.0710 vs 1.1000, coverage difference bound -0.0035 vs -0.0250, calibration excess bound 0.0393 vs 0.0500, resolution 0.0213, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
