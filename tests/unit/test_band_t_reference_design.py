@@ -49,11 +49,32 @@ def declared() -> tuple[int, float]:
     return study.declared_replicates(pilot)
 
 
+#: The Monte Carlo tolerance of a family pass probability.  The sizing draws 40,000 families, so
+#: its standard error near 0.95 is about 0.0011, and a numpy release that changes the binomial
+#: sampler moves the red family at 5,200 (0.94998 here) across the 0.95 target.
+SIZING_TOLERANCE = 0.003
+
+
+def _sizes_at(inputs: tuple[Any, ...], replicates: int) -> None:
+    """``replicates`` is the rule's R within the tolerance: it passes and the step below fails."""
+    target = study.SIZING_TARGET
+    assert study.family_pass(*inputs, replicates) >= target - SIZING_TOLERANCE
+    below = replicates - study.SIZING_STEP
+    assert below <= 0 or study.family_pass(*inputs, below) < target + SIZING_TOLERANCE
+
+
 def test_the_committed_pilot_fixes_the_declared_replicates() -> None:
     """Rev 3.3: the larger of the two pooled coverage rules on the pilot, 5,600 (0.957)."""
-    replicates, probability = declared()
-    assert replicates == study.DECLARED_REPLICATES == study.REPLICATES == 5_600
-    assert probability == pytest.approx(0.957, abs=0.002)
+    pilot = study.read_pilot()
+    assert pilot is not None
+    assert study.DECLARED_REPLICATES == study.REPLICATES == 5_600
+    red = study._sizing_inputs(study.RED_CELLS, pilot)
+    licensing = study._sizing_inputs(study.LICENSING, pilot)
+    assert study.family_pass(*red, study.REPLICATES) == pytest.approx(0.957, abs=SIZING_TOLERANCE)
+    assert study.family_pass(*licensing, study.REPLICATES) >= study.SIZING_TARGET
+    _sizes_at(red, study.REPLICATES)
+    # The rule itself may land one step lower where the sampler puts 5,200 above the target.
+    assert abs(declared()[0] - study.REPLICATES) <= study.SIZING_STEP
     assert held_out.REPLICATES == study.REPLICATES
     assert study.DECLARATION.replicates == held_out.DECLARATION.replicates == study.REPLICATES
 
@@ -64,9 +85,18 @@ def test_the_red_family_decides_r_and_the_licensing_family_sizes_lower() -> None
     red = study._sizing_inputs(study.RED_CELLS, pilot)
     licensing = study._sizing_inputs(study.LICENSING, pilot)
     assert len(licensing[0]) == 11 and len(red[0]) == 3
-    assert study.size(*red)[0] == 5_600
-    assert study.family_pass(*red, 5_200) < study.SIZING_TARGET
-    assert study.size(*licensing)[0] == 2_400
+    _sizes_at(red, 5_600)
+    _sizes_at(licensing, 2_400)
+
+
+def test_a_committed_r_off_the_rule_fails_the_sizing_check() -> None:
+    """Control: R one step too high, or one step too low, fails :func:`_sizes_at`."""
+    pilot = study.read_pilot()
+    red = study._sizing_inputs(study.RED_CELLS, pilot)
+    with pytest.raises(AssertionError):
+        _sizes_at(red, 6_400)
+    with pytest.raises(AssertionError):
+        _sizes_at(red, 4_400)
 
 
 def test_a_family_that_cannot_reach_the_target_refuses_to_size() -> None:
