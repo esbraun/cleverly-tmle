@@ -7,7 +7,7 @@ orphan: true
 This study validates longitudinal TMLE with `survival_model="hazard"` and
 `targeting="one_step"` when a regimen is a modified treatment policy at the baseline decision,
 held over every visit. Each policy is targeted by its own walk, whose loss is weighted by
-$\omega_k = w\,r(A, W)/G_k(A, W)$ at the observed dose, and the risk curve is the plug-in average
+$\omega_k = w\,r(A, W)/G_k(A, W)$ at the observed dose. The risk curve is the plug-in average
 of the targeted hazards at each unit's shifted dose. The section on
 [hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting)
 states the estimand, the influence curve and the exact-law evidence.
@@ -32,12 +32,15 @@ visit dropout is logistic in the dose and $W$.
 | --- | --- | --- | --- | --- |
 | `levels` | 5 | a dose on $0, \dots, 5$, $P(A = a \mid W) \propto \exp\{-(a - c(W))^2/8\}$ | one level up, the top stays | level probabilities 0.035 or more; policy ratio at most 3.12 |
 | `gaussian` | 5 | $A \mid W \sim N(c(W), 1.5^2)$ | $A + 1$ | policy ratio at most 7.2 over the central 99.9% of each stratum |
+| `truncated` | 5 | the `gaussian` dose truncated to $[0, 5.5]$ | $A + 1$ when $A + 1 \le 5.5$, otherwise $A$ | policy ratio at most 5.74 over the whole support |
 | `vector` | 1 | a binary arm $F$, logistic in $W$, and $A \mid F, W \sim N(c(W) + 0.5 F, 1.5^2)$ | $A + 1$, the arm kept | arm probabilities 0.35 to 0.69; policy ratio as `gaussian` |
 
 Here $c(W) = 1.5 + W_1 + 0.5 W_2$. Retention through the last visit is at least 0.64. On
 `levels` the smallest product of a level probability and that retention is 0.028, above twice
 the default cumulative bound of 0.01, so no bound truncates a weight. A vector treatment held
-over several visits cannot be declared in the data container, so `vector` has one visit.
+over several visits cannot be declared in the data container, so `vector` has one visit. On
+`truncated` a unit whose shifted dose would pass the cap keeps its own dose, so its ratio is
+$g(a - 1 \mid W)/g(a \mid W)\,1\{a \le 5.5\} + 1\{a > 4.5\}$.
 
 Plan X70 named the shared `dose` scenario of
 [point-treatment survival](point-treatment-survival.md) for `levels`. Its dropout is linear on
@@ -46,37 +49,65 @@ hazard learner's plug-in contrast about one efficiency standard error from the t
 laws keep its dose family and replace the dropout and the hazard; they are defined in
 `tests/studies/hazard_mtp_law.py`.
 
-Every truth is an exact sum over the dose levels, or a Gauss-Hermite quadrature of 120 nodes
-over a Gaussian dose, computed without the estimator. Every efficiency bound is the exact
-standard deviation of the efficient influence function over the law's support.
+Every truth is an exact sum over the dose levels, a Gauss-Hermite quadrature of 120 nodes over
+a Gaussian dose, or a Gauss-Legendre quadrature over each smooth piece of the truncated dose.
+None of them calls the estimator. Every efficiency bound is the exact standard deviation of the
+efficient influence function over the law's support.
 `tests/unit/test_hazard_mtp_study_design.py` checks the truths against a backward recursion,
 an adaptive quadrature to $10^{-10}$ and a fit on the exact `levels` sample. It checks the bounds
 against the cause-specific hazard form of the curve at every support point, against an adaptive
-quadrature of its square, and against the influence curve of a fit at n = 40,000.
+quadrature of its square for both the risk and the contrast, and against the influence curve of
+a fit at n = 40,000.
 
 ## The fits
 
 | fit label | law | ratio | folds |
 | --- | --- | --- | --- |
 | `levels` | `levels` | the level probabilities | 1 |
-| `gaussian_density` | `gaussian` | binned density, a fitted Gaussian location model read at `oracle_bins(n)` bins (320 at n = 2,000) | 1 |
+| `gaussian_density` | `truncated` | binned density, a fitted truncated-normal location model read at `oracle_bins(n)` bins (320 at n = 2,000) | 1 |
 | `gaussian_classifier` | `gaussian` | logistic classifier on `W1`, `W2` and the dose | 1 |
 | `gaussian_crossfit` | `gaussian` | the same classifier | 5 |
-| `vector` | `vector` | binned density as `gaussian_density`, and a logistic arm model | 1 |
+| `vector` | `vector` | logistic classifier on `W1`, `W2`, the arm and the dose, and a logistic arm model | 1 |
+| `untruncated_density` (reported) | `gaussian` | binned density, a fitted Gaussian location model at `oracle_bins(n)` bins | 1 |
 
 | nuisance | correct learner | wrong learner |
 | --- | --- | --- |
 | hazard | unpenalized logistic regression on `W1`, `W2`, the dose (and the arm), at each visit | logistic regression on the dose (and the arm) alone (`NoWLogistic`) |
-| treatment | multinomial logistic on `W1`, `W2`; a least-squares Gaussian location density; a logistic classifier | the prior share; a Gaussian with no covariates; a classifier on the dose alone |
+| treatment | multinomial logistic on `W1`, `W2`; a truncated-normal location density by maximum likelihood; a logistic classifier | the prior share; a density with no covariates; a classifier on the dose alone |
 | censoring | logistic regression on `W1`, `W2` and the dose (and the arm), at each visit | the prior share |
 
 The correct learners are correctly specified and are not saturated. With saturated level and
 retention fits on a finite $W$, the targeted contrast of the right and the wrong hazard learner
-coincide, so no cell could see the hazard fit. The design test keeps that witness.
+coincide, so no cell could see the hazard fit. The design test keeps that witness. It also
+fits a two-branch randomized policy on the exact `levels` sample with the wrong hazard learner,
+which returns the policy's exact risk while the initial hazards miss it.
 
-The cross-fitted variant uses the classifier route because the density learner reads the whole
-sample. No maintained package targets discrete-time hazards under a modified treatment policy,
-so the study names no comparator and its agreement block stays empty.
+The density route is gated on `truncated` only. On `gaussian` the policy ratio grows
+exponentially in the dose, and the top quantile bins of the shipped binned density are wider
+than the shift. A dose and its pre-image then share a bin, and the binned ratio reads one where
+the true ratio is 5 to 8. The design test measures each fit's influence-curve gap, the standard
+deviation of its influence curve minus the exact efficient influence function, in units of the
+efficiency bound:
+
+| fit label | median gap, 5 draws at n = 2,000 | gap at n = 20,000 |
+| --- | --- | --- |
+| `levels` | 0.19 | 0.05 |
+| `gaussian_density` | 0.09 | 0.03 |
+| `gaussian_classifier` | 0.12 | 0.04 |
+| `gaussian_crossfit` | 0.09 | 0.03 |
+| `vector` | 0.09 | 0.02 |
+| `untruncated_density` | 0.23 | 0.22 |
+
+The figures are for the contrast. Every gated fit stays within 0.30 at n = 2,000 and 0.10 at
+n = 20,000, and its gap at least halves. The untruncated density route's gap does not fall, so
+its rows are reported with no verdict. The cause is the shipped route's tail binning, not the
+hazard walk, and the shipped route's limitation is tracked apart from this study.
+
+The cross-fitted variant exercises the cross-fitting of the shifted-dose predictions, which
+does not depend on the ratio route, so one route covers it. The study's density learner is
+handed its sample through its constructor, so the classifier carries the cross-fitted cell. No
+maintained package targets discrete-time hazards under a modified treatment policy, so the
+study names no comparator and its agreement block stays empty.
 
 ## Accuracy against known truth
 
@@ -100,35 +131,39 @@ calibration pilots, which have not run.
 
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
-| `interval_calibration` | the contrast and the policy's risk of each fit label, with the shrunken-SE and noise controls on the `levels` and `gaussian_density` contrasts | 4,000 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
+| `interval_calibration` | the contrast and the policy's risk of each gated fit label, with the shrunken-SE and noise controls on the `levels` and `gaussian_density` contrasts | 4,000 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
+| `interval_calibration`, reported | the contrast and the policy's risk of `untruncated_density` | 800 at n = 2,000 | nothing: the rows are reported with no verdict |
 | `simultaneous_coverage` | the band over every estimate of the `levels` and `gaussian_density` fits, and its pointwise control | 4,000 at n = 2,000 | joint coverage outside the calibration band |
-| `double_robustness` | the `levels` contrast with both, one or neither nuisance correct; each Gaussian ratio route's contrast with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000 | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
+| `double_robustness` | the `levels` contrast with both, one or neither nuisance correct; the contrast of `gaussian_density`, `gaussian_classifier`, `gaussian_crossfit` and `vector` with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000 | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
 | `targeting_necessity` | the `levels` contrast from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000 | the targeted bias outside the margin, or a displacement below 0.25 |
 | `root_n_and_efficiency`, `root_n_rate` | the `levels` contrast and risk at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
 | `power` | the `levels` contrast against zero | 800 at n = 2,000 | a rejection lower bound below the minimum power |
 | `iterated_mean_difference` | on `levels` and `gaussian_density`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of the iterated-mean curve. On the `levels` `mechanism_correct` draws: the same paired difference with both regressions omitting $W$ | 800 at n = 2,000, and the 1,200 robustness draws | nothing: the family is reported with no verdict |
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
-over the ten arms at a pilot of 8,000 draws that reads a ratio of one; the committed calibration
-pilot replaces that reading once it runs. At 4,000 replicates the shrunken-SE control leaves the
-SE-ratio band and the noise control leaves the efficiency band with probability above 0.999.
+over the ten gated arms at a pilot of 8,000 draws that reads a ratio of one. The committed
+calibration pilot replaces that reading once it runs. At 4,000 replicates the shrunken-SE
+control leaves the SE-ratio band and the noise control leaves the efficiency band with
+probability above 0.999. Every replicate row records whether its fits converged and how many
+unexpected warnings they raised, and the summary counts both per cell without a verdict.
 
 The wrong hazard learner's plug-in contrast has an exact limit 3.5 efficiency standard errors
-from the truth at n = 2,000 on `levels`, 5.5 on `gaussian` and 3.5 on `vector`, so the plug-in arm
-of `targeting_necessity` can fail. With both nuisances wrong the exact `levels` limit lies 3.4
-efficiency standard errors from the truth, so the `both_wrong` control can fail; if it does not
-clear the margin, the control has failed and the study is a defect suspect. The power cell's
-exact-law power at n = 2,000 is above 0.99. At bias zero every positive bias arm passes with
-probability above 0.99, and stays above 0.99 while the true bias is below 0.108 standard
-deviations at 1,200 replicates and below 0.077 at 800.
+from the truth at n = 2,000 on `levels`, 4.8 on `truncated`, 5.5 on `gaussian` and 3.5 on
+`vector`, so the plug-in arm of `targeting_necessity` can fail. With both nuisances wrong the
+exact `levels` limit lies 3.4 efficiency standard errors from the truth, so the `both_wrong`
+control can fail; if it does not clear the margin, the control has failed and the study is a
+defect suspect. The power cell's exact-law power at n = 2,000 is above 0.99. At bias zero every
+positive bias arm passes with probability above 0.99. That stays true while the true bias is
+below 0.108 standard deviations at 1,200 replicates and below 0.077 at 800.
 
 With correctly specified parametric learners the hazard fit and the iterated-mean fit are both
 efficient, so on the gated laws they differ by $o_P(n^{-1/2})$. A 200-draw scratch run before the
-declaration read the SD of their paired difference at most 4% of an efficiency standard error for
-every estimate on `levels` and `gaussian`. With both regressions omitting $W$ and the mechanism
-correct, it read at most 2%. No iterated-mean curve decreased in 200 draws per law. Plan X70 section 5 asks for a
-paired ratio of 0.05 and a decreasing share of 0.10. The design test reads both floors on the
-committed pilot, and a decision on that reading is pending with the project owner.
+declaration read the SD of their paired difference at most 4% of an efficiency standard error
+for every estimate on `levels` and `gaussian`. With both regressions omitting $W$ and the
+mechanism correct, it read at most 2%. No iterated-mean curve decreased in 200 draws per law.
+Plan X70 section 5 names a paired ratio of 0.05 and a decreasing share of 0.10. The study
+reports the committed pilot's ratios and share beside those figures and gates neither, while a
+decision on the requirement is pending with the project owner.
 
 ## Limitations
 
@@ -137,7 +172,8 @@ committed pilot, and a decision on that reading is pending with the project owne
 | one baseline decision | a policy at several visits is part (a) of plan X70 |
 | a vector treatment at one visit | the data container does not hold a vector over several visits |
 | finite covariates and low-dimensional learners | the evidence covers correct or misspecified logistic and Gaussian learners. A flexible learner is outside it |
-| the density route with one fold | the study's density learner reads the whole sample, so the cross-fitted cell uses the classifier route |
+| the density route on a bounded dose | the gated density cells use a truncated dose with a capped shift. On an unbounded Gaussian dose the shipped route's tail bins are wider than the shift, and its reported rows show the miss |
+| held cells | every policy here is deterministic and no level is empty at n = 2,000, so no fit holds a cell out. Held cells rest on `tests/unit/test_hazard_mtp.py` |
 | no comparator | no external implementation targets these hazards under a policy |
 
 ## Reproduction
