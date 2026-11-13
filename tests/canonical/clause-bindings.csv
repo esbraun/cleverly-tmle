@@ -706,6 +706,12 @@ incremental-interventions,treatment_score_necessity,control below calibration ba
 incremental-interventions,treatment_score_necessity,full curve in efficiency band,se_low
 incremental-interventions,type_i_error,coverage floor,coverage/0.5
 incremental-interventions,type_i_error,rejection ceiling,rejection/0.1
+isotonic-binding,binding_witness,share floor,positive_diffuse
+isotonic-binding,interval_calibration,coverage in calibration band,bias
+isotonic-binding,interval_calibration,noise se ratio below band,se_high
+isotonic-binding,interval_calibration,se ratio below band,se_high
+isotonic-binding,interval_calibration,se ratio in calibration band,se/0.05
+isotonic-binding,material_move,share floor,positive_diffuse
 known-node-mechanisms,known_mechanism_accuracy,bias equivalent,bias
 known-node-mechanisms,known_mechanism_accuracy,coverage floor,coverage/0.5
 known-node-mechanisms,known_mechanism_accuracy,se ratio in band,se_high
@@ -1809,9 +1815,3 @@ option-patience,ordered_late_confounder,bias discriminated,control_diffuse
 option-patience,ordered_whole_path,bias equivalent,bias
 option-patience,patience_bias,bias equivalent,bias
 option-patience,patience_witness,coverage floor,shift/3
-tests.studies.isotonic_binding_properties,binding_witness,share floor,shift/3
-tests.studies.isotonic_binding_properties,interval_calibration,coverage in calibration band,shift/0.7
-tests.studies.isotonic_binding_properties,interval_calibration,noise se ratio below band,se_high
-tests.studies.isotonic_binding_properties,interval_calibration,se ratio below band,se_high
-tests.studies.isotonic_binding_properties,interval_calibration,se ratio in calibration band,se/0.05
-tests.studies.isotonic_binding_properties,material_move,share floor,positive_diffuse

@@ -1413,9 +1413,18 @@ then sums to the cell count in each cell. Such a fit never binds once the node-1
 solved, while a residual left by a loose solver tolerance can still move a level slightly.
 
 A logistic outcome learner beside a linear pseudo-outcome learner on a continuous covariate can
-bind. No registered study measures an interval after a projection that moves a level. The declared study
-`isotonic-binding` measures it on a two-node law with a continuous covariate, where pilots moved
-the level on 0.36 of draws and by at least 0.1 standard errors on 0.19, and it has not run.
+bind. The registered study [binding isotonic projection](method-evidence/isotonic-binding.md)
+fits that pairing on a two-node law with a continuous covariate and a strictly increasing risk.
+
+| claim | cell | measured |
+| --- | --- | --- |
+| the interval at the projected level, with the unprojected SE, is calibrated where the projection binds | `interval_calibration/projected_t1` | coverage 0.942, SE ratio 0.98, inside the calibration bands |
+| the projection moves the never horizon-1 level | `binding_witness/never_t1` | 0.354 of draws |
+| it moves the level materially | `material_move/never_t1` | at least 0.1 SE on 0.193 of draws, at most 0.564 SE |
+
+The projected and unprojected intervals disagree on 0.64% of draws, so the study bounds the
+coverage the projection costs at these move sizes and cannot show a gain. A flat truth and other
+learner pairings are untested.
 
 ### Known node mechanisms
 

@@ -98,6 +98,7 @@ option-stopping-point
 option-treatment-adjustment
 option-outcome-by-arm
 option-patience
+isotonic-binding
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response

@@ -1880,8 +1880,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # from below.
         "unclustered_se",
         # X33's binding witness: the iterated-mean cell answers to two share floors, and the
-        # hazard cell carries the diagnostic role and states no verdict.
+        # hazard cell carries the diagnostic role and states no verdict.  ``isotonic-binding``
+        # names its binding share the same, and its material-move share beside it; each answers
+        # to the lower limit of its share's exact interval.
         "binding_witness",
+        "material_move",
         # X21's bias rows of AdaptiveIPTW: a positive row's standardized bias inside the
         # margin, a control's outside it.  The ladder rows read the same equivalence endpoint.
         "bias",
@@ -1923,6 +1926,10 @@ SAME_DRAW_FAMILIES = {
     # shows that trimming leaves a remainder that double robustness otherwise removes, on the
     # draws whose correct-outcome fits the point cells measure.
     "option-ratio-trim": (frozenset({"trim_necessity", "trim_point"}),),
+    # ``isotonic-binding``: the interval at the projected level and the two move shares read one
+    # fit per draw of law LG2, so the shares say how often the level the interval is centred at
+    # moved on exactly the draws the calibration cell reads.
+    "isotonic-binding": (frozenset({"interval_calibration", "binding_witness", "material_move"}),),
     # The stopping-rule studies (X76 (a)): the witness reads the share of draws on which the
     # rule leaves a residual of at least 0.01 SE, on the fits whose widened interval the
     # calibration cell measures, so it shows that those cells measure a binding rule.  On L4 the
@@ -2061,6 +2068,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "instrument_slow_outcome_ladder",
         "instrument_slow_outcome_rate",
         "instrument_parametric",
+        # ``isotonic-binding``: the unprojected and horizon-2 levels, the always regimen and the
+        # larger-move law, reported with no verdict.
+        "reported_levels",
+        "reported_large_move",
     }
 )
 
@@ -4045,7 +4056,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.isotonic_binding_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

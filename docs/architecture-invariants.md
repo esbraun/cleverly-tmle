@@ -799,8 +799,9 @@ levels and keep the band built at the unprojected levels. Westling, van der Laan
 (2020), Theorem 1 (iv) and (v), supports the projected limits.
 The mutations M10 and M13 in `tests/unit/test_isotonic_projection.py` move the influence curve or
 centre the band, and each one fails. *Reconsider when* a registered study shows the pointwise interval at a projected
-level fails where the true curve strictly increases; the declared study `isotonic-binding`,
-not yet run, reads that interval on a law where the projection moves the level.
+level fails where the true curve strictly increases; the registered study `isotonic-binding`
+reads that interval where a learner-class gap between the two horizons' node-1 regressions moves
+the level, and it passes there.
 
 ## Weights, bounds, and sensitivity
 

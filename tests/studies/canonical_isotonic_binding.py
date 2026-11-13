@@ -33,8 +33,8 @@ is not a reference for the truth.  The study reads every cell against its quadra
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/isotonic_binding/regenerate.py`` before any run.
 
-**Declared, not registered.**  The record is not in ``registered()`` until its run is
-committed; the ``G31.isotonic`` cells and the evidence page land with that registration.
+**Registered** from its committed run, with the ``G31.isotonic`` evidence, cells and limit and
+the evidence page ``isotonic-binding.md``.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ STUDY = StudyRecord(
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "isotonic_binding",
     document="docs/technical-reference/method-evidence/isotonic-binding.md",
-    anchor="isotonic-binding",
+    anchor="binding-isotonic-projection-of-a-survival-curve",
     scenarios={PRIMARY_SCENARIO: PRIMARY_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

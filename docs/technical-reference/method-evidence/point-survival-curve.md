@@ -226,8 +226,8 @@ both conditions, and it solves the score to `tol=1e-10`.
 
 A projection can bind only when the two horizons' node-1 fits differ, as with a logistic
 outcome learner beside a linear pseudo-outcome learner on a continuous covariate. It binds when
-the true increment is small against the noise of that gap. The declared study `isotonic-binding`
-measures such a law (Fix-8 plan section 5.8) and has not run.
+the true increment is small against the noise of that gap. The registered study
+[binding isotonic projection](isotonic-binding.md) measures such a law.
 `tests/unit/test_isotonic_binding_witness.py` checks the identity on a sample of each kind.
 
 ## Measured values
@@ -289,7 +289,7 @@ measures such a law (Fix-8 plan section 5.8) and has not run.
 | the declared `tmle3` settings differ | the bounds, the censoring convention, the step and the stopping rule differ by construction. The pairs read under the default margins and not as an exactness check |
 | one primary scenario | the 15 truth tests read the five-visit `survival` law. The other laws enter the property cells only |
 | learners that contain the truth | the primary fit uses unpenalized logistic regressions. The property cells use correct additive or saturated learners, apart from the declared wrong ones. A flexible learner is outside the evidence |
-| the isotonic cell does not bind | the cell's saturated learners cannot move a level, and its diagnostic reports a binding share of zero. No cell here supports an interval after a projection that moves a level. The declared study `isotonic-binding` measures one and has not run |
+| the isotonic cell does not bind | the cell's saturated learners cannot move a level, and its diagnostic reports a binding share of zero. No cell here supports an interval after a projection that moves a level. The [binding isotonic projection](isotonic-binding.md) study measures one: on its law the projection moved the never horizon-1 level on 0.354 of draws, by at least 0.1 SE on 0.193 and by at most 0.564 SE, and the interval at the projected level read coverage 0.942. A flat truth and other learner pairings are untested |
 | the per-horizon algorithm has three cells only | `targeting="iterative"` appears in one calibration, one weighted and one clustered cell. It has no double-robustness or necessity cell here. The [hazard study](point-survival-hazard.md) holds those cells |
 | no cross-fitting | every fit uses one fold. The [cross-fitted study](point-survival-curve-crossfit.md) covers five folds |
 

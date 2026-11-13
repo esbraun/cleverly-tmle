@@ -418,7 +418,11 @@ binary theorem.
 The options `step_bound=`, `step_search=` and `iterate=` have no registered study.
 `patience=` has the registered study
 [patience on the cross-validated C-TMLE path](method-evidence/option-patience.md), which backs
-row `C12.greedy` and shows why a pre-ordered path stays experimental. `treatment_adjustment=`
+row `C12.greedy` and shows why a pre-ordered path stays experimental. `isotonic=True` on
+`LTMLE` has the registered study
+[binding isotonic projection of a survival curve](method-evidence/isotonic-binding.md), which
+measures the interval at a level the projection moved and adds that evidence to row
+`G31.isotonic`. `treatment_adjustment=`
 has the registered study
 [treatment-mechanism covariates on point TMLE](method-evidence/option-treatment-adjustment.md),
 and `outcome_by_arm=` the registered study

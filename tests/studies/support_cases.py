@@ -3217,6 +3217,22 @@ def _x76_markov_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _x76_isotonic_cases() -> tuple[RowCase, ...]:
+    """The case of ``isotonic-binding`` (X76 part (g)): ``G31.isotonic`` on law ``LG2``."""
+    module = "_isotonic_binding_law"
+    return (
+        _observed(
+            "G31.isotonic",
+            "isotonic-binding",
+            "interval_calibration/projected_t1__correctly_specified",
+            f"{module}.py:252",
+            module,
+            lambda law: law.draw(2000, 0),
+            lambda law, frame: law.fit(frame),
+        ),
+    )
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -3255,4 +3271,5 @@ CASES: tuple[RowCase, ...] = (
     *_x76_stopping_long_cases(),
     *_x76_trim_cases(),
     *_x76_markov_cases(),
+    *_x76_isotonic_cases(),
 )

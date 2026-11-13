@@ -224,6 +224,52 @@ def sample_seed(stream: str, replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", stream, replicate)
 
 
+#: The estimand key of a share cell's rows, whose truth is 0 (the move against no move).
+SHARE_ESTIMAND = "share"
+#: Each level cell's regimen and horizon; every other cell is a share.
+LEVEL_CELLS = {
+    "projected_t1": ("never", 1),
+    "unprojected_t1": ("never", 1),
+    "projected_t2": ("never", 2),
+    "unprojected_t2": ("never", 2),
+    "always_projected_t1": ("always", 1),
+    "always_projected_t2": ("always", 2),
+}
+
+
+class DeclaredLaw:
+    """The law a declared cell reads, with the truths its rows carry.
+
+    Parameters
+    ----------
+    label : str
+        :data:`tests.studies._isotonic_binding_law.LAW` or ``LARGE_MOVE_LAW``.
+    """
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.name = f"isotonic_binding__{label}"
+
+    def __eq__(self, other: object) -> bool:
+        """Equal to another declared law of the same label, or to the label itself."""
+        if isinstance(other, DeclaredLaw):
+            return self.label == other.label
+        return self.label == other
+
+    def __hash__(self) -> int:
+        return hash(self.label)
+
+    def truth(self) -> dict[str, float]:
+        """Every level's quadrature truth (both laws share them) and the shares' 0."""
+        return {**law.TRUTH, SHARE_ESTIMAND: 0.0}
+
+
+def cell_estimand(cell: str) -> str:
+    """The estimand key a cell's rows are read against: its level, or a share's 0."""
+    level = LEVEL_CELLS.get(cell.split("__")[0])
+    return SHARE_ESTIMAND if level is None else law.name(*level)
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its role, size and replicate count."""
     cells = []
@@ -242,14 +288,14 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 PropertyCell(
                     property=family,
                     cell=cell,
-                    dgp=law_name,
+                    dgp=DeclaredLaw(law_name),
                     outcome_learner=lambda: None,
                     treatment_learner=lambda: None,
                     n=N,
                     replicates=REPLICATES,
                     seed=sample_seed(stream, 0),
                     role=_role(family, cell),
-                    estimand=law.ESTIMAND,
+                    estimand=cell_estimand(cell),
                     fit_kwargs={"stream": stream},
                 )
             )

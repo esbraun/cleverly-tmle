@@ -18,28 +18,19 @@ quadrature truth.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. At the
-registration `G31.isotonic` gains the evidence `[curve, "isotonic-binding"]` and the cells
-`["isotonic_t2", "projected_t1", "binding_witness", "material_move"]`, and the evidence page
-`docs/technical-reference/method-evidence/isotonic-binding.md` lands. A red gated cell becomes a
-shortfall of `G31.isotonic` instead (`SupportRow.shortfalls`). A red calibration control is a
-defect suspect, and a red calibration positive follows the shared finite-sample reading. A red
-witness (`binding_witness` or `material_move`) is a shortfall whose sentence states the
-measured share, and the design test checks that the row carries it. The row's limit is to read,
-with the measured numbers:
-
-> On the isotonic-binding law (two nodes, a continuous baseline covariate, a strictly
-> increasing risk) the projection moved the never regimen's horizon-1 level on {share} of
-> draws, by at least 0.1 SE on {share_01} and by at most {max} SE, and the interval at the projected level read
-> coverage {cov}. The projected and unprojected intervals disagreed on {disagree} of draws, so
-> the projection changed coverage by at most that ({coverage difference and its interval}). On
-> the larger-move law (treatment slope 2.0) the moves reached {max_gs2} SE and the coverage
-> difference read {difference_gs2}, but there the unprojected interval itself under-covers
-> (SE ratio {se_ratio_gs2}, about 0.94 in the pre-read). The moves arise because the two horizons' node-1
-> regressions use different learner classes; a flat truth and other learner pairings are
-> untested.
-
-The `point-survival-curve` page's limitation row then points to the new page.
+Registered from the run at `617ac8f` (`run.log`). Every gated cell passes: the interval at the
+projected level reads coverage 0.9419 (99% interval 0.9312 to 0.9515) with SE ratio 0.9818, both
+derived controls fail the bands, the level binds on 0.3539 of draws (lower limit 0.3334) and
+moves by at least 0.1 SE on 0.1933 (lower limit 0.1767), by at most 0.5638 SE. No witness is
+red, so `G31.isotonic` carries no shortfall. The study backs `G31.isotonic` (evidence
+`[point-survival-curve, isotonic-binding]`, cells `isotonic_t2`, `projected_t1`,
+`binding_witness` and `material_move`) and its limit, which states those numbers, the 0.0064
+disagreement share, and the larger-move law's coverage difference and under-covering unprojected
+interval. The evidence page is
+`docs/technical-reference/method-evidence/isotonic-binding.md`. A red calibration control would
+be a defect suspect, a red calibration positive follows the shared finite-sample reading, and a
+red witness would be a shortfall whose sentence states the measured share; the design test
+checks each.
 
 The pre-read pools the plan's 2,400 draws (seeds 10000-11199 and 20000-21199, reproduced
 exactly by `run --plan-seeds`: coverage 0.9417, SE ratio 0.968) with 4,800 fresh draws. Pooled,

@@ -1555,6 +1555,9 @@ ARMS.update(
         "order2_ate": "the order-2 window, always against never",
     }
 )
+#: The calibration label of ``isotonic-binding`` (X76 part (g)), mirrored from its properties
+#: module; :data:`STUDY_ARMS` gives the study's own words.
+ARMS["projected_t1"] = "the never regimen's horizon-1 interval at the projected level"
 
 #: The fit labels of the stopping-rule studies (``option-stopping-point``,
 #: ``option-stopping-ltmle``): law, rule and walk.  :data:`STUDY_ARMS` gives each study's words.
@@ -9278,5 +9281,105 @@ CELLS.update(
             )
             for cell in ("lc1_discrete", "lc1_greedy", "lc1_ordered", "lc2_lasso", "lc2_learners")
         },
+    }
+)
+
+
+#: ``isotonic-binding`` (X76 part (g)): ``LTMLE(isotonic=True)`` on law ``LG2``.  The law, fit and
+#: cells are those of ``tests/studies/_isotonic_binding_law.py`` and its properties module.
+_ISOTONIC_SLUG = "isotonic-binding"
+_LG2 = (
+    "law LG2 (two nodes, a continuous baseline covariate, a strictly increasing risk), "
+    "in-sample LTMLE with isotonic=True, n = 2,000"
+)
+_LG2_GS2 = "law LG2 with treatment slope 2.0 (larger moves), in-sample LTMLE with isotonic=True"
+_NEVER_T1 = "the risk by visit 1 under never treated"
+_SHARE_FLOOR_REQUIRED = "the lower limit of the share's exact 99% interval at least {floor}"
+STUDY_SCENARIOS[(_ISOTONIC_SLUG, "LG2")] = (
+    f"{_LG2}; logistic outcome and mechanism learners, a linear pseudo-outcome learner"
+)
+STUDY_ARMS[(_ISOTONIC_SLUG, "projected_t1")] = f"{_LG2}: {_NEVER_T1}"
+STUDY_ARM_CELLS[(_ISOTONIC_SLUG, "interval_calibration", "projected_t1", "correctly_specified")] = (
+    "the interval centred at the projected level with the fit's unprojected SE",
+    "SE ratio and coverage intervals both inside their calibration bands",
+)
+PROPERTIES.update(
+    {
+        "material_move": "the isotonic projection moves a level by at least 0.1 SE",
+        "reported_levels": (
+            "the unprojected and horizon-2 levels and the always regimen, reported"
+        ),
+        "reported_large_move": "the never horizon-1 level on the larger-move law, reported",
+    }
+)
+CELLS.update(
+    {
+        ("binding_witness", "never_t1"): (
+            f"{_LG2}: the share of draws on which the projection moves {_NEVER_T1} by more "
+            "than 1e-6 SE",
+            _SHARE_FLOOR_REQUIRED.format(floor="0.25"),
+        ),
+        ("material_move", "never_t1"): (
+            f"{_LG2}: the share of draws on which the projection moves {_NEVER_T1} by at "
+            "least 0.1 SE",
+            _SHARE_FLOOR_REQUIRED.format(floor="0.10"),
+        ),
+        ("reported_levels", "unprojected_t1"): (
+            f"{_LG2}: {_NEVER_T1}, the interval at the unprojected level on the same draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "projected_t2"): (
+            f"{_LG2}: the risk by visit 2 under never treated, at the projected level, on the "
+            "draws that report an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "unprojected_t2"): (
+            f"{_LG2}: the risk by visit 2 under never treated, at the unprojected level, on the "
+            "draws that report an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "se_present_t2"): (
+            f"{_LG2}: the share of draws on which the never horizon-2 level reports an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_projected_t1"): (
+            f"{_LG2}: the risk by visit 1 under always treated, at the projected level",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_binding_t1"): (
+            f"{_LG2}: the share of draws on which the projection moves the always horizon-1 "
+            "level by more than 1e-6 SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_projected_t2"): (
+            f"{_LG2}: the risk by visit 2 under always treated, at the projected level, on the "
+            "draws that report an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_se_present_t2"): (
+            f"{_LG2}: the share of draws on which the always horizon-2 level reports an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "stalled_fits"): (
+            f"{_LG2}: the share of replications with a logistic fit stopped at max_iter",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "projected_t1"): (
+            f"{_LG2_GS2}: {_NEVER_T1}, at the projected level",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "unprojected_t1"): (
+            f"{_LG2_GS2}: {_NEVER_T1}, at the unprojected level on the same draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "binding_t1"): (
+            f"{_LG2_GS2}: the share of draws on which the projection moves {_NEVER_T1} by "
+            "more than 1e-6 SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "stalled_fits"): (
+            f"{_LG2_GS2}: the share of replications with a logistic fit stopped at max_iter",
+            _DIAGNOSTIC_REQUIRED,
+        ),
     }
 )

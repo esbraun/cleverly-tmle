@@ -50,7 +50,6 @@ item names.
 | 4 | heavy inverse weights | `X40-sdr-heavy-ratios`, `mtp-pricing-calibration` |
 | 5 | DR-TMLE bias when only one nuisance is correct | `RM18-one-sided-bias`, `X8-drtmle-one-sided-bias` |
 | 6 | study-design faults, re-declared at each study's next regeneration | `F1-power-design`, `RM18-ordinary-weighted`, `RM18-boundary`, `X82-short-study-sanity`, `adaptive-iptw-composite-l3` |
-| 7 | registered studies of shipped options | [X76](#x76-studies-of-the-targeting-and-fitting-options) |
 
 A fix to an interval users already get comes before a new capability. A small-sample correction
 with its own registered study is preferred over a rerun at a larger size.
@@ -131,7 +130,6 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) Small-sample evidence for clustered intervals and boundary nodes | fix for parts (d), (f) and (g); 3 for the rest | [no new theory](technical-reference/hard-stop-review.md) | the shipped clustered intervals and `constant_node_plugin` status |
-| [X76](#x76-studies-of-the-targeting-and-fitting-options) Studies of the targeting and fitting options | fix | no new theory | the shipped `isotonic=True` |
 | [X81](#x81-adaptiveiptw-follow-ups) AdaptiveIPTW follow-ups | 3 | natural extension for parts (b) to (d); no read source for part (a) | the shipped `AdaptiveIPTW` |
 | [X36](#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) Projected variance for AdaptiveIPTW with a declared parametric mechanism | 6 | natural extension; the base result is van der Laan (2012), WP302, Section 2.1 | the shipped `AdaptiveIPTW` |
 | [X55](#x55-bootstrap-extensions) Bootstrap extensions | 6 | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) |
@@ -1492,27 +1490,6 @@ method that fits `StructuralNestedMean`.
 | (b) | a `CausalStudy` method for the estimator, whose study report carries the structural label | a study test that the label reaches the study report |
 
 Acceptance: the study test of part (b).
-
-### X76. Studies of the targeting and fitting options
-
-These options run. Parts (a) to (f) are done: their registered studies back support
-rows, and a fit outside those rows carries the experimental label. Part (g) is open.
-
-| part | option | what a study measures |
-| --- | --- | --- |
-| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Done: [`option-stopping-point`](technical-reference/method-evidence/option-stopping-point.md) and [`option-stopping-ltmle`](technical-reference/method-evidence/option-stopping-ltmle.md), rows `T52` and `G55`. A rule with `step_bound=` or `iterate="best"`, and a one-step end-of-study walk, stay experimental |
-| (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm. Done: [`option-outcome-by-arm`](technical-reference/method-evidence/option-outcome-by-arm.md), rows `T53` |
-| (c) | `patience=` on the cross-validated C-TMLE path | bias when the counter stops the greedy path early, beside the whole path. Done: [`option-patience`](technical-reference/method-evidence/option-patience.md), row `C12.greedy`. A pre-ordered strategy with `patience=` stays experimental permanently: the counter can stop before a needed candidate at every sample size (cell `ordered_late_confounder`) |
-| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Done: [`option-treatment-adjustment`](technical-reference/method-evidence/option-treatment-adjustment.md), rows `T54` |
-| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias at a trim that binds on a law with weak support, beside the untrimmed fit. The trimmed fit reports no interval, so the study reads the point only. Done: [`option-ratio-trim`](technical-reference/method-evidence/option-ratio-trim.md), point-only rows `G56` |
-| (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does. Done: [`option-markov-order`](technical-reference/method-evidence/option-markov-order.md), row `G57` |
-| (g) | `isotonic=True` | coverage of the interval at a projected level on a law where the projection binds, and the share of draws it moves. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its saturated learners cannot bind. Declared as `isotonic-binding`, not yet run |
-
-`iterate="best"` and `step_bound=` under `stopping="relative"` keep the support of the fit. That
-walk stops only at the solution of the score equation, to `tol`.
-
-Acceptance: a registered study per part, with its red cells reported, and a support row that
-names the option.
 
 ### X73. Pooled-over-time parametric g-formula models
 

@@ -627,6 +627,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
     from tests.studies.canonical_ipsi_repeated import STUDY as CANONICAL_IPSI_REPEATED
+    from tests.studies.canonical_isotonic_binding import STUDY as ISOTONIC_BINDING
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
@@ -849,6 +850,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_TREATMENT_ADJUSTMENT,
         OPTION_OUTCOME_BY_ARM,
         OPTION_PATIENCE,
+        ISOTONIC_BINDING,
         DOSE_RESPONSE,
         MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,

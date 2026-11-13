@@ -1910,6 +1910,23 @@ def _d_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit of ``G31.isotonic``: what the binding projection was measured to do (study
+#: ``isotonic-binding``, Fix-8 plan 3.8).
+ISOTONIC_BINDING_LIMIT: Final[str] = (
+    "On the isotonic-binding law (two nodes, a continuous baseline covariate, a strictly "
+    "increasing risk) the projection moved the never regimen's horizon-1 level on 0.354 of "
+    "draws, by at least 0.1 SE on 0.193 and by at most 0.564 SE, and the interval at the "
+    "projected level read coverage 0.942 (SE ratio 0.98). The projected and unprojected "
+    "intervals disagreed on 0.0064 of draws, so the projection changed coverage by at most that "
+    "(difference +0.0008, 99% interval -0.0027 to +0.0040). On the larger-move law (treatment "
+    "slope 2.0) the moves reached 0.994 SE and the coverage difference read -0.0033 (99% "
+    "interval -0.0081 to +0.0021), but there the unprojected interval itself under-covers "
+    "(coverage 0.938, SE ratio 0.95). The moves arise because the two horizons' node-1 "
+    "regressions use different learner classes; a flat truth and other learner pairings are "
+    "untested."
+)
+
+
 #: The limit of ``C01.greedy`` and ``C12.greedy``: the greedy point estimate on a law where
 #: both selected nuisances are wrong (study ``option-patience``, Fix-8 plan 2.3).
 GREEDY_LATE_CONFOUNDER_LIMIT: Final[str] = (
@@ -3911,12 +3928,18 @@ def _long_rows() -> tuple[SupportRow, ...]:
         ),
         long_row(
             "G31.isotonic",
-            [curve],
+            [curve, "isotonic-binding"],
             outcome_kind="survival",
             treatment=("2", "2"),
             isotonic=True,
             kinds=_LONG_WALD,
-            cells=["isotonic_t2"],
+            cells=[
+                "isotonic_t2",
+                "interval_calibration/projected_t1__correctly_specified",
+                "binding_witness/never_t1",
+                "material_move/never_t1",
+            ],
+            limits=[ISOTONIC_BINDING_LIMIT],
         ),
         long_row(
             "G32.survival",
@@ -5515,8 +5538,8 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
     )
 
 
-# The longitudinal rows of the X76 option studies, one function per part, each empty until its
-# study passes: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
+# The longitudinal rows of the X76 option studies, one function per part, each registered from
+# its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
     """A declared stopping rule on ``LTMLE`` (``G55``, study ``option-stopping-ltmle``).
 

@@ -286,6 +286,47 @@ def _reads_score(row: Any) -> bool:
     return str(row.cell).endswith(("__closed_score", "__initial_score_control"))
 
 
+#: The share and reported families of ``isotonic-binding`` (X76 (g)).  X33's ``binding_witness``
+#: shares the family name and publishes ``exceeds_share``, which these rows do not.
+_ISOTONIC_FAMILIES = frozenset(
+    {"binding_witness", "material_move", "reported_levels", "reported_large_move"}
+)
+#: The cells of those families whose row is a share with a placeholder SE.
+_ISOTONIC_SHARE_PREFIXES = (
+    "never_t1",
+    "binding_t1",
+    "always_binding_t1",
+    "se_present",
+    "always_se",
+)
+
+
+def _isotonic_measured(row: Any) -> str:
+    """An ``isotonic-binding`` row: a share, a stalled-fit count, or a level's interval.
+
+    A share row's SE is a placeholder of one, so its bias, SE ratio and rejection columns
+    mean nothing and are never printed (``isotonic_binding_properties.SHARE_COLUMNS``).
+    """
+    cell = str(row.cell)
+    if cell == "stalled_fits":
+        return f"{int(row.stalled_fits)} logistic fits stopped at max_iter"
+    if cell.startswith(_ISOTONIC_SHARE_PREFIXES):
+        return f"share {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    measured = (
+        f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+        f"coverage {render(float(row.coverage))}, SE ratio {render(float(row.se_ratio))}"
+    )
+    if pd.notna(getattr(row, "coverage_with_se", None)):
+        measured += f", coverage on draws with an SE {render(float(row.coverage_with_se))}"
+    if pd.notna(getattr(row, "disagree_share", None)):
+        measured += (
+            f", intervals disagree on {render(float(row.disagree_share))}, coverage difference "
+            f"{_interval(row.coverage_difference_ci_lower, row.coverage_difference_ci_upper)}, "
+            f"largest move {render(float(row.max_move))} SE"
+        )
+    return measured
+
+
 def measured(row: Any) -> str:
     """The endpoint a cell's own verdict was read from, named and valued.
 
@@ -354,6 +395,8 @@ def measured(row: Any) -> str:
         return measured
     if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family in _ISOTONIC_FAMILIES and pd.isna(getattr(row, "exceeds_share", None)):
+        return _isotonic_measured(row)
     if family in {"residual_witness", "patience_witness", "late_confounder_stop", "reported_stop"}:
         # X76 (a) and (c): a share of draws (a residual that reaches 0.01 SE, a counter that
         # stopped, a model without W1), with its exact interval.
