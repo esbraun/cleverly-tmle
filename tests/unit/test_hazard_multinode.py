@@ -883,3 +883,87 @@ def test_mutation_targeting_the_cells_misses_with_a_modifier_only(
     assert abs(mutated[3] - _exact_beta(TWO, True)[3]) > MISSED
     control = _msm_fit(False).msm_fits[0].beta
     np.testing.assert_allclose(control, _exact_beta(TWO, False), rtol=0.0, atol=EXACT)
+
+
+class _Untouched:
+    """A learner that fails the test if the fit reaches it."""
+
+    def fit(self, *args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("H17 must refuse before any learner")
+
+    def predict_proba(self, *args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("H17 must refuse before any learner")
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {}
+
+
+def _coin(node: int) -> Stochastic:
+    def density(history: pd.DataFrame) -> np.ndarray:
+        return np.full((len(history), 2), 0.5)
+
+    return Stochastic(density, f"coin {node}", density_kind="known")
+
+
+def test_h17_a_policy_at_many_nodes_is_refused_before_any_learner() -> None:
+    """A fair coin at every node gives ``2**k`` paths after ``k`` nodes, until the cap."""
+    n, n_times = 2_000, 10
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({"W": rng.normal(size=n)})
+    alive = np.ones(n, dtype=bool)
+    for k in range(1, n_times + 1):
+        frame[f"A{k}"] = np.where(alive, rng.integers(0, 2, n), np.nan)
+        frame[f"C{k}"] = np.where(alive, 1.0, np.nan)
+        event = rng.random(n) < 0.05
+        frame[f"Y{k}"] = np.where(alive, event, np.nan)
+        alive &= ~event
+    nodes = range(1, n_times + 1)
+    coin = DynamicRegimen("coin", tuple(_coin(k) for k in nodes))
+    learners = {
+        name: _Untouched() for name in ("outcome_learner", "treatment_learner", "censoring_learner")
+    }
+    estimator = LTMLE({"coin": coin}, survival_model="hazard", n_folds=1, **learners)
+    with pytest.raises(CapabilityError) as raised:
+        estimator.fit(
+            frame,
+            treatment=[f"A{k}" for k in nodes],
+            outcome=[f"Y{k}" for k in nodes],
+            censoring=[f"C{k}" for k in nodes],
+            baseline=["W"],
+        )
+    refusal = raised.value.refusal
+    assert refusal.reason is RefusalReason.API_REDIRECTION
+    found = re.search(
+        r"at (\d+) nodes, which gives (\d+) treatment paths .* (\d+) units, (\d+) nodes, "
+        r"(\d+) paths, (\d+) causes and (\d+) design columns give a predicted peak of "
+        r"([\d.]+) GB, above the limit of 2 GB\.",
+        str(raised.value),
+    )
+    assert found is not None, str(raised.value)
+    drawn, paths, units, times, slots, causes, columns = map(int, found.groups()[:7])
+    assert (units, times, causes, paths, slots) == (n, n_times, 1, 2**drawn, 2**drawn)
+    limit = hazard_module.PATH_PEAK_LIMIT
+    peak = hazard_module.path_peak(units, times, slots, causes, columns)
+    assert peak > limit >= hazard_module.path_peak(units, times, slots // 2, causes, columns)
+    assert float(found.group(8)) == pytest.approx(peak / 1024.0**3, abs=0.05)
+
+
+#: A record, not a run: the traced peak (MB) of whole one-step fits at ``iterate="best"`` of a
+#: known policy with full support at every node, ``(n, T, J, p, U, peak)``, from which
+#: :data:`~cleverly.longitudinal.hazard.PATH_STATE_BYTES` and ``PATH_DESIGN_BYTES`` were set.
+PEAKS = (
+    (20_000, 4, 1, 5, 16, 367.7),
+    (20_000, 5, 1, 6, 32, 874.0),
+    (20_000, 4, 2, 5, 16, 522.6),
+    (20_000, 4, 1, 44, 16, 362.2),
+    (40_000, 4, 1, 5, 16, 711.9),
+)
+
+
+@pytest.mark.parametrize(("n", "n_times", "causes", "columns", "paths", "peak"), PEAKS)
+def test_h17_the_predicted_peak_covers_each_measured_fit(
+    n: int, n_times: int, causes: int, columns: int, paths: int, peak: float
+) -> None:
+    """The prediction stays above each recorded peak and within twice it."""
+    predicted = hazard_module.path_peak(n, n_times, paths, causes, columns) / 1e6
+    assert peak <= predicted <= 2.0 * peak

@@ -810,11 +810,12 @@ that node.
 
 ### X70. Hazard targeting beyond a held baseline treatment
 
-`LTMLE` with `survival_model="hazard"` supports one baseline treatment held over every node, with
-baseline covariates only: a categorical treatment under any regimen, and a modified treatment policy
-on a categorical, continuous or mixed treatment. The
+`LTMLE` with `survival_model="hazard"` supports baseline covariates only. It takes one baseline
+treatment held over every node, categorical under any regimen or under a modified treatment policy
+on a categorical, continuous or mixed treatment, and a categorical treatment at several nodes under
+static arms, known rules and known policies. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
-list each design it refuses. H1 and H2 name `survival_model="iterated_mean"` with
+list each design it refuses. H2 names `survival_model="iterated_mean"` with
 `isotonic=True` as the working alternative.
 
 The code of part (d) is in, with its rows labelled
@@ -823,11 +824,13 @@ hazard curve" of
 [hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
 states it. The code of part (c) is in, and its rows stay `experimental` until its registered
 study passes. [A modified treatment policy on the hazard path](technical-reference/longitudinal-tmle.md#a-modified-treatment-policy-on-the-hazard-path)
+states it. The code of part (a) is in, and its rows stay `experimental` until its registered
+study passes. [A treatment at several nodes on the hazard path](technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
 states it.
 
 | part | what to add | published source |
 | --- | --- | --- |
-| (a) a treatment at several nodes | a hazard model and a fluctuation of the treatment mechanism at each decision node | Stitelman, De Gruttola and van der Laan (2012), *The International Journal of Biostatistics* 8(1) |
+| (a) a treatment at several nodes | the hazards of every treatment path a regimen follows, fluctuated with the clever weight of the regimen along each path; the treatment and censoring factors enter the weight only | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5), the discrete-time special case of Theorem 1 |
 | (b) covariates after baseline | a model and a fluctuation of each later covariate, beside the event and censoring hazards | Stitelman, De Gruttola and van der Laan (2012) |
 | (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the loss weight | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
 | (d) a working model over the hazard curve | MSM coefficients over regimen and horizon cells from the targeted hazards | Rosenblum and van der Laan (2010), *The International Journal of Biostatistics* 6(2) |

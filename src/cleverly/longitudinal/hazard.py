@@ -1,4 +1,4 @@
-r"""Hazard-based targeting of a survival curve under a held baseline treatment.
+r"""Hazard-based targeting of a survival curve.
 
 The iterated-mean recursion of :mod:`cleverly.longitudinal.sequential` reports each
 horizon from its own backward pass, so its curve can decrease.  This module models the
@@ -17,6 +17,16 @@ static arm, a known rule or a known policy at the one baseline decision.  A modi
 treatment policy :math:`d` has the parameter
 :math:`\psi_{d,j}(t) = E \sum_b p_b F_j(t \mid d_b(A, W), W)` and its own weighted walk
 (:func:`target_mtp`).
+
+A categorical treatment at several nodes (:func:`is_multinode`) is held as slots, one full
+treatment path :math:`u` per slot for every unit (:func:`path_slots`), with the parameter
+:math:`\psi_{r,j}(t) = E \sum_u q_r(u \mid W) F_j(t \mid u, W)` and the hazard
+:math:`\lambda_l(k \mid \bar u_k, W)` of each path's prefix.  The clever covariate of
+node :math:`k` sums :math:`q_r(u \mid W) / \prod_{s \le k} g_s c_s` times the bracket
+below over the paths that agree with the observed history through :math:`k`, the
+discrete-time special case of Rytgaard, Gerds and van der Laan (2022), Theorem 1.  The
+direction is summed over each prefix class, so every copy of one hazard moves alike and the
+state stays one law.
 
 The efficient influence function (Moore and van der Laan 2009, Section 4.1, (11)-(16);
 Rytgaard and van der Laan 2024, Section 3.1) is
@@ -114,6 +124,10 @@ from .sequential import NodeBound, RegimenFit
 
 __all__ = [
     "HAZARD_BOUND_EXCLUDES_DATA",
+    "HAZARD_MARKOV_ORDER_REFUSAL",
+    "PATH_DESIGN_BYTES",
+    "PATH_PEAK_LIMIT",
+    "PATH_STATE_BYTES",
     "HAZARD_STEP_BOUND_ONE_STEP_REFUSAL",
     "SIGMA_FLOOR",
     "WALK_LOSS_TOLERANCE",
@@ -124,21 +138,32 @@ __all__ = [
     "HazardState",
     "InitialHazards",
     "MTPSlots",
+    "PathSlots",
     "check_hazard_node_bounds",
     "clip_logits",
     "clipped_shares",
     "fit_hazards",
     "hazard_bounds",
     "hazard_inputs",
+    "hazard_first_node_mtp_refusal",
+    "hazard_later_mtp_refusal",
+    "hazard_later_tilt_refusal",
     "hazard_msm_mtp_refusal",
     "hazard_mtp_replay_refusal",
+    "hazard_node_kind_refusal",
+    "hazard_path_cap_refusal",
     "hazard_separable_mtp_refusal",
     "hazard_tuned_cap_refusal",
+    "is_multinode",
     "mtp_inputs",
     "mtp_slots",
+    "path_label",
+    "path_peak",
+    "path_slots",
     "project_curves",
     "refuse_hazard_design",
     "refuse_hazard_settings",
+    "refuse_multinode_design",
     "refuse_separable_mtp",
     "slot_design",
     "softmax_logits",
@@ -1759,13 +1784,19 @@ def is_multinode(data: LongitudinalData) -> bool:
 
 
 #: The traced peak of a multi-node hazard fit at ``iterate="best"``, in bytes per value of an
-#: ``(n, T, U, J)`` array: about ten such arrays in a walk step, a candidate state, the best
-#: iterate and the retained initial hazards (plan 2.4.3).  Fitted from ``tracemalloc``; the
-#: measurement is recorded in ``tests/unit/test_hazard_multinode.py``.
-PATH_STATE_BYTES = 200.0
+#: ``(n, T, U, J)`` array: the walk state, its candidate and temporaries, the best iterate and
+#: the retained initial hazards (plan 2.4.3).  Measured with ``tracemalloc`` over whole one-step
+#: fits of a known policy with full support at every node (logistic learners, one fold): ``(n, T, J, p)`` of
+#: ``(20000, 4, 1, 5)``, ``(20000, 5, 1, 6)``, ``(20000, 4, 2, 5)``, ``(20000, 4, 1, 44)`` and
+#: ``(40000, 4, 1, 5)`` peaked at 368, 874, 523, 362 and 712 MB.  Least squares gives 254 bytes
+#: per state value; a second cause adds less than a first, so 290 bytes covers every fixture.
+#: ``tests/unit/test_hazard_multinode.py`` keeps the record and recomputes the prediction.
+PATH_STATE_BYTES = 290.0
 
-#: The traced peak in bytes per value of the ``(n, U, p)`` slot prediction designs of one node.
-PATH_DESIGN_BYTES = 16.0
+#: The traced peak in bytes per value of the ``(n, U, p)`` slot prediction designs.  The fixture
+#: with 44 design columns peaked no higher than the one with 5, so the designs are held one node
+#: at a time; one float per value is kept as the floor.
+PATH_DESIGN_BYTES = 8.0
 
 #: The traced-peak limit of a multi-node hazard fit, 2 GB, above which H17 refuses the fit.
 PATH_PEAK_LIMIT = 2.0 * 1024.0**3
@@ -1808,6 +1839,7 @@ def hazard_path_cap_refusal(
     n_slots: int,
     n_causes: int,
     n_columns: int,
+    peak: float,
 ) -> Refusal:
     """The refusal of a multi-node hazard fit whose enumerated paths exceed the cap (H17).
 
@@ -1829,20 +1861,22 @@ def hazard_path_cap_refusal(
         Causes.
     n_columns : int
         Columns of the widest node's hazard design.
+    peak : float
+        The predicted traced peak in bytes, :func:`path_peak`.
 
     Returns
     -------
     Refusal
         An ``api_redirection``.
     """
-    limit = int(PATH_PEAK_LIMIT // 8)
     return Refusal(
         RefusalReason.API_REDIRECTION,
         f"regimen {label!r} draws its treatment from a known policy at {nodes} nodes, which "
         f"gives {paths} treatment paths with positive probability. The hazard fit holds the "
         f"hazards of every path for every unit and cause, and {n} units, {n_times} nodes, "
-        f"{n_slots} paths, {n_causes} causes and {n_columns} design columns exceed the limit "
-        f"of {limit} values.",
+        f"{n_slots} paths, {n_causes} causes and {n_columns} design columns give a predicted "
+        f"peak of {peak / 1024.0**3:.1f} GB, above the limit of "
+        f"{PATH_PEAK_LIMIT / 1024.0**3:.0f} GB.",
         "Use survival_model='iterated_mean', which needs no path enumeration.",
     )
 
@@ -2032,7 +2066,8 @@ def _enumerate_paths(
                     grown.append((extended, branch))
             current = grown
             total = len(paths) + len(current)
-            if path_peak(n, n_times, total, n_causes, n_columns) > PATH_PEAK_LIMIT:
+            peak = path_peak(n, n_times, total, n_causes, n_columns)
+            if peak > PATH_PEAK_LIMIT:
                 raise CapabilityError.from_refusal(
                     hazard_path_cap_refusal(
                         plan.label,
@@ -2043,6 +2078,7 @@ def _enumerate_paths(
                         n_slots=total,
                         n_causes=n_causes,
                         n_columns=n_columns,
+                        peak=peak,
                     )
                 )
         for codes, mass in current:
@@ -4104,11 +4140,14 @@ def refuse_hazard_design(
     isotonic: bool,
     msm: bool = False,
 ) -> None:
-    """Refuse a design the hazard model or the projection does not support (H1-H3, H16, H19).
+    """Refuse a design the hazard model or the projection does not support (H2, H3, H16, H19).
 
     Called after the data and the regimens are read, before any learner.  A modified
     treatment policy at the baseline decision is fitted on a categorical, continuous or
-    mixed node (X70 part (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).
+    mixed node (X70 part (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).  A
+    categorical treatment at several nodes is fitted (X70 part (a)), and
+    :func:`refuse_multinode_design` refuses what that design does not take (H15, H21 to H23,
+    H26).
 
     Parameters
     ----------

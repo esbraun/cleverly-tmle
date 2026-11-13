@@ -762,14 +762,19 @@ nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
 
-Hazard targeting (`survival_model="hazard"`) requires a held baseline decision and no covariate
-measured after baseline. A categorical treatment takes any regimen; a continuous treatment or a
-vector with a dose takes a modified treatment policy. It refuses any other design before any learner
-(H1 to H3 of
+Hazard targeting (`survival_model="hazard"`) requires no covariate measured after baseline. On a
+held baseline decision a categorical treatment takes any regimen, and a continuous treatment or a
+vector with a dose takes a modified treatment policy. With a treatment decided at several nodes,
+every node is categorical and the regimens are static plans, known rules and known policies,
+whose treatment paths are enumerated as slots. It refuses any other design before any learner
+(H2, H3, H15, H17, H18 and H21 to H23 and H26 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
-The hazard model conditions on the baseline treatment and the baseline covariates only. A later
-treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard
-construction for a treatment at several nodes or for a later covariate.
+One hazard function sits in every slot whose treatment prefix through its node is the same, so a
+fluctuation moves every such copy by the sum over those slots and a held cell holds every copy;
+otherwise the state is not one law and the plug-in is not a substitution estimator
+(`tests/unit/test_hazard_multinode.py` mutates the sum). A later covariate needs its own model
+and fluctuation. *Reconsider when* part (b) of X70 builds the hazard construction for a later
+covariate.
 
 A one-step hazard fit's levels are non-decreasing in floating point for every regimen and cause.
 Every horizon's plug-in mean reduces its column in one order that does not depend on the values.
