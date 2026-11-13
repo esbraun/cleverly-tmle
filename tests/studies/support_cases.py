@@ -23,6 +23,7 @@ no second copy of the study's settings.
 
 from __future__ import annotations
 
+import functools
 import importlib
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -168,7 +169,6 @@ def capture(run: Callable[[], Any]) -> Observed:
 
     def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
         settings.pop("source", None)
-        settings.pop("conditions", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
 
     def at_structural(estimator: Any, data: Any, **settings: Any) -> None:
@@ -3064,33 +3064,196 @@ def _long_horizon_cases() -> tuple[RowCase, ...]:
 
 
 # The cases of the X76 option studies' rows, one function per part beside its row function in
-# cleverly._support_rows, each empty until its study passes.
+# cleverly._support_rows, each registered from its committed run.
 def _x76_stopping_point_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-stopping-point`` (X76 part (a)): ``T52``.
+
+    Each runs the study's own fit of one rule and walk on a draw of the ``L1`` law of its
+    outcome.
+    """
+    module, slug = "_option_stopping_laws", "option-stopping-point"
+
+    def case(rule: str, label: str, targeting: str, walk: str, outcome: str) -> RowCase:
+        return _observed(
+            f"T52.{rule}.{walk}.{outcome}",
+            slug,
+            f"interval_calibration/{outcome}_{label}_{walk}__widened",
+            f"{module}.py:176",
+            module,
+            lambda laws: laws.draw_l1(outcome, 400, 0)[0],
+            lambda laws, frame: laws.fit_point(outcome, frame, stopping=rule, targeting=targeting),
+        )
+
+    return tuple(
+        case(rule, label, targeting, walk, outcome)
+        for rule, label in (("scaled_var", "sv"), ("sample_size", "ss"))
+        for targeting, walk in (("iterative", "newton"), ("one_step", "one_step"))
+        for outcome in ("binary", "continuous")
+    )
 
 
 def _x76_by_arm_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-outcome-by-arm`` (X76 part (b)): ``T53``.
+
+    Each runs the study's own fit of one calibration setting on a draw of its law.
+    """
+    module, slug = "_option_by_arm_law", "option-outcome-by-arm"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:357",
+            module,
+            lambda law: law.draw(law.SETTINGS[setting].law, 400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (
+        case("T53.in_sample.binary", "binary_in_sample"),
+        case("T53.in_sample.continuous", "continuous_in_sample"),
+        case("T53.stacked.binary", "binary_stacked"),
+        case("T53.stacked.bounded", "bounded_stacked"),
+    )
 
 
 def _x76_patience_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The case of ``option-patience`` (X76 part (c)): ``C12.greedy``.
+
+    It runs the study's own greedy fit with patience on a draw of law ``LC1``.
+    """
+    module = "_option_patience_laws"
+    return (
+        _observed(
+            "C12.greedy",
+            "option-patience",
+            "patience_bias/lc1_greedy",
+            f"{module}.py:419",
+            module,
+            lambda law: law.draw("lc1", 400, 0),
+            lambda law, frame: law.fit(frame, "lc1_greedy_patience"),
+        ),
+    )
 
 
 def _x76_adjustment_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-treatment-adjustment`` (X76 part (d)): ``T54``.
+
+    Each runs the study's own fit of one calibration setting on a draw of law ``LDA``.
+    """
+    module, slug = "_option_adjustment_laws", "option-treatment-adjustment"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:339",
+            module,
+            lambda law: law.draw("LDA", 400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (case("T54.in_sample", "lda_in_sample"), case("T54.stacked", "lda_stacked"))
 
 
 def _x76_stopping_long_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-stopping-ltmle`` (X76 part (a)): ``G55``.
+
+    Each runs the study's own fit of one rule: the per-node Newton walk on a draw of ``L3``
+    and the one-step hazard walk on a draw of ``L4``.
+    """
+    module, slug = "_option_stopping_laws", "option-stopping-ltmle"
+    cases = []
+    for rule, label in (("scaled_var", "sv"), ("sample_size", "ss")):
+        cases.append(
+            _observed(
+                f"G55.{rule}.end_of_study",
+                slug,
+                f"interval_calibration/l3_{label}_newton__widened",
+                f"{module}.py:308",
+                module,
+                lambda laws: laws.draw_l3(400, 0)[0],
+                functools.partial(_stopping_fit, "fit_l3", rule),
+            )
+        )
+        cases.append(
+            _observed(
+                f"G55.{rule}.survival",
+                slug,
+                f"interval_calibration/l4_{label}_one_step__widened",
+                f"{module}.py:352",
+                module,
+                lambda laws: laws.draw_l4(400, 0)[0],
+                functools.partial(_stopping_fit, "fit_l4", rule),
+            )
+        )
+    return tuple(cases)
+
+
+def _stopping_fit(name: str, rule: str, laws: Any, frame: Any) -> Any:
+    """``laws.<name>(frame, stopping=rule)``, bound late so each case keeps its own rule."""
+    return getattr(laws, name)(frame, stopping=rule)
 
 
 def _x76_trim_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-ratio-trim`` (X76 part (e)): ``G56``.
+
+    Each runs the study's own trimmed fit with correct outcome regressions on a draw of law
+    ``LE``.
+    """
+    module, slug = "_option_trim_law", "option-ratio-trim"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:398",
+            module,
+            lambda law: law.draw(400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (
+        case("G56.ltmle.in_sample", "ltmle_in_sample_right_trim95"),
+        case("G56.ltmle.cross_fitted", "ltmle_stacked_right_trim95"),
+        case("G56.sdr.in_sample", "sdr_in_sample_right_trim95"),
+        case("G56.sdr.cross_fitted", "sdr_stacked_right_trim95"),
+    )
 
 
 def _x76_markov_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The case of ``option-markov-order`` (X76 part (f)): ``G57``, the order-1 fit on ``LF1``."""
+    module = "_option_markov_law"
+    return (
+        _observed(
+            "G57",
+            "option-markov-order",
+            "lf1_order1",
+            f"{module}.py:330",
+            module,
+            lambda law: law.draw("LF1", 400, 0),
+            lambda law, frame: law.fit(frame, "lf1_order1"),
+        ),
+    )
+
+
+def _x76_isotonic_cases() -> tuple[RowCase, ...]:
+    """The case of ``isotonic-binding`` (X76 part (g)): ``G31.isotonic`` on law ``LG2``."""
+    module = "_isotonic_binding_law"
+    return (
+        _observed(
+            "G31.isotonic",
+            "isotonic-binding",
+            "interval_calibration/projected_t1__correctly_specified",
+            f"{module}.py:252",
+            module,
+            lambda law: law.draw(2000, 0),
+            lambda law, frame: law.fit(frame),
+        ),
+    )
 
 
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
@@ -3132,4 +3295,5 @@ CASES: tuple[RowCase, ...] = (
     *_x76_stopping_long_cases(),
     *_x76_trim_cases(),
     *_x76_markov_cases(),
+    *_x76_isotonic_cases(),
 )

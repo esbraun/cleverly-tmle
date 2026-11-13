@@ -37,7 +37,12 @@ from cleverly.datasets import (
     make_longitudinal_competing,
     make_longitudinal_survival,
 )
-from cleverly.exceptions import ConvergenceWarning, MethodConfigurationError, RefusalReason
+from cleverly.exceptions import (
+    CapabilityError,
+    ConvergenceWarning,
+    MethodConfigurationError,
+    RefusalReason,
+)
 from cleverly.fluctuation._score import STOP_CONTEXT_MISSING, StopContext
 from cleverly.interventions import Incremental
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData
@@ -655,14 +660,9 @@ class TestPlumbing:
         for key, fit in result.fits.items():
             np.testing.assert_allclose(replayed[key].psi_scaled, fit.psi_scaled, rtol=1e-12)
 
-    def test_a_cluster_bootstrap_refits_under_the_rule(self) -> None:
-        frame, _ = make_longitudinal(n=160, seed=4, cluster_size=8)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = LTMLE(
-                PLANS, n_folds=1, stopping="sample_size", n_bootstrap=4, **learners()
-            ).fit(frame, outcome="Y", **NODES, id="id")
-        assert result.bootstrap is not None or result.estimates
+    def test_a_bootstrap_is_refused_under_the_rule(self) -> None:
+        with pytest.raises(CapabilityError, match="residual score in every bootstrap refit"):
+            LTMLE(PLANS, n_folds=1, stopping="sample_size", n_bootstrap=4, **learners())
 
     def test_the_study_path_carries_the_rule_to_the_engine(self) -> None:
         frame, _ = make_longitudinal(n=200, seed=12)

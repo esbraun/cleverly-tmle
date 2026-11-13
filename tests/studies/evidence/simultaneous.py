@@ -44,6 +44,7 @@ from typing import Any
 
 import numpy as np
 
+from cleverly.inference import kish_count
 from cleverly.inference.multiplier import out_of_range, simultaneous_bands
 from tests.studies.evidence.properties import PropertyCell
 
@@ -328,15 +329,6 @@ def refused_critical_value(result: Any, estimates: Mapping[str, Any]) -> float:
         band_scale="identity",
     )
     return float(bands.critical_value)
-
-
-def kish_count(curve: Any) -> float:
-    """``(sum D^2)^2 / sum D^4`` of a centred influence curve ``D``; ``inf`` when ``D`` is 0."""
-    values = np.asarray(curve, dtype=float)
-    centred = values - values.mean()
-    squares = centred**2
-    fourth = float(np.sum(squares**2))
-    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
 
 
 def _observe(
@@ -695,13 +687,21 @@ def t_cells(label: str) -> tuple[str, str, str]:
     return f"{label}__{T_BAND}", f"{label}__{REFERENCE_CONTROL}", f"{label}__{CONTROL}"
 
 
+def _own_kish(values: Any) -> float:
+    """``(sum D^2)^2 / sum D^4`` of the centred ``D``, independent of the package's count."""
+    centred = np.asarray(values, dtype=float) - np.mean(values)
+    squares = centred**2
+    fourth = float(np.sum(squares**2))
+    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
+
+
 def study_kish(curve: Any, cluster: Any = None) -> float:
     """The study's own Kish count of a curve, of its cluster sums when ``cluster`` is given."""
     values = np.asarray(curve, dtype=float)
     if cluster is not None:
         _, inverse = np.unique(np.asarray(cluster), return_inverse=True)
         values = np.bincount(inverse, weights=values)
-    return kish_count(values)
+    return _own_kish(values)
 
 
 def t_quantile(critical: float, nu: float) -> float:
@@ -768,7 +768,7 @@ def moment_df(curve: Any) -> float:
     m = carrying.size
     if m == 0:
         return math.inf
-    kish = kish_count(carrying)
+    kish = _own_kish(carrying)
     if math.isinf(kish) or kish >= m:
         return math.inf
     return float(2.0 * kish / (1.0 - kish / m))

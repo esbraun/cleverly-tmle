@@ -476,17 +476,28 @@ Four `Targeting` options choose how the targeting step runs. Each default runs t
 
 | option | what it chooses |
 | --- | --- |
-| `stopping="scaled_var"` or `"sample_size"` | the `tmle3` rule that decides the score equation is solved. The result prints the score residual in standard errors |
+| `stopping="scaled_var"` or `"sample_size"` | the `tmle3` rule that decides the score equation is solved. The adjustment can stop with a small error left over, so each interval and band built from the fit's estimates is widened by the leftover amount it carries, to keep its coverage. The bootstrap is refused under these rules, because nothing bounds what the leftover does to it. The result prints the leftover in standard errors |
 | `step_bound=` and `step_search=` | the longest step of one iteration, and whether a line search sets its length |
 | `iterate="best"` | the iterate of smallest score norm, in place of the last |
 
 `ModelSpec(outcome_by_arm=True)` fits one outcome regression for each treatment arm.
-`CollaborativeTMLEMethod(patience=p)` stops the scoring of the candidate path early.
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset of the
-adjustment set. That declaration restricts the statistical model.
+adjustment set. That declaration restricts the statistical model. A simulation study checked
+each of these two settings for the means, the ATE, the risk ratio and the odds ratio, so a fit
+like the ones it ran prints `supported`. The same setting with the ATT or the ATC prints
+`experimental`.
+`CollaborativeTMLEMethod(patience=p)` stops the scoring of the candidate path early, and a fit
+that sets it prints `experimental`.
 [Stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
 and [treatment-mechanism covariates](../technical-reference/point-treatment-tmle.md#treatment-mechanism-covariates)
 state the contracts.
+
+`CollaborativeTMLEMethod(patience=p)` stops the search over treatment models early, once `p`
+candidates after the best one so far fail to beat its cross-validated fit. With a search whose order is fixed in
+advance (`"ordered"`, `"discrete"`, `"lasso"` or `"learners"`), the result keeps the experimental
+label for good. A fixed order can put a covariate the outcome model needs after `p` covariates
+that only add noise, and the early stop then leaves the estimate biased at any sample size.
+[Patience](../technical-reference/collaborative-tmle.md#patience) gives the details.
 
 A longitudinal fit has four more settings: a cap on extreme node weights, a shorter history for
 each model, one pooled censoring model, and a declared outcome range at chosen nodes.

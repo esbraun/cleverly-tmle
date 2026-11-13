@@ -50,6 +50,7 @@ statement of :math:`\Psi(P_w)`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
@@ -98,6 +99,7 @@ __all__ = [
     "CovarianceRule",
     "ICParts",
     "InferenceStatus",
+    "OutcomeFamily",
     "ParameterEstimate",
     "Scale",
     "WaldTest",
@@ -106,6 +108,7 @@ __all__ = [
     "bootstrap_column",
     "bootstrap_is_diagnostic",
     "bootstrap_line",
+    "constant_outcome_cells",
     "counterfactual_mean_parts",
     "counterfactual_means",
     "effect_modification_coefficients",
@@ -127,6 +130,7 @@ __all__ = [
     "reference_label",
     "regime_means",
     "restamp_parameter_statuses",
+    "satterthwaite_df",
     "spread_name",
     "stamp_inference",
     "supplies_inference",
@@ -135,6 +139,9 @@ __all__ = [
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
+
+#: The outcome family a builder records on an estimate: a binary outcome or a continuous one.
+OutcomeFamily = Literal["binomial", "gaussian"]
 
 #: How an estimate's joint covariance is read off its influence curve.
 CovarianceRule = Literal["centered", "second_moment"]
@@ -671,30 +678,40 @@ def minimum_reference_df(estimates: Sequence[ParameterEstimate]) -> int | None:
     return min(values) if values else None
 
 
-def kish_count(
-    curve: FloatArray, *, rows: BoolArray | IntArray | None = None, centered: bool = True
-) -> float:
-    """The Kish effective count ``(sum u^2)^2 / sum u^4`` of an influence curve.
+def _curve_squares(curve: FloatArray, rows: Any, centered: bool) -> FloatArray:
+    """The squared terms of ``curve`` over ``rows``, centred within them when asked."""
+    values = np.asarray(curve, dtype=float).reshape(-1)
+    if rows is not None:
+        values = values[np.asarray(rows)]
+    if centered and values.size:
+        values = values - values.mean()
+    return np.asarray(values**2, dtype=float)
 
-    ``u`` is the curve over ``rows``, minus its mean over those rows when ``centered``.  The
-    count is ``m`` divided by the sample kurtosis of ``u``, where ``m`` is the number of rows
-    read: ``m`` for terms of one size, and near 1 when one term carries the square mass.  It
-    is unchanged by rescaling the curve, so it reads the same on every delta-method scale.
-    No floor is applied; each caller applies its own.
+
+def kish_count(curve: FloatArray, *, rows: Any = None, centered: bool = True) -> float:
+    r"""The Kish count of an influence curve, :math:`(\sum u_i^2)^2 / \sum u_i^4`.
+
+    The count is the number of equal terms that would carry the same share of the variance as
+    the curve's terms ``u`` do. It equals the number of terms when every term has the same
+    magnitude and falls toward 1 as one term dominates. It has no floor.
 
     Parameters
     ----------
     curve : ndarray
-        ``(n,)`` influence curve, or the cluster sums of one.
-    rows : ndarray or None, default=None
-        A boolean mask or integer index of the rows to read; ``None`` reads every row.
+        The per-observation influence curve.
+    rows : array-like or None, default=None
+        A boolean mask or integer indices of the terms to read. ``None`` reads every term.
     centered : bool, default=True
-        Subtract the mean of the rows read before squaring.
+        Whether to centre the terms at their mean over ``rows`` first.
 
     Returns
     -------
     float
-        The count, or ``inf`` when every term read is zero.
+        The count, ``inf`` when every term is 0.
+
+    See Also
+    --------
+    satterthwaite_df : The moment-matched degrees of freedom of the same terms.
 
     Examples
     --------
@@ -702,19 +719,121 @@ def kish_count(
     >>> from cleverly.inference import kish_count
     >>> kish_count(np.array([1.0, -1.0, 1.0, -1.0]))
     4.0
-    >>> round(kish_count(np.array([3.0, -1.0, -1.0, -1.0])), 6)
-    1.714286
+    >>> round(kish_count(np.array([3.0, -1.0, -1.0, -1.0])), 4)
+    1.7143
     """
-    values = np.asarray(curve, dtype=float).reshape(-1)
-    if rows is not None:
-        values = values[np.asarray(rows)]
-    if centered and values.size:
-        values = values - values.mean()
-    squares = values**2
+    squares = _curve_squares(curve, rows, centered)
     fourth = float(np.sum(squares**2))
-    if fourth == 0.0:
-        return float("inf")
-    return float(np.sum(squares) ** 2 / fourth)
+    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
+
+
+def satterthwaite_df(curve: FloatArray, *, rows: Any = None, centered: bool = True) -> float:
+    r"""The moment-matched degrees of freedom of the plug-in variance of an influence curve.
+
+    With ``u`` the curve's ``m`` terms over ``rows``, the plug-in variance is proportional to
+    :math:`\sum u_i^2`. Matching a scaled chi-squared law to its first two moments, with the
+    variance of the sum estimated from the terms themselves, gives
+
+    .. math::
+
+        \nu = \frac{2 (\sum u_i^2)^2}{\sum (u_i^2 - \overline{u^2})^2}
+            = \frac{2 K}{1 - K / m},
+
+    with :math:`K` the :func:`kish_count` of the same terms. It is the Satterthwaite (1946)
+    value of Bell and McCaffrey (2002) for a variance that is a sum of squared terms, and
+    :math:`2 m / (\hat\kappa - 1)` in the terms' sample kurtosis :math:`\hat\kappa`. It is at
+    least :math:`2 m / (m - 1)` and has no floor.
+
+    Parameters
+    ----------
+    curve : ndarray
+        The per-observation influence curve.
+    rows : array-like or None, default=None
+        A boolean mask or integer indices of the terms to read. ``None`` reads every term.
+        An estimate reads the rows where its curve is not 0, so a stratum's degrees of
+        freedom count the stratum's rows.
+    centered : bool, default=True
+        Whether to centre the terms at their mean over ``rows`` first.
+
+    Returns
+    -------
+    float
+        The degrees of freedom, ``inf`` when every squared term is equal.
+
+    See Also
+    --------
+    kish_count : The count :math:`K` the value is written in.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import satterthwaite_df
+    >>> satterthwaite_df(np.array([3.0, -1.0, -1.0, -1.0]))
+    6.0
+    """
+    squares = _curve_squares(curve, rows, centered)
+    if not squares.size:
+        return math.inf
+    spread = float(np.sum((squares - squares.mean()) ** 2))
+    return math.inf if spread == 0.0 else float(2.0 * np.sum(squares) ** 2 / spread)
+
+
+def constant_outcome_cells(
+    outcome: Any,
+    treatment: Any,
+    rows: Any,
+    *,
+    weights: Any = None,
+    observed: Any = None,
+) -> frozenset[Any]:
+    """The treatment arms whose observed outcomes over ``rows`` take a single value.
+
+    An arm counts when it has at least one qualifying row: a row of ``rows`` with positive
+    weight and an observed outcome. An arm with no qualifying row is not returned.
+
+    Parameters
+    ----------
+    outcome : array-like
+        ``(n,)`` outcomes. Values on unobserved rows are not read.
+    treatment : array-like
+        ``(n,)`` treatment levels.
+    rows : array-like
+        A boolean mask or integer indices of the rows an estimate reads, such as one stratum.
+    weights : array-like or None, default=None
+        ``(n,)`` observation weights. A row of weight 0 is not read. ``None`` reads every row.
+    observed : array-like or None, default=None
+        ``(n,)`` booleans, ``True`` where the outcome is observed. ``None`` reads every row as
+        observed.
+
+    Returns
+    -------
+    frozenset
+        The treatment levels, as Python scalars, of the arms whose qualifying rows all show
+        one outcome value.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import constant_outcome_cells
+    >>> outcome = np.array([1, 1, 1, 0, 1, 0])
+    >>> treatment = np.array([1, 1, 1, 0, 0, 0])
+    >>> sorted(constant_outcome_cells(outcome, treatment, np.ones(6, dtype=bool)))
+    [1]
+    """
+    y = np.asarray(outcome).reshape(-1)
+    a = np.asarray(treatment).reshape(-1)
+    keep = np.zeros(a.shape[0], dtype=bool)
+    keep[np.asarray(rows)] = True
+    if weights is not None:
+        keep &= np.asarray(weights, dtype=float).reshape(-1) > 0.0
+    if observed is not None:
+        keep &= np.asarray(observed, dtype=bool).reshape(-1)
+    arms = []
+    for level in np.unique(a[keep]):
+        values = y[keep & (a == level)]
+        if np.unique(values).size == 1:
+            arms.append(level.item() if hasattr(level, "item") else level)
+    return frozenset(arms)
 
 
 @dataclass(frozen=True)
@@ -782,9 +901,32 @@ class ParameterEstimate:
         simultaneous band with ``band_scale="logit"`` is built on the logit of the
         estimate's position in this range. ``None`` for every other parameter, including any
         parameter of a continuous outcome.
+    rule_widened : bool
+        Whether :attr:`ci` and :attr:`pvalue` add the remaining score to the half-width.
+        ``True`` for an estimate of a fit under a declared stopping rule
+        (``stopping="scaled_var"`` or ``"sample_size"``), and for every estimate derived
+        from one. Such a fit stops adjusting before the score equation is solved, so the
+        mean of the influence curve, :attr:`score`, is left in the error. The interval is
+        then ``inference_value +/- (critical * std_error + |score|)`` on the inference
+        scale, which keeps its level whatever the residual's dependence on the error.
+        :attr:`plugin_interval` is widened with it. The plain Wald interval of such an
+        estimate is ``dataclasses.replace(estimate, rule_widened=False).ci``.
+    outcome_family : {"binomial", "gaussian"} or None
+        The family of the outcome the estimate is a functional of, when its builder records
+        it: ``"binomial"`` for a binary outcome and ``"gaussian"`` for a continuous one.
+        ``None`` when the builder does not record it. A contrast keeps the family its inputs
+        share. It decides :attr:`effective_df`.
 
     Attributes
     ----------
+    small_sample_df : float or None
+        The :func:`satterthwaite_df` of :attr:`influence_curve` over the rows where it is not
+        0, centred there under the ``"centered"`` covariance rule. Computed when the estimate
+        is built, so :func:`dataclasses.replace` recomputes it. ``None`` for a clustered
+        estimate, whose reference is :attr:`reference_df`, and when :attr:`variance` is not
+        positive and finite.
+    effective_df : float or None
+    interval_scale : str
     std_error : float
     plugin_std_error : float
     inference_value : float
@@ -792,6 +934,7 @@ class ParameterEstimate:
     plugin_interval : tuple of float
     pvalue : float
     supplies_inference : bool
+    residual_margin : float
 
     See Also
     --------
@@ -825,6 +968,21 @@ class ParameterEstimate:
     ('ate', 80)
     >>> estimate.ci[0] < estimate.ci[1]
     True
+    >>> estimate.interval_scale
+    'identity'
+
+    The small-sample reference applies a Student t only where the builder records a
+    continuous outcome:
+
+    >>> import numpy as np
+    >>> from cleverly.inference import make_estimate
+    >>> curve = np.array([3.0, -1.0, -1.0, -1.0])
+    >>> make_estimate("ey1", 0.5, curve, n=4, rule_widened=False).effective_df is None
+    True
+    >>> make_estimate(
+    ...     "ey1", 0.5, curve, n=4, rule_widened=False, outcome_family="gaussian"
+    ... ).effective_df
+    6.0
 
     Test the estimate against a declared null value:
 
@@ -849,6 +1007,50 @@ class ParameterEstimate:
     reference_df: int | None = None
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
+    rule_widened: bool = False
+    outcome_family: OutcomeFamily | None = None
+    small_sample_df: float | None = field(init=False, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "small_sample_df", self._small_sample_df())
+
+    def _small_sample_df(self) -> float | None:
+        """:attr:`small_sample_df`, from the curve's non-zero rows; no status is read or set."""
+        if self.n_clusters < self.n:
+            return None
+        if not (np.isfinite(self.variance) and self.variance > 0.0):
+            return None
+        curve = np.asarray(self.influence_curve, dtype=float).reshape(-1)
+        return satterthwaite_df(
+            curve, rows=curve != 0.0, centered=self.covariance_rule == "centered"
+        )
+
+    @property
+    def effective_df(self) -> float | None:
+        """The degrees of freedom the small-sample reference rule assigns this estimate.
+
+        :attr:`reference_df` on a clustered estimate. On an unclustered one,
+        ``max(small_sample_df, 5)`` when :attr:`outcome_family` is ``"gaussian"``, and
+        ``None``, the normal reference, otherwise: for a binary outcome and for an estimate
+        whose family is not recorded alike. :attr:`ci` reads :attr:`reference_df`, not this
+        value.
+        """
+        if self.n_clusters < self.n:
+            return self.reference_df
+        if self.outcome_family != "gaussian" or self.small_sample_df is None:
+            return None
+        return max(self.small_sample_df, 5.0)
+
+    @property
+    def interval_scale(self) -> str:
+        """The scale :attr:`ci` is formed on.
+
+        The transform's name for a transformed estimate, ``"log"`` for a ratio and
+        ``"identity"`` otherwise.
+        """
+        if self.transform is not None:
+            return self.transform.name
+        return "log" if self.scale == "ratio" else "identity"
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -861,16 +1063,36 @@ class ParameterEstimate:
             return float("nan")
         return float(np.sqrt(self.variance))
 
-    def _wald_interval(self) -> tuple[float, float]:
+    def _residual_margin(self, widen: bool) -> float:
+        """What a declared stopping rule adds to the half-width, on the inference scale.
+
+        ``abs(score)`` when ``widen``, else zero. The one place the widening is computed,
+        so a change to the half-width (a reference distribution, a bounded scale) composes
+        with it rather than replacing it.
+        """
+        return abs(self.score) if widen else 0.0
+
+    @property
+    def residual_margin(self) -> float:
+        """What :attr:`ci` adds to its half-width, on the inference scale.
+
+        ``abs(score)`` under :attr:`rule_widened`, else ``0.0``. A simultaneous band of a
+        widened estimate adds the same amount to each component's half-width.
+        """
+        return self._residual_margin(self.rule_widened)
+
+    def _wald_interval(self, *, widen: bool) -> tuple[float, float]:
         """The Wald interval of the plug-in curve, under any inference status.
 
         One body for :attr:`ci` and :attr:`plugin_interval`, for the same reason
-        :meth:`_plugin_std_error` has one.
+        :meth:`_plugin_std_error` has one. ``widen`` adds the remaining score to the
+        half-width on the inference scale, before any map back to the reported scale.
         """
         center = self.inference_value
         df = self.reference_df
+        margin = self._residual_margin(widen)
         if self.transform is not None:
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -879,9 +1101,9 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             return (float(np.exp(low)), float(np.exp(high)))
-        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the inference scale."""
@@ -922,10 +1144,16 @@ class ParameterEstimate:
         One body for :meth:`wald_test`, :attr:`pvalue` and the rejection rate
         :class:`~cleverly.validation.CoverageStudy` measures, so a study that measures the
         diagnostic evaluates the refused property's arithmetic rather than a second rule.
+        Under :attr:`rule_widened` the test inverts :attr:`ci`: it rejects exactly when the
+        null lies outside the widened interval.
         """
         reported, mapped = self._null_inference_value(null)
         statistic, pvalue = wald_statistic(
-            self.inference_value, mapped, self._plugin_std_error(), df=self.reference_df
+            self.inference_value,
+            mapped,
+            self._plugin_std_error(),
+            df=self.reference_df,
+            margin=self.residual_margin,
         )
         return WaldTest(
             name=self.name,
@@ -985,7 +1213,7 @@ class ParameterEstimate:
         dict of str to float
             The columns, in the order ``to_dict`` publishes them.
         """
-        low, high = self._wald_interval()
+        low, high = self._wald_interval(widen=self.rule_widened)
         columns = {
             spread_name("std_err", self.inference): self._plugin_std_error(),
             spread_name("ci_lower", self.inference): low,
@@ -1040,7 +1268,7 @@ class ParameterEstimate:
             :attr:`plugin_interval` for the retained diagnostic.
         """
         refuse_inference(self.inference, operation=".ci")
-        return self._wald_interval()
+        return self._wald_interval(widen=self.rule_widened)
 
     @property
     def plugin_interval(self) -> tuple[float, float]:
@@ -1053,8 +1281,11 @@ class ParameterEstimate:
         unestablished, for the reason the
         :doc:`inference reference </technical-reference/inference>` gives. The
         registered selector studies measure it and report it as a diagnostic.
+
+        Under :attr:`rule_widened` it adds the remaining score to its half-width, as
+        :attr:`ci` does.
         """
-        return self._wald_interval()
+        return self._wald_interval(widen=self.rule_widened)
 
     @property
     def pvalue(self) -> float:
@@ -1103,7 +1334,9 @@ class ParameterEstimate:
         --------
         >>> import numpy as np
         >>> from cleverly.inference import make_estimate
-        >>> estimate = make_estimate("ey1", 0.4, np.array([0.1, -0.1, 0.2, -0.2]), n=4)
+        >>> estimate = make_estimate(
+        ...     "ey1", 0.4, np.array([0.1, -0.1, 0.2, -0.2]), n=4, rule_widened=False
+        ... )
         >>> test = estimate.wald_test(null=0.4)
         >>> test.statistic, test.pvalue
         (0.0, 1.0)
@@ -1153,8 +1386,11 @@ class ParameterEstimate:
         ``True``. A fit with a bootstrap adds ``bootstrap_support``, the label of the bootstrap
         summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
         on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
-        and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
-        :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
+        and its bootstrap columns take the diagnostic names. An estimate under a declared
+        stopping rule adds ``rule_widened`` (``True``) and ``residual_margin``, so a consumer
+        can tell that ``ci_lower`` and ``ci_upper`` include the margin. ``std_err`` is present
+        exactly when :attr:`supplies_inference` is ``True``, so a programmatic consumer has a
+        total test.
 
         Returns
         -------
@@ -1173,6 +1409,9 @@ class ParameterEstimate:
         row.update(self.spread_columns())
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
+        if self.rule_widened:
+            row["rule_widened"] = True
+            row["residual_margin"] = self.residual_margin
         row["scale"] = self.scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
@@ -1402,6 +1641,7 @@ def make_estimate(
     influence_curve: FloatArray,
     *,
     n: int,
+    rule_widened: bool,
     cluster: IntArray | None = None,
     scale: Scale = "difference",
     alpha: float = 0.05,
@@ -1411,6 +1651,7 @@ def make_estimate(
     reference_df: int | None = None,
     support: Support = UNCLASSIFIED,
     bounds: tuple[float, float] | None = None,
+    outcome_family: OutcomeFamily | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1428,6 +1669,11 @@ def make_estimate(
         Per-observation influence curve on the inference scale.
     n : int
         Number of observations behind the estimate.
+    rule_widened : bool
+        Whether the interval adds the remaining score to its half-width
+        (:attr:`ParameterEstimate.rule_widened`). A fit passes whether it ran under a
+        declared stopping rule. An estimate built from other estimates passes ``True``
+        when any input is widened. It has no default, so every caller states it.
     cluster : ndarray or None, default=None
         ``(n,)`` cluster codes, or ``None`` for independent rows.
     scale : {"level", "difference", "ratio", "fraction"}, default="difference"
@@ -1456,12 +1702,14 @@ def make_estimate(
         fit passes the support of that fit.
     bounds : tuple of float or None, default=None
         The open interval the parameter lies in, from :func:`parameter_bounds`.
+    outcome_family : {"binomial", "gaussian"} or None, default=None
+        The family of the outcome, when the caller knows it.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
-        ``support`` and ``bounds``.
+        ``support``, ``bounds``, ``rule_widened`` and ``outcome_family``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -1490,6 +1738,8 @@ def make_estimate(
         reference_df=reference_df if supplies_inference(inference) else None,
         support=support,
         bounds=bounds,
+        rule_widened=rule_widened,
+        outcome_family=outcome_family,
     )
 
 
@@ -1775,6 +2025,7 @@ def median_estimates(
             reference_df=minimum_reference_df(parts),
             support=parts[0].support,
             bounds=parts[0].bounds,
+            rule_widened=any(part.rule_widened for part in parts),
         )
     return out
 
@@ -3007,6 +3258,7 @@ def ratio_estimates(
     ic_zero: FloatArray,
     *,
     n: int,
+    rule_widened: bool,
     cluster: IntArray | None = None,
     alpha: float = 0.05,
     which: tuple[str, ...] = ("rr", "or"),
@@ -3014,7 +3266,10 @@ def ratio_estimates(
     """Risk ratio and odds ratio, with inference on the log scale.
 
     Only meaningful for a binary outcome, where the counterfactual means are risks
-    in ``(0, 1)``; the caller is responsible for not asking otherwise.
+    in ``(0, 1)``; the caller is responsible for not asking otherwise. ``rule_widened``
+    is ``True`` when either arm's curve comes from a fit under a declared stopping rule:
+    the log-scale curve is the chain rule of the arm curves, so its mean is the log-scale
+    residual the interval adds.
     """
     out: dict[str, ParameterEstimate] = {}
     if "rr" in which:
@@ -3028,6 +3283,7 @@ def ratio_estimates(
             scale="ratio",
             alpha=alpha,
             log_psi=log_psi,
+            rule_widened=rule_widened,
         )
     if "or" in which:
         log_psi, ic = log_odds_ratio_influence(psi_one, ic_one, psi_zero, ic_zero)
@@ -3040,6 +3296,7 @@ def ratio_estimates(
             scale="ratio",
             alpha=alpha,
             log_psi=log_psi,
+            rule_widened=rule_widened,
         )
     return out
 

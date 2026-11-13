@@ -82,6 +82,7 @@ from ..inference.influence import (
     Scale,
     has_t_reference,
     make_estimate,
+    satterthwaite_df,
 )
 from ..inference.multiplier import (
     DEFAULT_BAND_REFERENCE,
@@ -1183,27 +1184,27 @@ def _satterthwaite_df(
     It uses the empirical variance of the per-unit terms and ``2 b**2 / (S - 1)`` for the
     between-split part ``b``.  It approximates each entry by a scaled chi-squared law, as
     Bell and McCaffrey (2002) and Imbens and Kolesar (2016) do for a robust variance with
-    high-leverage rows.  The joint test takes the smallest value over the contrasts.
+    high-leverage rows.  The joint test takes the smallest value over the contrasts.  One
+    split reads :func:`~cleverly.inference.satterthwaite_df` of each contrast's unit sums.
     """
     count = len(curves)
     units = [
         np.asarray(curve if cluster is None else cluster_sums(curve, cluster), dtype=float)
         for curve in curves
     ]
+    if count == 1:
+        columns = units[0].reshape(units[0].shape[0], -1).T
+        return float(min(satterthwaite_df(column) for column in columns))
     centered = [unit - unit.mean(axis=0) for unit in units]
     m = centered[0].shape[0]
     n = curves[0].shape[0]
     # influence_covariance scales the centered sum of squares by m / ((m - 1) n**2).
     scale = m / ((m - 1) * n**2)
     diagonal = np.diag(covariance)
-    if count == 1:
-        terms = centered[0] ** 2
-        between_variance = np.zeros_like(diagonal)
-    else:
-        total = np.sum(centered, axis=0)
-        terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
-        between = np.var(differences, axis=0, ddof=1) / count
-        between_variance = 2.0 * between**2 / (count - 1)
+    total = np.sum(centered, axis=0)
+    terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
+    between = np.var(differences, axis=0, ddof=1) / count
+    between_variance = 2.0 * between**2 / (count - 1)
     term_variance = scale**2 * np.sum((terms - terms.mean(axis=0)) ** 2, axis=0)
     error = term_variance + between_variance
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -1834,6 +1835,8 @@ class StructuralNestedMean:
                 inference=status,
                 reference_df=df,
                 support=support,
+                # The blip estimating equations are solved exactly; no stopping rule.
+                rule_widened=False,
             )
 
         estimates: dict[str, ParameterEstimate] = {}

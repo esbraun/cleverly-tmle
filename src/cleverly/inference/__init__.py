@@ -25,6 +25,7 @@ from .influence import (
     WaldTest,
     atc_estimate,
     att_estimate,
+    constant_outcome_cells,
     counterfactual_means,
     ipsi_means,
     kish_count,
@@ -33,6 +34,7 @@ from .influence import (
     msm_coefficients,
     ratio_estimates,
     regime_means,
+    satterthwaite_df,
     unscale,
 )
 from .multiplier import SimultaneousBands, multiplier_critical_value, simultaneous_bands
@@ -49,6 +51,7 @@ __all__ = [
     "bootstrap_indices",
     "cluster_members",
     "cluster_sums",
+    "constant_outcome_cells",
     "counterfactual_means",
     "cross_validated_variance",
     "delta_method",
@@ -66,6 +69,7 @@ __all__ = [
     "reference_quantile",
     "regime_means",
     "run_bootstrap",
+    "satterthwaite_df",
     "simultaneous_bands",
     "two_sided_pvalue",
     "unscale",

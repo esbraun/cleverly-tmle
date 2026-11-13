@@ -241,9 +241,17 @@ def test_draws_that_share_a_parameter_status_keep_their_own_records() -> None:
     curve = np.array([0.1, -0.1, 0.2, -0.2])
     failed = "stack_failure_plugin"
     draws = [
-        {"ey1": make_estimate("ey1", 0.4, curve, n=4)},
-        {"ey1": make_estimate("ey1", 0.45, curve, n=4, inference=failed, support=first)},
-        {"ey1": make_estimate("ey1", 0.5, curve, n=4, inference=failed, support=second)},
+        {"ey1": make_estimate("ey1", 0.4, curve, n=4, rule_widened=False)},
+        {
+            "ey1": make_estimate(
+                "ey1", 0.45, curve, n=4, inference=failed, support=first, rule_widened=False
+            )
+        },
+        {
+            "ey1": make_estimate(
+                "ey1", 0.5, curve, n=4, inference=failed, support=second, rule_widened=False
+            )
+        },
     ]
     with pytest.raises(ValueError, match="different support records"):
         median_estimates(draws)

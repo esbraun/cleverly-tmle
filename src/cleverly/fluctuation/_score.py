@@ -30,7 +30,7 @@ import numpy as np
 
 from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
-from ..exceptions import MethodConfigurationError
+from ..exceptions import CapabilityError, MethodConfigurationError
 from ..inference.delta import reference_quantile
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -40,6 +40,7 @@ __all__ = [
     "ITERATES",
     "LINEAR_RULE_REFUSAL",
     "RESIDUAL_LINE",
+    "RULE_BOOTSTRAP_REFUSAL",
     "RULE_FAILURE_LINE",
     "STEP_BOUND_ONE_STEP_REFUSAL",
     "STEP_SEARCH_REFUSAL",
@@ -49,6 +50,7 @@ __all__ = [
     "StopContext",
     "absolute_score_weights",
     "check_iterate",
+    "check_rule_bootstrap",
     "check_step_bound",
     "check_stopping_rule",
     "iterate_norm",
@@ -57,6 +59,7 @@ __all__ = [
     "residual_line",
     "residual_se",
     "rule_contributions",
+    "rule_coverage_floor",
     "rule_failure_line",
     "rule_ratio_at",
     "rule_thresholds",
@@ -64,7 +67,6 @@ __all__ = [
     "score_columns",
     "score_scale",
     "unit_influence",
-    "wald_coverage_bound",
 ]
 
 #: The values of ``Targeting(stopping=)``, shipped rule first.
@@ -80,6 +82,19 @@ LINEAR_RULE_REFUSAL = Refusal(
     "fluctuation='linear' solves the score equation in one closed-form step, so it has no "
     "iterate, stopping rule or step bound to choose. Remove iterate=, stopping= and "
     "step_bound=, or use fluctuation='logistic'",
+)
+
+#: The refusal of the full-refit bootstrap beside a declared stopping rule.  Each refit stops
+#: under the rule with its own residual score, and no derivation bounds what those residuals do
+#: to the bootstrap law, so no margin can be added to a bootstrap interval the way one is added
+#: to the Wald interval.
+RULE_BOOTSTRAP_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "a declared stopping rule leaves a residual score in every bootstrap refit, and no "
+    "derivation bounds what those residuals do to the bootstrap law, so a bootstrap interval "
+    "under the rule could miss the margin the Wald interval adds.",
+    "Fit with n_bootstrap=0 and read the Wald interval, which adds the residual, or keep "
+    "stopping='relative' for the bootstrap.",
 )
 
 #: Raised by a solver that is asked to judge a declared rule and holds no
@@ -228,6 +243,18 @@ def check_stopping_rule(stopping: object, fluctuation: FluctuationKind | str) ->
         )
     if stopping != "relative" and fluctuation == "linear":
         raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
+
+
+def check_rule_bootstrap(stopping: object, n_bootstrap: int) -> None:
+    """Refuse the full-refit bootstrap beside a declared stopping rule.
+
+    Raises
+    ------
+    CapabilityError
+        If ``stopping`` is a declared rule and ``n_bootstrap`` asks for replicates.
+    """
+    if stopping != "relative" and n_bootstrap:
+        raise CapabilityError.from_refusal(RULE_BOOTSTRAP_REFUSAL)
 
 
 #: The refusal of a step bound beside ``targeting="one_step"``, which already walks the universal
@@ -465,50 +492,55 @@ def ruled_warning(stopping: str, steps: int, ratio: float, cause: str) -> str:
 
 
 #: The line a result prints under a declared stopping rule: the largest score residual in
-#: standard errors, and the coverage a Wald interval keeps at that residual.
+#: standard errors, and that the interval adds the residual to its half-width.
 RESIDUAL_LINE = (
     "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. "
-    "At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage."
+    "Each Wald interval and band adds the residual of its own quantity to its half-width."
 )
 
 #: The line a result prints when the targeting did not meet its declared stopping rule.
 RULE_FAILURE_LINE = "the targeting did not meet the {rule} stopping rule; {detail}"
 
 
-def wald_coverage_bound(residual: float, alpha: float) -> float:
-    r"""Coverage a Wald interval keeps when its estimate carries a bias of ``residual`` SE.
+def rule_coverage_floor(cap: float, alpha: float) -> float:
+    r"""The asymptotic coverage floor of the plain Wald interval under a residual cap.
 
-    :math:`\Phi(z - b) - \Phi(-z - b)` with :math:`z = \Phi^{-1}(1 - \alpha/2)`.  It is the
-    coverage of the interval :math:`\hat\psi \pm z\,\widehat{se}` when
-    :math:`(\hat\psi - \psi) / \widehat{se}` is normal with mean :math:`b` and unit variance.
-    A Student t reference (few clusters) has a larger critical value, so the coverage it keeps
-    is at least this one.
+    :math:`2\Phi(z - c) - 1` with :math:`z = \Phi^{-1}(1 - \alpha/2)`, floored at zero.
+    When the estimate's error is :math:`\widehat{se}\,(Z - B)` with :math:`Z` asymptotically
+    standard normal and :math:`|B| \le c` on every draw, for a cap :math:`c` fixed before
+    the data are read, the plain interval :math:`\hat\psi \pm z\,\widehat{se}` covers
+    whenever :math:`|Z| \le z - c`, and that event has this probability. The floor is
+    sharp: :math:`B = -c\,\mathrm{sign}(Z)` attains it. A residual measured on the fit is
+    not such a cap, so this is computed only from the a priori cap of a declared rule
+    (``rule_bound_se`` of :func:`cleverly.validation.score.score_check`). The interval
+    the package reports under a declared rule adds the residual to its half-width and does
+    not need the floor.
 
     Parameters
     ----------
-    residual : float
-        The bias, in standard errors.  The sign does not matter.
+    cap : float
+        The cap :math:`c` on the residual, in standard errors. The sign does not matter.
     alpha : float
         The significance level of the interval.
 
     Returns
     -------
     float
-        The coverage, ``nan`` for a non-finite residual.
+        The floor, ``nan`` for a non-finite cap.
 
     Examples
     --------
-    >>> from cleverly.fluctuation._score import wald_coverage_bound
-    >>> f"{wald_coverage_bound(0.0, 0.05):.4f}"
+    >>> from cleverly.fluctuation._score import rule_coverage_floor
+    >>> f"{rule_coverage_floor(0.0, 0.05):.4f}"
     '0.9500'
-    >>> f"{wald_coverage_bound(0.1, 0.05):.4f}"
-    '0.9489'
+    >>> f"{rule_coverage_floor(0.1316, 0.05):.4f}"
+    '0.9325'
     """
-    if not np.isfinite(residual):
+    if not np.isfinite(cap):
         return float("nan")
-    b = abs(float(residual))
+    c = abs(float(cap))
     z = reference_quantile(alpha)
-    return float(_normal_cdf(z - b) - _normal_cdf(-z - b))
+    return float(max(0.0, 2.0 * _normal_cdf(z - c) - 1.0))
 
 
 def _normal_cdf(x: float) -> float:
@@ -529,7 +561,7 @@ def residual_se(estimate: ParameterEstimate) -> float:
     return float(abs(estimate.score) / error)
 
 
-def residual_line(estimates: Mapping[str, ParameterEstimate], rule: str, alpha: float) -> str:
+def residual_line(estimates: Mapping[str, ParameterEstimate], rule: str) -> str:
     """The pinned line of a result under a declared stopping rule.
 
     Parameters
@@ -538,8 +570,6 @@ def residual_line(estimates: Mapping[str, ParameterEstimate], rule: str, alpha: 
         The result's estimates.
     rule : str
         The declared rule, ``"scaled_var"`` or ``"sample_size"``.
-    alpha : float
-        The significance level of the result's intervals.
 
     Returns
     -------
@@ -552,13 +582,7 @@ def residual_line(estimates: Mapping[str, ParameterEstimate], rule: str, alpha: 
     if not finite:
         return ""
     name = max(finite, key=lambda key: finite[key])
-    return RESIDUAL_LINE.format(
-        rule=rule,
-        b=finite[name],
-        name=name,
-        level=1.0 - alpha,
-        bound=wald_coverage_bound(finite[name], alpha),
-    )
+    return RESIDUAL_LINE.format(rule=rule, b=finite[name], name=name)
 
 
 def rule_failure_line(rule: str, detail: str) -> str:

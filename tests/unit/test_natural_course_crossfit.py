@@ -536,13 +536,20 @@ def test_the_stacked_curve_is_mean_zero_so_the_rules_differ_by_n_minus_one_over_
     # Nonzero witness through the library's rule-to-variance map: a constant shift moves the
     # stored second-moment variance by the squared shift over n and leaves the centered one.
     shift = 0.05
-    rebuilt = make_estimate("ey_obs", estimate.psi, curve, n=n, covariance_rule="second_moment")
+    rebuilt = make_estimate(
+        "ey_obs", estimate.psi, curve, n=n, covariance_rule="second_moment", rule_widened=False
+    )
     assert rebuilt.variance == estimate.variance
     shifted = make_estimate(
-        "ey_obs", estimate.psi, curve + shift, n=n, covariance_rule="second_moment"
+        "ey_obs",
+        estimate.psi,
+        curve + shift,
+        n=n,
+        covariance_rule="second_moment",
+        rule_widened=False,
     )
     assert shifted.variance - estimate.variance == pytest.approx(shift**2 / n, rel=1e-8)
-    shifted_centered = make_estimate("ey_obs", estimate.psi, curve + shift, n=n)
+    shifted_centered = make_estimate("ey_obs", estimate.psi, curve + shift, n=n, rule_widened=False)
     assert shifted_centered.variance == pytest.approx(centered, rel=1e-12)
 
 

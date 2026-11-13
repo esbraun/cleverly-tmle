@@ -133,8 +133,8 @@ def constant_arm_cells(source: str, frame: pd.DataFrame) -> tuple[str, ...]:
     arms in each stratum it reports, so one such cell puts a constant-cell member in the band,
     and the replicate is refused.  On ``cde_z0`` the rows with weight are those with ``Z = 0``
     and an observed outcome.  On the longitudinal shapes Fix-3 sets no status, and the copy is
-    empty.  Once Fix-3's PR 1 adds ``constant_outcome_cells``, the design test asserts the two
-    agree.
+    empty.  The design test asserts it agrees with ``constant_outcome_cells`` on every
+    non-empty cell.
     """
     if source in {"strata", "crossfit_strata"}:
         return _constant(frame, ("V", "A"))

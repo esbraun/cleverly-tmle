@@ -1966,6 +1966,90 @@ def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
     return summary.sort_values(["property", "cell"], ignore_index=True)
 
 
+def coverage_limit_verdicts(
+    summary: pd.DataFrame,
+    *,
+    family: str,
+    floor: float | None = None,
+    ceiling: float | None = None,
+) -> None:
+    """Read a family's exact ``covered`` intervals against a floor and a ceiling, by role.
+
+    A positive row passes when the lower limit of its exact interval is at least ``floor``.
+    A control row passes when the upper limit is strictly below ``ceiling``, so a control
+    that fails to fail is red.  A :data:`DIAGNOSTIC_ROLE` row publishes its interval and states
+    no verdict.  The joint verdict is every gated row's.
+
+    The rows' ``covered`` column need not be a coverage indicator: a family that gates the
+    share of draws on which an event happened writes the event there, and the interval is
+    that share's exact interval.  The family's declaration says what the column holds.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary; this writes ``passed`` and ``property_passed`` on the family's rows.
+    family : str
+        The property family.
+    floor : float or None
+        The least lower limit of a positive row; ``None`` when the family has no positive row.
+    ceiling : float or None
+        The bound a control row's upper limit must fall below; ``None`` when it has none.
+
+    Raises
+    ------
+    ValueError
+        When a row's role has no limit to read.
+    """
+    mask = summary["property"] == family
+    passes: list[bool] = []
+    for index in summary.index[mask]:
+        role = str(summary.loc[index, "role"])
+        coverage = summary_interval(summary, index, "coverage")
+        if role == DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = True
+            continue
+        if role == "positive" and floor is not None:
+            passed = bool(coverage.low >= floor)
+        elif role == "control" and ceiling is not None:
+            passed = bool(coverage.high < ceiling)
+        else:
+            raise ValueError(f"{family} has a {role!r} row and no limit for that role")
+        summary.loc[index, "passed"] = passed
+        passes.append(passed)
+    if mask.any():
+        summary.loc[mask, "property_passed"] = bool(passes) and all(passes)
+
+
+def reported_verdicts(summary: pd.DataFrame, *, families: Sequence[str]) -> None:
+    """Publish the rows of reported families, which state no verdict.
+
+    Every row of each family must carry :data:`DIAGNOSTIC_ROLE`, which is what tells a
+    reader the row states no verdict; ``passed`` and ``property_passed`` are ``True`` for them,
+    as :func:`fold_policy_diagnostics` sets them.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary.
+    families : Sequence of str
+        The reported families.
+
+    Raises
+    ------
+    ValueError
+        When a row of a reported family carries another role.
+    """
+    mask = summary["property"].isin(list(families))
+    roles = set(summary.loc[mask, "role"].astype(str))
+    if roles - {DIAGNOSTIC_ROLE}:
+        raise ValueError(
+            f"reported families {sorted(families)} publish roles {sorted(roles)}; every row of a "
+            f"reported family carries {DIAGNOSTIC_ROLE!r}"
+        )
+    summary.loc[mask, "passed"] = True
+    summary.loc[mask, "property_passed"] = True
+
+
 #: The ``few_cluster_reference`` family, and what the upper bound of its ``iid_t_control``
 #: paired ratio, the mean IID SE over the mean cluster SE of the same fits, must fall below.
 FEW_CLUSTER_FAMILY = "few_cluster_reference"
@@ -3051,6 +3135,55 @@ def requirement_rule(family: str, *, shared: str) -> pf.FamilyRule:
             pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
         ),
         group="family",
+    )
+
+
+def coverage_limit_rule(
+    family: str,
+    *,
+    floor: float | None,
+    ceiling: float | None,
+    shared: str = "coverage_limit_verdicts",
+) -> pf.FamilyRule:
+    """The rule of :func:`coverage_limit_verdicts`: S2 by role, joint over the family.
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    floor : float or None
+        A positive row's least lower limit, as the verdict reads it.
+    ceiling : float or None
+        The bound a control row's upper limit falls below, as the verdict reads it.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by family.
+    """
+    clauses: list[pf.Clause] = []
+    if floor is not None:
+        clauses.append(
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(lambda ctx: floor),
+                applies=pf.roles("positive"),
+            )
+        )
+    if ceiling is not None:
+        clauses.append(
+            pf.proportion_clause(
+                "coverage ceiling",
+                statistic="S2",
+                judge=pf.below_judge(lambda ctx: ceiling),
+                applies=pf.roles("control"),
+            )
+        )
+    return pf.FamilyRule(
+        families=frozenset({family}), shared=shared, clauses=tuple(clauses), group="family"
     )
 
 

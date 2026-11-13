@@ -72,6 +72,11 @@ X76_POINT_DEFAULTS: dict[str, Any] = {
 X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
     "T49": {"outcome_by_arm": True},
     "T50": {"outcome_by_arm": True},
+    "T53": {"outcome_by_arm": True},
+    "T54": {"treatment_adjustment": True},
+    "T52.scaled_var": {"stopping": "scaled_var"},
+    "T52.sample_size": {"stopping": "sample_size"},
+    "C12": {"patience": True},
 }
 X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
     "ratio_trim": False,
@@ -80,6 +85,19 @@ X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
     "step_bound": "none",
     "iterate": "last",
 }
+#: The longitudinal rows, by id prefix, whose study declares an X76 option.
+X76_LONGITUDINAL_ROW_OPTIONS: dict[str, dict[str, Any]] = {
+    "G56": {"ratio_trim": True},
+    "G57": {"markov_order": True},
+    "G55.scaled_var": {"stopping": "scaled_var"},
+    "G55.sample_size": {"stopping": "sample_size"},
+}
+
+
+def row_options(declared: dict[str, dict[str, Any]], row_id: str) -> dict[str, Any]:
+    """The options a row declares, read by its first id segment and by its first two."""
+    parts = row_id.split(".")
+    return declared.get(parts[0], {}) | declared.get(".".join(parts[:2]), {})
 
 
 def classified(case: RowCase) -> Any:
@@ -375,14 +393,18 @@ class TestLongitudinalControls:
         ],
     )
     def test_an_x33_option_leaves_a_default_row(self, name: str, value: Any) -> None:
-        # No registered study fits a ratio trim, a Markov order or a stopping rule, and the
-        # bounded and pooled fits have rows of their own, so each option moves a default fit
-        # off its row.
+        # Each option moves a default fit off its row. A stopping rule on the G01 key lands on
+        # its own G55 row (study option-stopping-ltmle); every other move matches no row,
+        # because the option rows pin keys or learners these fits do not carry.
         for row in ("G01", "G14.survival"):
             built = self.observed(row)
             assert classify_key(built.key, built.learners).row.id == row  # type: ignore[union-attr]
             options = tuple((key, value if key == name else old) for key, old in built.key.options)
-            assert classify_key(replace(built.key, options=options), built.learners).row is None
+            moved = classify_key(replace(built.key, options=options), built.learners).row
+            if name == "stopping" and row == "G01":
+                assert moved is not None and moved.id == f"G55.{value}.end_of_study"
+            else:
+                assert moved is None
 
     @pytest.mark.parametrize(
         "row",
@@ -519,7 +541,7 @@ class TestTheoryAndOptions:
         # A row that lost an option from its key would cover a fit that declares it.
         for row in POINT_ROWS:
             options = dict(row.key.options)
-            expected = X76_POINT_DEFAULTS | X76_POINT_ROW_OPTIONS.get(row.id.split(".")[0], {})
+            expected = X76_POINT_DEFAULTS | row_options(X76_POINT_ROW_OPTIONS, row.id)
             assert {name: options.get(name) for name in expected} == expected, row.id
 
     def test_every_longitudinal_row_keys_the_x76_options_at_the_defaults(self) -> None:
@@ -527,7 +549,7 @@ class TestTheoryAndOptions:
             if row.key.engine == ("snmm",):
                 continue  # A structural key holds no fitting option (structural_key).
             options = dict(row.key.options)
-            expected = X76_LONGITUDINAL_DEFAULTS
+            expected = X76_LONGITUDINAL_DEFAULTS | row_options(X76_LONGITUDINAL_ROW_OPTIONS, row.id)
             assert {name: options.get(name) for name in expected} == expected, row.id
 
     def test_the_allowlist_holds_the_declared_options(self) -> None:

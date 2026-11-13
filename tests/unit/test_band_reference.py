@@ -199,7 +199,9 @@ class TestTheMapping:
         curves = _family(n=4_000, seed=1)
         names = [f"x{j}" for j in range(curves.shape[1])]
         estimates = {
-            name: make_estimate(name, 0.5, 0.1 * curves[:, j], n=curves.shape[0])
+            name: make_estimate(
+                name, 0.5, 0.1 * curves[:, j], n=curves.shape[0], rule_widened=False
+            )
             for j, name in enumerate(names)
         }
         bands = simultaneous_bands(estimates, random_state=3, band_reference="t", kind="normal")
@@ -247,8 +249,12 @@ def test_a_bounded_estimate_reads_the_same_df_on_either_scale() -> None:
 
     curves = _family(n=2_000, seed=2)
     estimates = {
-        "p": make_estimate("p", 0.7, 0.2 * curves[:, 0], n=2_000, bounds=(0.0, 1.0)),
-        "q": make_estimate("q", 0.4, 0.3 * curves[:, 1], n=2_000, bounds=(0.0, 1.0)),
+        "p": make_estimate(
+            "p", 0.7, 0.2 * curves[:, 0], n=2_000, rule_widened=False, bounds=(0.0, 1.0)
+        ),
+        "q": make_estimate(
+            "q", 0.4, 0.3 * curves[:, 1], n=2_000, rule_widened=False, bounds=(0.0, 1.0)
+        ),
     }
     logit = simultaneous_bands(estimates, random_state=1, band_reference="t", band_scale="logit")
     identity = simultaneous_bands(
@@ -283,7 +289,10 @@ class TestTheLimit:
         n = 1_000_000
         curves = np.random.default_rng(9).standard_normal((n, 3))
         curves -= curves.mean(axis=0)
-        estimates = {f"g{j}": make_estimate(f"g{j}", 0.0, curves[:, j], n=n) for j in range(3)}
+        estimates = {
+            f"g{j}": make_estimate(f"g{j}", 0.0, curves[:, j], n=n, rule_widened=False)
+            for j in range(3)
+        }
         normal = simultaneous_bands(estimates, random_state=0, kind="normal")
         t_band = simultaneous_bands(estimates, random_state=0, kind="normal", band_reference="t")
         c = normal.critical_value
@@ -308,8 +317,8 @@ class TestTheRefusals:
 
         curves = _family(n=200)
         estimates = {
-            "a": make_estimate("a", 0.0, curves[:, 1], n=200, reference_df=8),
-            "b": make_estimate("b", 0.0, curves[:, 2], n=200),
+            "a": make_estimate("a", 0.0, curves[:, 1], n=200, rule_widened=False, reference_df=8),
+            "b": make_estimate("b", 0.0, curves[:, 2], n=200, rule_widened=False),
         }
         with pytest.raises(CapabilityError) as raised:
             simultaneous_bands(estimates, band_reference=reference)  # type: ignore[arg-type]
@@ -322,7 +331,8 @@ class TestTheRefusals:
 
         curves = _family(n=200)
         estimates = {
-            name: make_estimate(name, 0.0, curves[:, j], n=200) for j, name in ((1, "a"), (2, "b"))
+            name: make_estimate(name, 0.0, curves[:, j], n=200, rule_widened=False)
+            for j, name in ((1, "a"), (2, "b"))
         }
         message = "band_reference must be 'normal' or 't'; got 'student'"
         with pytest.raises(ValueError, match=message):
@@ -348,11 +358,21 @@ def _replay_estimates() -> dict[str, object]:
     curves = np.column_stack([base[:, 0], 0.5 * base[:, 0] + base[:, 1], heavy, base[:, 2]])
     curves -= curves.mean(axis=0)
     return {
-        "p": make_estimate("p", 0.8, 0.3 * curves[:, 0], n=n, bounds=(0.0, 1.0)),
-        "d": make_estimate("d", 0.2, 0.4 * curves[:, 1], n=n, bounds=(-1.0, 1.0)),
-        "h": make_estimate("h", 1.5, curves[:, 2], n=n),
+        "p": make_estimate(
+            "p", 0.8, 0.3 * curves[:, 0], n=n, rule_widened=False, bounds=(0.0, 1.0)
+        ),
+        "d": make_estimate(
+            "d", 0.2, 0.4 * curves[:, 1], n=n, rule_widened=False, bounds=(-1.0, 1.0)
+        ),
+        "h": make_estimate("h", 1.5, curves[:, 2], n=n, rule_widened=False),
         "r": make_estimate(
-            "r", 1.3, 0.2 * curves[:, 3], n=n, scale="ratio", log_psi=float(np.log(1.3))
+            "r",
+            1.3,
+            0.2 * curves[:, 3],
+            n=n,
+            rule_widened=False,
+            scale="ratio",
+            log_psi=float(np.log(1.3)),
         ),
     }
 
@@ -469,7 +489,7 @@ def test_one_estimate_gets_a_t_interval_wider_than_its_own() -> None:
     from cleverly.inference import make_estimate, simultaneous_bands
 
     curve = _family(n=500, seed=4)[:, 0]
-    estimate = make_estimate("one", 0.3, curve, n=500)
+    estimate = make_estimate("one", 0.3, curve, n=500, rule_widened=False)
     bands = simultaneous_bands({"one": estimate}, band_reference="t")
     assert bands.critical_value == pytest.approx(stats.norm.ppf(0.975), rel=1e-15)
     nu = bands.reference_df["one"]
@@ -509,6 +529,7 @@ def _family_estimates(status: dict[str, str] | None = None) -> dict[str, object]
             psi,
             0.05 * curves[:, j],
             n=800,
+            rule_widened=False,
             bounds=(0.0, 1.0),
             inference=status.get(name, "influence_curve"),  # type: ignore[arg-type]
         )

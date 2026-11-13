@@ -12,7 +12,6 @@ ids, and cache keys. They stay on the result for programs.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -731,8 +730,6 @@ def _fit_notes(
 
 def _score_notes(result: TMLEResult) -> list[Note]:
     """The notes on how well the fit solved its estimating equation."""
-    from ..fluctuation._score import wald_coverage_bound
-
     verdict = result.score_verdict
     notes: list[Note] = []
     if verdict.declared:
@@ -747,11 +744,6 @@ def _score_notes(result: TMLEResult) -> list[Note]:
         }
         if remainders:
             name, b = max(remainders.items(), key=lambda item: item[1])
-            alpha = float(result.estimates[name].alpha)
-            # A lower bound, so it is rounded down; a remainder below 0.001 is stated as
-            # that ceiling and its coverage computed there.
-            shown = max(b, _SMALLEST_REMAINDER)
-            bound = math.floor(wald_coverage_bound(shown, alpha) * 10000) / 100
             notes.append(
                 note(
                     "stopping_rule",
@@ -760,8 +752,6 @@ def _score_notes(result: TMLEResult) -> list[Note]:
                         if b < _SMALLEST_REMAINDER
                         else f"{b:.3g}",
                         name=name,
-                        level=f"{(1.0 - alpha) * 100:g}%",
-                        bound=f"{bound:.2f}%",
                     ),
                 )
             )

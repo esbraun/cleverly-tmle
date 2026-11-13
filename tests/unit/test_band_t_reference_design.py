@@ -410,12 +410,62 @@ def test_the_constant_arm_copy_reads_each_shape() -> None:
 
 
 def test_the_constant_arm_copy_agrees_with_fix3() -> None:
-    """Plan 5.1: once Fix-3's PR 1 adds ``constant_outcome_cells``, the copy must agree."""
+    """Plan 5.1: the copy agrees with Fix-3's ``constant_outcome_cells`` on each shape."""
     from cleverly.inference import influence
 
-    if not hasattr(influence, "constant_outcome_cells"):
-        pytest.skip("Fix-3's constant_outcome_cells is not on this branch")
-    raise AssertionError("write the agreement fixtures for each shape")  # pragma: no cover
+    def package(source: str, frame: pd.DataFrame) -> tuple[str, ...]:
+        y, a = frame["Y"].to_numpy(), frame["A"].to_numpy()
+        if source == "strata":
+            cells = []
+            for v in sorted(frame["V"].unique()):
+                rows = (frame["V"] == v).to_numpy()
+                arms = influence.constant_outcome_cells(y, a, rows)
+                cells += [f"V={v}|A={arm}" for arm in sorted(arms)]
+            return tuple(cells)
+        if source == "cde_z0":
+            observed = (frame["Delta"] == 1).to_numpy()
+            arms = influence.constant_outcome_cells(
+                y, a, (frame["Z"] == 0).to_numpy(), observed=observed
+            )
+            return tuple(f"A={arm}" for arm in sorted(arms))
+        arms = influence.constant_outcome_cells(y, a, np.ones(len(frame), dtype=bool))
+        return tuple(f"A={arm}" for arm in sorted(arms))
+
+    strata = pd.DataFrame(
+        {
+            "V": [0, 0, 0, 0, 1, 1, 1, 1],
+            "A": [0, 0, 1, 1, 0, 0, 1, 1],
+            "Y": [0, 1, 0, 1, 0, 1, 1, 1],
+        }
+    )
+    varied = strata.assign(Y=[0, 1, 0, 1, 0, 1, 0, 1])
+    constant = strata.assign(Y=[0, 1, 1, 1, 0, 1, 0, 1])
+    cde = pd.DataFrame(
+        {
+            "A": [0, 0, 1, 1, 1, 1],
+            "Z": [0, 0, 0, 0, 1, 1],
+            "Delta": [1, 1, 1, 0, 1, 1],
+            "Y": [0, 1, 1, np.nan, 0, 1],
+        }
+    )
+    cases = [
+        ("strata", strata, ("V=1|A=1",)),
+        ("strata", varied, ()),
+        ("ordinary_binary", varied, ()),
+        ("ordinary_binary", constant, ()),
+        ("ordinary_binary", strata.assign(Y=[0, 1, 1, 1, 0, 1, 1, 1]), ("A=1",)),
+        ("cde_z0", cde, ("A=1",)),
+        ("cde_z0", cde.assign(Y=[0, 1, 1, 0, 0, 1], Delta=[1, 1, 1, 1, 1, 1]), ()),
+    ]
+    for source, frame, expected in cases:
+        assert properties.constant_arm_cells(source, frame) == expected, source
+        assert package(source, frame) == expected, source
+    # One deliberate difference: the package skips an arm with no qualifying row, while the
+    # copy counts an empty stratum-by-arm cell, because the family still reports a contrast
+    # of that arm and Fix-3's fit refuses it on the empty cell.
+    empty = strata.loc[~((strata["V"] == 1) & (strata["A"] == 1))]
+    assert properties.constant_arm_cells("strata", empty) == ("V=1|A=1",)
+    assert package("strata", empty) == ()
 
 
 # ---------------------------------------------------------------- expansion and verdict
