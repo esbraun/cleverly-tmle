@@ -114,10 +114,10 @@ acceptance holds.
 
 | claim | measured | verdict |
 | --- | --- | --- |
-| the default recovers the truth in the two larger strata and for the marginal ATE | largest absolute standardized bias 0.0665; every row but one covers with a lower endpoint above 0.90 | 9/10 pass |
+| the default recovers the truth for every row except `ey[1][V=2]` | largest absolute standardized bias 0.0665; every row but one covers with a lower endpoint above 0.90 | 9/10 pass |
 | the smallest stratum's treated mean covers | `ey[1][V=2]` coverage 0.9073 (99% lower endpoint 0.8948), SE ratio 0.8820 (99% interval 0.8584 to 0.9079), bias inside the margin | **fail** |
-| the marginal `treatment_correct` bias contracts at second order | slope -1.0666, 99% interval -1.2198 to -0.9314 | pass |
-| the `v1` `treatment_correct` bias contracts at second order | slope -1.0693, 99% interval -1.2873 to -0.8833 | pass |
+| the marginal `treatment_correct` bias contracts faster than n^-1/2, consistent with second order | slope -1.0666, 99% interval -1.2198 to -0.9314 | pass |
+| the `v1` `treatment_correct` bias contracts faster than n^-1/2, consistent with second order | slope -1.0693, 99% interval -1.2873 to -0.8833 | pass |
 | the `both_wrong` controls fail to contract | marginal slope 0.0062 (99% interval -0.0041 to 0.0169) | pass |
 
 The red row's SE-ratio interval excludes 1, so it does not meet the finite-sample rule. It is a
@@ -199,8 +199,8 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| the smallest stratum's treated-mean interval under-covers | `ey[1][V=2]` covers 0.9073 with an SE ratio of 0.8820 in a stratum of about 400 rows. Read intervals in strata of a few hundred rows with that in mind |
-| the `treatment_correct` bias is a finite-sample term | the marginal ATE carries 0.40 SD of bias at n = 2,000 and 0.20 SD at 8,000; it contracts at second order but is not negligible at these sizes |
+| the smallest stratum's treated-mean interval is a defect suspect | in a stratum of about 400 rows, `ey[1][V=2]` under-reports its SE by about 12% (SE ratio 0.882, 99% interval 0.858 to 0.908) and covers 0.907, pending the `X8-drtmle-small-stratum` correction (Fix-3). Support row `D13` marks every interval of a default stratified fit experimental until then |
+| the `treatment_correct` bias is a finite-sample term | the marginal ATE carries 0.40 SD of bias at n = 2,000 and 0.20 SD at 8,000; it contracts faster than n^-1/2, consistent with second order, but is not negligible at these sizes |
 | one stratified binary law with GLM nuisance learners | other stratum counts, outcome types, covariate laws and flexible learners have no witness here |
 | complete, unweighted, independent data at ten folds | the study measures no missing data, weights, clusters, fold repeats or bands |
 | no comparator | no maintained implementation fits the foldwise construction |

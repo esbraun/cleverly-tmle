@@ -111,8 +111,8 @@ four nuisance configurations. The marginal cells read the same fits as the strat
 Seven results are red. The four `treatment_correct` robustness cells carry a positive bias of
 0.34 to 0.60 of their spread. The owner `X8-drtmle-one-sided-bias` in the
 [roadmap](../../roadmap.md#red-cell-owners) records a declared diagnostic.
-The four cells fit `reduced_crossfit="pooled"`; under the shipped foldwise default the same
-bias contracts at second order ([`stratified-drtmle-foldwise`](stratified-dr-tmle-foldwise.md)).
+The four cells fit `reduced_crossfit="pooled"`; under the shipped foldwise default the default's
+bias contracts faster than n^-1/2, consistent with second order ([`stratified-drtmle-foldwise`](stratified-dr-tmle-foldwise.md)).
 
 Inside each stratum, the shipped unstratified `DRTMLE` and R `drtmle`, handed the same initial
 arrays, carry a positive bias too. The direction is shared in every stratum, and the size mostly is. In stratum 2 the
