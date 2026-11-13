@@ -108,6 +108,34 @@ def test_the_diagonal_form_gives_the_contrast_variance() -> None:
     )
 
 
+@cache
+def _moved_pair() -> tuple[float, float, float]:
+    """``p4`` pushed forward with ``p1``'s ratio read at its doses: form, moments, mutation."""
+    return (
+        tail.diagonal_variance("p4", "p1"),
+        tail.moments_covariance("p4", "p1"),
+        tail.diagonal_variance("p4", "p1", shift="source_ratio"),
+    )
+
+
+def test_the_covariance_of_two_moved_plans_is_exact() -> None:
+    """Witness 1 on a pair of plans that both move a dose: ``p4`` with ``p1``.
+
+    The change of measure pushes forward through ``p4`` and reads ``p1``'s ratio at ``p4``'s
+    policy doses, :math:`r^{p1}(d^{p4}(A))`.  With the true regressions the form equals
+    :math:`E[D^{p4} D^{p1}]` on the moment grid.
+    """
+    form, moments, _ = _moved_pair()
+    assert form == pytest.approx(moments, rel=1e-8)
+
+
+def test_reading_the_source_plans_ratio_moves_the_covariance() -> None:
+    """The control: reading ``p4``'s own ratio at its doses in place of ``p1``'s moves the
+    cross term from 0.58 to 3.13, so the exact check above sees which ratio is read."""
+    form, _, mutated = _moved_pair()
+    assert mutated / form > 2.0
+
+
 @pytest.mark.parametrize("shift", ["observed_dose", "no_ratio"])
 def test_a_lost_shift_moves_the_form_by_more_than_half(shift: str) -> None:
     """Witness 2: reading ``S_t`` at ``A_t``, or dropping ``r(A^d)``, moves ``p4`` by over 50%."""

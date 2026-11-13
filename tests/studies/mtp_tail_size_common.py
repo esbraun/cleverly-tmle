@@ -72,7 +72,7 @@ TAIL_SD_TARGET = 0.25
 
 Quantity = Literal["ey", "ate"]
 Mutation = Literal["none", "one_branch", "first_ratio_only"]
-Shift = Literal["none", "observed_dose", "no_ratio", "policy_residual"]
+Shift = Literal["none", "observed_dose", "no_ratio", "policy_residual", "source_ratio"]
 
 
 def tail_size(kappa: float) -> int:
@@ -390,7 +390,9 @@ def _inner_terms(
         # ratio is read at that policy dose.
         moved = a2[None, :] if shift == "observed_dose" else d2_left(a2[None, :], u)
         ratio = (
-            np.ones_like(moved) if shift == "no_ratio" else law.node_ratio(right, 2, moved, mean, u)
+            np.ones_like(moved)
+            if shift == "no_ratio"
+            else law.node_ratio(_read(left, right, shift), 2, moved, mean, u)
         )
         m2 = law.outcome_mean(ww, aa, l2, moved)
         target = m2 * (1.0 - m2)
@@ -414,14 +416,16 @@ def diagonal_variance(
     left : str
         The plan whose dose map pushes the measure forward.
     right : str or None, default=None
-        ``left`` itself (``None``) or the natural plan.
+        ``left`` itself (``None``), the natural plan, or another plan of law B that moves
+        the dose; its ratio is read at ``left``'s policy dose.
     order : int, default=40
         The Gauss-Legendre order of each segment.
-    shift : {"none", "observed_dose", "no_ratio", "policy_residual"}, default="none"
+    shift : {"none", "observed_dose", "no_ratio", "policy_residual", "source_ratio"}, default="none"
         A deliberate defect: evaluate each :math:`S_t` at :math:`A_t` instead of
-        :math:`A^d_t`, drop the factor :math:`r(A^d)`, or take each node's residual against
+        :math:`A^d_t`, drop the factor :math:`r(A^d)`, take each node's residual against
         its regression at the policy dose :math:`A^d_t` rather than the observed dose (the
-        exact-law reading of witness 3a).
+        exact-law reading of witness 3a), or read ``left``'s own ratio at its policy dose in
+        place of ``right``'s (the defect of reading the source plan's shifted ratio).
 
     Returns
     -------
@@ -429,8 +433,8 @@ def diagonal_variance(
         :math:`\sigma^2_{LR}`, which equals :math:`E[D^L D^R]` when ``shift="none"``.
     """
     right = left if right is None else right
-    if right not in (left, law.REFERENCE):
-        raise ValueError("the diagonal form here pairs a plan with itself or the natural plan")
+    if "B_atom" in (law.LAW_OF.get(left), law.LAW_OF.get(right)):
+        raise ValueError("the diagonal form here pairs two plans of law B")
     d1_left, _ = law.MAPS[left]
     psi_left, psi_right = law.truth(left, "B"), law.truth(right, "B")
     nodes, weights = law.w1_nodes(order)
@@ -462,11 +466,18 @@ def diagonal_variance(
         total += float(np.sum(joint * b_left * b_right))
         moved = a if shift == "observed_dose" else d1_left(a, u)
         ratio = (
-            np.ones_like(moved) if shift == "no_ratio" else law.node_ratio(right, 1, moved, mean, u)
+            np.ones_like(moved)
+            if shift == "no_ratio"
+            else law.node_ratio(_read(left, right, shift), 1, moved, mean, u)
         )
         inner = _inner_terms(left, right, w, w2, moved, order, shift)
         total += float(np.sum(joint * ratio * inner))
     return total
+
+
+def _read(left: str, right: str, shift: Shift) -> str:
+    """The plan whose ratio the change of measure reads at ``left``'s policy dose."""
+    return left if shift == "source_ratio" else right
 
 
 def moments_covariance(left: str, right: str | None = None, order: int = 40) -> float:
