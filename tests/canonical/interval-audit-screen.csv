@@ -3,6 +3,7 @@ adaptive-iptw,neutral,92,69,0.1475,,bias/ate__composite_l1;bias/ate__insample_co
 adaptive-iptw-pairing,neutral,53,42,0.006,,,0,
 adaptive-tmle-selective,neutral,0,0,0.0,,,0,
 adaptive-tmle-trial,neutral,0,0,0.0,,,0,
+asymmetric-wald,neutral,4,2,0.02625,,,0,
 band-t-reference,neutral,2,2,0.003,,,11,
 band-t-reference-held-out,neutral,2,2,0.003,,,1,
 calibration-slope-warning,neutral,1,0,0.0,,,0,
@@ -20,8 +21,8 @@ canonical-ltmle-crossfit,neutral,5,5,0.01125,,,0,
 canonical-ltmle-survival,neutral,6,6,0.003125,,,2,
 canonical-ltmle-survival-crossfit,neutral,6,6,0.016667,,survival_recursion_necessity/always_t2__survival,0,
 canonical-multi-arm-ctmle-oat,neutral,11,11,0.025,,root_n_and_efficiency/n_2000;root_n_and_efficiency/n_500,0,
-canonical-multi-arm-ctmle-selector,declared,17,15,0.025,root_n_and_efficiency/n_500,power/alternative;root_n_and_efficiency/n_500,0,"the flagged cells read ate[medium vs high], a difference, whose interval is unchanged"
-canonical-multi-arm-drtmle,declared,16,15,0.025,root_n_and_efficiency/n_500,root_n_and_efficiency/n_500,0,"root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, whose interval is unchanged"
+canonical-multi-arm-ctmle-selector,declared,17,15,0.025,root_n_and_efficiency/n_500,power/alternative;root_n_and_efficiency/n_500,0,"the flagged cells read ate[medium vs high], a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
+canonical-multi-arm-drtmle,declared,16,15,0.025,root_n_and_efficiency/n_500,root_n_and_efficiency/n_500,0,"root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
 canonical-multi-arm-tmle,neutral,11,10,0.0125,,double_robustness/outcome_correct;power/alternative;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_500;root_n_and_efficiency/n_8000,1,
 canonical-stratified-drtmle,neutral,8,7,0.04875,,,0,
 canonical-stratified-incremental-msm,declared,31,31,0.0265,interval_calibration/logit_v0_w__correctly_specified,interval_calibration/logit_v0_w__correctly_specified,1,"logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
@@ -43,7 +44,7 @@ ctmle-oat-per-arm,neutral,15,14,0.095,,generated_design/binary_active__estimated
 ctmle-oat-per-arm-parametric,neutral,27,27,0.008478,,,0,
 ctmle-oat-per-arm-parametric-crossfit,neutral,16,16,0.009,,,0,
 ctmle-oat-per-arm-parametric-extensions,neutral,25,23,0.009837,,,2,
-ctmle-oat-per-arm-strata-missing,declared,39,35,0.02125,root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,robustness_contract/ate__strata_missing;robustness_contract/ate__weighted_strata_missing;robustness_contract/ey_obs__missing_outcome_crossfit;robustness_contract/paf__strata_missing;robustness_contract/paf_s0__strata_missing;robustness_contract/par__strata_missing;robustness_contract/par_s0__strata_missing;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,0,"root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, whose interval is unchanged"
+ctmle-oat-per-arm-strata-missing,declared,39,35,0.02125,root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,robustness_contract/ate__strata_missing;robustness_contract/ate__weighted_strata_missing;robustness_contract/ey_obs__missing_outcome_crossfit;robustness_contract/paf__strata_missing;robustness_contract/paf_s0__strata_missing;robustness_contract/par__strata_missing;robustness_contract/par_s0__strata_missing;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,0,"root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
 default-simultaneous-bands,neutral,2,2,0.002,,,25,
 deterministic-regimes,neutral,13,11,0.004167,,,0,
 dose-response,neutral,2,1,0.000625,,,1,
@@ -60,6 +61,7 @@ fold-evaluated-cvtmle,neutral,13,13,0.01,,power/alternative,0,
 fold-evaluated-strata,neutral,73,69,0.011591,,,0,
 fold-targeted-cvtmle,neutral,9,9,0.0275,,crossfit_overfitting/fold_targeted_cvtmle;double_robustness/outcome_correct;power/alternative,0,
 full-refit-bootstrap-and-derived-contrasts,neutral,6,6,0.01625,,,0,
+hazard-msm,neutral,5,4,0.00125,,,1,
 incremental-interventions,neutral,14,10,0.00625,,,0,
 isotonic-binding,neutral,4,4,0.348889,,,0,
 known-node-mechanisms,neutral,6,5,0.005,,,0,
