@@ -28,9 +28,11 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   fitting failures leave red.  A truth or paired cell that the accounting leaves red stays a
   truth or paired row, and its ``fails by`` names the accounting.
 
-One red row sits outside the ledger: :data:`ACCEPTED_BY_EXCEPTION` names it.  Its study is
-``gated``, its owner accepted it by a written decision, and the ledger lists no row that has no
-ask to close it.
+A ``gated`` study may publish a red row only by a named exception (:data:`ACCEPTED_BY_EXCEPTION`),
+which the project owner grants in writing.  An exception with no owner is a row accepted as
+valid: the ledger lists no row that has no ask to close it, and its table labels it accepted.
+An exception that also has an owner only lifts the ``reporting`` requirement: the row stays in
+the ledger under its owner, and its table still prints it as failed.
 
 A study module may also define a ``scientific_failures`` hook, which the regeneration driver
 adds to the failures it gates or reports.  Those hooks audit fits rather than publish verdict
@@ -158,7 +160,7 @@ REPORTING_ROWS: Mapping[RedKey, str] = {
 
 @dataclass(frozen=True)
 class AcceptedRow:
-    """A red verdict of a ``gated`` study that its owner accepted by a named exception.
+    """A red verdict of a ``gated`` study that the project owner admitted by a named exception.
 
     Parameters
     ----------
@@ -173,10 +175,11 @@ class AcceptedRow:
     replicates_sha256: str
 
 
-#: The one red verdict of a ``gated`` study that its owner accepted by exception.  The row
-#: stays red in the committed tables, and the ledger neither owns it nor requires the
-#: ``reporting`` policy for it.  ``tests/unit/test_red_cell_ledger.py`` ratchets the entry: it
-#: fails when the cell turns green or the study is rerun, and it admits no other row.
+#: The red verdicts of ``gated`` studies admitted by a named exception.  Each row stays red in
+#: the committed tables, and the ledger does not require the ``reporting`` policy for it.  A row
+#: :data:`OWNERS` does not list was accepted as valid; a row it lists stays owned until its ask
+#: closes.  ``tests/unit/test_red_cell_ledger.py`` ratchets each entry: it fails when the cell
+#: turns green or the study is rerun, and it admits no other row.
 ACCEPTED_BY_EXCEPTION: Mapping[RedKey, AcceptedRow] = {
     RedKey(
         "adaptive-tmle-selective",
@@ -194,6 +197,22 @@ ACCEPTED_BY_EXCEPTION: Mapping[RedKey, AcceptedRow] = {
             "are unchanged, and the study was run once under the declaration at c6f9e51c."
         ),
         replicates_sha256="52ef091a9a5703205967d9d8ad605d7af5e09aadc705766c67c052cf0454a9cc",
+    ),
+    RedKey(
+        "stratified-drtmle-foldwise",
+        "truth",
+        "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+    ): AcceptedRow(
+        reason=(
+            'Eric, 2026-11-13: "OK to the two shared test edits", answering the request to '
+            "admit this row by exception, held by X8-drtmle-small-stratum until Fix-3 re-reads "
+            "it. Not accepted as valid: the row reads defect suspect under Fix-6 plan rev 2.6 "
+            "S1 (coverage 0.9073 against the floor 0.90, SE ratio 0.8820 with 99% interval "
+            "0.8584 to 0.9079), its fix is Fix-3's small-stratum correction, and D13 marks the "
+            "interval experimental. The margin, count, law, seed and learners are unchanged, "
+            "and the study was run once under the declaration at 9ace1a3c."
+        ),
+        replicates_sha256="acf25e2e53c84b10cb8ac438beb9baf3d6666623b101d4194b144d53f3fd30a7",
     ),
 }
 
@@ -397,6 +416,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]",
         ),
     ),
+    # The standing record of ``reduced_crossfit="pooled"``, the R drtmle cvFolds construction:
+    # the three cells keep their verdicts. Corrected on the default (Fix-6 D2): both paired
+    # cells of ``drtmle-foldwise-n1500``, the foldwise default on the binary cells' own draws
+    # at n = 1,500, pass with the record's primary rows passing, and ``drtmle-foldwise`` passes
+    # on the multi-arm cell's draws at n = 2,000.
     "RM18-one-sided-bias": (
         *_keys(
             "canonical-drtmle",
@@ -514,7 +538,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The treatment-correct cells of the stratified DR-TMLE study, read by
     # ``tests/diagnostics/x8_drtmle_treatment_correct``: the one-sided bias of RM18 at stratum
-    # size, shared by the shipped unstratified fit and by R drtmle.
+    # size, shared by the shipped unstratified fit and by R drtmle. The standing record of
+    # ``reduced_crossfit="pooled"``: the four cells keep their verdicts. A finite-sample limit
+    # of the default (Fix-6 D4): in ``stratified-drtmle-foldwise`` the bias of the marginal ATE
+    # and of ``v1`` contracts faster than n^-1/2, consistent with second order, the both-wrong controls fail to contract, and no
+    # rung's SE-ratio row is red.
     "X8-drtmle-one-sided-bias": _keys(
         "canonical-stratified-drtmle",
         "property",
@@ -530,6 +558,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-stratified-drtmle/stratified_both_correct/ey[1][V=2]",
             "drtmle-r-stratified/stratified_both_correct/ey[1][V=2]",
+        ),
+        # Fix-6 S1, declared before the run: the fold-wise default's row is red too, with an
+        # SE ratio whose interval excludes 1, so it is a defect suspect held here until Fix-3's
+        # small-stratum correction re-reads it.
+        *_keys(
+            "stratified-drtmle-foldwise",
+            "truth",
+            "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
         ),
         *_keys(
             "canonical-stratified-drtmle",
@@ -1247,8 +1283,9 @@ def findings(
     ids : Iterable of str
         The owner names the roadmap declares.
     accepted : Iterable of RedKey
-        The red rows a named exception accepts (:data:`ACCEPTED_BY_EXCEPTION`).  Each needs
-        neither an owner nor the ``reporting`` policy, and each must still be red.
+        The red rows a named exception admits (:data:`ACCEPTED_BY_EXCEPTION`).  Each needs
+        neither an owner nor the ``reporting`` policy, and each must still be red.  One that
+        has an owner is held to that owner like any other owned row.
 
     Returns
     -------
@@ -1259,13 +1296,10 @@ def findings(
     all_rows = list(rows)
     rows = [row for row in all_rows if row.key not in accepted]
     known = set(ids)
-    red = {row.key for row in rows}
-    out = [f"{key} is red and has no owner" for key in sorted(red - set(owned))]
+    red = {row.key for row in all_rows}
+    out = [f"{key} is red and has no owner" for key in sorted(red - set(owned) - accepted)]
     out += [f"{key} has an owner but is not red" for key in sorted(set(owned) - red)]
-    out += [
-        f"{key} is accepted by exception but is not red"
-        for key in sorted(accepted - {row.key for row in all_rows})
-    ]
+    out += [f"{key} is accepted by exception but is not red" for key in sorted(accepted - red)]
     out += [
         f"{key} is owned by {owner!r}, which the roadmap's id column does not list"
         for key, owner in sorted(owned.items())
@@ -1430,7 +1464,11 @@ def rendered(records: Sequence[StudyRecord] | None = None) -> dict[str, list[str
     counts: dict[str, int] = {}
     for record in records:
         tables = frames(record)
-        rows += [row for row in red_rows(record, tables) if row.key not in ACCEPTED_BY_EXCEPTION]
+        rows += [
+            row
+            for row in red_rows(record, tables)
+            if row.key not in ACCEPTED_BY_EXCEPTION or row.key in OWNERS
+        ]
         counts[record.slug] = verdict_count(tables)
     ids = owner_ids()
     return {

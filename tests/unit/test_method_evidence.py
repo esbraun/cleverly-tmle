@@ -53,7 +53,7 @@ from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
-from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION
+from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.schema import truth_on_inference_scale, validate_replicates
 from tests.studies.evidence.seeds import replicate_seed
@@ -844,7 +844,7 @@ class TestPublishedVerdicts:
             failures = published.loc[~published["passed"]]
             if study.accepted_reference_failure:
                 failures = failures.loc[failures["implementation"] != study.reference]
-            # The one named exception: a row of ``ACCEPTED_BY_EXCEPTION``, keyed to its study,
+            # The named exceptions: rows of ``ACCEPTED_BY_EXCEPTION``, each keyed to its study,
             # implementation, scenario and estimand.  Any other failed row still fails here.
             accepted = [
                 key.key
@@ -1270,6 +1270,57 @@ class TestPublishedVerdicts:
             assert set(single["property_passed"].map(bool)) == {all(own)}, (
                 f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
+
+        # Fix-6's stratified contraction ladder.  A level row answers to its own SE-ratio
+        # interval (coverage is published beside the coverage its bias implies, never gated),
+        # a control rung states no verdict, and a rate row answers to the reading of its own
+        # slope interval.  Recomputed from the published endpoints with the module's constants.
+        ladder = published.loc[published["property"] == "stratified_contraction"]
+        if not ladder.empty:
+            from tests.studies import stratified_drtmle_foldwise_ladder as unit_s
+
+            sanity = study.margins.se_ratio_sanity
+            for row in ladder.itertuples():
+                half_width = (row.slope_ci_upper - row.slope_ci_lower) / 2
+                label = str(row.cell).split("__", 1)[0]
+                if "__rate_" not in str(row.cell):
+                    expected = row.role == "control" or (
+                        sanity[0] <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= sanity[1]
+                    )
+                elif label not in unit_s.READ_LABELS:
+                    expected = True
+                elif row.role == "control":
+                    expected = row.slope_ci_upper >= unit_s.FIRST_ORDER_SLOPE
+                else:
+                    expected = (
+                        half_width <= unit_s.RESOLUTION_TARGET
+                        and row.slope_ci_upper < unit_s.FIRST_ORDER_SLOPE
+                    )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own ladder endpoint"
+                )
+                # The role follows the cell: the both-wrong rungs are the controls.
+                assert row.role == ("control" if "both_wrong" in str(row.cell) else "positive"), (
+                    f"{row.cell} publishes role={row.role!r} against its own cell"
+                )
+                # The published reading agrees with the verdict.  A level control and an unread
+                # rate row state no reading; every other row passes iff its reading is clean.
+                rate = "__rate_" in str(row.cell)
+                if (not rate and row.role == "control") or (
+                    rate and label not in unit_s.READ_LABELS
+                ):
+                    assert row.reading == unit_s.NOT_READ, (
+                        f"{row.cell} publishes reading={row.reading!r} on a row it does not read"
+                    )
+                else:
+                    clean = row.reading in {
+                        unit_s.CLEAN,
+                        unit_s.CONSISTENT,
+                        unit_s.FAILS_TO_CONTRACT,
+                    }
+                    assert bool(row.passed) is clean, (
+                        f"{row.cell} publishes passed={row.passed} beside reading={row.reading!r}"
+                    )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
         # presence of the efficiency columns left a study that publishes no exact ratio with
@@ -1911,6 +1962,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
         # Checked row by row below.
         "single_robustness",
+        # Fix-6's stratified ladder: level rows answer to their SE-ratio interval, rate rows to
+        # the reading of their slope interval, control rungs state no verdict.  Checked row by
+        # row below.
+        "stratified_contraction",
         # X43's softmax update: a positive cell answers to bias equivalence and the efficiency
         # band of its SE ratio, the outcome-only control to a bias interval wholly above zero
         # and beyond the margin.  Checked row by row below.
@@ -3478,9 +3533,14 @@ class TestThePublishedTestTables:
         elif name == "properties":
             expected = [_committed_property_result(row) for row in frame.itertuples()]
         else:
-            # A failed truth row the owner accepted by a named exception reads as that, and
-            # only that row.  The label is spelled out here, not imported from the renderer.
-            accepted = {key.key for key in ACCEPTED_BY_EXCEPTION if key.slug == study.slug}
+            # A failed truth row accepted as valid by a named exception reads as that, and only
+            # that row; an exception whose row keeps an owner still reads as failed.  The label
+            # is spelled out here, not imported from the renderer.
+            accepted = {
+                key.key
+                for key in ACCEPTED_BY_EXCEPTION
+                if key.slug == study.slug and key not in OWNERS
+            }
             expected = [
                 "pass"
                 if bool(row.passed)

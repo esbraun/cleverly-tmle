@@ -1670,6 +1670,8 @@ _ARM = re.compile(
 #: that builds ladders this way, so a cell whose name happens to end in ``_n1500`` elsewhere
 #: is still looked up whole.
 _SIZE = re.compile(r"^(?P<cell>.+)_n(?P<size>\d+)$")
+#: The families whose cells are ladder rungs named this way.
+_LADDER_FAMILIES = frozenset({"double_robust_contraction", "stratified_contraction"})
 
 TERMS: dict[str, str] = {
     "(intercept)": "intercept coefficient",
@@ -2334,6 +2336,12 @@ PROPERTIES: dict[str, str] = {
     "double_robustness": (
         "the estimator stays consistent when either the outcome regression or the treatment "
         "mechanism is correct"
+    ),
+    "stratified_contraction": (
+        "the one-correct bias of the stratified fit contracts faster than n^-1/2, consistent "
+        "with second order, as the sample grows: the slope of log absolute bias on log n is read for the marginal ATE and for "
+        "stratum 1, each rung is judged on its SE ratio, and its coverage is published beside "
+        "the coverage its bias and SE ratio imply"
     ),
     "fold_locality": (
         "each fold's learned functions are fitted without that fold's rows, directly or through "
@@ -4775,6 +4783,35 @@ for (_family, _arm, _base), _words in {
     STUDY_ARM_CELLS[(_FOLDWISE_SLUG, _family, _arm, _base)] = _words
 
 
+#: ``stratified-drtmle-foldwise`` (Fix-6): the fold-wise default's stratified ladder.
+_STRATIFIED_FOLDWISE_SLUG = "stratified-drtmle-foldwise"
+for _label in ("marginal_ate", "v0_ate", "v1_ate", "v2_ate"):
+    for _base, _words in {
+        "treatment_correct": (
+            "only the treatment mechanism is correct, on the stratified paper law",
+            "SE-ratio interval inside the sanity band; bias and coverage published",
+        ),
+        "both_wrong": (
+            "both nuisances are misspecified, on the stratified paper law",
+            "published and not read; the control's slope row carries its verdict",
+        ),
+        "rate_treatment_correct": (
+            "log absolute bias regressed on log n across three sizes, only the treatment "
+            "mechanism correct",
+            "for the marginal ATE and stratum 1, the 99% slope interval ends below -1/2 with a "
+            "half-width of at most 0.25; for strata 0 and 2, published and not read",
+        ),
+        "rate_both_wrong": (
+            "the same regression with both nuisances misspecified",
+            "for the marginal ATE and stratum 1, the slope interval must end at or above -1/2, "
+            "so the control fails to contract; for strata 0 and 2, published and not read",
+        ),
+    }.items():
+        STUDY_ARM_CELLS[(_STRATIFIED_FOLDWISE_SLUG, "stratified_contraction", _label, _base)] = (
+            _words
+        )
+
+
 def implementation(key: str) -> str:
     """The reader-facing name of an implementation column value."""
     try:
@@ -4973,7 +5010,7 @@ def cell(
     # A contraction ladder names one configuration at three sizes, so the size is a suffix on
     # a shared description rather than three near-identical entries.  Stripped the same way
     # the arm prefix is, and reattached below, so a rung says which size it is.
-    size = _SIZE.match(base) if family == "double_robust_contraction" else None
+    size = _SIZE.match(base) if family in _LADDER_FAMILIES else None
     if size is not None:
         base = size.group("cell")
     scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
