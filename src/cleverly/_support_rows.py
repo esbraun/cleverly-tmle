@@ -511,8 +511,6 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             dependence="clustered",
             cells=["unequal_noninformative", "unequal_informative"],
-            # Roadmap: F28.
-            limits=["The fold-evaluated cluster-covariate cell is red."],
         ),
         "weighting",
         {"unweighted": "none", "cluster_average": "fixed"},
@@ -528,9 +526,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             # every cluster count.
             kinds=_WALD_T,
             cells=["cluster_robust_fold_evaluated_cluster_covariate"],
-            # Roadmap: F28.
             limits=[
-                "The cluster-covariate cell is red.",
                 "Equal cluster sizes only: cv_evaluation=True refuses clusters whose size (or "
                 "total weight, or treated count for att) differs.",
             ],
@@ -2408,12 +2404,6 @@ def _c_rows() -> tuple[SupportRow, ...]:
 #: A fit that reads the kind from the row is experimental, and the sentence gives the measured
 #: number (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell).
 SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
-    ("T10.fold_evaluated", "wald_t"): (
-        "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
-        # Roadmap: F28.
-        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187, under the normal reference "
-        "it had before Fix-4."
-    ),
     ("T16.logit_binary", "wald"): (
         "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
         # Roadmap: X8.

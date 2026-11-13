@@ -677,11 +677,10 @@ class TestAFortyClusterFoldEvaluatedFit:
         )
 
     def test_the_support_row_licenses_the_t_reference(self, forty: Any) -> None:
-        """T10.fold_evaluated licenses wald_t; its F28 shortfall labels the fit until the rerun."""
+        """T10.fold_evaluated licenses wald_t, so the fit reads supported."""
         support = forty["ate"].support
         assert support.row == "T10.fold_evaluated"
-        assert support.label == "experimental"
-        assert "cluster-covariate interval" in support.reason
+        assert support.label == "supported"
         assert "licenses no" not in support.reason
 
     def test_a_row_without_wald_t_licenses_no_interval(
