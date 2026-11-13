@@ -66,9 +66,8 @@ label's ``treatment_correct`` rate row passes when it reads ``consistent with se
 its control rate row when it fails to contract.  The ``not read`` rows pass by declaration.
 
 The ``X8-drtmle-one-sided-bias`` acceptance, declared verbatim before any run, is Fix-6's D4
-text as rev 2.1 left it, unchanged (:data:`X8_ACCEPTANCE`).  It names the record by its earlier
-slug, ``stratified-drtmle-foldwise-ladder``; these cells are now the property cells of
-``stratified-drtmle-foldwise``.  :func:`x8_acceptance` reads it: it holds when the marginal and
+text as rev 2.1 left it, with the record named by its slug after the ladder became the property
+cells of ``stratified-drtmle-foldwise`` (:data:`X8_ACCEPTANCE`).  :func:`x8_acceptance` reads it: it holds when the marginal and
 ``v1`` read ``consistent with second order``, the control fails to contract, and no level row
 is a ``defect suspect``.  Otherwise the red is a defect suspect and is diagnosed.
 """
@@ -151,7 +150,7 @@ DESIGN_FAILURE = "design failure: the control contracts"
 #: The ``X8-drtmle-one-sided-bias`` acceptance, declared verbatim before any run.
 X8_ACCEPTANCE = (
     'The four cells fit `reduced_crossfit="pooled"` and keep their verdicts. The owner closes '
-    "as a finite-sample limit of the default when, in `stratified-drtmle-foldwise-ladder`, the "
+    "as a finite-sample limit of the default when, in `stratified-drtmle-foldwise`, the "
     "99% slope interval of log |bias| on log n has its upper end below -1/2 for the marginal "
     "ATE and for `v1` (each read whatever its realised half-width; a half-width above 0.25 for "
     "either reads `not resolved`, and the owner does not close), the `both_wrong` control "

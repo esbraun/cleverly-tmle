@@ -90,7 +90,7 @@ RM18_ACCEPTANCE = (
 #: The ``X8-drtmle-one-sided-bias`` acceptance as declared: Fix-6's D4 text, unchanged.
 X8_ACCEPTANCE = (
     'The four cells fit `reduced_crossfit="pooled"` and keep their verdicts. The owner closes '
-    "as a finite-sample limit of the default when, in `stratified-drtmle-foldwise-ladder`, the "
+    "as a finite-sample limit of the default when, in `stratified-drtmle-foldwise`, the "
     "99% slope interval of log |bias| on log n has its upper end below -1/2 for the marginal "
     "ATE and for `v1` (each read whatever its realised half-width; a half-width above 0.25 for "
     "either reads `not resolved`, and the owner does not close), the `both_wrong` control "
