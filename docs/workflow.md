@@ -179,6 +179,12 @@ experimental, and `result.inference_status` is `"few_cluster_plugin"`. Below 3 h
 withholds the interval: report the point estimate and the reason the status gives in its place
 ([few clusters](technical-reference/inference.md#few-clusters)).
 
+In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
+on a scale that keeps it inside the possible range, so the interval need not be centred on the
+estimate. When a treatment group in a subgroup shows only one outcome value, or an estimate sits
+exactly at 0 or 100 percent, it reports no interval for that estimate or for the effects that use it
+([small-sample scale](technical-reference/inference.md#small-sample-scale)).
+
 Save structured results when an audit trail matters:
 
 ```python

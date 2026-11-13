@@ -61,7 +61,9 @@ under-covers erratically at moderate counts and near the boundary
 Every other estimate keeps its interval: a difference of two such means (identity scale, normal
 reference), a working-model coefficient of a binary outcome, a ratio or a transformed contrast
 (normal reference on its own scale), every estimate of a continuous outcome, and every clustered
-estimate, whose reference is [Few clusters](#few-clusters).
+estimate, whose reference is [Few clusters](#few-clusters). The point-treatment TMLE family (`TMLE`, `DRTMLE`,
+`CTMLE` and the composite missing-data fit) and the longitudinal estimators attach `bounds` to
+their means; `IPTW` and `ATMLE` attach none, so their intervals stay on the identity scale.
 
 Two cases report no interval, no p-value and no standard error
 ([Inference status](#inference-status)):
