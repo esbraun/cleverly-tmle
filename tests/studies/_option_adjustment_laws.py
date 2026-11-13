@@ -76,7 +76,7 @@ LAWS = tuple(OUTCOME)
 
 #: The constructed error's multiplier ``k`` of ``k n^(-1/4) Z`` (plan 5.4).  Plan 5.4 asks
 #: that the exact-law bias at n = 16,000 be at least :data:`CONTROL_FLOOR_SD` of the estimator's
-#: SD.  At ``k = 1`` it is 1.91 SD there and 0.96 SD at n = 1,000 (the design test computes
+#: SD.  At ``k = 1`` it is 1.91 SD there and 0.95 SD at n = 1,000 (the design test computes
 #: both), so every rung of the ladder reads beyond the bias margin and the slope of its log
 #: absolute bias has a Monte Carlo error of a few percent.  ``k = 0.25`` would just reach the
 #: floor at n = 16,000 and leave the smaller rungs inside the margin.
@@ -497,10 +497,14 @@ class StackedVariance:
     plugin : float
         The limit of the reported ``n se^2``, the variance of the efficient influence curve at
         the fit's limits.
+    residual : float
+        ``max |E[U(theta_0)]|``, the largest population mean of the stacked equations at the
+        limits.  It is zero when the equations are the estimator's own.
     """
 
     true: float
     plugin: float
+    residual: float
 
     @property
     def se_ratio(self) -> float:
@@ -523,7 +527,9 @@ def stacked_variance(
     fluctuation scores ``I(A = a) H_a (Y - Q*_a)`` and ``Q*_a(W) - psi_a``.  The influence
     function is ``-M^{-1} U`` with ``M = E[dU/dtheta]``; ``M`` is the central difference of the
     population mean of ``U`` (step ``1e-6``) and ``E[U U']`` sums over ``A`` and ``Y``
-    exactly.  A constructed error enters at its offset at ``n`` and is not estimated.
+    exactly.  A constructed error enters at its offset at ``n`` and is not estimated: the
+    outcome GLM's score omits it, as :class:`PerturbedLogistic` fits its coefficients without
+    the offset, and the offset enters only the predictions that the targeting starts from.
     """
     setting = SETTINGS[name]
     if setting.outcome == "intercept" or setting.mechanism == "intercept":
@@ -555,7 +561,7 @@ def stacked_variance(
         eps1, eps0, psi1, psi0 = theta[n_beta + n_alpha :]
         x = np.column_stack([np.ones(len(at.weight)), np.full(len(at.weight), a), covariates])
         g = np.clip(expit(v @ alpha), *G_BOUNDS)
-        q = expit(x @ beta + offset * (at.z - INSTRUMENT_CENTRE))
+        q = expit(x @ beta)
         arm_stars = {}
         for arm, eps in ((1.0, eps1), (0.0, eps0)):
             xa = x.copy()
@@ -616,7 +622,8 @@ def stacked_variance(
         weight = h1 if a == 1.0 else -h0
         curve = weight * residual + star1 - star0 - ate
         plugin += float(probabilities(a, y) @ curve**2)
-    return StackedVariance(true=true, plugin=plugin)
+    residual = float(np.max(np.abs(mean_score(theta0))))
+    return StackedVariance(true=true, plugin=plugin, residual=residual)
 
 
 def efficiency_sd(law: str = "LDA", points: Points | None = None) -> float:

@@ -88,12 +88,17 @@ def truth(role: Role = "instrument") -> dict[str, float]:
     return {"ey1": one, "ey0": zero, "ate": one - zero}
 
 
+#: The adjustment set in an order where the declared subset ``(W1, W2)`` is not its prefix, so a
+#: column selection that takes the first columns, not the named ones, misses the witness.
+WITNESS_COVARIATES = ("Z", "W1", "W2")
+
+
 def fit(
     frame: pd.DataFrame,
     *,
     delta: float = DELTA,
     treatment_covariates: list[str] | None = None,
-    covariates: tuple[str, ...] = laws.COVARIATES,
+    covariates: tuple[str, ...] = WITNESS_COVARIATES,
     fluctuation: Literal["logistic", "linear"] = "logistic",
 ) -> Any:
     """A fit with the study's learners: the constructed-error outcome GLM, the mechanism GLM."""

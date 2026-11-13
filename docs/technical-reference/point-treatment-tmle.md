@@ -1020,7 +1020,10 @@ model.
 
 The restriction can be tested from the data: it says that $A$ is independent of
 $Z = W \setminus W_g$ given $W_g$. A likelihood-ratio test of the columns of $Z$ in a treatment
-regression on $W$ is one such test.
+regression on $W$ is one such test. It detects only the dependence that the regression can
+represent, and a non-rejection does not establish the restriction. Choosing the declaration from
+the same data is a data-adaptive selection that the interval does not account for, so the
+declaration should rest on design knowledge, such as a known treatment assignment rule.
 
 #### The remainder when the restriction fails
 

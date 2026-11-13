@@ -168,6 +168,40 @@ class TestTheLaws:
         assert np.sqrt(variance.true) == pytest.approx(laws.efficiency_sd("LDA"), rel=1e-6)
         assert variance.se_ratio == pytest.approx(1.0, abs=1e-6)
 
+    def test_the_stacked_equations_are_the_estimator_s_at_a_nonzero_offset(self) -> None:
+        """``E[U(theta_0)] = 0`` where the constructed error is on (review m1).
+
+        At offset 0 the outcome score reads the same with or without the offset, so the bound
+        check above is blind to it.  ``PerturbedLogistic`` fits its coefficients without the
+        offset; a score that carried it would not be zero at the GLM limit.
+        """
+        assert laws.slow_offset(1_000) > 0.1
+        assert laws.stacked_variance("ldb_slow", 1_000).residual < 1e-10
+        assert laws.stacked_variance("ldb_parametric").residual < 1e-10
+
+    def test_the_double_robustness_positive_is_unbiased_in_the_limit(self) -> None:
+        """``lda_q_intercept``: a constant outcome fit and the correct ``W_g`` mechanism."""
+        at = laws.grid()
+        g_true = np.asarray(laws.g0("LDA", at.w1, at.w2, at.z))
+        names = laws.SUBSET
+        g_fit = laws.mechanism_at(laws.mechanism_limit("LDA", names, at), names, at)
+        assert np.max(np.abs(g_fit - np.clip(g_true, *laws.G_BOUNDS))) < 1e-8
+        mean_y = at.mean(
+            g_true * laws.qbar0("LDA", 1.0, at.w1, at.w2, at.z)
+            + (1.0 - g_true) * laws.qbar0("LDA", 0.0, at.w1, at.w2, at.z)
+        )
+        limit = laws.targeted_limit(
+            at,
+            g_true=g_true,
+            g_fit=g_fit,
+            q0=lambda arm: np.asarray(laws.qbar0("LDA", arm, at.w1, at.w2, at.z)),
+            initial=lambda arm: np.full(len(at.weight), mean_y),
+        )
+        truth = laws.truth("LDA")
+        assert abs(limit.means[1.0] - truth["ey1"]) < 1e-10
+        assert abs(limit.means[0.0] - truth["ey0"]) < 1e-10
+        assert abs(limit.ate - truth["ate"]) < 1e-10
+
 
 class TestTheExactLimits:
     @pytest.mark.parametrize("key", sorted(properties.EXACT_LIMITS))
@@ -290,3 +324,38 @@ class TestThePreRead:
     def test_the_parametric_cell_reads_its_exact_se_ratio(self, summary: pd.DataFrame) -> None:
         row = reading(summary, "parametric_n2000")
         assert row["se_ratio"] == pytest.approx(limit("ldb_parametric", 2_000)[1], abs=0.06)
+
+
+#: The cells whose red verdict gates the study: the calibration positives and their derived
+#: controls, the double-robustness pair and the slow-outcome control.
+GATED = (
+    "interval_calibration/in_sample__correctly_specified",
+    "interval_calibration/stacked__correctly_specified",
+    *(name for derived in properties.DERIVED_CELLS.values() for name in derived),
+    "double_robustness/treatment_correct",
+    "double_robustness/both_wrong",
+    "instrument_slow_outcome/n16000",
+)
+
+
+class TestTheRedCellReading:
+    def test_the_gated_cells_are_every_cell_that_is_not_reported(self) -> None:
+        reported = {*properties.REPORTED_FAMILIES, properties.RATE_FAMILY}
+        declared = {
+            f"{family}/{cell}"
+            for family, cells in study.PROPERTY_CELLS.items()
+            if family not in reported
+            for cell in cells
+        }
+        assert len(GATED) == 9
+        assert set(GATED) == declared
+
+    def test_no_gated_cell_reads_an_inadmissible_red(self) -> None:
+        """The declared red-cell reading, applied mechanically (review S1).
+
+        Empty until the run commits its tables; at registration a red control, or a red
+        positive without its finite-sample owner, fails here.
+        """
+        from tests.studies.mtp_study_tools import gating_findings
+
+        assert gating_findings(study.STUDY, GATED, truth_implementations=("cleverly",)) == []

@@ -34,7 +34,10 @@ Red-cell reading (declared before any run; Fix-8 plan section 5.0).
   buys a pass.
 
 Sizes.  The two calibration cells run 6,800 replications: plan 5.0's product floor is 2,400,
-and the arm-pooled predictive rule at the 8,000-draw pilot raises it.  The bias cells and
+and the arm-pooled predictive rule at the 8,000-draw pilot raises it.  The pilot's calibration
+block is draws 0 to 7,999 of one pilot stream: the first 2,000 read SE ratios of 1.027 and
+1.032, too few for the rule (``repeated_sizing.CALIBRATION_PILOT_DRAWS`` is 8,000), and draws
+2,000 to 7,999 extend the same stream, not a fresh one.  The bias cells and
 every ladder cell run 1,600, ``instrument_parametric`` 2,400 and the primary phase 2,400.
 
 Budget.  About 0.5 CPU-hours of fits on the 4-vCPU cloud machine (in-sample point fits 0.02

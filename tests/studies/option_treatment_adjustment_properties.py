@@ -105,9 +105,9 @@ DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
 #: Each instrument cell's exact-law limits at its size, pinned by the design test at 1e-4:
 #: ``(bias over SD, reported SE over SD)``.
 EXACT_LIMITS: dict[tuple[str, str], tuple[float, float]] = {
-    ("instrument_slow_outcome_ladder", "n1000"): (-0.9549, 0.9179),
-    ("instrument_slow_outcome_ladder", "n4000"): (-1.3524, 0.9167),
-    ("instrument_slow_outcome", "n16000"): (-1.9134, 0.9162),
+    ("instrument_slow_outcome_ladder", "n1000"): (-0.9517, 0.9148),
+    ("instrument_slow_outcome_ladder", "n4000"): (-1.3488, 0.9143),
+    ("instrument_slow_outcome", "n16000"): (-1.9096, 0.9143),
     ("instrument_reference", "n1000"): (-0.0001, 1.0038),
     ("instrument_reference", "n4000"): (-0.0002, 1.0018),
     ("instrument_reference", "n16000"): (-0.0003, 1.0008),
