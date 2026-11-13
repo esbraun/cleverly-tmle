@@ -156,7 +156,7 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 208 | 41 studies |
+| total | 209 | 42 studies |
 <!-- /generated -->
 
 ## The red rows
