@@ -2,7 +2,7 @@
 
 Before the declaration every gated calibration cell is read on :data:`CALIBRATION_DRAWS` pilot
 draws at the declared n and learners, with the full-history fit beside it on the same draws, and
-the necessity control and the double-robustness positive on :data:`DRAWS` draws each.  The draws
+the necessity control and the double-robustness pair on :data:`DRAWS` draws each.  The draws
 come from :data:`PILOT_SEED`, a stream no study draws from, and each draw is fitted by
 :func:`tests.studies._option_markov_law.fit` exactly as the property phase fits it.
 
@@ -42,6 +42,7 @@ BLOCKS: dict[str, tuple[str, int, tuple[str, ...]]] = {
     "calibration": ("LF1", 2_000, ("lf1_order1", "lf1_order2", "lf1_full")),
     "necessity": ("LF1", 2_000, ("lf1_order0",)),
     "robustness": ("LF2", 2_000, ("lf2_order0",)),
+    "robustness_blind": ("LF2", 2_000, ("lf2_order0_blind",)),
 }
 #: The gated calibration cells, as ``setting:estimand``.
 CALIBRATION_CELLS = (
@@ -62,11 +63,11 @@ def records(block: str, draw: int) -> list[dict[str, Any]]:
     """Every pilot row of one draw of one block."""
     name, n, settings = BLOCKS[block]
     frame = law.draw(name, n, pilot_seed(block, draw))
-    truth = law.truth()
+    truth = law.truth(name)
     out = []
     for setting in settings:
         result = law.fit(frame, setting)
-        for estimand in (law.EY_ALWAYS, law.ATE):
+        for estimand in law.ESTIMANDS:
             estimate = result.estimates[estimand]
             low, high = estimate.ci
             out.append(

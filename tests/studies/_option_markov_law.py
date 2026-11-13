@@ -14,11 +14,12 @@ Two laws (Fix-8 plan section 5.7, rev 2.1), with ``W ~ Uniform(0, 1)``, four nod
 
 * ``L_t ~ Bernoulli(0.15 + 0.3 W + 0.3 L_{t-1} - 0.1 A_{t-1})``;
 * ``C_t ~ Bernoulli(expit(2.8 + 0.3 W - 0.4 L_t))``, retention;
-* ``Y ~ Bernoulli(0.15 + 0.15 W + 0.15 L_4 + 0.35 L_3 - 0.05 A_4 - 0.05 A_3)``;
+* ``Y ~ Bernoulli(0.15 + 0.15 W + 0.15 L_4 + 0.35 L_3 - 0.05 A_4 - 0.05 A_3)`` under ``LF1``;
 * ``LF1``: ``A_t ~ Bernoulli(expit(-1.0 + 0.4 W - 0.5 L_t + 2.0 A_{t-1} + 1.5 L_{t-1}))``, Markov
   of order 1 on both sides;
-* ``LF2``: the same without ``1.5 L_{t-1}``, so the mechanisms read the order-0 window while
-  ``Y`` still reads ``L_3``.
+* ``LF2``: the same treatment without ``1.5 L_{t-1}``, so the mechanisms read the order-0
+  window, and its own outcome ``Y ~ Bernoulli(0.05 + 0.04 W + 0.9 L_3)``, which leans on the
+  ``L_3`` the order-0 window drops (:data:`OUTCOME`).
 
 Under a static regimen every iterated regression is linear in ``(W, L_{t-1}, L_t)``, so a
 ``LinearRegression`` on the order-1 window contains it, and the mechanisms are logistic in the
@@ -57,6 +58,12 @@ T = 4
 LAWS = ("LF1", "LF2")
 #: ``(intercept, W, L_t, A_{t-1}, L_{t-1})`` of each law's treatment logit.
 TREATMENT = {"LF1": (-1.0, 0.4, -0.5, 2.0, 1.5), "LF2": (-1.0, 0.4, -0.5, 2.0, 0.0)}
+#: ``(intercept, W, L_4, L_3, A_4, A_3)`` of each law's outcome probability.  ``LF2`` leans on
+#: ``L_3``, which the order-0 window drops, so its outcome window is far from correct.
+OUTCOME = {
+    "LF1": (0.15, 0.15, 0.15, 0.35, -0.05, -0.05),
+    "LF2": (0.05, 0.04, 0.0, 0.9, 0.0, 0.0),
+}
 #: The rev 2 ``LF1`` mechanism, discarded before declaration (module docstring).
 DISCARDED_TREATMENT = (-0.6, 0.4, -0.5, 0.3, 1.5)
 REGIMENS = {"never": 0, "always": 1}
@@ -101,15 +108,16 @@ def p_retention(w: Any, l_now: Any) -> Any:
     return expit(2.8 + 0.3 * np.asarray(w) - 0.4 * np.asarray(l_now))
 
 
-def p_outcome(w: Any, l4: Any, l3: Any, a4: Any, a3: Any) -> Any:
-    """``P(Y = 1 | W, L_4, L_3, A_4, A_3)``."""
+def p_outcome(law: str, w: Any, l4: Any, l3: Any, a4: Any, a3: Any) -> Any:
+    """``P(Y = 1 | W, L_4, L_3, A_4, A_3)`` of ``law``."""
+    c0, cw, c4, c3, ca4, ca3 = OUTCOME[law]
     return (
-        0.15
-        + 0.15 * np.asarray(w)
-        + 0.15 * np.asarray(l4)
-        + 0.35 * np.asarray(l3)
-        - 0.05 * np.asarray(a4)
-        - 0.05 * np.asarray(a3)
+        c0
+        + cw * np.asarray(w)
+        + c4 * np.asarray(l4)
+        + c3 * np.asarray(l3)
+        + ca4 * np.asarray(a4)
+        + ca3 * np.asarray(a3)
     )
 
 
@@ -140,14 +148,15 @@ def draw(law: str, n: int, seed: int, *, treatment: Any = None) -> pd.DataFrame:
         ls.append(l_now)
         arms.append(a_now)
         l_prev, a_prev = l_now, a_now
-    y = rng.binomial(1, p_outcome(w, ls[3], ls[2], arms[3], arms[2])).astype(float)
+    y = rng.binomial(1, p_outcome(law, w, ls[3], ls[2], arms[3], arms[2])).astype(float)
     y[~alive] = np.nan
     out["Y"] = y
     return pd.DataFrame(out)[columns()]
 
 
-def truth() -> dict[str, float]:
+def truth(law: str = "LF1") -> dict[str, float]:
     """The regimen means and the ATE, by the g-formula at ``W = 0.5`` (exact: all linear in W)."""
+    c0, cw, c4, c3, ca4, ca3 = OUTCOME[law]
 
     def mean(a: float) -> float:
         w = 0.5
@@ -156,7 +165,7 @@ def truth() -> dict[str, float]:
         for _ in range(2, T + 1):
             p = 0.15 + 0.3 * w + 0.3 * p - 0.1 * a
             path.append(p)
-        return 0.15 + 0.15 * w + 0.15 * path[3] + 0.35 * path[2] - 0.1 * a
+        return c0 + cw * w + c4 * path[3] + c3 * path[2] + (ca4 + ca3) * a
 
     return {EY_ALWAYS: mean(1.0), EY_NEVER: mean(0.0), ATE: mean(1.0) - mean(0.0)}
 
@@ -171,7 +180,7 @@ def quadrature_frame(law: str, nodes: int = QUADRATURE_NODES) -> pd.DataFrame:
         w: float, t: int, prob: float, history: dict[str, float], ls: list[float], arms: list[float]
     ) -> None:
         if t > T:
-            py = float(p_outcome(w, ls[3], ls[2], arms[3], arms[2]))
+            py = float(p_outcome(law, w, ls[3], ls[2], arms[3], arms[2]))
             rows.append({**history, "Y": 1.0, "weight": prob * py})
             rows.append({**history, "Y": 0.0, "weight": prob * (1.0 - py)})
             return
@@ -239,6 +248,18 @@ class Logistic(BaseEstimator, ClassifierMixin):
         return np.column_stack([1.0 - p, p])
 
 
+class Intercept(Logistic):
+    """The control's mechanism learner: an intercept-only logistic fit, blind to the history."""
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> Intercept:
+        super().fit(np.zeros((len(np.asarray(target)), 0)), target, sample_weight)
+        self.n_features_in_ = np.asarray(design).shape[1]
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        return super().predict_proba(np.zeros((len(np.asarray(design)), 0)))
+
+
 # --------------------------------------------------------------------------- the settings
 @dataclass(frozen=True)
 class Setting:
@@ -250,10 +271,14 @@ class Setting:
         ``"LF1"`` or ``"LF2"``.
     order : int or None
         The declared Markov order, or ``None`` for the full history.
+    blind_mechanisms : bool
+        Fit the treatment and censoring mechanisms by :class:`Intercept`, which reads no
+        history: the double-robustness control.
     """
 
     law: str
     order: int | None
+    blind_mechanisms: bool = False
 
 
 SETTINGS: dict[str, Setting] = {
@@ -262,6 +287,7 @@ SETTINGS: dict[str, Setting] = {
     "lf1_full": Setting("LF1", None),
     "lf1_order0": Setting("LF1", 0),
     "lf2_order0": Setting("LF2", 0),
+    "lf2_order0_blind": Setting("LF2", 0, blind_mechanisms=True),
 }
 
 
@@ -306,6 +332,12 @@ def fit(frame: pd.DataFrame, name: str, *, weights: str | None = None, **overrid
     setting = SETTINGS[name]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        if setting.blind_mechanisms:
+            overrides = {
+                "treatment_learner": Intercept(),
+                "censoring_learner": Intercept(),
+                **overrides,
+            }
         return estimator(**overrides).fit(longitudinal_data(frame, setting.order, weights=weights))
 
 

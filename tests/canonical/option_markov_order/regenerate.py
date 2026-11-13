@@ -24,10 +24,17 @@ mechanically to the committed tables (``gating_findings`` over the 11 gated cell
   band is a red of the study, not of the estimator.  The claim of the cell it guards is
   withheld until the control is repaired under a fresh declaration.
 * An ``order_necessity/ate`` control that fails to fail is a design bug or a defect suspect:
-  its exact-law limit is 1.37 SDs, so a control inside the margin means the window was not
+  its exact-law limit is 1.37 SDs (of the limit fit's plug-in curve SD at n = 2,000; the pilot
+  read 1.32 empirical SDs), so a control inside the margin means the window was not
   applied.  It is diagnosed with the exact-law limit and fixed under a fresh declaration.
-* A red ``order_double_robustness/ate`` (bias not inside the margin) is a defect suspect in the
-  window of the treatment and censoring mechanisms: its exact-law limit is 0.
+* A red ``order_double_robustness/ey_never`` (bias not inside the margin) is a defect suspect in
+  the window of the treatment and censoring mechanisms: its exact-law limit is 0, and the
+  shipped mutation that drops ``A_{t-1}`` from that window moves the limit to -0.73 plug-in SDs.
+* An ``order_double_robustness/ey_never_blind_mechanisms`` control that fails to fail is a
+  design bug or a defect suspect: with intercept-only mechanisms its exact-law limit is 0.54
+  plug-in SDs (the pilot read 1.23 empirical SDs, because the blind fit's plug-in SE is about
+  2.3 times its spread), so a control inside the margin means the order-0 outcome window was
+  not applied or the mechanisms were not ignored.
 * Every ``markov_reported`` row is published beside its exact limit and turns no cell red.
 * No replicate count, law, learner, margin or seed moves after a verdict is seen.  No re-run
   buys a pass.
@@ -39,6 +46,14 @@ shortfall came from weak support for the always-treated path, not from the windo
 plan review's rule (a law change only when the option-free fit shows the same shortfall) the law
 was replaced by the declared one, with intercept -1.0 and carry-over 2.0 on ``A_{t-1}``, which
 keeps a treated unit treated.  The discarded law is recorded in the study's configuration.
+
+``LF2``'s outcome (review of the declaration, M1).  ``LF2`` first shared ``LF1``'s outcome, on
+which the order-0 fit with intercept-only mechanisms sat inside the margin (-0.17 plug-in SDs on
+the ATE, +0.21 on ``EY(never)``), so the double-robustness positive could not show that the
+mechanisms do the rescue.  ``LF2`` now has its own outcome, ``0.05 + 0.04 W + 0.9 L_3``, which
+leans on the ``L_3`` the order-0 window drops, and the blind fit is a gated control on its own
+stream.  The pair reads ``EY(never)``: inside the linear-probability range the ATE control
+reaches only 0.42 plug-in SDs, under the 0.45 floor.
 
 Sizes.  The three calibration cells run 4,000 replications on one draw stream: plan 5.0's
 product floor for three cells is 2,800, and the arm-pooled predictive rule at the 8,000-draw

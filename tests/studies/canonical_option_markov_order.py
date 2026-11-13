@@ -15,8 +15,9 @@ family                          cells
                                 ATE (always vs never), order 2 on the ATE: 3 gated
                                 positives, each with the derived controls
 ``order_necessity``             ``LF1`` at order 0 (both sides violated), ATE: gated control
-``order_double_robustness``     ``LF2`` at order 0 (the outcome window wrong, the mechanisms
-                                right), ATE: gated positive
+``order_double_robustness``     ``LF2`` at order 0 (the outcome window wrong), ``EY(never)``:
+                                the mechanisms right (gated positive) and intercept-only
+                                (gated control)
 ``markov_reported``             the full-history fit on the K draws (``EY(always)``, ATE),
                                 and ``EY(always)`` of each order-0 fit
 ==============================  ===========================================================
@@ -72,8 +73,14 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for kind in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
     "order_necessity": ("ate",),
-    "order_double_robustness": ("ate",),
-    "markov_reported": ("full_history_ey", "full_history_ate", "order0_ey", "lf2_order0_ey"),
+    "order_double_robustness": ("ey_never", "ey_never_blind_mechanisms"),
+    "markov_reported": (
+        "full_history_ey",
+        "full_history_ate",
+        "order0_ey",
+        "lf2_order0_ey",
+        "lf2_order0_ate",
+    ),
 }
 
 STUDY = StudyRecord(
@@ -117,9 +124,12 @@ CONFIGURATION = {
     "laws": "W ~ U(0, 1); four nodes of binary L_t, A_t, retention C_t; "
     "L_t ~ Bernoulli(0.15 + 0.3 W + 0.3 L_{t-1} - 0.1 A_{t-1}); "
     "C_t ~ Bernoulli(expit(2.8 + 0.3 W - 0.4 L_t)); "
-    "Y ~ Bernoulli(0.15 + 0.15 W + 0.15 L_4 + 0.35 L_3 - 0.05 A_4 - 0.05 A_3)",
+    "Y ~ Bernoulli(0.15 + 0.15 W + 0.15 L_4 + 0.35 L_3 - 0.05 A_4 - 0.05 A_3) under LF1",
     "law_LF1": "A_t ~ Bernoulli(expit(-1.0 + 0.4 W - 0.5 L_t + 2.0 A_{t-1} + 1.5 L_{t-1}))",
-    "law_LF2": "A_t ~ Bernoulli(expit(-1.0 + 0.4 W - 0.5 L_t + 2.0 A_{t-1}))",
+    "law_LF2": "A_t ~ Bernoulli(expit(-1.0 + 0.4 W - 0.5 L_t + 2.0 A_{t-1})); "
+    "Y ~ Bernoulli(0.05 + 0.04 W + 0.9 L_3)",
+    "discarded_LF2_outcome": "LF1's outcome: the order-0 EY(never)/ATE control with "
+    "intercept-only mechanisms read 0.205/-0.167 SD, inside the 0.25 margin (review M1)",
     "discarded_law": "rev 2 LF1: A_t ~ Bernoulli(expit(-0.6 + 0.4 W - 0.5 L_t + 0.3 A_{t-1} "
     "+ 1.5 L_{t-1})); windowed and full-history EY(always) both covered 0.919 at n = 2,000",
     "regimens": dict(law.REGIMENS),
@@ -141,7 +151,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     """Draw one primary sample from an explicit seed for the published-seed audit."""
     if scenario not in STUDY.scenarios:
         raise KeyError(f"{STUDY.slug} has no scenario {scenario!r}")
-    return law.draw(scenario, n, seed), law.truth()
+    return law.draw(scenario, n, seed), law.truth(scenario)
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -196,7 +206,7 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
 
 def truth_table() -> Mapping[str, Mapping[str, float]]:
     """The exact truth of every primary estimand, by scenario."""
-    truth = law.truth()
+    truth = law.truth(PRIMARY_SCENARIO)
     return {PRIMARY_SCENARIO: {name: truth[name] for name in PRIMARY_ESTIMANDS}}
 
 

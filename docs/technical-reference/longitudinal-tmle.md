@@ -1780,12 +1780,16 @@ restriction and claims no efficiency.
 `experimental`. Its law has four nodes, and the treatment and outcome read one node back, so
 order 1 is the smallest correct window. The study will measure the interval of order 1 on
 $E[Y^{\text{always}}]$ and the ATE and of order 2 on the ATE, beside the full-history fit on the
-same draws. Order 0 drops both sides, and its ATE bias is 1.37 SDs in the exact-law limit at
-$n = 2{,}000$. On a second law the treatment reads only $A_{t-1}$, which the order-0 window
-keeps, so the order-0 fit is unbiased through its mechanisms.
+same draws. Order 0 drops both sides. Its exact-law ATE bias is 1.37 SDs at $n = 2{,}000$, where
+the SD is the limit fit's plug-in curve SD, $\sqrt{E[D^2]/n}$, not the estimator's sampling SD.
 
-A first version of the law had weak support for the always-treated path. Its order-1 and
-full-history fits both covered 0.919 for $E[Y^{\text{always}}]$ at $n = 2{,}000$. The shortfall
+On a second law the treatment reads only $A_{t-1}$, which the order-0 window keeps, and the
+outcome leans on $L_3$, which it drops. There the order-0 fit is unbiased for
+$E[Y^{\text{never}}]$ through its mechanisms, and with intercept-only mechanisms it misses by
+0.54 SDs, so the mechanisms do the rescue.
+
+A first version of the law had a heavy-tailed cumulative ratio, from weak support for the
+always-treated path. Its order-1 and full-history fits both covered 0.919 for $E[Y^{\text{always}}]$ at $n = 2{,}000$. The shortfall
 was the law's, not the window's, so the declared law replaced it.
 
 `tests/unit/test_option_markov_order_witness.py` fits the study law's quadrature form with

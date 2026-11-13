@@ -13,7 +13,8 @@ its population limit.  Under law ``LF1`` the treatment reads ``L_{t-1}`` and the
   the window drops it;
 * under law ``LF2`` the treatment reads only ``A_{t-1}``, which the order-0 arm block keeps, so
   the order-0 mechanisms are correct while its outcome window is not, and the fit returns the
-  truth: double robustness, with the window applied to the outcome side alone.
+  truth: double robustness, with the window applied to the outcome side alone.  With
+  intercept-only mechanisms the same fit misses, so the mechanisms do the rescue.
 
 The mutation controls shorten the covariate window by one node, and start the arm block at the
 window's first covariate node instead of one node before it.  The first fails the order-1
@@ -62,7 +63,7 @@ def check_order_one_witness() -> None:
 
 
 def check_double_robustness_witness() -> None:
-    truth = law.truth()
+    truth = law.truth("LF2")
     for estimand, value in estimates("lf2_order0", cache=False).items():
         assert value == pytest.approx(truth[estimand], abs=EXACT), estimand
 
@@ -106,9 +107,16 @@ class TestTheWindowWitness:
         assert abs(values[law.EY_ALWAYS] - truth[law.EY_ALWAYS]) > FLOOR
 
     def test_the_order_zero_window_is_rescued_by_correct_mechanisms(self) -> None:
-        truth = law.truth()
+        truth = law.truth("LF2")
         for estimand, value in estimates("lf2_order0").items():
             assert value == pytest.approx(truth[estimand], abs=EXACT), estimand
+
+    def test_blind_mechanisms_do_not_rescue_the_order_zero_window(self) -> None:
+        """The rescue needs the mechanisms: intercept-only ones leave the outcome error."""
+        values = estimates("lf2_order0_blind")
+        truth = law.truth("LF2")
+        for estimand in law.ESTIMANDS:
+            assert abs(values[estimand] - truth[estimand]) > FLOOR, estimand
 
     def test_the_order_zero_window_misses_the_initial_outcome_under_lf2(self) -> None:
         """The rescue is the mechanisms': the order-0 outcome regressions alone are wrong.
@@ -117,7 +125,7 @@ class TestTheWindowWitness:
         mechanisms; on the full history it returns the truth, so the miss is the window's.
         """
         frame = law.quadrature_frame("LF2")
-        truth = law.truth()
+        truth = law.truth("LF2")
         for order, wrong in ((0, True), (None, False)):
             estimator = SequentialGComputation(
                 dict(law.REGIMENS),

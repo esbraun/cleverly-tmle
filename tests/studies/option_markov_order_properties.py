@@ -8,7 +8,9 @@ cell                                    role       n      R      rule
 ``interval_calibration/<label>``        positive   2,000  K      shared calibration rule, with
                                                                  the derived controls
 ``order_necessity/ate``                 control    2,000  1,600  bias beyond the margin
-``order_double_robustness/ate``         positive   2,000  1,600  bias equivalent
+``order_double_robustness/ey_never``    positive   2,000  1,600  bias equivalent
+``order_double_robustness/ey_never_     control    2,000  1,600  bias beyond the margin
+blind_mechanisms``
 ``markov_reported/<cell>``              reported   2,000  K or   none
                                                           1,600
 ======================================  =========  =====  =====  =================================
@@ -26,7 +28,10 @@ One fit writes several cells, and the fits that share a sample stream share thei
 - stream ``lf1_necessity`` (1,600 draws of ``LF1``): the order-0 fit writes
   ``order_necessity/ate`` and ``markov_reported/order0_ey``;
 - stream ``lf2_order0`` (1,600 draws of ``LF2``): the order-0 fit writes
-  ``order_double_robustness/ate`` and ``markov_reported/lf2_order0_ey``.
+  ``order_double_robustness/ey_never`` and ``markov_reported/lf2_order0_ey`` and
+  ``lf2_order0_ate``;
+- stream ``lf2_order0_blind`` (1,600 draws of ``LF2``): the order-0 fit with intercept-only
+  treatment and censoring mechanisms writes ``order_double_robustness/ey_never_blind_mechanisms``.
 
 **Rules.**
 
@@ -38,15 +43,21 @@ One fit writes several cells, and the fits that share a sample stream share thei
 - ``order_necessity`` and ``order_double_robustness`` read
   :func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`: the order-0 fit on
   ``LF1`` drops ``L_{t-1}`` from the treatment mechanism and ``L_3`` from the outcome window,
-  both sides wrong, so its ATE bias must lie wholly beyond the 0.25 margin; on ``LF2`` the
-  treatment mechanism reads only ``A_{t-1}``, which the arm block keeps, so the order-0 fit has
-  every mechanism right and the outcome window wrong, and its bias must lie wholly inside it.
+  both sides wrong, so its ATE bias must lie wholly beyond the 0.25 margin.  On ``LF2`` the
+  treatment mechanism reads only ``A_{t-1}``, which the arm block keeps, and the outcome leans
+  on ``L_3``, which the order-0 window drops.  The order-0 fit has every mechanism right and the
+  outcome window wrong, so its ``EY(never)`` bias must lie wholly inside the margin; with
+  intercept-only mechanisms the same fit keeps the outcome error (exact 0.54 SD), so that
+  control must lie wholly beyond it.  The pair shows that the mechanisms do the rescue.  It
+  reads ``EY(never)`` because the ATE's control cannot reach the 0.45 SD floor inside the
+  linear-probability range (0.42 SD at an ``L_3`` coefficient of 0.9).
 - ``markov_reported`` is reported, with
   :data:`~tests.studies.evidence.property_verdicts.DIAGNOSTIC_ROLE`.
 
 The bias and reported rows carry their exact-law limits (:data:`EXACT_LIMITS`) in
-``exact_bias_over_sd``: the bias of the limit over the limit's curve SD at n = 2,000, from the
-weighted fit on the quadrature law (:func:`tests.studies._option_markov_law.exact_limit`).
+``exact_bias_over_sd``: the bias of the limit over the limit's plug-in curve SD at n = 2,000
+(``sqrt(E[D^2] / n)`` of the limit fit's influence curve, not the estimator's sampling SD), from
+the weighted fit on the quadrature law (:func:`tests.studies._option_markov_law.exact_limit`).
 
 A replication that raises is not redrawn; the failure accounting of
 ``docs/development/method-benchmarking.md`` applies at :data:`FAILURE_BOUND`.
@@ -151,21 +162,30 @@ FITS: dict[str, tuple[str, int, int, tuple[tuple[str, str, str], ...]]] = {
         ROBUSTNESS_N,
         ROBUSTNESS_REPLICATES,
         (
-            ("order_double_robustness", "ate", law.ATE),
+            ("order_double_robustness", "ey_never", law.EY_NEVER),
             ("markov_reported", "lf2_order0_ey", law.EY_ALWAYS),
+            ("markov_reported", "lf2_order0_ate", law.ATE),
         ),
+    ),
+    "lf2_order0_blind": (
+        "lf2_order0_blind",
+        ROBUSTNESS_N,
+        ROBUSTNESS_REPLICATES,
+        (("order_double_robustness", "ey_never_blind_mechanisms", law.EY_NEVER),),
     ),
 }
 
-#: The exact-law limits, pinned by the design test at 1e-4: the limit's bias over its curve
-#: SD at n = 2,000 (:func:`tests.studies._option_markov_law.exact_limit`).
+#: The exact-law limits, pinned by the design test at 1e-4: the limit's bias over its plug-in
+#: curve SD at n = 2,000 (:func:`tests.studies._option_markov_law.exact_limit`).
 EXACT_LIMITS: dict[tuple[str, str], float] = {
     ("order_necessity", "ate"): 1.3664,
-    ("order_double_robustness", "ate"): 0.0,
+    ("order_double_robustness", "ey_never"): 0.0,
+    ("order_double_robustness", "ey_never_blind_mechanisms"): 0.5372,
     ("markov_reported", "full_history_ey"): 0.0,
     ("markov_reported", "full_history_ate"): 0.0,
     ("markov_reported", "order0_ey"): 0.4566,
     ("markov_reported", "lf2_order0_ey"): 0.0,
+    ("markov_reported", "lf2_order0_ate"): 0.0,
 }
 
 #: The families read by the bias role rule.
@@ -182,7 +202,7 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def _role(family: str, cell: str) -> str:
     if family in REPORTED_FAMILIES:
         return DIAGNOSTIC_ROLE
-    if family == "order_necessity":
+    if family == "order_necessity" or cell.endswith("_blind_mechanisms"):
         return "control"
     return "positive"
 
@@ -234,7 +254,7 @@ def _cells_of(key: _Key) -> list[str]:
 def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     _, setting, replicate, n, requested, _, _ = key[0]
     result = law.fit(frame, setting)
-    truth = law.truth()
+    truth = law.truth(law.SETTINGS[setting].law)
     return [
         replicate_row(
             property_name=family,

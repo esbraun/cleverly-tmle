@@ -38,11 +38,16 @@ N = 2_000
 #: Each limit cell's setting and estimand.
 LIMIT_SETTINGS = {
     ("order_necessity", "ate"): ("lf1_order0", law.ATE),
-    ("order_double_robustness", "ate"): ("lf2_order0", law.ATE),
+    ("order_double_robustness", "ey_never"): ("lf2_order0", law.EY_NEVER),
+    (
+        "order_double_robustness",
+        "ey_never_blind_mechanisms",
+    ): ("lf2_order0_blind", law.EY_NEVER),
     ("markov_reported", "full_history_ey"): ("lf1_full", law.EY_ALWAYS),
     ("markov_reported", "full_history_ate"): ("lf1_full", law.ATE),
     ("markov_reported", "order0_ey"): ("lf1_order0", law.EY_ALWAYS),
     ("markov_reported", "lf2_order0_ey"): ("lf2_order0", law.EY_ALWAYS),
+    ("markov_reported", "lf2_order0_ate"): ("lf2_order0", law.ATE),
 }
 #: Each K label's setting and estimand.
 CALIBRATION_SETTINGS = {
@@ -57,9 +62,41 @@ def limits(name: str, nodes: int = law.QUADRATURE_NODES) -> dict[str, law.ExactL
     return law.exact_limit(name, nodes)
 
 
+def exact_bias(name: str, estimand: str, nodes: int = law.QUADRATURE_NODES) -> float:
+    return limits(name, nodes)[estimand].estimate - law.truth(law.SETTINGS[name].law)[estimand]
+
+
 def bias_over_sd(name: str, estimand: str, nodes: int = law.QUADRATURE_NODES) -> float:
-    limit = limits(name, nodes)[estimand]
-    return (limit.estimate - law.truth()[estimand]) / limit.sd(N)
+    """The limit's bias over its plug-in curve SD at ``N``, not the sampling SD."""
+    return exact_bias(name, estimand, nodes) / limits(name, nodes)[estimand].sd(N)
+
+
+@functools.cache
+def mutant_bias_over_sd(estimand: str) -> float:
+    """The ``LF2`` order-0 limit under the shipped mutation: mechanism arms start at ``t-k``."""
+    import importlib
+    import inspect
+    import textwrap
+
+    from cleverly.longitudinal import LongitudinalData
+
+    data_module = importlib.import_module("cleverly.longitudinal.data")
+    source = textwrap.dedent(inspect.getsource(LongitudinalData.history_design))
+    old = "max(1, self.window_start(time) - 1)"
+    assert source.count(old) == 1
+    namespace: dict[str, object] = {}
+    exec(
+        compile(source.replace(old, "self.window_start(time)"), "<m>", "exec"),
+        vars(data_module),
+        namespace,
+    )
+    original = LongitudinalData.history_design
+    LongitudinalData.history_design = namespace["history_design"]  # type: ignore[method-assign, assignment]
+    try:
+        limit = law.exact_limit("lf2_order0")[estimand]
+    finally:
+        LongitudinalData.history_design = original  # type: ignore[method-assign]
+    return (limit.estimate - law.truth("LF2")[estimand]) / limit.sd(N)
 
 
 @pytest.fixture(scope="module")
@@ -77,7 +114,7 @@ def pilot_cell(setting: str, estimand: str) -> str:
     return f"{setting}:{estimand}"
 
 
-def regimen_monte_carlo(a: float, n: int, seed: int) -> float:
+def regimen_monte_carlo(name: str, a: float, n: int, seed: int) -> float:
     """``E[Y^a]`` by simulating the covariates under the static regimen ``a``."""
     rng = np.random.default_rng(seed)
     w = rng.uniform(size=n)
@@ -86,7 +123,7 @@ def regimen_monte_carlo(a: float, n: int, seed: int) -> float:
         a_prev = np.zeros(n) if t == 1 else np.full(n, a)
         l_prev = rng.binomial(1, law.p_covariate(w, l_prev, a_prev)).astype(float)
         ls.append(l_prev)
-    return float(np.mean(law.p_outcome(w, ls[3], ls[2], a, a)))
+    return float(np.mean(law.p_outcome(name, w, ls[3], ls[2], a, a)))
 
 
 class TestTheDeclaration:
@@ -105,6 +142,7 @@ class TestTheDeclaration:
             "lf1_full": None,
             "lf1_order0": 0,
             "lf2_order0": 0,
+            "lf2_order0_blind": 0,
         }
 
     def test_the_seeds_are_the_study_s_own(self) -> None:
@@ -139,7 +177,10 @@ class TestTheDeclaration:
         for key, (setting, estimand) in LIMIT_SETTINGS.items():
             assert (cells[key].estimand, cells[key].fit_kwargs["setting"]) == (estimand, setting)
         assert cells[("order_necessity", "ate")].role == "control"
-        assert cells[("order_double_robustness", "ate")].role == "positive"
+        assert cells[("order_double_robustness", "ey_never")].role == "positive"
+        assert cells[("order_double_robustness", "ey_never_blind_mechanisms")].role == "control"
+        assert law.SETTINGS["lf2_order0_blind"].blind_mechanisms
+        assert not law.SETTINGS["lf2_order0"].blind_mechanisms
         for key, cell in cells.items():
             if key[0] == "markov_reported":
                 assert cell.role == property_verdicts.DIAGNOSTIC_ROLE
@@ -149,8 +190,8 @@ class TestTheDeclaration:
         for ((_, setting, _, _, _, seed, _),) in properties.payloads(budget=2):
             seeds.setdefault(setting, []).append(seed)
         assert seeds["lf1_order1"] == seeds["lf1_order2"] == seeds["lf1_full"]
-        # The calibration stream and the two bias cells' own.
-        assert len({tuple(values) for values in seeds.values()}) == 3
+        # The calibration stream and the three bias cells' own.
+        assert len({tuple(values) for values in seeds.values()}) == 4
 
     def test_the_primary_reads_the_order_one_fit(self) -> None:
         assert law.SETTINGS[study.PRIMARY_SETTING] == law.SETTINGS["lf1_order1"]
@@ -158,11 +199,22 @@ class TestTheDeclaration:
 
 
 class TestTheLaws:
-    def test_the_truths_match_monte_carlo(self) -> None:
-        truth = law.truth()
-        for a, name in ((1.0, law.EY_ALWAYS), (0.0, law.EY_NEVER)):
-            assert regimen_monte_carlo(a, 2_000_000, 11) == pytest.approx(truth[name], abs=1e-3)
+    @pytest.mark.parametrize("name", law.LAWS)
+    def test_the_truths_match_monte_carlo(self, name: str) -> None:
+        truth = law.truth(name)
+        for a, estimand in ((1.0, law.EY_ALWAYS), (0.0, law.EY_NEVER)):
+            simulated = regimen_monte_carlo(name, a, 2_000_000, 11)
+            assert simulated == pytest.approx(truth[estimand], abs=1e-3)
         assert truth[law.ATE] == pytest.approx(truth[law.EY_ALWAYS] - truth[law.EY_NEVER])
+
+    def test_the_lf2_outcome_is_a_probability_leaning_on_l3(self) -> None:
+        c0, cw, c4, c3, ca4, ca3 = law.OUTCOME["LF2"]
+        corners = [
+            c0 + cw * w + c4 * l4 + c3 * l3 + ca4 * a4 + ca3 * a3
+            for w in (0, 1) for l4 in (0, 1) for l3 in (0, 1) for a4 in (0, 1) for a3 in (0, 1)
+        ]  # fmt: skip
+        assert min(corners) > 0.0 and max(corners) < 1.0
+        assert c3 > law.OUTCOME["LF1"][3]
 
     def test_the_draws_have_the_law_s_moments(self) -> None:
         frame = law.draw("LF1", 400_000, 3)
@@ -213,8 +265,22 @@ class TestTheExactLimits:
     def test_every_calibration_positive_is_unbiased(self, label: str) -> None:
         assert abs(bias_over_sd(*CALIBRATION_SETTINGS[label])) < 1e-6
 
-    def test_the_control_reaches_the_floor(self) -> None:
+    def test_the_controls_reach_the_floor(self) -> None:
         assert bias_over_sd("lf1_order0", law.ATE) >= law.CONTROL_FLOOR_SD
+        assert bias_over_sd("lf2_order0_blind", law.EY_NEVER) >= law.CONTROL_FLOOR_SD
+
+    def test_the_ate_control_could_not_reach_the_floor(self) -> None:
+        """Why the pair reads ``EY(never)``: its ATE control is under 0.45 plug-in SDs."""
+        assert abs(bias_over_sd("lf2_order0_blind", law.ATE)) < law.CONTROL_FLOOR_SD
+
+    def test_the_shipped_mutation_lands_beyond_the_margin(self) -> None:
+        """A mechanism window without ``A_{t-1}`` would turn the positive red."""
+        bias = mutant_bias_over_sd(law.EY_NEVER)
+        assert abs(bias) >= law.CONTROL_FLOOR_SD
+        power = sizing.bias_discriminated_probability(
+            MARGINS, abs(bias), properties.ROBUSTNESS_REPLICATES
+        )
+        assert power > CONTROL_POWER
 
 
 class TestTheSizes:
@@ -251,9 +317,13 @@ class TestTheSizes:
         for ratio in (properties.SHRUNKEN_SE_FACTOR, 1.0 / np.sqrt(2.0)):
             assert sizing.calibration_control_probability(MARGINS, r, ratio) > CONTROL_POWER
 
-    def test_the_control_is_discriminated(self) -> None:
+    @pytest.mark.parametrize(
+        ("setting", "estimand"),
+        [("lf1_order0", law.ATE), ("lf2_order0_blind", law.EY_NEVER)],
+    )
+    def test_each_control_is_discriminated(self, setting: str, estimand: str) -> None:
         power = sizing.bias_discriminated_probability(
-            MARGINS, bias_over_sd("lf1_order0", law.ATE), properties.ROBUSTNESS_REPLICATES
+            MARGINS, bias_over_sd(setting, estimand), properties.ROBUSTNESS_REPLICATES
         )
         assert power > CONTROL_POWER
 
@@ -279,7 +349,10 @@ class TestThePreRead:
         for block, (_, _, settings) in pilot.BLOCKS.items():
             draws = pilot.CALIBRATION_DRAWS if block == "calibration" else pilot.DRAWS
             for setting in settings:
-                for estimand in (law.EY_ALWAYS, law.ATE):
+                estimands = (
+                    law.ESTIMANDS if law.SETTINGS[setting].law == "LF2" else law.ESTIMANDS[::2]
+                )
+                for estimand in estimands:
                     row = reading(summary, pilot_cell(setting, estimand))
                     assert (int(row["draws"]), int(row["first_draw"])) == (draws, 0)
                     assert int(row["last_draw"]) == draws - 1
@@ -294,16 +367,25 @@ class TestThePreRead:
         assert sizing.calibration_pass(MARGINS, replicates, np.array([row["se_ratio"]]))[0] > 0.5
 
     def test_the_bias_positive_reads_below_the_ceiling(self, summary: pd.DataFrame) -> None:
-        row = reading(summary, pilot_cell("lf2_order0", law.ATE))
+        row = reading(summary, pilot_cell("lf2_order0", law.EY_NEVER))
         assert abs(row["bias_over_sd"]) <= PILOT_BIAS_CEILING
         probability = sizing.bias_equivalent_probability(
             MARGINS, float(row["bias_over_sd"]), properties.ROBUSTNESS_REPLICATES
         )
         assert probability > 0.99
 
-    def test_the_control_reads_near_its_limit(self, summary: pd.DataFrame) -> None:
-        row = reading(summary, pilot_cell("lf1_order0", law.ATE))
-        assert row["bias_over_sd"] == pytest.approx(bias_over_sd("lf1_order0", law.ATE), abs=0.15)
+    @pytest.mark.parametrize(
+        ("setting", "estimand"),
+        [("lf1_order0", law.ATE), ("lf2_order0_blind", law.EY_NEVER)],
+    )
+    def test_each_control_reads_near_its_limit(
+        self, summary: pd.DataFrame, setting: str, estimand: str
+    ) -> None:
+        """In outcome units: the blind fit's plug-in SD is not its sampling SD."""
+        row = reading(summary, pilot_cell(setting, estimand))
+        error = float(row["sd"]) / np.sqrt(float(row["draws"]))
+        assert row["bias"] == pytest.approx(exact_bias(setting, estimand), abs=5 * error)
+        assert row["bias_over_sd"] >= bias_over_sd(setting, estimand) - 0.15
 
     def test_the_full_history_fit_reads_beside_the_window(self, summary: pd.DataFrame) -> None:
         """The diagnosis of a red K cell reads the full-history fit on the same draws."""
@@ -313,12 +395,13 @@ class TestThePreRead:
 
 
 #: The cells whose red verdict gates the study: the calibration positives, their derived
-#: controls, the necessity control and the double-robustness positive.
+#: controls, the necessity control and the double-robustness pair.
 GATED = (
     *(f"interval_calibration/{label}__correctly_specified" for label in study.CALIBRATION_LABELS),
     *(name for derived in properties.DERIVED_CELLS.values() for name in derived),
     "order_necessity/ate",
-    "order_double_robustness/ate",
+    "order_double_robustness/ey_never",
+    "order_double_robustness/ey_never_blind_mechanisms",
 )
 
 
@@ -330,7 +413,7 @@ class TestTheRedCellReading:
             if family not in properties.REPORTED_FAMILIES
             for cell in cells
         }
-        assert len(GATED) == 11
+        assert len(GATED) == 12
         assert set(GATED) == declared
 
     def test_no_gated_cell_reads_an_inadmissible_red(self) -> None:

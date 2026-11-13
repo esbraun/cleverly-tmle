@@ -1797,5 +1797,6 @@ tests.studies.option_markov_order_properties,interval_calibration,coverage in ca
 tests.studies.option_markov_order_properties,interval_calibration,noise se ratio below band,se_high
 tests.studies.option_markov_order_properties,interval_calibration,se ratio below band,se_high
 tests.studies.option_markov_order_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.option_markov_order_properties,order_double_robustness,bias discriminated,pair_collapse
 tests.studies.option_markov_order_properties,order_double_robustness,bias equivalent,bias
 tests.studies.option_markov_order_properties,order_necessity,bias discriminated,control_diffuse
