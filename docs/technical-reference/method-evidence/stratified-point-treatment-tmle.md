@@ -236,7 +236,7 @@ The three pointwise verdicts record the identity interval of a mean near its bou
 forms the interval of an unclustered mean of a yes/no outcome on the logit scale
 ([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
 standard errors that interval covers 0.950 for the `cleverly` row of `ey[1][V=2]` and 0.9496 for
-the `v2_ey1` cell (`tests/canonical/tmle3_stratified/interval-audit.csv`). The committed rows stay
+the `v2_ey1` cell (`tests/canonical/tmle3_stratified/interval-audit.parquet`). The committed rows stay
 as the record of the identity interval under
 [`F3-normal-reference`](../../roadmap.md#red-cell-owners), and `tmle3` still reports the identity
 interval.
