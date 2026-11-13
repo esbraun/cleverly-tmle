@@ -208,8 +208,9 @@ from .influence import ParameterEstimate, kish_count, with_precedent_status
 T_REFERENCE_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
     "simultaneous_bands() has no joint result for an estimate with a Student t reference. "
-    f"The fit reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass, "
-    "and no source read here gives a simultaneous band at that count.",
+    f"The estimate reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight "
+    "mass, or it is averaged over cross-fitting folds, and no source read here gives a "
+    "simultaneous band calibrated to a t reference.",
     alternative="Report the pointwise intervals, which use the t reference.",
     roadmap="F28",
 )

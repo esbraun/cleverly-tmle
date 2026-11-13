@@ -306,7 +306,7 @@ see that term, so `tests/unit/test_cluster_ratio_variance.py` checks it at sizes
 | path | variance at unequal sizes |
 | --- | --- |
 | in sample, and the stacked cross-fitted report | the cluster-sum variance above |
-| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters with positive weight mass |
+| `cv_evaluation=True` | refused, with a redirection to the stacked report, when the clusters differ in a requested estimand's denominator mass; a learned-rule fit is exempt ([CV-TMLE](cv-tmle.md#clusters-of-unequal-mass)). Where it runs, the centered cluster variance inside each validation fold, with 2 clusters of positive weight mass in each fold |
 | `targeting_scheme="fold"`, `DRTMLE` cross-fitted, and `repeats` above 1 | the variance of the shipped construction. Each sums the curve within clusters |
 | baseline strata | the stratum curve, embedded at $n/n_s$ and summed over the full cluster vector |
 
@@ -328,14 +328,14 @@ its intervals and p-values on a Student $t$ reference with $J-2$ degrees of free
 $J$ below 10 ($20$ for `LTMLE`) carries the experimental label and the status
 `"few_cluster_plugin"`.
 Nugent et al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
-reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
-normal reference.
+reference stays, except for a fold-evaluated estimate, which takes $J-V$ at every cluster count.
+`ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the normal reference.
 
 | estimate | `reference_df` |
 | --- | --- |
 | a marginal estimate of the fit | $J-2$, with $J$ the positive-mass cluster count of the fit |
 | a baseline-stratum estimate | $J_s-2$, with $J_s$ the positive-mass cluster count of the stratum |
-| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. The package uses the pooled within-fold count as a reference rule |
+| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $J-V$ at every cluster count, the pooled within-fold count. From 40 clusters too, so it is never `None` |
 | a derived estimate: `contrast()`, `ratio()`, and the median over `repeats` | the smallest `reference_df` of its inputs. `None` counts as infinite |
 | an in-fit `rr` or `or` | the value of the arm means it reads |
 | every estimate of a `"no_cluster_variance_plugin"` fit | `None`. The diagnostic keeps the normal reference |
@@ -347,7 +347,7 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 
 | request on a fit with a $t$ reference | result |
 | --- | --- |
-| the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band |
+| the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band. A clustered fold-evaluated fit carries a $t$ reference at every cluster count, so it has no simultaneous band at 40 clusters or more either; the stacked report keeps its band there |
 | `simultaneous_bands()` | `CapabilityError` |
 | the cluster bootstrap | printed as a percentile range from 3 to 9 clusters (3 to 19 for `LTMLE`), whatever the status. From 10 clusters it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
 
@@ -357,16 +357,27 @@ totals with a common variance uses $J-1$. R `ltmle` uses $J-1$.
 The $J-2$ quantile is larger, but this comparison does not establish coverage for estimated
 TMLE curves.
 
-A fold-evaluated report takes $\min(J-2, J-V)$, using the pooled within-fold count.
-Unequal fold sizes and heterogeneous cluster variances do not give this sum of variances an
-exact $t_{J-V}$ reference. The registered few-cluster study measures the declared rule on its two
-size laws. An implementation review measured the difference at $J=10$ and $V=5$, with 2 clusters per fold.
-Over 1,500 draws, $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955.
+A fold-evaluated report takes $t_{J-V}$ at every cluster count. Its variance centers the cluster
+totals inside each fold, so it pools $J_v-1$ degrees of freedom from each of the $V$ folds. Under
+the normal one-way model with equal folds the studentized estimate is exactly $t_{J-V}$. Unequal
+fold sizes and heterogeneous cluster variances make the count an approximation. With $V$ fixed,
+$t_{J-V}$ tends to the normal as $J$ grows, so the rule needs no cutoff at 40, where the stacked
+rule switches.
 
-Prefer the stacked report when cluster sizes depend on the outcome. There a fold-evaluated point
-has a bias of about $V$ times the stacked bias at few clusters per fold. The reference corrects
-the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster study reads 0.61,
-0.43 and 0.32 empirical standard deviations ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)).
+An implementation review measured the difference from $t_{J-2}$ at $J=10$ and
+$V=5$, with 2 clusters per fold: over 1,500 draws, $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered
+0.955. The registered few-cluster study and the covariate pair of the unequal-size study, at 40
+clusters in 10 folds on $t_{30}$, measure the rule at equal cluster sizes.
+
+`cv_evaluation=True` refuses a clustered fit, before any learner, when the clusters differ in the
+denominator mass of a requested estimand: the total weight (the row count when unweighted) for
+the means and the ATE, the treated mass for `att` and the control mass for `atc`. Each fold point
+is then a ratio of cluster sums with a random denominator, and the equal $1/V$ average carries
+about $V$ times the ratio bias of the stacked point. The $t$ reference corrects the variance, not
+that bias. The refusal has code `api_redirection` and names the stacked report, which estimates
+the same parameter. A learned-rule fit is exempt, because its target is defined by the $1/V$
+average. [CV-TMLE](cv-tmle.md#clusters-of-unequal-mass) gives the trigger, the measured bias and
+the reason the stacked point is the only fold aggregation without it.
 
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
@@ -399,6 +410,8 @@ interval.
 | --- | --- |
 | `fewest_clusters` | the distinct cluster count with positive weight mass. On a fit with baseline strata, it also counts those clusters within each stratum and returns the smallest count |
 | `cluster_reference_df` | the positive-mass cluster count of the rows one estimate reads, as $J-2$, or `None` at 40 or more |
+| `fold_evaluated_reference_df` | the same count for a fold-evaluated estimate, as $J-V$ at every count |
+| `unequal_positive_cluster_mass` | the range of one estimand's denominator mass over the clusters with positive total mass, which the `cv_evaluation=True` refusal reads |
 | `cluster_sizes`, `cluster_weight_mass`, `unequal_cluster_sizes` | the row count and the weight mass of each cluster, for the summary facts only |
 
 The facts block of `TMLEResult.summary()` prints the cluster count. It adds unequal row or

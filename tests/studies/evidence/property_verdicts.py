@@ -29,6 +29,7 @@ from tests.studies.evidence.properties import (
     coverage_gain_interval,
     largest_standardized_value,
     paired_displacement,
+    paired_se_ratio_interval,
     rate,
     ratio_intervals,
     require_accounted,
@@ -1965,32 +1966,107 @@ def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
     return summary.sort_values(["property", "cell"], ignore_index=True)
 
 
-#: The ``few_cluster_reference`` family, and what its ``iid_t_control`` SE-ratio upper bound
-#: must fall below.
+#: The ``few_cluster_reference`` family, and what the upper bound of its ``iid_t_control``
+#: paired ratio, the mean IID SE over the mean cluster SE of the same fits, must fall below.
 FEW_CLUSTER_FAMILY = "few_cluster_reference"
 FEW_CLUSTER_IID_CONTROL_CEILING = 0.80
+#: The control-row columns that publish the two clauses of the IID control.
+FEW_CLUSTER_COLUMNS = (
+    "paired_se_ratio",
+    "paired_se_ratio_ci_lower",
+    "paired_se_ratio_ci_upper",
+    "paired_positive_se_ratio_ci_upper",
+)
+
+
+def few_cluster_pair(
+    summary: pd.DataFrame, groups: Sequence[Sequence[str]], cell: str
+) -> tuple[str, str]:
+    """The positive and control cells of the declared group that holds ``cell``.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The summary whose roles name the positive and the control.
+    groups : sequence of sequence of str
+        The module's declared groups of the family: the arms of one fit, size law and count.
+    cell : str
+        One cell of a group.
+
+    Returns
+    -------
+    tuple of str
+        The positive cell and the control cell.
+
+    Raises
+    ------
+    ValueError
+        When no group holds ``cell``, or its group is not one positive and one control cell.
+    """
+    members = next((tuple(group) for group in groups if cell in group), None)
+    if members is None:
+        raise ValueError(f"{FEW_CLUSTER_FAMILY}/{cell} is in no declared group")
+    selected = summary.loc[
+        (summary["property"] == FEW_CLUSTER_FAMILY) & summary["cell"].isin(members)
+    ]
+    positive = selected.loc[selected["role"] == "positive", "cell"]
+    control = selected.loc[selected["role"] == "control", "cell"]
+    if len(positive) != 1 or len(control) != 1:
+        raise ValueError(
+            f"{FEW_CLUSTER_FAMILY} group {members} is not one positive and one control"
+        )
+    return str(positive.iloc[0]), str(control.iloc[0])
 
 
 def few_cluster_reference_verdicts(
-    summary: pd.DataFrame, rows: pd.DataFrame, record: StudyRecord
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    groups: Sequence[Sequence[str]],
 ) -> None:
     """The positive, control and reported rules of every ``few_cluster_reference`` cell.
 
     A ``t_reference`` arm (positive) needs the 99% exact coverage lower bound at the coverage
-    floor and the bias inside the equivalence margin. An ``iid_t_control`` arm (control) needs
-    its SE-ratio upper bound below :data:`FEW_CLUSTER_IID_CONTROL_CEILING`. A diagnostic arm
-    states no verdict. Every cell publishes its SE-ratio interval, because at few clusters
-    excess width is as likely as under-coverage. ``clustered-few-cluster-tmle`` and
+    floor and the bias inside the equivalence margin. An ``iid_t_control`` arm (control) must
+    show that the law's clustering changes its fit's variance by more than any overstatement the
+    SE screen admits, through two clauses that must both hold:
+
+    1. the 99% upper bound of the paired ratio, the mean IID SE over the mean cluster SE of the
+       same fits (:func:`~tests.studies.evidence.properties.paired_se_ratio_interval`), is
+       below :data:`FEW_CLUSTER_IID_CONTROL_CEILING`;
+    2. the paired positive arm's SE-ratio upper bound is at most ``margins.se_ratio_sanity[1]``.
+
+    The paired ratio is the IID SE ratio over the cluster SE ratio, so it reads the cluster
+    effect only while the cluster SE is calibrated: a cluster SE inflated by a factor ``c``
+    gives a ratio of about ``1/c`` on a law with no cluster effect. Clause 2 bounds ``c``.
+    The control row publishes both clauses (:data:`FEW_CLUSTER_COLUMNS`) and keeps its own
+    IID SE-ratio interval, which the verdict does not read. A diagnostic arm states no verdict.
+    Every cell publishes its SE-ratio interval, because at few clusters excess width is as
+    likely as under-coverage. ``clustered-few-cluster-tmle`` and
     ``few-cluster-cross-fitted-ltmle`` both read this one rule.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The summary, updated in place.
+    rows : pandas.DataFrame
+        The replication rows.
+    record : StudyRecord
+        The study, for its margins and seed streams.
+    groups : sequence of sequence of str
+        The module's declared groups of the family (``PROPERTY_GROUPS``), which pair each
+        control with its positive arm.
     """
     margins = record.margins
     family = summary["property"] == FEW_CLUSTER_FAMILY
+
+    def cell_rows(cell: str) -> pd.DataFrame:
+        return rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+
     for index in summary.index[family.to_numpy()]:
         cell = str(summary.loc[index, "cell"])
-        role = str(summary.loc[index, "role"])
-        group = rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
         ratio = se_ratio_interval(
-            group,
+            cell_rows(cell),
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
             seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),
@@ -1998,13 +2074,33 @@ def few_cluster_reference_verdicts(
         )
         summary.loc[index, "se_ratio_ci_lower"] = ratio.low
         summary.loc[index, "se_ratio_ci_upper"] = ratio.high
+    by_cell = {str(summary.loc[i, "cell"]): i for i in summary.index[family.to_numpy()]}
+    for index in summary.index[family.to_numpy()]:
+        cell = str(summary.loc[index, "cell"])
+        role = str(summary.loc[index, "role"])
         if role == "positive":
             summary.loc[index, "passed"] = bool(
                 summary.loc[index, "coverage_ci_lower"] >= margins.coverage_floor
                 and summary.loc[index, "bias_equivalent"]
             )
         elif role == "control":
-            summary.loc[index, "passed"] = bool(ratio.high < FEW_CLUSTER_IID_CONTROL_CEILING)
+            positive, _ = few_cluster_pair(summary, groups, cell)
+            paired = paired_se_ratio_interval(
+                cell_rows(cell),
+                cell_rows(positive),
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),
+            )
+            positive_high = float(summary.loc[by_cell[positive], "se_ratio_ci_upper"])
+            summary.loc[index, "paired_se_ratio"] = paired.ratio
+            summary.loc[index, "paired_se_ratio_ci_lower"] = paired.interval.low
+            summary.loc[index, "paired_se_ratio_ci_upper"] = paired.interval.high
+            summary.loc[index, "paired_positive_se_ratio_ci_upper"] = positive_high
+            summary.loc[index, "passed"] = bool(
+                paired.interval.high < FEW_CLUSTER_IID_CONTROL_CEILING
+                and positive_high <= margins.se_ratio_sanity[1]
+            )
         else:
             summary.loc[index, "passed"] = True
         summary.loc[index, "property_passed"] = summary.loc[index, "passed"]
@@ -2689,10 +2785,15 @@ def _few_cluster_rule() -> pf.FamilyRule:
                 applies=pf.roles("positive"),
             ),
             pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
-            pf.se_interval_clause(
-                "iid se ratio under its ceiling",
-                which="se_ratio",
+            pf.paired_se_ratio_clause(
+                "paired iid/cluster se ratio under its ceiling",
                 judge=pf.below_judge(lambda ctx: FEW_CLUSTER_IID_CONTROL_CEILING),
+                seed=_cell_seed(FEW_CLUSTER_FAMILY),
+                applies=pf.roles("control"),
+            ),
+            pf.paired_positive_se_clause(
+                "paired positive se ratio at most the sanity ceiling",
+                judge=pf.ceiling_judge(lambda ctx: ctx.margins.se_ratio_sanity[1]),
                 seed=_cell_seed(FEW_CLUSTER_FAMILY),
                 applies=pf.roles("control"),
                 truth_varies=lambda ctx: False,

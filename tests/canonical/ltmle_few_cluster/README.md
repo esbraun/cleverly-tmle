@@ -21,4 +21,10 @@ python -m tests.studies.evidence.document --slug clustered-few-cluster-tmle
 The declared run form of `tests/canonical/declared_run.py` writes the artifacts, the manifest and
 `run.log` to the scratch directory, and it copies them here.
 
+The fold-evaluated fit runs at equal cluster sizes only, because `cv_evaluation=True` refuses
+clusters of unequal size, and it reads $t$ with $J - V$ degrees of freedom. Each `iid_t_control`
+cell passes only when two clauses hold: the 99% upper endpoint of the paired ratio, the mean IID
+SE over the mean cluster-robust SE of the same fits, below 0.80, and the paired `t_reference`
+arm's SE-ratio upper endpoint at most 1.20.
+
 The policy is `reporting`. Every red cell is published, and F28 owns it.
