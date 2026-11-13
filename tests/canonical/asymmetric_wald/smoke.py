@@ -29,11 +29,13 @@ from typing import Any
 
 import pandas as pd
 
+from cleverly.exceptions import DataError
 from tests.canonical import regenerate as driver
 from tests.parallel import available_cores
 from tests.studies import asymmetric_wald as study
 from tests.studies import asymmetric_wald_properties as props
 from tests.studies.evidence import property_failures
+from tests.studies.small_sample_laws import EMPTY_DESIGN_CELL
 
 #: The replicates of each group the smoke fits.
 BUDGET = 400
@@ -45,9 +47,15 @@ _REPLICATE = props._replicate
 
 
 def _injected_replicate(label: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
-    """:func:`~tests.studies.asymmetric_wald_properties._replicate`, raising on :data:`INJECTED`."""
+    """:func:`~tests.studies.asymmetric_wald_properties._replicate`, raising on :data:`INJECTED`.
+
+    It raises :class:`~cleverly.exceptions.DataError`, the class H2's
+    :class:`~tests.studies.small_sample_laws.CellMeans` raises on an empty design cell, which
+    :func:`cleverly.validation._failures.recordable` records as a failed replicate. A bare
+    ``RuntimeError`` raised from test code is not recordable and stops the run, by design.
+    """
     if (label, replicate) == INJECTED:
-        raise RuntimeError("smoke: injected failure")
+        raise DataError(f"smoke: injected failure ({EMPTY_DESIGN_CELL} stand-in)")
     return _REPLICATE(label, replicate, frame)
 
 

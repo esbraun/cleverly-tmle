@@ -745,8 +745,9 @@ def test_each_sampler_draws_its_covariate_law(law: str) -> None:
     frame = heldout.sample(law, 200_000, 3)
     spec = heldout.LAWS[law]
     w = frame["W"].to_numpy(dtype=float)
+    strata: list[tuple[np.ndarray, int]]
     if spec.p_v is None:
-        strata = [(np.ones(len(frame), dtype=bool), None)]
+        strata = [(np.ones(len(frame), dtype=bool), 0)]
     else:
         v = frame["V"].to_numpy()
         assert set(np.unique(v)) == {0, 1, 2}
@@ -855,3 +856,28 @@ def test_the_failure_accounting_reads_the_declared_clauses() -> None:
     lower = accounting.set_index("leg").loc["coverage lower leg, first 2,000"]
     # The lost fit sits among the first 2,000: the worst case counts it as a miss.
     assert lower["worst_case"] < lower["complete_case"]
+
+
+# --------------------------------------------------------------- the smoke's injected failure
+
+
+def test_the_smoke_injects_a_failure_the_harness_records() -> None:
+    """The smoke's injected error and H2's empty-cell refusal are both recorded, not fatal.
+
+    A bare ``RuntimeError`` from test code is not recordable and stops the run (the first
+    runner smoke did so), so the smoke raises the class a real failed H2 fit raises.
+    """
+    from cleverly.validation._failures import recordable
+    from tests.canonical.asymmetric_wald import smoke
+    from tests.studies.small_sample_laws import EMPTY_DESIGN_CELL, CellMeans
+
+    with pytest.raises(Exception) as injected:
+        smoke._injected_replicate(*smoke.INJECTED, pd.DataFrame())
+    assert recordable(injected.value)
+    with pytest.raises(Exception) as empty:
+        CellMeans(levels=((0, 1), (0, 1))).fit(np.array([[0, 0], [0, 1], [1, 0]]), [1.0, 2.0, 3.0])
+    assert EMPTY_DESIGN_CELL in str(empty.value)
+    assert recordable(empty.value)
+    with pytest.raises(RuntimeError) as bare:
+        raise RuntimeError("from test code")
+    assert not recordable(bare.value)
