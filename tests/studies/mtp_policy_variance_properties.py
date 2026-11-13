@@ -146,6 +146,17 @@ FLOOR_FACTORS: tuple[float, ...] = (0.70, 0.65, 0.60, 0.55, 0.50)
 COVERAGE_FLOOR_FACTOR = 0.60
 SHRUNKEN_SE_FACTOR = 0.70
 INFLATED_SE_FACTOR = 1.40
+#: The ``tau5`` option rows also gate on nominal coverage: the 99% Clopper-Pearson upper bound
+#: of coverage at least :data:`WALD_CONTROL_CEILING`, the mirror of the Wald control.
+NOMINAL_SETS: frozenset[str] = frozenset({"pricing_ltmle_tau5", "pricing_sdr_tau5"})
+#: The coverage the follow-up trigger of ``sdr_default_pseudo`` detects with probability
+#: :data:`CONTROL_POWER` (its count is the least multiple of 400 that does).
+TRIGGER_DETECTS = 0.92
+#: The fit sets whose option and Wald rows publish the lowest-SE-quartile coverage.
+QUARTILE_SETS: frozenset[str] = frozenset(
+    {"pricing_ltmle_tau5", "pricing_sdr_tau5", "boundaries_ltmle_p4", "boundaries_sdr_p4"}
+    | {"p4_ltmle", "p4_sdr"}
+)
 #: The power every control must reach, and the family-wise target of the gated rows.
 CONTROL_POWER = 0.95
 FAMILY_TARGET = 0.95
@@ -251,12 +262,12 @@ REPLICATES: dict[str, int] = {
     "p4_ltmle": 3_600,
     "p4_sdr": 3_600,
     "p4_twin": 4_800,
-    "p4_sdr_twin": 4_800,
+    "p4_sdr_twin": 4_000,
     "p5_twin": 4_000,
     "p5_sdr_twin": 4_000,
-    "up_oracle_tau5_twin": 4_000,
-    "up_learned_classifier_tau5_twin": 4_000,
-    SUPERLEARNER_CELL: 600,
+    "up_oracle_tau5_twin": 6_400,
+    "up_learned_classifier_tau5_twin": 6_400,
+    SUPERLEARNER_CELL: 1_200,
     **dict.fromkeys(study.LARGE_TWINS, study.TAIL_OPTION_REPLICATES),
 }
 
@@ -602,6 +613,10 @@ READING_COLUMNS = (
     "rms_ratio_ci_lower",
     "rms_ratio_ci_upper",
     "follow_up_trigger",
+    "q1_coverage",
+    "q1_coverage_ci_lower",
+    "q1_coverage_ci_upper",
+    "red_route",
 )
 OPTION_FAMILIES = frozenset({"policy_variance", "policy_calibration"})
 
@@ -610,14 +625,20 @@ def kind_of(cell: str) -> str:
     return cell.rsplit("__", 1)[-1]
 
 
-def reading(lo: float, hi: float, floor_met: bool, bias_met: bool) -> str:
-    """The SE-ratio clause's reading of a gated option row."""
+def reading(lo: float, hi: float, floor_met: bool, bias_met: bool, nominal_met: bool = True) -> str:
+    """The SE-ratio clause's reading of a gated option row.
+
+    ``nominal_met`` is the nominal-coverage clause of the :data:`NOMINAL_SETS` rows (true
+    elsewhere).
+    """
     if lo < CLAUSE_FLOOR:
         return "red: too narrow"
     if lo > CLAUSE_CEILING:
         return "red: too wide"
     if not floor_met:
         return "red: coverage"
+    if not nominal_met:
+        return "red: below nominal"
     if not bias_met:
         return "red: bias"
     return "conservative" if hi > CALIBRATED_CEILING else "calibrated"
@@ -637,6 +658,34 @@ def rms_interval(group: pd.DataFrame, seed: int, replicates: int) -> tuple[float
         )
     low, high = np.percentile(draws, [0.5, 99.5])
     return point, float(low), float(high)
+
+
+def q1_coverage(group: pd.DataFrame) -> tuple[float, float, float]:
+    """Coverage over the replicates in the lowest quartile of the SE, with its 99% CP interval."""
+    se = group["std_error"].to_numpy(dtype=float)
+    low = group.loc[se <= np.quantile(se, 0.25)]
+    covered, total = int(low["covered"].sum()), len(low)
+    lower, upper = study.clopper_pearson(covered, total)
+    return covered / total, lower, upper
+
+
+def rms_label(low: float, high: float) -> str:
+    """The declared M2 reading of the default Wald's RMS-ratio interval."""
+    if low <= 1.0 <= high:
+        return "rms: contains 1 (the committed shortfall reads as chance)"
+    return "rms: below 1 (shortfall confirmed)" if high < 1.0 else "rms: above 1"
+
+
+def learned_label(coverage_low: float, ratio_point: float) -> str:
+    """The declared reporting expectation of a ``pricing_learned_*`` option row."""
+    as_declared = coverage_low >= 0.95 and 1.10 <= ratio_point <= 1.50
+    return "learned: as declared" if as_declared else "learned: departs from the declared reading"
+
+
+def red_route(se_low: float, se_high: float, cov_low: float, cov_high: float) -> str:
+    """A red band twin's route: a finite-sample candidate or a defect suspect."""
+    finite = se_low <= 1.0 <= se_high and cov_low <= 0.95 <= cov_high
+    return "finite-sample candidate" if finite else "defect suspect"
 
 
 def _se_interval(rows: pd.DataFrame, family: str, cell: str) -> Interval:
@@ -664,6 +713,13 @@ def policy_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.at[index, "se_ratio_ci_lower"] = ratio.low
         summary.at[index, "se_ratio_ci_upper"] = ratio.high
         coverage = summary_interval(summary, index, "coverage")
+        label = cell.split("__")[0]
+        if label in QUARTILE_SETS and kind in ("option", "wald"):
+            group = rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
+            point, low, high = q1_coverage(group)
+            summary.at[index, "q1_coverage"] = point
+            summary.at[index, "q1_coverage_ci_lower"] = low
+            summary.at[index, "q1_coverage_ci_upper"] = high
         if role == DIAGNOSTIC_ROLE:
             passed = True
             if family == "policy_variance" and kind == "wald" and cell.split("__")[0] in RMS_SETS:
@@ -674,6 +730,11 @@ def policy_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
                 summary.at[index, "rms_ratio"] = point
                 summary.at[index, "rms_ratio_ci_lower"] = low
                 summary.at[index, "rms_ratio_ci_upper"] = high
+                summary.at[index, "reading"] = rms_label(low, high)
+            if family == "policy_variance" and kind == "option" and label in REPORTING_SETS:
+                summary.at[index, "reading"] = learned_label(
+                    coverage.low, float(summary.at[index, "se_ratio"])
+                )
             if family == "sdr_default_pseudo" and kind == "wald":
                 summary.at[index, "follow_up_trigger"] = bool(
                     coverage.high < WALD_CONTROL_CEILING or ratio.high < CLAUSE_FLOOR
@@ -681,8 +742,9 @@ def policy_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         elif kind == "option":
             floor = coverage.low >= margins.coverage_floor
             bias = bool(summary.at[index, "bias_equivalent"])
-            summary.at[index, "reading"] = reading(ratio.low, ratio.high, floor, bias)
-            passed = bias and floor and CLAUSE_FLOOR <= ratio.low <= CLAUSE_CEILING
+            nominal = label not in NOMINAL_SETS or coverage.high >= WALD_CONTROL_CEILING
+            summary.at[index, "reading"] = reading(ratio.low, ratio.high, floor, bias, nominal)
+            passed = bias and floor and nominal and CLAUSE_FLOOR <= ratio.low <= CLAUSE_CEILING
         elif kind == "wald":
             passed = coverage.high < WALD_CONTROL_CEILING
         elif kind == "coverage_floor_control":
@@ -703,7 +765,25 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=STUDY.margins)
     policy_verdicts(summary, rows)
+    red_routes(summary)
     return finish(summary, rates)
+
+
+def red_routes(summary: pd.DataFrame) -> None:
+    """Each red calibration twin's declared route, read from its own intervals."""
+    summary["red_route"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
+    red = (
+        (summary["property"] == "interval_calibration")
+        & (summary["role"] == "positive")
+        & ~summary["passed"].astype(bool)
+    )
+    for index in summary.index[red]:
+        summary.at[index, "red_route"] = red_route(
+            float(summary.at[index, "se_ratio_ci_lower"]),
+            float(summary.at[index, "se_ratio_ci_upper"]),
+            float(summary.at[index, "coverage_ci_lower"]),
+            float(summary.at[index, "coverage_ci_upper"]),
+        )
 
 
 def _cell_seed(ctx: pf.Context, row: pd.Series) -> int:
@@ -715,6 +795,15 @@ def _kind(*names: str, role: str | None = None) -> pf.Applies:
         return kind_of(str(row["cell"])) in names and (role is None or str(row["role"]) == role)
 
     return applies
+
+
+def _nominal(ctx: pf.Context, row: pd.Series) -> bool:
+    cell = str(row["cell"])
+    return (
+        kind_of(cell) == "option"
+        and str(row["role"]) == "positive"
+        and cell.split("__")[0] in NOMINAL_SETS
+    )
 
 
 def _clause_judge(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judged:
@@ -742,6 +831,12 @@ def policy_rule() -> pf.FamilyRule:
                 judge=_clause_judge,
                 seed=_cell_seed,
                 applies=option,
+            ),
+            pf.proportion_clause(
+                "coverage reaches nominal",
+                statistic="S2",
+                judge=pf.upper_at_or_above_judge(lambda ctx: WALD_CONTROL_CEILING),
+                applies=_nominal,
             ),
             pf.proportion_clause(
                 "wald coverage below nominal",
@@ -924,9 +1019,15 @@ ROUND_TWO: dict[str, int] = {
 }
 
 
+#: The band twins left at 400 draws by rule S3, extended on the same stream so that their
+#: predictive pass probabilities read at the resolution of the flagged twins' (a description;
+#: S1 to S3 read these draws as they read any pilot).
+EXTENDED: dict[str, int] = {"p4_sdr_twin": 2_000, "up_oracle_tau5_twin": 2_000}
+
+
 def pilot_draws(label: str) -> int:
-    """A pilot set's draws: :data:`PILOT_DRAWS`, or its round-2 count."""
-    return ROUND_TWO.get(label, PILOT_DRAWS)
+    """A pilot set's draws: :data:`PILOT_DRAWS`, or its round-2 or extended count."""
+    return ROUND_TWO.get(label, EXTENDED.get(label, PILOT_DRAWS))
 
 
 def run_pilots(parts: Path, *, n_jobs: int = 1) -> pd.DataFrame:
@@ -1139,6 +1240,8 @@ def pass_table(
                 side="clause",
             )
             floor = jeffreys_floor(int(row.covered), draws, r, margins.coverage_floor)
+            if label in NOMINAL_SETS:
+                floor *= 1.0 - jeffreys_below(int(row.covered), draws, r, WALD_CONTROL_CEILING)
             add(str(row.cell), clause * floor * bias, "positive")
             add(
                 str(row.cell).replace("option", "coverage_floor_control"),
@@ -1254,10 +1357,10 @@ def main(argv: list[str] | None = None) -> None:
 #: :data:`FAMILY_TARGET`), ``at_r_target`` the same at every row's ``R_target``; ``plug_in``
 #: (at the pilot points) and ``predictive`` (:func:`pass_table`) are descriptions.
 PUBLISHED: dict[str, float] = {
-    "at_target": 0.9786,
-    "at_r_target": 0.9733,
-    "plug_in": 0.9723,
-    "predictive": 0.1328,
+    "at_target": 0.9599,
+    "at_r_target": 0.9546,
+    "plug_in": 0.9740,
+    "predictive": 0.2852,
 }
 #: Rule S2's plug-in level and cap, and rule S3's flag level.
 S2_LEVEL = 0.99
@@ -1296,8 +1399,24 @@ def _max_covered(replicates: int, ceiling: float) -> int:
     return max_covered(replicates, ceiling)
 
 
-def plugin_pass(kind: str, ratio: float, coverage: float, bias: float, r: int, c: float) -> float:
-    """A gated row's pass probability at ``r`` replications when its truth is the given point."""
+def nominal_pass(coverage: float, r: int) -> float:
+    """P(the 99% CP upper bound of coverage reaches nominal) at ``r`` when ``coverage`` is true."""
+    return float(1.0 - binom.cdf(_max_covered(r, WALD_CONTROL_CEILING), r, coverage))
+
+
+def plugin_pass(
+    kind: str,
+    ratio: float,
+    coverage: float,
+    bias: float,
+    r: int,
+    c: float,
+    nominal: bool = False,
+) -> float:
+    """A gated row's pass probability at ``r`` replications when its truth is the given point.
+
+    ``nominal`` adds the nominal-coverage clause of the :data:`NOMINAL_SETS` option rows.
+    """
     margins = STUDY.margins
     floor = float(binom.sf(_min_covered(r, margins.coverage_floor) - 1, r, coverage))
     half = 2.576 / np.sqrt(r)
@@ -1325,13 +1444,18 @@ def plugin_pass(kind: str, ratio: float, coverage: float, bias: float, r: int, c
             norm.cdf((CLAUSE_CEILING + 2.576 * s - ratio) / s)
             - norm.cdf((CLAUSE_FLOOR + 2.576 * s - ratio) / s)
         )
-        return clause * floor * bias_p
+        return clause * floor * bias_p * (nominal_pass(coverage, r) if nominal else 1.0)
     return floor * bias_p
 
 
-def at_target(kind: str, r: int, c: float) -> float:
-    """Rule S1: a row's pass probability at its target (SE ratio 1, coverage 0.95, bias 0)."""
-    return plugin_pass(kind, 1.0, 0.95, 0.0, r, c)
+def at_target(kind: str, r: int, c: float, nominal: bool = False) -> float:
+    """Rule S1: a row's pass probability at its target (SE ratio 1, coverage 0.95, bias 0).
+
+    The nominal-coverage clause holds at the target with probability about 0.995 at every
+    ``r`` (the one-sided level of the CP bound), so ``R_target`` is read without it and the
+    product carries it.
+    """
+    return plugin_pass(kind, 1.0, 0.95, 0.0, r, c, nominal)
 
 
 def in_margin(kind: str, ratio: float, coverage: float) -> bool:
@@ -1382,20 +1506,21 @@ def sizing_table(pilot: pd.DataFrame) -> pd.DataFrame:
     own_c = rows["se_ratio_sd"] * np.sqrt(2 * rows["draws"]) / rows["se_ratio"]
     c_of = own_c.groupby(rows["configuration"]).max().clip(lower=tools.C_FIT)
     rows["c"] = rows["configuration"].map(c_of)
+    rows["nominal"] = (rows["kind"] == "clause") & rows["set"].isin(NOMINAL_SETS)
     targets, plugins, raised = [], [], []
     for row in rows.itertuples():
         start = PRIMARY_FLOOR if row.kind == "primary" else R_STEP
         r_target = next(r for r in _counts(start, R_CAP) if at_target(row.kind, r, row.c) >= level)
         point = (row.kind, float(row.se_ratio), float(row.coverage), float(row.standardized_bias))
         targets.append(r_target)
-        plugins.append(plugin_pass(*point, r_target, row.c))
+        plugins.append(plugin_pass(*point, r_target, row.c, bool(row.nominal)))
         if in_margin(row.kind, float(row.se_ratio), float(row.coverage)):
             raised.append(
                 next(
                     (
                         r
                         for r in _counts(r_target, max(S2_CAP, r_target))
-                        if plugin_pass(*point, r, row.c) >= S2_LEVEL
+                        if plugin_pass(*point, r, row.c, bool(row.nominal)) >= S2_LEVEL
                     ),
                     max(S2_CAP, r_target),
                 )
@@ -1450,7 +1575,7 @@ def at_target_product(table: pd.DataFrame, replicates: Mapping[str, int], primar
     out = 1.0
     for row in table.itertuples():
         r = primary if row.kind == "primary" else replicates[str(row.set)]
-        out *= at_target(str(row.kind), r, float(row.c))
+        out *= at_target(str(row.kind), r, float(row.c), bool(row.nominal))
     return out
 
 
@@ -1466,6 +1591,7 @@ def plugin_product(table: pd.DataFrame, replicates: Mapping[str, int], primary: 
             float(row.standardized_bias),
             r,
             float(row.c),
+            bool(row.nominal),
         )
     return out
 
@@ -1476,6 +1602,18 @@ def twin_floor_power(factor: float, pilot: pd.DataFrame, primary: int) -> float:
     return min(
         jeffreys_below(_covered_at(group, factor), len(group), primary, FLOOR_CONTROL_CEILING)
         for _, group in rows.groupby("cell")
+    )
+
+
+def trigger_power(coverage: float, replicates: int) -> float:
+    """P(the follow-up trigger's Wald coverage bound falls below nominal) at a true coverage."""
+    return float(binom.cdf(_max_covered(replicates, WALD_CONTROL_CEILING), replicates, coverage))
+
+
+def trigger_replicates() -> int:
+    """The least multiple of 400 at which the trigger detects :data:`TRIGGER_DETECTS`."""
+    return next(
+        r for r in _counts(R_STEP, R_CAP) if trigger_power(TRIGGER_DETECTS, r) >= CONTROL_POWER
     )
 
 

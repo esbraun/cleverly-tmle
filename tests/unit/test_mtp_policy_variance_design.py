@@ -359,9 +359,34 @@ def test_the_replication_counts_of_the_reporting_sets() -> None:
     )
     for label in properties.REPORTING_SETS:
         assert properties.REPLICATES[label] == 1_000
-    assert properties.REPLICATES[properties.SUPERLEARNER_CELL] == 600
+    assert properties.REPLICATES[properties.SUPERLEARNER_CELL] == properties.trigger_replicates()
     for twin in study.LARGE_TWINS:
         assert properties.REPLICATES[twin] == study.TAIL_OPTION_REPLICATES
+
+
+def test_the_follow_up_trigger_detects_its_declared_shortfall() -> None:
+    """The default-pseudo-learner cell: 0.92 detected with probability 0.95, not one step less."""
+    count = properties.trigger_replicates()
+    assert count == 1_200
+    assert properties.trigger_power(properties.TRIGGER_DETECTS, count) >= properties.CONTROL_POWER
+    below = count - properties.R_STEP
+    assert properties.trigger_power(properties.TRIGGER_DETECTS, below) < properties.CONTROL_POWER
+
+
+def test_the_nominal_clause_rides_on_the_four_tau5_option_rows() -> None:
+    _, _, table = sizing()
+    nominal = table.loc[table["nominal"], "cell"]
+    assert sorted(nominal) == sorted(
+        f"{label}__{q}__option" for label in properties.NOMINAL_SETS for q in properties.QUANTITIES
+    )
+    # At the target the clause holds with about its one-sided level, at any count.
+    for r in (2_000, 6_000, 20_000):
+        assert 0.993 <= properties.nominal_pass(0.95, r) <= 0.997
+    # The default it replaces fails it: the committed Wald draws cover 0.916 to 0.923.
+    for label in properties.NOMINAL_SETS:
+        for q in properties.QUANTITIES:
+            covered, draws = properties.wald_control_draws(label, f"{label}__{q}__wald")
+            assert properties.nominal_pass(covered / draws, 6_000) < 0.01
 
 
 def test_the_at_target_product_reaches_the_target() -> None:
@@ -416,7 +441,7 @@ def test_the_two_families_declare_their_own_floor_factor() -> None:
 
 def test_the_rules_reproduce_the_verdicts_on_the_pilot() -> None:
     """The accounting rules read the same verdicts as the study's own code."""
-    pilot = properties.committed_pilot()
+    pilot = properties.round_one(properties.committed_pilot())
     chosen = pilot.loc[pilot["set"].isin(["pricing_ltmle_tau5", "p4_ltmle", "up_oracle_tau5_twin"])]
     rows = chosen.loc[:, list(properties.REPLICATE_COLUMNS)]
     rows = pd.concat([rows, properties.derived_rows(rows)], ignore_index=True)
@@ -433,10 +458,56 @@ def test_the_rules_reproduce_the_verdicts_on_the_pilot() -> None:
         assert (joined["passed_rule"] == joined["passed"]).all(), joined.to_string()
 
 
+def _pilot_primary() -> pd.DataFrame:
+    pilot = properties.committed_pilot()
+    rows = pilot.loc[pilot["property"] == "primary"].copy()
+    parts = rows["cell"].str.split("__", n=1, expand=True)
+    rows["scenario"], rows["estimand"] = parts[0], parts[1]
+    return rows
+
+
+def test_the_regime_contrast_reads_the_twin_against_its_control() -> None:
+    pilot = properties.committed_pilot()
+    contrast = study.regime_contrast(_pilot_primary(), pilot)
+    assert len(contrast) == 4
+    assert (contrast["twin_replicates"] == properties.PILOT_DRAWS).all()
+    assert (contrast["control_replicates"] == properties.PILOT_DRAWS).all()
+    assert (contrast["ci_lower"] < contrast["difference"]).all()
+    assert (contrast["difference"] < contrast["ci_upper"]).all()
+    # Mutation control: a twin that covers every draw against a control at 0.92 reads a gain.
+    primary = _pilot_primary()
+    primary["std_error"] *= 100.0
+    control = pilot.copy()
+    wald = control["cell"].str.endswith("__wald") & control["set"].isin(properties.NOMINAL_SETS)
+    control.loc[wald, "covered"] = (control.loc[wald, "replicate"] % 25 >= 2).astype(int)
+    assert (study.regime_contrast(primary, control)["reading"] == "gain in regime").all()
+
+
+def test_the_newcombe_interval_matches_a_known_value() -> None:
+    """Newcombe (1998), table II, example (a): 56/70 - 48/80, 95% interval (0.0524, 0.3339)."""
+    low, high = study.newcombe(56, 70, 48, 80, level=0.95)
+    assert low == pytest.approx(0.0524, abs=1e-4)
+    assert high == pytest.approx(0.3339, abs=1e-4)
+
+
+def test_the_code_read_labels() -> None:
+    group = pd.DataFrame({"std_error": np.arange(1.0, 9.0), "covered": [0, 1, 1, 1, 1, 1, 1, 1]})
+    point, low, high = properties.q1_coverage(group)
+    assert point == pytest.approx(0.5) and low < 0.5 < high
+    assert properties.rms_label(0.97, 1.02).startswith("rms: contains 1")
+    assert properties.rms_label(0.90, 0.98).startswith("rms: below 1")
+    assert properties.learned_label(0.96, 1.3) == "learned: as declared"
+    assert properties.learned_label(0.93, 1.3).startswith("learned: departs")
+    assert properties.red_route(0.98, 1.08, 0.94, 0.97) == "finite-sample candidate"
+    assert properties.red_route(0.90, 0.99, 0.94, 0.97) == "defect suspect"
+    assert properties.red_route(0.98, 1.08, 0.90, 0.94) == "defect suspect"
+
+
 def test_the_reading_names_each_clause_branch() -> None:
     assert properties.reading(0.92, 1.0, True, True) == "red: too narrow"
     assert properties.reading(1.26, 1.4, True, True) == "red: too wide"
     assert properties.reading(1.0, 1.08, True, True) == "conservative"
     assert properties.reading(0.95, 1.07, True, True) == "calibrated"
     assert properties.reading(0.95, 1.07, False, True) == "red: coverage"
+    assert properties.reading(0.95, 1.07, True, True, False) == "red: below nominal"
     assert np.isclose(properties.CLAUSE_FLOOR, 0.93) and np.isclose(properties.CLAUSE_CEILING, 1.25)

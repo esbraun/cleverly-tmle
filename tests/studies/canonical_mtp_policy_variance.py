@@ -63,18 +63,53 @@ VARIANCE_LEARNER` already holds.
   half.  A ``red: too wide`` reading is the option costing more than a 25% wider interval, also
   no license.
 * A red Wald twin (a primary truth row, or an ``interval_calibration`` twin) is a red cell in
-  regime, so a defect suspect for the default interval.  The cell it twins loses its gated
-  reading, and its owner stays open.
+  regime, so a defect suspect for the default interval, unless it takes the finite-sample
+  route of the guide's red-cell rule: its 99% SE-ratio interval contains 1, its coverage
+  interval contains 0.95, and a paired-arm diagnosis on fresh seeds finds no defect.  A
+  finite-sample red goes to ``reporting`` with an owner in the roadmap's red-cell owners table;
+  an unfixed defect never does.  The summary's ``red_route`` column reads the first two
+  conditions by code for each red calibration twin (``finite-sample candidate`` or ``defect
+  suspect``); the diagnosis decides.  An upper excursion of a band twin (``hi`` above 1.07 with
+  coverage inside its band) is a conservative Wald interval in regime: the twinned cell keeps
+  its validity claim, loses its ``calibrated`` reading and carries the stated limit
+  "conservative in regime: SE ratio <point> (<lo>, <hi>)".  An under-coverage reading of a
+  truth twin is confirmed on at least 3,000 disjoint ``diagnostic`` draws before it is
+  narrated.  Otherwise the cell the red twin twins loses its gated reading, and its owner stays
+  open.
+* A truth twin's pass alone does not show that coverage changed in regime: at R = 1,800 the
+  floor passes a true coverage of 0.920 with probability 0.62.  For each ``pricing_*_tau5_tail``
+  row, :func:`regime_contrast` reads by code the twin's coverage minus the coverage of the
+  n = 5,000 Wald control of the same estimator and quantity (``policy_variance``
+  ``pricing_*_tau5__<q>__wald``), with a 99% Newcombe interval.  It gates nothing; it reads
+  both phases, so the registration computes it from the committed ``replicates.parquet`` and
+  ``property-replicates.parquet`` and publishes it.  The docs claim a change of coverage in
+  regime only where its interval excludes 0, and otherwise say that in regime the Wald interval
+  meets the 0.90 floor.
+* The four ``pricing_*_tau5`` option rows also gate on nominal coverage, the mirror of the Wald
+  control: the 99% Clopper-Pearson upper bound of coverage at least 0.95 (``red: below
+  nominal`` otherwise).  The ``coverage reaches nominal`` clause carries it in the accounting.
+* The defect Fix-5 addresses is coverage among the replicates whose SE is smallest.  The
+  option and Wald rows of ``pricing_*_tau5``, ``boundaries_*_p4`` and ``p4_*`` publish the
+  coverage in the lowest SE quartile with its 99% Clopper-Pearson interval (``q1_coverage``),
+  read by code, gating nothing.
 * A Wald control that covers at nominal (``pricing_*_tau5`` Wald rows whose coverage upper
   bound reaches 0.95) means the study's premise is wrong: diagnose before registering.
 * A control that does not fail (an SE control inside the clause, a coverage-floor control
   whose coverage upper bound reaches 0.90) is a red of the study, not of the estimator; the
   claim of the cell it guards is withheld until the control is repaired under a fresh
   declaration.
-* The reporting cells' readings, stated before the run: ``sdr_default_pseudo`` Wald coverage
-  0.90 to 0.95 (the fix5_heavy_ratios probe 4), with its trigger for a follow-up fix; ``pricing_learned_*`` option
-  coverage 0.99 or more with SE ratio near 1.4 (probe 5); the twins' option rows
-  ``conservative`` or calibrated, with coverage at least the Wald rows'.
+* The reporting cells' readings, stated before the run.  ``sdr_default_pseudo``: Wald coverage
+  0.90 to 0.95 (the fix5_heavy_ratios probe 4, which measured a different pseudo learner), with
+  its trigger for a follow-up fix (``follow_up_trigger``).  Its count is the least multiple of
+  400 at which the trigger fires with probability 0.95 at a true coverage of 0.92 (1,200;
+  ``trigger_replicates``); a silent trigger means "no shortfall to 0.92 or below detected".
+  ``pricing_learned_*`` option rows: coverage lower bound at least 0.95 with SE ratio 1.10 to
+  1.50 (``reading`` labels it by code); probe 5 measured 1.36 to 1.42 under d3, and the shipped
+  d5 likely reads lower.  The ``boundaries_*_p4`` Wald rows carry the declared M2 reading as a
+  code-read label (``rms: ...``).  The twins' option rows ``conservative`` or calibrated.
+* On ``pricing_*_tau2`` the option widens the interval by about 1% on average (median draw 0.3
+  to 0.8%), so those gated rows license "the option costs about 1% width on a light-tailed
+  law", not a property of the policy-weighted variance.
 * The expected readings of the two rows the round-1 pilot put outside their passing regions,
   which a paired-arm diagnosis on 3,000 fresh ``diagnostic`` draws read as draw noise (``LTMLE``
   and ``SDR`` agree to 0.0017 in the estimate on the same draws; every 99% SE-ratio interval
@@ -87,6 +122,13 @@ VARIANCE_LEARNER` already holds.
   0.940 with SE ratio 0.997 and 0.996 on 3,000 draws.
 * No replicate count, law, learner, margin or seed moves after a verdict is seen.  No rerun buys
   a pass.
+
+**The interval scale.**  Every row stores the estimate and its standard error, and each option
+row's fit also writes the Wald row's influence-curve SE.  When the default unclustered interval
+moves to the range-logit scale, the option's interval on that scale is the default's widened to
+``max(default half-width, z * SE_pw on that scale)``, and the delta factor multiplies both
+standard errors alike, so both intervals of every row are recomputed from the committed rows.
+No rerun is needed.
 """
 
 from __future__ import annotations
@@ -693,6 +735,82 @@ def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFram
         scientific_failures(artifacts),
         missing={CONTROL_AUDIT: evidence_failures.missing_fits(failures, STUDY)},
     )
+
+
+# ------------------------------------------------------------------------ the regime contrast
+
+#: The columns of :func:`regime_contrast`.
+CONTRAST_COLUMNS = (
+    "scenario",
+    "estimand",
+    "control",
+    "twin_coverage",
+    "twin_replicates",
+    "control_coverage",
+    "control_replicates",
+    "difference",
+    "ci_lower",
+    "ci_upper",
+    "reading",
+)
+
+
+def _wilson(covered: int, total: int, z: float) -> tuple[float, float]:
+    p = covered / total
+    centre = (p + z * z / (2 * total)) / (1 + z * z / total)
+    half = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / (1 + z * z / total)
+    return centre - half, centre + half
+
+
+def newcombe(a: int, n_a: int, b: int, n_b: int, level: float = 0.99) -> tuple[float, float]:
+    """Newcombe's hybrid score interval of ``a / n_a - b / n_b``."""
+    z = float(norm.ppf(0.5 + level / 2))
+    low_a, high_a = _wilson(a, n_a, z)
+    low_b, high_b = _wilson(b, n_b, z)
+    p_a, p_b = a / n_a, b / n_b
+    d = p_a - p_b
+    return (
+        d - math.sqrt((p_a - low_a) ** 2 + (high_b - p_b) ** 2),
+        d + math.sqrt((high_a - p_a) ** 2 + (p_b - low_b) ** 2),
+    )
+
+
+def regime_contrast(primary: pd.DataFrame, properties: pd.DataFrame) -> pd.DataFrame:
+    """Each ``pricing_*_tau5_tail`` row's coverage minus its n = 5,000 Wald control's.
+
+    ``primary`` has the replicate columns (``scenario``, ``estimand``, ``estimate``,
+    ``std_error``, ``truth``); ``properties`` the property columns (``property``, ``cell``,
+    ``covered``).  A difference whose 99% interval lies above 0 reads ``gain in regime``.
+    """
+    out = []
+    for est in ("ltmle", "sdr"):
+        twin = f"pricing_{est}_tau5_tail"
+        for q, name in (("ey", ey(DOWN)), ("ate", ate(DOWN, P_REF))):
+            rows = primary.loc[(primary["scenario"] == twin) & (primary["estimand"] == name)]
+            error = (rows["estimate"] - rows["truth"]).abs()
+            a, n_a = int((error <= CRITICAL * rows["std_error"]).sum()), len(rows)
+            control = f"pricing_{est}_tau5__{q}__wald"
+            group = properties.loc[
+                (properties["property"] == "policy_variance") & (properties["cell"] == control)
+            ]
+            b, n_b = int(group["covered"].sum()), len(group)
+            low, high = newcombe(a, n_a, b, n_b)
+            out.append(
+                {
+                    "scenario": twin,
+                    "estimand": name,
+                    "control": control,
+                    "twin_coverage": a / n_a,
+                    "twin_replicates": n_a,
+                    "control_coverage": b / n_b,
+                    "control_replicates": n_b,
+                    "difference": a / n_a - b / n_b,
+                    "ci_lower": low,
+                    "ci_upper": high,
+                    "reading": "gain in regime" if low > 0 else "no change detected",
+                }
+            )
+    return pd.DataFrame(out, columns=list(CONTRAST_COLUMNS))
 
 
 # ------------------------------------------------------------------------ the record
