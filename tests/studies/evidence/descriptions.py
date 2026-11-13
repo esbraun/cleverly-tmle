@@ -8288,11 +8288,16 @@ _SSW_CELLS = {
         "the three-arm law with missing outcomes of `canonical-multi-arm-mar-drtmle`, low "
         "against high, n = 2,000"
     ),
-    "drtmle_v2_ey1": "the stratified law of `canonical-stratified-drtmle`, DR-TMLE, treated mean in V = 2",
-    "drtmle_v2_ate": "the stratified law of `canonical-stratified-drtmle`, DR-TMLE, effect in V = 2",
+    "drtmle_v2_ey1": (
+        "the stratified law of `canonical-stratified-drtmle`, DR-TMLE, treated mean in V = 2, "
+        "n = 2,000"
+    ),
+    "drtmle_v2_ate": (
+        "the stratified law of `canonical-stratified-drtmle`, DR-TMLE, effect in V = 2, n = 2,000"
+    ),
     "drtmle_v2_ey1_foldwise": (
         "the stratified law of `canonical-stratified-drtmle`, DR-TMLE with fold-wise reduced "
-        "regressions, treated mean in V = 2"
+        "regressions, treated mean in V = 2, n = 2,000"
     ),
     "ho_sparse_treat_ey1": (
         "held-out law H1, a sparse treated arm with no strata, treated mean, n = 2,000"
@@ -8423,8 +8428,9 @@ CELLS.update(
         **{
             ("reported", name): (
                 f"{_SSW_CELLS[name]}: the rule's interval",
-                "reported with no verdict: both legs, and for the leverage pair the SE-ratio "
-                "interval containing 1",
+                "reported with no verdict: both legs, and the SE-ratio interval containing 1"
+                if name.startswith("leverage_")
+                else "reported with no verdict: both legs",
             )
             for name in _SSW_REPORTED
         },
