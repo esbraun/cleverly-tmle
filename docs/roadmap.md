@@ -1505,7 +1505,7 @@ condition.
 | (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm. Declared as `option-outcome-by-arm`, not yet run |
 | (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
 | (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Declared as `option-treatment-adjustment`, not yet run |
-| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias and coverage at a trim that binds on a law with weak support, beside the untrimmed fit |
+| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias at a trim that binds on a law with weak support, beside the untrimmed fit. The trimmed fit reports no interval, so the study reads the point only. Declared as `option-ratio-trim`, not yet run |
 | (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does. Declared as `option-markov-order`, not yet run |
 | (g) | `isotonic=True` | bias and coverage on a law where the projection binds. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its projection does not bind |
 

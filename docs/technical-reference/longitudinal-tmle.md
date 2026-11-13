@@ -1725,6 +1725,28 @@ The SDR threshold reads every row, so a fold's transform depends on its held-out
 one number. A continuous node's bin edges read the held-out rows in the same way
 (`cleverly.longitudinal.sdr`).
 
+Targeting solves the trimmed score at every node, so in the limit the trimmed fit misses the
+truth by $\sum_t P_0[(\tilde R_t - R_t)(Q^*_{t+1} - Q^*_t)]$, with $Q^*_{T+1} = Y$. The factor
+$\tilde R_t - R_t$ does not vanish on the trimmed share, so the fit is consistent when every
+outcome regression is, and double robustness is lost there. With a correct parametric outcome
+regression the extra term is of order $n^{-1/2}$ and the plug-in curve omits it. With a
+nonparametric outcome regression the term decays at that regression's rate, which is slower.
+
+**Evidence.** The declared study `option-ratio-trim` has not run, so a trimmed fit reads
+`experimental`. On a two-node law with weak support it will measure the bias of LTMLE and SDR
+trimmed at $q = 0.95$ with linear outcome regressions, which contain every iterated regression
+of the law, in sample and cross-fitted. A W-blind outcome regression gives the control: trimmed,
+its exact bias is 0.068 (LTMLE) and 0.083 (SDR), about 2 SDs at $n = 2{,}000$. Untrimmed, double
+robustness removes it. The study claims the point estimate only, and only with the linear
+outcome regressions; the support rows it registers will pin that learner.
+
+On the 4,000-draw pilot the plug-in SE of a correctly specified trimmed fit was 0.57 of the
+spread of its estimates, so the diagnostic is not a standard error. At $q = 0.99$ the W-blind
+controls read 0.41 and 0.52 SDs, too close to the 0.45 SD floor to gate, so the study reports
+them. `tests/unit/test_option_ratio_trim_witness.py` fits the quadrature form of the law at the
+law's own quantile. The trimmed W-blind LTMLE limit equals the remainder above at $10^{-8}$, and
+a clever covariate without the trim, or a node-1 trim not carried to node 2, fails that check.
+
 ### Markov order
 
 `LongitudinalTreatment(markov_order=k)` declares a statistical-model restriction of order $k$.
