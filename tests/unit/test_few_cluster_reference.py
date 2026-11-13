@@ -313,7 +313,7 @@ class TestAFewClusterStratumDoesNotCrash:
 
 def curve_estimate(name: str, df: int | None, psi: float = 0.4) -> Any:
     curve = np.array([0.1, -0.1, 0.2, -0.2, 0.05, -0.05])
-    return make_estimate(name, psi, curve, n=6, scale="level", reference_df=df)
+    return make_estimate(name, psi, curve, n=6, scale="level", reference_df=df, rule_widened=False)
 
 
 class TestDerivedEstimatesTakeTheMinimum:

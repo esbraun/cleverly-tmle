@@ -375,9 +375,15 @@ class TestInheritance:
     def test_a_mixed_status_selection_is_refused(self) -> None:
         curve = np.array([0.1, -0.2, 0.3, -0.2])
         estimates = {
-            "a": make_estimate("a", 0.4, curve, n=4, scale="level"),
+            "a": make_estimate("a", 0.4, curve, n=4, scale="level", rule_widened=False),
             "b": make_estimate(
-                "b", 0.3, -curve, n=4, scale="level", inference="few_cluster_plugin"
+                "b",
+                0.3,
+                -curve,
+                n=4,
+                scale="level",
+                inference="few_cluster_plugin",
+                rule_widened=False,
             ),
         }
         with pytest.raises(ValueError, match="declare different inference statuses"):
@@ -536,7 +542,7 @@ class TestWaldTest:
 
     def test_a_fraction(self) -> None:
         estimate = make_estimate(
-            "paf", 0.3, np.array([0.1, -0.2, 0.3, -0.2]), n=4, scale="fraction"
+            "paf", 0.3, np.array([0.1, -0.2, 0.3, -0.2]), n=4, scale="fraction", rule_widened=False
         )
         test = estimate.wald_test(null=0.1)
         assert test.statistic == pytest.approx((0.3 - 0.1) / estimate.std_error, abs=1e-12)
@@ -701,7 +707,9 @@ class TestLinearFunctional:
     def estimates(self) -> dict[str, Any]:
         rng = np.random.default_rng(0)
         return {
-            f"F{t}": make_estimate(f"F{t}", 0.1 * t, rng.normal(size=50), n=50, scale="level")
+            f"F{t}": make_estimate(
+                f"F{t}", 0.1 * t, rng.normal(size=50), n=50, scale="level", rule_widened=False
+            )
             for t in range(1, 7)
         }
 
@@ -923,8 +931,8 @@ class TestRmst:
 def test_the_ratio_refusals_name_the_inputs() -> None:
     curve = np.array([0.1, -0.1, 0.2, -0.2])
     estimates = {
-        "risk[a]": make_estimate("risk[a]", 1.0, curve, n=4, scale="level"),
-        "risk[b]": make_estimate("risk[b]", 0.5, curve, n=4, scale="level"),
+        "risk[a]": make_estimate("risk[a]", 1.0, curve, n=4, scale="level", rule_widened=False),
+        "risk[b]": make_estimate("risk[b]", 0.5, curve, n=4, scale="level", rule_widened=False),
     }
     with pytest.raises(
         ValueError,
@@ -939,9 +947,9 @@ def test_the_ratio_refusals_name_the_inputs() -> None:
 def test_the_ratio_helpers_keep_their_domain_refusals() -> None:
     curve = np.array([0.1, -0.1, 0.2, -0.2])
     estimates = {
-        "a": make_estimate("a", 0.0, curve, n=4, scale="level"),
-        "b": make_estimate("b", 0.5, curve, n=4, scale="level"),
-        "c": make_estimate("c", 1.0, curve, n=4, scale="level"),
+        "a": make_estimate("a", 0.0, curve, n=4, scale="level", rule_widened=False),
+        "b": make_estimate("b", 0.5, curve, n=4, scale="level", rule_widened=False),
+        "c": make_estimate("c", 1.0, curve, n=4, scale="level", rule_widened=False),
     }
     with pytest.raises(ValueError, match="strictly positive; got a=0"):
         ratio_contrast(estimates, "a", "b", n=4, name="rr")

@@ -760,7 +760,10 @@ def test_elementwise_median_can_be_indefinite() -> None:
     """Three draws with one point and covariances ``[[4,2],[2,1]]``, ``[[1,2],[2,4]]``, ``I``."""
     n = 400
     raw = np.random.default_rng(3).normal(size=(n, 2))
-    base = [make_estimate(name, 0.5, raw[:, j], n=n, scale="level") for j, name in enumerate("ab")]
+    base = [
+        make_estimate(name, 0.5, raw[:, j], n=n, scale="level", rule_widened=False)
+        for j, name in enumerate("ab")
+    ]
     whitening = np.linalg.inv(
         np.linalg.cholesky(estimate_covariance({e.name: e for e in base}, ["a", "b"]))
     ).T
@@ -772,7 +775,7 @@ def test_elementwise_median_can_be_indefinite() -> None:
         curves = white @ root.T
         draws.append(
             {
-                name: make_estimate(name, 0.5, curves[:, j], n=n, scale="level")
+                name: make_estimate(name, 0.5, curves[:, j], n=n, scale="level", rule_widened=False)
                 for j, name in enumerate("ab")
             }
         )

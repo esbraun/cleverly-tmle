@@ -42,8 +42,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
+from cleverly.inference import kish_count
 from cleverly.inference.multiplier import out_of_range, simultaneous_bands
 from tests.studies.evidence.properties import PropertyCell
 
@@ -328,15 +327,6 @@ def refused_critical_value(result: Any, estimates: Mapping[str, Any]) -> float:
         band_scale="identity",
     )
     return float(bands.critical_value)
-
-
-def kish_count(curve: Any) -> float:
-    """``(sum D^2)^2 / sum D^4`` of a centred influence curve ``D``; ``inf`` when ``D`` is 0."""
-    values = np.asarray(curve, dtype=float)
-    centred = values - values.mean()
-    squares = centred**2
-    fourth = float(np.sum(squares**2))
-    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
 
 
 def _observe(

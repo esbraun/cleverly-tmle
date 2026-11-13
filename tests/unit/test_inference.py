@@ -282,7 +282,7 @@ class TestEstimandRelationships:
         psi_one, ic_one, psi_zero, ic_zero = binary_means(
             binary_setting["y"], targeted, submodel, weights
         )
-        ate = make_estimate("ate", psi_one - psi_zero, ic_one - ic_zero, n=n)
+        ate = make_estimate("ate", psi_one - psi_zero, ic_one - ic_zero, n=n, rule_widened=False)
         # Both estimands come from the same fluctuation, so this identity is exact --
         # not approximate.
         assert ate.psi == pytest.approx(psi_one - psi_zero)
@@ -309,7 +309,7 @@ class TestParameterEstimate:
     def test_wald_interval_and_pvalue_are_consistent(self) -> None:
         rng = np.random.default_rng(0)
         ic = rng.normal(size=500)
-        estimate = make_estimate("ate", 0.4, ic, n=500)
+        estimate = make_estimate("ate", 0.4, ic, n=500, rule_widened=False)
         low, high = estimate.ci
         assert low < 0.4 < high
         assert estimate.std_error == pytest.approx(np.sqrt(np.var(ic, ddof=1) / 500))
@@ -318,8 +318,8 @@ class TestParameterEstimate:
 
     def test_alpha_controls_the_interval_width(self) -> None:
         ic = np.random.default_rng(0).normal(size=400)
-        narrow = make_estimate("ate", 1.0, ic, n=400, alpha=0.2)
-        wide = make_estimate("ate", 1.0, ic, n=400, alpha=0.01)
+        narrow = make_estimate("ate", 1.0, ic, n=400, alpha=0.2, rule_widened=False)
+        wide = make_estimate("ate", 1.0, ic, n=400, alpha=0.01, rule_widened=False)
         assert (wide.ci[1] - wide.ci[0]) > (narrow.ci[1] - narrow.ci[0])
 
     def test_ratio_intervals_are_built_on_the_log_scale(self) -> None:
@@ -356,7 +356,7 @@ class TestParameterEstimate:
         assert estimate.pvalue == pytest.approx(1.0)
 
     def test_inference_value_centralizes_additive_and_ratio_scales(self) -> None:
-        additive = make_estimate("ate", 0.4, np.zeros(10), n=10)
+        additive = make_estimate("ate", 0.4, np.zeros(10), n=10, rule_widened=False)
         ratio = ParameterEstimate(
             name="rr",
             psi=float(np.exp(0.5)),
@@ -390,7 +390,9 @@ class TestParameterEstimate:
             _ = estimate.pvalue
 
     def test_to_dict_carries_the_reported_numbers(self) -> None:
-        estimate = make_estimate("ate", 0.4, np.random.default_rng(0).normal(size=100), n=100)
+        estimate = make_estimate(
+            "ate", 0.4, np.random.default_rng(0).normal(size=100), n=100, rule_widened=False
+        )
         row = estimate.to_dict()
         assert row["estimand"] == "ate"
         assert row["psi"] == pytest.approx(0.4)
@@ -645,7 +647,7 @@ class TestRatioEstimates:
     def test_both_ratios_are_produced_with_log_scale_inference(self) -> None:
         rng = np.random.default_rng(0)
         ic_one, ic_zero = rng.normal(size=300) * 0.3, rng.normal(size=300) * 0.3
-        estimates = ratio_estimates(0.5, ic_one, 0.3, ic_zero, n=300)
+        estimates = ratio_estimates(0.5, ic_one, 0.3, ic_zero, n=300, rule_widened=False)
         assert set(estimates) == {"rr", "or"}
         assert estimates["rr"].psi == pytest.approx(0.5 / 0.3)
         assert estimates["or"].psi == pytest.approx((0.5 / 0.5) / (0.3 / 0.7))
@@ -656,7 +658,9 @@ class TestRatioEstimates:
 
     def test_a_subset_can_be_requested(self) -> None:
         ic = np.random.default_rng(0).normal(size=100) * 0.2
-        assert set(ratio_estimates(0.5, ic, 0.3, ic, n=100, which=("rr",))) == {"rr"}
+        assert set(ratio_estimates(0.5, ic, 0.3, ic, n=100, which=("rr",), rule_widened=False)) == {
+            "rr"
+        }
 
 
 class TestSimultaneousBands:
@@ -664,7 +668,8 @@ class TestSimultaneousBands:
         rng = np.random.default_rng(0)
         n = 500
         estimates = {
-            name: make_estimate(name, 1.0, rng.normal(size=n), n=n) for name in ("a", "b", "c", "d")
+            name: make_estimate(name, 1.0, rng.normal(size=n), n=n, rule_widened=False)
+            for name in ("a", "b", "c", "d")
         }
         bands = simultaneous_bands(estimates, n_replicates=400, random_state=0)
         # With several independent estimands the joint critical value must be larger
@@ -679,7 +684,8 @@ class TestSimultaneousBands:
         rng = np.random.default_rng(1)
         n = 400
         estimates = {
-            name: make_estimate(name, 1.0, rng.normal(size=n), n=n) for name in ("a", "b", "c")
+            name: make_estimate(name, 1.0, rng.normal(size=n), n=n, rule_widened=False)
+            for name in ("a", "b", "c")
         }
         bands = simultaneous_bands(estimates, n_replicates=400, random_state=0)
         for name, estimate in estimates.items():
@@ -692,21 +698,27 @@ class TestSimultaneousBands:
         rng = np.random.default_rng(2)
         n = 600
         ic = rng.normal(size=n)
-        estimates = {name: make_estimate(name, 1.0, ic, n=n) for name in ("a", "b", "c")}
+        estimates = {
+            name: make_estimate(name, 1.0, ic, n=n, rule_widened=False) for name in ("a", "b", "c")
+        }
         bands = simultaneous_bands(estimates, n_replicates=2000, random_state=0)
         # Identical estimands carry no multiplicity, so no correction is warranted.
         assert bands.critical_value == pytest.approx(bands.pointwise_critical_value, abs=0.12)
 
     def test_a_single_estimand_uses_the_normal_quantile_exactly(self) -> None:
         n = 200
-        estimates = {"a": make_estimate("a", 1.0, np.random.default_rng(0).normal(size=n), n=n)}
+        estimates = {
+            "a": make_estimate(
+                "a", 1.0, np.random.default_rng(0).normal(size=n), n=n, rule_widened=False
+            )
+        }
         bands = simultaneous_bands(estimates, n_replicates=100, random_state=0)
         assert bands.critical_value == pytest.approx(1.959963985, rel=1e-6)
 
     def test_a_ratio_band_is_exponentiated(self) -> None:
         n = 300
         ic = np.random.default_rng(0).normal(size=n) * 0.2
-        estimates = ratio_estimates(0.5, ic, 0.3, ic * 0.5, n=n)
+        estimates = ratio_estimates(0.5, ic, 0.3, ic * 0.5, n=n, rule_widened=False)
         bands = simultaneous_bands(estimates, n_replicates=200, random_state=0)
         assert bands.bands["rr"][0] > 0
 
@@ -988,7 +1000,9 @@ class TestSimultaneousBands:
         estimates = {}
         for name in ("a", "b"):
             ic = shared + 0.3 * rng.normal(size=n)
-            estimates[name] = make_estimate(name, 1.0, ic - ic.mean(), n=n, cluster=cluster)
+            estimates[name] = make_estimate(
+                name, 1.0, ic - ic.mean(), n=n, cluster=cluster, rule_widened=False
+            )
         bands = simultaneous_bands(estimates, n_replicates=500, random_state=0, cluster=cluster)
         assert np.isfinite(bands.critical_value)
 
@@ -998,8 +1012,8 @@ class TestSimultaneousBands:
 
     def test_inconsistent_lengths_are_refused(self) -> None:
         estimates = {
-            "a": make_estimate("a", 1.0, np.zeros(10) + np.arange(10), n=10),
-            "b": make_estimate("b", 1.0, np.zeros(20) + np.arange(20), n=20),
+            "a": make_estimate("a", 1.0, np.zeros(10) + np.arange(10), n=10, rule_widened=False),
+            "b": make_estimate("b", 1.0, np.zeros(20) + np.arange(20), n=20, rule_widened=False),
         }
         with pytest.raises(ValueError, match="inconsistent lengths"):
             simultaneous_bands(estimates)
@@ -1161,7 +1175,9 @@ class TestTheCovarianceRule:
         rng = np.random.default_rng(41)
         curves = rng.normal(loc=0.4, size=(30, 2))
         return {
-            name: make_estimate(name, 0.3 + index, curves[:, index], n=30, covariance_rule=rule)
+            name: make_estimate(
+                name, 0.3 + index, curves[:, index], n=30, covariance_rule=rule, rule_widened=False
+            )
             for index, name in enumerate(("first", "second"))
         }
 
@@ -1195,6 +1211,7 @@ class TestTheCovarianceRule:
                 n=30,
                 cluster=np.arange(30) // 2,
                 covariance_rule="second_moment",
+                rule_widened=False,
             )
 
     def test_the_constructor_refuses_an_unknown_rule(self) -> None:
@@ -1205,6 +1222,7 @@ class TestTheCovarianceRule:
                 np.linspace(-1.0, 2.0, 30),
                 n=30,
                 covariance_rule="raw",  # type: ignore[arg-type]
+                rule_widened=False,
             )
 
     def test_the_median_over_repeats_keeps_the_declared_rule(self) -> None:
@@ -1522,6 +1540,7 @@ class TestTheInferenceStatus:
                 curves[:, index],
                 n=30,
                 inference="working_mechanism_plugin",
+                rule_widened=False,
             )
             for index, name in enumerate(("first", "second"))
         }
@@ -1549,7 +1568,12 @@ class TestTheInferenceStatus:
         curves = rng.normal(size=(30, 2))
         estimates = {
             name: make_estimate(
-                name, 0.2 + index, curves[:, index], n=30, inference="working_mechanism_plugin"
+                name,
+                0.2 + index,
+                curves[:, index],
+                n=30,
+                inference="working_mechanism_plugin",
+                rule_widened=False,
             )
             for index, name in enumerate(("first", "second"))
         }
