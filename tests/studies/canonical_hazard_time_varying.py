@@ -542,10 +542,38 @@ def _reference_input(
     return sample, truth_rows, []
 
 
+def initial_estimates(result: Any, law_name: str) -> dict[str, float]:
+    """Node 1's initial plug-in of every reported name, from each regimen's walk record.
+
+    On a backward pass that plug-in's continuation was fitted on the targeted later nodes, so
+    ``estimate - initial_estimate`` measures node 1's fluctuation, not the whole targeting step
+    (:class:`cleverly.longitudinal.hazard.HazardFit`); the untargeted plug-in is the targeting
+    necessity family's control.
+    """
+    levels: dict[tuple[str, int, int], float] = {}
+    for regimen_fit in result.fits.values():
+        record = regimen_fit.hazard
+        causes = list(dict.fromkeys(cause for _, cause, _ in record.targets))
+        for (label, cause, horizon), value in zip(
+            record.targets, record.initial_levels, strict=True
+        ):
+            levels[(label, causes.index(cause) + 1, horizon)] = float(value)
+    current = law.LAWS[law_name]
+    first, second = labels(law_name)
+    out: dict[str, float] = {}
+    for j in range(1, current.causes + 1):
+        for t in range(1, current.n_times + 1):
+            for label in (first, second):
+                out[risk_name(law_name, label, t, j)] = levels[(label, j, t)]
+            out[contrast_name(law_name, t, j)] = levels[(first, j, t)] - levels[(second, j, t)]
+    return out
+
+
 def subject_rows(
     result: Any, truth: Mapping[str, float], scenario: str, replicate: int, n: int
 ) -> list[dict[str, Any]]:
     """One replication's primary rows, each estimate on the identity scale."""
+    initials = initial_estimates(result, FITS[scenario][0])
     rows: list[dict[str, Any]] = []
     for name in ESTIMANDS[scenario]:
         estimate = result[name]
@@ -566,6 +594,7 @@ def subject_rows(
                 "ci_upper": float(high),
                 "inference_scale": "identity",
                 "covered": int(low <= reference <= high),
+                "initial_estimate": initials[name],
             }
         )
     return rows
