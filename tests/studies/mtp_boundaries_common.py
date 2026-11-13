@@ -741,6 +741,73 @@ class OracleHazard(BaseEstimator):
         return np.column_stack([1.0 - hazard, hazard])
 
 
+class OracleRatio(BaseEstimator):
+    """The exact law-B ratio on the classifier route: ``u = r / (1 + r)`` of the stacked label.
+
+    The law-B twin of :class:`tests.studies.mtp_pricing_common.OracleRatio`.  The stacked
+    design is ``[A_t, H_t]``: ``[A1, W1, W2]`` at node 1 and ``[A2, W1, W2, L2, A1]`` at node 2,
+    so its width names the node (the order is pinned against ``cleverly``'s classifier route
+    in ``tests/unit/test_mtp_tail_size.py``).  ``fit`` reads which plan the label-1 block holds
+    by applying each map of :data:`MAPS` to the label-0 doses, and the predictions are the
+    plan's exact odds :func:`node_ratio`, so no ratio is estimated.  It serves the fits where
+    the density route's bin count is out of reach.  Law B only: law B' needs the atom's mass
+    ratio, which the classifier route does not read.
+
+    Parameters
+    ----------
+    one_branch : bool, default=False
+        A deliberate defect for the mutation control: the ``p4`` ratio keeps only its first
+        inverse branch, the ``branch_necessity`` defect of the boundaries study.
+    """
+
+    def __init__(self, one_branch: bool = False) -> None:
+        self.one_branch = one_branch
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleRatio:
+        del sample_weight
+        x = np.asarray(X, dtype=float)
+        label = np.asarray(y, dtype=float)
+        natural, assigned = x[label == 0.0], x[label == 1.0]
+        if natural.shape != assigned.shape:
+            raise ValueError("the stack holds unequal blocks")
+        self.node_ = self._node(x)
+        u = upper(natural[:, 2])
+        for name, maps in MAPS.items():
+            if name == "p5":
+                continue
+            moved = maps[self.node_ - 1](natural[:, 0], u)
+            if np.allclose(moved, assigned[:, 0], rtol=0.0, atol=1e-12):
+                self.plan_ = name
+                break
+        else:
+            raise ValueError("the stacked doses match no declared law-B plan")
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    @staticmethod
+    def _node(x: np.ndarray) -> int:
+        if x.shape[1] == 3:
+            return 1
+        if x.shape[1] == 5:
+            return 2
+        raise ValueError(f"unexpected stacked design width {x.shape[1]}")
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        x = np.asarray(X, dtype=float)
+        node = self._node(x)
+        a, w1, w2 = x[:, 0], x[:, 1], x[:, 2]
+        u = upper(w2)
+        mean = mean1(w1, w2) if node == 1 else mean2(w1, w2, x[:, 4], x[:, 3])
+        if self.one_branch and MAPS[self.plan_][node - 1] is _branches:
+            g = tn_pdf(a, mean, u)
+            first = tn_pdf(a - BRANCH_UP, mean, u) * (a - BRANCH_UP < BRANCH_SPLIT)
+            r = np.where(g > 0.0, first / np.where(g > 0.0, g, 1.0), 0.0)
+        else:
+            r = node_ratio(self.plan_, node, a, mean, u)
+        p = r / (1.0 + r)
+        return np.column_stack([1.0 - p, p])
+
+
 class CorrectOutcome(BaseEstimator):
     """The final node's correctly specified logistic model: the design plus ``A2^2``.
 
