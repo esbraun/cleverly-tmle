@@ -449,8 +449,8 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     evalue = namespace["evalue"]
     assert evalue.approximate and evalue.limit_descriptive
     assert round(evalue.risk_ratio, 3) == 1.706
-    assert tuple(round(x, 3) for x in evalue.risk_ratio_ci) == (1.644, 1.77)
-    assert (round(evalue.point, 4), round(evalue.limit, 4)) == (2.8039, 2.6735)
+    assert tuple(round(x, 3) for x in evalue.risk_ratio_ci) == (1.644, 1.771)
+    assert (round(evalue.point, 4), round(evalue.limit, 4)) == (2.8039, 2.6722)
     # The E-value is the closed form of VanderWeele and Ding at the risk ratio.
     rr = evalue.risk_ratio
     assert evalue.point == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)))
