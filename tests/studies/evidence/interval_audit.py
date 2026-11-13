@@ -417,6 +417,14 @@ def _composite_audit() -> Audit:
     )
 
 
+def _stratified_drtmle_foldwise_audit() -> Audit:
+    # No scan: the constant-arm-cell trigger is applied by the point-treatment TMLE only, and a
+    # DR-TMLE fit reports no such status. The contraction ladder's cells read the marginal ate, a
+    # difference, whose interval is unchanged.
+    means = tuple(f"ey[{arm}][V={stratum}]" for stratum in (0, 1, 2) for arm in (1, 0))
+    return Audit(truth={"stratified_both_correct": means})
+
+
 def _pricing_audit() -> Audit:
     # No scan: a longitudinal level whose last-node regression reads a constant outcome takes
     # ``constant_node_plugin``, which the committed rows already record.  The range check
@@ -441,6 +449,7 @@ AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
     "mtp-pricing": _pricing_audit,
+    "stratified-drtmle-foldwise": _stratified_drtmle_foldwise_audit,
 }
 
 
