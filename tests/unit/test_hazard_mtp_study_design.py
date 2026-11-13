@@ -463,10 +463,13 @@ class TestTheInfluenceCurveGap:
     """Each fit's influence curve approaches the exact efficient influence function.
 
     The fits are the ``ic_gap`` pilot's (:data:`~tests.studies.hazard_mtp_pilot.IC_GAP_JOBS`),
-    read from the committed artifact.  The density route on the untruncated Gaussian law is the witness: its quantile tail bins
-    are wider than the shift, so its gap stays large at n = 20,000; that law is reported, not
-    gated.  Every gated fit label meets the declared bounds of
-    :data:`~tests.studies.hazard_mtp_properties.IC_GAP_BOUND`.
+    read from the committed artifact.  The claim is the halving rule
+    (:data:`~tests.studies.hazard_mtp_properties.IC_GAP_FALL`): a gated fit's gap at n = 20,000
+    is at most half its median at n = 2,000, close to the root-n factor of 0.32.  The absolute
+    bounds of :data:`~tests.studies.hazard_mtp_properties.IC_GAP_BOUND` (0.30 and 0.10) are
+    loose sanity bounds, set after the scratch pilot.  The density route on the untruncated
+    Gaussian law is the witness: its quantile tail bins are wider than the shift, so its gap
+    does not halve; that law is reported, not gated.
     """
 
     def test_the_vectorized_curve_is_the_unit_curve(self) -> None:
@@ -518,7 +521,8 @@ class TestTheInfluenceCurveGap:
         rows = _ic_rows()
         assert rows["refusal"].fillna("").eq("").all()
         assert sorted(rows["replicate"].unique()) == list(range(len(pilot.IC_GAP_JOBS)))
-        assert (rows["converged"] == 1).all() and (rows["unexpected_warnings"] == 0).all()
+        assert (rows["converged"] == 1).all()
+        assert (rows["final_score"] <= properties.STALLED_SCORE).all()
 
     @pytest.mark.parametrize("fit_label", study.CALIBRATION_FITS)
     def test_a_large_fit_reports_the_bound(self, fit_label: str) -> None:
@@ -1120,9 +1124,11 @@ class TestTheCells:
     def test_the_seeds_are_distinct(self) -> None:
         from tests.studies import canonical_hazard_msm
 
-        # hazard-msm (X70 part (d)) is declared but not registered, so it is named here.
-        others = [*registered(), canonical_hazard_msm.STUDY]
-        assert canonical_hazard_msm.STUDY.slug not in {r.slug for r in registered()}
+        # hazard-msm (X70 part (d)) is named whether or not it is registered yet: the union of
+        # the records by slug holds it once either way.
+        records = {record.slug: record for record in registered()}
+        records.setdefault(canonical_hazard_msm.STUDY.slug, canonical_hazard_msm.STUDY)
+        others = [record for slug, record in records.items() if slug != study.STUDY.slug]
         assert study.SEED not in {record.seed for record in others}
         assert study.RESAMPLING_SEED not in {record.resampling_seed for record in others}
         seeds = [

@@ -99,8 +99,10 @@ units of the efficiency bound, and the design test checks the committed readings
 | `vector` | 0.08 | 0.03 |
 | `untruncated_density` | 0.31 | 0.26 |
 
-The figures are for the contrast. Every gated fit stays within 0.30 at n = 2,000 and 0.10 at
-n = 20,000, and its gap at least halves. The untruncated density route's gap does not fall, so
+The figures are for the contrast. The claim is that every gated fit's gap at least halves from
+n = 2,000 to n = 20,000, close to the root-n factor of 0.32. Each also stays within 0.30 and
+0.10, loose sanity bounds set after the scratch pilot. The untruncated density route's gap does
+not halve, so
 its rows are reported with no verdict. The cause is the shipped route's tail binning, not the
 hazard walk, and the shipped route's limitation is tracked apart from this study.
 
@@ -139,14 +141,14 @@ calibration pilots, which have not run.
 | `targeting_necessity` | the `levels` contrast from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000 | the targeted bias outside the margin, or a displacement below 0.25 |
 | `root_n_and_efficiency`, `root_n_rate` | the `levels` contrast and risk at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
 | `power` | the `levels` contrast against zero | 800 at n = 2,000 | a rejection lower bound below the minimum power |
+| every family | `nonconverged_fits`: the fits that stopped short of `tol` with a final relative score at or below $10^{-6}$, beside each cell's count of unexpected warnings | as the cell | a non-converged fit above $10^{-6}$ is a lost replicate under the 0.01 failure bound; more than 1% non-converged fits makes the cell a defect suspect |
 | `iterated_mean_difference` | on `levels` and `gaussian_density`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of the iterated-mean curve. On the `levels` `mechanism_correct` draws: the same paired difference with both regressions omitting $W$ | 800 at n = 2,000, and the 1,200 robustness draws | nothing: the family is reported with no verdict |
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
 over the ten gated arms at a pilot of 8,000 draws that reads a ratio of one. The committed
 calibration pilot replaces that reading once it runs. At 4,000 replicates the shrunken-SE
 control leaves the SE-ratio band and the noise control leaves the efficiency band with
-probability above 0.999. Every replicate row records whether its fits converged and how many
-unexpected warnings they raised, and the summary counts both per cell without a verdict.
+probability above 0.999.
 
 The wrong hazard learner's plug-in contrast has an exact limit 3.5 efficiency standard errors
 from the truth at n = 2,000 on `levels`, 4.8 on `truncated`, 5.5 on `gaussian` and 3.5 on
