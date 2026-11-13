@@ -6120,9 +6120,11 @@ class TMLE:
     ) -> dict[str, ParameterEstimate]:
         """Build every estimand that this fluctuation supports.
 
-        ``cell_rows`` are the rows a bounded built-in estimate's constant-cell check reads
-        (:func:`~cleverly.inference.influence.bounded_status`): the stratum's rows for a stratum
-        estimate. ``None`` reads every row on the whole sample and sets no status on a
+        ``cell_rows`` are the rows the constant-cell check reads
+        (:func:`~cleverly.inference.influence.bounded_status`) on a binary outcome: the
+        stratum's rows for a stratum estimate. The check runs on every estimate with
+        ``bounds``, with reads its target records, or that is a working-model or projection
+        coefficient. ``None`` reads every row on the whole sample and sets no status on a
         fold-evaluated call, whose estimates take the whole-sample status
         (:func:`_carry_cell_status`).
 
@@ -6232,6 +6234,7 @@ class TMLE:
         if cell_rows is None and index is None:
             cell_rows = np.arange(data.n, dtype=np.int64)
         cells: frozenset[float] | None = None
+        modifier_cells: frozenset[float] | None = None
         arm_reads: dict[float, frozenset[float]] | None = None
         # The withheld statuses read the arms of a binary outcome on the rows the estimate
         # reads; a fold-evaluated call (``cell_rows`` None) takes them from the whole-sample
@@ -6267,7 +6270,8 @@ class TMLE:
                         # records no family.
                         changes["outcome_family"] = data.family
                     recorded = context.reads.get(estimate.name)
-                    # A working-model or projection coefficient reads the arms its model spans.
+                    # A working-model or projection coefficient reads the arms its model spans,
+                    # and records its own code.
                     coefficient = msm is not None or contrast is not None
                     if checks_cells and (bounds is not None or recorded is not None or coefficient):
                         assert cell_rows is not None
@@ -6285,19 +6289,33 @@ class TMLE:
                                         observed=data.observed,
                                     )
                                 )
-                            # A target that records no reads counts as reading every code.
-                            read = recorded if recorded is not None else frozenset(codes)
+                            if coefficient:
+                                # A coefficient spans every arm on the whole sample.
+                                read = frozenset(codes)
+                                if modifier_cells is None:
+                                    modifier_cells = self._modifier_cells(
+                                        data, cell_rows, index, msm, contrast
+                                    )
+                                own = recorded if recorded is not None else frozenset(codes)
+                                constant = bool(own & modifier_cells)
+                            else:
+                                # A target that records no reads counts as reading every code.
+                                read = recorded if recorded is not None else frozenset(codes)
                             arms = frozenset().union(
                                 *(arm_reads.get(code, frozenset()) for code in read)
                             )
-                            constant = bool(cells & arms)
+                            constant = constant or bool(cells & arms)
                             # A contrast or ratio of a mean on or outside (0, 1) takes the
                             # mean's status. Only a target that records its reads names the
-                            # means it is a function of.
-                            inherited = recorded is not None and any(
-                                code in context.means
-                                and outside_bounds(context.means[code].psi, (0.0, 1.0))
-                                for code in recorded
+                            # means it is a function of; a coefficient's code names itself.
+                            inherited = (
+                                not coefficient
+                                and recorded is not None
+                                and any(
+                                    code in context.means
+                                    and outside_bounds(context.means[code].psi, (0.0, 1.0))
+                                    for code in recorded
+                                )
                             )
                         changes["inference"] = bounded_status(
                             estimate.inference,
@@ -6316,6 +6334,50 @@ class TMLE:
         if sink is not None:
             sink.update(context.reads)
         return out
+
+    @staticmethod
+    def _modifier_cells(
+        data: CausalData,
+        cell_rows: IntArray,
+        index: IntArray | None,
+        msm: MSMSet | None,
+        contrast: EffectModificationSet | None,
+    ) -> frozenset[float]:
+        """The coefficient codes that read a constant arm-by-modifier cell.
+
+        ``msm`` and ``contrast`` are already restricted to ``index`` when it is given, and
+        ``cell_rows`` are then those rows; otherwise they span the sample and ``cell_rows``
+        selects from it. :func:`_coefficients_on_constant_cells` holds the rule.
+
+        Parameters
+        ----------
+        data : CausalData
+            The fit's data.
+        cell_rows : ndarray
+            The rows the estimates read.
+        index : ndarray or None
+            The rows ``msm`` and ``contrast`` are restricted to, or ``None``.
+        msm : MSMSet or None
+            The working model.
+        contrast : EffectModificationSet or None
+            The projection.
+
+        Returns
+        -------
+        frozenset of float
+            The codes of the coefficients that read a constant cell.
+        """
+        positions = cell_rows if index is None else np.arange(cell_rows.size)
+        weights = np.asarray(data.weights, dtype=float)[cell_rows]
+        observed = np.asarray(data.observed, dtype=bool)[cell_rows]
+        return _coefficients_on_constant_cells(
+            np.asarray(data.outcome, dtype=float)[cell_rows],
+            np.asarray(data.treatment, dtype=float)[cell_rows],
+            (weights > 0.0) & observed,
+            weights > 0.0,
+            msm=None if msm is None else msm.subset(positions),
+            contrast=None if contrast is None else contrast.subset(positions),
+        )
 
     def _stratum_estimates(
         self,
@@ -6835,6 +6897,100 @@ def _arms_read_by_code(
                 arms.add(float(level))
         out[float(code)] = frozenset(arms)
     return out
+
+
+def _coefficients_on_constant_cells(
+    outcome: FloatArray,
+    treatment: FloatArray,
+    qualifying: BoolArray,
+    positive: BoolArray,
+    *,
+    msm: MSMSet | None,
+    contrast: EffectModificationSet | None,
+) -> frozenset[float]:
+    r"""The coefficient codes of a saturated working model that read a constant modifier cell.
+
+    A row's modifier pattern is everything the model reads from it: for a working model the
+    design :math:`\varphi(a, V_i)` and the weight :math:`h(a, V_i)` at every arm, and for a
+    projection the basis :math:`\varphi(V_i)`. A cell is one arm at one pattern. When the
+    model is saturated over its cells, with as many cells of positive weight as terms, the
+    fitted model passes through each cell's mean (on the link scale), so the coefficients are
+    :math:`\Phi^{-1}` times the cell means, and coefficient :math:`j` reads cell :math:`c`
+    exactly when :math:`(\Phi^{-1})_{jc} \ne 0`. A coefficient that reads a cell whose
+    qualifying rows show one outcome value has the constant-cell defect of an arm mean in
+    one stratum (:func:`~cleverly.inference.influence.bounded_status`). A projection cell is a
+    pattern, and it reads the two contrasted arms there.
+
+    A model with more cells than terms pools cells, as a continuous modifier always does, and
+    returns no code: its coefficients take the whole-sample check alone.
+
+    Parameters
+    ----------
+    outcome : ndarray
+        ``(m,)`` outcomes of the rows the estimates read.
+    treatment : ndarray
+        ``(m,)`` treatment codes of the same rows.
+    qualifying : ndarray
+        ``(m,)`` booleans, the rows of positive weight with an observed outcome.
+    positive : ndarray
+        ``(m,)`` booleans, the rows of positive weight, which define the model's patterns.
+    msm : MSMSet or None
+        The working model on the same rows.
+    contrast : EffectModificationSet or None
+        The projection on the same rows.
+
+    Returns
+    -------
+    frozenset of float
+        The codes of the coefficients that read a constant cell.
+    """
+    if contrast is not None:
+        design = np.asarray(contrast.design, dtype=float)
+        signature = design
+    elif msm is not None:
+        design = np.asarray(msm.design, dtype=float)
+        weights = np.asarray(msm.weights, dtype=float)
+        signature = np.concatenate([design.reshape(design.shape[0], -1), weights], axis=1)
+    else:
+        return frozenset()
+    rows = np.flatnonzero(positive)
+    if rows.size == 0:
+        return frozenset()
+    _, first, label = np.unique(signature[rows], axis=0, return_index=True, return_inverse=True)
+    label = np.asarray(label).reshape(-1)
+    terms = design.shape[-1]
+
+    def constant(pattern: int, arms: Sequence[float]) -> bool:
+        members = rows[label == pattern]
+        for arm in arms:
+            cell = members[qualifying[members] & (treatment[members] == arm)]
+            if cell.size and np.unique(outcome[cell]).size == 1:
+                return True
+        return False
+
+    cells: list[FloatArray] = []
+    flags: list[bool] = []
+    for pattern, row in enumerate(rows[first]):
+        if contrast is not None:
+            cells.append(design[row])
+            flags.append(constant(pattern, contrast.pair))
+            continue
+        assert msm is not None
+        for position, arm in enumerate(msm.arms):
+            if weights[row, position] > 0.0:
+                cells.append(design[row, position])
+                flags.append(constant(pattern, (arm,)))
+        if len(cells) > terms:
+            return frozenset()
+    if len(cells) != terms or not any(flags):
+        return frozenset()
+    try:
+        inverse = np.linalg.inv(np.vstack(cells))
+    except np.linalg.LinAlgError:
+        return frozenset()
+    reads = np.abs(inverse) > 1e-10 * np.abs(inverse).max()
+    hit = np.asarray(flags, dtype=bool)
+    return frozenset(float(j) for j in range(terms) if bool(np.any(reads[j] & hit)))
 
 
 def _carry_cell_status(

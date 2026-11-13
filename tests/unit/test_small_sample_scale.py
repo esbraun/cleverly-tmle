@@ -1103,3 +1103,139 @@ def test_a_working_model_or_projection_coefficient_reads_every_arm(
             random_state=0,
         )
     assert set(_statuses(projection).values()) == {CONSTANT_ARM_CELL_STATUS}
+
+
+def _subgroup_frame(n: int = 800) -> pd.DataFrame:
+    """A healthy law except that every treated row with ``V = 1`` holds the event (R2-M1)."""
+    rng = np.random.default_rng(0)
+    w = rng.normal(size=n)
+    v = rng.binomial(1, 0.3, n).astype(float)
+    a = rng.binomial(1, expit(0.3 * w)).astype(float)
+    y = rng.binomial(1, expit(0.2 + 0.5 * w)).astype(float)
+    y[(a == 1.0) & (v == 1.0)] = 1.0
+    return pd.DataFrame({"W": w, "V": v, "A": a, "Y": y})
+
+
+def _subgroup_msm(frame: pd.DataFrame, *, interaction: bool = True) -> dict[str, str]:
+    import warnings
+
+    from cleverly.msm import MSM
+
+    estimator = TMLE(
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+        msm=MSM.linear(modifiers=("V",), interaction=interaction),
+    )
+    with warnings.catch_warnings():
+        # The constant cell separates the logistic fluctuation, which the fit warns about.
+        warnings.simplefilter("ignore")
+        fit = estimator.fit(frame, outcome="Y", treatment="A", covariates=["W", "V"]).single()
+    return _statuses(fit)
+
+
+def test_a_saturated_coefficient_that_reads_a_constant_modifier_cell_is_withheld() -> None:
+    # The stratified fit withholds ate[V=1]; msm[a] + msm[a:V] is the same quantity, and only
+    # the interaction reads the treated V = 1 cell, so it alone is withheld.
+    frame = _subgroup_frame()
+    assert _subgroup_msm(frame) == {
+        "msm[(intercept)]": "influence_curve",
+        "msm[a]": "influence_curve",
+        "msm[V]": "influence_curve",
+        "msm[a:V]": CONSTANT_ARM_CELL_STATUS,
+    }
+    healthy = frame.copy()
+    cell = (healthy["A"] == 1.0) & (healthy["V"] == 1.0)
+    healthy.loc[cell, "Y"] = np.random.default_rng(1).binomial(1, 0.7, int(cell.sum()))
+    assert set(_subgroup_msm(healthy).values()) == {"influence_curve"}
+
+
+def test_a_coefficient_check_on_the_whole_sample_alone_shows_the_interaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        _tmle_module(), "_coefficients_on_constant_cells", lambda *a, **k: frozenset()
+    )
+    assert _subgroup_msm(_subgroup_frame())["msm[a:V]"] == "influence_curve"
+
+
+def test_a_pooled_working_model_takes_the_whole_sample_check_alone() -> None:
+    # Three terms over four cells: the model pools the cells, the documented limit.
+    assert set(_subgroup_msm(_subgroup_frame(), interaction=False).values()) == {"influence_curve"}
+
+
+def test_a_saturated_projection_coefficient_reads_its_modifier_cells() -> None:
+    import warnings
+
+    from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+    from cleverly.bases import Linear, Modifiers
+
+    study = CausalStudy(
+        _subgroup_frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W", "V")),
+    )
+    contrast = ConditionalContrast(
+        Modifiers(["V"], domains={"V": (0.0, 1.0)}), scale="difference", model=Linear(["V"])
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        projection = study.identify(contrast).estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            random_state=0,
+        )
+    # The intercept is the contrast at V = 0; the slope reads both modifier levels.
+    assert _statuses(projection) == {
+        "cate_projection[(intercept)]": "influence_curve",
+        "cate_projection[V]": CONSTANT_ARM_CELL_STATUS,
+    }
+
+
+def _rule_reaching_one_row(frame: pd.DataFrame) -> tuple[Any, int]:
+    """A rule that assigns treatment above a cut that only one treated row passes."""
+    from cleverly.interventions import Rule
+
+    treated = np.sort(frame.loc[frame["A"] == 1.0, "W"].to_numpy())
+    cut = float((treated[-1] + treated[-2]) / 2.0)
+    row = int(np.flatnonzero((frame["A"].to_numpy() == 1.0) & (frame["W"].to_numpy() > cut))[0])
+    rule = Rule(
+        lambda w, cut=cut: np.where(np.asarray(w["W"]) > cut, 1, 0),
+        name="treat the top",
+        rule_kind="known",
+    )
+    return rule, row
+
+
+@pytest.mark.parametrize("argument", ["weights", "observed"])
+def test_a_regime_reads_an_arm_only_on_rows_of_positive_weight_with_an_observed_outcome(
+    constant_arm_frame: pd.DataFrame, argument: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The rule puts mass on the constant treated arm at one treated row only. With that row
+    # of weight 0 or unobserved, the regime's residual term carries no weight on the arm.
+    rule, row = _rule_reaching_one_row(constant_arm_frame)
+    frame = constant_arm_frame.copy()
+    if argument == "weights":
+        frame["wt"] = 1.0
+        frame.loc[row, "wt"] = 0.0
+        declared: dict[str, Any] = {"weights": "wt"}
+    else:
+        frame["D"] = 1.0
+        frame.loc[row, "D"] = 0.0
+        declared = {"delta": "D", "missingness_learner": LogisticRegression()}
+    name = "ey_regime[treat the top]"
+    assert _logistic_fit(frame, interventions=[rule], **declared)[name].inference == (
+        "influence_curve"
+    )
+    # Mutation: the row filter inside _arms_read_by_code reads every row.
+    module = _tmle_module()
+    shipped = module._arms_read_by_code
+
+    def every_row(codes: Any, treatment: Any, keep: Any, *args: Any, **kwargs: Any) -> Any:
+        return shipped(codes, treatment, np.ones_like(keep, dtype=bool), *args, **kwargs)
+
+    monkeypatch.setattr(module, "_arms_read_by_code", every_row)
+    mutated = _logistic_fit(frame, interventions=[rule], **declared)
+    assert mutated[name].inference == CONSTANT_ARM_CELL_STATUS

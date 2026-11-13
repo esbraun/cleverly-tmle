@@ -13,6 +13,9 @@ is recomputed row by row.
 from __future__ import annotations
 
 import math
+import shutil
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -330,6 +333,42 @@ def test_every_flip_is_audited_or_explained(screen: pd.DataFrame) -> None:
     assert set(screen.loc[screen["disposition"] == "rerun", "study"]) == set(audit.RERUN)
 
 
+#: The first ``learned-rule-arms`` run's ``conservative_coverage`` rows (commit 8f13a9c), whose
+#: ``covered`` reads the identity interval: the input of the screen's mutation control.
+IDENTITY_RUN_ROWS = (
+    Path(__file__).parent
+    / "interval_audit_fixtures"
+    / "learned-rule-arms-identity-conservative.parquet"
+)
+
+
+def test_the_screen_finds_the_flip_that_forced_the_learned_rule_arms_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Out of :data:`~audit.RERUN`, the first run's rows flip the cell that reads 0.92.
+
+    The cell's lower coverage limit moves from 0.9201 to 0.9173, which crosses the calibration
+    band's lower end and not the coverage floor, so a screen that read the floor alone missed it.
+    """
+    shutil.copy(IDENTITY_RUN_ROWS, tmp_path / "property-replicates.parquet")
+    record = replace(audit.record_for("learned-rule-arms"), artifacts=tmp_path)
+    monkeypatch.setattr(audit, "RERUN", {})
+    row = audit.screen_row(record)
+    assert row["flips"].split(";") == ["conservative_coverage/missing_quadratic__declared"]
+    assert row["crossings"] == row["flips"]
+    assert row["disposition"] == "declared"
+    # Mutation: the screen's former proxy, a crossing of the coverage floor alone, sees nothing.
+    monkeypatch.setattr(
+        audit,
+        "_crosses",
+        lambda before, after, margins: (
+            (before[0] >= margins.coverage_floor) != (after[0] >= margins.coverage_floor)
+        ),
+    )
+    mutated = audit.screen_row(record)
+    assert mutated["flips"] == mutated["crossings"] == ""
+
+
 @pytest.mark.parametrize("slug", ["option-stopping-point", "option-stopping-ltmle"])
 def test_the_screen_margin_reproduces_the_committed_widened_coverage(slug: str) -> None:
     """On a stopping-rule study the screen's margin is the one each committed interval carried.
@@ -343,7 +382,7 @@ def test_the_screen_margin_reproduces_the_committed_widened_coverage(slug: str) 
     z = float(stats.norm.ppf(1.0 - record.margins.alpha / 2.0))
     moved_without = False
     widened_groups = 0
-    for key, group in audit._screen_groups(record, audit.bounded_heads()):
+    for key, group, _ in audit._screen_groups(record, audit.bounded_heads()):
         if key.endswith(audit.WITNESS_SUFFIX):
             continue
         margin = audit._screen_margin(key, group, record.margins.alpha, stopping_rule=True)

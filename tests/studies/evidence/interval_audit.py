@@ -38,7 +38,8 @@ it with::
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ import pyarrow.parquet as pq
 from scipy import stats
 from scipy.special import expit, logit
 
+from tests.studies.evidence import properties as properties_module
 from tests.studies.evidence.manifest import read_rows, write_rows
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
@@ -454,6 +456,7 @@ SCREEN_COLUMNS = (
     "moved_groups",
     "max_coverage_change",
     "flips",
+    "crossings",
     "pointwise_joint_controls",
     "reason",
 )
@@ -473,11 +476,6 @@ RERUN: dict[str, str] = {
 #: estimates and truths in ``[0, 1]`` as a bounded mean, a superset, so a flip names a group to
 #: explain rather than a moved verdict.
 SCREEN_REASONS: dict[str, str] = {
-    "adaptive-iptw": (
-        "AdaptiveIPTW attaches no bounds, so every interval stays on the identity scale; the "
-        "flagged cells are ate, par and paf differences and fractions or IPTW means"
-    ),
-    "canonical-ctmle-selector": "power/alternative reads an ate (a difference) and gates rejection",
     "canonical-multi-arm-ctmle-selector": (
         "the flagged cells read ate[medium vs high], a difference, whose interval is unchanged"
     ),
@@ -485,51 +483,23 @@ SCREEN_REASONS: dict[str, str] = {
         "root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, whose interval is "
         "unchanged"
     ),
-    "canonical-multi-arm-tmle": (
-        "power/alternative reads ate[medium vs high], a difference, and gates rejection"
-    ),
     "canonical-stratified-incremental-msm": (
         "logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
     ),
-    "ctmle-derivative": "double_robustness/outcome_correct reads ate, a difference",
-    "ctmle-oat-per-arm": "every flagged cell reads ate, a difference, whose interval is unchanged",
     "ctmle-oat-per-arm-strata-missing": (
-        "the flagged cells read ate and par (differences) and paf (a fraction), whose intervals "
-        "are unchanged"
-    ),
-    "ep-assessment": (
-        "the flagged cells are assessment statistics of a CATE score (a calibration slope, a sign "
-        "agreement), not package intervals of a mean"
-    ),
-    "fold-targeted-cvtmle": "crossfit_overfitting/fold_targeted_cvtmle reads ate, a difference",
-    "longitudinal-msm": "the flagged cell is a working-model coefficient, whose interval is unchanged",
-    "longitudinal-repeated-sdr": (
-        "the flagged cells are bounded means, but the double_robustness and necessity rules gate "
-        "bias and never coverage (the study module states it), so no verdict reads the interval"
+        "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, whose "
+        "interval is unchanged"
     ),
     "option-patience": (
-        "patience_witness/lc1_greedy reads a stop share in its covered column, not an interval; "
-        "the selector path withholds its interval (the study module states it)"
-    ),
-    "option-ratio-trim": (
-        "trim_necessity/ltmle_untrimmed is gated by the bias rule; no cell of the study reads "
-        "coverage (the property module states it)"
+        "late_confounder_stop/lc3_ordered reads an exclusion share in its covered column, not an "
+        "interval; the selector path withholds its interval (the study module states it)"
     ),
     "score-assessment": (
-        "the flagged cells are a calibration slope and a score test's power, not package "
-        "intervals of a mean"
+        "the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
     ),
     "targeting-curves": (
         "the flagged cells are band and type I rows of a targeting curve with truth 0, not "
         "package intervals of a mean"
-    ),
-    "weighted-ltmle": (
-        "weight_necessity/static__weighted is a bounded mean, but the necessity rule gates the "
-        "paired displacement and never coverage"
-    ),
-    "weighted-ltmle-crossfit": (
-        "weight_necessity/static__weighted is a bounded mean, but the necessity rule gates the "
-        "paired displacement and never coverage"
     ),
 }
 
@@ -562,20 +532,106 @@ def _exact_interval(count: int, total: int, level: float) -> tuple[float, float]
     return low, high
 
 
-def _screen_groups(record: StudyRecord, heads: frozenset[str]) -> Iterator[tuple[str, Any]]:
+def _screen_groups(
+    record: StudyRecord, heads: frozenset[str], property_rows: pd.DataFrame | None = None
+) -> Iterator[tuple[str, Any, str]]:
+    """Each candidate group of the study: its key, its rows and ``"truth"`` or ``"property"``.
+
+    ``property_rows`` are the committed property rows when the caller has read them already. A
+    property group keeps their index, so a caller can write a recomputed column back.
+    """
     path = record.artifacts / "replicates.parquet"
     if path.exists():
         rows = read_rows(path)
         rows = rows.loc[rows["implementation"] == record.implementation]
         for (scenario, estimand), group in rows.groupby(["scenario", "estimand"], sort=True):
             if str(estimand).split("[", 1)[0] in heads:
-                yield f"{scenario}/{estimand}", group
+                yield f"{scenario}/{estimand}", group, "truth"
     path = record.artifacts / "property-replicates.parquet"
-    if path.exists():
-        rows = read_rows(path)
-        rows = rows.loc[rows["role"] == "positive"]
+    if property_rows is None and path.exists():
+        property_rows = read_rows(path)
+    if property_rows is not None:
+        rows = property_rows.loc[property_rows["role"] == "positive"]
         for (prop, cell), group in rows.groupby(["property", "cell"], sort=True):
-            yield f"{prop}/{cell}", group
+            yield f"{prop}/{cell}", group, "property"
+
+
+def _crosses(before: tuple[float, float], after: tuple[float, float], margins: Any) -> bool:
+    """Whether a moved exact coverage interval crosses a threshold a coverage verdict reads.
+
+    The thresholds are the lower end against the coverage floor, the lower end against the
+    calibration band's lower end, and the interval inside the calibration band. A cell whose
+    rule reads only another threshold, such as a share floor of a cell whose ``covered`` holds
+    an event, is not re-judged. With this filter replaced by ``True`` on 2026-11-13, the own
+    verdicts of every registered study moved only where the screen flips, and at the two
+    share cells of ``isotonic-binding`` (``binding_witness`` and ``material_move``), whose
+    ``covered`` is an event with a placeholder standard error, not an interval.
+    """
+    floor, band = margins.coverage_floor, margins.calibration_coverage
+
+    def sides(interval: tuple[float, float]) -> tuple[bool, bool, bool]:
+        low, high = interval
+        return low >= floor, low >= band[0], band[0] <= low and high <= band[1]
+
+    return sides(before) != sides(after)
+
+
+@contextmanager
+def _shared_ratio_draws() -> Iterator[None]:
+    """Reuse the bootstrap draws of a spread ratio across calls on the same rows.
+
+    The draws read the estimates, standard errors and truths and never ``covered``, so a
+    summary of the rows before and after the screen's recomputation draws them once.
+    """
+    shipped = properties_module.ratio_draws
+    cache: dict[tuple[Any, ...], dict[str, np.ndarray]] = {}
+
+    def shared(group: pd.DataFrame, **options: Any) -> dict[str, np.ndarray]:
+        rows = group.drop(columns=["covered"], errors="ignore")
+        key = (
+            pd.util.hash_pandas_object(rows, index=True).to_numpy().tobytes(),
+            tuple(rows.columns),
+            tuple(sorted(options.items())),
+        )
+        if key not in cache:
+            cache[key] = shipped(group, **options)
+        return cache[key]
+
+    properties_module.ratio_draws = shared
+    try:
+        yield
+    finally:
+        properties_module.ratio_draws = shipped
+
+
+def _moved_verdicts(
+    record: StudyRecord,
+    committed: pd.DataFrame,
+    recomputed: pd.DataFrame,
+    families: Iterable[str],
+) -> list[str]:
+    """The ``property/cell`` keys of ``families`` whose own verdict changes with ``covered``.
+
+    The study's ``summarize_properties`` judges each cell against what its own rule reads: the
+    coverage floor, the calibration band or its lower end, a floor the study declares, or a
+    comparison with another cell. It runs on the committed rows and on the rows with the
+    shipped interval's ``covered``, and a cell whose ``passed`` differs is a flip. It reads the
+    rows of ``families`` alone, or every row when a family's rule needs another family.
+    """
+    summarize = record.properties().summarize_properties
+    columns = ["property", "cell", "passed"]
+    within = committed["property"].isin(list(families)).to_numpy()
+    with _shared_ratio_draws():
+        try:
+            before = summarize(committed.loc[within].copy())
+            after = summarize(recomputed.loc[within].copy())
+        except Exception:  # a family whose rule reads another family's rows
+            before, after = summarize(committed.copy()), summarize(recomputed.copy())
+    before = before.loc[:, columns].set_index(["property", "cell"])
+    after = after.loc[:, columns].set_index(["property", "cell"])
+    joined = before.join(after, how="outer", lsuffix="_before", rsuffix="_after")
+    changed = joined["passed_before"].astype(str) != joined["passed_after"].astype(str)
+    return [f"{prop}/{cell}" for prop, cell in joined.index[changed]]
 
 
 #: The suffix of a stopping-rule study's cell whose ``covered`` column reads the residual, not an
@@ -633,10 +689,16 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
     (:func:`bounded_heads`), or a positive property cell, whose estimates and truths all lie in
     ``[0, 1]``.  The screen reads each candidate under the shipped logit interval with the
     committed estimate and standard error, as :func:`shipped` does, and counts the candidates
-    whose coverage moves.  A flip is a candidate whose exact coverage interval, at the study's
-    confidence level, changes side of the coverage floor, or for an ``interval_calibration``
-    cell of the calibration band.  It is a proxy for a moved verdict: every audited flip is
-    audited, and every other flip needs a reason in :data:`SCREEN_REASONS`.
+    whose coverage moves.  Each flip is judged against what its own verdict reads. A truth-row
+    group flips when its exact coverage interval, at the study's confidence level, changes side
+    of the coverage floor, which is all its verdict reads (``performance.py``). A property cell
+    is a crossing when its exact interval crosses the coverage floor or the calibration band's
+    lower end, or enters or leaves the band (:func:`_crosses`). The families with a crossing are
+    then judged by the study's own ``summarize_properties`` with every moved group carrying the
+    shipped ``covered``, and each cell whose ``passed`` changes is a flip
+    (:func:`_moved_verdicts`). A crossing that is not a flip is a cell whose verdict does not
+    move. Every audited flip is audited, and every other flip needs a reason in
+    :data:`SCREEN_REASONS`.
     """
     slug = record.slug
     if slug in RERUN:
@@ -647,6 +709,7 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
             "moved_groups": 0,
             "max_coverage_change": 0.0,
             "flips": "",
+            "crossings": "",
             "pointwise_joint_controls": _pointwise_joint_controls(record),
             "reason": RERUN[slug],
         }
@@ -656,7 +719,12 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
     largest = 0.0
     flips: list[str] = []
     stopping_rule = _stopping_rule_study(record)
-    for key, group in _screen_groups(record, heads):
+    path = record.artifacts / "property-replicates.parquet"
+    committed_rows = read_rows(path) if path.exists() else None
+    property_rows = None if committed_rows is None else committed_rows.copy()
+    crossings: list[str] = []
+    families: set[str] = set()
+    for key, group, kind in _screen_groups(record, heads, committed_rows):
         if stopping_rule and key.endswith(WITNESS_SUFFIX):
             continue
         estimate = group["estimate"].to_numpy(dtype=float)
@@ -685,14 +753,20 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
         largest = max(largest, abs(float(covered.mean()) - float(committed.mean())))
         before = _exact_interval(int(committed.sum()), total, margins.confidence_level)
         after = _exact_interval(int(covered.sum()), total, margins.confidence_level)
-        flip = (before[0] >= margins.coverage_floor) != (after[0] >= margins.coverage_floor)
-        if key.startswith("interval_calibration/"):
-            band = margins.calibration_coverage
-            flip |= (band[0] <= before[0] and before[1] <= band[1]) != (
-                band[0] <= after[0] and after[1] <= band[1]
-            )
-        if flip:
-            flips.append(key)
+        if kind == "truth":
+            # A truth row's verdict reads the coverage floor alone (performance.py).
+            floor = margins.coverage_floor
+            if (before[0] >= floor) != (after[0] >= floor):
+                flips.append(key)
+        else:
+            assert property_rows is not None
+            property_rows.loc[group.index[finite], "covered"] = covered
+            if _crosses(before, after, margins):
+                crossings.append(key)
+                families.add(str(group["property"].iloc[0]))
+    if families:
+        assert committed_rows is not None and property_rows is not None
+        flips.extend(_moved_verdicts(record, committed_rows, property_rows, sorted(families)))
     if slug in AUDITS:
         disposition, reason = "audited", AUDIT_FILE
     elif flips:
@@ -706,6 +780,7 @@ def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict
         "moved_groups": moved,
         "max_coverage_change": round(largest, 6),
         "flips": ";".join(flips),
+        "crossings": ";".join(crossings),
         "pointwise_joint_controls": _pointwise_joint_controls(record),
         "reason": reason,
     }

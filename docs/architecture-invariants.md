@@ -238,7 +238,10 @@ The arms a code reads come from `_arms_read_by_code`: its own arm on the arm axi
 regime, learned-rule, IPSI or policy axis of a discrete treatment every arm whose residual term the
 code weights on a kept row. The natural course reads no arm, a working-model or projection
 coefficient of a discrete treatment reads every arm, and a policy of a continuous treatment has no
-arm cells. A target with recorded reads also passes `reads_out_of_range=True` when a mean it reads
+arm cells. A coefficient records its own code as its reads. `_coefficients_on_constant_cells`
+adds the arm-by-modifier cells of a model saturated over them: a coefficient takes the status when
+its row of the inverse cell design weights a constant cell. A model with more cells than terms,
+such as one with a continuous modifier, takes the whole-rows check alone (F41). A target with recorded reads also passes `reads_out_of_range=True` when a mean it reads
 lies on or outside `(0, 1)`.
 
 The longitudinal `_estimates` applies the range check to each level and contrast; its

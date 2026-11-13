@@ -798,6 +798,7 @@ def _msm(ctx: TargetContext) -> list[ParameterEstimate]:
             coefficient.psi,
             coefficient.influence_curve,
             "level",
+            reads=(code,),
         )
         for code, coefficient in sorted(ctx.means.items())
     ]
@@ -819,6 +820,7 @@ def _projection(stem: str) -> Callable[[TargetContext], list[ParameterEstimate]]
                 coefficient.psi,
                 coefficient.influence_curve,
                 "level",
+                reads=(code,),
             )
             for code, coefficient in sorted(ctx.means.items())
         ]

@@ -2782,11 +2782,18 @@ truth in none of 191 such samples
 ([small-sample-wald](technical-reference/method-evidence/small-sample-wald-intervals.md)). An
 estimate on its bound has no logit interval at all. Both statuses withhold the interval, the
 p-value and the band, and a contrast or ratio that reads such a mean, `rr`, `or` and `paf`
-included, inherits the status. The check reads the arm means, these regime-type means and the
+included, inherits the status.
+
+The check reads the arm means, these regime-type means and the
 working-model and projection coefficients of a point-treatment TMLE-family fit; a coefficient reads
-every arm.
+every arm, and a coefficient of a model saturated over its arm-by-modifier cells also reads each
+cell it is a function of. A model with more cells than terms pools them, as a continuous modifier
+always does: a constant cell at one modifier level then leaves part of that cell's variance out of
+a coefficient's standard error, as it does for a whole-sample arm mean over a constant stratum, and
+no check reads it.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
 | an interval for a mean whose arm cell holds one observed outcome value, and for its contrasts | asymptotic | an interval that does not rest on the influence curve of the constant arm, such as a score or exact construction for that arm combined with the TMLE of the others, with a limit law at a fixed law and a registered study. No source read gives one for a TMLE |
+| an interval for a pooled working-model or projection coefficient, or a whole-sample mean, when one modifier level or stratum holds one outcome value in an arm | asymptotic | a bound on the share of the variance such a cell leaves out before the plug-in interval loses its level, with a registered study. The check withholds only a coefficient of a saturated model that is a function of the cell |
 | an interval for an estimate on or outside its range | asymptotic | the same construction, or an interval on a scale defined at the bound, with its coverage |

@@ -680,9 +680,12 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "degrees-of-freedom rule can detect it. On the registered boundary law such "
                 "intervals covered in none of 191 samples. A mean under a regime, a learned "
                 "rule, a tilt or a policy of a discrete treatment reads every arm it puts "
-                "weight on. A contrast or ratio that reads such an estimate takes this status "
-                "too, and a fit with such an estimate reports no "
-                "simultaneous band. The plug-in standard error remains as a diagnostic under "
+                "weight on, and the natural course reads none. A working-model or projection "
+                "coefficient reads every arm, and on a model saturated over its "
+                "arm-by-modifier cells also each cell it is a function of; a pooled model's "
+                "coefficient is checked on the whole rows only. A contrast or ratio that reads "
+                "such an estimate takes this status too, and a fit with such an estimate reports "
+                "no simultaneous band. The plug-in standard error remains as a diagnostic under "
                 "plugin_std_error. F41 in docs/roadmap.md holds the route that reopens it."
             ),
             assessment_note=(
