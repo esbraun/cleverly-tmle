@@ -44,7 +44,11 @@ and ``covered``, the iterated-mean fit's (``iterated_estimate``, ``iterated_std_
 ``iterated_covered``) and the isotonic fit's ``isotonic_estimate``; its ``largest_decrease`` row
 holds the largest decrease of an iterated-mean curve between nodes, and on ``competing`` its
 ``largest_excess`` rows hold each fit's largest sum of cumulative incidences minus one.  Every
-row records its key's fits: ``converged``, ``final_score`` and ``unexpected_warnings``.
+hazard fit's row holds node 1's initial plug-in (``initial_estimate``), so
+``estimate - initial_estimate`` is node 1's walk move (plan X70 section 5 asks the pilot for the
+mean walk move), and the fit's accepted steps over every node walk of every regimen
+(``walk_steps``).  Every row records its key's fits: ``converged``, ``final_score`` and
+``unexpected_warnings``.
 """
 
 from __future__ import annotations
@@ -102,6 +106,8 @@ COLUMNS = (
     "iterated_std_error",
     "iterated_covered",
     "isotonic_estimate",
+    "initial_estimate",
+    "walk_steps",
     "wrong_plug_in",
     "wrong_targeted",
     "converged",
@@ -120,7 +126,10 @@ def _row(label: str, replicate: int, **values: Any) -> dict[str, Any]:
 
 def _estimate_rows(label: str, replicate: int, fit_label: str, result: Any) -> list[dict]:
     """One row per estimate of the fit, against its exact truth."""
-    truth = study.truths(study.FITS[fit_label][0])
+    law_name = study.FITS[fit_label][0]
+    truth = study.truths(law_name)
+    initials = study.initial_estimates(result, law_name)
+    steps = sum(int(regimen_fit.hazard.n_iter) for regimen_fit in result.fits.values())
     rows = []
     for name, reference in truth.items():
         estimate = result[name]
@@ -135,6 +144,8 @@ def _estimate_rows(label: str, replicate: int, fit_label: str, result: Any) -> l
                 estimate=float(estimate.psi),
                 std_error=float(estimate.std_error),
                 covered=int(low <= reference <= high),
+                initial_estimate=initials[name],
+                walk_steps=steps,
             )
         )
     return rows
