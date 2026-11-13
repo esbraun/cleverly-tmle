@@ -828,8 +828,13 @@ DROPOUT = (-3.5, 0.08, 0.3, 0.12, 0.0)
 #: The dose location of every law.
 CENTRE = (1.5, 1.0, 0.5)
 SCALE = 1.5
+#: The scale of the ``levels`` dose.  At 1.5 the smallest product of a level probability and the
+#: retention through the last visit is 0.0072, under the default cumulative bound of 0.01, so
+#: the bound would truncate the natural course's weight (an exact-sample fit with the wrong
+#: hazard learner then misses the natural risk by 7e-5).  At 2.0 the product is 0.028.
+LEVELS_SCALE = 2.0
 
-LEVELS_LAW = Law("levels", "levels", 5, HAZARD, CENTRE, SCALE, DROPOUT)
+LEVELS_LAW = Law("levels", "levels", 5, HAZARD, CENTRE, LEVELS_SCALE, DROPOUT)
 GAUSSIAN_LAW = Law("gaussian", "gaussian", 5, HAZARD, CENTRE, SCALE, DROPOUT, shift=1.0)
 VECTOR_LAW = Law(
     "vector",
