@@ -962,13 +962,17 @@ def test_h17_a_policy_at_many_nodes_is_refused_before_any_learner() -> None:
 
 #: A record, not a run: the traced peak (MB) of whole one-step fits at ``iterate="best"`` of a
 #: known policy with full support at every node, ``(n, T, J, p, U, peak)``, from which
-#: :data:`~cleverly.longitudinal.hazard.PATH_STATE_BYTES` and ``PATH_DESIGN_BYTES`` were set.
+#: :data:`~cleverly.longitudinal.hazard.PATH_SLOT_BYTES`, ``PATH_STATE_BYTES`` and
+#: ``PATH_DESIGN_BYTES`` were set.
 PEAKS = (
     (20_000, 4, 1, 5, 16, 367.7),
     (20_000, 5, 1, 6, 32, 874.0),
     (20_000, 4, 2, 5, 16, 522.6),
     (20_000, 4, 1, 44, 16, 362.2),
     (40_000, 4, 1, 5, 16, 711.9),
+    (2_000, 6, 1, 7, 64, 219.8),
+    (10_000, 4, 2, 5, 16, 261.4),
+    (1_000, 7, 1, 8, 128, 241.8),
 )
 
 
@@ -976,9 +980,9 @@ PEAKS = (
 def test_h17_the_predicted_peak_covers_each_measured_fit(
     n: int, n_times: int, causes: int, columns: int, paths: int, peak: float
 ) -> None:
-    """The prediction stays above each recorded peak and within twice it."""
+    """The prediction stays at least 5 per cent above each recorded peak and within twice it."""
     predicted = hazard_module.path_peak(n, n_times, paths, causes, columns) / 1e6
-    assert peak <= predicted <= 2.0 * peak
+    assert 1.05 * peak <= predicted <= 2.0 * peak
 
 
 # --------------------------------------------------------------- declared mechanisms (H26)

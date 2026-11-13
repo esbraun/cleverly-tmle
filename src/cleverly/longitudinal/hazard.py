@@ -128,6 +128,7 @@ __all__ = [
     "HAZARD_STEP_BOUND_ONE_STEP_REFUSAL",
     "PATH_DESIGN_BYTES",
     "PATH_PEAK_LIMIT",
+    "PATH_SLOT_BYTES",
     "PATH_STATE_BYTES",
     "SIGMA_FLOOR",
     "WALK_LOSS_TOLERANCE",
@@ -1783,20 +1784,24 @@ def is_multinode(data: LongitudinalData) -> bool:
     return not data.treatment_held and data.n_decisions > 1
 
 
-#: The traced peak of a multi-node hazard fit at ``iterate="best"``, in bytes per value of an
-#: ``(n, T, U, J)`` array: the walk state, its candidate and temporaries, the best iterate and
-#: the retained initial hazards (plan 2.4.3).  Measured with ``tracemalloc`` over whole one-step
-#: fits of a known policy with full support at every node (logistic learners, one fold), at
-#: ``(n, T, J, p)`` of
-#: ``(20000, 4, 1, 5)``, ``(20000, 5, 1, 6)``, ``(20000, 4, 2, 5)``, ``(20000, 4, 1, 44)`` and
-#: ``(40000, 4, 1, 5)`` peaked at 368, 874, 523, 362 and 712 MB.  Least squares gives 254 bytes
-#: per state value; a second cause adds less than a first, so 290 bytes covers every fixture.
-#: ``tests/unit/test_hazard_multinode.py`` keeps the record and recomputes the prediction.
-PATH_STATE_BYTES = 290.0
+#: The traced peak of a multi-node hazard fit at ``iterate="best"`` is modelled as
+#: ``(PATH_SLOT_BYTES + PATH_STATE_BYTES * J) * nTU + PATH_DESIGN_BYTES * nUp`` (plan 2.4.3):
+#: the walk state, its candidate and temporaries, the best iterate and the retained initial
+#: hazards hold ``(n, T, U, J)`` arrays, and the survival curve, weights and copy structure hold
+#: ``(n, T, U)`` arrays that do not grow with the causes.  Measured with ``tracemalloc`` over
+#: eight whole one-step fits of a known policy with full support at every node (logistic
+#: learners, one fold), recorded in ``tests/unit/test_hazard_multinode.py`` as ``PEAKS``.  Least
+#: squares on ``(nTU, nTUJ)`` gives 145 and 132 bytes (on ``nTUJ`` alone, 257).  The constants are
+#: raised to 165 and 150, so the prediction exceeds every measured peak by 10 to 17 per cent;
+#: the bytes per value did not grow with ``T`` or ``U`` across the fixtures (``U`` up to 128).
+PATH_SLOT_BYTES = 165.0
 
-#: The traced peak in bytes per value of the ``(n, U, p)`` slot prediction designs.  The fixture
-#: with 44 design columns peaked no higher than the one with 5, so the designs are held one node
-#: at a time; one float per value is kept as the floor.
+#: Bytes per value of an ``(n, T, U, J)`` array in the traced peak; see :data:`PATH_SLOT_BYTES`.
+PATH_STATE_BYTES = 150.0
+
+#: The traced peak in bytes per value of the ``(n, U, p)`` slot prediction designs.  A fixture
+#: with 44 design columns peaked no higher than one with 5, so the designs are held one node at
+#: a time; one float per value is kept as the floor.
 PATH_DESIGN_BYTES = 8.0
 
 #: The traced-peak limit of a multi-node hazard fit, 2 GiB, above which H17 refuses a fit
@@ -1823,12 +1828,12 @@ def path_peak(n: int, n_times: int, n_paths: int, n_causes: int, n_columns: int)
     Returns
     -------
     float
-        :data:`PATH_STATE_BYTES` times :math:`nTUJ` plus :data:`PATH_DESIGN_BYTES` times
-        :math:`nUp`.
+        :data:`PATH_SLOT_BYTES` times :math:`nTU`, plus :data:`PATH_STATE_BYTES` times
+        :math:`nTUJ`, plus :data:`PATH_DESIGN_BYTES` times :math:`nUp`.
     """
-    state = float(n) * n_times * n_paths * n_causes
+    slots = float(n) * n_times * n_paths
     design = float(n) * n_paths * n_columns
-    return PATH_STATE_BYTES * state + PATH_DESIGN_BYTES * design
+    return (PATH_SLOT_BYTES + PATH_STATE_BYTES * n_causes) * slots + PATH_DESIGN_BYTES * design
 
 
 def hazard_path_cap_refusal(
