@@ -2432,20 +2432,20 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ("G08.in_sample", "band"): (
         "Row G08.in_sample is red for the default band of its configuration: joint coverage "
         "0.9191 to 0.9458 (default-simultaneous-bands, categorical_ltmle; band-finite-sample). "
-        "The band with band_reference='t' is supported on this row (band-t-reference)."
+        "A plain band with band_reference='t' is supported on this row (band-t-reference)."
     ),
     # band-finite-sample: default_bands:cde_z0 measures this configuration's default band. T30
     # licenses the t band alone (T_BAND_CELLS).
     ("T30", "band"): (
         "Row T30 is red for the default band of its configuration at z = 0: joint coverage "
-        "0.9119 to 0.9397 (default-simultaneous-bands, cde_z0; band-finite-sample). The band "
+        "0.9119 to 0.9397 (default-simultaneous-bands, cde_z0; band-finite-sample). A plain band "
         "with band_reference='t' is supported on this row (band-t-reference)."
     ),
     # strata-boundary-mean: canonical-stratified-tmle's strata band cell measures this
     # configuration's default band. T13 licenses the t band alone (T_BAND_CELLS).
     ("T13", "band"): (
         "Row T13 is red for the default band of its configuration: joint coverage 0.9196 to "
-        "0.9462 (canonical-stratified-tmle, strata; strata-boundary-mean). The band with "
+        "0.9462 (canonical-stratified-tmle, strata; strata-boundary-mean). A plain band with "
         "band_reference='t' is supported on this row (band-t-reference)."
     ),
 }

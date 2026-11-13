@@ -653,9 +653,12 @@ class TestTheSupport:
         unlisted = self._band(rows["default only, short"], options=T_OPTION)
         assert unlisted.label == "experimental"  # type: ignore[attr-defined]
         assert "red for the default band" in unlisted.reason  # type: ignore[attr-defined]
-        # The shortfall still binds a listed t band of another shape.
+        # A listed t band of another shape reads experimental for want of a cell of its shape,
+        # not for the default band's shortfall.
         clustered = self._band(rows["both, short"], options=T_OPTION, shape="clustered")
         assert clustered.label == "experimental"  # type: ignore[attr-defined]
+        assert "clustered t band" in clustered.reason  # type: ignore[attr-defined]
+        assert "red for the default band" not in clustered.reason  # type: ignore[attr-defined]
 
     def test_dropping_the_shortfall_rule_fails(
         self, rows: dict, monkeypatch: pytest.MonkeyPatch
@@ -667,6 +670,7 @@ class TestTheSupport:
         monkeypatch.setattr(_support, "DEFAULT_BAND_OPTION", T_OPTION)
         band = self._band(rows["both, short"], options=T_OPTION)
         assert band.label == "experimental"  # type: ignore[attr-defined]
+        assert "red for the default band" in band.reason  # type: ignore[attr-defined]
 
     @pytest.mark.parametrize(
         ("row_id", "shortfall"),
@@ -685,6 +689,8 @@ class TestTheSupport:
         assert "band-t-reference" in row.evidence
         default = band_support(classification, "influence_curve", [estimate], draws=10_000)
         assert default.label == ("experimental" if shortfall else "supported"), default.reason
+        assert ("red for the default band" in default.reason) is shortfall
+        assert "red for the default band" not in t_band.reason
         few = band_support(
             classification, "influence_curve", [estimate], options=T_OPTION, draws=1_000
         )

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
@@ -25,6 +26,7 @@ from cleverly._support_rows import (
     DEFAULT_BAND_DRAWS,
     LONGITUDINAL_ROWS,
     POINT_ROWS,
+    SHORTFALLS,
     T_BAND_CELLS,
     UNMAPPED_BAND_CELLS,
 )
@@ -402,3 +404,67 @@ class TestTheTBandMutationControls:
         evidence = tuple(slug for slug in rows["T30"].evidence if slug != T_SLUG)
         rows["T30"] = replace(rows["T30"], evidence=evidence)
         assert t_mapping_problems(mapping, rows, passed, controls) != []
+
+
+def band_shortfall_problems(
+    shortfalls: Mapping[tuple[str, str], str] = SHORTFALLS,
+    unmapped: Mapping[str, str] = UNMAPPED_BAND_CELLS,
+) -> list[str]:
+    """The band shortfalls that are not a default-band reading.
+
+    ``band_support`` lets a band shortfall bind the default triple only, so every
+    ``(row, "band")`` sentence must state a red reading of the default band, and the row must
+    name a default-band cell in ``UNMAPPED_BAND_CELLS`` that carries the reading.
+    """
+    problems = []
+    for (row_id, kind), text in shortfalls.items():
+        if kind != "band":
+            continue
+        if "default band" not in text:
+            problems.append(f"{row_id}: the shortfall does not say 'default band'")
+        named = re.compile(rf"\brow {re.escape(row_id)}\b")
+        cells = [
+            cell
+            for cell, reason in unmapped.items()
+            if cell.endswith(BAND_SUFFIX)
+            and named.search(reason)
+            and "default band" in reason
+            and "band shortfall" in reason
+        ]
+        if not cells:
+            problems.append(f"{row_id}: no unmapped default-band cell carries the shortfall")
+    return problems
+
+
+class TestBandShortfallsReadTheDefaultBand:
+    def test_every_band_shortfall_is_a_default_band_reading(self) -> None:
+        assert [key for key in SHORTFALLS if key[1] == "band"] != []
+        assert band_shortfall_problems() == []
+
+    def test_a_shortfall_that_does_not_name_the_default_band_fails(self) -> None:
+        shortfalls = dict(SHORTFALLS)
+        shortfalls[("T13", "band")] = "Row T13 is red for its band: joint coverage 0.92 to 0.94."
+        assert band_shortfall_problems(shortfalls) == [
+            "T13: the shortfall does not say 'default band'"
+        ]
+
+    def test_a_shortfall_without_its_default_band_cell_fails(self) -> None:
+        unmapped = {
+            cell: reason
+            for cell, reason in UNMAPPED_BAND_CELLS.items()
+            if not re.search(r"\brow T13\b", reason)
+        }
+        assert band_shortfall_problems(unmapped=unmapped) == [
+            "T13: no unmapped default-band cell carries the shortfall"
+        ]
+
+    def test_a_t_band_cell_does_not_carry_a_shortfall(self) -> None:
+        unmapped = {
+            cell.replace(BAND_SUFFIX, T_SUFFIX) if re.search(r"\brow T30\b", reason) else cell: (
+                reason
+            )
+            for cell, reason in UNMAPPED_BAND_CELLS.items()
+        }
+        assert band_shortfall_problems(unmapped=unmapped) == [
+            "T30: no unmapped default-band cell carries the shortfall"
+        ]
