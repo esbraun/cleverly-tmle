@@ -214,6 +214,7 @@ It moved each part that an established method or a natural extension carries to 
 | Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
 | Unsmoothed dose-response curve | an interval for the curve $\theta(a_0) = E\{\bar Q(a_0, W)\}$ at a fixed dose of a continuous treatment, by an undersmoothed or adaptively smoothed CV-TMLE with an estimated treatment density, and a band over a continuum of doses | adaptive-optimum inference; asymptotic | `DoseResponseTMLE` reports the kernel-smoothed curve at declared bandwidths, with pointwise intervals and a band over the declared pairs | [F39](#f39-unsmoothed-dose-response-curve) |
 | Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale | adaptive-optimum inference for the interval; regularity for the other two | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
+| Intervals for a constant arm cell or an estimate on its bound | an interval for a mean of a yes/no outcome whose treatment arm holds one observed outcome value in its stratum, or whose estimate lies on its bound, and for every contrast that reads it | asymptotic | the point estimate stands under the `constant_arm_cell_plugin` or `out_of_range_plugin` status, with no interval, p-value or band ([small-sample scale](technical-reference/inference.md#small-sample-scale)) | [F41](#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
 
 ## Eligibility
 
@@ -2794,3 +2795,19 @@ reports the `working_model_projection` status. A testable form of the condition 
 | an interval for the trial effect, from a testable oracle-approximation condition | adaptive-optimum inference | a rate for the approximation error of the selected working model that the data can check, and a limit law under it. Theorem 1 assumes the rate and does not test it |
 | adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
 | a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
+
+### F41. Intervals for a constant arm cell or an estimate on its bound
+
+A TMLE mean of a yes/no outcome whose treatment arm holds a single observed outcome value in its
+stratum has an influence curve whose term for that arm is close to zero, although the outcome
+variance there can be positive. The plug-in standard error leaves that variance out, so no Wald
+interval on any scale covers: on the registered boundary law the plug-in interval covered the
+truth in none of 191 such samples
+([small-sample-wald](technical-reference/method-evidence/small-sample-wald-intervals.md)). An
+estimate on its bound has no logit interval at all. Both statuses withhold the interval, the
+p-value and the band, and a contrast that reads such a mean inherits the status.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for a mean whose arm cell holds one observed outcome value, and for its contrasts | asymptotic | an interval that does not rest on the influence curve of the constant arm, such as a score or exact construction for that arm combined with the TMLE of the others, with a limit law at a fixed law and a registered study. No source read gives one for a TMLE |
+| an interval for an estimate on or outside its range | asymptotic | the same construction, or an interval on a scale defined at the bound, with its coverage |
