@@ -61,9 +61,6 @@ MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
     "n_folds": 10,
     "learner_folds": 5,
     "alpha": 0.05,
-    # Restricted means add targets to the walk, which moves every risk of the fit; the study
-    # measures the walk over the risks alone.
-    "restricted_horizons": (),
 }
 
 
@@ -87,6 +84,7 @@ def continuous_survival_support(
     default_nuisances: bool,
     settings: Mapping[str, Any],
     restricted: bool = False,
+    restricted_horizons: int = 0,
 ) -> Support:
     """The support of one continuous-time estimate.
 
@@ -115,7 +113,12 @@ def continuous_survival_support(
     settings : mapping of str to Any
         The fit's values of the keys of :data:`MEASURED_DEFAULTS`.
     restricted : bool
-        Whether the estimate is a restricted mean, read at its restriction time.
+        Whether the estimate is a restricted mean, whose ``event_share`` is read at its
+        restriction time.
+    restricted_horizons : int
+        How many restriction times the fit targets.  They add targets to the walk, which moves
+        every risk of the fit, so this is a check of its own rather than a key of
+        :data:`MEASURED_DEFAULTS`: no registered study measures such a fit yet.
 
     Returns
     -------
@@ -142,6 +145,11 @@ def continuous_survival_support(
         reasons.append("No registered study measures a continuous-time restricted mean.")
     elif scale == "ratio":
         reasons.append(RATIO_REASON)
+    if restricted_horizons and not restricted:
+        reasons.append(
+            "The fit also targets restricted means, which moves its risks, and no registered "
+            "study measures such a fit."
+        )
     low, high = MEASURED_EVENT_SHARE
     if event_share < low:
         reasons.append(

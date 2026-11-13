@@ -297,10 +297,11 @@ def test_the_fit_reports_and_targets_every_restricted_mean() -> None:
     assert max(fit.record.standardized_score) <= fit.record.cutoff
     # The band covers the risks and their differences only.
     assert set(fit.simultaneous.bands) == set(risk_names(fit.arms, fit.causes, fit.horizons))
-    # Every estimate reads experimental: restricted_horizons is not a measured setting.
+    # Every estimate reads experimental: no registered study measures a fit with restricted
+    # means, and the extra targets move its risks.
     assert all(e.support.label == "experimental" for e in fit.values())
-    assert "restricted mean" in fit[names[0]].support.reason
-    assert "restricted_horizons" in fit["cif_regimen[treated, death @ t=1]"].support.reason
+    assert "restricted mean." in fit[names[0]].support.reason
+    assert "moves its risks" in fit["cif_regimen[treated, death @ t=1]"].support.reason
 
 
 def test_the_initial_estimates_skip_the_restricted_rows() -> None:
@@ -323,12 +324,9 @@ def test_the_support_reads_a_restricted_mean_as_unmeasured() -> None:
     assert restricted.label == "experimental"
     assert "restricted mean" in restricted.reason
     moved = continuous_survival_support(
-        scale="level",
-        default_nuisances=True,
-        settings={**measured, "restricted_horizons": (2.0,)},
-        **common,
+        scale="level", default_nuisances=True, settings=measured, restricted_horizons=1, **common
     )
-    assert moved.label == "experimental" and "restricted_horizons" in moved.reason
+    assert moved.label == "experimental" and "moves its risks" in moved.reason
 
 
 # ----------------------------------------------------------------- T-c4: refusal C1

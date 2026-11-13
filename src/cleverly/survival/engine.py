@@ -685,6 +685,7 @@ class ContinuousSurvivalTMLE:
                 default_nuisances=self._default_nuisances,
                 settings=settings,
                 restricted=q >= len(self.horizons),
+                restricted_horizons=len(restricted),
             )
 
         estimates = build_estimates(
