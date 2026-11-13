@@ -183,10 +183,10 @@ mean. Every reported row keeps its `passed` reading in `properties.csv`, and the
 n = 500, the DR-TMLE stratum, the lognormal law of skewness 6.2 and `rare_ate` read as the
 declaration expected.
 
-**Cells this study does not close.** The owner `strata-boundary-mean` holds two primary truth
-rows, one pointwise cell and one band cell of `canonical-stratified-tmle`. Its pointwise cells close
-only when the shipped default reads the rule for bounded means and that study is regenerated. This
-study measures the rule and leaves those cells and their owner as they are.
+**Cells this study does not close.** The owner `strata-boundary-mean` keeps the band cell of
+`canonical-stratified-tmle`. Its two primary truth rows and its pointwise cell moved to
+`F3-normal-reference` when the shipped default took the rule for bounded means. They stay as the
+record of the identity interval, beside an audit file that recomputes them under the shipped rule.
 
 ## Measured values
 

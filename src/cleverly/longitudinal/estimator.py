@@ -143,6 +143,8 @@ from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    bounded_status,
+    family_of,
     has_t_reference,
     make_estimate,
     median_estimates,
@@ -4172,14 +4174,17 @@ def _estimates(
     # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
     index: dict[str, tuple[str, str | None, int]] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
+    level_of: dict[int, ParameterEstimate] = {}
     for fit in fits.values():
         name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
         index[name] = (fit.regimen.label, fit.cause, fit.horizon)
         contributors[name] = (fit,)
-        status = _parameter_status(inference, fit)
+        level = scaler.unscale_level(fit.psi_scaled)
+        bounds = parameter_bounds("mean", data.family)
+        status = bounded_status(_parameter_status(inference, fit), level, bounds)
         estimates[name] = make_estimate(
             name,
-            scaler.unscale_level(fit.psi_scaled),
+            level,
             scaler.unscale_influence(fit.influence_curve_scaled),
             n=data.n,
             cluster=data.cluster,
@@ -4188,9 +4193,11 @@ def _estimates(
             inference=status,
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
-            bounds=parameter_bounds("mean", data.family),
+            bounds=bounds,
+            outcome_family=family_of(data),
             rule_widened=_rule_widened(fit),
         )
+        level_of[id(fit)] = estimates[name]
     for fit in fits.values():
         if fit.regimen.label == reference.label:
             continue
@@ -4202,10 +4209,24 @@ def _estimates(
         name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, curve))
         index[name] = (contrast, fit.cause, fit.horizon)
         contributors[name] = (fit, base)
-        status = _parameter_status(inference, fit, base)
+        difference = scaler.unscale_difference(fit.psi_scaled - base.psi_scaled)
+        bounds = parameter_bounds("difference", data.family)
+        # A contrast reads both levels and takes the status of either, an estimate on its
+        # bound included, before its own range check.
+        status = bounded_status(
+            precedent_status(
+                (
+                    _parameter_status(inference, fit, base),
+                    level_of[id(fit)].inference,
+                    level_of[id(base)].inference,
+                )
+            ),
+            difference,
+            bounds,
+        )
         estimates[name] = make_estimate(
             name,
-            scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
+            difference,
             scaler.unscale_influence(fit.influence_curve_scaled - base.influence_curve_scaled),
             n=data.n,
             cluster=data.cluster,
@@ -4214,7 +4235,8 @@ def _estimates(
             inference=status,
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
-            bounds=parameter_bounds("difference", data.family),
+            bounds=bounds,
+            outcome_family=family_of(data),
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
@@ -4385,6 +4407,7 @@ def _msm_estimates(
                 inference=inference,
                 reference_df=reference_df,
                 support=_support_of(classification, inference, reference_df),
+                outcome_family=family_of(data),
                 rule_widened=any(_rule_widened(fit) for fit in msm_fit.fits),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
@@ -6393,8 +6416,7 @@ class _SequentialEstimator:
         # out of the band, which is then a joint statement over the others. A parameter that
         # shows a labelled interval stays in, and its experimental label reaches the band.
         # The two exceptions of ``TMLE.fit`` hold here too: a constant arm cell skips the
-        # band, and an estimate on or outside its range stays a member. No longitudinal
-        # builder sets either status yet.
+        # band, and an estimate on or outside its range stays a member.
         if constant_arm_members(estimates):
             return None
         estimates = {

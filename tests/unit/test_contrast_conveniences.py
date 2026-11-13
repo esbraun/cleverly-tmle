@@ -521,13 +521,27 @@ class TestLongitudinalRatios:
 class TestWaldTest:
     @pytest.mark.parametrize("null", [0.0, 0.1, -0.3])
     def test_a_level_and_a_difference(self, binary_fit: Any, null: float) -> None:
-        for name in ("ey1", "ate"):
-            estimate = binary_fit[name]
-            test = estimate.wald_test(null=null)
-            z = (estimate.psi - null) / estimate.std_error
-            assert test.statistic == pytest.approx(z, abs=1e-12)
+        # The difference is tested on the identity scale.
+        estimate = binary_fit["ate"]
+        test = estimate.wald_test(null=null)
+        z = (estimate.psi - null) / estimate.std_error
+        assert test.statistic == pytest.approx(z, abs=1e-12)
+        assert test.pvalue == pytest.approx(2 * stats.norm.sf(abs(z)), abs=1e-12)
+        assert test.null == null and test.null_inference_value == null
+        assert test.interval_scale == "identity"
+        # The level of a binary outcome is tested on the logit scale, where a null on or below
+        # 0 maps to minus infinity and has p-value 0.
+        level = binary_fit["ey1"]
+        test = level.wald_test(null=null)
+        assert test.interval_scale == "range_logit" and test.null == null
+        if null <= 0.0:
+            assert test.null_inference_value == -np.inf and test.statistic == np.inf
+            assert test.pvalue == 0.0
+        else:
+            psi, se = level.psi, level.std_error
+            z = (np.log(psi / (1 - psi)) - np.log(null / (1 - null))) * psi * (1 - psi) / se
+            assert test.statistic == pytest.approx(z, abs=1e-9)
             assert test.pvalue == pytest.approx(2 * stats.norm.sf(abs(z)), abs=1e-12)
-            assert test.null == null and test.null_inference_value == null
 
     def test_a_ratio_logs_the_null(self, binary_fit: Any) -> None:
         estimate = binary_fit["rr"]

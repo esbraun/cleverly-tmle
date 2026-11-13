@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy import stats
+from scipy import special, stats
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import Transform, simultaneous_bands
@@ -107,9 +107,32 @@ def end_of_study(rule: str) -> Any:
     return laws.fit_l3(laws.draw_l3(laws.N, 20261114)[0], stopping=rule)
 
 
+def logit(value: float) -> float:
+    """SciPy's logit, so the tests do not read the package's map but round as it does."""
+    return float(special.logit(value))
+
+
+def expit(value: float) -> float:
+    return float(special.expit(value))
+
+
+def interval_slope(estimate: ParameterEstimate) -> float:
+    """The slope from the reported scale to the interval's scale at ``psi``.
+
+    ``1 / (psi (1 - psi))`` for a bounded binary mean, whose ``ci`` is formed on the logit
+    scale, and 1 for every other estimate, whose inference scale already carries the curve.
+    """
+    if estimate.interval_scale == "range_logit":
+        return 1.0 / (estimate.psi * (1.0 - estimate.psi))
+    return 1.0
+
+
 def half_widths(estimate: ParameterEstimate, interval: tuple[float, float]) -> tuple[float, float]:
-    """The distances from the estimate to each end of ``interval`` on the inference scale."""
+    """The distances from the estimate to each end of ``interval`` on the interval's scale."""
     low, high = interval
+    if estimate.interval_scale == "range_logit":
+        center = logit(estimate.psi)
+        return center - logit(low), logit(high) - center
     if estimate.scale == "ratio":
         low, high = np.log(low), np.log(high)
     elif estimate.transform is not None:
@@ -134,11 +157,13 @@ def plain(estimate: ParameterEstimate) -> tuple[float, float]:
 def assert_widened(estimate: ParameterEstimate) -> None:
     """``ci`` is ``inference_value +/- (critical * se + |score|)`` on the inference scale.
 
+    On a bounded binary mean the interval is formed on the logit scale, and both terms are
+    carried there by the slope at ``psi``: ``(z se + |score|) / (psi (1 - psi))``.
     ``plugin_interval`` is the same interval, so a study row that reads it reads ``ci``.
     """
     assert estimate.plugin_interval == estimate.ci
-    expected = critical(estimate) * estimate.std_error + abs(
-        float(np.mean(estimate.influence_curve))
+    expected = interval_slope(estimate) * (
+        critical(estimate) * estimate.std_error + abs(float(np.mean(estimate.influence_curve)))
     )
     below, above = half_widths(estimate, estimate.ci)
     assert below == pytest.approx(expected, rel=0.0, abs=EXACT)
@@ -209,15 +234,64 @@ class TestTheWidenedInterval:
 
 
 class TestTheSmallSampleReference:
-    """The widening composes with the small-sample reference of ``small-sample-wald``.
+    """The widening composes with the small-sample intervals of ``small-sample-wald``.
 
-    Fix-3 PR 1 adds a fractional Student t reference to the delta-method helpers and
-    :attr:`ParameterEstimate.effective_df`, but :attr:`ParameterEstimate.ci` still reads
-    :attr:`ParameterEstimate.reference_df`. The half-width a widened interval would take under
-    that reference is checked at the helper, and the estimate is checked to keep its normal
-    half-width until the reference reaches ``ci``. The PR that makes ``ci`` read the
-    small-sample reference replaces the second check with ``crit(effective_df) * se + |r_n|``.
+    Fix-3 PR 2 forms the interval of an unclustered bounded binary mean on the logit scale
+    with the normal reference. The margin is carried there by the slope that carries the
+    standard error, so the half-width on the logit scale is ``(z se + |r_n|) f'(psi)`` with
+    ``f'(psi) = 1 / (psi (1 - psi))``. Every other estimate keeps ``crit * se + |r_n|`` on its
+    inference scale. A continuous outcome keeps the normal reference until PR 3, although
+    :attr:`ParameterEstimate.effective_df` is computed; the fractional t half-width it will take
+    is checked at the helper.
     """
+
+    def test_a_bounded_mean_adds_the_margin_on_the_logit_scale(self) -> None:
+        estimate = ruled()["ey1"]
+        assert estimate.interval_scale == "range_logit"
+        assert estimate.rule_widened
+        slope = interval_slope(estimate)
+        margin = abs(float(np.mean(estimate.influence_curve)))
+        assert margin / estimate.std_error > 1e-3
+        center = logit(estimate.psi)
+        low, high = wald_ci(
+            center, estimate.std_error * slope, estimate.alpha, margin=margin * slope
+        )
+        assert estimate.ci == pytest.approx((expit(low), expit(high)), rel=0.0, abs=EXACT)
+        below, above = half_widths(estimate, estimate.ci)
+        expected = (Z * estimate.std_error + margin) * slope
+        assert below == pytest.approx(expected, rel=0.0, abs=EXACT)
+        assert above == pytest.approx(expected, rel=0.0, abs=EXACT)
+        # Nonzero witness: the slope is at least 4, so a margin added unscaled, or added on the
+        # level scale after the map, moves an end by more than the tolerance.
+        assert margin * (slope - 1.0) > 1e3 * EXACT
+        unscaled = wald_ci(center, estimate.std_error * slope, estimate.alpha, margin=margin)
+        assert abs(expit(unscaled[1]) - estimate.ci[1]) > 1e3 * EXACT
+        _, plain_high = plain(estimate)
+        assert abs((plain_high + margin) - estimate.ci[1]) > 1e3 * EXACT
+        # The test inverts this interval: the p-value reaches alpha at each end.
+        for end in estimate.ci:
+            assert estimate.wald_test(null=end).pvalue == pytest.approx(estimate.alpha, abs=1e-9)
+
+    def test_the_mutation_that_adds_the_margin_unscaled_on_the_logit_scale_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        estimate = ruled()["ey1"]
+        mutate(
+            monkeypatch,
+            influence_module,
+            influence_module.ParameterEstimate,
+            "_wald_interval",
+            [("margin=margin * slope,", "margin=margin,")],
+        )
+        below, _ = half_widths(estimate, estimate.ci)
+        expected = (Z * estimate.std_error + abs(estimate.score)) * interval_slope(estimate)
+        assert abs(below - expected) > 1e3 * EXACT
+
+    def test_a_clustered_bounded_mean_keeps_the_level_scale_margin(self) -> None:
+        estimate = ruled()["ey1"]
+        clustered = replace(estimate, n_clusters=estimate.n // 2)
+        assert clustered.interval_scale == "identity"
+        assert_widened(clustered)
 
     @pytest.mark.parametrize("df", [5.0, 17.5])
     def test_a_fractional_t_reference_adds_the_margin_to_its_half_width(self, df: float) -> None:
@@ -284,13 +358,16 @@ class TestTheWitness:
     """The residual is not at roundoff, so the identities above see the widening."""
 
     def test_the_walk_leaves_a_residual_and_the_interval_is_wider_by_twice_it(self) -> None:
+        # ey1 is a bounded binary mean, so the margin is added on the logit scale.
         estimate = ruled()["ey1"]
+        assert estimate.interval_scale == "range_logit"
         residual = abs(float(np.mean(estimate.influence_curve)))
         assert residual / estimate.std_error > 1e-3
-        widened = estimate.ci[1] - estimate.ci[0]
-        plain_interval = plain(estimate)
-        plain_width = plain_interval[1] - plain_interval[0]
-        assert widened - plain_width == pytest.approx(2.0 * residual, rel=1e-9)
+        widened = half_widths(estimate, estimate.ci)
+        unwidened = half_widths(estimate, plain(estimate))
+        expected = residual * interval_slope(estimate)
+        for side in (0, 1):
+            assert widened[side] - unwidened[side] == pytest.approx(expected, rel=1e-9)
         assert estimate.residual_margin == pytest.approx(residual, rel=1e-12)
 
     def test_the_mutation_that_drops_the_widening_fails_the_witness(
@@ -298,10 +375,10 @@ class TestTheWitness:
     ) -> None:
         estimate = ruled()["ey1"]
         monkeypatch.setattr(ParameterEstimate, "_residual_margin", lambda self, widen: 0.0)
-        widened = estimate.ci[1] - estimate.ci[0]
-        plain_interval = plain(estimate)
-        plain_width = plain_interval[1] - plain_interval[0]
-        assert widened - plain_width != pytest.approx(2.0 * abs(estimate.score), rel=1e-9)
+        widened = half_widths(estimate, estimate.ci)
+        unwidened = half_widths(estimate, plain(estimate))
+        expected = abs(estimate.score) * interval_slope(estimate)
+        assert widened[0] - unwidened[0] != pytest.approx(expected, rel=1e-9)
 
     def test_the_mutation_that_widens_on_the_reported_scale_fails_the_ratio(
         self, monkeypatch: pytest.MonkeyPatch
@@ -333,6 +410,11 @@ def plain_wald(estimate: ParameterEstimate) -> tuple[float, float]:
     Mapped to the reported scale as ``ParameterEstimate`` maps it, so a default-rule fit's
     ``ci`` equals it bit for bit.
     """
+    if estimate.interval_scale == "range_logit":
+        low, high = wald_ci(
+            logit(estimate.psi), estimate.std_error * interval_slope(estimate), estimate.alpha
+        )
+        return (expit(low), expit(high))
     low, high = wald_ci(
         estimate.inference_value,
         estimate.std_error,

@@ -1,22 +1,28 @@
 === learned-rule-arms declared run
-command: /home/user/venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_arms/regenerate.py --jobs 4 --output /tmp/h-out
-commit: 1b7db678431f6850ec342ed63b8a4fce1b37b0b9; upstream 1b7db678431f6850ec342ed63b8a4fce1b37b0b9
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_arms/regenerate.py --jobs 4 --output /tmp/fix3-arms-out-1
+commit: cb534e66deae9e8653bf89564c60608a608fcc84; upstream cb534e66deae9e8653bf89564c60608a608fcc84
 clean tree: True
-cleverly 0.1.7 from /home/user/cleverly-tmle/src/cleverly/__init__.py
-python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
-installed distributions: 22, sha256 59d09d2ced10dc9d78cabd59c63c5cea8049862cb27733cff56675f540d8bfc7
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 38747293f66db5bd1fda6fc2a3bf743b1d29180f4d2e3f6a3995be6713d3a918
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 cores: 4
-started: 2026-11-01T20:10:42+00:00
-finished: 2026-11-01T20:19:01+00:00
-wall seconds: 498.4
+started: 2026-11-13T14:42:42+00:00
+note: warning: python is 3.13.14, not the declared 3.13.7
+note: warning: numpy is 2.5.4, not the declared 2.4.6
+note: warning: scipy is 1.18.1, not the declared 1.18.0
+note: warning: pandas is 3.1.1, not the declared 3.0.5
+note: warning: scikit_learn is 1.9.1, not the declared 1.9.0
+note: warning: joblib is 1.6.0, not the declared 1.5.3
+finished: 2026-11-13T14:50:53+00:00
+wall seconds: 490.7
 exit code: 0
 sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
 sha256 harness.csv.gz: 48f75630cecc2216cfd338bb11ea4a0a015a129c60183d5d61370683aacb2cb6
-sha256 manifest.json: a1a3df7715290d45d840b184d3997a0d2de97e7be50df4780060f1ddea3e9a62
-sha256 performance-tests.csv: 976506da4fa4e2d2e5722f31905062eda05ff4bada30a307a58a13a7ae82cb89
-sha256 properties.csv: aee7b9a6b13a65212220791efb297f26784234a15c00a988179d037ee2567e6d
-sha256 property-replicates.parquet: bb82c4b25e9da432ebb14a1b51838affdb13271af1fee1f1f989c00c41fdf3e5
-sha256 replicates.parquet: bf779c2507d5dd9d513e87f7e54cf97d1e9ac63938431aecf4617e45d056a59a
-sha256 summary.csv: 34b4a4ac675c6067e64cd4990624f063b4e1164336c7341f923f1d34b24be7a6
+sha256 manifest.json: e96f1512c042f73fe3edc07d266dbaa4c0247db3ac004f61b3182d51f9e67de0
+sha256 performance-tests.csv: 18619931f42416776997ddd56d12c2b99d5335c734df11b5ca0d98bc9ac64d15
+sha256 properties.csv: 93a0cae27938182c7636b795baa84af4b80a92912f4cb4e549cc8108eda49473
+sha256 property-replicates.parquet: a6da5f4a78f6aa07ced4c27773f962506da2fbcc8c089dd5b3378ba360f51386
+sha256 replicates.parquet: 5fd6ff12962831803542a682440c92d5cda71d74cededa9784fd1cb3cd4ce814
+sha256 summary.csv: c0f42fe39c4cdf574dde6eab524efb194cc62dc72864dff55f488e1c6c63ac41
 

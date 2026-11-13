@@ -389,6 +389,7 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "weighted_population": "note",
         "t_reference": "note",
         "spread_scale": "note",
+        "interval_scale": "note",
         "repeated_splits": "note",
         "simultaneous_bands": "note",
         "bootstrap_diagnostic": "note",
@@ -600,6 +601,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         "spread_scale": (
             "The std. error of {names} is on the log scale, where the interval is computed "
             "before it is turned back to the scale of the estimate."
+        ),
+        "interval_scale": (
+            "The interval of {names} is built on the log-odds scale and turned back, so it "
+            "stays inside the possible range of a proportion and need not be centred on the "
+            "estimate."
         ),
         "spread_scale_transform": (
             "The std. error of {names} is on the transformed scale, where the interval is "

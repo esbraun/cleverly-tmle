@@ -425,8 +425,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "paired",
         "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
     ),
-    # The arm mean near 0.94 in the smallest stratum, and the in-sample band that includes it.
-    "strata-boundary-mean": (
+    # The coverage cell of a misspecified arm, red on one draw set under the shipped logit
+    # interval of a bounded mean, which the declared run reads.
+    "learned-rule-arms-coverage-draws": _keys(
+        "learned-rule-arms", "property", "conservative_coverage/missing_quadratic__declared"
+    ),
+    # The in-sample band over the arm mean near 0.94 in the smallest stratum.
+    "strata-boundary-mean": _keys(
+        "canonical-stratified-tmle",
+        "property",
+        "simultaneous_coverage/strata__simultaneous_band",
+    ),
+    # The committed rows of that arm mean under the identity normal interval, which the logit
+    # interval of a bounded mean replaced: a standing record of the replaced interval.
+    "F3-normal-reference": (
         *_keys(
             "canonical-stratified-tmle",
             "truth",
@@ -437,7 +449,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "canonical-stratified-tmle",
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
-            "simultaneous_coverage/strata__simultaneous_band",
         ),
     ),
     # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read

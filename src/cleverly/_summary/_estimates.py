@@ -318,6 +318,18 @@ def estimates_table(
                 vocabulary.NOTE_TEXTS["spread_scale_transform"].format(names=_names(transformed))
             )
         notes.append(note("spread_scale", " ".join(sentences)))
+    range_logit = [
+        name
+        for name, estimate in items
+        if inferential[name] and estimate.interval_scale == "range_logit"
+    ]
+    if range_logit:
+        notes.append(
+            note(
+                "interval_scale",
+                vocabulary.NOTE_TEXTS["interval_scale"].format(names=_names(range_logit)),
+            )
+        )
     if t_reference:
         notes.append(
             note(

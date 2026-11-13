@@ -36,6 +36,91 @@ wrong outcome regression. The
 [known-treatment-mechanism contract](point-treatment-tmle.md#known-treatment-mechanism) gives the
 sources and the choice between the two.
 
+## Small-sample scale
+
+An unclustered estimate of a mean of a yes/no outcome, with `bounds` $(0, 1)$, the `"level"`
+scale and no `transform`, forms its interval and test on the logit scale with the normal
+reference. With $f = \operatorname{logit}$ and $\widehat{se}$ the influence-curve standard error,
+the interval is
+
+$$
+\left[f^{-1}\!\left(f(\hat\psi) - z_{1-\alpha/2}\,\widehat{se}\,f'(\hat\psi)\right),\;
+f^{-1}\!\left(f(\hat\psi) + z_{1-\alpha/2}\,\widehat{se}\,f'(\hat\psi)\right)\right],
+$$
+
+which lies inside $(0, 1)$ and is not symmetric about $\hat\psi$. It is the map of the default
+simultaneous band, `band_scale="logit"` ([The band scale](#the-band-scale)), so that band's slice
+contains the pointwise interval whenever its critical value is at least $z_{1-\alpha/2}$. A band
+with `band_scale="identity"` is symmetric and need not contain it. The test of a null $h$
+maps $h$ through $f$, and a null on or outside $(0, 1)$ has p-value 0; the default null 0 of a
+level is such a null. `interval_scale` is `"range_logit"` on these estimates, the frame carries it,
+and `summary()` adds a note. The standard error, the point estimate and the influence curve do not
+change. Brown, Cai and DasGupta (2001) show that the symmetric Wald interval of a proportion
+under-covers erratically at moderate counts and near the boundary
+([references](../references.md#intervals-for-a-proportion)); the logit interval cannot leave the
+range.
+
+Every other estimate keeps its interval: a difference of two such means (identity scale, normal
+reference), a working-model coefficient of a binary outcome, a ratio or a transformed contrast
+(normal reference on its own scale), every estimate of a continuous outcome, and every clustered
+estimate, whose reference is [Few clusters](#few-clusters). The point-treatment TMLE family (`TMLE`, `DRTMLE`,
+`CTMLE` and the composite missing-data fit) and the longitudinal estimators attach `bounds` to
+their means; `IPTW` and `ATMLE` attach none, so their intervals stay on the identity scale.
+
+Two cases report no interval, no p-value and no standard error
+([Inference status](#inference-status)):
+
+- `"constant_arm_cell_plugin"`: a treatment arm the estimate reads holds a single observed outcome
+  value in its stratum, among rows of positive weight. The arm's term of the curve is then close
+  to zero although the true outcome variance there can be positive, so the plug-in standard error
+  leaves that arm's variance out. No interval built on that standard error, on any scale, can
+  repair it. A difference or ratio that reads such a mean takes the status, `rr`, `or` and `paf`
+  included, though its own interval stays on its own scale, and the fit builds no simultaneous
+  band.
+- `"out_of_range_plugin"`: the estimate lies on or outside its range in float arithmetic. There
+  the logit of an unclustered mean is not defined, and the identity interval of a difference or of
+  a clustered estimate would reach past the range. A contrast or ratio of such a mean takes the
+  status too, and a constant arm cell takes precedence when both apply.
+
+On a point-treatment TMLE-family fit the constant-cell check covers the arm means and, for a
+discrete treatment, the means under a regime, a learned rule, an IPSI tilt, a policy or a
+risk-ratio tilt. Such a mean reads every arm whose residual term it weights on a row of positive
+weight: every arm its regime or tilt gives positive probability, or its policy ratio leaves
+nonzero, on a row that received the arm. The natural course (a tilt by one factor, or a policy
+that moves no row) reads no arm, because its curve is $Y - \hat\psi$ exactly, as for `ey_obs`.
+Any positive weight counts: the share of the arm's residual variance a mean leaves out grows with
+its weight on the arm, and no theory read gives a weight below which the plug-in interval keeps
+its level, so a mean with a small weight on a constant arm is withheld too.
+
+A working-model (`msm`) or projection (`cate_projection`) coefficient of a discrete treatment reads
+every arm on the rows the estimate reads. When the model is saturated over its cells, one arm at one
+modifier pattern each (a working model's design and weight at every arm, or a projection's basis),
+with as many cells of positive weight as terms, the coefficients are the inverse of the cell design
+times the cell means on the link scale. A coefficient then also reads each cell its row of that
+inverse weights, so `msm[a:V]` with a binary `V` reads the treated cell at `V = 1`, as `ate[V=1]`
+does. A model with more cells than terms pools them, as a continuous modifier does, and its
+coefficients take the check on the whole rows alone; F41 records that limit. Policies of a
+continuous treatment have no arm cells, and a longitudinal fit has its own constant-outcome status,
+`"constant_node_plugin"`.
+
+Under either status `plugin_std_error` still returns the plug-in number, while `plugin_interval`
+is `(nan, nan)` and the plug-in p-value is `nan`: a constant cell's plug-in standard error is near
+zero, so its interval would read as a near-certain statement. The check runs on the rows the
+estimate reads, the stratum's rows for a stratum estimate and every row otherwise; a
+fold-evaluated estimate takes the status of the estimate built on those rows.
+
+**What is claimed.** Asymptotic validity is unchanged. The registered study
+[small-sample-wald](method-evidence/small-sample-wald-intervals.md) measures finite-sample
+coverage of the logit interval, conditional on an interval being shown: 0.951 for the treated mean
+of the sparse stratum of `canonical-stratified-tmle` at n = 2,000, where the identity interval
+covered 0.917 on the same law, 0.952 at n = 8,000, and 0.9595 on held-out law H1. On that law at
+n of 500 and 1,000 an interval is withheld in 191 and 17 of 2,000 samples (about 10% and 1%),
+when the stratum's treated rows hold no non-event, and no sample is withheld for the range alone.
+The plug-in interval covered the truth in none of those 191 samples. The withholding reads the
+data, so it is itself random; the coverage claim is conditional on an interval being shown.
+F41 in the [roadmap](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound)
+holds the route to an interval in both withheld cases.
+
 ## Covariance rules
 
 Each `ParameterEstimate` declares a `covariance_rule`. `result.covariance()` and
@@ -136,6 +221,8 @@ status. A shown status returns the plug-in interval and the estimate carries the
 | `"low_dose_support_plugin"` | a `DoseResponseTMLE` pair whose clever covariate has a Kish effective size below the declaration's `support_floor` (default 50). The pair stays in the simultaneous band. [Support](dose-response.md#support) gives the reason | shown: return the influence-curve values under the experimental label | `std. error` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) |
 | `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. The fit emits a `DataWarning` that names the arm and the failed condition. [Parametric per-arm intervals](collaborative-tmle.md#parametric-per-arm-intervals) gives the three conditions | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| `"constant_arm_cell_plugin"` | a mean of a yes/no outcome from `TMLE`, `DRTMLE`, `CTMLE` or another point-treatment TMLE-family fit with a discrete treatment, an arm mean or a mean under a regime, learned rule, IPSI tilt, policy or risk-ratio tilt, that reads a treatment arm holding a single observed outcome value (among rows of positive weight) in the stratum the estimate reads, and every contrast or ratio that reads it, `rr`, `or` and `paf` included. A working-model or projection coefficient of such a fit reads every arm and takes it too, and a coefficient of a model saturated over its arm-by-modifier cells also takes it when a cell it reads holds one outcome value. A difference reported by the same fit takes it too. The fit builds no simultaneous band. The other estimates keep their status. [Small-sample scale](#small-sample-scale) gives the reason | raise `CapabilityError` with the reason of the status. `plugin_interval` is `(nan, nan)` and no p-value is computed | `plug-in SE (diagnostic)` | [F41](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
+| `"out_of_range_plugin"` | an estimate of a mean or a difference of a yes/no outcome, clustered or not, whose value lies on or outside the range the parameter can take, `(0, 1)` or `(-1, 1)` in float arithmetic, and every contrast or ratio that reads it. A constant arm cell takes precedence. The estimate stays in a band with `band_scale="identity"`. [Small-sample scale](#small-sample-scale) gives the reason | raise `CapabilityError` with the reason of the status. `plugin_interval` is `(nan, nan)` and no p-value is computed | `plug-in SE (diagnostic)` | [F41](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
 | `"working_model_projection"` | every `AdaptiveTMLEMethod` fit (`method="atmle"`) of `TrialATE` on a `TrialWithExternalData` design. The interval covers the projection of the trial effect onto the working models the fit selected. It covers the trial effect itself only under the oracle-approximation condition of arXiv:2405.07186v2, Theorem 1, which no data check confirms | shown: return the values from the influence curve of the projection, under the experimental label | `std. error` | [F40](../roadmap.md#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
 
 A `TMLE` or `DRTMLE` fit with `treatment_adjustment=` keeps `"influence_curve"`. The interval is
@@ -165,10 +252,12 @@ picks one in two tiers. The first withheld status in table order wins. When none
 first shown status wins. A fit that loses its interval for one reason therefore never regains it for another.
 `tests/unit/test_inference_status_registry.py` pins the table order and the two tiers.
 
-A parameter status can sit beside the fit status on some estimates. Two statuses are parameter
+A parameter status can sit beside the fit status on some estimates. Four statuses are parameter
 statuses. `LTMLE` stamps `"constant_node_plugin"` on a parameter whose recursion read a constant
 node regression, which is a fitted quantity. `CTMLE` stamps `"stack_failure_plugin"` on each
-estimate that reads a failed arm stack. The other estimates keep the fit status. So read each
+estimate that reads a failed arm stack. The builder of a bounded mean stamps
+`"constant_arm_cell_plugin"` or `"out_of_range_plugin"` ([Small-sample scale](#small-sample-scale)).
+The other estimates keep the fit status. So read each
 estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
 `inference_status` stays the fit status unless every estimate carries the parameter status.
 
@@ -537,7 +626,7 @@ On a binary outcome a mean of the outcome under an intervention is a probability
 standard error of a probability moves with the estimate: above 0.5 a high estimate has a small
 standard error. At moderate effective sample sizes this coupling makes a max-$t$ band on the
 identity scale under-cover even when every pointwise interval is calibrated
-([Brown, Cai and DasGupta 2001](../references.md#multiple-testing); the [SDR study](method-evidence/sequentially-doubly-robust-estimation.md) measures
+([Brown, Cai and DasGupta 2001](../references.md#intervals-for-a-proportion); the [SDR study](method-evidence/sequentially-doubly-robust-estimation.md) measures
 it). `band_scale="logit"` builds the band of each bounded estimate on
 $f(\psi) = \operatorname{logit}((\psi - a)/(b - a))$, where $(a, b)$ is its range:
 
@@ -709,7 +798,8 @@ whose status is `"out_of_range_plugin"` stays in the family at its plug-in stand
 estimate whose status is `"constant_arm_cell_plugin"` (a treatment arm whose observed outcomes in
 its stratum take one value) refuses the whole band with an `inference_gap` refusal, which the summary names:
 no band covers such an estimate, and a band over the remaining members would describe a family
-the data chose. No builder sets either status yet.
+the data chose. The builder of a bounded mean sets both statuses
+([Small-sample scale](#small-sample-scale)).
 
 The pointwise interval of a band member is the Wald interval $\hat\psi \pm 1.96\,\widehat{se}$ on
 the identity scale (the log scale for a ratio). The band and the pointwise interval share the

@@ -266,6 +266,8 @@ def _test_scale(test: WaldTest) -> str | None:
         return f"transformed ({test.transform})"
     if test.scale == "ratio":
         return "log"
+    if test.interval_scale == "range_logit":
+        return "log-odds"
     return None
 
 

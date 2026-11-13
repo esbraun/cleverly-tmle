@@ -247,8 +247,20 @@ def assert_shows_interval(result: Any, status: str, reference_df: int | None) ->
             stats.norm.ppf(level) if reference_df is None else stats.t.ppf(level, reference_df)
         )
         low, high = estimate.ci
-        assert low == pytest.approx(estimate.psi - quantile * estimate.plugin_std_error, rel=1e-9)
-        assert high == pytest.approx(estimate.psi + quantile * estimate.plugin_std_error, rel=1e-9)
+        if estimate.interval_scale == "range_logit":
+            # A bounded unclustered mean: the Wald interval on the logit scale, mapped back.
+            psi = estimate.psi
+            center = np.log(psi / (1.0 - psi))
+            half = quantile * estimate.plugin_std_error / (psi * (1.0 - psi))
+            assert low == pytest.approx(1.0 / (1.0 + np.exp(-(center - half))), rel=1e-9)
+            assert high == pytest.approx(1.0 / (1.0 + np.exp(-(center + half))), rel=1e-9)
+        else:
+            assert low == pytest.approx(
+                estimate.psi - quantile * estimate.plugin_std_error, rel=1e-9
+            )
+            assert high == pytest.approx(
+                estimate.psi + quantile * estimate.plugin_std_error, rel=1e-9
+            )
         assert 0.0 <= estimate.pvalue <= 1.0
         seen += 1
     assert seen, "no estimate was checked"
@@ -360,7 +372,10 @@ def assert_round_trips(result: Any, status: str, route: str) -> Any:
     for name, estimate in restored.estimates.items():
         assert estimate.inference == status
         assert estimate.plugin_std_error == result.estimates[name].plugin_std_error
-        assert estimate.plugin_interval == result.estimates[name].plugin_interval
+        # ``nan == nan`` is false, and a constant-cell or out-of-range diagnostic is ``nan``.
+        np.testing.assert_array_equal(
+            estimate.plugin_interval, result.estimates[name].plugin_interval
+        )
         if not supplies_inference(status):
             with pytest.raises(CapabilityError) as raised:
                 _ = estimate.ci

@@ -720,7 +720,10 @@ $$
 $$
 
 on the scale the interval is built on: the logit or log scale for a transformed estimate, the
-log scale for a ratio. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+log scale for a ratio. On an unclustered mean of a binary outcome, whose interval is built on the
+logit scale ([small-sample scale](inference.md#small-sample-scale)), the residual enters as
+$\lvert r_n\rvert / \bigl(\hat\psi(1 - \hat\psi)\bigr)$, the slope that carries the standard
+error. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
 its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
 fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
 curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
@@ -742,7 +745,7 @@ The full-refit bootstrap is refused under a declared rule. Each refit stops with
 and no derivation bounds what those residuals do to the bootstrap law.
 `tests/unit/test_rule_widened_interval.py` checks the arithmetic on each scale, a nonzero
 residual on a one-step walk, the inheritance, each consumer above, the refusal, and mutations
-that drop the margin or add it on the reported scale.
+that drop the margin, add it on the reported scale, or add it unscaled on the logit scale.
 
 The widened interval costs little when the residual is small. A one-step `scaled_var` walk that
 met its rule leaves a residual of at most $c$ standard errors on an arm mean, so the half-width
@@ -2025,7 +2028,7 @@ assigns that arm.
 
 | composition | result |
 | --- | --- |
-| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, supported. The key's treatment reads `arms3` in place of `binary`, and the [three-arm study](method-evidence/learned-rule-arms.md) registers row `T45` for it |
+| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, experimental. The key's treatment reads `arms3` in place of `binary`. The [three-arm study](method-evidence/learned-rule-arms.md) registered row `T45` for it, and the row was withdrawn when the study's conservative coverage cell failed under the shipped logit interval |
 | the plug-in rule under the stacked report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule; and every fit over four or more arms | admitted, experimental. The key's treatment reads `arms3` or `arms4` and above, and no row declares these compositions |
 | `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 4 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (d2). Both pseudo-outcomes compare two arms. The remedy is the plug-in rule `LearnedRule()`, or a fixed rule `TMLE(interventions=[Rule(..., rule_kind="known")])` |
 | the omitted-variable bound | refused, X11 (n2): no witness checks the bias of a learned argmax rule against the combined representer over every arm. A fixed rule's regime bound covers every arm |
@@ -2046,9 +2049,10 @@ match the population shares of the stub's argmax regions, which an arm-index shi
 The [three-arm study](method-evidence/learned-rule-arms.md) calibrates the fold-evaluated value
 over three arms at n = 2,000 with ten folds, on one law whose learners' limits give every arm a
 share of at least 0.175 and put the top two arms within 0.01 of each other on at most 1.8% of
-the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9425 over
+the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9419 over
 3,200 draws. When arm 2's outcome regression omits its quadratic term, with the correct
-multinomial $g$ fitted by maximum likelihood, the interval covers 0.940 at an SE ratio of 0.996.
+multinomial $g$ fitted by maximum likelihood, the interval covers 0.9375 at an SE ratio of 0.996,
+and the lower end of its 99% coverage interval, 0.9173, falls below the cell's floor of 0.92.
 There the omitted projection term is negligible (a predicted SE ratio of 1.0004), so the study
 measures coverage under a misspecified arm and does not test the conservative-variance route.
 

@@ -84,9 +84,15 @@ still for that step and tries the step again; the pair moves on the next step. T
 
 ## Inference
 
-Each interval is a Wald interval with the empirical variance of the influence curve. A risk
-difference uses the difference of the two curves, and a risk ratio is built on the log scale. With
-`simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
+Each interval is a Wald interval with the empirical variance of the influence curve. A risk is
+a mean bounded by 0 and 1, so its interval is formed on the logit scale and mapped back, as for
+every unclustered bounded mean ([small-sample scale](inference.md#small-sample-scale)). A risk
+difference uses the difference of the two curves on its own scale, and a risk ratio is built on
+the log scale. The study's committed rows were written under the identity interval of a risk. On
+the same estimates and standard errors the logit interval moves no group's coverage by more than
+0.008 and changes no verdict (`tests/canonical/interval-audit-screen.csv`).
+
+With `simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
 reports the selected models, the steps, whether the stopping rule held, each target's final
 standardized score, the plug-in before any step (`initial_estimates`), and four shares: the
 weights raised to the positivity floor (`bounded_share`), the pairs below it at the last time
