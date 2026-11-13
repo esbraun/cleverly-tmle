@@ -3943,6 +3943,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 UNCOMMITTED_MODULES: tuple[str, ...] = (
     "tests.studies.option_stopping_point_properties",
     "tests.studies.option_stopping_ltmle_properties",
+    "tests.studies.option_treatment_adjustment_properties",
 )
 
 

@@ -1504,7 +1504,7 @@ condition.
 | (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Declared as `option-stopping-point` and `option-stopping-ltmle`, not yet run |
 | (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm |
 | (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
-| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment |
+| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Declared as `option-treatment-adjustment`, not yet run |
 | (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias and coverage at a trim that binds on a law with weak support, beside the untrimmed fit |
 | (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does |
 | (g) | `isotonic=True` | bias and coverage on a law where the projection binds. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its projection does not bind |

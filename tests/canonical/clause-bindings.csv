@@ -1778,3 +1778,11 @@ tests.studies.option_stopping_point_properties,interval_calibration,se ratio in 
 tests.studies.option_stopping_point_properties,residual_necessity,coverage ceiling,pair_collapse
 tests.studies.option_stopping_point_properties,residual_necessity,coverage floor,se_low
 tests.studies.option_stopping_point_properties,residual_witness,coverage floor,shift/3
+tests.studies.option_treatment_adjustment_properties,double_robustness,bias discriminated,pair_collapse
+tests.studies.option_treatment_adjustment_properties,double_robustness,bias equivalent,bias
+tests.studies.option_treatment_adjustment_properties,double_robustness,se ratio in union band,se/0.05
+tests.studies.option_treatment_adjustment_properties,instrument_slow_outcome,bias discriminated,control_diffuse
+tests.studies.option_treatment_adjustment_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.option_treatment_adjustment_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.option_treatment_adjustment_properties,interval_calibration,se ratio below band,se_high
+tests.studies.option_treatment_adjustment_properties,interval_calibration,se ratio in calibration band,affine

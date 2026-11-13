@@ -1008,6 +1008,20 @@ reads, with $W_g$ written as `{name, name}`:
 
 The inference status stays `influence_curve`, claimed under the declared restriction.
 
+The interval needs no new variance under the restriction. The ATE $\psi = E[Q(1, W) - Q(0, W)]$
+does not depend on $g$, and its nonparametric efficient influence curve
+$D^* = (A/g - (1 - A)/(1 - g))(Y - Q) + Q(1, W) - Q(0, W) - \psi$ is also the canonical gradient
+in the model with $g_0$ known (van der Laan & Gruber 2012, Section 2.3; see
+[known treatment mechanisms](../references.md#known-treatment-mechanisms)). The restricted
+model lies between the two, so its tangent space contains the known-mechanism one, and $D^*$ is
+its canonical gradient too. With $g$ fitted inside the restriction the remainder is the ordinary
+product, and the Wald interval of the plug-in variance is valid and efficient in the restricted
+model.
+
+The restriction can be tested from the data: it says that $A$ is independent of
+$Z = W \setminus W_g$ given $W_g$. A likelihood-ratio test of the columns of $Z$ in a treatment
+regression on $W$ is one such test.
+
 #### The remainder when the restriction fails
 
 Write $Z = W \setminus W_g$ and $\bar g(W_g) = E[g_0(W) \mid W_g]$. A fit on $W_g$ has
@@ -1071,6 +1085,18 @@ raw-scale outcome stub.
 **Advice.** To exclude instruments, omit them from `adjustment=`. Then the outcome regression and
 the treatment mechanism both use $W_g$, and the interval is covered. Use `treatment_adjustment=`
 when the outcome regression needs the columns and the treatment mechanism does not.
+
+**Evidence.** No registered study covers a fit that declares `treatment_adjustment=`, so its
+estimates read experimental ([scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals)).
+The study `option-treatment-adjustment` is declared and has not run
+(`tests/canonical/option_treatment_adjustment/regenerate.py`). It reads the interval under the
+restriction, in sample and stacked, and double robustness with the mechanism on $W_g$. It also
+reads case B with an instrument $Z$, an outcome GLM on $W$ and the constructed outcome error
+$n^{-1/4} Z$ on the logit scale. That fit's exact-law bias is 0.95, 1.35 and 1.91 standard
+deviations at n = 1,000, 4,000 and 16,000, and with the mechanism on the whole set it stays
+below 0.001. Without the constructed error, the case-B fit is unbiased, but its reported
+standard error converges to 0.916 of its true one, from the stacked estimating equations of the
+two GLMs and the targeting step.
 
 #### Compositions
 
