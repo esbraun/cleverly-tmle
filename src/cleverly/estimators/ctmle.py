@@ -785,6 +785,7 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "n_multiplier": (_anything, "any value; the band reads the stacked curves"),
     "multiplier_kind": (_anything, "any value; the band reads the stacked curves"),
     "band_scale": (_anything, "any value; the band reads the stacked curves"),
+    "band_reference": (_anything, "any value; the band reads the stacked curves"),
     "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
     "max_iter": (
         _anything,

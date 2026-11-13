@@ -1,0 +1,23 @@
+=== band-t-reference declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/band_t_reference/regenerate.py --output /tmp/fix2-run-main-2 --jobs 4
+commit: a11bcf62c7548eefcf5da8d632ce7a5e128a1cce; upstream a11bcf62c7548eefcf5da8d632ce7a5e128a1cce
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 dca430a13a93ae947782cdcb46900cefd326085cb80418307493300e1b6629a9
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-13T05:07:08+00:00
+note: resumed from /root/.cache/cleverly/runs/band-t-reference/c610a8c62db1, reused the Python phase
+finished: 2026-11-13T06:51:33+00:00
+wall seconds: 6265.6
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 2d88046a4890b346ddffb8f829cee947b7f300cf099caeb63207ec43145b9fa8
+sha256 performance-tests.csv: a258be1b8c7d89b12266896694441c7c8be216aa59c258778392bbf9017e5907
+sha256 properties.csv: 555473feaae0d6d1b5d601b0b3e3922c7d8e191df4a0bd7c7ffaa6ada712f5bb
+sha256 property-replicates.parquet: b25125ecc4fec8858493ccba5cd34d1227c20f76d2c605b041c0d4f09466a2c3
+sha256 replicates.parquet: 7ad706ec969367e4cc9ec61730c817cbf1307e45aab55c483c0a64aebfb9ccc3
+sha256 summary.csv: 7520e54f3d5470dae54745ce6eebe99264139bcb4155f8a67e088dec9a921afb
+sha256 t-band-replicates.csv: b0983aab6a53bf4b56c0bacfeb05aa528c9e3f1678ae5fe5bda3b370d10de047
+

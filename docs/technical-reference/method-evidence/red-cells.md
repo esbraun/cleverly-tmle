@@ -422,4 +422,5 @@ row. A move to `gated` is a separate registry decision.
 | [structural nested mean model](structural-nested-mean.md) | 340 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
+| [held-out cell of the per-estimate t reference band](band-t-reference-held-out.md) | 10 | 0 |
 <!-- /generated -->

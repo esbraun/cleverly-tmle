@@ -55,7 +55,7 @@ from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
 from ..effect_modification import EffectModification, modifier_frame
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
-from ..learners._fitting import clone_learner, fit_learner
+from ..learners._fitting import clone_learner, fit_learner, seed_unset
 from ..learners.parametric import logistic_newton
 
 __all__ = [
@@ -1166,7 +1166,7 @@ class EPEstimator:
             scale=spec.scale,
             width=float(upper - lower),
             clip=self.target == "curve" and spec.scale == "difference",
-            final_learner=self.final_learner,
+            final_learner=seed_unset(self.final_learner, self.tmle_kwargs.get("random_state")),
             values=values,
         )
         return curve, debiased

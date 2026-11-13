@@ -66,3 +66,21 @@ the column roles, as the [longitudinal guide](../user-guide/longitudinal.md) doe
    cleverly.longitudinal.StructuralModelCheck
    cleverly.longitudinal.snmm
 ```
+
+## Continuous-time survival
+
+On `TimeToEvent(grid="continuous")`, `TMLEMethod` builds `ContinuousSurvivalTMLE`, the one-step
+TMLE of each cause's risk under each arm with no time grid. You can also construct it directly
+with the target times and call `fit()` on one row per unit. Its result is a
+`ContinuousSurvivalResult`, whose `record` is a `ContinuousSurvivalRecord`. `CoxHazard` is the
+hazard learner of its default libraries.
+
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.survival.ContinuousSurvivalTMLE
+   cleverly.survival.ContinuousSurvivalResult
+   cleverly.survival.ContinuousSurvivalRecord
+   cleverly.survival.CoxHazard
+```

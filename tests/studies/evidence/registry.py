@@ -586,6 +586,8 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
     from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
+    from tests.studies.band_t_reference import STUDY as BAND_T_REFERENCE
+    from tests.studies.band_t_reference_held_out import STUDY as BAND_T_REFERENCE_HELD_OUT
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
@@ -735,6 +737,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
+    from tests.studies.continuous_survival import STUDY as CONTINUOUS_SURVIVAL
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -845,6 +848,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SEPARABLE_EFFECTS,
         SURVIVAL_CTMLE,
         SURVIVAL_DR_TMLE,
+        CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,
@@ -925,5 +929,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REFUTER_CALIBRATION_POINT,
         REFUTER_CALIBRATION_BAND,
         DEFAULT_SIMULTANEOUS_BANDS,
+        BAND_T_REFERENCE,
+        BAND_T_REFERENCE_HELD_OUT,
         FULL_REFIT_BOOTSTRAP,
     )

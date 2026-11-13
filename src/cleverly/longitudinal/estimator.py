@@ -87,6 +87,7 @@ from .._support import (
     Classification,
     Support,
     SupportKey,
+    band_shape,
     band_support,
     classify_longitudinal_fit,
     combine_support,
@@ -152,11 +153,13 @@ from ..inference.influence import (
     with_precedent_status,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     SimultaneousBands,
     band_member,
+    check_band_reference,
     constant_arm_members,
     median_bands,
     out_of_range,
@@ -193,7 +196,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
 from ..interventions.policy import Support as DeclaredSupport
-from ..learners._fitting import supports_sample_weight
+from ..learners._fitting import seed_unset, supports_sample_weight
 from ..learners.crossfit import (
     CrossFitPlan,
     Folds,
@@ -1300,7 +1303,14 @@ class _LongitudinalReplayRecipe:
 
 
 def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ...]:
-    """Return stable reasons the recursive learner templates cannot replay exactly."""
+    """Return stable reasons the recursive learner templates cannot replay exactly.
+
+    A :class:`SuperLearner` seeds its library at fit with
+    :func:`~cleverly.learners._fitting.seed_unset` and its own ``random_state``, so the audit
+    reads each library member as that function returns it: the audit accepts exactly the
+    ``None`` seeds the fit replaces, and refuses one it does not reach (a ``None`` held in a
+    list or dict parameter, which ``get_params(deep=True)`` does not expand).
+    """
 
     omissions: list[str] = []
 
@@ -1311,6 +1321,12 @@ def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ..
             omissions.append(LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER)
 
     seen: set[int] = set()
+
+    def as_fitted(entry: Any, seed: Any) -> Any:
+        """A library entry as the ensemble's fit seeds it; the name of a pair is dropped."""
+        if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], str):
+            entry = entry[1]
+        return seed_unset(entry, seed)
 
     def visit(value: Any) -> None:
         if id(value) in seen:
@@ -1329,9 +1345,12 @@ def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ..
         get_params = getattr(value, "get_params", None)
         if not callable(get_params):
             return
-        for name, item in get_params(deep=False).items():
+        params = get_params(deep=False)
+        for name, item in params.items():
             if name == "random_state":
                 classify(item)
+            elif isinstance(value, SuperLearner) and name == "library" and item is not None:
+                visit([as_fitted(entry, params.get("random_state")) for entry in item])
             else:
                 visit(item)
 
@@ -4415,6 +4434,7 @@ class _SequentialEstimator:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -4451,6 +4471,8 @@ class _SequentialEstimator:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
+        check_band_reference(band_reference)
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -6381,6 +6403,7 @@ class _SequentialEstimator:
                 random_state=multiplier_seed,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
         else:
             bands = simultaneous_bands(
@@ -6391,6 +6414,7 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
         return replace(
             bands,
@@ -6398,8 +6422,11 @@ class _SequentialEstimator:
                 classification,
                 status,
                 (estimate.support for estimate in estimates.values()),
-                options=(self.multiplier_kind, self.band_scale),
+                options=(self.multiplier_kind, self.band_scale, self.band_reference),
                 draws=int(self.n_multiplier),
+                shape=band_shape(
+                    weighted=data.is_weighted, repeated=len(repeats) > 1, cluster=data.cluster
+                ),
             ),
         )
 
@@ -6907,6 +6934,10 @@ class LTMLE(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     max_iter : int
         Maximum targeting iterations per node.
     tol : float
@@ -6946,9 +6977,9 @@ class LTMLE(_SequentialEstimator):
         differ.  The one-step hazard walk ranks its steps by the norm it walks on and takes the
         last of any tie, so ``"best"`` there reports the last accepted step.
     random_state : int or None
-        The seed of the outer split.  A default learner, and a
-        :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
-        ``None`` draws a fresh seed for the split.
+        The seed of the outer split.  Every learner ``random_state`` that is ``None``,
+        including those of a :class:`~cleverly.learners.SuperLearner`'s candidates, inherits
+        it.  ``None`` draws a fresh seed for the split.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7080,6 +7111,7 @@ class LTMLE(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
@@ -7135,6 +7167,7 @@ class LTMLE(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7265,8 +7298,13 @@ class SDR(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed of the outer split, inherited by a default learner.
+        The seed of the outer split, inherited by every learner ``random_state`` that is
+        ``None``, including a Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7353,6 +7391,7 @@ class SDR(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7390,6 +7429,7 @@ class SDR(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7551,8 +7591,13 @@ class IPSI(_SequentialEstimator):
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed of the outer split, inherited by a default learner.
+        The seed of the outer split, inherited by every learner ``random_state`` that is
+        ``None``, including a Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7630,6 +7675,7 @@ class IPSI(_SequentialEstimator):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7664,6 +7710,7 @@ class IPSI(_SequentialEstimator):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -7872,6 +7919,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -7912,6 +7960,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             random_state=random_state,
             run_id=run_id,
             n_jobs=n_jobs,
@@ -8017,8 +8066,13 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed inherited by a default learner.
+        The seed inherited by every learner ``random_state`` that is ``None``, including a
+        Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -8237,8 +8291,13 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         The scale of the band of a probability or a difference of two probabilities:
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"t"`` bands each estimate at the critical value's tail on its own Student t
+        reference, with degrees of freedom from its influence curve
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed inherited by a default learner.
+        The seed inherited by every learner ``random_state`` that is ``None``, including a
+        Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -8510,9 +8569,9 @@ class ParametricGFormula(_Baseline):
         ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
         mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
         ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``band_scale``,
-        ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``,
-        ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``,
-        ``max_iter`` and ``tol`` are refused.
+        ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
+        ``bootstrap_resampling``, ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.
+        ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
 
     See Also
     --------
@@ -8872,10 +8931,12 @@ class ParametricGFormula(_Baseline):
             n_draws=self.n_draws,
             n_derivative_draws=self.n_derivative_draws,
             covariate_types=self.covariate_types,
-            covariate_learner=self.covariate_learner,
-            outcome_learner=self._declared_outcome,
-            hazard_learner=self.hazard_learner,
-            treatment_learner=self.treatment_learner,
+            # A declared learner with no seed of its own takes the fit's, as resolve_learner
+            # gives it on every other estimator, so a seeded fit repeats exactly.
+            covariate_learner=seed_unset(self.covariate_learner, self.random_state),
+            outcome_learner=seed_unset(self._declared_outcome, self.random_state),
+            hazard_learner=seed_unset(self.hazard_learner, self.random_state),
+            treatment_learner=seed_unset(self.treatment_learner, self.random_state),
             seed=seed,
             exact=self._exact,
             reference=self.reference,

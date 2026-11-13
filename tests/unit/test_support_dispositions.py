@@ -331,9 +331,11 @@ class TestCommittedDecisions:
 
     def test_a_limit_that_the_row_does_not_state_fails_the_check(self, keys: set[RedKey]) -> None:
         key = next(k for k, d in sd.DISPOSITIONS.items() if d.disposition.startswith("supported"))
+        # Any row that licenses no band, chosen in code so that a new band licence cannot move it.
+        unbanded = next(r.id for r in registered_rows() if "band" not in r.kinds)
         table = {
             **sd.DISPOSITIONS,
-            key: replace(sd.DISPOSITIONS[key], row="T01.binary", kinds=("band",)),
+            key: replace(sd.DISPOSITIONS[key], row=unbanded, kinds=("band",)),
         }
         assert any("lists no" in text for text in problems(table, sd.DECISIONS, keys))
 

@@ -274,6 +274,7 @@ def outer_ep_curve(
     from cleverly.bases import Sieve
     from cleverly.effect_modification import ModifierReader, modifier_frame
     from cleverly.estimators.ep import curve_from_pieces, nuisance_pieces, sieve_member
+    from cleverly.learners._fitting import seed_unset
 
     rule = estimator.learned_rule
     assert rule is not None and rule.modifiers is not None
@@ -308,7 +309,7 @@ def outer_ep_curve(
         scale="difference",
         width=width,
         clip=True,
-        final_learner=rule.learner,
+        final_learner=seed_unset(rule.learner, estimator.random_state),
         values=values,
     )
     reader = ModifierReader.of(data, tuple(modifiers.columns))
