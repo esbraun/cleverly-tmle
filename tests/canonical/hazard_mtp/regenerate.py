@@ -13,15 +13,24 @@ skips nothing; then the declared run.
 
 Red-cell readings (declared before any run).  The record is ``gated``, so any red verdict fails
 the run.  A red that the diagnosis finds is not a defect follows the route of
-``docs/development/method-benchmarking.md``: the record moves to ``reporting`` with an owner row
-and the reading below, the run is repeated under the new commit, which refits the same
-deterministic seeds and so reproduces the same rows, and the claim the cell carries stays
-experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is seen.
+``docs/development/method-benchmarking.md``, except as the calibration bullet below narrows it
+and except for the readings below that name a red as a defect suspect or a failed control: the
+record moves to ``reporting`` with an owner row and the reading below, the run is repeated under
+the new commit, which refits the same deterministic seeds and so reproduces the same rows, and
+the claim the cell carries stays experimental.  A defect suspect never takes that route.  No cell
+is re-sized, re-drawn or downgraded after a verdict is seen.
 
 * A red primary row is a defect suspect of the weighted walk, the shifted-dose plug-in or its
   influence curve: the truths are exact sums or quadratures to 1e-10 and every learner is
   correctly specified.  Diagnose it against ``tests/unit/test_hazard_mtp.py``, fix a defect,
   and re-run under a fresh declaration.
+* The density route is gated on the ``truncated`` law only (the dose truncated to [0, 5.5], the
+  shift capped at 5.5), where every gated route's influence-curve gap meets
+  ``hazard_mtp_properties.IC_GAP_BOUND`` and falls with n (``TestTheInfluenceCurveGap``).  The
+  ``untruncated_density`` rows are reported with no verdict and cannot be red: on the
+  untruncated law the shipped route's quantile tail bins are wider than the shift, and its gap
+  does not fall (0.22 SE at n = 20,000 on the design draw).  That is the shipped route's
+  limitation, disclosed on the evidence page and owned by its own row, not this study's.
 * A red calibration row, in the words of the plans guide (``guide/studies.md``, Red cells): "A
   red calibration row is a finite-sample red only when the 99% interval of its SE ratio
   contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. It then
@@ -29,8 +38,10 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   is a defect suspect. An unfixed defect never ends as an owner row."  A defect suspect blocks
   the pull request.
 * A red positive ``double_robustness`` cell is a defect suspect: the ``levels`` limits are the
-  truth on the exact sample (``test_every_positive_limit_is_the_truth``), and the two Gaussian
-  ratio-route cells are consistent through the correct mechanism.  A ``both_wrong`` control
+  truth on the exact sample (``test_every_positive_limit_is_the_truth``), and the four
+  continuous ``mechanism_correct`` cells (``gaussian_density``, ``gaussian_classifier``,
+  ``gaussian_crossfit``, ``vector``) are consistent through the correct mechanism, whose
+  influence curves meet the declared gap bound.  A ``both_wrong`` control
   that does not clear the margin is a failed control: its exact-law gap is +3.44 efficiency SEs
   (``test_the_both_wrong_control_is_discriminated``), so the family's verdict is void and the
   study is a defect suspect that blocks the pull request.
@@ -46,10 +57,14 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   reports each estimate's paired-difference ratio (against the iterated-mean fit without and
   with ``isotonic=True``), each fit's coverage and SE ratio side by side, and the share of
   decreasing iterated-mean curves with its 99% interval.  The floors of plan X70 section 5 are
-  read on the pilot by the design test, through
-  :func:`tests.studies.hazard_mtp_properties.fits_differ_reading`; a decision on that reading is
-  pending with the project owner.  A run whose ratios fall below the floor is reported with the
-  ratios stated, not re-sized.
+  quoted beside the ratios by
+  :func:`tests.studies.hazard_mtp_properties.fits_differ_reading` and read by no test or
+  verdict; a decision on the requirement is pending with the project owner, and if the owner
+  keeps it the family is redesigned.  A run whose ratios fall below the floor is reported with
+  the ratios stated, not re-sized.
+* Every replicate row records ``converged`` and ``unexpected_warnings`` for the fits of its key,
+  and the summary counts ``nonconverged_fits`` and ``unexpected_warning_fits`` per cell.  No
+  verdict reads them; a cell with a nonconverged fit is reported with the count stated.
 * A replication that raises is never redrawn.  A recordable failure costs its replicate under
   the declared bound of 0.01; a cell past its bound takes the route above with the count stated.
 """

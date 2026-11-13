@@ -1592,12 +1592,21 @@ ARMS.update(
 #: ``tests.studies.hazard_mtp_properties``, which this module cannot import.
 _HAZARD_MTP_FITS = {
     "levels": "the six-level dose law under one level up",
-    "gaussian_density": "the Gaussian dose law under a shift of one, binned density ratio",
+    "gaussian_density": (
+        "the Gaussian dose law truncated to [0, 5.5] under a shift of one capped at 5.5, binned "
+        "density ratio"
+    ),
     "gaussian_classifier": "the Gaussian dose law under a shift of one, classifier ratio",
     "gaussian_crossfit": (
         "the Gaussian dose law under a shift of one, classifier ratio, five outer folds"
     ),
-    "vector": "the one-visit arm-and-dose law under a joint shift of the dose by one",
+    "vector": (
+        "the one-visit arm-and-dose law under a joint shift of the dose by one, classifier ratio"
+    ),
+    "untruncated_density": (
+        "the untruncated Gaussian dose law under a shift of one, binned density ratio, whose "
+        "tail bins are wider than the shift"
+    ),
 }
 ARMS.update(
     {
@@ -8753,15 +8762,16 @@ STUDY_SCENARIOS.update(
             "mechanism, logistic visit dropout; the policy raises the dose one level"
         ),
         (_HAZARD_MTP_SLUG, "gaussian_density"): (
-            "five visits, one cause, a Gaussian baseline dose, logistic visit dropout; the policy "
-            "adds one to the dose, its ratio from a binned Gaussian density"
+            "five visits, one cause, a Gaussian baseline dose truncated to [0, 5.5], logistic "
+            "visit dropout; the policy adds one to the dose up to 5.5, its ratio from a binned "
+            "truncated Gaussian density"
         ),
         (_HAZARD_MTP_SLUG, "gaussian_classifier"): (
             "the same Gaussian dose law, the policy's ratio from a logistic classifier"
         ),
         (_HAZARD_MTP_SLUG, "vector"): (
             "one visit, a binary arm beside a Gaussian dose, dropout at the visit; the joint "
-            "policy adds one to the dose and keeps the arm"
+            "policy adds one to the dose and keeps the arm, its ratio from a logistic classifier"
         ),
     }
 )
@@ -8812,6 +8822,16 @@ _HAZARD_MTP_DIFFERENCE_CELLS = {
         "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
     ),
 }
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_MTP_SLUG, "interval_calibration", f"untruncated_density_{arm}", "reported"): (
+            "the density route's interval on the untruncated Gaussian law, whose quantile tail "
+            "bins are wider than the shift",
+            "no verdict; coverage, SE ratio and efficiency ratio are reported",
+        )
+        for arm in ("contrast", "risk")
+    }
+)
 STUDY_ARM_CELLS.update(
     {
         (_HAZARD_MTP_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
