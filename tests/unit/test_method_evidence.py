@@ -1299,6 +1299,28 @@ class TestPublishedVerdicts:
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its own ladder endpoint"
                 )
+                # The role follows the cell: the both-wrong rungs are the controls.
+                assert row.role == ("control" if "both_wrong" in str(row.cell) else "positive"), (
+                    f"{row.cell} publishes role={row.role!r} against its own cell"
+                )
+                # The published reading agrees with the verdict.  A level control and an unread
+                # rate row state no reading; every other row passes iff its reading is clean.
+                rate = "__rate_" in str(row.cell)
+                if (not rate and row.role == "control") or (
+                    rate and label not in unit_s.READ_LABELS
+                ):
+                    assert row.reading == unit_s.NOT_READ, (
+                        f"{row.cell} publishes reading={row.reading!r} on a row it does not read"
+                    )
+                else:
+                    clean = row.reading in {
+                        unit_s.CLEAN,
+                        unit_s.CONSISTENT,
+                        unit_s.FAILS_TO_CONTRACT,
+                    }
+                    assert bool(row.passed) is clean, (
+                        f"{row.cell} publishes passed={row.passed} beside reading={row.reading!r}"
+                    )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
         # presence of the efficiency columns left a study that publishes no exact ratio with
