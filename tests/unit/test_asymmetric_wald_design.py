@@ -9,9 +9,10 @@ The study's readings are checked on synthetic rows with known counts: the legs o
 falsifiers and the failure accounting's candidates, each with a mutation the check rejects.
 
 **No estimator is fitted on a held-out law here.**  The vector intervals are checked against
-the library functions on fits of L1 (which the owner studies already fit), and the held-out
-samplers are checked only by sample moments of observed variables against the exact law, which
-reads no estimate and no interval.
+the library functions on fits of L1 and of two gaussian diagnosis groups, and the held-out
+samplers are checked only by sample moments of observed variables (the covariates, the arm
+shares, the arm means and the residuals) against the exact law, which reads no estimate and no
+interval.
 """
 
 from __future__ import annotations
@@ -328,6 +329,35 @@ def test_the_vector_rule_is_the_library_rule(l1_rows: pd.DataFrame) -> None:
     assert set(l1_rows["construction"]) == {"mover", "range_logit"}
 
 
+@pytest.fixture(scope="module")
+def gaussian_rows() -> pd.DataFrame:
+    """The cell rows of three fits each of two gaussian diagnosis groups, by the study's code.
+
+    ``student`` carries a mean and a difference; ``identity_msm`` carries an MSM coefficient.
+    Neither is a held-out law, and the seeds are not run streams.
+    """
+    frames = []
+    for label in ("student", "identity_msm"):
+        group = study.GROUP_BY_LABEL[label]
+        assert group.law not in heldout.HELDOUT_LAWS
+        for seed in (301, 302, 303):
+            frame = study.sample(group.law, group.n, seed)
+            frames.extend(props._replicate(label, seed, frame))
+    rows = pd.DataFrame(frames)
+    return rows.loc[rows["property"] != study.CONTROL].reset_index(drop=True)
+
+
+def test_the_vector_skew_t_is_the_library_rule(gaussian_rows: pd.DataFrame) -> None:
+    assert set(gaussian_rows["construction"]) == {"skew_t"}
+    assert set(gaussian_rows["cell"]) == {"student_ey1", "student_ate", "identity_msm_v2_w"}
+    assert (props.withheld_triggers(gaussian_rows) == "").all()
+    # A witness that the acceleration term is live on these rows.
+    assert (gaussian_rows["acceleration"].abs() > 0).all()
+    low, high = props.candidate_interval(gaussian_rows, "rule")
+    np.testing.assert_allclose(low, gaussian_rows["rule_lower"], rtol=1e-12)
+    np.testing.assert_allclose(high, gaussian_rows["rule_upper"], rtol=1e-12)
+
+
 def test_the_study_reads_the_shipped_arm_interval() -> None:
     result = stratified_tmle.fit_cleverly(l1.sample(2_000, 104))
     for name in ("ey[1][V=2]", "ey[0][V=2]", "ey[1][V=0]"):
@@ -603,6 +633,10 @@ def _leg_row(cell: str, *, lower: float, upper: float, tails: bool) -> dict[str,
         "lower_leg_ci_lower": lower,
         "leg_shown_ci_upper": upper,
         "tails_passed": tails,
+        "shown_replicates": 4_000,
+        "failed_replicates": 0,
+        "below_count": 0 if tails else 400,
+        "above_count": 0,
         "gain_b": 0,
         "gain_c": 0,
         "width_ratio_upper": 1.0,
@@ -632,6 +666,26 @@ def test_the_falsifier_truth_table(
     assert bool(table.loc[("mover", "d1_ate"), "fired"]) is fired_mover
     assert bool(table.loc[("skew", "c2_ey1"), "fired"]) is fired_mover
     assert bool(table.loc[("means", "d2_ey0"), "fired"]) is fired_means
+
+
+def test_a_falsifier_counts_each_lost_fit_as_a_tail_miss() -> None:
+    """Decision m4: the falsifiers' tail clause is the accounting's worst case, not complete case.
+
+    192 misses below among 3,998 shown fits pass complete case; with the two lost fits added to
+    each side (194 of 4,000) they fail, so the skew falsifier fires.
+    """
+    rows = synthetic_rows("c1_ey1", family=study.HELDOUT, below=192, lost=(10, 11))
+    summary = props.summarize_properties(rows)
+    row = summary.loc[summary["cell"] == "c1_ey1"].iloc[0]
+    assert bool(row["tails_passed"]) and int(row["failed_replicates"]) == 2
+    assert not props.lower_leg_fails(row)
+    table = props.falsifiers(summary).set_index(["falsifier", "cell"])
+    assert bool(table.loc[("skew", "c1_ey1"), "fired"])
+    # The same misses with nothing lost do not fire it.
+    complete = props.summarize_properties(synthetic_rows("c1_ey1", family=study.HELDOUT, below=192))
+    assert not bool(
+        props.falsifiers(complete).set_index(["falsifier", "cell"]).loc[("skew", "c1_ey1"), "fired"]
+    )
 
 
 def test_the_mover_against_identity_falsifier_reads_c_over_b_plus_c() -> None:
@@ -680,6 +734,46 @@ def test_each_sampler_draws_its_law(law: str) -> None:
         expected = float(np.sum(pw * weight * q) / np.sum(pw * weight))
         spread = math.sqrt(float(np.mean(central[2])) + float(np.var(np.asarray(q) + 0 * pw)))
         assert observed.mean() == pytest.approx(expected, abs=6 * spread / math.sqrt(observed.size))
+
+
+@pytest.mark.parametrize("law", heldout.HELDOUT_LAWS)
+def test_each_sampler_draws_its_covariate_law(law: str) -> None:
+    """``P(V)`` at every stratum and the law of ``W`` within it; no estimate, no interval.
+
+    A wrong covariate sampler would move every truth, which the exact truths cannot see.
+    """
+    frame = heldout.sample(law, 200_000, 3)
+    spec = heldout.LAWS[law]
+    w = frame["W"].to_numpy(dtype=float)
+    if spec.p_v is None:
+        strata = [(np.ones(len(frame), dtype=bool), None)]
+    else:
+        v = frame["V"].to_numpy()
+        assert set(np.unique(v)) == {0, 1, 2}
+        strata = [(v == k, k) for k in range(3)]
+        for rows, k in strata:
+            p = spec.p_v[k]
+            assert rows.mean() == pytest.approx(p, abs=5 * math.sqrt(p * (1 - p) / len(frame)))
+    for rows, k in strata:
+        within = w[rows]
+        m = within.size
+        if law in ("d1", "c2"):
+            table = l1.P_W_GIVEN_V if law == "d1" else heldout.C2_PW
+            probabilities = np.asarray(table)[k]
+            assert set(np.unique(within)) <= set(range(probabilities.size))
+            for value, p in enumerate(probabilities):
+                share = float(np.mean(within == value))
+                assert share == pytest.approx(p, abs=5 * math.sqrt(p * (1 - p) / m))
+        else:
+            # Uniform(-1, 1) for C1 and C3, N(0, 1) for D2.
+            variance = 1.0 if law == "d2" else 1.0 / 3.0
+            fourth = 3.0 if law == "d2" else 1.0 / 5.0
+            assert abs(within.mean()) < 5 * math.sqrt(variance / m)
+            assert np.var(within) == pytest.approx(
+                variance, abs=5 * math.sqrt((fourth - variance**2) / m)
+            )
+            if law != "d2":
+                assert within.min() >= -1.0 and within.max() <= 1.0
 
 
 def _q(law: str, a: Any, w: Any, v: Any) -> Any:

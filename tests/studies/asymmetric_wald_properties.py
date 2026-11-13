@@ -719,8 +719,15 @@ def any_leg_fails(row: pd.Series) -> bool:
 
 
 def tails_fail(row: pd.Series) -> bool:
-    """The tail clause fails on either side."""
-    return not bool(row["tails_passed"])
+    """The tail clause fails on either side, each lost fit a one-sided miss on the side read.
+
+    ``tails_passed`` is complete case.  A falsifier reads the worst case instead, as the gated
+    rows' failure accounting does: every lost fit is added to each side's count and to the shown
+    total, one side at a time, so a lost held-out fit can only make a falsifier fire.
+    """
+    lost = int(row["failed_replicates"])
+    shown = int(row["shown_replicates"]) + lost
+    return not tails_hold(int(row["below_count"]) + lost, int(row["above_count"]) + lost, shown)
 
 
 #: The declared falsifiers of plan 9.6 that read legs and tails: name, target class, cells,

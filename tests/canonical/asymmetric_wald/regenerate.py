@@ -32,10 +32,15 @@ held-out laws D1, D2, C1, C2 and C3 had no estimator fitted on them before this 
 The width clause's bootstrap (review 5, nit R6-1), fixed before the run: the statistic is the
 ratio of mean widths of the skew-widened interval over the capped t across the cell's shown
 fits; fits are resampled with replacement with their two widths kept together, B = 10,000, seed
-``stream_seed(STUDY, "width_ratio", cell)``, percentile interval, upper bound the 0.995 quantile.
+``stream_seed(STUDY, "width_ratio", cell)`` (its entropy ``RESAMPLING_SEED = 2026111302``),
+percentile interval, upper bound the 0.995 quantile.
 
 Red-cell reading (declared before any run; plan 9.6 and ``guide/studies.md``).
 
+* The falsifiers read lost fits at the worst case, as the gated rows' failure accounting
+  does: the lower leg counts a lost fit among the first 2,000 as a miss, and the tail clause adds
+  every lost fit of the cell to each side's one-sided count and to the shown total, one side at
+  a time. A lost held-out fit can therefore only make a falsifier fire, never keep one quiet.
 * A falsifier that fires (``falsifiers.csv``) stops PR 3 for the class it names: that class
   does not flip, no control is adopted, the owner's red rows stay open with the reading, and the
   plan returns to review. The ``means`` falsifier fires on the shipped PR 2 rule: it is read as
