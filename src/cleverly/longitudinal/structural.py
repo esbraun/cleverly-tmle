@@ -242,6 +242,23 @@ def _invalid(condition: str, *, alternative: str | None = None) -> CapabilityErr
 # ------------------------------------------------------------------- blip feature layout
 
 
+def band_family(kinds: Mapping[str, str]) -> list[str]:
+    """The names a structural fit's band covers: its levels and contrasts, or its blips.
+
+    Parameters
+    ----------
+    kinds : mapping of str to str
+        Each reported name's kind.
+
+    Returns
+    -------
+    list of str
+        The band's family, in report order.
+    """
+    family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
+    return family or [name for name, kind in kinds.items() if kind == "blip"]
+
+
 @dataclass(frozen=True)
 class _Factor:
     """One factor of a blip feature column.
@@ -1868,9 +1885,7 @@ class StructuralNestedMean:
         The band takes the support of :func:`~cleverly._support.band_support`: ``supported``
         only when a row licenses a ``band`` and every estimate is supported on that row.
         """
-        family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
-        if not family:
-            family = [name for name, kind in kinds.items() if kind == "blip"]
+        family = band_family(kinds)
         if constant_arm_members({name: estimates[name] for name in family}):
             return None
         chosen = {name: estimates[name] for name in family if band_member(estimates[name])}

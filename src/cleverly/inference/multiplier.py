@@ -238,9 +238,6 @@ CONSTANT_ARM_CELL_STATUS: str = "constant_arm_cell_plugin"
 #: :func:`out_of_range` as before, and the identity band is built over it.
 OUT_OF_RANGE_STATUS: str = "out_of_range_plugin"
 
-#: The name of the band status a fit records when it skips its band over a constant-cell member.
-CONSTANT_ARM_BAND_STATUS: str = "constant_arm_cell"
-
 
 def constant_arm_band_refusal(names: Sequence[str]) -> Refusal:
     """Why no band covers a family that holds an estimate with a constant arm cell.

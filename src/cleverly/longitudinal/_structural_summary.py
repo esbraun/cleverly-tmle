@@ -39,6 +39,7 @@ from ..estimators._point_summary import _bands, _decimals_of, _warning_notes
 from ..inference.cluster import fewest_clusters
 from ..inference.multiplier import band_member, constant_arm_members, out_of_range
 from ._summary import _covariates, _time_points, estimates_repr, population_facts
+from .structural import band_family
 
 if TYPE_CHECKING:
     from .structural import StructuralModelCheck, StructuralNestedMeanResult
@@ -262,7 +263,9 @@ def _settings(result: StructuralNestedMeanResult) -> SummarySection:
             lines.append(NO_SIMULTANEOUS_BANDS)
         elif t_reference:
             lines.append(NO_T_REFERENCE_BANDS)
-        elif constant := constant_arm_members(estimates):
+        elif constant := constant_arm_members(
+            {name: estimates[name] for name in band_family(result.kinds) if name in estimates}
+        ):
             lines.append(NO_CONSTANT_ARM_BANDS.format(names=", ".join(constant)))
         elif outside := out_of_range(
             {name: value for name, value in estimates.items() if band_member(value)},
