@@ -3307,7 +3307,13 @@ class LongitudinalData:
         labels[~present] = None
         return labels
 
-    def policy_frame(self, time: int, extra: Mapping[str, Any] | None = None) -> Any:
+    def policy_frame(
+        self,
+        time: int,
+        extra: Mapping[str, Any] | None = None,
+        *,
+        treatment: FloatArray | None = None,
+    ) -> Any:
         """:meth:`history_frame` plus the earlier treatments, for a policy node to read.
 
         This is what a known policy density :math:`q_t(\\cdot \\mid H_t)` is handed:
@@ -3333,8 +3339,14 @@ class LongitudinalData:
         appends further columns, which a :class:`~cleverly.interventions.JointPolicy` uses
         to hand a component's map the natural values of the current node's other
         components.
+
+        ``treatment``, an ``(n, T)`` matrix of dense codes at categorical nodes, replaces the
+        observed earlier treatments: the hazard fit of a design with a treatment at several
+        nodes evaluates a policy at every counterfactual treatment prefix
+        (:func:`~cleverly.longitudinal.regimen.counterfactual_policy_density`).
         """
         history = self.covariate_history(time)
+        codes_of = self.treatment if treatment is None else np.asarray(treatment, dtype=float)
         payload: dict[str, Any] = {
             name: history[:, index] for index, name in enumerate(self.history_names(time))
         }
@@ -3349,7 +3361,7 @@ class LongitudinalData:
                     self.treatment[:, node - 1], nan=0.0
                 )
                 continue
-            codes = np.nan_to_num(self.treatment[:, node - 1], nan=0.0).astype(np.int64)
+            codes = np.nan_to_num(codes_of[:, node - 1], nan=0.0).astype(np.int64)
             levels = np.empty(len(self.treatment_levels[node - 1]), dtype=object)
             for index, level in enumerate(self.treatment_levels[node - 1]):
                 levels[index] = level
