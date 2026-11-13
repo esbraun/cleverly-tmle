@@ -263,6 +263,12 @@ from .hazard import (
     target_mtp,
     target_regimens,
 )
+from .hazard_backward import (
+    HAZARD_TIME_VARYING_CONDITION,
+    hazard_replay_refusal,
+    later_covariates,
+    target_time_varying,
+)
 from .ipsi import IPSICell, fit_cells_ipsi
 from .learned import (
     LearnedRegimen,
@@ -4611,7 +4617,6 @@ class _SequentialEstimator:
             step_size=self.step_size,
             isotonic=self.isotonic,
             msm=self.msm is not None,
-            pseudo_learner=self.pseudo_learner is not None,
             step_bound=getattr(self, "step_bound", None),
             ratio_trim=self.ratio_trim,
         )
@@ -5190,6 +5195,9 @@ class _SequentialEstimator:
             survival_model=self.survival_model,
             isotonic=self.isotonic,
             msm=self.msm is not None,
+            targeting=self.targeting,
+            stopping=getattr(self, "stopping", "relative"),
+            pseudo_learner=self.pseudo_learner is not None,
         )
         reference = self._reference(regimens)
         # The declared support and the declared atoms of each continuous dose, and the
@@ -5294,7 +5302,15 @@ class _SequentialEstimator:
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
-                conditions=stopping_conditions(getattr(self, "stopping", "relative")),
+                conditions=[
+                    *stopping_conditions(getattr(self, "stopping", "relative")),
+                    # No registered study covers hazards with covariates after baseline yet.
+                    *(
+                        [HAZARD_TIME_VARYING_CONDITION]
+                        if self.survival_model == "hazard" and later_covariates(prepared)
+                        else []
+                    ),
+                ],
                 tuned_cap=tuned_folds is not None,
                 # Every plan of one fit shares its first cause (``resolve_separable``).
                 separable_first=separable[0].first + 1 if separable else None,
@@ -5564,6 +5580,47 @@ class _SequentialEstimator:
                 mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
             )
         algorithm: HazardAlgorithm = "one_step" if self.targeting == "one_step" else "per_horizon"
+        if later_covariates(prepared):
+            # Covariates after baseline: one backward pass per regimen (X70 part (b1)).  The
+            # refusals H28-H31 keep the per-horizon algorithm, msm=, a declared stopping rule
+            # and every replay away from it, and the separable refusal keeps a separable regimen.
+            assert msm is None and not separable
+            initial, walked = target_time_varying(
+                prepared,
+                plans,
+                levels,
+                mechanism,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                folds=folds,
+                horizons=horizons,
+                g_bounds=bounds,
+                alpha=targeting["alpha"],
+                tol=targeting["tol"],
+                step_size=self.step_size,
+                iterate=targeting["iterate"],
+                node_bounds=hazard_bounds(
+                    node_bounds, prepared.n_times, prepared.cause_labels or (None,)
+                ),
+                n_jobs=self.n_jobs,
+            )
+            replay_recipe = replace(
+                replay_recipe,
+                omissions=(),
+                hazard=_HazardReplay(
+                    _frozen_plans(levels),
+                    algorithm,
+                    float(self.step_size),
+                    targeting["alpha"],
+                    targeting["max_iter"],
+                    targeting["tol"],
+                ),
+            )
+            fits = {
+                _fit_key(label, cause, horizon, True): fit
+                for (label, cause, horizon), fit in walked.items()
+            }
+            return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric, ())
         initial = fit_hazards(
             prepared,
             levels,
@@ -9081,6 +9138,9 @@ def _refit_bound(
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     recipe = draw.replay_recipe
+    if recipe.hazard is not None and later_covariates(result.data):
+        # Before any targeting: the regressions of the future read targeted hazards (H31).
+        raise CapabilityError.from_refusal(hazard_replay_refusal())
     if recipe.hazard is not None:
         walked = [plan.label for plan in recipe.plans if plan.has_mtp]
         if walked:
