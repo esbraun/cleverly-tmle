@@ -1189,7 +1189,11 @@ walked hazards and serves the positivity diagnostics; its own score is not solve
 | --- | --- |
 | `tests/unit/test_hazard_msm.py` | on finite laws realised exactly, a wrong hazard learner with the true mechanism gives the exact projection within `1e-8`, for one cause and for each of two competing causes, while its plug-in misses. The parameter is computed by a Newton solve in the test, and its efficient influence function by complex-step derivatives; with saturated hazards the curve equals it within `1e-10`. The same holds for observation weights, against the projection and the curve of the tilted law; for a projection weight $h$ that varies with $V$ and the cell; for the curve of each competing cause; and for a known stochastic regimen. Clusters leave the coefficients unchanged and move the variance. Mutation: targeting the cells misses the modifier's coefficient, with a control on a model without a modifier. A saturated design reproduces the cell estimates. A diagonal metric reaches the same coefficients in more than ten times the steps |
 
-No registered study covers this fit yet, so its rows are labelled `experimental`.
+The [hazard working-model study](method-evidence/hazard-msm.md) covers the in-sample fit of a
+held two-level baseline treatment with correctly specified logistic learners, on one cause and
+on two competing causes. Support rows `G60` license its point estimates and Wald intervals, and
+the simultaneous band on one cause. Another composition, such as cross-fitting, observation
+weights, clusters or a flexible learner, matches no row and is labelled `experimental`.
 
 #### Targeting rules on the hazard walk
 

@@ -82,7 +82,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for part (b); natural extension for parts (c) and (d); audited source for part (f); all four shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
-| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read | the shipped hazard targeting on a held baseline treatment |
+| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; part (d) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; pending source read | continuous-time intensity and targeting contracts |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
 
@@ -814,11 +814,12 @@ that node.
 node, with baseline covariates only. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
 list each design it refuses. Each refusal names `survival_model="iterated_mean"` with
-`isotonic=True` as the working alternative. The code of part (d) is in, with its rows labelled
-`experimental` until its registered study passes. The subsection "A working model over the
-hazard curve" of
+`isotonic=True` as the working alternative. Part (d) is delivered: the subsection "A working
+model over the hazard curve" of
 [hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
-states it.
+states it, and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
+validates it, with support rows `G60`. That study reports the agreement of the hazard fit and the
+iterated-mean fit, as the acceptance below asks.
 
 | part | what to add | published source |
 | --- | --- | --- |
