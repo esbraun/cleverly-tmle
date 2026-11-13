@@ -177,11 +177,27 @@ def check_sample_threshold() -> None:
     assert np.mean(entries == 0.0) > 0.3
     assert trim.threshold == np.quantile(entries.ravel(), law.TRIM, method="linear")
     assert np.array_equal(trim.trimmed, entries > trim.threshold)
+    kept = np.cumprod(np.minimum(entries, trim.threshold), axis=1)
+    assert np.allclose(np.asarray(trim.cumulative), kept, rtol=1e-12, atol=0.0)
 
 
 class TestTheSampleTrim:
     def test_the_threshold_reads_every_entry(self) -> None:
         check_sample_threshold()
+
+    def test_mutation_leaving_the_running_product_untrimmed_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        untrimmed = mutated(
+            trim_module,
+            trim_module,
+            "trim_ratios",
+            "cumulative=np.cumprod(kept, axis=1, dtype=np.float64)",
+            "cumulative=np.cumprod(entries, axis=1, dtype=np.float64)",
+        )
+        monkeypatch.setattr(estimator_module, "trim_ratios", untrimmed)
+        with pytest.raises(AssertionError):
+            check_sample_threshold()
 
     def test_mutation_taking_the_quantile_of_positive_entries_fails(
         self, monkeypatch: pytest.MonkeyPatch
