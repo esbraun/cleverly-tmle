@@ -1557,9 +1557,7 @@ def _hazard_nuisances(
         # each unit's observed treatment.
         hazards = initial.observed
     else:
-        observed = np.asarray(
-            np.nan_to_num(result.data.treatment[:, 0], nan=0.0), dtype=np.int64
-        )
+        observed = np.asarray(np.nan_to_num(result.data.treatment[:, 0], nan=0.0), dtype=np.int64)
         hazards = initial.hazards[np.arange(result.data.n), :, observed, :]
     causes: tuple[str | None, ...] = result.data.cause_labels or (None,)
     empty = set(initial.no_event_nodes)

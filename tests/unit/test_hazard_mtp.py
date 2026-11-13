@@ -24,6 +24,7 @@ import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -770,4 +771,4 @@ def test_each_policy_walk_reports_a_monotone_curve(reading: str) -> None:
     for label in ("up", "random"):
         for cause in ("relapse", "death"):
             curve = [risk(result, label, t, cause) for t in (1, 2, 3)]
-            assert all(later >= earlier for earlier, later in zip(curve, curve[1:], strict=False))
+            assert all(later >= earlier for earlier, later in pairwise(curve))
