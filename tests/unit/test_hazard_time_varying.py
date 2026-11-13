@@ -30,7 +30,7 @@ from cleverly.exceptions import (
     MethodConfigurationError,
     RefusalReason,
 )
-from cleverly.interventions import Incremental, ModifiedPolicy, Stochastic
+from cleverly.interventions import Incremental, ModifiedPolicy, Shift, Stochastic
 from cleverly.longitudinal import (
     LTMLE,
     DynamicRegimen,
@@ -479,6 +479,28 @@ def test_a_one_level_up_policy_on_three_arms_is_exact(ratio: str) -> None:
     assert worst_miss(law, result, {"up": up_density(law), "low": one_hot(0, 3)}) < EXACT
 
 
+@pytest.mark.parametrize("case", ["plan", "covariate"])
+def test_a_continuous_dose_shift_at_node_one_is_exact(case: str) -> None:
+    """``Shift(1.0, cap=2.0)`` on the three-arm law read as a continuous dose: the slot branches
+    of a continuous node 1 (observed dose and branch dose)."""
+    import cleverly.interventions.policy as policy_module
+    from tests.longitudinal_mtp import exact_bins
+
+    law = HeldLaw(arms=3)
+    columns = law.columns()
+    columns["continuous_treatment"] = ["A"]
+    kw = covariate_case() if case == "covariate" else {}
+    with pytest.MonkeyPatch.context() as patch, exact_bins():
+        # The law's doses are the three atoms 0, 1, 2; the atom check would read them as a
+        # categorical node.
+        patch.setattr(policy_module, "_ATOM_CHECK", False)
+        with spied("node_slots") as calls:
+            result = fit(law, {"up": Shift(1.0, cap=2.0)}, columns=columns, **kw)
+    head = next(entry for entry in calls if entry.node == 1)
+    assert head.n_slots == 2
+    assert worst_miss(law, result, {"up": up_density(law)}) < EXACT
+
+
 def _tilt_columns(law: HeldLaw, frame: pd.DataFrame) -> dict[str, Any]:
     columns = law.columns()
     frame["p1"] = [
@@ -863,9 +885,16 @@ def test_a_continuation_cell_with_no_event_of_a_cause_is_held_at_zero() -> None:
 # --------------------------------------------------------------- L1 alone
 
 
-@pytest.mark.parametrize("pooling", ["node", "pooled"])
-def test_a_covariate_at_node_one_alone_is_the_baseline_fit(pooling: str) -> None:
-    """``W2`` as a node-1 block gives the fit with ``W2`` declared baseline."""
+@pytest.mark.parametrize(
+    ("model", "pooling"),
+    [("hazard", "node"), ("hazard", "pooled"), ("iterated_mean", "pooled")],
+)
+def test_a_covariate_at_node_one_alone_is_the_baseline_fit(model: str, pooling: str) -> None:
+    """``W2`` as a node-1 block gives the fit with ``W2`` declared baseline.
+
+    The iterated-mean case is pooled censoring, newly reachable since the pooled trigger reads
+    blocks after the first node only.
+    """
     law = HeldLaw(n_times=3)
     frame = law.frame()
     for name in ("L2", "L3"):
@@ -874,9 +903,13 @@ def test_a_covariate_at_node_one_alone_is_the_baseline_fit(pooling: str) -> None
     base["time_varying"] = [[], [], []]
     first = law.columns(l1=True)
     first["time_varying"] = [["W2"], [], []]
-    kw = {"hazard": CellMeans(), "hazard_pooling": pooling}
-    a = fit(law, STATIC, frame=frame, columns=base, continuation=False, **kw)
-    b = fit(law, STATIC, frame=frame, columns=first, continuation=False, **kw)
+    kw: dict[str, Any] = {"hazard": CellMeans(), "hazard_pooling": pooling}
+    if model == "hazard":
+        kw["continuation"] = False
+    else:
+        kw.update(continuation=CellMeans(), survival_model=model, targeting="iterative")
+    a = fit(law, STATIC, frame=frame, columns=base, **kw)
+    b = fit(law, STATIC, frame=frame, columns=first, **kw)
     for name, value in a.estimates.items():
         assert b.estimates[name].psi == pytest.approx(value.psi, abs=1e-12)
 
@@ -1011,6 +1044,22 @@ def test_a_bound_that_excludes_a_cell_warns_and_is_stamped_on_the_record() -> No
         assert {cell[0] for cell in record.bound_excludes_data} == {2}
         assert {entry[0] for entry in record.share_clipped} == {2}
     assert "node bounds clipped" in str(result.summary(detail="full"))
+
+
+def test_clusters_iterate_best_and_the_bootstrap_run_on_this_path() -> None:
+    """Smoke checks of three carried settings: each fit runs and stays exact where it can."""
+    law = HeldLaw(n_times=3)
+    frame = law.frame()
+    frame["cluster"] = np.arange(len(frame)) // 4
+    clustered = fit(law, STATIC, frame=frame, columns={**law.columns(), "id": "cluster"})
+    assert worst_miss(law, clustered, STATIC_DENSITIES) < EXACT
+    assert np.isfinite(clustered.estimates["risk_regimen[never @ t=3]"].std_error)
+    best = fit(law, STATIC, iterate="best")
+    assert worst_miss(law, best, STATIC_DENSITIES) < EXACT
+    assert all(node.best_iterate is not None for node in best.fits["never @ t=3"].hazard.nodes)
+    booted = fit(law, STATIC, n_bootstrap=3, random_state=0)
+    assert booted.bootstrap is not None
+    assert booted.bootstrap.n_failed == 0
 
 
 def test_cross_fitting_covers_the_truth_and_solves_every_node() -> None:
