@@ -30,7 +30,14 @@ from cleverly.exceptions import (
     RefusalReason,
 )
 from cleverly.interventions import Incremental, ModifiedPolicy, Stochastic
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData, Separable, SurvivalCTMLE
+from cleverly.longitudinal import (
+    LTMLE,
+    DynamicRegimen,
+    LongitudinalData,
+    Separable,
+    SurvivalCTMLE,
+    SurvivalDRTMLE,
+)
 from cleverly.longitudinal import hazard as hazard_module
 from cleverly.longitudinal import hazard_backward as backward
 from cleverly.longitudinal.hazard import HazardInputs, HazardState, _held_cells, scores, walk_loss
@@ -849,17 +856,31 @@ def _fit_settings() -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize("l1_only", [True, False])
-def test_the_companions_still_refuse_covariates_after_baseline(l1_only: bool) -> None:
-    """``SurvivalCTMLE`` and ``Separable`` keep their trigger, ``L_1`` alone included."""
-    law = HeldLaw(n_times=2, causes=2)
+def _l1_or_l2(law: HeldLaw, l1_only: bool) -> tuple[pd.DataFrame, dict[str, Any]]:
     frame = law.frame()
     columns = law.columns(l1=l1_only)
     if l1_only:
-        frame = frame.drop(columns="L2")
-        columns["time_varying"] = [["W2"], []]
-    with pytest.raises(CapabilityError):
-        SurvivalCTMLE(STATIC, **_fit_settings()).fit(frame, **columns)
+        frame = frame.drop(columns=[f"L{k}" for k in range(2, law.n_times + 1)])
+        columns["time_varying"] = [["W2"]] + [[] for _ in range(law.n_times - 1)]
+    return frame, columns
+
+
+@pytest.mark.parametrize("l1_only", [True, False])
+def test_the_companions_still_refuse_covariates_after_baseline(l1_only: bool) -> None:
+    """``SurvivalCTMLE``, ``SurvivalDRTMLE`` and ``Separable`` keep their trigger, ``L_1`` included."""
+    frame, columns = _l1_or_l2(HeldLaw(n_times=2), l1_only)
+    baseline_only = "with baseline covariates only"
+    with pytest.raises(CapabilityError, match=baseline_only):
+        SurvivalCTMLE(STATIC, outcome_learner=CellMeans()).fit(frame, **columns)
+    with pytest.raises(CapabilityError, match=baseline_only):
+        SurvivalDRTMLE(
+            STATIC,
+            reference=NEVER,
+            outcome_learner=CellMeans(),
+            treatment_learner=CellMeans(),
+            censoring_learner=CellMeans(),
+        ).fit(frame, **columns)
+    frame, columns = _l1_or_l2(HeldLaw(n_times=2, causes=2), l1_only)
     separable = Separable(arms={"relapse": 1, "death": 0}, first="relapse")
     with pytest.raises(CapabilityError, match="after baseline"):
         LTMLE(
