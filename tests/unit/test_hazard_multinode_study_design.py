@@ -263,9 +263,10 @@ class TestTheHeldCells:
         """Over the whole study and its pilot, a held fit is rare and never exhausts a bound.
 
         Each set of draws may lose ``floor(0.01 R)`` replicates (the failure bound, and the
-        pilot readings' own limit).  The expected held count of each set is ``R`` times
-        :func:`expected_held` at its own n, its excess over the allowance is a Poisson tail,
-        and the union of those tails over every set stays below 0.01.  The summed expected
+        pilot readings' own limit; a smoke label may drop one, :func:`held_allowance`).  The
+        expected held count of each set is ``R`` times :func:`expected_held` at its own n, its
+        excess over the allowance is a Poisson tail, and the union of those tails over every set
+        stays below 1e-3.  The summed expected
         count over the study and the pilot is recorded here: about 6.6 fits, all on the
         three-node law, against tens of thousands of draws.
         """
@@ -276,10 +277,10 @@ class TestTheHeldCells:
         tails = {}
         for what, name, n, draws in held_units():
             mean = draws * per_fit[(name, n)]
-            allowance = int(np.floor(properties.FAILURE_BOUND * draws))
+            allowance = held_allowance(draws)
             total += mean
             tails[what] = float(poisson.sf(allowance, mean))
-        assert sum(tails.values()) < 0.01, tails
+        assert sum(tails.values()) < 1e-3, tails
         assert total == pytest.approx(6.65, abs=0.05), total
         assert per_fit[("four", study.PRIMARY_N)] < 1e-8
         assert per_fit[("base", study.PRIMARY_N)] < 2e-4
@@ -521,16 +522,61 @@ def _kept(label: str) -> pd.DataFrame:
     """One pilot label's rows without its held draws, which the declared run would lose.
 
     Skips until the label is committed.  No draw may be refused, every draw is either kept or
-    held, and the held draws stay within the failure bound's allowance.
+    held, and the held draws stay within :func:`held_allowance`.
     """
     rows = _pilot(label)
     if rows.empty:
         pytest.skip(f"the pilot label {label} has not been committed")
     assert rows["refusal"].fillna("").eq("").all()
     held = rows.loc[rows["held"] == 1, "replicate"]
-    assert rows["replicate"].nunique() == pilot.PILOTS[label][1]
-    assert held.nunique() <= int(np.floor(properties.FAILURE_BOUND * pilot.PILOTS[label][1]))
+    draws = pilot.PILOTS[label][1]
+    assert rows["replicate"].nunique() == draws
+    assert held.nunique() <= held_allowance(draws), (label, held.nunique())
+    if held.nunique():
+        print(label, "held draws dropped:", held.nunique())
     return rows.loc[rows["held"] == 0]
+
+
+#: A pilot label below this many draws is a smoke that sets no count.
+SMOKE_DRAWS = 100
+
+
+def held_allowance(draws: int) -> int:
+    """The held draws a pilot label may drop: the failure bound's ``floor(0.01 R)``.
+
+    A smoke label (under :data:`SMOKE_DRAWS` draws, such as ``both_wrong_base``) sets no count,
+    and a held cell depends on the draw rather than on the configuration it smokes, so it may
+    drop one.  Every label that sets a count keeps the strict allowance.
+    """
+    strict = int(np.floor(properties.FAILURE_BOUND * draws))
+    return max(1, strict) if draws < SMOKE_DRAWS else strict
+
+
+#: The pass probability the joint band's pilot reading needs at the declared count.
+JOINT_PASS = 0.90
+
+
+def band_pass_probability(coverage: float, replicates: int, level: float = 0.99) -> float:
+    """The chance that the declared joint cell's exact interval lies inside the band.
+
+    At true joint coverage ``coverage``, the cell's covered count over ``replicates`` is
+    binomial, and the cell passes when the two-sided Clopper-Pearson interval at ``level`` lies
+    inside :attr:`Margins.calibration_coverage`, the rule
+    :func:`~tests.studies.evidence.property_verdicts.simultaneous_coverage_verdicts` reads.
+    """
+    from scipy.stats import beta as beta_law
+    from scipy.stats import binom
+
+    hits = np.arange(replicates + 1)
+    tail = (1.0 - level) / 2.0
+    with np.errstate(invalid="ignore"):
+        low = np.where(hits > 0, beta_law.ppf(tail, hits, replicates - hits + 1), 0.0)
+        high = np.where(
+            hits < replicates, beta_law.ppf(1.0 - tail, hits + 1, replicates - hits), 1.0
+        )
+    lower, upper = MARGINS.calibration_coverage
+    inside = (low >= lower) & (high <= upper)
+    return float(binom.pmf(hits[inside], replicates, coverage).sum())
 
 
 def _wrong_learner_errors(label: str, pilot_label: str | None = None) -> np.ndarray:
@@ -654,30 +700,62 @@ class TestTheSizes:
 
     @staticmethod
     def _calibration_rows(fit: str) -> pd.DataFrame:
+        """One calibration label's kept rows; fails while only some labels are committed.
+
+        The calibration count and the primary count read every calibration label together, so
+        a partial pilot is not a reason to skip silently: it fails until every label is in.
+        """
+        committed = [
+            other
+            for other in properties.CALIBRATION_FITS
+            if not _pilot(f"calibration_{other}").empty
+        ]
+        if committed and len(committed) < len(properties.CALIBRATION_FITS):
+            pytest.fail(
+                f"only the calibration pilots of {committed} are committed; the calibration and "
+                "primary counts read every label, so commit the rest before reading any"
+            )
         return _kept(f"calibration_{fit}")
+
+    def test_the_band_pass_probability(self) -> None:
+        """The joint-band rule passes a calibrated band and stops at a band near its edge."""
+        replicates = properties.CALIBRATION_REPLICATES
+        assert band_pass_probability(0.95, replicates) > 0.999
+        assert band_pass_probability(0.915, replicates) < 0.01
+        assert band_pass_probability(0.93, replicates) < JOINT_PASS
 
     @pytest.mark.parametrize("joint", study.JOINT_LABELS)
     def test_the_joint_band_pilot_meets_the_band(self, joint: str) -> None:
-        """The pilot's joint coverage has a 99% interval that meets the gated band.
+        """The declared joint cell passes with probability 0.90 at the pilot's coverage +/- 1 SE.
 
         The calibration pilots of ``base`` and ``four`` fit with ``simultaneous=True``, as the
         declared calibration fits do, so they read the band the ``simultaneous_coverage``
-        cells gate, over every estimate of the fit.
+        cells gate, over every estimate of the fit.  At the pilot's joint coverage minus and
+        plus one standard error, the 99% interval of the declared cell at
+        :data:`~tests.studies.hazard_multinode_properties.CALIBRATION_REPLICATES` must lie
+        inside the band with probability at least :data:`JOINT_PASS`
+        (:func:`band_pass_probability`).  A failure stops the declaration for a diagnosis; the
+        band is not widened.
         """
-        from scipy.stats import beta as beta_law
-
         rows = self._calibration_rows(joint.removesuffix("_curve"))
         band = rows.loc[rows["estimand"] == "joint_band", "covered"].to_numpy(dtype=float)
         pointwise = rows.loc[rows["estimand"] == "joint_pointwise", "covered"]
         assert band.size == rows["replicate"].nunique() == pointwise.size
-        hits, draws = int(band.sum()), band.size
-        low = float(beta_law.ppf(0.005, hits, draws - hits + 1)) if hits else 0.0
-        high = float(beta_law.ppf(0.995, hits + 1, draws - hits)) if hits < draws else 1.0
-        assert low <= MARGINS.calibration_coverage[1] and high >= MARGINS.calibration_coverage[0], (
-            low,
-            high,
-        )
-        print(joint, hits / draws, (low, high), "pointwise", float(pointwise.mean()))
+        coverage = float(band.mean())
+        error = float(np.sqrt(coverage * (1.0 - coverage) / band.size))
+        replicates = properties.CALIBRATION_REPLICATES
+        passes = {
+            edge: band_pass_probability(edge, replicates)
+            for edge in (coverage - error, coverage + error)
+        }
+        print(joint, coverage, error, passes, "pointwise", float(pointwise.mean()))
+        if min(passes.values()) < JOINT_PASS:
+            pytest.fail(
+                f"{joint}: at the pilot's joint coverage {coverage:.4f} +/- {error:.4f} the "
+                f"declared cell at {replicates} replicates passes with probability "
+                f"{min(passes.values()):.3f}, below {JOINT_PASS}; the declaration stops for a "
+                "diagnosis, and the band is not widened"
+            )
 
     def test_the_default_bound_reading(self) -> None:
         """Record each calibration pilot's share of draws in which 0.01 would have clipped.
