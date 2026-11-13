@@ -29,14 +29,15 @@ python -m tests.canonical.adaptive_tmle_trial.pilot --study selective --replicat
 
 ## Replaying the committed run
 
-The committed run predates two result-determining changes, so a replay at the current code does
-not reproduce its rows bit for bit. It took the lasso candidate from `default_library(task)` with
-no seed, so for a binary target the SAGA solver drew its sample order from numpy's global
-generator, and no two runs agreed: an A/B replay of 20 replicates moved every row, by a median of
-2e-5 and at most 0.007 in the estimate. `SuperLearner(random_state=...)` now gives that candidate
-the ensemble's seed. The run also predates `meta_learner="auto"` picking `cc_ls` for the
-regression outcome ensemble, where the run used NNLS. A replay therefore agrees with these rows
-only to within those two changes, until the study is rerun.
+The committed run predates two result-determining changes, so a replay at main reproduces its
+rows only approximately. Its lasso candidate came from `default_library(task)` with no seed, so
+for a binary target the SAGA solver drew its sample order from numpy's global generator and no
+two runs agreed; `SuperLearner(random_state=...)` now gives that candidate the ensemble's seed. The
+run also predates #605, which made `meta_learner="auto"` pick `cc_ls` for the regression outcome
+ensemble, where the run used NNLS. The owner decided on 2026-11-13 not to rerun for these changes
+("we should wait for a more substantial change than seeding to rerun studies"), so the study's
+`CONFIGURATION` keeps describing what the run ran. The Fix-5 A/B replay of 20 replicates measured
+the gap in the estimate at a median of 2e-5 and a maximum of 0.007.
 
 ## Declaration history
 

@@ -101,10 +101,9 @@ CONFIGURATION = {
     "learners": (
         "SuperLearner(spline GLM: SplineTransformer(5 knots, degree 3) + logistic or linear; "
         "HistGradientBoosting(max_depth=3, learning_rate=0.05, l2_regularization=1.0, "
-        "early_stopping=False); lasso of default_library), every candidate seeded by the "
-        "ensemble's random_state, meta_learner='nnloglik' with clip=(0.01, 0.99) for "
-        "probabilities, cc_ls for the outcome; K6: LinearRegression and LogisticRegression "
-        "main terms"
+        "early_stopping=False); lasso of default_library), meta_learner='nnloglik' with "
+        "clip=(0.01, 0.99) for probabilities, NNLS for the outcome; K6: LinearRegression and "
+        "LogisticRegression main terms"
     ),
     "cells": {name: vars(cell) for name, cell in CELLS.items()},
     "truth": base.CONFIGURATION["truth"],
