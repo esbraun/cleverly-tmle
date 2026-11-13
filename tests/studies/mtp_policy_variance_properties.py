@@ -1220,12 +1220,17 @@ def sized_replicates(pilot: pd.DataFrame) -> tuple[dict[str, int], int, pd.DataF
     """The declared sizing rule on the pilot: raise the weakest gated row by 400 until the
     family-wise pass probability reaches :data:`FAMILY_TARGET`.
 
-    Returns the fit sets' counts, the primary count and the final pass table.  A row at
-    :data:`R_CAP` stops the rule; the table then shows the shortfall.
+    Returns the fit sets' counts, the primary count and the final pass table.  When even
+    :data:`R_CAP` everywhere misses the target, the pilot limits the rule: the planned counts and
+    their table come back, and the target test fails on them.
     """
     replicates = dict(PLANNED_REPLICATES)
     primary = PLANNED_PRIMARY
     cells = pilot_cells(pilot)
+    capped = pass_table(pilot, dict.fromkeys(replicates, R_CAP), R_CAP, cells)
+    if family_wise(capped) < FAMILY_TARGET:
+        # No replication count reaches the target: the pilot, not R, limits it.
+        return replicates, primary, pass_table(pilot, replicates, primary, cells)
     while True:
         table = pass_table(pilot, replicates, primary, cells)
         if family_wise(table) >= FAMILY_TARGET:
