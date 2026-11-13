@@ -20,7 +20,12 @@ support rows `T53.in_sample.{binary,continuous}` and `T53.stacked.{binary,bounde
 deletion of the two `outcome_by_arm` conditions in
 `src/cleverly/estimators/_option_support.py` and the evidence page land with the
 registration, after the run. The support key already keeps a per-arm point fit off `T01` and a
-pooled projection fit off `T49`/`T50`, so the deletion changes no label until `T53` exists.
+pooled projection fit off `T49`/`T50`, so the deletion changes no label until `T53` exists. The `T53` limit text
+is to say that the study measures the interval of a per-arm fit, and that the evidence that the
+option is honoured is the fast-tier witness and the spy on the study's fits
+(`tests/unit/test_option_outcome_by_arm_witness.py`): no study cell would read differently if
+`outcome_by_arm=True` were ignored, because the pooled fit is also unbiased under the correct
+mechanism.
 
 ## Run
 

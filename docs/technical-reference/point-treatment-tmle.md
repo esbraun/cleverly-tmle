@@ -983,16 +983,19 @@ regression misses an arm-by-covariate interaction. An arm with few rows gives it
 few rows to learn from.
 
 **Evidence.** The declared study `option-outcome-by-arm` has not run, so a per-arm fit reads
-`experimental`. Its laws put an arm-by-covariate interaction in the outcome, so one logistic,
-linear or fractional-logistic regression per arm is correct and a pooled main-terms regression
-is not. It reads the interval of the per-arm fit in sample and stacked, on binary, continuous
-and bounded outcomes, and a double-robustness pair with per-arm intercepts. The pooled fit on
-the same draws is reported beside it. In the exact-law limit the pooled fit is unbiased, because
-the mechanism is correct, and its SE ratio is 1.0001 (binary) and 1.0010 (bounded). On this law
-the per-arm fit gains about 0.2% of SD in efficiency. `tests/unit/test_option_outcome_by_arm_witness.py`
-holds the fast-tier witness: on an exact finite law with an intercept-only mechanism, the
-per-arm fit returns the truth to $10^{-10}$, and the pooled fit misses it by the exact targeting
-limit of its regression.
+`experimental`. It will measure the interval of the per-arm fit in sample and stacked, on
+binary, continuous and bounded outcomes, and a double-robustness pair with per-arm intercepts.
+No study cell can show that the option was honoured: with the correct mechanism the pooled fit
+is also unbiased in the exact-law limit, with an SE ratio of 1.0001 (binary) and 1.0010
+(bounded), so every cell would read the same if the option were ignored. The pooled rows are
+reported for comparison and are not evidence that the option helps. The per-arm fit is more
+efficient by 0.19% of SD on the binary law and 2.36% on the bounded law.
+
+The evidence that the option does what it says is the fast tier. In
+`tests/unit/test_option_outcome_by_arm_witness.py`, on an exact finite law with an
+intercept-only mechanism, the per-arm fit returns the truth to $10^{-10}$ and the pooled fit
+misses it by the exact targeting limit of its regression. A spy on the study's own fits checks
+that each arm's regression reads only that arm's rows and the covariates.
 
 ### Treatment-mechanism covariates
 
