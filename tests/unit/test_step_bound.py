@@ -522,12 +522,13 @@ class TestTheLineStep:
 
 # ------------------------------------------------------------------------------ the walk's exit
 
-#: The exit of ``_solve_fluctuation_bounded`` before the search was exact, for both modes.
+#: The exit of ``_solve_fluctuation_bounded``: literal under the search, ``tol`` for the fixed step.
 NEW_EXIT = """if not met and (
             (length == 0.0 or np.array_equal(current.observed[mask], before))
             if step_search
             else float(np.max(np.abs(step))) <= tol
         ):"""
+#: The exit before the search was exact, for both modes.
 SHIPPED_EXIT = "if not met and float(np.max(np.abs(step))) <= tol:"
 
 

@@ -388,10 +388,12 @@ def test_the_hazard_step_checks_descent(monkeypatch: pytest.MonkeyPatch) -> None
     """The hazard step passes its loss and a positive absolute mass to the descent check.
 
     The clip can make the hazard line loss non-unimodal, so the step must not end above where it
-    started.  No mutation of the walk carries this claim: with the mass set to 0 the check trips
-    on the round-off rise of the last steps and halves them, but the walk still meets the count
-    and rate gates above (measured: horizon 1 in 9 iterations instead of 6).  This spy is the
-    witness, and ``test_step_bound.py`` tests the check itself on a line with a high valley.
+    started.  With the mass set to 0 the check trips on the round-off rise of the last steps and
+    halves them.  The one-cause walk above still meets its count and rate gates (horizon 1 in 9
+    iterations instead of 6).  The two-cause window gate of
+    :func:`test_a_two_cause_walk_converges_linearly` does fail (a cut of 4.1 against 6.5, from
+    8.4e-10 to 2.1e-10), but that margin is too thin for a control.  So this spy is the witness,
+    and ``test_step_bound.py`` tests the check itself on a line with a high valley.
     """
     calls: list[tuple[bool, float]] = []
     shipped = hazard_module._line_step

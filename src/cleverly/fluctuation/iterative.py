@@ -929,7 +929,7 @@ _ROOT_RTOL = 4.0 * float(np.finfo(float).eps)
 #: The smallest positive float, so that only the relative tolerance stops brentq and a step of
 #: ``1e-20`` is still found exactly.
 _ROOT_XTOL = float(np.finfo(float).tiny)
-#: brentq's iteration cap.  The measured searches took 5 to 31 slope evaluations.
+#: brentq's iteration cap.  The measured searches took 5 to 48 slope evaluations.
 _ROOT_MAXITER = 200
 #: The descent check's rounding slack, in ``eps`` times the absolute mass of the loss.  It covers
 #: ``eps * log2(N)`` for sums of up to ``2**64`` terms, and the round-off rise of about ``1e-16``

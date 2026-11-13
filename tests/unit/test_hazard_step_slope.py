@@ -7,7 +7,7 @@ person-node's term in its clipped logit (:class:`_WalkLine`).  These tests compa
 Richardson-extrapolated differences of the loss itself, on crafted states small enough to read:
 
 * state A holds softmax nodes: a logit released from the upper bound, the ratio-keeping shift
-  with a free and a held second cause, a logit moving in from the lower bound, a full cell, an
+  with a free and a held second cause, two causes tied at the upper bound, a logit moving in from the lower bound, a full cell, an
   empty cell, a zero-weight unit and non-uniform weights;
 * state B adds a bounded node, with a positive lower bound (so an outcome below 0 without an
   event), one logit held at the upper bound and one moving in from the lower bound;
@@ -58,17 +58,18 @@ HIGH = float(np.log(ALPHA / (1.0 - ALPHA)))
 LOW = -HIGH
 NEG = -np.inf
 
-#: Observed levels: units 0 to 3, 6 and 7 at level 0, units 4 and 5 at level 1.
-OBSERVED = np.array([0, 0, 0, 0, 1, 1, 0, 0])
+#: Observed levels: units 0 to 3 and 6 to 8 at level 0, units 4 and 5 at level 1.
+OBSERVED = np.array([0, 0, 0, 0, 1, 1, 0, 0, 0])
+N = OBSERVED.shape[0]
 #: Unit 7 has weight 0.  The others are non-uniform.
-WEIGHTS = np.array([1.3, 0.7, 1.1, 0.9, 1.2, 0.8, 1.0, 0.0])
+WEIGHTS = np.array([1.3, 0.7, 1.1, 0.9, 1.2, 0.8, 1.0, 0.0, 1.05])
 #: Events at node 1 (index 0): units 0 and 4 of cause 0, units 3 and 5 of cause 1.  At node 2
 #: (index 1): unit 1 of cause 0.  The cells (node 1, level 1) and its two units form a full cell.
-EVENTS = np.zeros((8, 2, 2))
+EVENTS = np.zeros((N, 2, 2))
 EVENTS[0, 0, 0] = EVENTS[4, 0, 0] = EVENTS[1, 1, 0] = 1.0
 EVENTS[3, 0, 1] = EVENTS[5, 0, 1] = 1.0
 #: At risk at node 2: the units without an event at node 1.
-AT_RISK = np.ones((8, 2), dtype=bool)
+AT_RISK = np.ones((N, 2), dtype=bool)
 AT_RISK[[0, 3, 4, 5], 1] = False
 EVENTS[~AT_RISK] = 0.0
 
@@ -83,6 +84,7 @@ OBSERVED_LOGITS = np.array(
         [[0.2, -0.4], [0.0, 0.0]],  # u5: full cell, free
         [[-0.5, 0.6], [-0.7, NEG]],  # u6: free; node 2 beside the empty cause
         [[0.9, -0.8], [0.1, NEG]],  # u7: weight 0
+        [[HIGH, HIGH], [0.2, NEG]],  # u8: two causes tied at the top, both moving up
     ]
 )
 OBSERVED_MOVES = np.array(
@@ -95,14 +97,15 @@ OBSERVED_MOVES = np.array(
         [[0.3, 0.7], [0.1, 0.2]],
         [[-0.4, 0.5], [-0.6, 0.3]],
         [[0.7, 0.6], [1.0, 1.0]],
+        [[0.6, 0.2], [0.3, 0.1]],
     ]
 )
 
 
 def place(observed: np.ndarray, fill: float) -> np.ndarray:
     """``(n, T, L, J)`` with ``observed`` at each unit's level and ``fill`` at the other."""
-    out = np.full((8, 2, 2, 2), fill)
-    out[np.arange(8), :, OBSERVED] = observed
+    out = np.full((N, 2, 2, 2), fill)
+    out[np.arange(N), :, OBSERVED] = observed
     return out
 
 
@@ -113,8 +116,8 @@ def inputs_of(full: np.ndarray, node_bounds: HazardBounds | None = None) -> Haza
         AT_RISK,
         EVENTS,
         OBSERVED,
-        np.ones((8, 2, 2)),
-        np.full((1, 8, 2), 0.5),
+        np.ones((N, 2, 2)),
+        np.full((1, N, 2), 0.5),
         WEIGHTS,
         ALPHA,
         empty,
@@ -156,6 +159,7 @@ def state_b() -> tuple[HazardState, HazardInputs, np.ndarray]:
         [0.0, 0.0],
         [-0.7, 0.5],
         [0.1, 0.4],
+        [0.2, -0.3],
     ]
     moves[:, 1] = [
         [0.5, 0.4],
@@ -166,6 +170,7 @@ def state_b() -> tuple[HazardState, HazardInputs, np.ndarray]:
         [0.1, 0.2],
         [-0.6, 0.3],
         [1.0, 1.0],
+        [0.3, 0.1],
     ]
     return (
         HazardState(place(logits, 0.0), full, BOUNDS),
@@ -273,8 +278,8 @@ def test_the_slope_is_the_derivative_of_the_walk_loss(name: str) -> None:
 
     The active set of the clip is asserted equal at both ends of each window.  Logits move
     affinely in the length, so equal ends mean a constant active set between them, where the
-    loss is smooth.  Measured relative gaps: 4e-13 to 7e-12 at the three lengths, 1.2e-11 and
-    1.4e-11 at 0, against the gate of 1e-8.
+    loss is smooth.  Measured relative gaps: 7e-13 to 1e-11 at the three lengths, 2.7e-12 and
+    1.3e-11 at 0, against the gate of 1e-8.
     """
     assert_matches_the_loss(name)
 
@@ -435,9 +440,10 @@ def fails(name: str, *, at_zero: bool = False) -> bool:
 class TestMutationControls:
     """Check 4: each control breaks one line, and the difference check of 1 or 2 fails.
 
-    Measured largest relative gaps under the mutants: clip ignored 0.99, shift without the top
-    rate 0.15, left-sided tangent 0.94 (at 0), bounded node without its scale 0.040, unit
-    weights 0.29, full cell left out 0.36, slope state without the empty hold 3.0e-3.
+    Measured largest relative gaps under the mutants: clip ignored 1.8, shift without the top
+    rate 0.55, left-sided tangent 1.7 (at 0), tie broken toward the smaller move 0.26 (at 0),
+    bounded node without its scale 0.32, unit weights 0.28, full cell left out 0.35, slope state
+    without the empty hold 2.2e-3.
     """
 
     def test_a_clip_that_is_ignored_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -468,6 +474,21 @@ class TestMutationControls:
             ),
             ("rising = (shifted == low) & (rate > 0.0)", "rising = shifted == low"),
             ("falling = (shifted == high) & (rate < 0.0)", "falling = shifted == high"),
+        )
+        assert fails("A", at_zero=True)
+
+    def test_a_tie_broken_toward_the_smaller_move_fails_at_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Unit 8 holds two causes at the upper bound, moving up at 0.6 and 0.2.  The top is the
+        # faster one, so the other falls at -0.4; the mutant keeps the slower one on top and
+        # holds both.
+        tangent_edit(
+            monkeypatch,
+            (
+                "ties = np.where(finite & (z == top[..., None]), m, -np.inf)",
+                "ties = np.where(finite & (z == top[..., None]), -m, -np.inf)",
+            ),
         )
         assert fails("A", at_zero=True)
 

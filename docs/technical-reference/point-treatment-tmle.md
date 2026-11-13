@@ -904,12 +904,13 @@ from the `LTMLE` fit of `TestEveryPerRegimenEngine` (`make_longitudinal(n=300, s
 | setting | result in the recorded run |
 | --- | --- |
 | `step_search=True`, default `max_iter=20` | 6 of 6 point fits reach `tol=1e-10`: 5 iterations on the continuous outcome, 7 or 8 on the binary one. A budget of 1,000 gives the same fits bit for bit |
-| `step_search=False`, any `max_iter` up to 1,000 | never reached. The walk lands within one bound of the root and oscillates, with a relative score of $8\times10^{-4}$ to $10^{-2}$ on the point fits |
+| `step_search=False`, any `max_iter` up to 1,000 | never reached. The walk lands within one bound of the root and oscillates, with a relative score of $5\times10^{-4}$ to $0.12$ on the point fits. It alternates between two values with the parity of the iteration |
 | `LTMLE` nodes (one column), search on | 4 of 4 nodes reach `relative` in 3 to 5 iterations. With search off, 0 of 4 within 200 |
 | `stopping="sample_size"` or `"scaled_var"`, search on | met in 0 to 5 iterations. The point fits take 0 or 1. With search off, 3 of 4 `LTMLE` nodes meet it within 20 |
 
 The walk is steepest descent with an exact line search, so it converges linearly, down to a
-round-off floor near $10^{-17}$ in relative score. With one column the rate is fast. With several
+round-off floor in relative score near $10^{-17}$ on the point walk and $3\times10^{-16}$ on the
+hazard walk. With one column the rate is fast. With several
 targets the factor per iteration is set by the spread of curvatures across the score columns, so
 the walk zig-zags. The two-cause hazard fit of `test_a_two_cause_walk_converges_linearly`
 (`tests/unit/test_hazard_targeting_rules.py`), with six targets, needs 43 iterations at horizon 2,
