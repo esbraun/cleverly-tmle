@@ -247,8 +247,25 @@ def fit_cleverly(
 ) -> Any:
     """The registered fit of one replication.
 
-    ``reduced_crossfit`` is a keyword so that ``multi-arm-drtmle-foldwise`` (Fix-6) fits this
-    construction rather than a copy of it.  Every row this study publishes uses the default.
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        One sample with its ``fold`` column.
+    scenario : str
+        The scenario; the fit does not depend on it.
+    simultaneous : bool, default False
+        Whether the fit also reports a simultaneous band.
+    require_unbounded : bool, default True
+        Whether an active propensity bound is refused.
+    reduced_crossfit : str, default ``CONFIGURATION["reduced_crossfit"]``
+        The reduced-regression construction.  A keyword so that
+        ``multi-arm-drtmle-foldwise`` (Fix-6) fits this construction with ``"foldwise"``
+        rather than a copy of it.  Every row this study publishes uses the default.
+
+    Returns
+    -------
+    Any
+        The single fitted result.
     """
     del scenario
     result = (

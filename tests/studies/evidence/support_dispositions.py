@@ -67,7 +67,8 @@ LIMIT_OWNERS = frozenset(
         # default passes on the cells' own draws (drtmle-foldwise-n1500).
         "RM18-one-sided-bias",
         # Fix-6 (D4): the standing record of the pooled reduced regressions; the foldwise
-        # default's bias contracts at second order (stratified-drtmle-foldwise).
+        # default's bias contracts faster than n^-1/2, consistent with second order
+        # (stratified-drtmle-foldwise).
         "X8-drtmle-one-sided-bias",
         "X8-identity-small-stratum",
         "X8-drtmle-small-stratum",
@@ -322,8 +323,10 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
         "D13",
         ("wald",),
-        LIMIT,
-        "X8-drtmle-small-stratum: bias 0.0013 to 0.0056, coverage 0.9073, SE ratio 0.8820",
+        # A defect suspect under the S1 reading, not a finite-sample limit: the row's Wald
+        # shortfall marks every D13 interval experimental until Fix-3 re-reads it.
+        EXPERIMENTAL,
+        "",
         "",
     ),
     (

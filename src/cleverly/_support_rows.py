@@ -1719,8 +1719,8 @@ def _d_rows() -> tuple[SupportRow, ...]:
                 LEAK,
                 "The red one-inconsistent-nuisance cells fit the pooled reduced regressions. "
                 "The foldwise default passes on their own draws at n = 1,500 "
-                "(drtmle-foldwise-n1500) and at n = 1,000 and 3,000 (drtmle-foldwise); row D11 "
-                "covers it.",
+                "(drtmle-foldwise-n1500), and in drtmle-foldwise for treatment_correct at "
+                "n = 1,000 and for both regimes at n = 3,000; row D11 covers it.",
             ],
         ),
         point_row(
@@ -1755,8 +1755,9 @@ def _d_rows() -> tuple[SupportRow, ...]:
                 LEAK,
                 "The red treatment_correct cells fit the pooled reduced regressions. Under the "
                 "foldwise default the marginal ATE bias reads 0.40, 0.27 and 0.20 SD at n = "
-                "2,000, 4,000 and 8,000 and contracts at second order (log-bias slope -1.07, "
-                "99% interval -1.22 to -0.93; stratified-drtmle-foldwise); row D13 covers it.",
+                "2,000, 4,000 and 8,000 and contracts faster than n^-1/2, consistent with second "
+                "order (log-bias slope -1.07, 99% interval -1.22 to -0.93; "
+                "stratified-drtmle-foldwise); row D13 covers it.",
             ],
         ),
         point_row(
@@ -1923,8 +1924,6 @@ def _d_rows() -> tuple[SupportRow, ...]:
                 "(drtmle-foldwise)."
             ],
         ),
-    ]
-    rows.append(
         # Fix-6: the default cross-fitted stratified fit, foldwise reduced regressions on the
         # canonical-stratified-drtmle law, and the X83 stratified outcome_correct cells.
         point_row(
@@ -1944,14 +1943,17 @@ def _d_rows() -> tuple[SupportRow, ...]:
                 "double_robustness/v2_ate__stratified",
             ],
             limits=[
-                "The smallest-stratum truth cell ey[1][V=2] is red (X8-drtmle-small-stratum).",
+                "The smallest-stratum truth cell ey[1][V=2] is red and a defect suspect "
+                "(X8-drtmle-small-stratum): its SE is under-reported by about 12% (SE ratio "
+                "0.882, 99% interval 0.858 to 0.908) and its coverage is 0.907, pending Fix-3's "
+                "small-stratum correction.",
                 "The treatment_correct bias is a finite-sample limit: the marginal ATE reads "
                 "0.40, 0.27 and 0.20 SD at n = 2,000, 4,000 and 8,000, and the marginal and v1 "
-                "slopes of log bias on log n are consistent with second order "
+                "biases contract faster than n^-1/2, consistent with second order "
                 "(stratified-drtmle-foldwise; X8-drtmle-one-sided-bias).",
             ],
-        )
-    )
+        ),
+    ]
     return _merged(
         rows,
         {
@@ -2472,6 +2474,12 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
     # under the same row id, and change the four dispositions of ``mtp-pricing`` in
     # ``tests/studies/evidence/support_dispositions.py`` (see ``_X40_PRICE_DOWN`` there).
+    ("D13", "wald"): (
+        "Row D13 is red for the smallest-stratum treated mean, a defect suspect pending Fix-3's "
+        # Roadmap: X8-drtmle-small-stratum.
+        "small-stratum correction: coverage 0.9073 and SE ratio 0.8820 (99% interval 0.8584 to "
+        "0.9079)."
+    ),
     ("G39.ltmle.tau5", "wald"): (
         "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
         "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
@@ -2524,7 +2532,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             " 1.0008"
         ),
     ),
-    "D13": ("X8-drtmle-small-stratum: bias 0.0013 to 0.0056, coverage 0.9073, SE ratio 0.8820",),
     "D10.outcome": (
         "composite-high-arm: bias -0.0054 to 0.0013, coverage 0.9225, SE ratio 0.9342",
     ),

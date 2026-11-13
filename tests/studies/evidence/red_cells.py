@@ -486,7 +486,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # size, shared by the shipped unstratified fit and by R drtmle. The standing record of
     # ``reduced_crossfit="pooled"``: the four cells keep their verdicts. A finite-sample limit
     # of the default (Fix-6 D4): in ``stratified-drtmle-foldwise`` the bias of the marginal ATE
-    # and of ``v1`` contracts at second order, the both-wrong controls fail to contract, and no
+    # and of ``v1`` contracts faster than n^-1/2, consistent with second order, the both-wrong controls fail to contract, and no
     # rung's SE-ratio row is red.
     "X8-drtmle-one-sided-bias": _keys(
         "canonical-stratified-drtmle",

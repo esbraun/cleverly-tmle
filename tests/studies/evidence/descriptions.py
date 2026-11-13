@@ -2215,8 +2215,8 @@ PROPERTIES: dict[str, str] = {
         "mechanism is correct"
     ),
     "stratified_contraction": (
-        "the one-correct bias of the stratified fit contracts at second order as the sample "
-        "grows: the slope of log absolute bias on log n is read for the marginal ATE and for "
+        "the one-correct bias of the stratified fit contracts faster than n^-1/2, consistent "
+        "with second order, as the sample grows: the slope of log absolute bias on log n is read for the marginal ATE and for "
         "stratum 1, each rung is judged on its SE ratio, and its coverage is published beside "
         "the coverage its bias and SE ratio imply"
     ),

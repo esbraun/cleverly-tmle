@@ -304,6 +304,9 @@ class TestDefaultStratifiedDRTMLE:
         )
 
     def test_a_default_cross_fitted_stratified_fit_reads_d13(self) -> None:
+        """Its Wald intervals are experimental (the small-stratum defect suspect), its points not."""
+        from cleverly._support import support_for
+
         data = frame(600, strata=True, seed=1)
         result = (
             self.estimator()
@@ -312,7 +315,13 @@ class TestDefaultStratifiedDRTMLE:
         )
         supports = {estimate.support for estimate in result.estimates.values()}
         assert {support.row for support in supports} == {"D13"}
-        assert {support.label for support in supports} == {"supported"}
+        assert {support.label for support in supports} == {"experimental"}
+        assert all("defect suspect" in support.reason for support in supports)
+        estimator, prepared, estimands = _build(self.estimator(), data, ("ey", "ate"))
+        classification = classify(estimator, prepared, estimands)
+        point = support_for(classification, "influence_curve", kind="point")
+        wald = support_for(classification, "influence_curve", kind="wald")
+        assert (point.label, wald.label) == ("supported", "experimental")
 
     def test_d13_is_keyed_on_the_stratified_foldwise_study_fit(self) -> None:
         from tests.studies.support_cases import case_key

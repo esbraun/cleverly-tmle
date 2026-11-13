@@ -152,7 +152,7 @@ class TestDefaults:
         assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
 
     def test_the_x8_one_sided_bias_owner_states_a_finite_sample_limit(self) -> None:
-        """Fix-6 D4: the default's stratified bias contracts at second order."""
+        """Fix-6 D4: the default's stratified bias contracts faster than n^-1/2."""
         assert "X8-drtmle-one-sided-bias" in sd.LIMIT_OWNERS
         assert "X8-drtmle-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
         lines = {
@@ -167,7 +167,10 @@ class TestDefaults:
         assert {entry.row for entry in lines.values()} == {"D03"}
         assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
 
-    def test_the_foldwise_small_stratum_row_is_a_stated_limit_of_d13(self) -> None:
+    def test_the_foldwise_small_stratum_row_marks_d13_wald_experimental(self) -> None:
+        """S1: a defect suspect, so a Wald shortfall on D13 rather than a stated limit."""
+        from cleverly._support_rows import SHORTFALLS
+
         key = RedKey(
             "stratified-drtmle-foldwise",
             "truth",
@@ -175,7 +178,9 @@ class TestDefaults:
         )
         entry = sd.DISPOSITIONS[key]
         assert (entry.row, entry.kinds) == ("D13", ("wald",))
-        assert entry.limit.startswith("X8-drtmle-small-stratum:")
+        assert (entry.disposition, entry.limit) == ("experimental", "")
+        assert key not in sd.NO_SHORTFALL
+        assert "defect suspect" in SHORTFALLS["D13", "wald"]
 
     def test_the_x20_crossfit_cell_is_experimental_and_the_clustered_cell_is_flagged(self) -> None:
         crossfit, clustered = self.draft(
