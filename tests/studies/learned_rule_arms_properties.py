@@ -164,6 +164,9 @@ SHIPPED_CONTROLS = (
     f"{COVERAGE_LABEL}__{COVERAGE_CONTROL}",
 )
 
+#: The null of each row's test, the package's default. It is the lower bound of the range, so
+#: under the logit interval every shown interval excludes it (:func:`shipped_interval_columns`).
+NULL = 0.0
 #: The integer harness columns, which a derived control must keep integer.
 INTEGER_COLUMNS = ("rule_rows_checked", "solver_warnings")
 
@@ -256,6 +259,7 @@ def shipped_interval_columns(rows: pd.DataFrame, *, alpha: float) -> pd.DataFram
     ``covered`` and ``rejected`` the fit reported (``test_learned_rule_arms_harness``).
     """
     scale = Transform.range_logit(0.0, 1.0)
+    assert NULL == 0.0, "rejected = 1 on a shown interval holds only for the null at the bound 0"
     covered, rejected = [], []
     columns = ("estimate", "std_error", "truth")
     for estimate, std_error, truth in rows.loc[:, columns].itertuples(index=False):

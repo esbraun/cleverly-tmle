@@ -5676,7 +5676,7 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It registered the plug-in rule over three arms, whose row needed both "
         "conservative_coverage verdicts to pass. Under the shipped logit interval of a bounded "
         "mean the positive cell reads coverage 0.9375 with a lower bound of 0.9173 against its "
-        "floor of 0.92 (interval-audit.parquet), so the row was withdrawn and a three-arm rule "
+        "floor of 0.92 (properties.csv), so the row was withdrawn and a three-arm rule "
         "reads experimental."
     ),
     "small-sample-wald": (

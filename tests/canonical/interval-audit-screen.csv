@@ -63,7 +63,7 @@ known-node-mechanisms,neutral,6,5,0.005,,,0,
 known-treatment-mechanism,neutral,18,17,0.014,,bootstrap_coverage/ate__known_g__q_wrong__percentile;known_mechanism_accuracy/ey1__known_g__multi_arm__q_wrong,0,
 known-treatment-mechanism-drtmle,neutral,15,15,0.006,,,0,
 learned-regimen-ltmle,neutral,6,6,0.003333,,,0,
-learned-rule-arms,rerun,0,0,0.0,,,0,"declared rerun under the shipped interval (commit 0473cca): its positive rows read the package's interval, and the red-cell ledger reads its cells from the rerun's tables"
+learned-rule-arms,neutral,4,0,0.0,,,0,
 learned-rule-compositions,neutral,8,8,0.008214,,,0,
 learned-rule-contrast,neutral,17,16,0.001667,,,0,
 learned-rule-cvtmle,neutral,7,7,0.001883,,,0,

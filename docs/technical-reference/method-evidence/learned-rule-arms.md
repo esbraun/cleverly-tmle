@@ -32,7 +32,7 @@ comparator.
 | support key | family `P11`, `treatment` `("arms3",)`, `splitting` `("fold_evaluated",)`, pinned by `test_the_fit_keys_three_arms_fold_evaluated` in `tests/unit/test_learned_rule_arms_harness.py` |
 | truth | per replication: refit each fold's outcome learner on the fit's training rows with the package's `fit_on_rows`, take the argmax at the three arms, require it to equal the fit's rule on every validation row and the stored fold rule on every row, and integrate $\bar Q_0(d_v(W), W)$ by the trapezoid rule on 4,001 points of $W_1$ for each $W_2$; weight $1/V$ |
 | stored variance | $V^{-2}\sum_v n_v^{-2}\sum_{i\in v} D_i^2$ of the stored curve |
-| interval | the package's interval of a bounded mean, $\operatorname{expit}\{\operatorname{logit}\hat\psi \pm 1.96\,\mathrm{SE}/(\hat\psi(1 - \hat\psi))\}$. The shrunken-SE, noise and shrunken coverage controls form the same interval at their own estimate and SE. The first run used $\hat\psi \pm 1.96\,\mathrm{SE}$, and the study is declared for a rerun under this interval on the same seeds |
+| interval | the package's interval of a bounded mean, $\operatorname{expit}\{\operatorname{logit}\hat\psi \pm 1.96\,\mathrm{SE}/(\hat\psi(1 - \hat\psi))\}$. The shrunken-SE, noise and shrunken coverage controls form the same interval at their own estimate and SE. The first run used $\hat\psi \pm 1.96\,\mathrm{SE}$. The committed run is its rerun under this interval on the same seeds |
 | primary budget | 1,200 replications of the `declared` fit |
 | primary verdicts | the framework defaults on the error: the 99% Student bias interval inside 0.25 SD, the lower end of the 99% Clopper-Pearson coverage interval at or above 0.90, and the SE-ratio interval inside 0.80 to 1.20 |
 | seeds | `seed=20268111` and `resampling_seed=20268112` |
@@ -67,7 +67,7 @@ the unit witnesses of the construction.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| three-arm law with a multinomial logistic treatment mechanism, a correct arm-interacted logistic outcome learner, fold-evaluated report | `ey_learned_rule[learned rule]` | fold average of the values of the three-arm rules learned on each training fold | `cleverly` cross-validated TMLE of the learned-rule value over three arms: each fold's rule the argmax of its outcome model over the arms, a tie to the lowest arm code, one pooled fluctuation and the fold-evaluated report | -0.0013 to 0.000915 | 0.9467 | 0.9974 | pass |
+| three-arm law with a multinomial logistic treatment mechanism, a correct arm-interacted logistic outcome learner, fold-evaluated report | `ey_learned_rule[learned rule]` | fold average of the values of the three-arm rules learned on each training fold | `cleverly` cross-validated TMLE of the learned-rule value over three arms: each fold's rule the argmax of its outcome model over the arms, a tie to the lowest arm code, one pooled fluctuation and the fold-evaluated report | -0.0013 to 0.000915 | 0.9475 | 0.9974 | pass |
 <!-- /generated -->
 
 ## Theory properties
@@ -100,10 +100,10 @@ cells carry.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `conservative_coverage` | `missing_quadratic__declared` | positive | the three-arm law with the arm-interacted logistic outcome learner without arm 2's quadratic term, so arm 2's regression is misspecified and arms 0 and 1 are exact: the declared fit with the correct multinomial logistic treatment model fitted by maximum likelihood | bias interval inside the margin, and the coverage interval's lower end at or above 0.92; the SE ratio is read by no verdict | bias -0.0019 to 0.000403, margin 0.0039, coverage 0.9201 to 0.9563, SE ratio 0.9960 | pass |
-| `conservative_coverage` | `missing_quadratic__shrunken_coverage_control` | control | the three-arm law with the arm-interacted logistic outcome learner without arm 2's quadratic term, so arm 2's regression is misspecified and arms 0 and 1 are exact: the declared fit's standard errors multiplied by 0.60 | the coverage interval must lie wholly below 0.92 | coverage 0.7294 to 0.7935, SE ratio 0.5976 | pass |
-| `interval_calibration` | `three_arms__declared` | positive | the three-arm law with the arm-interacted logistic outcome learner, a correct model: the declared fit with the study's logistic learners | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9311 to 0.9526, SE ratio 0.9559 to 1.0179 | pass |
-| `interval_calibration` | `three_arms__noise_control` | control | the three-arm law with the arm-interacted logistic outcome learner, a correct model: a declared scale of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | coverage 0.8213 to 0.8551, SE ratio 0.6969 to 0.7423 | pass |
+| `conservative_coverage` | `missing_quadratic__declared` | positive | the three-arm law with the arm-interacted logistic outcome learner without arm 2's quadratic term, so arm 2's regression is misspecified and arms 0 and 1 are exact: the declared fit with the correct multinomial logistic treatment model fitted by maximum likelihood | bias interval inside the margin, and the coverage interval's lower end at or above 0.92; the SE ratio is read by no verdict | bias -0.0019 to 0.000403, margin 0.0039, coverage 0.9173 to 0.9541, SE ratio 0.9960 | **fail** |
+| `conservative_coverage` | `missing_quadratic__shrunken_coverage_control` | control | the three-arm law with the arm-interacted logistic outcome learner without arm 2's quadratic term, so arm 2's regression is misspecified and arms 0 and 1 are exact: the declared fit's standard errors multiplied by 0.60 | the coverage interval must lie wholly below 0.92 | coverage 0.7312 to 0.7950, SE ratio 0.5976 | pass |
+| `interval_calibration` | `three_arms__declared` | positive | the three-arm law with the arm-interacted logistic outcome learner, a correct model: the declared fit with the study's logistic learners | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9304 to 0.9520, SE ratio 0.9559 to 1.0179 | pass |
+| `interval_calibration` | `three_arms__noise_control` | control | the three-arm law with the arm-interacted logistic outcome learner, a correct model: a declared scale of independent noise is added to each estimate | the SE-ratio interval must fall below the calibration band | coverage 0.8256 to 0.8590, SE ratio 0.6969 to 0.7423 | pass |
 | `interval_calibration` | `three_arms__shrunken_se_control` | control | the three-arm law with the arm-interacted logistic outcome learner, a correct model: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8632 to 0.8932, SE ratio 0.7644 to 0.8154 | pass |
 | `rule_margin_diagnostic` | `missing_quadratic__rule_margin` | diagnostic | the three-arm law with the arm-interacted logistic outcome learner without arm 2's quadratic term, so arm 2's regression is misspecified and arms 0 and 1 are exact: the declared fit's rules on every draw of the law cell, read against the outcome learner's limit rule | none. The cell reports the mean share of rows whose rule differs from the limit rule, the mean share whose own fold's top two arms lie within 0.01, the mean smallest arm share and the share of draws that leave an arm with no rows | limit disagreement 0.0383, near-tie share 0.0183, min arm share 0.2452, lost-arm share 0 | reported |
 | `rule_margin_diagnostic` | `three_arms__rule_margin` | diagnostic | the three-arm law with the arm-interacted logistic outcome learner, a correct model: the declared fit's rules on every draw of the law cell, read against the outcome learner's limit rule | none. The cell reports the mean share of rows whose rule differs from the limit rule, the mean share whose own fold's top two arms lie within 0.01, the mean smallest arm share and the share of draws that leave an arm with no rows | limit disagreement 0.0364, near-tie share 0.0165, min arm share 0.1772, lost-arm share 0 | reported |
@@ -113,37 +113,36 @@ cells carry.
 
 ## Result
 
-On the committed identity intervals every primary test and every gated property cell passed.
-Under the shipped logit interval one cell fails, as the support paragraph below says. The primary test reads a standardized
-bias of -0.014, coverage of 0.9467 and an SE ratio of 0.997 over 1,200 draws. The calibration
-positive reads an SE ratio of 0.986 and coverage of 0.9425 over 3,200 draws, both intervals inside
-their bands. Each control fails as declared.
+The primary test passes, and six of the seven gated property cells pass. The
+`missing_quadratic__declared` cell fails, as the support paragraphs below say. The primary test
+reads a standardized bias of -0.014, coverage of 0.9475 and an SE ratio of 0.997 over 1,200 draws.
+The calibration positive reads an SE ratio of 0.986 and coverage of 0.9419 over 3,200 draws, both
+intervals inside their bands. Each control fails as declared.
 
 | reading | value | source |
 | --- | --- | --- |
 | primary tests passed | 1 of 1 | `performance-tests.csv` |
-| gated property cells passed | 7 of 7 | `properties.csv` |
+| gated property cells passed | 6 of 7 | `properties.csv` |
 | diagnostic cells, reported with no verdict | 2 | `properties.csv`, `rule_margin_diagnostic` |
 | failed fits | 0 | `manifest.json`, `properties.csv` and the run log |
 | calibration SE-ratio interval | 0.9559 to 1.0179 | `properties.csv`, `three_arms__declared` |
-| calibration coverage interval | 0.9311 to 0.9526 | `properties.csv`, `three_arms__declared` |
-| coverage-floor lower endpoint | 0.9201 | `properties.csv`, `missing_quadratic__declared` |
+| calibration coverage interval | 0.9304 to 0.9520 | `properties.csv`, `three_arms__declared` |
+| coverage-floor lower endpoint | 0.9173 | `properties.csv`, `missing_quadratic__declared` |
 
 The support row was declared before the run: one P11 row with `treatment=("arms3",)` under the
 fold-evaluated report. It needed the primary bias leg, coverage floor and SE sanity, every
 `interval_calibration` verdict, both `conservative_coverage` verdicts and the `targeting_necessity`
-verdicts to pass. They did on the committed identity intervals, and the row `T45` was registered.
+verdicts to pass. They did on the first run's identity intervals, and the row `T45` was registered.
 
 The package then moved the interval of a bounded mean of a yes/no outcome to the logit scale
-([small-sample scale](../inference.md#small-sample-scale)). Read under that interval, on the first
-run's estimates and standard errors, the `missing_quadratic__declared` cell covered 0.9375, with a
-lower endpoint of 0.9173 against its floor of 0.92. So the row was withdrawn, and every three-arm
-fit reads experimental. The shift is chance: 11 of 1,200 fits sat at the boundary of one interval
-or the other, 4 gained and 7 lost, and the SE ratio is 0.996 (`properties.csv`). The study is
-declared for a rerun under the shipped interval on the same seeds, with the policy `reporting`, and
-the cell is published red with the owner
-[`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners). This page's tables are
-those of the first run until the rerun replaces them.
+([small-sample scale](../inference.md#small-sample-scale)). The study was rerun under that
+interval on the same seeds, with the policy `reporting`, and every estimate and standard error
+reproduced the first run's bit for bit. The `missing_quadratic__declared` cell now covers 0.9375,
+with a lower endpoint of 0.9173 against its floor of 0.92 (`properties.csv`), where the first run
+covered 0.940 with a lower endpoint of 0.9201. So the row was withdrawn, and every three-arm fit
+reads experimental. The shift is chance: 11 of 1,200 fits sat at the boundary of one interval or
+the other, 4 gained and 7 lost, and the SE ratio is 0.996. The cell is published red with the
+owner [`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners).
 
 ### The margin of the fitted rules
 
@@ -155,8 +154,8 @@ own limit rule. No draw of either cell left an arm without rows.
 
 ### Coverage under a misspecified arm
 
-With `missing_quadratic` the positive covers 0.940, with a lower endpoint of 0.9201, at a realized
-SE ratio of 0.996. The cells measure coverage when arm 2's outcome regression omits its quadratic
+With `missing_quadratic` the positive covers 0.9375, with a lower endpoint of 0.9173 below its
+floor of 0.92, at a realized SE ratio of 0.996. The cells measure coverage when arm 2's outcome regression omits its quadratic
 term and arms 0 and 1 are exact at the limit. They do not show that the interval is conservative.
 The curve omits the treatment model's projection term, and Corollary 2 of van der Laan and Luedtke
 (2015, eq. 11) makes that variance conservative for a maximum-likelihood $g$ in a correct model,
@@ -167,7 +166,7 @@ ratio of that term is 1.0004, so the study cannot tell that route from exact cal
 
 The targeted `drop_w1` value reads a standardized bias of -0.079, and its untargeted plug-in
 +4.23, so the two means sit 6.18 positive-arm SDs apart. The targeted arm's SE ratio of 0.948 and
-coverage of 0.932 are a weak-margin reading of a rule that has not settled at n = 2,000. No
+coverage of 0.934 are a weak-margin reading of a rule that has not settled at n = 2,000. No
 verdict reads them, and they are neither calibration evidence nor a claim of valid inference under
 a misspecified outcome model.
 
@@ -195,28 +194,28 @@ committed results and checked at the precision printed.
 | `paired_tests_total` | 0 | external comparisons declared |
 | `paired_tests_passed` | 0 | external comparisons passing |
 | `property_cells_total` | 7 | gated repeated-sampling property cells |
-| `property_cells_passed` | 7 | cells whose own and family verdicts pass |
+| `property_cells_passed` | 6 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 2 | diagnostic cells, reported with no verdict |
 | `subject_failures` | 0 | failed primary fits |
 | `max_standardized_bias` | 0.0139 | largest absolute primary bias in error SDs |
-| `min_coverage` | 0.9467 | lowest measured primary coverage |
-| `min_coverage_ci_lower` | 0.9277 | lowest exact 99% primary coverage endpoint, against 0.90 |
+| `min_coverage` | 0.9475 | lowest measured primary coverage |
+| `min_coverage_ci_lower` | 0.9286 | lowest exact 99% primary coverage endpoint, against 0.90 |
 | `min_se_ratio_ci_lower` | 0.9489 | lowest bootstrap primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.0523 | highest bootstrap primary SE-ratio endpoint |
 | `performance[cleverly-learned-rule-arms/three_arms/ey_learned_rule[learned rule]]:se_ratio` | 0.9974 | primary SE ratio |
-| `summary[cleverly-learned-rule-arms/three_arms/ey_learned_rule[learned rule]]:coverage_se` | 0.0065 | primary Monte Carlo coverage SE |
+| `summary[cleverly-learned-rule-arms/three_arms/ey_learned_rule[learned rule]]:coverage_se` | 0.0064 | primary Monte Carlo coverage SE |
 | `summary[cleverly-learned-rule-arms/three_arms/ey_learned_rule[learned rule]]:truth_min` | 0.7230 | the smallest primary truth |
 | `summary[cleverly-learned-rule-arms/three_arms/ey_learned_rule[learned rule]]:truth_max` | 0.7325 | the largest primary truth |
 | `properties[interval_calibration/three_arms__declared]:se_ratio` | 0.9860 | calibration SE ratio |
-| `properties[interval_calibration/three_arms__declared]:coverage` | 0.9425 | calibration coverage |
+| `properties[interval_calibration/three_arms__declared]:coverage` | 0.9419 | calibration coverage |
 | `properties[interval_calibration/three_arms__shrunken_se_control]:se_ratio_ci_upper` | 0.8154 | shrunken-SE control upper endpoint, against 0.93 |
 | `properties[interval_calibration/three_arms__noise_control]:se_ratio_ci_upper` | 0.7423 | noise-control upper endpoint, against 0.93 |
-| `properties[conservative_coverage/missing_quadratic__declared]:coverage` | 0.9400 | coverage with `missing_quadratic` |
+| `properties[conservative_coverage/missing_quadratic__declared]:coverage` | 0.9375 | coverage with `missing_quadratic` |
 | `properties[conservative_coverage/missing_quadratic__declared]:se_ratio` | 0.9960 | its realized SE ratio, which no verdict reads |
-| `properties[conservative_coverage/missing_quadratic__shrunken_coverage_control]:coverage_ci_upper` | 0.7935 | coverage-control upper endpoint, against 0.92 |
+| `properties[conservative_coverage/missing_quadratic__shrunken_coverage_control]:coverage_ci_upper` | 0.7950 | coverage-control upper endpoint, against 0.92 |
 | `properties[targeting_necessity/drop_w1__targeted]:standardized_bias` | -0.0792 | necessity positive standardized bias |
 | `properties[targeting_necessity/drop_w1__targeted]:se_ratio` | 0.9475 | its SE ratio, which no verdict reads |
-| `properties[targeting_necessity/drop_w1__targeted]:coverage` | 0.9317 | its coverage, which no verdict reads |
+| `properties[targeting_necessity/drop_w1__targeted]:coverage` | 0.9342 | its coverage, which no verdict reads |
 | `properties[targeting_necessity/drop_w1__untargeted]:standardized_bias` | 4.2347 | necessity control standardized bias |
 | `properties[targeting_necessity/drop_w1__targeted]:targeting_displacement` | 6.1835 | displacement between the arms, in positive-arm SDs, against 0.5 |
 | `properties[rule_margin_diagnostic/three_arms__rule_margin]:mean_limit_disagreement` | 0.0364 | mean share of rows whose rule differs from the limit rule, correct model |
@@ -266,7 +265,7 @@ committed results and checked at the precision printed.
 | The no-tie condition is the package's own step | C3 for the argmax asks that the top two arms of the learner's limit tie only on a set of probability zero. The sources are silent on multi-arm exceptional laws, and the study measures two laws that meet the margin condition, not one near a tie |
 | Coverage, not conservativeness, under a misspecified arm | With `missing_quadratic` the cells claim coverage at or above 0.92, at a realized SE ratio of 0.996, and no SE calibration. Arms 0 and 1 are exact at that limit, and the omitted projection term is negligible there (predicted SE ratio 1.0004), so the study does not test the conservative-variance route of Corollary 2, which the paper extends to the cross-validated TMLE by analogy only |
 | One treatment learner | The coverage was measured only with a correct parametric $g$ fitted by maximum likelihood. A known $g$ (`treatment_probabilities=`, which keys `known_mechanism` and matches no row) and a super-learner $g$ were not measured |
-| A necessity pair that reads bias only | The `drop_w1` fold rules have not settled at n = 2,000, so its targeted SE ratio of 0.948 and coverage of 0.932 are a weak-margin reading. They are not calibration evidence, and the pair does not show valid inference under a misspecified outcome model |
+| A necessity pair that reads bias only | The `drop_w1` fold rules have not settled at n = 2,000, so its targeted SE ratio of 0.948 and coverage of 0.934 are a weak-margin reading. They are not calibration evidence, and the pair does not show valid inference under a misspecified outcome model |
 | Pointwise intervals | The study reads the pointwise interval of the one learned-rule value |
 | One necessity draw with solver warnings | One `drop_w1` draw of 1,200 raised two convergence warnings and was kept. No other draw warned |
 

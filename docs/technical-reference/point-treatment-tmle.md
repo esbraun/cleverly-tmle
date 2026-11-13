@@ -2044,9 +2044,10 @@ match the population shares of the stub's argmax regions, which an arm-index shi
 The [three-arm study](method-evidence/learned-rule-arms.md) calibrates the fold-evaluated value
 over three arms at n = 2,000 with ten folds, on one law whose learners' limits give every arm a
 share of at least 0.175 and put the top two arms within 0.01 of each other on at most 1.8% of
-the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9425 over
+the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9419 over
 3,200 draws. When arm 2's outcome regression omits its quadratic term, with the correct
-multinomial $g$ fitted by maximum likelihood, the interval covers 0.940 at an SE ratio of 0.996.
+multinomial $g$ fitted by maximum likelihood, the interval covers 0.9375 at an SE ratio of 0.996,
+and the lower end of its 99% coverage interval, 0.9173, falls below the cell's floor of 0.92.
 There the omitted projection term is negligible (a predicted SE ratio of 1.0004), so the study
 measures coverage under a misspecified arm and does not test the conservative-variance route.
 

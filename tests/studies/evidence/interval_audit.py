@@ -18,7 +18,8 @@ column from the record and every committed column from the study's row files.
 The committed ``properties.csv`` and ``performance-tests.csv`` stay as the record of the
 identity interval.  A study rerun under the shipped interval records it in its own rows and has
 no audit: ``learned-rule-arms`` left this list when its conservative coverage cell went red on
-logit and the study was declared for a rerun.  Write or refresh an audit file with::
+logit and was rerun under the shipped interval, so the screen reads its rows directly.  Write
+or refresh an audit file with::
 
     python -m tests.studies.evidence.interval_audit canonical-stratified-tmle
 
@@ -463,13 +464,9 @@ SCREEN_COLUMNS = (
 
 #: Studies whose committed rows are declared to carry the shipped interval already, so the screen
 #: does not recompute them: a rerun replaces their rows, and recomputing the first run's rows would
-#: describe a record the rerun withdraws.
-RERUN: dict[str, str] = {
-    "learned-rule-arms": (
-        "declared rerun under the shipped interval (commit 0473cca): its positive rows read the "
-        "package's interval, and the red-cell ledger reads its cells from the rerun's tables"
-    ),
-}
+#: describe a record the rerun withdraws. A study leaves when its rerun is committed, because its
+#: rows then carry the shipped interval and the ordinary screen reads them with no change.
+RERUN: dict[str, str] = {}
 
 #: Why a study outside :data:`AUDITS` holds no verdict the shipped interval can move, for each
 #: study whose screen row records a flip.  The screen treats every positive row group with
