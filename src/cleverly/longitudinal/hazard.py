@@ -13,7 +13,10 @@ with :math:`S(k \mid a, W) = \prod_{s \le k}(1 - \sum_l \lambda_l(s \mid a, W))`
 :math:`F_j(t \mid a, W) = \sum_{k \le t} S(k - 1 \mid a, W)\,\lambda_j(k \mid a, W)`.  The
 parameter of regimen :math:`r` and cause :math:`j` at horizon :math:`t` is
 :math:`\psi_{r,j}(t) = E \sum_a q_r(a \mid W) F_j(t \mid a, W)`, where :math:`q_r` is a
-static arm, a known rule or a known policy at the one baseline decision.
+static arm, a known rule or a known policy at the one baseline decision.  A modified
+treatment policy :math:`d` has the parameter
+:math:`\psi_{d,j}(t) = E \sum_b p_b F_j(t \mid d_b(A, W), W)` and its own weighted walk
+(:func:`target_mtp`).
 
 The efficient influence function (Moore and van der Laan 2009, Section 4.1, (11)-(16);
 Rytgaard and van der Laan 2024, Section 3.1) is
