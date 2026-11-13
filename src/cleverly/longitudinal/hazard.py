@@ -1959,6 +1959,19 @@ def path_slots(data: LongitudinalData, plans: Sequence[Plan]) -> PathSlots:
     CapabilityError
         When the predicted traced peak exceeds :data:`PATH_PEAK_LIMIT` (H17).
     """
+    paths, masses, owners, draws = _enumerate_paths(data, plans)
+    return _path_structure(data, len(plans), paths, masses, owners, draws)
+
+
+def _enumerate_paths(
+    data: LongitudinalData, plans: Sequence[Plan]
+) -> tuple[list[FloatArray], list[FloatArray], list[int], tuple[int, ...]]:
+    """Every regimen's ``(n, T)`` treatment paths, their ``(n,)`` masses and owners.
+
+    Each regimen's paths are built from the regimen on every row (:func:`path_slots`), with
+    the cap (H17) checked after every node.  The fourth entry counts, per regimen, the nodes
+    at which it draws from a known policy.
+    """
     from .regimen import DynamicRegimen, Regimen, counterfactual_policy_density
 
     n, n_times = data.n, data.n_times
@@ -2037,8 +2050,23 @@ def path_slots(data: LongitudinalData, plans: Sequence[Plan]) -> PathSlots:
             masses.append(mass)
             owners.append(r)
         draws.append(drawn)
+    return paths, masses, owners, tuple(draws)
+
+
+def _path_structure(
+    data: LongitudinalData,
+    n_regimens: int,
+    paths: Sequence[FloatArray],
+    masses: Sequence[FloatArray],
+    owners: Sequence[int],
+    draws: tuple[int, ...],
+) -> PathSlots:
+    """The masses, prefix classes, observed matches and held-cell keys of the paths."""
+    from .regimen import Regimen
+
+    n, n_times = data.n, data.n_times
     n_slots = len(paths)
-    q = np.zeros((len(plans), n, n_slots))
+    q = np.zeros((n_regimens, n, n_slots))
     for u, (owner, mass) in enumerate(zip(owners, masses, strict=True)):
         q[owner, :, u] = mass
     stacked = np.stack(paths, axis=2)  # (n, T, U)
@@ -2086,7 +2114,7 @@ def path_slots(data: LongitudinalData, plans: Sequence[Plan]) -> PathSlots:
         cells=cells,
         observed_cells=observed_cells,
         n_cells=n_cells,
-        draws=tuple(draws),
+        draws=draws,
     )
 
 

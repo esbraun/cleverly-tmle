@@ -241,8 +241,8 @@ def _policy_truth(node: int, w: int, previous: int) -> float:
 
 
 def _stay_truth(node: int, w: int, previous: int) -> float:
-    """Treat at node 1, then stay on the previous arm."""
-    return 1.0 if node == 1 else float(previous)
+    """Treat at node 1 with probability ``0.3 + 0.1 W``, then stay on the previous arm."""
+    return 0.3 + 0.1 * w if node == 1 else float(previous)
 
 
 def _rule_node(node: int) -> Callable[[Any], Any]:
@@ -265,6 +265,9 @@ def _policy_density(node: int, n_times: int) -> Stochastic:
 
 def _stay_density(node: int) -> Stochastic:
     def density(h: Any) -> np.ndarray:
+        if node == 1:
+            p = 0.3 + 0.1 * np.asarray(h["W"], dtype=float)
+            return np.column_stack([1.0 - p, p])
         previous = np.asarray(h[f"A{node - 1}"], dtype=float)
         return np.column_stack([1.0 - previous, previous])
 
@@ -282,7 +285,7 @@ def regimens(n_times: int = 3) -> dict[str, Any]:
         "policy": DynamicRegimen(
             "policy", tuple(_policy_density(k, n_times) for k in range(1, n_times + 1))
         ),
-        "stay": DynamicRegimen("stay", (1, *(_stay_density(k) for k in range(2, n_times + 1)))),
+        "stay": DynamicRegimen("stay", tuple(_stay_density(k) for k in range(1, n_times + 1))),
     }
 
 
