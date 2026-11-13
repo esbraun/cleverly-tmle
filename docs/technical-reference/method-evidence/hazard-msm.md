@@ -90,10 +90,9 @@ evidence.
 <!-- generated: accuracy -->
 <!-- /generated -->
 
-The primary rows draw 1,600 samples of 2,000 rows for each scenario and report all twelve
-coefficients. The count is provisional: the shared primary rule
-(`repeated_sizing.primary_replicates`) sets it from the `survival_logit` and `competing_logit`
-calibration pilots, which have not run.
+The primary rows draw 2,400 samples of 2,000 rows for each scenario and report all twelve
+coefficients. The shared primary rule (`repeated_sizing.primary_replicates`) sets the count from
+the committed `survival_logit` and `competing_logit` calibration pilots.
 
 ## Agreement with the canonical implementation
 
@@ -107,8 +106,8 @@ calibration pilots, which have not run.
 
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
-| `interval_calibration` | each coefficient of the three fits, with the shrunken-SE and noise controls on the four `survival` coefficients | 4,000 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
-| `simultaneous_coverage` | the band over the four `survival` coefficients, and its pointwise control | 4,000 at n = 2,000 | joint coverage outside the calibration band |
+| `interval_calibration` | each coefficient of the three fits, with the shrunken-SE and noise controls on the four `survival` coefficients | 5,200 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
+| `simultaneous_coverage` | the band over the four `survival` coefficients, and its pointwise control | 5,200 at n = 2,000 | joint coverage outside the calibration band |
 | `double_robustness` | the `survival` coefficient of $a W_1$ with both, one or neither nuisance correct, and the `competing` death coefficient of $a W_1$ with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000 | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
 | `targeting_necessity` | the same coefficient from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000 | the targeted bias outside the margin, or a displacement below 0.25 |
 | `root_n_and_efficiency`, `root_n_rate` | the four `survival` coefficients at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
@@ -117,8 +116,9 @@ calibration pilots, which have not run.
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`:
 each cell passes with probability at least 0.90, and all thirteen arms pass together with
-probability at least 0.95, at a pilot of 8,000 draws that reads a ratio of one. The committed
-calibration pilot replaces that reading once it runs. At 4,000 replicates the shrunken-SE control
+probability at least 0.95, read from the committed calibration pilot of 8,000 draws per fit. Its
+coverage runs from 0.947 to 0.954 and its SE ratio from 0.99 to 1.02 on every coefficient. At 5,200
+replicates the shrunken-SE control
 leaves the SE-ratio band and the noise control leaves the efficiency band with probability above
 0.999.
 

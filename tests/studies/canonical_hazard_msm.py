@@ -72,11 +72,9 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-#: PROVISIONAL.  A placeholder until the calibration pilot is committed: the shared primary rule
-#: (``repeated_sizing.primary_replicates``, read by the design test) then sets this count from
-#: the ``survival_logit`` and ``competing_logit`` calibration pilots, in a declaration commit
-#: with no skipped design test, before any declared run.
-PRIMARY_REPLICATES = 1_600
+#: The shared primary rule (``repeated_sizing.primary_replicates``, read by the design test) sets
+#: this count from the committed ``survival_logit`` and ``competing_logit`` calibration pilots.
+PRIMARY_REPLICATES = 2_400
 PRIMARY_N = 2_000
 SEED = 20261117
 RESAMPLING_SEED = 2026111701

@@ -18,7 +18,7 @@ family                          cells, replications and size
 ==============================  ===========================================================
 ``interval_calibration``        each coefficient of ``survival_logit`` (with the shrunken-SE
                                 and noise controls), ``survival_identity_a_W1``, and each
-                                coefficient of ``competing_logit``; 4,000 fits per law and
+                                coefficient of ``competing_logit``; 5,200 fits per law and
                                 link at n = 2,000
 ``double_robustness``           ``survival_logit_a_W1`` in four nuisance configurations, and
                                 ``competing_logit_a_W1_death`` with the wrong hazard learner
@@ -125,7 +125,7 @@ NECESSITY_N = 2_000
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
-CALIBRATION_REPLICATES = 4_000
+CALIBRATION_REPLICATES = 5_200
 POWER_REPLICATES = 800
 POWER_N = 2_000
 DIFFERENCE_REPLICATES = 800
