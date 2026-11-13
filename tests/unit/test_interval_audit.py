@@ -172,3 +172,34 @@ def test_the_learned_rule_conservative_cell_falls_below_its_floor() -> None:
     assert _cp_lower(rows["covered_shipped"]) == pytest.approx(0.9173, abs=5e-5)
     floor = audit.record_for("learned-rule-arms").margins.calibration_coverage[0]
     assert _cp_lower(rows["covered_shipped"]) < floor <= _cp_lower(rows["covered_committed"])
+
+
+@pytest.mark.parametrize("slug", ["canonical-stratified-tmle", "learned-rule-arms"])
+def test_the_shipped_property_verdicts_are_the_study_summary(slug: str) -> None:
+    """``interval-audit-properties.csv`` is the study's own summary of the shipped rows."""
+    record = audit.record_for(slug)
+    committed = audit.read_properties(record)
+    assert committed is not None
+    again = audit.shipped_properties(record)
+    pd.testing.assert_frame_equal(
+        again[["property", "cell", "coverage", "passed", "property_passed"]],
+        committed[["property", "cell", "coverage", "passed", "property_passed"]],
+        check_dtype=False,
+    )
+
+
+def test_the_ledger_reads_the_shipped_red_cell() -> None:
+    """The conservative cell passes in `properties.csv` and is red in the ledger."""
+    from tests.studies.evidence import red_cells
+
+    record = audit.record_for("learned-rule-arms")
+    committed = pd.read_csv(record.artifacts / "properties.csv").set_index("cell")
+    assert bool(committed.loc["missing_quadratic__declared", "passed"])
+    rows = red_cells.red_rows(record, red_cells.frames(record))
+    assert [(row.key.key, row.fails_by) for row in rows] == [
+        (
+            "conservative_coverage/missing_quadratic__declared",
+            "its own rule under the shipped interval (interval audit)",
+        )
+    ]
+    assert red_cells.OWNERS[rows[0].key] == "learned-rule-arms-coverage-draws"

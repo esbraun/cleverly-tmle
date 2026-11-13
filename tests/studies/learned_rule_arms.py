@@ -228,7 +228,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     efficiency_bounds=EFFICIENCY_BOUNDS,
     calibration_efficiency_ratio=False,
-    publication_policy="gated",
+    publication_policy="reporting",
     extra_artifacts=(HARNESS_ARTIFACT,),
     truth_varies_by_replicate=True,
 )

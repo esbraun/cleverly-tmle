@@ -57,7 +57,7 @@ from typing import Any
 import pandas as pd
 
 from tests.documents import pipe_table
-from tests.studies.evidence import failures, property_failures, property_verdicts
+from tests.studies.evidence import failures, interval_audit, property_failures, property_verdicts
 from tests.studies.evidence.comparison import ComparisonVerdict, comparison_verdict
 from tests.studies.evidence.document import _CLOSE, _OPEN, _table, measured, render
 from tests.studies.evidence.manifest import write_lines
@@ -426,6 +426,9 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
     ),
     # The in-sample band over the arm mean near 0.94 in the smallest stratum.
+    "learned-rule-arms-coverage-draws": _keys(
+        "learned-rule-arms", "property", "conservative_coverage/missing_quadratic__declared"
+    ),
     "strata-boundary-mean": _keys(
         "canonical-stratified-tmle",
         "property",
@@ -904,6 +907,9 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
         if path.exists()
         else pd.DataFrame(columns=list(property_failures.PROPERTY_ACCOUNTING_COLUMNS))
     )
+    audited = record.artifact(interval_audit.PROPERTIES_FILE)
+    if audited.exists():
+        tables["shipped_properties"] = pd.read_csv(audited)
     return tables
 
 
@@ -1164,6 +1170,27 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         else:
             fails_by = override or ("its own rule" if not own else "the family's joint clause")
         out.append(RedRow(red_key, str(row.role), fails_by, measured(row) + suffix))
+
+    # A cell that passes on the committed identity interval and fails under the shipped logit
+    # interval of a bounded mean is red too.  The interval audit recomputes it from the
+    # committed rows (``interval-audit-properties.csv``); the committed table stays the record.
+    shipped = tables.get("shipped_properties")
+    if shipped is not None:
+        committed = tables["properties"].set_index(["property", "cell"])
+        for row in shipped.itertuples():
+            if bool(row.passed) and bool(row.property_passed):
+                continue
+            before = committed.loc[(row.property, row.cell)]
+            if not (bool(before["passed"]) and bool(before["property_passed"])):
+                continue
+            out.append(
+                RedRow(
+                    RedKey(record.slug, "property", f"{row.property}/{row.cell}"),
+                    str(row.role),
+                    "its own rule under the shipped interval (interval audit)",
+                    measured(row),
+                )
+            )
 
     hooks = accounting.loc[accounting["table"] == "hook"]
     for row in hooks.itertuples():

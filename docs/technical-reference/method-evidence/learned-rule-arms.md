@@ -31,11 +31,11 @@ comparator.
 | treatment learner | `LogisticRegression(C=inf, max_iter=5000)` on $(W_1, W_2)$, the multinomial maximum-likelihood fit of a correct model |
 | support key | family `P11`, `treatment` `("arms3",)`, `splitting` `("fold_evaluated",)`, pinned by `test_the_fit_keys_three_arms_fold_evaluated` in `tests/unit/test_learned_rule_arms_harness.py` |
 | truth | per replication: refit each fold's outcome learner on the fit's training rows with the package's `fit_on_rows`, take the argmax at the three arms, require it to equal the fit's rule on every validation row and the stored fold rule on every row, and integrate $\bar Q_0(d_v(W), W)$ by the trapezoid rule on 4,001 points of $W_1$ for each $W_2$; weight $1/V$ |
-| stored variance | $V^{-2}\sum_v n_v^{-2}\sum_{i\in v} D_i^2$ of the stored curve. The interval is $\hat\psi \pm 1.96\,\mathrm{SE}$ |
+| stored variance | $V^{-2}\sum_v n_v^{-2}\sum_{i\in v} D_i^2$ of the stored curve. The committed interval is $\hat\psi \pm 1.96\,\mathrm{SE}$; the package now forms it on the logit scale |
 | primary budget | 1,200 replications of the `declared` fit |
 | primary verdicts | the framework defaults on the error: the 99% Student bias interval inside 0.25 SD, the lower end of the 99% Clopper-Pearson coverage interval at or above 0.90, and the SE-ratio interval inside 0.80 to 1.20 |
 | seeds | `seed=20268111` and `resampling_seed=20268112` |
-| policy | `gated` |
+| policy | `reporting`, moved from `gated` when the shipped logit interval turned one cell red |
 
 A law cell gates only when its outcome learner's population limit meets a margin condition
 declared before any draw: every arm's share of the limit rule is at least 0.10, and the top two
@@ -112,7 +112,8 @@ cells carry.
 
 ## Result
 
-Every primary test and every gated property cell passed. The primary test reads a standardized
+On the committed identity intervals every primary test and every gated property cell passed.
+Under the shipped logit interval one cell fails, as the support paragraph below says. The primary test reads a standardized
 bias of -0.014, coverage of 0.9467 and an SE ratio of 0.997 over 1,200 draws. The calibration
 positive reads an SE ratio of 0.986 and coverage of 0.9425 over 3,200 draws, both intervals inside
 their bands. Each control fails as declared.
@@ -130,10 +131,16 @@ their bands. Each control fails as declared.
 The support row was declared before the run: one P11 row with `treatment=("arms3",)` under the
 fold-evaluated report. It needed the primary bias leg, coverage floor and SE sanity, every
 `interval_calibration` verdict, both `conservative_coverage` verdicts and the `targeting_necessity`
-verdicts to pass. They did, so the registered row `T45` covers the plug-in rule over three arms
-under the fold-evaluated report on rows. Four or more arms, weights, clusters, strata, fold
-targeting, several splits, the stacked report, the in-sample fit and known regimes beside the
-rule over three arms stay experimental.
+verdicts to pass. They did on the committed identity intervals, and the row `T45` was registered.
+The package then moved the interval of a bounded mean of a yes/no outcome to the logit scale
+([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
+standard errors the `missing_quadratic__declared` cell covers 0.9375, with a lower endpoint of
+0.9173 against its floor of 0.92 (`tests/canonical/learned_rule_arms/interval-audit.parquet`), so
+the row was withdrawn and every three-arm fit reads experimental. The cell is published red under
+`reporting` with the owner
+[`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners). The shift is chance: 11 of
+1,200 fits sit at the boundary of one interval or the other, 4 gained and 7 lost, and the SE ratio
+is 0.996 (`properties.csv`).
 
 ### The margin of the fitted rules
 

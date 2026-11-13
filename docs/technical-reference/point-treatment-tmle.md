@@ -1911,7 +1911,7 @@ assigns that arm.
 
 | composition | result |
 | --- | --- |
-| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, supported. The key's treatment reads `arms3` in place of `binary`, and the [three-arm study](method-evidence/learned-rule-arms.md) registers row `T45` for it |
+| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, experimental. The key's treatment reads `arms3` in place of `binary`. The [three-arm study](method-evidence/learned-rule-arms.md) registered row `T45` for it, and the row was withdrawn when the study's conservative coverage cell failed under the shipped logit interval |
 | the plug-in rule under the stacked report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule; and every fit over four or more arms | admitted, experimental. The key's treatment reads `arms3` or `arms4` and above, and no row declares these compositions |
 | `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 4 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (d2). Both pseudo-outcomes compare two arms. The remedy is the plug-in rule `LearnedRule()`, or a fixed rule `TMLE(interventions=[Rule(..., rule_kind="known")])` |
 | the omitted-variable bound | refused, X11 (n2): no witness checks the bias of a learned argmax rule against the combined representer over every arm. A fixed rule's regime bound covers every arm |
