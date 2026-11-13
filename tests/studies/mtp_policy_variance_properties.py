@@ -991,10 +991,17 @@ def _covered_at(group: pd.DataFrame, factor: float) -> int:
 
 
 def pass_table(
-    pilot: pd.DataFrame, replicates: Mapping[str, int], primary_replicates: int
+    pilot: pd.DataFrame,
+    replicates: Mapping[str, int],
+    primary_replicates: int,
+    cells: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Every gated row's and control's pass probability at the given replication counts."""
-    cells = pilot_cells(pilot)
+    """Every gated row's and control's pass probability at the given replication counts.
+
+    ``cells`` is :func:`pilot_cells` of ``pilot``, computed once by a caller that reads the
+    table at many counts.
+    """
+    cells = pilot_cells(pilot) if cells is None else cells
     margins = STUDY.margins
     out = []
     for row in cells.itertuples():
@@ -1218,8 +1225,9 @@ def sized_replicates(pilot: pd.DataFrame) -> tuple[dict[str, int], int, pd.DataF
     """
     replicates = dict(PLANNED_REPLICATES)
     primary = PLANNED_PRIMARY
+    cells = pilot_cells(pilot)
     while True:
-        table = pass_table(pilot, replicates, primary)
+        table = pass_table(pilot, replicates, primary, cells)
         if family_wise(table) >= FAMILY_TARGET:
             return replicates, primary, table
         positives = table.loc[table["role"] == "positive"].sort_values("probability")

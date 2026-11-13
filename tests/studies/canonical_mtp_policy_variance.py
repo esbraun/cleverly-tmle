@@ -49,7 +49,11 @@ goes to d3.  If both are dropped the option does not ship.  The gated laws (law 
 ``price_down`` at two and five nodes, law B ``p4``) are held out.  The screen's rows are
 ``tests/studies/mtp_policy_variance_screen.csv.gz``, and
 :func:`screen_choice` reads them.  **Screen reading** (2026-11-13, 400 draws per
-configuration): see :data:`SCREEN_CHOICE`.
+configuration, before any gated cell ran): both candidates stay inside the band on all 16 cells.
+d5's largest SE-ratio point is 1.106 (``lawP:price_up:5``, ``SDR``, the contrast) against
+d3's 1.162 (``lawP:price_down:3``, ``SDR``, the mean), and the smallest are 1.004 and 1.006
+(``lawB:p3``), so the rule chooses **d5**, which :data:`~cleverly.longitudinal.policy_variance.
+VARIANCE_LEARNER` already holds.
 
 **Red-cell reading** (declared before any run).
 
@@ -826,8 +830,8 @@ SCREEN_DRAWS = 400
 #: The screen rule's band on each cell's SE-ratio point, and the tie margin.
 SCREEN_BAND = (0.93, 1.25)
 SCREEN_TIE = 0.01
-#: The candidate the screen chose, recorded before any gated cell runs (:func:`screen_choice`
-#: on the committed rows).  ``VARIANCE_LEARNER`` must hold it.
+#: The candidate the screen chose on the committed rows (:func:`screen_choice`, 2026-11-13).
+#: ``VARIANCE_LEARNER`` holds it.
 SCREEN_CHOICE = "d5"
 #: The candidate whose matrix the screen's fits report (the other is recomputed beside it).
 SCREEN_FIT_CANDIDATE = "d5"
