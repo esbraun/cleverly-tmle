@@ -46,8 +46,8 @@ the isotonic fit's ``isotonic_estimate``; its ``largest_decrease`` row holds the
 of the iterated-mean risk curve between visits as ``estimate`` and that difference's standard
 error as ``std_error``.  A ``wrong_learner`` row holds the plug-in and targeted estimates
 (``wrong_plug_in``, ``wrong_targeted``).  A calibration row reads every estimate of the fit.
-Every row records its key's fits: ``converged`` (1 when every hazard walk met its tolerance)
-and ``unexpected_warnings`` (the count of warnings outside the expected classes of
+Every row records its key's fits: ``converged`` (1 when every hazard walk met its tolerance),
+``final_score`` (the largest final relative score of a walk) and ``unexpected_warnings`` (the count of warnings outside the expected classes of
 :data:`~tests.studies.canonical_hazard_mtp.EXPECTED_WARNINGS`); no warning is suppressed
 wholesale.
 """
@@ -122,6 +122,7 @@ COLUMNS = (
     "wrong_plug_in",
     "wrong_targeted",
     "converged",
+    "final_score",
     "unexpected_warnings",
     "refusal",
 )

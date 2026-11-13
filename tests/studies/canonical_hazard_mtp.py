@@ -356,11 +356,14 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
     return out
 
 
-#: The warning classes a fit of this study is expected to raise, filtered by name, with why.
-#: Every other warning a fit raises is counted in its rows (``unexpected_warnings``).
-EXPECTED_WARNINGS: dict[str, str] = {
-    "SparseInfluenceWarning": "the uncapped Gaussian shift's ratio is heavy in the top dose ranks, "
-    "so a few rows carry the influence curve's variance; calibration reads that variance",
+#: The warning classes a fit label is expected to raise, filtered by name, with why.  Every
+#: other warning a fit raises is counted in its rows (``unexpected_warnings``); on a gated fit
+#: label a ``SparseInfluenceWarning`` is unexpected and counted.
+EXPECTED_WARNINGS: dict[str, dict[str, str]] = {
+    "untruncated_density": {
+        "SparseInfluenceWarning": "the uncapped Gaussian shift's ratio is heavy in the top dose "
+        "ranks, so a few rows carry the influence curve's variance; the reported row reads it",
+    },
 }
 #: The support warning of a shift, filtered by its category and message: the uncapped shift
 #: moves the largest observed dose past the observed range by construction.
@@ -376,23 +379,38 @@ class FitRecord:
     converged : bool
         Whether every hazard walk of the fit met its tolerance.
     unexpected_warnings : tuple of str
-        The class names of the warnings outside :data:`EXPECTED_WARNINGS` and the support
-        warning, one entry per warning.
+        The class names of the warnings outside the fit label's :data:`EXPECTED_WARNINGS` and
+        the support warning, one entry per warning.
+    final_score : float
+        The largest final relative score over the fit's hazard walks: the largest score
+        component over its largest possible magnitude, ``max |score| / score_scale``, at the
+        reported hazards.
     """
 
     converged: bool
     unexpected_warnings: tuple[str, ...]
+    final_score: float = 0.0
 
-    def columns(self) -> dict[str, int]:
-        """The per-row columns: ``converged`` (0 or 1) and the ``unexpected_warnings`` count."""
+    def columns(self) -> dict[str, float]:
+        """The per-row columns: ``converged`` (0 or 1), ``final_score`` and the warning count."""
         return {
             "converged": int(self.converged),
+            "final_score": self.final_score,
             "unexpected_warnings": len(self.unexpected_warnings),
         }
 
 
-def recorded(call: Any) -> tuple[Any, FitRecord]:
-    """Run ``call()``, filtering the expected warnings by name and recording every other one."""
+def final_score(walk: Any) -> float:
+    """``max |score| / score_scale`` of one hazard walk at its reported hazards."""
+    score = np.abs(np.asarray(walk.score, dtype=float)).reshape(-1)
+    if score.size == 0:
+        return 0.0
+    scale = np.asarray(walk.score_scale, dtype=float).reshape(-1)
+    return float(np.max(score / np.maximum(scale, 1e-300)))
+
+
+def recorded(call: Any, expected: Sequence[str] = ()) -> tuple[Any, FitRecord]:
+    """Run ``call()``, filtering the ``expected`` warning classes and recording every other one."""
     from cleverly.exceptions import PositivityWarning
 
     with warnings.catch_warnings(record=True) as caught:
@@ -400,11 +418,13 @@ def recorded(call: Any) -> tuple[Any, FitRecord]:
         warnings.filterwarnings("ignore", message=SUPPORT_WARNING, category=PositivityWarning)
         result = call()
     unexpected = tuple(
-        item.category.__name__ for item in caught if item.category.__name__ not in EXPECTED_WARNINGS
+        item.category.__name__ for item in caught if item.category.__name__ not in expected
     )
-    walks = [getattr(regimen_fit, "hazard", None) for regimen_fit in result.fits.values()]
-    converged = all(bool(getattr(walk, "converged", True)) for walk in walks if walk is not None)
-    return result, FitRecord(converged, unexpected)
+    found = (getattr(regimen_fit, "hazard", None) for regimen_fit in result.fits.values())
+    walks = [walk for walk in found if walk is not None]
+    converged = all(bool(walk.converged) for walk in walks)
+    score = max((final_score(walk) for walk in walks), default=0.0)
+    return result, FitRecord(converged, unexpected, score)
 
 
 def fit(
@@ -442,7 +462,8 @@ def fit_recorded(
             random_state=0,
             **settings,
             **learners(fit_label, frame, configuration),
-        ).fit(law.LAWS[law_name].container(frame))
+        ).fit(law.LAWS[law_name].container(frame)),
+        expected=tuple(EXPECTED_WARNINGS.get(fit_label, {})),
     )
 
 

@@ -141,10 +141,11 @@ TARGETING_DISPLACEMENT = 0.25
 PAIRED_DIFFERENCE_FLOOR = 0.05
 NON_MONOTONE_FLOOR = 0.10
 #: The influence-curve gap of a gated fit label: the SD of its influence curve minus the exact
-#: per-unit efficient influence function, over the efficiency bound.  A gated fit label must
-#: keep the median over :data:`IC_GAP_DRAWS` draws at the small size, and the one draw at the
-#: large size, within :data:`IC_GAP_BOUND`, and its large-size gap at most :data:`IC_GAP_FALL`
-#: times its small-size median: the gap falls toward zero as n grows.  The ``ic_gap`` label of
+#: per-unit efficient influence function, over the efficiency bound.  The claim is the halving
+#: rule: a gated fit label's large-size gap is at most :data:`IC_GAP_FALL` times its median
+#: over :data:`IC_GAP_DRAWS` draws at the small size, so the gap falls toward zero as n grows.
+#: The absolute bounds of :data:`IC_GAP_BOUND` on that median and on the one large-size draw
+#: are loose sanity bounds, set after the scratch pilot.  The ``ic_gap`` label of
 #: :mod:`tests.studies.hazard_mtp_pilot` fits the draws on its own seed stream, never a declared
 #: one, and ``tests/unit/test_hazard_mtp_study_design.py`` (``TestTheInfluenceCurveGap``) reads
 #: the committed rows against these bounds.
@@ -163,8 +164,20 @@ REPORTED_FITS = tuple(study.REPORTED_FITS)
 REPORTED_ARM = "reported"
 #: The per-row record of each fit, and the summary columns that count it
 #: (:func:`convergence_reading`).  No verdict reads them.
-CONVERGENCE_COLUMNS = ("converged", "unexpected_warnings")
-CONVERGENCE_SUMMARY = ("nonconverged_fits", "unexpected_warning_fits")
+CONVERGENCE_COLUMNS = ("converged", "final_score", "unexpected_warnings")
+CONVERGENCE_SUMMARY = (
+    "nonconverged_fits",
+    "max_final_score",
+    "unexpected_warning_fits",
+    "convergence_defect_suspect",
+)
+#: A fit that does not converge and whose final relative score is above this is a recordable
+#: failure under :data:`FAILURE_BOUND` (:func:`stalled_fit`).  A miss at or below it is the
+#: walk's reporting floor near ``1e-8`` (plan X70 rev 2.5), and the fit keeps its rows.
+STALLED_SCORE = 1e-6
+#: A cell whose non-converged fits, whatever their scores, exceed this share of its requested
+#: replicates is a defect suspect (:func:`convergence_reading`).
+NONCONVERGED_SUSPECT_SHARE = 0.01
 
 
 def _labels(fit_label: str) -> tuple[tuple[str, str], ...]:
@@ -255,9 +268,8 @@ def iterated_fit(
     Each visit's regression is the unpenalised quasibinomial regression on the design an
     iterated-mean fit hands its learners (``W1``, ``W2`` and the dose block), or on the dose
     block alone when ``regression_correct`` is false (:class:`NoWQuasiBinomial`).  The mechanism
-    learners are the hazard fit's correct ones.  Its warnings are filtered as the hazard fit's
-    are (:func:`~tests.studies.canonical_hazard_mtp.recorded`); a caller that records them wraps
-    the call in that function again.
+    learners are the hazard fit's correct ones.  It filters no warning;
+    :meth:`FitRecords.iterated` records them.
     """
     law_name, ratio, folds = FITS[label]
     regression = QuasiBinomialGLM if regression_correct else NoWQuasiBinomial
@@ -266,24 +278,22 @@ def iterated_fit(
     settings: dict[str, Any] = {"ratio": ratio}
     if ratio == "density" and law.LAWS[law_name].continuous:
         settings["density_bins"] = study.oracle_bins(len(frame))
-    return study.recorded(
-        lambda: LTMLE(
-            study.regimens(law_name),
-            reference=study.NATURAL,
-            n_folds=folds,
-            simultaneous=False,
-            survival_model="iterated_mean",
-            isotonic=isotonic,
-            targeting="iterative",
-            max_iter=100,
-            tol=study.TOL,
-            random_state=0,
-            outcome_learner=regression(),
-            pseudo_learner=regression(),
-            **settings,
-            **mechanism,
-        ).fit(law.LAWS[law_name].container(frame))
-    )[0]
+    return LTMLE(
+        study.regimens(law_name),
+        reference=study.NATURAL,
+        n_folds=folds,
+        simultaneous=False,
+        survival_model="iterated_mean",
+        isotonic=isotonic,
+        targeting="iterative",
+        max_iter=100,
+        tol=study.TOL,
+        random_state=0,
+        outcome_learner=regression(),
+        pseudo_learner=regression(),
+        **settings,
+        **mechanism,
+    ).fit(law.LAWS[law_name].container(frame))
 
 
 def largest_decrease(result: Any, n_times: int) -> tuple[float, float]:
@@ -708,11 +718,30 @@ class FitRecords:
         self.records.append(study.FitRecord(True, record.unexpected_warnings))
         return result
 
-    def columns(self) -> dict[str, int]:
+    def columns(self) -> dict[str, float]:
         return {
             "converged": int(all(record.converged for record in self.records)),
+            "final_score": max((r.final_score for r in self.records), default=0.0),
             "unexpected_warnings": sum(len(r.unexpected_warnings) for r in self.records),
         }
+
+
+def stalled_fit(rows: pd.DataFrame) -> str | None:
+    """The failure rule of a key whose fit stalled: non-converged above :data:`STALLED_SCORE`.
+
+    Passed to the shared harness as its ``extra`` row rule, so such a key is an
+    ``invalid_result`` record, a lost replicate charged to the cell's failure bound.
+    """
+    if not set(CONVERGENCE_COLUMNS) <= set(rows.columns):
+        return None
+    stalled = (rows["converged"] == 0) & (rows["final_score"] > STALLED_SCORE)
+    if not stalled.any():
+        return None
+    worst = float(rows.loc[stalled, "final_score"].max())
+    return (
+        f"a hazard walk stopped short of tol with a final relative score of {worst:.3g}, "
+        f"above {STALLED_SCORE:g}"
+    )
 
 
 def _difference_rows(
@@ -931,6 +960,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
         n_jobs=n_jobs,
         draw=_draw,
         derived=DERIVED_CELLS,
+        extra=stalled_fit,
     )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
@@ -998,12 +1028,23 @@ def difference_readings(summary: pd.DataFrame) -> None:
 
 
 def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Count, per cell, the fits that did not converge and those that raised other warnings.
+    """Count each cell's non-converged fits and other warnings, and flag a defect suspect.
 
-    ``nonconverged_fits`` counts the rows whose fit set ``converged`` to 0, and
-    ``unexpected_warning_fits`` the rows whose fits raised a warning outside the expected
-    classes.  The columns are reported and decide no verdict.  A derived control's rows carry
-    no record and leave both empty.
+    ``nonconverged_fits`` counts the kept rows whose fit set ``converged`` to 0 (each at or below
+    :data:`STALLED_SCORE`, the others being lost replicates by :func:`stalled_fit`),
+    ``max_final_score`` is the largest final relative score, and ``unexpected_warning_fits``
+    counts the rows whose fits raised a warning outside the expected classes.
+    ``convergence_defect_suspect`` is true when the kept non-converged fits plus the cell's lost
+    replicates exceed :data:`NONCONVERGED_SUSPECT_SHARE` of its requested replicates.  The lost
+    replicates are counted whatever their cause, so the share can only over-state the
+    non-converged fits.  A suspect gated cell does not pass.  A derived control's rows carry no
+    record and leave the columns empty.
+
+    Raises
+    ------
+    ValueError
+        When a kept row records a non-converged fit above :data:`STALLED_SCORE`, which the
+        failure rule should have recorded as a lost replicate.
     """
     for index in summary.index:
         group = rows.loc[
@@ -1013,10 +1054,24 @@ def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         kept = group.loc[group["converged"].notna()] if "converged" in group else group.iloc[:0]
         if kept.empty:
             continue
-        summary.loc[index, "nonconverged_fits"] = float((kept["converged"] == 0).sum())
+        stalled = (kept["converged"] == 0) & (kept["final_score"] > STALLED_SCORE)
+        if stalled.any():
+            raise ValueError(
+                f"{summary.loc[index, 'cell']}: a kept row records a non-converged fit above "
+                f"{STALLED_SCORE:g}; such a fit is a recordable failure"
+            )
+        nonconverged = int((kept["converged"] == 0).sum())
+        lost = int(group["failed_replicates"].max())
+        requested = int(group["requested_replicates"].max())
+        suspect = nonconverged + lost > NONCONVERGED_SUSPECT_SHARE * requested
+        summary.loc[index, "nonconverged_fits"] = float(nonconverged)
+        summary.loc[index, "max_final_score"] = float(kept["final_score"].max())
         summary.loc[index, "unexpected_warning_fits"] = float(
             (kept["unexpected_warnings"] > 0).sum()
         )
+        summary.loc[index, "convergence_defect_suspect"] = float(suspect)
+        if suspect and summary.loc[index, "role"] != DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = False
 
 
 def reported_calibration(summary: pd.DataFrame) -> pd.Series:
