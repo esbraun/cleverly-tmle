@@ -61,9 +61,9 @@ from tests.studies.stratified_incremental_msm_properties import Columns
 #: The pilot's draws per cell; the primary count follows from it.  The first 300 ran at
 #: 4b232921; draws 300 to 999 extend the same streams (Eric's decision, 2026-11-12).
 PILOT_REPLICATES = 1_000
-#: The declared primary replicate count, set from the committed pilot by the shared rule
-#: before any declared draw.  Provisional until the pilot is read.
-PRIMARY_REPLICATES = 1_000
+#: The declared primary replicate count, set from the committed pilot (aa19c6d6) by the
+#: shared rule before any declared draw.
+PRIMARY_REPLICATES = 7_600
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01

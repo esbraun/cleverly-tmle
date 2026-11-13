@@ -74,11 +74,11 @@ CALIBRATION = "interval_calibration"
 #: The property cells run at the record's gated size (Eric's decision, 2026-11-12: at 4,000
 #: the shared rules asked for about 800 core-hours).
 ROBUSTNESS_N = 1_000
-#: Provisional until the n = 1,000 pilot is read.
-ROBUSTNESS_REPLICATES = 1_000
+#: From the n = 1,000 pilot (aa19c6d6): the smallest multiple of 400 that clears every positive.
+ROBUSTNESS_REPLICATES = 4_800
 CALIBRATION_N = 1_000
-#: Provisional until the n = 1,000 pilot is read.
-CALIBRATION_REPLICATES = 2_000
+#: From the n = 1,000 pilot (aa19c6d6) by the pooled calibration rule.
+CALIBRATION_REPLICATES = 3_200
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
