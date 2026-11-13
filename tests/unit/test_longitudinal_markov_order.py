@@ -17,6 +17,8 @@ outcome regression wrong.
 
 from __future__ import annotations
 
+import inspect
+import textwrap
 from typing import Any
 
 import numpy as np
@@ -29,6 +31,7 @@ from cleverly import longitudinal as longitudinal_module
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE, SDR, DynamicRegimen, LongitudinalData
+from cleverly.longitudinal import data as data_module
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.data import markov_restriction
 from cleverly.longitudinal.regimen import resolve_plans
@@ -615,6 +618,17 @@ def _held_errors(
     }
 
 
+def mutated(owner: type, name: str, old: str, new: str) -> Any:
+    """``owner.name`` recompiled with ``old`` replaced by ``new`` once in its source."""
+    source = textwrap.dedent(inspect.getsource(getattr(owner, name)))
+    assert source.count(old) == 1, f"{name} no longer holds {old!r}"
+    namespace: dict[str, Any] = {}
+    exec(
+        compile(source.replace(old, new), f"<mutated {name}>", "exec"), vars(data_module), namespace
+    )
+    return namespace[name]
+
+
 class TestTheHeldTreatment:
     """On a held design every window keeps the baseline decision, the arm of every node."""
 
@@ -687,20 +701,35 @@ class TestTheHeldTreatment:
         errors = _held_errors(held_frame, estimator, mechanism, outcome)
         assert max(abs(value) for value in errors.values()) < 1e-10, errors
 
-    def test_a_window_that_drops_the_held_arm_misses_the_truth(
+    def test_mechanisms_that_drop_the_held_arm_miss_the_truth(
         self, held_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The mutation control: the arm range of a non-held design, on the held one."""
+        """A mutation control: the mechanisms' arm range of a non-held design, on the held one."""
         monkeypatch.setattr(
             LongitudinalData,
-            "window_arm_start",
-            lambda self, time: (
-                1 if self.markov_order is None else max(1, self.window_start(time) - 1)
+            "history_design",
+            mutated(
+                LongitudinalData,
+                "history_design",
+                "first = self.window_arm_start(time)",
+                "first = 1 if self.markov_order is None else max(1, self.window_start(time) - 1)",
             ),
         )
         # Retention reads the arm: inverse weighting misses every regimen.
         ipw = _held_errors(held_frame, "SequentialIPW")
         assert min(abs(value) for value in ipw.values()) > 1e-3, ipw
+
+    def test_outcome_regressions_that_drop_the_held_arm_miss_the_truth(
+        self, held_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A mutation control: the outcome arm range of a non-held design, on the held one."""
+        monkeypatch.setattr(
+            sequential_module,
+            "_outcome_arm_start",
+            lambda data, time: max(1, data.window_start(time) - 1),
+        )
         # A rule or a policy leaves both arms among the followers: the regressions miss.
         gcomp = _held_errors(held_frame, "SequentialGComputation")
         assert min(abs(gcomp[label]) for label in ("rule", "policy")) > 1e-3, gcomp
+        # A static plan's followers hold one arm, so its regressions need none.
+        assert max(abs(gcomp[label]) for label in ("never", "always")) < 1e-10, gcomp
