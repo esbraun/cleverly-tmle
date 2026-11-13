@@ -976,6 +976,24 @@ Mutation controls swap the arm models, drop the arm from the mask, and read the 
 shifted arm. Each fails the hand comparison. On the R fixture `drtmle_stratify.json`, the arm
 regressions agree with `drtmle(stratify = TRUE)` to $10^{-8}$ and the estimates to $10^{-6}$.
 
+The option changes the outcome model class and nothing else. The remainder is the ordinary
+product $P_0[(g_0 - g_n)/g_n\,(\bar Q_0 - \bar Q_n)]$, so the Wald interval needs both nuisances
+at a product rate, and double robustness is unchanged. A per-arm fit helps where a pooled
+regression misses an arm-by-covariate interaction. An arm with few rows gives its regression
+few rows to learn from.
+
+**Evidence.** The declared study `option-outcome-by-arm` has not run, so a per-arm fit reads
+`experimental`. Its laws put an arm-by-covariate interaction in the outcome, so one logistic,
+linear or fractional-logistic regression per arm is correct and a pooled main-terms regression
+is not. It reads the interval of the per-arm fit in sample and stacked, on binary, continuous
+and bounded outcomes, and a double-robustness pair with per-arm intercepts. The pooled fit on
+the same draws is reported beside it. In the exact-law limit the pooled fit is unbiased, because
+the mechanism is correct, and its SE ratio is 1.0001 (binary) and 1.0010 (bounded). On this law
+the per-arm fit gains about 0.2% of SD in efficiency. `tests/unit/test_option_outcome_by_arm_witness.py`
+holds the fast-tier witness: on an exact finite law with an intercept-only mechanism, the
+per-arm fit returns the truth to $10^{-10}$, and the pooled fit misses it by the exact targeting
+limit of its regression.
+
 ### Treatment-mechanism covariates
 
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset $W_g$ of the

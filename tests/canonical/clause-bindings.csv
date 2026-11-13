@@ -1786,3 +1786,10 @@ tests.studies.option_treatment_adjustment_properties,interval_calibration,covera
 tests.studies.option_treatment_adjustment_properties,interval_calibration,noise se ratio below band,se_high
 tests.studies.option_treatment_adjustment_properties,interval_calibration,se ratio below band,se_high
 tests.studies.option_treatment_adjustment_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.option_outcome_by_arm_properties,double_robustness,bias discriminated,pair_collapse
+tests.studies.option_outcome_by_arm_properties,double_robustness,bias equivalent,bias
+tests.studies.option_outcome_by_arm_properties,double_robustness,se ratio in union band,se/0.05
+tests.studies.option_outcome_by_arm_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.option_outcome_by_arm_properties,interval_calibration,noise se ratio below band,none
+tests.studies.option_outcome_by_arm_properties,interval_calibration,se ratio below band,se_high
+tests.studies.option_outcome_by_arm_properties,interval_calibration,se ratio in calibration band,se/0.05
