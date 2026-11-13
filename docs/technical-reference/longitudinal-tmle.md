@@ -1173,7 +1173,7 @@ these settings existed.
 | --- | --- | --- |
 | `stopping=` | the Newton loop of each horizon stops when the largest score over its threshold, over the targets of that horizon, is at most one | the walk stops when the largest score over its threshold, over every target, is at most one |
 | `iterate="best"` | reports the iterate $k \ge 1$ with the smallest raw score 2-norm, the first of any tie | reports the step $k \ge 1$ with the smallest $\Sigma$-norm, the last of any tie. The walk accepts no step that raises that norm, so this step is the last accepted one |
-| `step_bound=` | each iteration steps by a length in $(0, \delta]$ along $s / \lVert s \rVert_2$, with $s$ the score vector of the horizon. `step_search=True` takes the length that minimises the walk loss with $h$ held fixed | refused (R-c4, `api_redirection`): the walk takes its steps in `step_size` |
+| `step_bound=` | each iteration steps by a length in $(0, \delta]$ along $s / \lVert s \rVert_2$, with $s$ the score vector of the horizon. `step_search=True` takes the length that minimises the walk loss with $h$ held fixed (the root of its slope, to machine precision) | refused (R-c4, `api_redirection`): the walk takes its steps in `step_size` |
 
 A declared rule reads the threshold of [stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate).
 The units $n_u$ are the clusters of `id=` when the data declare it, and the rows otherwise. The
