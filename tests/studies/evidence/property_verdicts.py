@@ -46,9 +46,12 @@ from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import BAND as SIMULTANEOUS_BAND
 from tests.studies.evidence.simultaneous import FAMILY as SIMULTANEOUS_FAMILY
 from tests.studies.evidence.simultaneous import (
+    REFERENCE_CONTROL,
+    REFERENCE_ROLE,
     SCALE_CONTROL,
     SCALE_GAIN_FLOOR,
     SCALE_ROLE,
+    T_BAND,
 )
 
 #: The informative-failure witness every property module declares as ``PROPERTY_WITNESS``
@@ -872,6 +875,7 @@ def simultaneous_coverage_verdicts(
     margins: Margins,
     rows: pd.DataFrame | None = None,
     record: StudyRecord | None = None,
+    reference_thresholds: Mapping[str, float | None] | None = None,
 ) -> None:
     """Read each joint-coverage cell against the rule its role answers to.
 
@@ -882,13 +886,16 @@ def simultaneous_coverage_verdicts(
     ``scale_control``) is the identity band at the band's own critical value: the 99% lower
     bound of the band's paired coverage gain over it must reach
     :data:`~tests.studies.evidence.simultaneous.SCALE_GAIN_FLOOR`, which is what shows the
-    band's scale does work.  It needs ``rows`` and ``record``.  A cell with the diagnostic
-    role reports its interval beside the band and declares no verdict.
+    band's scale does work.  It needs ``rows`` and ``record``.  A normal-reference control
+    (role ``reference_control``) reads :func:`reference_gain_verdict` at the threshold
+    ``reference_thresholds`` gives its label.  A cell with the diagnostic role reports its
+    interval beside the band and declares no verdict.
 
     Raises
     ------
     ValueError
-        If a scale control is read without ``rows`` and ``record``.
+        If a scale control is read without ``rows`` and ``record``, or a reference control
+        without ``rows``, ``record`` and a threshold entry for its label.
     """
     joint = summary["property"] == SIMULTANEOUS_FAMILY
     for index in summary.index[joint]:
@@ -903,6 +910,20 @@ def simultaneous_coverage_verdicts(
             summary.loc[index, "coverage_gain_ci_lower"] = low
             summary.loc[index, "coverage_gain_ci_upper"] = high
             summary.loc[index, "passed"] = bool(low >= SCALE_GAIN_FLOOR)
+            continue
+        if role == REFERENCE_ROLE:
+            cell = str(summary.loc[index, "cell"])
+            label = reference_label(cell)
+            if rows is None or record is None or reference_thresholds is None:
+                raise ValueError("a reference control's verdict reads the rows and the record")
+            if label not in reference_thresholds:
+                raise ValueError(f"{cell} has no declared gain clause")
+            low, high, passed = reference_gain_verdict(
+                rows, record, cell, reference_thresholds[label]
+            )
+            summary.loc[index, "coverage_gain_ci_lower"] = low
+            summary.loc[index, "coverage_gain_ci_upper"] = high
+            summary.loc[index, "passed"] = passed
             continue
         coverage = Interval(
             float(summary.loc[index, "coverage_ci_lower"]),
@@ -939,6 +960,40 @@ def scale_gain_interval(rows: pd.DataFrame, record: StudyRecord, cell: str) -> t
         confidence_level=record.margins.confidence_level,
         seed=scale_gain_seed(record, cell),
     )
+
+
+def reference_label(cell: str) -> str:
+    """The label of a normal-reference control cell."""
+    suffix = f"__{REFERENCE_CONTROL}"
+    if not cell.endswith(suffix):
+        raise ValueError(f"{cell} is not a normal-reference control cell")
+    return cell[: -len(suffix)]
+
+
+def reference_gain_verdict(
+    rows: pd.DataFrame, record: StudyRecord, cell: str, threshold: float | None
+) -> tuple[float, float, bool]:
+    """The paired gain of a ``t`` band over its normal-reference control, and its verdict.
+
+    The interval is :func:`coverage_gain_interval` on ``<label>/reference_gain``.  With a
+    threshold, the clause passes when the 99% lower limit reaches both the threshold and
+    :data:`~tests.studies.evidence.simultaneous.SCALE_GAIN_FLOOR` (the nonzero witness: a
+    ``t`` band with ``nu = inf`` gains exactly 0 on every replicate and fails).  ``None``
+    means the cell carries no gain clause (plan 5.2): the interval is reported and the
+    control passes, the cell's own 0.98 ceiling guarding over-coverage.
+    """
+    label = reference_label(cell)
+    family = rows.loc[rows["property"] == SIMULTANEOUS_FAMILY]
+    low, high = coverage_gain_interval(
+        family.loc[family["cell"] == f"{label}__{T_BAND}"],
+        family.loc[family["cell"] == cell],
+        replicates=record.margins.bootstrap_replicates,
+        confidence_level=record.margins.confidence_level,
+        seed=stream_seed(record, SIMULTANEOUS_FAMILY, f"{label}/reference_gain"),
+    )
+    if threshold is None:
+        return low, high, True
+    return low, high, bool(low >= max(float(threshold), SCALE_GAIN_FLOOR))
 
 
 def calibration_controls(
@@ -2591,6 +2646,19 @@ def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.Famil
 
 
 def _simultaneous_rule() -> pf.FamilyRule:
+    return simultaneous_rule()
+
+
+def simultaneous_rule(
+    reference_thresholds: Mapping[str, float | None] | None = None,
+) -> pf.FamilyRule:
+    """The joint-coverage family's accounting rule, with the reference clause when declared.
+
+    A study that gates a normal-reference control's paired gain passes the threshold of each
+    label, as :func:`simultaneous_coverage_verdicts` reads them.  ``band-t-reference`` reports
+    that gain and gates only coverage (Fix-2 plan rev 3.3), so it passes none.
+    """
+    extra = () if reference_thresholds is None else (_reference_gain_clause(reference_thresholds),)
     return pf.FamilyRule(
         families=frozenset({"simultaneous_coverage"}),
         shared="simultaneous_coverage_verdicts",
@@ -2608,7 +2676,58 @@ def _simultaneous_rule() -> pf.FamilyRule:
                 applies=pf.roles("control"),
             ),
             _scale_gain_clause(),
+            *extra,
         ),
+    )
+
+
+def _reference_gain_clause(thresholds: Mapping[str, float | None]) -> pf.Clause:
+    """The ``t`` band's paired gain over its normal-reference control, under the aligned fill.
+
+    The analogue of :func:`_scale_gain_clause` for :func:`reference_gain_verdict`: the pair is
+    the ``t`` band and the ``reference_control`` cell, and a label without a clause
+    (threshold ``None``) always passes.
+    """
+
+    def judge(iv: Interval, cell: str) -> pf.Judged:
+        threshold = thresholds[reference_label(cell)]
+        if threshold is None:
+            return pf.Judged(iv.low, True)
+        bound = max(float(threshold), SCALE_GAIN_FLOOR)
+        return pf.Judged(iv.low - bound, bool(iv.low >= bound))
+
+    def band(cell: str) -> str:
+        return f"{reference_label(cell)}__{T_BAND}"
+
+    def read(ctx: pf.Context, row: pd.Series) -> pf.Judged:
+        interval = Interval(
+            float(row["coverage_gain_ci_lower"]), float(row["coverage_gain_ci_upper"])
+        )
+        return judge(interval, str(row["cell"]))
+
+    def reads(ctx: pf.Context, row: pd.Series) -> list[tuple[str, str]]:
+        cell = str(row["cell"])
+        return [(SIMULTANEOUS_FAMILY, band(cell)), (SIMULTANEOUS_FAMILY, cell)]
+
+    def candidates(ctx: pf.Context, row: pd.Series) -> list[tuple[str, pf.Judged]]:
+        cell = str(row["cell"])
+        interval = pf.aligned_gain_interval(
+            ctx,
+            ctx.cell(SIMULTANEOUS_FAMILY, band(cell)),
+            ctx.cell(SIMULTANEOUS_FAMILY, cell),
+            stream_seed(ctx.record, SIMULTANEOUS_FAMILY, f"{reference_label(cell)}/reference_gain"),
+        )
+        return [("lost t band uncovered, lost normal band covered", judge(interval, cell))]
+
+    return pf.Clause(
+        "joint coverage gain over the normal reference",
+        "S7r",
+        pf.roles(REFERENCE_ROLE),
+        read,
+        candidates,
+        target="passed",
+        imputation=pf.SUPPORT,
+        reads=reads,
     )
 
 

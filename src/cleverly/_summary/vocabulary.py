@@ -656,6 +656,11 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "them experimental."
         ),
         "bands_leave_out": "The bands leave out {names}, which have no interval.",
+        "bands_t_reference": (
+            "Each band takes the critical value's tail probability on its own Student t "
+            "reference, whose degrees of freedom the df column gives; a row with few large "
+            "contributions to its estimate gets a lower df and a wider band."
+        ),
         "folds_reduced": (
             "The fit asked for {declared} folds and used {used}, because the rarest group "
             "or the cluster count allowed no more."
@@ -3486,6 +3491,12 @@ INTERMEDIATE: Final = "Intermediate"
 CRITICAL_VALUE: Final = "Critical value"
 MULTIPLIER_DRAWS: Final = "Multiplier draws"
 MULTIPLIER_KIND: Final = "Multiplier weights"
+#: What the Reference header of a band summary prints for each ``band_reference``.
+BAND_REFERENCE_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {"normal": "normal", "t": "t, one df per row"}
+)
+#: The df cell of a ``"t"`` band row whose degrees of freedom the floor raised.
+BAND_DF_FLOOR_TEXT: Final = "{floor} (floor)"
 STATISTIC: Final = "statistic"
 
 HEADER_LABELS = HEADER_LABELS | {

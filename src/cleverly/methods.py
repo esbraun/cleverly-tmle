@@ -21,9 +21,11 @@ from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
 from .inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
+    BandReference,
     BandScale,
     MultiplierKind,
 )
@@ -788,6 +790,10 @@ class Inference:
         ``"logit"`` builds it on the logit of the estimate's position in its range, so it
         stays inside the range and can be asymmetric; ``"identity"`` builds it on the
         estimate's own scale (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : {"normal", "t"}, default="normal"
+        ``"normal"`` bands every estimate at the multiplier critical value; ``"t"`` bands each
+        estimate at the same tail of its own Student t reference, with degrees of freedom
+        from its influence curve (:func:`~cleverly.inference.simultaneous_bands`).
 
     See Also
     --------
@@ -824,6 +830,7 @@ class Inference:
     n_multiplier: int = DEFAULT_N_REPLICATES
     multiplier_kind: MultiplierKind = DEFAULT_KIND
     band_scale: BandScale = DEFAULT_BAND_SCALE
+    band_reference: BandReference = DEFAULT_BAND_REFERENCE
 
 
 @dataclass(frozen=True)
@@ -986,6 +993,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "n_multiplier": "n_multiplier",
         "multiplier_kind": "multiplier_kind",
         "band_scale": "band_scale",
+        "band_reference": "band_reference",
     },
     "runtime": {
         "random_state": "random_state",
@@ -1242,6 +1250,7 @@ class TMLEMethod:
             "n_multiplier": inference.n_multiplier,
             "multiplier_kind": inference.multiplier_kind,
             "band_scale": inference.band_scale,
+            "band_reference": inference.band_reference,
             "random_state": runtime.random_state,
             "run_id": runtime.run_id,
             "n_jobs": runtime.n_jobs,

@@ -552,24 +552,31 @@ def bands_summary(bands: SimultaneousBands, detail: Detail) -> Summary:
         if bands.critical_value > 0
     ]
     decimals = decimals_for(widths)
+    t_reference = bands.reference == "t"
     rows = tuple(
         (
             Cell(name, name),
             number_cell(low, decimals),
             number_cell(high, decimals),
+            *((band_df_cell(bands.reference_df[name]),) if t_reference else ()),
         )
         for name, (low, high) in bands.bands.items()
     )
-    table = SummaryTable(("", vocabulary.LOWER, vocabulary.UPPER), rows)
+    columns = ("", vocabulary.LOWER, vocabulary.UPPER, *((vocabulary.DF,) if t_reference else ()))
+    table = SummaryTable(columns, rows)
     header = [
         (vocabulary.CRITICAL_VALUE, f"{bands.critical_value:.3f}"),
         (vocabulary.ESTIMANDS_COVERED, count_text(len(bands.bands))),
         (vocabulary.MULTIPLIER_DRAWS, count_text(bands.n_replicates)),
         (vocabulary.MULTIPLIER_KIND, bands.kind),
     ]
+    if t_reference:
+        header.append((vocabulary.REFERENCE, vocabulary.BAND_REFERENCE_NAMES["t"]))
     sentences = [
         vocabulary.NOTE_TEXTS["simultaneous_bands"].format(count=len(bands.bands), level=level)
     ]
+    if t_reference:
+        sentences.append(vocabulary.NOTE_TEXTS["bands_t_reference"])
     if bands.support.label == vocabulary.EXPERIMENTAL:
         sentences.append(vocabulary.NOTE_TEXTS["bands_experimental"])
     notes = [note("simultaneous_bands", " ".join(sentences))]
@@ -593,6 +600,29 @@ def bands_summary(bands: SimultaneousBands, detail: Detail) -> Summary:
         notes=notes,
         sections=sections,
     )
+
+
+def band_df_cell(value: float) -> Cell:
+    """The ``df`` cell of one estimand of a ``"t"`` band: its degrees of freedom.
+
+    Parameters
+    ----------
+    value : float
+        The band's :math:`\\nu_j`, ``inf`` for a zero curve.
+
+    Returns
+    -------
+    Cell
+        The number to one decimal, ``"5 (floor)"`` where :data:`BAND_DF_FLOOR` raised it, or
+        ``"inf"``.
+    """
+    from .multiplier import BAND_DF_FLOOR
+
+    if not math.isfinite(value):
+        return Cell(value, "inf")
+    if value <= BAND_DF_FLOOR:
+        return Cell(value, vocabulary.BAND_DF_FLOOR_TEXT.format(floor=f"{BAND_DF_FLOOR:g}"))
+    return Cell(value, f"{value:.1f}")
 
 
 def bands_repr(bands: SimultaneousBands) -> str:

@@ -641,23 +641,30 @@ class TestBandSupport:
         assert band == band_support(
             classification, "influence_curve", [self.supported()], options=DEFAULT_BAND_OPTION
         )
-        assert DEFAULT_BAND_OPTION == ("mammen", "logit")
+        assert DEFAULT_BAND_OPTION == ("mammen", "logit", "normal")
         assert band.label == "supported"
 
     @pytest.mark.parametrize(
-        "option", [("rademacher", "identity"), ("normal", "identity"), ("mammen", "identity")]
+        "option",
+        [
+            ("rademacher", "identity", "normal"),
+            ("normal", "identity", "normal"),
+            ("mammen", "identity", "normal"),
+        ],
     )
     def test_an_option_no_study_measures_names_why(
-        self, classification: Classification, option: tuple[str, str]
+        self, classification: Classification, option: tuple[str, str, str]
     ) -> None:
         band = band_support(classification, "influence_curve", [self.supported()], options=option)
         assert band.label == "experimental"
         assert UNMEASURED_BAND_OPTION == "no registered study after band-finite-sample"
         assert UNMEASURED_BAND_OPTION in band.reason
 
-    @pytest.mark.parametrize("option", [("mammen", "identity"), ("rademacher", "logit")])
+    @pytest.mark.parametrize(
+        "option", [("mammen", "identity", "normal"), ("rademacher", "logit", "normal")]
+    )
     def test_an_unlisted_option_makes_the_band_experimental(
-        self, classification: Classification, option: tuple[str, str]
+        self, classification: Classification, option: tuple[str, str, str]
     ) -> None:
         band = band_support(classification, "influence_curve", [self.supported()], options=option)
         assert band.label == "experimental"
@@ -667,19 +674,21 @@ class TestBandSupport:
 
     def test_a_listed_option_is_supported(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
-        row = band_row(key, band_options=(DEFAULT_BAND_OPTION, ("rademacher", "identity")))
+        row = band_row(
+            key, band_options=(DEFAULT_BAND_OPTION, ("rademacher", "identity", "normal"))
+        )
         classification = classify_key(key, learners, rows=[row])
         band = band_support(
             classification,
             "influence_curve",
             [self.supported()],
-            options=("rademacher", "identity"),
+            options=("rademacher", "identity", "normal"),
         )
         assert band.label == "supported"
 
     def test_an_option_shortfall_reads_for_that_option_alone(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
-        option = ("rademacher", "identity")
+        option = ("rademacher", "identity", "normal")
         sentence = "Row RB is red for the Rademacher band: joint coverage 0.91 to 0.94."
         row = band_row(
             key,
@@ -699,33 +708,38 @@ class TestBandSupport:
             "influence_curve",
             [self.supported()],
             kind="bootstrap_band",
-            options=("normal", "identity"),
+            options=("normal", "identity", "normal"),
         )
         assert band.label == "supported"
 
     def test_every_band_row_lists_the_default_option_at_its_measured_draws(self) -> None:
+        from cleverly._support import T_BAND_OPTION
         from cleverly._support_rows import (
             BAND_CELLS,
             BAND_OPTION_DRAWS,
             DEFAULT_BAND_DRAWS,
             LONGITUDINAL_ROWS,
             POINT_ROWS,
+            T_BAND_CELLS,
         )
 
         rows = {row.id: row for row in (*POINT_ROWS, *LONGITUDINAL_ROWS)}
         banded = {row_id: row for row_id, row in rows.items() if "band" in row.kinds}
-        assert set(banded) == set(BAND_CELLS)
-        assert {row.band_options for row in banded.values()} == {(DEFAULT_BAND_OPTION,)}
+        assert set(banded) == set(BAND_CELLS) | set(T_BAND_CELLS)
         assert dict(BAND_OPTION_DRAWS) == {"D09": 1_000}
         for row_id, row in banded.items():
             measured = BAND_OPTION_DRAWS.get(row_id, DEFAULT_BAND_DRAWS)
-            assert row.band_option_draws == ((DEFAULT_BAND_OPTION, measured),)
+            listed = (
+                *(((DEFAULT_BAND_OPTION, measured),) if row_id in BAND_CELLS else ()),
+                *(((T_BAND_OPTION, DEFAULT_BAND_DRAWS),) if row_id in T_BAND_CELLS else ()),
+            )
+            assert row.band_option_draws == listed, row_id
         row = rows["G23.cross_fitted"]
         classification = Classification(row.key, {}, row)
         support = _support.support_for(classification, "influence_curve")
         mammen = band_support(classification, "influence_curve", [support], draws=10_000)
         normal = band_support(
-            classification, "influence_curve", [support], options=("normal", "identity")
+            classification, "influence_curve", [support], options=("normal", "identity", "normal")
         )
         assert mammen.label == "supported"
         assert normal.label == "experimental"
@@ -748,7 +762,9 @@ class TestBandSupport:
     def test_a_row_without_the_band_gives_one_reason(self, frame: Any) -> None:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
         classification = classify_key(key, learners, rows=[make_row("R1", key)])
-        band = band_support(classification, "influence_curve", [], options=("normal", "identity"))
+        band = band_support(
+            classification, "influence_curve", [], options=("normal", "identity", "normal")
+        )
         assert band.reason == "Row R1 licenses no simultaneous band for this estimate."
 
 

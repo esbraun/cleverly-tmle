@@ -212,6 +212,11 @@ ARMS: dict[str, str] = {
     "crossfit_strata": "the three marginal and nine stratum parameters of the cross-fitted fit",
     "default_fit": "the shipped TMLE() defaults on the binary law",
     "ordinary_binary": "ordinary in-sample TMLE over ten binary-outcome estimands",
+    # The larger and smaller sizes of three band-t-reference shapes.
+    "categorical_ltmle_n8000": "five categorical regimen means and four contrasts, at n = 8,000",
+    "cde_z0_n8000": "the controlled direct-effect fit at intermediate level zero, at n = 8,000",
+    "strata_n8000": "the six marginal and eighteen stratum parameters of the in-sample fit, at n = 8,000",
+    "strata_n1000": "the six marginal and eighteen stratum parameters of the in-sample fit, at n = 1,000",
     "fold_evaluated": "fold-evaluated CV-TMLE over five estimands",
     "weighted": "weighted point-treatment TMLE over five estimands",
     "learned_weighted": "weighted point-treatment TMLE with learned nuisances",
@@ -1716,6 +1721,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     ),
     "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
     "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
+    "cleverly-band-t-reference": "`cleverly` shipped TMLE() default fit with band_reference='t'",
+    "cleverly-band-t-reference-held-out": (
+        "`cleverly` shipped TMLE() default fit with band_reference='t'"
+    ),
     "cleverly-stratified-incremental": "`cleverly` incremental TMLE with baseline strata",
     "npcausal-stratified": "R `npcausal` `ipsi`, once per stratum subset and on every row",
     "cleverly-stratified-msm": "`cleverly` identity-link MSM TMLE with baseline strata",
@@ -2025,6 +2034,9 @@ SCENARIOS: dict[str, str] = {
     "multi_arm_binary": "three-arm binary-outcome law",
     "stratified_binary": "binary-outcome law with three unequal baseline strata",
     "default_fit": "binary-outcome law, fitted with the shipped TMLE() defaults",
+    "t_reference_fit": (
+        "binary-outcome law, fitted with the shipped TMLE() defaults and band_reference='t'"
+    ),
     "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
     "multi_arm_binary_oat": "three-arm binary-outcome law, outcome-adaptive selector",
     "multi_arm_selector_discrete": "three-arm binary-outcome law, discrete selector",
@@ -3153,6 +3165,40 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("simultaneous_coverage", "pointwise_joint_control"): (
         "the pointwise 95% intervals of the same fits, read jointly",
         "joint coverage upper endpoint must fall below the nominal rate",
+    ),
+    # band-t-reference: the t band, its paired normal-reference control and its df arms.
+    ("simultaneous_coverage", "t_band"): (
+        "the default multiplier band with band_reference='t', which reads each estimate's "
+        "critical value on a Student t reference with max(Kish, 5) degrees of freedom",
+        "joint coverage interval inside the calibration coverage band",
+    ),
+    ("simultaneous_coverage", "normal_reference_control"): (
+        "the default band, on the normal reference, from the same fits, draws and critical value",
+        "none. The paired gain of the t band over it is reported and gates nothing",
+    ),
+    ("simultaneous_coverage", "moment_df_diagnostic"): (
+        "the t band with the moment-matched df 2K / (1 - K/m) in place of the Kish count",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "model_df_diagnostic"): (
+        "the t band with the Kish count of the covariate-cell means of the squared curve",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "common_df_copula_diagnostic"): (
+        "the t band with one df, the floored smallest Kish count, for every estimate",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "common_df_mvt_diagnostic"): (
+        "the band from the multivariate t with one shared df, the floored smallest Kish count",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "floor_2_diagnostic"): (
+        "the t band with the df floor 2 in place of 5",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "floor_10_diagnostic"): (
+        "the t band with the df floor 10 in place of 5",
+        "none. The row is a diagnostic and states no verdict",
     ),
     ("repeat_stability", "three_repeats"): (
         "the median ATE over three fold draws across labelled base seeds",
