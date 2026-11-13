@@ -2053,7 +2053,7 @@ the band. A name that withholds inference in one draw withholds it in the report
 | part | `repeats=1` | `repeats` above 1 |
 | --- | --- | --- |
 | fold assignment | `random_state`, or a fresh seed under `None` | seed $r$ of `CrossFitPlan(random_state=..., repeats=R).seeds()`. A fresh seed replaces each `None` |
-| learners | `random_state` | the seed of the draw, so a Super Learner's inner folds draw again |
+| learners | `random_state`, given to every learner `random_state` that is `None`, including a Super Learner's candidates | the seed of the draw, given the same way, so a Super Learner's inner folds and its candidates with no seed of their own draw again |
 | multiplier band | `random_state` | `random_state` when it is an integer. Under `None` the fit draws one seed and records it as `config.multiplier_seed`. Every draw and a `CausalStudy` band use it |
 
 At one draw a `random_state=None` fit sends `None` to its learners, as before. The point-treatment

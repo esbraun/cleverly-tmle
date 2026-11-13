@@ -676,10 +676,12 @@ def _continuous_side(
         second = (assignment != k) & ~first
         halves.append((assignment == k, first, second))
 
+    from ..learners._fitting import seed_unset
+
     if quantile_learner is None:
         q_candidates = _default_quantile_candidates(tau, seed)
     else:
-        q_candidates = {"quantile_learner": quantile_learner(tau)}
+        q_candidates = {"quantile_learner": seed_unset(quantile_learner(tau), seed)}
     q_name: str | None = None
     q_hat = np.empty(n, dtype=float)
     q_second: list[FloatArray] = []
@@ -699,7 +701,7 @@ def _continuous_side(
     c_candidates = (
         _default_mean_candidates(seed)
         if pseudo_outcome_learner is None
-        else {"pseudo_outcome_learner": pseudo_outcome_learner}
+        else {"pseudo_outcome_learner": seed_unset(pseudo_outcome_learner, seed)}
     )
     c_name: str | None = None
     c_hat = np.empty(n, dtype=float)
@@ -1126,6 +1128,9 @@ def marginal_sensitivity_bounds(
     pseudo_outcome_learner : regressor, optional
         The regression of the tail pseudo-outcome. By default the bounds select, by
         out-of-fold squared loss, between a linear regression and a shallow booster.
+        A declared learner, and the regressor ``quantile_learner`` returns, take the
+        cross-fitting draw's seed (0 when the draw has none, as the default candidates take)
+        for every ``random_state`` they leave unset.
 
     Returns
     -------
