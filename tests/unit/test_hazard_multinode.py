@@ -56,7 +56,7 @@ def _g1(w: int) -> float:
 
 def _g(node: int, w: int, previous: int) -> float:
     """``P(A_k = 1 | W, A_{k-1})`` at a node after the first."""
-    return ((0.25, 0.7), (0.4, 0.8))[w][previous] - 0.05 * (node - 2)
+    return ((0.25, 0.4), (0.6, 0.9))[w][previous] - 0.05 * (node - 2)
 
 
 def _retained(node: int, w: int, a: int, previous: int) -> float:
@@ -66,7 +66,7 @@ def _retained(node: int, w: int, a: int, previous: int) -> float:
 
 def _hazard(node: int, w: int, a: int, previous: int) -> float:
     """``P(Y_k = 1 | at risk, W, A_k, A_{k-1})``."""
-    return 0.1 + 0.08 * a + 0.12 * previous * (1 - a) + 0.05 * w + 0.03 * node
+    return 0.1 + 0.08 * a + 0.12 * previous - 0.05 * a * previous + 0.05 * w + 0.03 * node
 
 
 def _split(node: int, w: int, a: int, previous: int) -> tuple[float, float]:
@@ -404,7 +404,7 @@ def test_a_wrong_hazard_with_the_true_mechanism_gives_the_truth(
         start = first.reshape(len(labels), 1, 3)[:, 0, 2]
     else:
         start = first.reshape(len(labels), 1)[:, 0]
-    assert np.max(np.abs(start - truths)) > MISSED
+    assert np.min(np.abs(start - truths)) > MISSED
 
 
 def test_each_competing_cause_is_exact() -> None:
