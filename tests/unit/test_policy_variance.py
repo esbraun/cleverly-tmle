@@ -1,0 +1,684 @@
+"""The ``variance="policy_weighted"`` option of ``LTMLE`` and ``SDR``.
+
+The option adds the change-of-measure variance of :mod:`cleverly.longitudinal.policy_variance`
+beside the influence-curve one, and reports the larger (:mod:`cleverly.inference.policy`).
+The fits below are of the five-node pricing law (``tests/studies/mtp_pricing_common.py``) at
+``tau = 2``, with its exact ratio on the classifier route.  There the policy-weighted variance
+wins for the moved plans and the natural plan's diagonal is its influence-curve variance, so
+both sources are exercised.
+
+Witnesses, by number: 4 the fallback, 7 the refusals before any learner, 8 the support kind,
+11 nesting, 12 ``contrast()`` and ``ratio()``, 13 ``transform=``, 14 repeats, 15 the
+downstream refusals, 16 the diagnostics and the warning text, plus the save and load round
+trip and the composed interval of a Student-t default.  Witness 6 reproduces the measured probe
+on committed draws (``tests/diagnostics/fix5_heavy_ratios/probe_variance.csv``).
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import warnings
+from functools import cache
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+from scipy.stats import norm, t
+from sklearn.linear_model import LinearRegression
+
+from cleverly import load
+from cleverly.datasets import make_longitudinal
+from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import CapabilityError, SparseInfluenceWarning
+from cleverly.inference import simultaneous_bands
+from cleverly.inference.delta import Transform
+from cleverly.inference.influence import median_estimates
+from cleverly.inference.multiplier import POLICY_VARIANCE_BAND_REFUSAL
+from cleverly.inference.policy import PolicyCovariance, PolicyVariance
+from cleverly.inference.results import (
+    POLICY_COVARIANCE_REFUSAL,
+    smooth_contrast,
+    transform_estimate,
+)
+from cleverly.inference.sparse import warn_sparse_influence
+from cleverly.longitudinal import LTMLE, SDR
+from cleverly.longitudinal import policy_variance as policy_module
+from cleverly.longitudinal.estimator import POLICY_VARIANCE_REFUSALS
+from cleverly.msm import MSM
+from tests.studies import canonical_mtp_pricing as pricing
+from tests.studies import mtp_pricing_common as common
+from tests.studies.fractional_glm import QuasiBinomialGLM
+from tests.unit._natural_course_support import Counting, CountingLinear, CountingLogistic
+
+N = 2000
+TAU = 2
+NATURAL = "ey_regimen[natural_prices]"
+UP = "ey_regimen[price_up]"
+DOWN = "ey_regimen[price_down]"
+PROBE = (
+    Path(__file__).resolve().parents[1] / "diagnostics" / "fix5_heavy_ratios" / "probe_variance.csv"
+)
+
+
+def _settings(**overrides: Any) -> dict[str, Any]:
+    """The pricing study's in-sample settings on its exact ratio, without a band."""
+    return {
+        "reference": "natural_prices",
+        "outcome_learner": QuasiBinomialGLM(),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": common.OracleRatio(),
+        "n_folds": 1,
+        "g_bounds": pricing.G_BOUNDS,
+        "ratio": "classifier",
+        "simultaneous": False,
+        "random_state": 0,
+        **overrides,
+    }
+
+
+def _fit(
+    estimator: type[LTMLE] | type[SDR] = LTMLE,
+    *,
+    tau: int = TAU,
+    n: int = N,
+    seed: int = 11,
+    **overrides: Any,
+) -> Any:
+    """One fit of the pricing law at ``tau`` with the three plans."""
+    frame = common.sample(n, seed, tau)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator(common.regimens(pricing.LABELS, tau), **_settings(**overrides)).fit(
+            frame, outcome="Y", **pricing.roles(tau)
+        )
+
+
+@cache
+def default_fit() -> Any:
+    """The fit with the default variance."""
+    return _fit()
+
+
+@cache
+def option_fit() -> Any:
+    """The same fit with ``variance="policy_weighted"``."""
+    return _fit(variance="policy_weighted")
+
+
+@cache
+def option_sdr() -> Any:
+    """The SDR fit of the same draw under the option."""
+    return _fit(SDR, variance="policy_weighted")
+
+
+def _gradient(covariance: PolicyCovariance, weights: dict[str, float]) -> np.ndarray:
+    """The gradient over the fit's levels with ``weights`` on the named levels."""
+    return np.array([weights.get(name, 0.0) for name in covariance.names])
+
+
+# ---------------------------------------------------------------------------- witness 11
+
+
+@pytest.mark.parametrize("estimator", ["ltmle", "sdr"])
+def test_each_estimate_reports_the_larger_variance(estimator: str) -> None:
+    result = option_fit() if estimator == "ltmle" else option_sdr()
+    default = default_fit() if estimator == "ltmle" else _cached_default_sdr()
+    for name, estimate in result.estimates.items():
+        record = estimate.policy
+        assert record is not None
+        assert estimate.covariance_rule == "policy_weighted"
+        assert record.influence_variance == pytest.approx(default[name].variance, rel=1e-12)
+        assert estimate.psi == pytest.approx(default[name].psi, rel=1e-12)
+        assert record.usable
+        assert estimate.variance == max(record.influence_variance, record.policy_variance)
+        lower, upper = estimate.ci
+        assert lower <= default[name].ci[0]
+        assert upper >= default[name].ci[1]
+
+
+@cache
+def _cached_default_sdr() -> Any:
+    return _fit(SDR)
+
+
+def test_both_sources_win_somewhere() -> None:
+    """The nonzero witness: the moved plans read the policy-weighted variance."""
+    result = option_fit()
+    sources = {name: estimate.variance_source for name, estimate in result.estimates.items()}
+    assert sources[NATURAL] == "influence_curve"
+    assert sources[UP] == "policy_weighted"
+    assert sources[DOWN] == "policy_weighted"
+    # The natural plan moves no dose, so its diagonal is its influence-curve variance.
+    natural = result[NATURAL].policy
+    assert natural.policy_variance == pytest.approx(natural.influence_variance, rel=1e-12)
+    assert result[DOWN].policy.policy_variance > 1.05 * result[DOWN].policy.influence_variance
+
+
+def test_the_test_interval_and_frame_read_the_stored_variance() -> None:
+    result = option_fit()
+    frame = result.to_frame().set_index("estimand")
+    z = norm.ppf(0.975)
+    for name, estimate in result.estimates.items():
+        assert estimate.std_error == pytest.approx(np.sqrt(estimate.variance), rel=1e-14)
+        lower, upper = estimate.ci
+        assert lower == pytest.approx(estimate.psi - z * estimate.std_error, rel=1e-12)
+        assert upper == pytest.approx(estimate.psi + z * estimate.std_error, rel=1e-12)
+        for null in (0.0, estimate.psi + 0.02):
+            test = estimate.wald_test(null)
+            assert test.statistic == pytest.approx((estimate.psi - null) / estimate.std_error)
+        assert frame.loc[name, "std_err"] == pytest.approx(estimate.std_error, rel=1e-14)
+        payload = estimate.to_dict()
+        assert payload["variance_source"] == estimate.variance_source
+        assert payload["influence_curve_std_err"] == pytest.approx(
+            np.sqrt(estimate.policy.influence_variance)
+        )
+        assert payload["policy_weighted_std_err"] == pytest.approx(
+            np.sqrt(estimate.policy.policy_variance)
+        )
+
+
+def test_the_default_fit_carries_no_policy_record() -> None:
+    estimate = default_fit()[DOWN]
+    assert estimate.policy is None
+    assert estimate.variance_source == "influence_curve"
+    assert "variance_source" not in estimate.to_dict()
+
+
+# ---------------------------------------------------------------------------- witness 12
+
+
+def test_a_contrast_reads_the_larger_of_the_two_derived_variances() -> None:
+    result, default = option_fit(), default_fit()
+    names = [UP, DOWN]
+    derived = result.contrast(lambda x: x[0] - x[1], names)
+    reference = default.contrast(lambda x: x[0] - x[1], names)
+    covariance = result[UP].policy.covariance
+    gradient = _gradient(covariance, {UP: 1.0, DOWN: -1.0})
+    # contrast() differentiates numerically when no gradient is given.
+    assert derived.policy.gradient == pytest.approx(gradient, rel=1e-6, abs=1e-8)
+    expected = float(gradient @ covariance.matrix @ gradient)
+    assert derived.policy.policy_variance == pytest.approx(expected, rel=1e-6)
+    assert derived.policy.influence_variance == pytest.approx(reference.variance, rel=1e-12)
+    assert derived.variance == max(derived.policy.policy_variance, reference.variance)
+
+
+def test_a_nonlinear_contrast_reads_the_analytic_gradient() -> None:
+    result, default = option_fit(), default_fit()
+    names = [DOWN, NATURAL]
+    derived = result.contrast(lambda x: x[0] / x[1], names, scale="level")
+    reference = default.contrast(lambda x: x[0] / x[1], names, scale="level")
+    down, natural = result[DOWN].psi, result[NATURAL].psi
+    covariance = result[DOWN].policy.covariance
+    gradient = _gradient(covariance, {DOWN: 1.0 / natural, NATURAL: -down / natural**2})
+    assert derived.policy.gradient == pytest.approx(gradient, rel=1e-6)
+    expected = float(gradient @ covariance.matrix @ gradient)
+    assert derived.policy.policy_variance == pytest.approx(expected, rel=1e-6)
+    assert derived.variance == pytest.approx(max(expected, reference.variance), rel=1e-6)
+
+
+def test_a_ratio_reads_the_log_scale_gradient() -> None:
+    result, default = option_fit(), default_fit()
+    derived = result.ratio(DOWN, NATURAL)
+    reference = default.ratio(DOWN, NATURAL)
+    covariance = result[DOWN].policy.covariance
+    gradient = _gradient(
+        covariance, {DOWN: 1.0 / result[DOWN].psi, NATURAL: -1.0 / result[NATURAL].psi}
+    )
+    assert derived.policy.gradient == pytest.approx(gradient, rel=1e-12)
+    expected = float(gradient @ covariance.matrix @ gradient)
+    assert derived.policy.policy_variance == pytest.approx(expected, rel=1e-12)
+    assert derived.policy.influence_variance == pytest.approx(reference.variance, rel=1e-12)
+    assert derived.variance == max(expected, reference.variance)
+    lower, upper = derived.ci
+    assert lower <= reference.ci[0]
+    assert upper >= reference.ci[1]
+
+
+def test_a_selection_that_mixes_the_rules_is_refused() -> None:
+    mixed = {UP: option_fit()[UP], DOWN: default_fit()[DOWN]}
+    with pytest.raises(ValueError, match="different covariance rules"):
+        smooth_contrast(mixed, lambda x: x[0] - x[1], [UP, DOWN], n=N)
+
+
+def test_a_selection_from_two_option_fits_is_refused() -> None:
+    mixed = {UP: option_fit()[UP], DOWN: option_sdr()[DOWN]}
+    with pytest.raises(CapabilityError, match="different policy-weighted covariances"):
+        smooth_contrast(mixed, lambda x: x[0] - x[1], [UP, DOWN], n=N)
+
+
+# ---------------------------------------------------------------------------- witness 13
+
+
+@pytest.mark.parametrize("name", [NATURAL, UP, DOWN])
+def test_a_transform_scales_both_variances(name: str) -> None:
+    estimate = option_fit()[name]
+    mapped = transform_estimate(estimate, Transform.logit())
+    slope = 1.0 / (estimate.psi * (1.0 - estimate.psi))
+    assert mapped.policy.influence_variance == pytest.approx(
+        slope**2 * estimate.policy.influence_variance, rel=1e-12
+    )
+    assert mapped.policy.policy_variance == pytest.approx(
+        slope**2 * estimate.policy.policy_variance, rel=1e-12
+    )
+    assert mapped.variance == pytest.approx(slope**2 * estimate.variance, rel=1e-12)
+    assert mapped.variance_source == estimate.variance_source
+
+
+def test_a_transformed_contrast_equals_the_transform_of_the_contrast() -> None:
+    result = option_fit()
+    names = [DOWN, NATURAL]
+    direct = result.contrast(lambda x: x[0] / x[1], names, scale="level", transform=Transform.log())
+    later = transform_estimate(
+        result.contrast(lambda x: x[0] / x[1], names, scale="level"), Transform.log()
+    )
+    assert direct.variance == pytest.approx(later.variance, rel=1e-12)
+    assert direct.variance_source == later.variance_source
+
+
+# ---------------------------------------------------------------------------- witness 14
+
+
+def test_the_median_rule_refuses_the_option() -> None:
+    """``repeats`` is refused at construction (witness 7), and the median rule refuses too."""
+    with pytest.raises(ValueError, match="a median over draws"):
+        median_estimates([option_fit().estimates, option_fit().estimates])
+
+
+# ---------------------------------------------------------------------------- witness 15
+
+
+def test_the_covariance_matrix_is_refused() -> None:
+    with pytest.raises(CapabilityError) as raised:
+        option_fit().covariance()
+    assert POLICY_COVARIANCE_REFUSAL in str(raised.value)
+
+
+def test_a_band_over_option_estimates_is_refused() -> None:
+    with pytest.raises(CapabilityError) as raised:
+        simultaneous_bands(option_fit().estimates)
+    assert raised.value.refusal == POLICY_VARIANCE_BAND_REFUSAL
+
+
+# ---------------------------------------------------------------------------- witness 16
+
+
+def test_the_influence_report_names_each_source() -> None:
+    result = option_fit()
+    report = result.diagnostics.influence()
+    frame = report.to_frame().set_index("name")
+    for name, estimate in result.estimates.items():
+        assert frame.loc[name, "variance_source"] == estimate.variance_source
+    sources = [estimate.variance_source for estimate in result.estimates.values()]
+    shares = report.variance_sources
+    assert shares["policy_weighted"] == pytest.approx(sources.count("policy_weighted") / 5)
+    assert shares["influence_curve"] == pytest.approx(sources.count("influence_curve") / 5)
+
+
+@pytest.mark.parametrize("policy", [False, True])
+def test_the_warning_text_follows_the_option(policy: bool) -> None:
+    report = option_fit().diagnostics.influence()
+    rows = tuple(dataclasses.replace(row, variance_rel_sd=0.5) for row in report.rows)
+    flagged = dataclasses.replace(report, rows=rows)
+    with pytest.warns(SparseInfluenceWarning) as caught:
+        warn_sparse_influence(flagged, cross_fitted=False, policy_variance=policy)
+    text = str(caught[0].message)
+    assert ("larger of the influence-curve and policy-weighted variances" in text) is policy
+    assert ("BCa" in text) is not policy
+
+
+def test_an_option_fit_with_few_driving_rows_warns_with_the_note() -> None:
+    frame = common.sample(1500, 11, 5)
+    estimator = LTMLE(common.regimens(pricing.LABELS, 5), **_settings(variance="policy_weighted"))
+    with pytest.warns(SparseInfluenceWarning, match="policy-weighted variances"):
+        estimator.fit(frame, outcome="Y", **pricing.roles(5))
+
+
+# ----------------------------------------------------------------------------- witness 4
+
+
+@pytest.mark.parametrize("value", [-1e6, np.nan])
+def test_a_failed_variance_regression_keeps_the_default_interval(
+    value: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed(design: Any, target: Any, evaluate_at: Any, loss: Any, *, seed: Any = None) -> Any:
+        return [np.full(np.asarray(points).shape[0], value) for points in evaluate_at]
+
+    monkeypatch.setattr(policy_module, "_fit_variance_regression", failed)
+    result, default = _fit(variance="policy_weighted"), default_fit()
+    for name, estimate in result.estimates.items():
+        assert estimate.variance_source == "influence_curve"
+        assert estimate.variance == default[name].variance
+        assert estimate.ci == default[name].ci
+        assert estimate.wald_test(0.5).pvalue == default[name].wald_test(0.5).pvalue
+    assert not result[DOWN].policy.usable
+
+
+def test_a_contrast_whose_quadratic_form_is_negative_keeps_its_curve_variance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forcing large covariances leaves the diagonals, so the levels keep the max."""
+    shipped = policy_module._fit_variance_regression
+
+    def inflated(design: Any, target: Any, evaluate_at: Any, loss: Any, *, seed: Any = None) -> Any:
+        if loss == "squared_error":
+            return [np.full(np.asarray(points).shape[0], 1e3) for points in evaluate_at]
+        return shipped(design, target, evaluate_at, loss, seed=seed)
+
+    monkeypatch.setattr(policy_module, "_fit_variance_regression", inflated)
+    result = _fit(variance="policy_weighted")
+    assert result[UP].variance_source == "policy_weighted"
+    assert result[DOWN].variance_source == "policy_weighted"
+    assert result[UP].variance == option_fit()[UP].variance
+    derived = result.contrast(lambda x: x[0] - x[1], [UP, DOWN])
+    assert derived.policy.policy_variance < 0.0
+    assert derived.variance_source == "influence_curve"
+    assert derived.variance == derived.policy.influence_variance
+
+
+# ------------------------------------------------------------- the composed interval (rev)
+
+
+@pytest.mark.parametrize(
+    ("influence", "policy", "df", "wins"),
+    [
+        (1.0, 1.1, 5, "default"),  # t_5 * 1 > z * sqrt(1.1)
+        (1.0, 4.0, 5, "policy"),
+        (1.0, 1.1, None, "policy"),
+        (1.0, 0.9, None, "default"),
+        (1.0, -1.0, 5, "default"),
+        (1.0, np.nan, None, "default"),
+    ],
+)
+def test_the_half_width_is_the_larger_of_the_default_and_z_times_the_policy_error(
+    influence: float, policy: float, df: int | None, wins: str
+) -> None:
+    covariance = PolicyCovariance(("a",), np.array([[policy]]))
+    record = PolicyVariance(covariance, np.array([1.0]), influence, policy)
+    center = 0.3
+    lower, upper = record.interval(center, 0.05, df)
+    default = (t.ppf(0.975, df) if df is not None else norm.ppf(0.975)) * np.sqrt(influence)
+    expected = default if wins == "default" else norm.ppf(0.975) * np.sqrt(policy)
+    assert upper - center == pytest.approx(expected, rel=1e-12)
+    assert center - lower == pytest.approx(expected, rel=1e-12)
+    for null in np.linspace(center - 2 * expected, center + 2 * expected, 41):
+        if abs(abs(null - center) - expected) < 1e-9:
+            continue
+        _, p_value = record.test(center, float(null), df)
+        assert (p_value < 0.05) == (null < lower or null > upper)
+
+
+def test_the_policy_quadratic_reads_only_the_used_entries() -> None:
+    covariance = PolicyCovariance(("a", "b"), np.array([[1.0, np.nan], [np.nan, 2.0]]))
+    assert covariance.quadratic(np.array([0.0, 3.0])) == pytest.approx(18.0)
+    assert np.isnan(covariance.quadratic(np.array([1.0, 1.0])))
+
+
+def test_a_failed_diagonal_fails_every_form_that_reads_it() -> None:
+    """A negative cross term would make ``a - b`` large; the failed ``b`` withholds it."""
+    covariance = PolicyCovariance(("a", "b"), np.array([[1.0, -5.0], [-5.0, -2.0]]))
+    assert covariance.quadratic(np.array([2.0, 0.0])) == pytest.approx(4.0)
+    assert np.isnan(covariance.quadratic(np.array([1.0, -1.0])))
+    assert np.isnan(covariance.quadratic(np.array([0.0, 1.0])))
+
+
+# ----------------------------------------------------------------------------- witness 8
+
+
+def test_the_option_reads_its_own_kind_and_is_experimental() -> None:
+    result = option_fit()
+    for estimate in result.estimates.values():
+        assert estimate.support.label == "experimental"
+        assert "licenses no Wald interval, policy-weighted variance" in estimate.support.reason
+    # The same configuration with the default variance is licensed: the kind is what moves.
+    assert default_fit()[DOWN].support.label == "supported"
+
+
+# ----------------------------------------------------------------------------- witness 7
+
+
+def _intercept(label: Any, horizon: int, frame: Any) -> np.ndarray:
+    """A working model with an intercept only."""
+    del label, horizon
+    return np.ones((len(frame), 1))
+
+
+SETTINGS_REFUSALS: dict[str, dict[str, Any]] = {
+    "msm": {
+        "msm": MSM(design=_intercept, terms=("(intercept)",), design_kind="known"),
+        "reference": None,
+    },
+    "n_folds": {"n_folds": 2},
+    "repeats": {"repeats": 3, "n_folds": 2},
+    "simultaneous": {"simultaneous": True},
+    "n_bootstrap": {"n_bootstrap": 20},
+    "ratio_trim": {"ratio_trim": 0.99},
+    "survival": {"survival_model": "hazard", "pseudo_learner": None},
+}
+
+DATA_REFUSALS: dict[str, dict[str, Any]] = {
+    "learned": {"learned": True},
+    "separable": {"separable": True},
+    "tuned": {"tuned": True},
+    "cluster": {"cluster": np.zeros(4)},
+    "survival": {"is_survival": True},
+    "censoring": {"censoring_names": ("C1",)},
+    "weights": {"is_weighted": True},
+    "held": {"treatment_held": True},
+    "mixed": {"mixed": True},
+}
+
+
+def test_every_refusal_is_reached() -> None:
+    assert set(SETTINGS_REFUSALS) | set(DATA_REFUSALS) == set(POLICY_VARIANCE_REFUSALS)
+
+
+@pytest.mark.parametrize(
+    ("estimator", "key"),
+    [
+        (estimator, key)
+        for estimator in (LTMLE, SDR)
+        for key in sorted(SETTINGS_REFUSALS)
+        # SDR takes no survival_model=; its survival refusal is the panel's (DATA_REFUSALS).
+        if not (estimator is SDR and key == "survival")
+    ],
+)
+def test_a_refused_setting_is_refused_at_construction(estimator: type, key: str) -> None:
+    settings = {**_settings(variance="policy_weighted"), **SETTINGS_REFUSALS[key]}
+    with pytest.raises(CapabilityError) as raised:
+        estimator(common.regimens(pricing.LABELS, TAU), **settings)
+    assert raised.value.refusal == POLICY_VARIANCE_REFUSALS[key]
+
+
+@pytest.mark.parametrize("key", sorted(SETTINGS_REFUSALS))
+def test_the_same_setting_with_the_default_variance_is_not_refused_by_the_option(
+    key: str,
+) -> None:
+    settings = {**_settings(), **SETTINGS_REFUSALS[key]}
+    try:
+        LTMLE(common.regimens(pricing.LABELS, TAU), **settings)
+    except CapabilityError as error:  # pragma: no cover - a refusal of another rule
+        assert error.refusal not in POLICY_VARIANCE_REFUSALS.values()
+    except ValueError:
+        pass
+
+
+def test_an_unknown_variance_is_refused() -> None:
+    with pytest.raises(ValueError, match="variance must be"):
+        LTMLE(common.regimens(pricing.LABELS, TAU), **_settings(variance="sandwich"))
+
+
+@pytest.mark.parametrize("key", sorted(DATA_REFUSALS))
+def test_each_design_refusal(key: str) -> None:
+    """Each design check of ``_refuse_policy_variance``, on a stand-in for the panel."""
+    flags = DATA_REFUSALS[key]
+    data = SimpleNamespace(
+        cluster=flags.get("cluster"),
+        is_survival=flags.get("is_survival", False),
+        is_repeated=False,
+        censoring_names=flags.get("censoring_names", ()),
+        is_weighted=flags.get("is_weighted", False),
+        treatment_held=flags.get("treatment_held", False),
+        n_times=2,
+        node_kind=lambda time: "mixed" if flags.get("mixed") else "binary",
+    )
+    estimator = LTMLE(common.regimens(pricing.LABELS, TAU), **_settings(variance="policy_weighted"))
+    with pytest.raises(CapabilityError) as raised:
+        estimator._refuse_policy_variance(
+            data,
+            learned=flags.get("learned", False),
+            separable=flags.get("separable", False),
+            tuned=flags.get("tuned", False),
+        )
+    assert raised.value.refusal == POLICY_VARIANCE_REFUSALS[key]
+    default = LTMLE(common.regimens(pricing.LABELS, TAU), **_settings())
+    default._refuse_policy_variance(
+        data,
+        learned=flags.get("learned", False),
+        separable=flags.get("separable", False),
+        tuned=flags.get("tuned", False),
+    )
+
+
+def _panel(key: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """A two-node binary panel that carries the refused feature."""
+    roles: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+    }
+    if key == "censoring":
+        frame, _ = make_longitudinal(300, seed=3, censoring=True)
+        roles["censoring"] = ["C1", "C2"]
+    elif key == "cluster":
+        frame, _ = make_longitudinal(300, seed=3, censoring=False, cluster_size=3)
+        roles["id"] = "id"
+    else:
+        frame, _ = make_longitudinal(300, seed=3, censoring=False)
+        frame = frame.assign(w=np.linspace(0.5, 1.5, len(frame)))
+        roles["weights"] = "w"
+    return frame, roles
+
+
+@pytest.mark.parametrize("key", ["censoring", "cluster", "weights"])
+def test_a_refused_panel_is_refused_before_any_learner(key: str) -> None:
+    frame, roles = _panel(key)
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        reference="never",
+        outcome_learner=CountingLinear(),
+        pseudo_learner=CountingLinear(),
+        treatment_learner=CountingLogistic(),
+        censoring_learner=CountingLogistic(),
+        n_folds=1,
+        simultaneous=False,
+        variance="policy_weighted",
+    )
+    Counting.calls = 0
+    with pytest.raises(CapabilityError) as raised:
+        estimator.fit(frame, **roles)
+    assert raised.value.refusal == POLICY_VARIANCE_REFUSALS[key]
+    assert Counting.calls == 0
+
+
+# ----------------------------------------------------------------- a categorical static fit
+
+
+def test_two_static_binary_regimens_read_the_categorical_sum() -> None:
+    """At a binary node a static plan's ratio is ``1 / g(a)`` at its own dose.
+
+    The diagonal is then ``E[b^2] + E[S_1(a, H_1) / g_1(a)]``, the exact sum over the arms.
+    """
+    frame, _ = make_longitudinal(1500, seed=4, censoring=False)
+    settings: dict[str, Any] = {
+        "reference": "never",
+        "outcome_learner": LinearRegression(),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": CountingLogistic(),
+        "n_folds": 1,
+        "simultaneous": False,
+        "random_state": 0,
+    }
+    roles = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+    }
+    regimens = {"always": 1, "never": 0}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        default = LTMLE(regimens, **settings).fit(frame, **roles)
+        option = LTMLE(regimens, variance="policy_weighted", **settings).fit(frame, **roles)
+    matrix = option["ey_regimen[always]"].policy.covariance.matrix
+    # The plans differ at the first node, so no row reaches a dose both draw and the pair's
+    # carried term is zero; before that case was handled the covariance read nan.
+    assert np.all(np.isfinite(matrix))
+    assert np.allclose(matrix, matrix.T)
+    assert np.all(np.diag(matrix) > 0.0)
+    for name, estimate in option.estimates.items():
+        assert estimate.policy.influence_variance == pytest.approx(
+            default[name].variance, rel=1e-12
+        )
+        assert estimate.variance >= default[name].variance
+        # Both read the same variance: close, but not the same number, since neither static
+        # plan's diagonal is its curve's.
+        ratio = estimate.policy.policy_variance / estimate.policy.influence_variance
+        assert 0.7 < ratio < 1.3
+        assert ratio != pytest.approx(1.0, rel=1e-6)
+
+
+# ------------------------------------------------------------------- save and load (rev 3.1)
+
+
+def test_the_option_survives_save_and_load(tmp_path: Path) -> None:
+    result = option_fit()
+    expected = result.contrast(lambda x: x[0] - x[1], [UP, DOWN])
+    for restored in (load(result.save(tmp_path / "option.joblib")), loads(dumps(result))):
+        for name, estimate in result.estimates.items():
+            assert restored[name].variance_source == estimate.variance_source
+            assert restored[name].variance == estimate.variance
+        again = restored.contrast(lambda x: x[0] - x[1], [UP, DOWN])
+        assert again.variance == expected.variance
+        assert again.variance_source == expected.variance_source
+        assert again.policy.policy_variance == expected.policy.policy_variance
+        with pytest.raises(CapabilityError):
+            restored.covariance()
+
+
+# ----------------------------------------------------------------------------- witness 6
+
+
+def _probe_draws() -> pd.DataFrame:
+    return pd.read_csv(PROBE)
+
+
+@pytest.mark.parametrize(("estimator", "rep"), [("ltmle", 0), ("sdr", 0)])
+def test_the_shipped_variance_reproduces_the_probe(estimator: str, rep: int) -> None:
+    """The fast-tier slice of witness 6; ``run.py`` checks all 48 committed draws."""
+    reference = _probe_draws().set_index(["est", "rep"]).loc[(estimator, rep)]
+    labels = ("natural_prices", "price_down")
+    frame, _ = pricing.draw_scenario(f"pricing_{estimator}_tau5", int(reference["n"]), rep)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if estimator == "ltmle":
+            model: Any = LTMLE(
+                common.regimens(labels, 5),
+                max_iter=100,
+                tol=1e-10,
+                alpha=pricing.PRIMARY_ALPHA,
+                **_settings(variance="policy_weighted"),
+            )
+        else:
+            model = SDR(common.regimens(labels, 5), **_settings(variance="policy_weighted"))
+        result = model.fit(frame, outcome="Y", **pricing.roles(5))
+    estimate = result[DOWN]
+    covariance = estimate.policy.covariance
+    matrix = covariance.matrix * int(reference["n"])
+    down, natural = covariance.names.index(DOWN), covariance.names.index(NATURAL)
+    assert estimate.psi == pytest.approx(reference["psi"], rel=1e-10)
+    assert matrix[down, down] == pytest.approx(reference["variance"], rel=1e-10)
+    assert matrix[down, natural] == pytest.approx(reference["covariance"], rel=1e-10)

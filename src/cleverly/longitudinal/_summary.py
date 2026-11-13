@@ -1062,6 +1062,18 @@ def _settings(result: LongitudinalResult) -> SummarySection:
     if config.n_folds > 1:
         repeats = f", in each of {result.n_repeats} splits" if result.n_repeats > 1 else ""
         lines.append(f"Folds: {config.n_folds}{repeats}.")
+    if config.variance == "policy_weighted":
+        lifted = [
+            name
+            for name, estimate in result.estimates.items()
+            if estimate.variance_source == "policy_weighted"
+        ]
+        listed = ", ".join(lifted) if lifted else "none"
+        lines.append(
+            "Variance: the larger of the influence-curve variance and the policy-weighted "
+            "variance, which reads each node's residual through the ratio at the policy dose. "
+            f"The policy-weighted variance is the larger for: {listed}."
+        )
     if len(config.outcome_names) > 1 and config.outcome_kind != "repeated":
         if config.survival_model == "hazard":
             how = (

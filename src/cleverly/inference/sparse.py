@@ -96,6 +96,10 @@ class InfluenceRow:
         The BCa bias correction of the attached bootstrap, ``nan`` without one.
     bca_acceleration : float
         The BCa acceleration, ``nan`` without a bootstrap.
+    variance_source : str
+        Which variance the estimate's interval reads: ``"influence_curve"``, or
+        ``"policy_weighted"`` under ``variance="policy_weighted"`` when that variance is the
+        larger. The measures above always read the influence curve.
 
     Attributes
     ----------
@@ -111,6 +115,7 @@ class InfluenceRow:
     edgeworth_loss: float
     bca_z0: float = math.nan
     bca_acceleration: float = math.nan
+    variance_source: str = "influence_curve"
 
     @property
     def sparse(self) -> bool:
@@ -139,6 +144,7 @@ class InfluenceReport:
     Attributes
     ----------
     sparse : tuple of str
+    variance_sources : dict of str to float
     """
 
     rows: tuple[InfluenceRow, ...]
@@ -151,6 +157,17 @@ class InfluenceReport:
     def sparse(self) -> tuple[str, ...]:
         """The names whose variance estimate is above the warning threshold."""
         return tuple(row.name for row in self.rows if row.sparse)
+
+    @property
+    def variance_sources(self) -> dict[str, float]:
+        """The share of the estimates whose interval reads each variance, ``{}`` with no row."""
+        if not self.rows:
+            return {}
+        sources = [row.variance_source for row in self.rows]
+        return {
+            source: sources.count(source) / len(sources)
+            for source in ("influence_curve", "policy_weighted")
+        }
 
     def __getitem__(self, name: str) -> InfluenceRow:
         for row in self.rows:
@@ -211,6 +228,7 @@ class InfluenceReport:
                 "edgeworth_loss",
                 "bca_z0",
                 "bca_acceleration",
+                "variance_source",
             )
         }
         return emit_frame(payload, data, backend=self.backend)
@@ -253,6 +271,7 @@ def influence_row(
     estimate: float | None = None,
     draws: FloatArray | None = None,
     cluster: IntArray | None = None,
+    variance_source: str = "influence_curve",
 ) -> InfluenceRow:
     """The influence-curve measures of one estimate.
 
@@ -272,6 +291,8 @@ def influence_row(
     cluster : ndarray or None, default=None
         ``(n,)`` cluster codes. Every measure then reads the cluster sums of the curve, so
         ``n`` is the number of clusters.
+    variance_source : str, default="influence_curve"
+        Which variance the estimate's interval reads, recorded on the row.
 
     Returns
     -------
@@ -293,7 +314,7 @@ def influence_row(
     second = float(np.mean(centred**2))
     nan = math.nan
     if second <= 0.0:
-        return InfluenceRow(name, n, math.inf, nan, nan, nan, nan)
+        return InfluenceRow(name, n, math.inf, nan, nan, nan, nan, variance_source=variance_source)
     skewness = float(np.mean(centred**3)) / second**1.5
     kurtosis = float(np.mean(centred**4)) / second**2
     z0 = nan
@@ -314,6 +335,7 @@ def influence_row(
         edgeworth_loss=edgeworth_loss(skewness, kurtosis, n, alpha),
         bca_z0=z0,
         bca_acceleration=acceleration,
+        variance_source=variance_source,
     )
 
 
@@ -358,6 +380,7 @@ def influence_report(
                 estimate=None if bootstrap is None else float(estimate.psi),
                 draws=None if bootstrap is None else bootstrap.draws,
                 cluster=cluster,
+                variance_source=getattr(estimate, "variance_source", "influence_curve"),
             )
         )
     return InfluenceReport(tuple(rows), alpha, backend, clustered=cluster is not None)
@@ -382,6 +405,11 @@ _CROSS_FITTED_ADVICE = (
     "bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval "
     "with care, and see result.diagnostics.influence()."
 )
+#: The note of a fit with ``variance="policy_weighted"``, in place of advice.
+_POLICY_IN_USE_NOTE = (
+    "The estimate is driven by few rows; the interval uses the larger of the "
+    "influence-curve and policy-weighted variances. See result.diagnostics.influence()."
+)
 #: The advice of an in-sample fit whose bootstrap no registered study measures.
 _UNMEASURED_ADVICE = (
     "No registered study measures a bootstrap interval for this kind of fit, so its "
@@ -396,6 +424,7 @@ def warn_sparse_influence(
     cross_fitted: bool,
     bootstrap_measured: bool = True,
     percentile_bootstrap: bool = False,
+    policy_variance: bool = False,
     stacklevel: int | None = None,
 ) -> None:
     """Warn once for the estimates whose variance estimate is above the threshold.
@@ -418,6 +447,10 @@ def warn_sparse_influence(
     percentile_bootstrap : bool, default=False
         Whether the fit already ran a percentile bootstrap. The advice then names the BCa
         interval and not a new bootstrap.
+    policy_variance : bool, default=False
+        Whether the fit reads ``variance="policy_weighted"``. The warning still fires at the
+        same threshold, and its text says the interval reads the larger of the two variances
+        in place of any advice.
     stacklevel : int or None, default=None
         Passed to :func:`warnings.warn`. ``None`` points at the first caller outside the
         ``cleverly`` package, whichever route reached the fit.
@@ -436,6 +469,15 @@ def warn_sparse_influence(
         for row in flagged[:5]
     )
     more = f"; and {len(flagged) - 5} more" if len(flagged) > 5 else ""
+    if policy_variance:
+        _warn(
+            f"{len(flagged)} estimate(s) read their influence curve from few rows, so the "
+            f"variance estimate's relative SD is above {SPARSE_INFLUENCE_THRESHOLD}: "
+            f"{listed}{more}. {_POLICY_IN_USE_NOTE}",
+            SparseInfluenceWarning,
+            stacklevel=_caller_outside_package() if stacklevel is None else stacklevel,
+        )
+        return
     advice = (
         _CROSS_FITTED_ADVICE
         if cross_fitted

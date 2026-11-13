@@ -65,6 +65,7 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, TypeAlias
 
 import numpy as np
@@ -158,6 +159,7 @@ from ..inference.multiplier import (
     out_of_range,
     simultaneous_bands,
 )
+from ..inference.policy import PolicyCovariance
 from ..inference.results import (
     RatioKind,
     _named_draw,
@@ -280,6 +282,7 @@ from .msm import (
     project_sdr_cells,
     refuse_evaluated_msm_functions,
 )
+from .policy_variance import policy_weighted_variance
 from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
 from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
@@ -433,6 +436,81 @@ GCOMP_TRUNCATION_REFUSAL = Refusal(
     "a g-computation estimate reads no treatment mechanism, so g_bounds does not move it and "
     "no truncation curve exists.",
     alternative="Fit SequentialIPW or LTMLE for a truncation curve.",
+)
+
+
+#: The alternative every refusal of ``variance="policy_weighted"`` names.
+_POLICY_VARIANCE_ALTERNATIVE = (
+    "Fit with variance='influence_curve', the default, for the influence-curve interval."
+)
+
+
+def _policy_variance_refusal(condition: str) -> Refusal:
+    """A refusal of ``variance="policy_weighted"``: an inference gap, with the default as fix."""
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        f"variance='policy_weighted' is refused here: {condition}",
+        alternative=_POLICY_VARIANCE_ALTERNATIVE,
+    )
+
+
+#: Why ``variance="policy_weighted"`` refuses each setting or design, by its name.  Each
+#: refusal is raised before any learner fits.
+POLICY_VARIANCE_REFUSALS: Mapping[str, Refusal] = MappingProxyType(
+    {
+        "n_folds": _policy_variance_refusal(
+            "the policy-weighted variance needs fold-wise variance regressions, which no "
+            "registered study measures. Pass n_folds=1."
+        ),
+        "repeats": _policy_variance_refusal(
+            "repeats above 1 needs a cross-fitted fit, and the policy-weighted variance is "
+            "defined for one in-sample fit."
+        ),
+        "cluster": _policy_variance_refusal(
+            "a cluster-level policy-weighted variance is not derived."
+        ),
+        "survival": _policy_variance_refusal(
+            "the hazard recursion has no policy-weighted variance here. It applies to an "
+            "end-of-study outcome."
+        ),
+        "simultaneous": _policy_variance_refusal(
+            "a band needs a joint covariance matrix, and the option defines variances of "
+            "linear functionals, not a matrix. Pass simultaneous=False."
+        ),
+        "n_bootstrap": _policy_variance_refusal(
+            "the bootstrap interval does not read the variance option."
+        ),
+        "ratio_trim": _policy_variance_refusal(
+            "a trimmed ratio changes the estimand the variance is read for."
+        ),
+        "msm": _policy_variance_refusal(
+            "the option's variance is defined for the regimen levels and their linear "
+            "functionals, not for the working-model coefficients of msm=."
+        ),
+        "censoring": _policy_variance_refusal(
+            "with right-censoring the change of measure needs each censoring factor at the "
+            "policy dose, which the fit does not evaluate."
+        ),
+        "weights": _policy_variance_refusal(
+            "the policy-weighted variance is derived for unweighted rows."
+        ),
+        "mixed": _policy_variance_refusal(
+            "a node that holds a vector of treatments has no ratio at the policy dose here."
+        ),
+        "held": _policy_variance_refusal(
+            "a treatment held from baseline has no per-node change of measure here."
+        ),
+        "tuned": _policy_variance_refusal(
+            "a data-tuned policy cap adds a term to the influence curve that the "
+            "policy-weighted variance does not read."
+        ),
+        "learned": _policy_variance_refusal(
+            "a learned regimen's value is not a fixed plan, so no intervened law is declared."
+        ),
+        "separable": _policy_variance_refusal(
+            "a separable-effects regimen has no policy-weighted variance here."
+        ),
+    }
 )
 
 
@@ -1499,6 +1577,9 @@ class LongitudinalConfig:
 
     #: The support key the fit was classified under, read before any learner ran.
     support_key: SupportKey | None = None
+    #: The variance of the reported intervals: ``"influence_curve"``, or
+    #: ``"policy_weighted"`` for the larger of that and the policy-weighted variance.
+    variance: str = "influence_curve"
 
 
 @dataclass(frozen=True)
@@ -4072,6 +4153,7 @@ def _estimates(
     alpha_sig: float,
     inference: InferenceStatus,
     classification: Classification | None = None,
+    policy: FloatArray | None = None,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -4092,6 +4174,13 @@ def _estimates(
         Stamped here rather than after the call, because the fit and the truncation-curve
         replay both build their estimates here, and the replay must equal the fit field
         for field.
+    classification : Classification or None, default None
+        The fit's classification, from which each estimate's support is read.
+    policy : ndarray or None, default None
+        Under ``variance="policy_weighted"``, the ``(k, k)`` policy-weighted covariance of
+        the fits in the order of ``fits``, on the targeting scale
+        (:func:`_policy_matrix`).  Every estimate then reads the larger of its
+        influence-curve variance and its gradient's quadratic form in this matrix.
 
     Returns
     -------
@@ -4117,8 +4206,28 @@ def _estimates(
     # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
     index: dict[str, tuple[str, str | None, int]] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
-    for fit in fits.values():
-        name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
+    ordered = list(fits.values())
+    level_names = [
+        parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
+        for fit in ordered
+    ]
+    covariance = (
+        None
+        if policy is None
+        else PolicyCovariance(tuple(level_names), scaler.range**2 * np.asarray(policy, dtype=float))
+    )
+
+    def carried(*weights: tuple[int, float]) -> dict[str, Any]:
+        """The ``make_estimate`` arguments of the policy-weighted rule, for a gradient."""
+        if covariance is None:
+            return {}
+        gradient = np.zeros(len(ordered))
+        for position, weight in weights:
+            gradient[position] += weight
+        return {"covariance_rule": "policy_weighted", "policy": covariance, "gradient": gradient}
+
+    positions = {id(fit): position for position, fit in enumerate(ordered)}
+    for fit, name in zip(ordered, level_names, strict=True):
         index[name] = (fit.regimen.label, fit.cause, fit.horizon)
         contributors[name] = (fit,)
         status = _parameter_status(inference, fit)
@@ -4126,13 +4235,16 @@ def _estimates(
             name,
             scaler.unscale_level(fit.psi_scaled),
             scaler.unscale_influence(fit.influence_curve_scaled),
+            **carried((positions[id(fit)], 1.0)),
             n=data.n,
             cluster=data.cluster,
             scale="level",
             alpha=alpha_sig,
             inference=status,
             reference_df=reference_df,
-            support=_support_of(classification, status, reference_df),
+            support=_support_of(
+                classification, status, reference_df, policy=covariance is not None
+            ),
             bounds=parameter_bounds("mean", data.family),
         )
     for fit in fits.values():
@@ -4151,13 +4263,16 @@ def _estimates(
             name,
             scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
             scaler.unscale_influence(fit.influence_curve_scaled - base.influence_curve_scaled),
+            **carried((positions[id(fit)], 1.0), (positions[id(base)], -1.0)),
             n=data.n,
             cluster=data.cluster,
             scale="difference",
             alpha=alpha_sig,
             inference=status,
             reference_df=reference_df,
-            support=_support_of(classification, status, reference_df),
+            support=_support_of(
+                classification, status, reference_df, policy=covariance is not None
+            ),
             bounds=parameter_bounds("difference", data.family),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
@@ -4176,12 +4291,39 @@ def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> Parame
 
 
 def _support_of(
-    classification: Classification | None, status: InferenceStatus, reference_df: int | None
+    classification: Classification | None,
+    status: InferenceStatus,
+    reference_df: int | None,
+    *,
+    policy: bool = False,
 ) -> Support:
-    """The support of one estimate: the default without a classification, else the computed one."""
+    """The support of one estimate: the default without a classification, else the computed one.
+
+    ``policy`` says the estimate reads ``variance="policy_weighted"``, so a row must license
+    the ``wald_policy`` kind for its interval.
+    """
     if classification is None:
         return UNCLASSIFIED
-    return support_for(classification, status, reference_df)
+    return support_for(classification, status, reference_df, policy=policy)
+
+
+def _policy_matrix(
+    data: LongitudinalData,
+    fits: Mapping[str, RegimenFit],
+    plans: Sequence[Plan],
+    mechanism: Mechanism,
+    *,
+    seed: int | None,
+) -> FloatArray:
+    """The policy-weighted covariance of ``fits``, in their order, on the targeting scale."""
+    with phase("policy_variance"):
+        return policy_weighted_variance(
+            data,
+            list(fits.values()),
+            {plan.label: plan for plan in plans},
+            mechanism,
+            seed=seed,
+        )
 
 
 def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
@@ -4383,6 +4525,7 @@ class _SequentialEstimator:
         ratio_trim: float | None = None,
         hazard_pooling: str = "node",
         repeats: int = 1,
+        variance: str = "influence_curve",
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -4419,6 +4562,7 @@ class _SequentialEstimator:
         self.ratio_trim = ratio_trim
         self.hazard_pooling = hazard_pooling
         self.repeats = repeats
+        self.variance = variance
         refuse_unsupported(refused, where=type(self).__name__)
         self._validate_settings()
 
@@ -4511,6 +4655,7 @@ class _SequentialEstimator:
             step_bound=getattr(self, "step_bound", None),
             ratio_trim=self.ratio_trim,
         )
+        self._validate_variance()
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "msm= and reference= cannot be combined. reference= names the regimen "
@@ -4520,6 +4665,69 @@ class _SequentialEstimator:
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
             )
+
+    def _validate_variance(self) -> None:
+        """Refuse an unknown ``variance=`` and each setting the policy-weighted variance refuses."""
+        if self.variance not in ("influence_curve", "policy_weighted"):
+            raise ValueError(
+                "variance must be 'influence_curve' or 'policy_weighted'; got "
+                f"{self.variance!r}. It names the variance of the reported intervals"
+            )
+        if self.variance == "influence_curve":
+            return
+        refused = (
+            ("msm", self.msm is not None),
+            ("repeats", self.repeats != 1),
+            ("n_folds", self.n_folds != 1),
+            ("simultaneous", bool(self.simultaneous)),
+            ("n_bootstrap", bool(self.n_bootstrap)),
+            ("ratio_trim", self.ratio_trim is not None),
+            ("survival", self.survival_model != "iterated_mean"),
+        )
+        for name, applies in refused:
+            if applies:
+                raise CapabilityError.from_refusal(POLICY_VARIANCE_REFUSALS[name])
+
+    def _refuse_policy_variance(
+        self,
+        data: LongitudinalData,
+        *,
+        learned: bool,
+        separable: bool,
+        tuned: bool,
+    ) -> None:
+        """Refuse a design the policy-weighted variance does not cover, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        learned : bool
+            Whether the fit holds a learned regimen.
+        separable : bool
+            Whether the fit holds a separable-effects regimen.
+        tuned : bool
+            Whether a plan has a data-tuned cap.
+        """
+        if self.variance != "policy_weighted":
+            return
+        refused = (
+            ("learned", learned),
+            ("separable", separable),
+            ("tuned", tuned),
+            ("cluster", data.cluster is not None),
+            ("survival", data.is_survival or data.is_repeated),
+            ("censoring", bool(data.censoring_names)),
+            ("weights", data.is_weighted),
+            ("held", data.treatment_held),
+            (
+                "mixed",
+                any(data.node_kind(time) == "mixed" for time in range(1, data.n_times + 1)),
+            ),
+        )
+        for name, applies in refused:
+            if applies:
+                raise CapabilityError.from_refusal(POLICY_VARIANCE_REFUSALS[name])
 
     def _validate_targeting(self) -> None:
         """Refuse an invalid targeting setting.  A recursion without a fluctuation has none."""
@@ -4720,6 +4928,7 @@ class _SequentialEstimator:
             density_bins=self.density_bins,
             ratio=self.ratio,
             hazard_pooling=self.hazard_pooling,
+            shifted_ratios=self.variance == "policy_weighted",
         )
 
     def _parametric(
@@ -5129,6 +5338,12 @@ class _SequentialEstimator:
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
         self._refuse_design(prepared, plans)
+        self._refuse_policy_variance(
+            prepared,
+            learned=learned is not None,
+            separable=bool(separable),
+            tuned=tuned_folds is not None,
+        )
         checked = branch_plans(plans[0]) if learned is not None else plans
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, checked, resolve_cumulative_g_bounds(self.g_bounds))
@@ -5276,6 +5491,7 @@ class _SequentialEstimator:
             step_size=float(self.step_size),
             isotonic=self.isotonic,
             node_bounds=declared_bounds,
+            variance=self.variance,
         )
         # Each parameter takes the precedent of its draws' statuses before the median, so
         # a parameter that withholds inference in any draw withholds it in the report.  The
@@ -5346,6 +5562,7 @@ class _SequentialEstimator:
                 cross_fitted=not repeats[0].folds.is_single,
                 bootstrap_measured=not first.hazard and not self.isotonic,
                 percentile_bootstrap=bool(self.n_bootstrap),
+                policy_variance=self.variance == "policy_weighted",
             )
         result = self._finish(result, first.reported, repeats[0].fits)
         if self.n_bootstrap:
@@ -5741,6 +5958,11 @@ class _SequentialEstimator:
         if self.isotonic:
             replay_recipe = replace(replay_recipe, isotonic=True)
             fits, moves = _project_fits(fits)
+        policy = (
+            _policy_matrix(prepared, fits, plans, mechanism, seed=learner_seed)
+            if self.variance == "policy_weighted"
+            else None
+        )
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -5751,6 +5973,7 @@ class _SequentialEstimator:
                     alpha_sig=self.alpha_sig,
                     inference=status,
                     classification=classification,
+                    policy=policy,
                 )
                 if model is None
                 else _msm_estimates(
@@ -6998,6 +7221,20 @@ class LTMLE(_SequentialEstimator):
         are clipped into the bounds, and the record holds the clipped share.  A node that
         bounds some causes and not others, or whose upper bounds sum to more than one, raises
         :class:`~cleverly.exceptions.CapabilityError` before any learner.
+    variance : {"influence_curve", "policy_weighted"}
+        The variance of every reported interval.  ``"influence_curve"`` reads it from the
+        influence curve of the fitted rows.  ``"policy_weighted"`` also computes the
+        change-of-measure sequential plug-in of that variance, which reads every node's
+        residual through the ratio at each row's policy dose
+        (:mod:`cleverly.longitudinal.policy_variance`), and reports the larger of the two
+        for every level and contrast.  The estimate does not change, and the interval
+        contains the default one in every sample.  Each estimate's ``variance_source``
+        says which variance it reports, and its ``policy`` record keeps both.  The option
+        needs an in-sample (``n_folds=1``), unclustered, unweighted and uncensored fit of an
+        end-of-study outcome with ``simultaneous=False``.  Every other setting, and
+        ``msm=``, ``n_bootstrap``, ``ratio_trim`` and ``repeats``, raises
+        :class:`~cleverly.exceptions.CapabilityError` before any learner.  Its coverage claim
+        needs an exact or known ratio, or, with a learned ratio, a consistent outcome model.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -7049,6 +7286,7 @@ class LTMLE(_SequentialEstimator):
         ratio_trim: float | None = None,
         hazard_pooling: str = "node",
         node_bounds: Mapping[Any, Any] | None = None,
+        variance: str = "influence_curve",
         **refused: Any,
     ) -> None:
         self.node_bounds = node_bounds
@@ -7093,6 +7331,7 @@ class LTMLE(_SequentialEstimator):
             ratio_trim=ratio_trim,
             hazard_pooling=hazard_pooling,
             repeats=repeats,
+            variance=variance,
             **refused,
         )
 
@@ -7241,6 +7480,8 @@ class SDR(_SequentialEstimator):
     repeats : int
         How many independent draws of the outer split the fit combines by their median,
         as for :class:`LTMLE`.
+    variance : {"influence_curve", "policy_weighted"}
+        The variance of every reported interval, as for :class:`LTMLE`.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search`` and
         ``iterate``, which raise :class:`MethodConfigurationError` because the estimator fits no
@@ -7311,6 +7552,7 @@ class SDR(_SequentialEstimator):
         ratio_trim: float | None = None,
         hazard_pooling: str = "node",
         repeats: int = 1,
+        variance: str = "influence_curve",
         **refused: Any,
     ) -> None:
         if "node_bounds" in refused:
@@ -7348,6 +7590,7 @@ class SDR(_SequentialEstimator):
             ratio_trim=ratio_trim,
             hazard_pooling=hazard_pooling,
             repeats=repeats,
+            variance=variance,
             **refused,
         )
 
@@ -9029,6 +9272,17 @@ def _refit_bound(
             reference,
             alpha_sig=result.config.alpha_sig,
             inference=status,
+            policy=(
+                _policy_matrix(
+                    result.data,
+                    fits,
+                    recipe.plans,
+                    draw.mechanism,
+                    seed=result.config.random_state,
+                )
+                if result.config.variance == "policy_weighted"
+                else None
+            ),
         )
     else:
         reported = _msm_estimates(

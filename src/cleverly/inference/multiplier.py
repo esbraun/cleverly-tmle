@@ -200,6 +200,17 @@ T_REFERENCE_BAND_REFUSAL = Refusal(
     roadmap="F28",
 )
 
+#: Why no band covers an estimate of a fit with ``variance="policy_weighted"``.
+POLICY_VARIANCE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() needs a joint covariance matrix, and under "
+    "variance='policy_weighted' the fit defines the variance of each linear functional as a "
+    "maximum of two variances, not a matrix.",
+    alternative=(
+        "Report the pointwise intervals, or refit with variance='influence_curve' for a band."
+    ),
+)
+
 #: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
 KNOWN_REGIME_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
@@ -692,6 +703,8 @@ def _checked_items(
         raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
     if known_regime_estimates(name for name, _ in items):
         raise CapabilityError.from_refusal(KNOWN_REGIME_BAND_REFUSAL)
+    if any(estimate.covariance_rule == "policy_weighted" for _, estimate in items):
+        raise CapabilityError.from_refusal(POLICY_VARIANCE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

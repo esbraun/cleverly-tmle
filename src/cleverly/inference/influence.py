@@ -89,6 +89,7 @@ from .delta import (
     wald_ci,
     wald_statistic,
 )
+from .policy import PolicyCovariance, PolicyVariance, VarianceSource
 
 __all__ = [
     "BoundedKind",
@@ -134,8 +135,10 @@ __all__ = [
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
 
-#: How an estimate's joint covariance is read off its influence curve.
-CovarianceRule = Literal["centered", "second_moment"]
+#: How an estimate's joint covariance is read off its influence curve.  ``"policy_weighted"``
+#: reads the curve's centred variance and the fit's policy-weighted covariance
+#: (:mod:`cleverly.inference.policy`), and reports the larger of the two.
+CovarianceRule = Literal["centered", "second_moment", "policy_weighted"]
 
 #: What kind of bounded functional a target is: a mean of the outcome, or a difference of two
 #: such means.  :func:`parameter_bounds` turns it into the range on a binary outcome.
@@ -695,12 +698,15 @@ class ParameterEstimate:
         Present for ratios only: the estimate on the log scale.
     bootstrap : BootstrapSummary or None
         Bootstrap summary, when ``n_bootstrap > 0`` was requested.
-    covariance_rule : {"centered", "second_moment"}
+    covariance_rule : {"centered", "second_moment", "policy_weighted"}
         How joint covariance and delta-method contrasts are computed from the influence
         curve. ``"centered"`` uses the sample covariance at the observation or cluster
         unit, which can differ from :attr:`variance` on a fold-evaluated or repeated fit.
         ``"second_moment"`` uses the raw second moment that the stacked cross-fitted
-        natural-course mean reports as its variance.
+        natural-course mean reports as its variance. ``"policy_weighted"`` is the rule of a
+        longitudinal fit with ``variance="policy_weighted"``: the variance is the larger of
+        the centred curve variance and the policy-weighted one that :attr:`policy` holds,
+        and a joint covariance matrix is not defined.
     inference : str
         Whether the package supplies inference for this estimate. One of
         :data:`InferenceStatus`. The
@@ -732,9 +738,15 @@ class ParameterEstimate:
         simultaneous band with ``band_scale="logit"`` is built on the logit of the
         estimate's position in this range. ``None`` for every other parameter, including any
         parameter of a continuous outcome.
+    policy : PolicyVariance or None
+        Under the ``"policy_weighted"`` rule, both variances of the estimate, its gradient
+        over the fit's levels and the fit's shared policy-weighted covariance
+        (:class:`~cleverly.inference.policy.PolicyVariance`). ``None`` under every other
+        rule.
 
     Attributes
     ----------
+    variance_source : str
     std_error : float
     plugin_std_error : float
     inference_value : float
@@ -799,6 +811,23 @@ class ParameterEstimate:
     reference_df: int | None = None
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
+    policy: PolicyVariance | None = None
+
+    @property
+    def variance_source(self) -> VarianceSource:
+        """Which variance :attr:`variance` is: ``"influence_curve"`` or ``"policy_weighted"``.
+
+        ``"policy_weighted"`` only under ``variance="policy_weighted"``, when that variance
+        is usable and larger than the influence-curve variance.
+        """
+        return "influence_curve" if self.policy is None else self.policy.source
+
+    def _inference_limits(self) -> tuple[float, float]:
+        """The interval on the inference scale, before a transform or the log is undone."""
+        center = self.inference_value
+        if self.policy is not None:
+            return self.policy.interval(center, self.alpha, self.reference_df)
+        return wald_ci(center, self._plugin_std_error(), self.alpha, df=self.reference_df)
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -817,10 +846,8 @@ class ParameterEstimate:
         One body for :attr:`ci` and :attr:`plugin_interval`, for the same reason
         :meth:`_plugin_std_error` has one.
         """
-        center = self.inference_value
-        df = self.reference_df
         if self.transform is not None:
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+            low, high = self._inference_limits()
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -829,9 +856,9 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+            low, high = self._inference_limits()
             return (float(np.exp(low)), float(np.exp(high)))
-        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+        return self._inference_limits()
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the inference scale."""
@@ -874,9 +901,12 @@ class ParameterEstimate:
         diagnostic evaluates the refused property's arithmetic rather than a second rule.
         """
         reported, mapped = self._null_inference_value(null)
-        statistic, pvalue = wald_statistic(
-            self.inference_value, mapped, self._plugin_std_error(), df=self.reference_df
-        )
+        if self.policy is not None:
+            statistic, pvalue = self.policy.test(self.inference_value, mapped, self.reference_df)
+        else:
+            statistic, pvalue = wald_statistic(
+                self.inference_value, mapped, self._plugin_std_error(), df=self.reference_df
+            )
         return WaldTest(
             name=self.name,
             null=reported,
@@ -1105,6 +1135,9 @@ class ParameterEstimate:
         on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
         and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
         :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
+        An estimate under ``variance="policy_weighted"`` adds ``variance_source`` and both
+        standard errors, ``influence_curve_std_err`` and ``policy_weighted_std_err`` (``nan``
+        when that variance is not used).
 
         Returns
         -------
@@ -1123,6 +1156,14 @@ class ParameterEstimate:
         row.update(self.spread_columns())
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
+        if self.policy is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = float(
+                np.sqrt(max(self.policy.influence_variance, 0.0))
+            )
+            row["policy_weighted_std_err"] = (
+                float(np.sqrt(self.policy.policy_variance)) if self.policy.usable else float("nan")
+            )
         row["scale"] = self.scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
@@ -1361,6 +1402,8 @@ def make_estimate(
     reference_df: int | None = None,
     support: Support = UNCLASSIFIED,
     bounds: tuple[float, float] | None = None,
+    policy: PolicyCovariance | None = None,
+    gradient: FloatArray | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1386,11 +1429,13 @@ def make_estimate(
         Significance level of the interval.
     log_psi : float or None, default=None
         The estimate on the log scale, for a ratio only.
-    covariance_rule : {"centered", "second_moment"}, default="centered"
+    covariance_rule : {"centered", "second_moment", "policy_weighted"}, default="centered"
         ``"centered"`` stores :func:`~cleverly.inference.influence_variance`.
         ``"second_moment"`` stores
         :func:`~cleverly.inference.cluster.stacked_second_moment_variance` and refuses a
-        cluster.
+        cluster. ``"policy_weighted"`` stores the larger of the centred variance and
+        ``gradient`` 's quadratic form in ``policy``, with the fallback of
+        :mod:`cleverly.inference.policy`, and needs both arguments.
     inference : str, default="influence_curve"
         Whether the package supplies inference for the estimate. One of
         :data:`InferenceStatus`, which the
@@ -1406,23 +1451,56 @@ def make_estimate(
         fit passes the support of that fit.
     bounds : tuple of float or None, default=None
         The open interval the parameter lies in, from :func:`parameter_bounds`.
+    policy : PolicyCovariance or None, default=None
+        The fit's policy-weighted covariance of its levels, under the ``"policy_weighted"``
+        rule only.
+    gradient : ndarray or None, default=None
+        ``(k,)`` the estimate's gradient on its inference scale with respect to the levels
+        of ``policy``, under the ``"policy_weighted"`` rule only.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
-        ``support`` and ``bounds``.
+        ``support``, ``bounds`` and, under the ``"policy_weighted"`` rule, ``policy``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
+    record: PolicyVariance | None = None
+    if (policy is None) != (gradient is None):
+        raise ValueError("policy and gradient are passed together")
+    if policy is not None and covariance_rule != "policy_weighted":
+        raise ValueError(
+            f"a policy-weighted covariance needs covariance_rule='policy_weighted'; got "
+            f"{covariance_rule!r}"
+        )
     if covariance_rule == "second_moment":
         if cluster is not None:
             raise ValueError(_SECOND_MOMENT_CLUSTER_REFUSAL)
         variance = stacked_second_moment_variance(ic)
     elif covariance_rule == "centered":
         variance = influence_variance(ic, cluster)
+    elif covariance_rule == "policy_weighted":
+        if policy is None or gradient is None:
+            raise ValueError("covariance_rule='policy_weighted' needs policy and gradient")
+        if cluster is not None:
+            raise ValueError("the policy-weighted variance is defined for independent rows only")
+        weights = np.asarray(gradient, dtype=float).reshape(-1)
+        if weights.size != len(policy.names):
+            raise ValueError(
+                f"gradient has {weights.size} entries and the policy covariance has "
+                f"{len(policy.names)} levels"
+            )
+        record = PolicyVariance(
+            covariance=policy,
+            gradient=weights,
+            influence_variance=influence_variance(ic, None),
+            policy_variance=policy.quadratic(weights),
+        )
+        variance = record.variance
     else:
         raise ValueError(
-            f"covariance_rule must be 'centered' or 'second_moment'; got {covariance_rule!r}"
+            "covariance_rule must be 'centered', 'second_moment' or 'policy_weighted'; got "
+            f"{covariance_rule!r}"
         )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
     return ParameterEstimate(
@@ -1440,6 +1518,7 @@ def make_estimate(
         reference_df=reference_df if supplies_inference(inference) else None,
         support=support,
         bounds=bounds,
+        policy=record,
     )
 
 
@@ -1655,6 +1734,12 @@ def median_estimates(
             raise ValueError(
                 f"{name} declares different covariance rules {sorted(rules)} across "
                 "repeats; a median over draws needs one rule"
+            )
+        if rules == {"policy_weighted"}:
+            # A fit with variance="policy_weighted" is in sample, so it has one draw.
+            raise ValueError(
+                f"{name} reads the policy-weighted variance, which is defined for one "
+                "in-sample draw; a median over draws does not combine it"
             )
         statuses = {part.inference for part in parts}
         if len(statuses) != 1:
