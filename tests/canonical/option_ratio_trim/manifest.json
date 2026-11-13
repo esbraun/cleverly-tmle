@@ -1,0 +1,109 @@
+{
+  "schema_version": 2,
+  "study": "Ratio trimming on LTMLE and SDR",
+  "slug": "option-ratio-trim",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "03118448abd72b0e7abee2d9e704c7bae2f630de",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20267641,
+    "resampling_seed": 20267642,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "LE": [
+        "ey_regimen[always]"
+      ]
+    },
+    "construction": "in-sample and 5-fold cross-fitted LTMLE and SDR with ratio_trim=",
+    "law": "W ~ U(0, 1); A1 ~ Bernoulli(expit(-3 + 4 W)); C1, C2 ~ Bernoulli(expit(2.5 + 0.5 W)); L2 ~ Bernoulli(0.2 + 0.3 W + 0.2 A1); A2 ~ Bernoulli(expit(-2.5 + 3 W + 0.5 L2 + 0.5 A1)); Y ~ Bernoulli(0.05 + 0.6 W + 0.15 L2 + 0.05 A1 + 0.1 A2)",
+    "regimen": {
+      "always": 1
+    },
+    "truth": 0.5825,
+    "outcome_learner": "LinearRegression (and pseudo_learner); wrong: LinearRegression without W",
+    "mechanism_learners": "unpenalized logistic regression by Newton (treatment, censoring)",
+    "ratio_trim": {
+      "gated": 0.95,
+      "reported": 0.99
+    },
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "max_iter": 100,
+    "tol": 1e-10,
+    "n_folds": {
+      "in_sample": 1,
+      "stacked": 5
+    },
+    "simultaneous_intervals": false,
+    "discarded_trim": "ratio_trim=0.99 for the gated cells: its wrong-outcome controls read 0.43 SD (LTMLE) and 0.51 SD (SDR) on the rev 2 pilot, under the 0.45 SD floor",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_ratio_trim.py": "23576f849e2629c557d8b279dc70e5384ab166114c6f7622a45c8b99a0ea71de",
+    "tests/studies/option_ratio_trim_properties.py": "9fe757ff91a1f0ffa49c8ba528c6eb591aba251f2a6e794b1622f782d04cb957",
+    "tests/studies/_option_trim_law.py": "f57053268a0ed95e9195f1e2a38d1b830bfd41b246c026dd3e7e613dcfbb4891",
+    "src/cleverly/longitudinal/ratio_trim.py": "96979cf10eb781871239186862f0ce47a88c0f8886a7bc7fcc7ff9bad46f9307",
+    "src/cleverly/longitudinal/estimator.py": "7b5f6a2ec40aa0b887bd457d8219e3fb1199ad8c1b63a87c16517cc1d9c43e30",
+    "src/cleverly/longitudinal/sequential.py": "f592d02ebcf1170dea4e0cb89c67ef6fcccbe7c84da87d88ed3b38b29640b645",
+    "src/cleverly/longitudinal/sdr.py": "9e0910e7d91e5210fabd3b53199fe4ccf4df5d48652a7c703f7441ce03e1a7cd",
+    "src/cleverly/inference/influence.py": "1f09c77a106447fbd43627f095777dc48270cb3995bf2028d59be42b207ed9e2",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "983f291c0ebce02c5d08da100bb35bc668dfc14a5c7b32872d879f9767bc487b",
+    "summary.csv": "e3a41d345b81f05ef40d907221d333e5675cdd67f2d321a3622d78a5a59e4c38",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "231da5d543735a8606c79a6539e9c9a0d0695820fa15666dc7fdbc71eade54f2",
+    "property-replicates.parquet": "0551326f5d8f42d75717237d76e3622c57a11e7240f3a0365b77af7759846e27",
+    "properties.csv": "09c32f4cee2543964ea7bb3d045b765d7654545b34d8d2944baef07bd8e75b0c"
+  }
+}
