@@ -745,7 +745,7 @@ learned-regimen-ltmle,interval_calibration,se ratio in calibration band,se/0.05
 learned-regimen-ltmle,targeting_necessity,bias discriminated,pair_collapse
 learned-regimen-ltmle,targeting_necessity,bias equivalent,bias
 learned-regimen-ltmle,targeting_necessity,least displacement over labels,control_concentrated
-learned-rule-arms,conservative_coverage,bias equivalent,mixed/7
+learned-rule-arms,conservative_coverage,bias equivalent,bias+coverage_role/positive/0.94
 learned-rule-arms,conservative_coverage,coverage at or above the calibration floor,se_low
 learned-rule-arms,conservative_coverage,shrunken coverage below the calibration floor,se_high
 learned-rule-arms,interval_calibration,coverage in calibration band,bias
