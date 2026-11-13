@@ -46,6 +46,23 @@ def directories() -> dict[str, str]:
 
 
 @cache
+def declared_t_band_cells() -> dict[str, set[str]]:
+    """The positive t-band cells of each declared, not yet registered ``band-t-reference`` study."""
+    from tests.studies import band_t_reference, band_t_reference_held_out
+
+    registered_directories = {record.artifacts.name for record in registered()}
+    out: dict[str, set[str]] = {}
+    for module in (band_t_reference, band_t_reference_held_out):
+        directory = module.STUDY.artifacts.name
+        if directory in registered_directories:
+            continue
+        out[directory] = {
+            f"{directory}:{PHASE}/{cell.label}__t_band" for cell in module.DECLARATION.cells
+        }
+    return out
+
+
+@cache
 def positive_band_cells(directory: str) -> dict[str, bool]:
     """``"<directory>:<property>/<cell>"`` to ``passed`` for each positive band row of a study."""
     record = next(r for r in registered() if r.artifacts.name == directory)
@@ -113,9 +130,14 @@ class TestTheMapping:
 
     def test_an_unmapped_cell_is_published_has_a_reason_and_licenses_nothing(self) -> None:
         mapped = {cell for cells in BAND_CELLS.values() for cell in cells}
+        declared = declared_t_band_cells()
         for cell, reason in UNMAPPED_BAND_CELLS.items():
             directory = cell.split(":", 1)[0]
-            assert cell in positive_band_cells(directory), cell
+            if directory in declared:
+                # A declared study before its run: the cell is one of its positive t-band cells.
+                assert cell in declared[directory], cell
+            else:
+                assert cell in positive_band_cells(directory), cell
             assert cell not in mapped, cell
             assert reason.strip().endswith("."), cell
 

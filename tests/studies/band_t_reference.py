@@ -9,8 +9,8 @@ option ``("mammen", "logit", "t")`` on the rows of ``_support_rows.T_BAND_CELLS`
 Declared before the pilot (Fix-2 plan rev 3.1, sections 2 and 5):
 
 * the rule (2.1) and the floor 5 (2.4);
-* every cell of :data:`CELLS`, the held-out ``strata_n1000__t_band`` included, with its group,
-  its sample size and the rows it would license;
+* every cell of :data:`CELLS`, with its group, its sample size and the rows it would license,
+  and the held-out cell :data:`HELD_OUT_CELL`;
 * the band-family rule (2.5): a replicate whose band family holds a constant arm cell is
   refused and counted not covered, whatever band the fit shows.  The property module applies
   it with its own copy of Fix-3's check (:func:`tests.studies.band_t_reference_properties.
@@ -24,8 +24,10 @@ Declared before the pilot (Fix-2 plan rev 3.1, sections 2 and 5):
   default band.  A failing witness or magnitude clause is a design or implementation failure
   and is diagnosed before any reading.  A high-Kish cell above 0.98 is a finding against the
   rule;
-* the held-out cell is a reporting row (``red_cells.REPORTING_ROWS``): judged by the same rule,
-  outside the sizing family, licensing no row;
+* the held-out ``strata_n1000`` cell is published by the companion study
+  ``band-t-reference-held-out`` (:mod:`tests.studies.band_t_reference_held_out`) under the
+  ``reporting`` policy: judged by the same rule, outside the sizing family, licensing no row, and
+  a red verdict there blocks nothing in this study;
 * the replication count: :func:`declared_replicates` on the pilot, the larger of the arm-pooled
   predictive rule over the eleven licensing cells and over the three red shapes, each with
   its clauses (5.3).  :data:`PLANNED_REPLICATES` is that rule on the planning values.
@@ -93,7 +95,7 @@ MAXIMUM_REPLICATES = 8_000
 #: The CPU ceiling of the brief (5.4); a run that would pass it stops and reports.
 CPU_CEILING_HOURS = 30.0
 #: The smoke run's cells and replicates (two cheap cells at small R).
-SMOKE_LABELS = ("strata_n1000", "ordinary_binary")
+SMOKE_LABELS = ("strata", "ordinary_binary")
 SMOKE_REPLICATES = 12
 
 #: The normal quantiles of the clause formulas: one-sided 99% and two-sided 99%.
@@ -151,16 +153,6 @@ CELLS: tuple[Cell, ...] = (
     Cell("cde_z0", "cde_z0", 2_000, RED, ("T30",), 0.9458, 0.019),
     Cell("strata", "strata", 2_000, RED, ("T13",), 0.9437, 0.010),
     Cell(
-        "strata_n1000",
-        "strata",
-        1_000,
-        HELD_OUT,
-        (),
-        0.9345,
-        None,
-        arms=(*T_ARMS, *FLOOR_ARMS),
-    ),
-    Cell(
         "categorical_ltmle_n8000",
         "categorical_ltmle",
         8_000,
@@ -186,7 +178,13 @@ CELLS: tuple[Cell, ...] = (
     Cell("point_msm", "point_msm", 2_000, NO_CLAUSE, ("T18",), 0.954),
 )
 
-CELL_BY_LABEL: dict[str, Cell] = {cell.label: cell for cell in CELLS}
+#: The held-out cell (plan 5.2): the strata law at n = 1,000, declared at risk, with the floor
+#: arms.  Its rows are published by ``band-t-reference-held-out``.
+HELD_OUT_CELL = Cell(
+    "strata_n1000", "strata", 1_000, HELD_OUT, (), 0.9345, None, arms=(*T_ARMS, *FLOOR_ARMS)
+)
+
+CELL_BY_LABEL: dict[str, Cell] = {cell.label: cell for cell in (*CELLS, HELD_OUT_CELL)}
 #: The cells that license a row, and so the sizing family (5.3).
 LICENSING = tuple(cell for cell in CELLS if cell.group != HELD_OUT)
 RED_CELLS = tuple(cell for cell in CELLS if cell.group == RED)
@@ -274,7 +272,9 @@ def read_pilot(path: Path = PILOT_PATH) -> dict[str, PilotReading] | None:
 
 
 def reference_thresholds(
-    pilot: Mapping[str, PilotReading] | None, replicates: int
+    pilot: Mapping[str, PilotReading] | None,
+    replicates: int,
+    cells: Sequence[Cell] = CELLS,
 ) -> dict[str, float | None]:
     """Each label's clause threshold at ``replicates``; empty before the pilot."""
     if pilot is None:
@@ -283,7 +283,7 @@ def reference_thresholds(
         cell.label: clause_threshold(
             cell, pilot[cell.label].gain, pilot[cell.label].gain_sd, replicates
         )
-        for cell in CELLS
+        for cell in cells
     }
 
 
@@ -454,9 +454,127 @@ def held_out_pass(replicates: int, coverage: float, pilot_replicates: int) -> fl
     return family_pass([coverage], [pilot_replicates], replicates, pooled=False)
 
 
-#: The replication count every cell declares: the pilot's rule once committed, the planning
-#: value before.
-REPLICATES = PLANNED_REPLICATES if read_pilot() is None else declared_replicates(read_pilot())[0]
+#: The pilot's R, ``declared_replicates(read_pilot())[0]``, committed by hand with the pilot so
+#: that no import reruns the sizing; the design test recomputes it.  ``None`` before the pilot.
+DECLARED_REPLICATES: int | None = None
+#: The replication count every cell declares: the pilot's once committed, the planning value
+#: before.
+REPLICATES = PLANNED_REPLICATES if DECLARED_REPLICATES is None else DECLARED_REPLICATES
+
+
+@dataclass(frozen=True)
+class Declaration:
+    """What the property engine needs of one of the two ``band-t-reference`` studies.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study.
+    cells : tuple of Cell
+        Its cells.
+    replicates : int
+        Each cell's declared replicates.
+    pilot_stream : str
+        The salted stream of its pilot.
+    pilot_path : Path
+        Its committed pilot readings.
+    smoke_labels : tuple of str
+        The cells its smoke run fits.
+    """
+
+    record: StudyRecord
+    cells: tuple[Cell, ...]
+    replicates: int
+    pilot_stream: str
+    pilot_path: Path
+    smoke_labels: tuple[str, ...]
+
+
+#: Every study-specific module the runner and the property module reach (the set
+#: ``tests/unit/test_study_provenance.py`` requires), and the evidence modules they read.
+MODULES: tuple[str, ...] = (
+    "tests/conftest.py",
+    "tests/discrete_law.py",
+    "tests/discrete_law_cde.py",
+    "tests/discrete_law_competing.py",
+    "tests/discrete_law_longitudinal.py",
+    "tests/discrete_law_longitudinal_mtp.py",
+    "tests/discrete_law_longitudinal_multivalue.py",
+    "tests/discrete_law_longitudinal_policy.py",
+    "tests/discrete_law_longitudinal_sdr.py",
+    "tests/discrete_law_mar.py",
+    "tests/discrete_law_survival.py",
+    "tests/incrementals.py",
+    "tests/longitudinal_mtp.py",
+    "tests/longitudinal_policies.py",
+    "tests/longitudinal_sdr.py",
+    "tests/studies/band_t_reference.py",
+    "tests/studies/band_t_reference_properties.py",
+    "tests/studies/canonical_categorical_ltmle.py",
+    "tests/studies/canonical_categorical_ltmle_crossfit.py",
+    "tests/studies/canonical_cde_tmle.py",
+    "tests/studies/canonical_clustered_tmle.py",
+    "tests/studies/canonical_crossfit_longitudinal_msm.py",
+    "tests/studies/canonical_cvtmle.py",
+    "tests/studies/canonical_deterministic_regimes.py",
+    "tests/studies/canonical_drtmle.py",
+    "tests/studies/canonical_incremental_interventions.py",
+    "tests/studies/canonical_learned_weighted_tmle.py",
+    "tests/studies/canonical_longitudinal_msm.py",
+    "tests/studies/canonical_longitudinal_mtp.py",
+    "tests/studies/canonical_longitudinal_sdr.py",
+    "tests/studies/canonical_ltmle.py",
+    "tests/studies/canonical_ltmle_competing.py",
+    "tests/studies/canonical_ltmle_competing_crossfit.py",
+    "tests/studies/canonical_ltmle_crossfit.py",
+    "tests/studies/canonical_ltmle_survival.py",
+    "tests/studies/canonical_ltmle_survival_crossfit.py",
+    "tests/studies/canonical_mar_drtmle.py",
+    "tests/studies/canonical_mar_tmle.py",
+    "tests/studies/canonical_multi_arm_drtmle.py",
+    "tests/studies/canonical_point_msm.py",
+    "tests/studies/canonical_shift_policies.py",
+    "tests/studies/canonical_stochastic_categorical_ltmle.py",
+    "tests/studies/canonical_stochastic_regimes.py",
+    "tests/studies/canonical_stratified_tmle.py",
+    "tests/studies/canonical_tmle.py",
+    "tests/studies/canonical_weighted_ltmle.py",
+    "tests/studies/canonical_weighted_ltmle_crossfit.py",
+    "tests/studies/canonical_weighted_tmle.py",
+    "tests/studies/categorical_longitudinal_common.py",
+    "tests/studies/cde_study_helpers.py",
+    "tests/studies/clustered_longitudinal_laws.py",
+    "tests/studies/crossfit_longitudinal_msm_properties.py",
+    "tests/studies/default_band_properties.py",
+    "tests/studies/default_bands.py",
+    "tests/studies/fold_evaluated_cvtmle.py",
+    "tests/studies/fractional_glm.py",
+    "tests/studies/intervention_study_helpers.py",
+    "tests/studies/learned_weighted_point_common.py",
+    "tests/studies/longitudinal_msm_properties.py",
+    "tests/studies/longitudinal_mtp_common.py",
+    "tests/studies/longitudinal_mtp_properties.py",
+    "tests/studies/longitudinal_sdr_properties.py",
+    "tests/studies/ltmle_competing_properties.py",
+    "tests/studies/ltmle_crossfit_properties.py",
+    "tests/studies/ltmle_properties.py",
+    "tests/studies/ltmle_survival_crossfit_properties.py",
+    "tests/studies/missing_outcome_study_helpers.py",
+    "tests/studies/multi_arm_common.py",
+    "tests/studies/oracle_density_bins.py",
+    "tests/studies/point_study_helpers.py",
+    "tests/studies/stochastic_categorical_ltmle_properties.py",
+    "tests/studies/stratified_law.py",
+    "tests/studies/stratified_tmle_properties.py",
+    "tests/studies/weighted_longitudinal_common.py",
+    "tests/studies/weighted_longitudinal_properties_common.py",
+    "tests/studies/weighted_point_common.py",
+    "tests/studies/evidence/properties.py",
+    "tests/studies/evidence/property_verdicts.py",
+    "tests/studies/evidence/schema.py",
+    "tests/studies/evidence/seeds.py",
+    "tests/studies/evidence/simultaneous.py",
+)
 
 
 STUDY = StudyRecord(
@@ -474,32 +592,7 @@ STUDY = StudyRecord(
     implementation="cleverly-band-t-reference",
     reference=None,
     failure_bound={"cleverly-band-t-reference": 0.01},
-    modules=(
-        "tests/conftest.py",
-        "tests/discrete_law_cde.py",
-        "tests/discrete_law_longitudinal.py",
-        "tests/discrete_law_longitudinal_multivalue.py",
-        "tests/studies/band_t_reference.py",
-        "tests/studies/band_t_reference_properties.py",
-        "tests/studies/canonical_categorical_ltmle.py",
-        "tests/studies/canonical_categorical_ltmle_crossfit.py",
-        "tests/studies/canonical_cde_tmle.py",
-        "tests/studies/canonical_point_msm.py",
-        "tests/studies/canonical_stratified_tmle.py",
-        "tests/studies/canonical_tmle.py",
-        "tests/studies/categorical_longitudinal_common.py",
-        "tests/studies/default_band_properties.py",
-        "tests/studies/default_bands.py",
-        "tests/studies/longitudinal_sdr_properties.py",
-        "tests/studies/ltmle_crossfit_properties.py",
-        "tests/studies/point_study_helpers.py",
-        "tests/studies/stratified_law.py",
-        "tests/studies/evidence/properties.py",
-        "tests/studies/evidence/property_verdicts.py",
-        "tests/studies/evidence/schema.py",
-        "tests/studies/evidence/seeds.py",
-        "tests/studies/evidence/simultaneous.py",
-    ),
+    modules=MODULES,
     runner_module="tests.studies.band_t_reference",
     properties_module="tests.studies.band_t_reference_properties",
     property_cells=PROPERTY_CELLS,
@@ -527,8 +620,19 @@ CONFIGURATION = {
 }
 
 #: The reference control cell of each label, for readers of the design.
-REFERENCE_CELLS = {cell.label: f"{cell.label}__{REFERENCE_CONTROL}" for cell in CELLS}
-BAND_CELLS = {cell.label: f"{cell.label}__{T_BAND}" for cell in CELLS}
+REFERENCE_CELLS = {
+    cell.label: f"{cell.label}__{REFERENCE_CONTROL}" for cell in CELL_BY_LABEL.values()
+}
+BAND_CELLS = {cell.label: f"{cell.label}__{T_BAND}" for cell in CELL_BY_LABEL.values()}
+
+DECLARATION = Declaration(
+    record=STUDY,
+    cells=CELLS,
+    replicates=REPLICATES,
+    pilot_stream=PILOT_STREAM,
+    pilot_path=PILOT_PATH,
+    smoke_labels=SMOKE_LABELS,
+)
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:

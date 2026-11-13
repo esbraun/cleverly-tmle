@@ -740,6 +740,23 @@ def check_expansion(critical: float, nus: Mapping[str, float], values: Mapping[s
             )
 
 
+def check_widening(
+    critical: float, kish: Mapping[str, float], values: Mapping[str, float], label: str
+) -> None:
+    """Assert ``max_j (c_j / c - 1) > 0`` whenever some Kish count is finite (plan 5.2).
+
+    The deterministic nonzero witness, read from the package's ``c_j``: a ``t`` band that
+    collapsed to the normal band (``nu = inf`` on every coordinate, or ``c_j = c``) fails it on
+    the first replicate, whatever the paired gain's power.
+    """
+    if all(math.isinf(value) for value in kish.values()):
+        return
+    if max(values[name] / critical - 1.0 for name in values) <= 0.0:
+        raise AssertionError(
+            f"the {label} t band does not widen any coordinate although some Kish count is finite"
+        )
+
+
 def moment_df(curve: Any) -> float:
     """Fix-3's pointwise df ``2K / (1 - K/m)`` over the rows that carry the curve.
 
@@ -976,8 +993,16 @@ def t_band_rows(
                     f"{label} {name}: the package df {rebuilt.reference_df[name]!r} is not the "
                     f"study's {nus[name]!r}"
                 )
-        values = {name: t_quantile(critical, nus[name]) for name in names}
+        own = {name: t_quantile(critical, nus[name]) for name in names}
+        values = {name: float(rebuilt.critical_values[name]) for name in names}
+        for name in names:
+            if not math.isclose(values[name], own[name], rel_tol=1e-12):
+                raise AssertionError(
+                    f"{label} {name}: the package c_j {values[name]!r} is not the study's "
+                    f"{own[name]!r}"
+                )
         check_expansion(critical, nus, values)
+        check_widening(critical, kish, values, label)
         deviations = {
             name: standardized_deviation(estimates[name], truth[name], rebuilt.scales[name])
             for name in names
@@ -1035,6 +1060,7 @@ def t_band_rows(
             moment_df=";".join(f"{moment_df(curves[name]):.6g}" for name in names),
             deviations=";".join(f"{deviations[name]:.6g}" for name in names),
             beyond=";".join(str(int(deviations[name] > values[name])) for name in names),
+            critical_values=";".join(f"{values[name]:.12g}" for name in names),
             finite_df=len(finite),
         )
     readings.append(

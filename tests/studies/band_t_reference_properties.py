@@ -46,7 +46,7 @@ from scipy.stats import norm
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import band_t_reference as study
-from tests.studies.band_t_reference import CELL_BY_LABEL, CELLS, PILOT_STREAM, STUDY, Cell
+from tests.studies.band_t_reference import CELL_BY_LABEL, DECLARATION, STUDY, Cell, Declaration
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell
 from tests.studies.evidence.property_verdicts import (
@@ -85,26 +85,46 @@ class Shape:
     arms: Callable[[pd.DataFrame], tuple[str, ...]]
 
 
-def _constant(frame: pd.DataFrame, by: Sequence[str], outcome: str = "Y") -> tuple[str, ...]:
-    """Each ``by`` cell whose observed outcomes take one value (or none), as ``"A=1|V=2"``."""
-    out: list[str] = []
-    for key, block in frame.groupby(list(by), sort=True):
-        keys = key if isinstance(key, tuple) else (key,)
-        if block[outcome].dropna().nunique() <= 1:
-            out.append("|".join(f"{name}={value:g}" for name, value in zip(by, keys, strict=True)))
-    return tuple(out)
+def _constant(
+    frame: pd.DataFrame,
+    by: Sequence[str],
+    *,
+    levels: pd.DataFrame | None = None,
+    outcome: str = "Y",
+) -> tuple[str, ...]:
+    """Each ``by`` cell whose observed outcomes take one value or none, as ``"V=2|A=1"``.
+
+    The cells are the full product of each column's levels in ``levels`` (``frame`` itself by
+    default), so a cell with no rows is constant too.
+    """
+    source = frame if levels is None else levels
+    index = pd.MultiIndex.from_product(
+        [sorted(source[name].dropna().unique()) for name in by], names=list(by)
+    )
+    counts = (
+        frame.dropna(subset=[outcome])
+        .groupby(list(by))[outcome]
+        .nunique()
+        .reindex(index, fill_value=0)
+    )
+    return tuple(
+        "|".join(f"{name}={value:g}" for name, value in zip(by, key, strict=True))
+        for key, count in counts.items()
+        if count <= 1
+    )
 
 
 def constant_arm_cells(source: str, frame: pd.DataFrame) -> tuple[str, ...]:
     """This study's copy of Fix-3's constant-arm-cell check, shape by shape (plan 5.1).
 
     On the point-treatment shapes an arm, within the stratum where the shape has strata, whose
-    observed outcomes over rows with positive weight take one value.  Every family these
-    shapes band holds a contrast of both arms in each stratum it reports, so one such cell
-    puts a constant-cell member in the band, and the replicate is refused.  On ``cde_z0`` the
-    rows with weight are those with ``Z = 0`` and an observed outcome.  On the longitudinal
-    shapes Fix-3 sets no status, and the copy is empty.  Once Fix-3's PR 1 adds
-    ``constant_outcome_cells``, the design test asserts the two agree.
+    observed outcomes over rows with positive weight take one value (or none: an empty cell of
+    the stratum-by-arm product counts).  Every family these shapes band holds a contrast of both
+    arms in each stratum it reports, so one such cell puts a constant-cell member in the band,
+    and the replicate is refused.  On ``cde_z0`` the rows with weight are those with ``Z = 0``
+    and an observed outcome.  On the longitudinal shapes Fix-3 sets no status, and the copy is
+    empty.  Once Fix-3's PR 1 adds ``constant_outcome_cells``, the design test asserts the two
+    agree.
     """
     if source in {"strata", "crossfit_strata"}:
         return _constant(frame, ("V", "A"))
@@ -112,9 +132,7 @@ def constant_arm_cells(source: str, frame: pd.DataFrame) -> tuple[str, ...]:
         return _constant(frame, ("A",))
     if source == "cde_z0":
         kept = frame.loc[(frame["Z"] == 0) & (frame["Delta"] == 1)]
-        if set(kept["A"].unique()) != set(frame["A"].unique()):
-            return ("A=missing|Z=0",)
-        return _constant(kept, ("A",))
+        return _constant(kept, ("A",), levels=frame)
     if source in {"categorical_ltmle", "categorical_ltmle_crossfit", "six_regimens"}:
         return ()
     raise KeyError(source)
@@ -190,12 +208,6 @@ def shape(source: str) -> Shape:
     return _default_source(source)
 
 
-def seed(label: str, replicate: int, *, pilot: bool = False) -> int:
-    """The sample seed of one replicate: the run's stream, or the salted pilot stream."""
-    stream = PILOT_STREAM if pilot else "property_sample"
-    return stream_seed(STUDY, stream, FAMILY, label, replicate)
-
-
 def fit_cell(
     cell: Cell, frame: pd.DataFrame, truth: dict[str, float]
 ) -> tuple[Any, dict[str, float]]:
@@ -252,15 +264,42 @@ def fit_replication(key: _Key, drawn: Sample) -> tuple[list[dict[str, Any]], dic
     return rows, record
 
 
+#: The share of a cell's requested replications the accounting lets a run lose.
+FAILURE_BOUND = 0.01
+#: The draw-level statistic the accounting reports for each lost replicate.
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
+def seed(
+    label: str, replicate: int, *, pilot: bool = False, declaration: Declaration = DECLARATION
+) -> int:
+    """The sample seed of one replicate: the study's run stream, or its salted pilot stream."""
+    stream = declaration.pilot_stream if pilot else "property_sample"
+    return stream_seed(declaration.record, stream, FAMILY, label, replicate)
+
+
 def payloads(
-    labels: Sequence[str] | None = None, budget: int | None = None, *, pilot: bool = False
+    labels: Sequence[str] | None = None,
+    budget: int | None = None,
+    *,
+    pilot: bool = False,
+    declaration: Declaration = DECLARATION,
 ) -> list[_Key]:
-    """Every ``(label, replicate, requested, seed)`` key, in cell order."""
-    chosen = CELLS if labels is None else tuple(CELL_BY_LABEL[label] for label in labels)
-    total = study.PILOT_REPLICATES if pilot else study.REPLICATES
+    """Every ``(label, replicate, requested, seed)`` key of a study, in cell order."""
+    chosen = (
+        declaration.cells if labels is None else tuple(CELL_BY_LABEL[label] for label in labels)
+    )
+    total = study.PILOT_REPLICATES if pilot else declaration.replicates
     count = total if budget is None else min(budget, total)
     return [
-        ((cell.label, replicate, count, seed(cell.label, replicate, pilot=pilot)),)
+        (
+            (
+                cell.label,
+                replicate,
+                count,
+                seed(cell.label, replicate, pilot=pilot, declaration=declaration),
+            ),
+        )
         for cell in chosen
         for replicate in range(count)
     ]
@@ -292,18 +331,60 @@ def _ordered(rows: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-#: The share of a cell's requested replications the accounting lets a run lose.
-FAILURE_BOUND = 0.01
-#: The draw-level statistic the accounting reports for each lost replicate.
-PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+def property_artifacts(
+    declaration: Declaration, *, n_jobs: int = STUDY_JOBS
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Fit every declared replicate of a study; its rows and per-replicate diagnostics."""
+    rows, records = _fit_all(payloads(declaration=declaration), n_jobs)
+    return _ordered(rows), {DIAGNOSTICS_FILE: records}
+
+
+def declared_thresholds(declaration: Declaration) -> dict[str, float | None]:
+    """Each label's declared gain clause, from the study's committed pilot at its R."""
+    return study.reference_thresholds(
+        study.read_pilot(declaration.pilot_path), declaration.replicates, declaration.cells
+    )
+
+
+def summarize(declaration: Declaration, rows: pd.DataFrame) -> pd.DataFrame:
+    """The shared summary of a study, read by the joint rule and the paired-gain clauses.
+
+    Raises
+    ------
+    ValueError
+        Before the study's pilot is committed, since no reference clause is declared yet.
+    """
+    summary, rates = apply_shared_verdicts(rows, declaration.record, rate_labels=())
+    simultaneous_coverage_verdicts(
+        summary,
+        margins=declaration.record.margins,
+        rows=rows,
+        record=declaration.record,
+        reference_thresholds=declared_thresholds(declaration),
+    )
+    return finish(summary, rates)
+
+
+def property_cells_of(declaration: Declaration) -> tuple[PropertyCell, ...]:
+    """Every declared cell of a study, each naming the zero-truth law its rows read."""
+    return tuple(
+        item
+        for cell in declaration.cells
+        for item in t_property_cells(
+            cell.label,
+            n=cell.n,
+            replicates=declaration.replicates,
+            seed=seed(cell.label, 0, declaration=declaration),
+            arms=cell.arms,
+        )
+    )
 
 
 def generate_property_artifacts(
     *, n_jobs: int = STUDY_JOBS
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """Fit every declared replicate; the rows, and the per-replicate diagnostics by file."""
-    rows, records = _fit_all(payloads(), n_jobs)
-    return _ordered(rows), {DIAGNOSTICS_FILE: records}
+    return property_artifacts(DECLARATION, n_jobs=n_jobs)
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -313,41 +394,17 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 def thresholds() -> dict[str, float | None]:
     """Each label's declared gain clause, from the committed pilot at the declared R."""
-    return study.reference_thresholds(study.read_pilot(), study.REPLICATES)
+    return declared_thresholds(DECLARATION)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared summary, read by the joint rule and the paired-gain clauses.
-
-    Raises
-    ------
-    ValueError
-        Before the pilot is committed, since no reference clause is declared yet.
-    """
-    summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
-    simultaneous_coverage_verdicts(
-        summary,
-        margins=STUDY.margins,
-        rows=rows,
-        record=STUDY,
-        reference_thresholds=thresholds(),
-    )
-    return finish(summary, rates)
+    """The shared summary, read by the joint rule and the paired-gain clauses."""
+    return summarize(DECLARATION, rows)
 
 
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every declared cell, each naming the zero-truth law its rows are read against."""
-    return tuple(
-        item
-        for cell in CELLS
-        for item in t_property_cells(
-            cell.label,
-            n=cell.n,
-            replicates=study.REPLICATES,
-            seed=seed(cell.label, 0),
-            arms=cell.arms,
-        )
-    )
+    return property_cells_of(DECLARATION)
 
 
 #: The failure accounting's declared rules: the joint rule with the reference clause.
@@ -357,10 +414,12 @@ PROPERTY_RULES = (property_verdicts.simultaneous_rule(reference_thresholds=thres
 # ------------------------------------------------------------------------ pilot and smoke
 
 
-def pilot_readings(rows: pd.DataFrame, records: pd.DataFrame) -> pd.DataFrame:
-    """Each label's ``t`` coverage, paired gain and SD, refused and constant shares, timing."""
+def pilot_readings(
+    rows: pd.DataFrame, records: pd.DataFrame, cells: Sequence[Cell] = tuple(CELL_BY_LABEL.values())
+) -> pd.DataFrame:
+    """Each label's ``t`` coverage, paired gain and SD, refused and constant shares."""
     out = []
-    for cell in CELLS:
+    for cell in cells:
         band = rows.loc[rows["cell"] == study.BAND_CELLS[cell.label]].set_index("replicate")
         if band.empty:
             continue
@@ -385,37 +444,45 @@ def pilot_readings(rows: pd.DataFrame, records: pd.DataFrame) -> pd.DataFrame:
 
 
 def smoke(
-    labels: Sequence[str] = study.SMOKE_LABELS, replicates: int = study.SMOKE_REPLICATES
+    declaration: Declaration = DECLARATION,
+    labels: Sequence[str] | None = None,
+    replicates: int = study.SMOKE_REPLICATES,
 ) -> pd.DataFrame:
-    """Fit ``labels`` at ``replicates`` on the pilot stream, in process; writes nothing."""
-    keys = payloads(labels, replicates, pilot=True)
+    """Fit a study's smoke cells at ``replicates`` on its pilot stream, in process."""
+    chosen = declaration.smoke_labels if labels is None else tuple(labels)
+    keys = payloads(chosen, replicates, pilot=True, declaration=declaration)
     started = time.perf_counter()
-    with recording(STUDY.implementation, witness=PROPERTY_WITNESS):
+    with recording(declaration.record.implementation, witness=PROPERTY_WITNESS):
         rows, records = _fit_all(keys, 1, checkpoint=None)
     readings = pilot_readings(rows, records)
     readings["seconds_per_fit"] = (time.perf_counter() - started) / len(keys)
     return readings
 
 
-def run_pilot(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """The declared pilot (plan 5.1): every positive cell at 800 on the salted stream."""
-    with recording(STUDY.implementation, witness=PROPERTY_WITNESS):
-        rows, records = _fit_all(payloads(pilot=True), n_jobs, checkpoint=None)
+def run_pilot(declaration: Declaration = DECLARATION, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+    """The declared pilot (plan 5.1): every cell at 800 on the study's salted stream."""
+    with recording(declaration.record.implementation, witness=PROPERTY_WITNESS):
+        rows, records = _fit_all(
+            payloads(pilot=True, declaration=declaration), n_jobs, checkpoint=None
+        )
     readings = pilot_readings(rows, records)
-    readings.to_csv(study.PILOT_PATH, index=False)
+    readings.to_csv(declaration.pilot_path, index=False)
     return readings
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """``--smoke`` or ``--pilot``."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+def main(argv: Sequence[str] | None = None, declaration: Declaration = DECLARATION) -> None:
+    """``--smoke`` or ``--pilot`` for one study."""
+    parser = argparse.ArgumentParser(description=f"{declaration.record.slug} pilot and smoke")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--smoke", action="store_true")
     group.add_argument("--pilot", action="store_true")
     parser.add_argument("--jobs", type=int, default=STUDY_JOBS)
     arguments = parser.parse_args(argv)
     with pd.option_context("display.width", 200, "display.max_columns", 20):
-        print(smoke() if arguments.smoke else run_pilot(n_jobs=arguments.jobs))
+        if arguments.smoke:
+            print(smoke(declaration))
+        else:
+            print(run_pilot(declaration, n_jobs=arguments.jobs))
 
 
 if __name__ == "__main__":

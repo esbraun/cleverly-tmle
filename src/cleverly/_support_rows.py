@@ -5693,6 +5693,10 @@ UNMAPPED_BAND_CELLS: Final[Mapping[str, str]] = {
         "It measures the default band of the configuration of row G08.in_sample and it is red; "
         "the row carries the reading as a band shortfall."
     ),
+    # band-t-reference-held-out: the held-out cell of the t reference (Fix-2 plan 5.2).
+    _t_band("band_t_reference_held_out", "strata_n1000"): (
+        "It is the held-out cell of the t reference, declared at risk, and licenses no row."
+    ),
     # canonical-stratified-tmle is cited by T14's band since its crossfit_strata cell licenses it.
     _band("tmle3_stratified", "strata"): (
         "It measures the default band of the configuration of row T13, which licenses no band, "
