@@ -34,18 +34,27 @@ $(k, W_1, W_2, A_k, A_{k-1})$, with $A_0 = 0$.
 | law | nodes | treatment $P(A_k = 1)$ | event hazard | smallest cumulative $\prod g_s c_s$ |
 | --- | --- | --- | --- | --- |
 | `base` | 3 | 0.21 to 0.68 at node 1, and 0.20 to 0.83 later, where the previous arm adds 1.3 on the logit scale | 0.04 to 0.37, lowered by $A_k$ and by $A_{k-1}$ | 0.020 |
-| `five` | 5 | close to balanced: 0.47 to 0.55 | 0.04 to 0.09 at node 1, rising to 0.40 to 0.66 at node 5, with smaller arm effects | 0.018 |
+| `four` | 4 | close to balanced: 0.47 to 0.55 | 0.04 to 0.09 at node 1, rising to 0.24 to 0.48 at node 4, with smaller arm effects | 0.042 |
 
-`base` is the law of plan X70 section 4.3. `five` has the same form with its own coefficients.
+`base` is the law of plan X70 section 4.3. `four` has the same form with its own coefficients.
 The shipped fit holds the cell of the units at risk with one treatment prefix at zero when none
 of them has the event, or at one when all of them do. A regimen that reads a held cell reports
-no interval. The policy reads all 32 prefixes at node 5. With the `base` hazard at five nodes,
-11 to 14 of 15 scratch draws of 2,000 rows held a cell, against an expected 0.002 held cells per
-fit on `five`.
+no interval. The policy reads all 16 prefixes at node 4, and the expected count of held cells
+in a `four` draw of 2,000 rows is about $2 \times 10^{-9}$. The plan asked for five nodes, but at
+five nodes the policy reads 32 prefixes, and a held cell was expected in about one fit in 500.
+
+A held fit is never read as coverage. The study turns every fit with an estimate that lacks the
+influence-curve interval into a lost replicate under the failure bound of 0.01, on the primary,
+property and pilot paths alike. The design test sums the expected held fits over every fit set
+and pilot label at its own size: about 6.6 over the study and its pilot, all on `base`, whose
+expected count per draw is $1.5 \times 10^{-4}$ at 2,000 rows and $10^{-3}$ at 1,600. The chance
+that any fit set loses more than its allowance to held fits is below 0.01.
 
 Both laws keep every path's cumulative treatment and retention probability ten times above the
-declared bound of $10^{-3}$. The shipped default bound of 0.01 lies within a factor of two of
-the smallest, so the study declares its own.
+declared bound of $10^{-3}$. On `base` the shipped default bound of 0.01 lies within a factor of
+two of the smallest, so the study declares its own. The calibration pilot records each fit's
+smallest estimated cumulative probability, and this page states the share of draws in which
+0.01 would have clipped once the pilot is committed.
 
 | regimen | node $k$ |
 | --- | --- |
@@ -68,29 +77,30 @@ bound against the influence curve that the exact-sample fit reports, row by row.
 | fit label | law | regimens | targeting |
 | --- | --- | --- | --- |
 | `base` | `base` | `always`, `never`, `rule`, `policy`, `stay`; reference `never` | per horizon (`targeting="iterative"`) |
-| `five` | `five` | `always`, `never`, `policy`; reference `never` | per horizon |
+| `four` | `four` | `always`, `never`, `policy`; reference `never` | per horizon |
 | `msm` | `base` | the eight static paths, under the logit working model $\beta_0 + \beta_1 d + \beta_2 t + \beta_3 d W_1$, with $d$ the path's cumulative dose through $t$ | one step (`targeting="one_step"`) |
+| `onestep` | `base` | `always`, `never`, `policy`; reference `never`; reported only | one step, paired with a per-horizon fit of the same draw |
 
 | nuisance | correct learner | wrong learner |
 | --- | --- | --- |
-| hazard | unpenalized logistic regression on `W1`, `W2`, `A1`, ..., `Ak` at each node | logistic regression on `Ak` alone (`LastArmLogistic`) |
+| hazard | unpenalized logistic regression on `W1`, `W2`, `A1`, ..., `Ak` at each node | logistic regression on `Ak` alone (`LastArmLogistic`); on `four` also the event share at each node, which reads no arm |
 | treatment | unpenalized logistic regression on `W1`, `W2`, `A1`, ..., `A(k-1)` at each node | the prior share |
 | censoring | unpenalized logistic regression on `W1`, `W2`, `A1`, ..., `Ak` at each node | the prior share |
 
 Each factor of both laws depends on $W$ and on the last one or two arms, so the correct learners
 are correctly specified. They hold no interaction, so they are not saturated and targeting
-moves every fit. Every `base` and `five` fit raises `SparseInfluenceWarning`: the risk of a static
+moves every fit. Every `base`, `four` and `onestep` fit raises `SparseInfluenceWarning`: the risk of a static
 arm by the last node reads its influence curve from the few units that followed the arm, each
 weighted by the inverse of a cumulative probability as small as 0.02. The study declares the
 warning as expected on those fit labels, and the calibration rows read the resulting intervals.
 
-The regimen fits use the per-horizon walk, the shipped default, which converges in a few
-iterations and about 1.5 seconds a fit at n = 2,000. On one draw of 2,000 rows the one-step walk
-took 250 seconds over the five `base` regimens, and 10,776 steps (160 seconds) over `always`,
-`never`, `rule` and `policy`, against 166 steps over `always` and `stay`. The rule follows only
-the paths of `always` and `never`, so its targets lie close to theirs. The working model needs
-the one-step walk, the only algorithm that targets its scores, and that fit converges in about
-a second.
+The regimen fits use the per-horizon walk, the shipped default, at about 1.5 seconds a `base`
+fit at n = 2,000. On one `base` draw of 2,000 rows the one-step walk took 0.6 seconds over
+`always` and `never`, 33.5 over `policy` and `stay`, and 96 over `always`, `never` and `policy`.
+Over the five `base` regimens it took 250 seconds, and 10,776 steps over `always`, `never`,
+`rule` and `policy`. The enumerated policy slows the walk, not the rule. The reported `onestep`
+fit label measures the one-step walk on regimen curves at 200 draws; the working model needs the
+one-step walk, the only algorithm that targets its scores.
 
 No maintained package targets discrete-time hazards over treatment paths, so the study names no
 comparator and its agreement block stays empty.
@@ -100,7 +110,7 @@ comparator and its agreement block stays empty.
 <!-- generated: accuracy -->
 <!-- /generated -->
 
-The primary rows draw samples of 2,000 rows for each of `base`, `five` and `msm` and report every
+The primary rows draw samples of 2,000 rows for each of `base`, `four` and `msm` and report every
 risk and contrast of each regimen fit and every coefficient of the working model. The shared
 primary rule (`repeated_sizing.primary_replicates`) sets the count from the committed
 calibration pilots of these fit labels. Until the pilots are committed the count is the
@@ -118,20 +128,21 @@ provisional 2,400.
 
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
-| `interval_calibration` | on `base` the `always` minus `never` contrast at node 3 and the risks of `rule`, `policy` and `stay`; on `five` the contrast and the policy's risk at node 5; on `msm` the coefficients of $d$ and $d W_1$. The shrunken-SE and noise controls on the `base` contrast | 4,000 at n = 2,000 (provisional) | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
-| `simultaneous_coverage` | the band over every estimate of the `base` and `five` fits, and its pointwise control | as calibration | joint coverage outside the calibration band |
-| `double_robustness` | the `base` contrast with both, one or neither nuisance correct; every other calibration arm with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000, or the wrong-learner pilot's count | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
-| `targeting_necessity` | the `base` contrast from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000, or the wrong-learner pilot's count | the targeted bias outside the margin, or a displacement below 0.25 |
-| `root_n_and_efficiency`, `root_n_rate` | the `base` contrast and the policy's risk at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
-| `power` | the `base` contrast against zero | 800 at n = 2,000 | a rejection lower bound below the minimum power |
+| `interval_calibration` | on `base` the `always` minus `never` contrast at node 3 and the risks of `rule`, `policy` and `stay`; on `four` the contrast and the policy's risk at node 4; on `msm` the coefficients of $d$ and $d W_1$. The shrunken-SE and noise controls on the `base` contrast | 4,000 at n = 2,000 (provisional) | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
+| `simultaneous_coverage` | the band over every estimate of the `base` and `four` fits, and its pointwise control | as calibration | joint coverage outside the calibration band |
+| `double_robustness` | the `base` contrast with both, one or neither nuisance correct; every other calibration arm with the wrong hazard learner and the correct mechanism; the `four` contrast with the node-only hazard learner and the correct mechanism | 1,200 at n = 2,000, or the wrong-learner pilot's count | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
+| `targeting_necessity` | the `base` contrast from the wrong hazard learner, targeted and plug-in, read from the `base` `mechanism_correct` fits | as those fits | the targeted bias outside the margin, or a displacement below 0.25 |
+| `root_n_and_efficiency`, `root_n_rate` | the `base` contrast and the policy's risk at n = 1,600, 2,000 and 8,000; the n = 1,600 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
+| `power` | the `base` contrast against zero, read from the `base` calibration fits | as calibration | a rejection lower bound below the minimum power |
 | every family | `nonconverged_fits`: the fits that stopped short of `tol` with a final relative score at or below $10^{-6}$, beside each cell's count of unexpected warnings | as the cell | a non-converged fit above $10^{-6}$ is a lost replicate under the 0.01 failure bound; more than 1% non-converged fits makes the cell a defect suspect |
-| `iterated_mean_difference` | on `base` and `five`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of an iterated-mean curve. On the `base` `mechanism_correct` draws: the same paired difference with both regressions omitting $W$ | 800 at n = 2,000, and the robustness draws | nothing: the family is reported with no verdict |
+| `one_step_walk` | on `base`, the contrast and the policy's risk from the one-step walk over `always`, `never` and `policy`: coverage, SE ratio and convergence, and the paired difference from the per-horizon fit of the same draw | 200 at n = 2,000 | nothing: the family is reported with no verdict |
+| `iterated_mean_difference` | on `base` and `four`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of an iterated-mean curve. On the `base` `mechanism_correct` draws: the same paired difference with both regressions omitting $W$ | 800 at n = 2,000, and the robustness draws | nothing: the family is reported with no verdict |
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
 over the eight arms. At a pilot of 8,000 draws whose SE ratio is one it gives 4,000, and the
 committed calibration pilot sets it. At 4,000 replicates the shrunken-SE control leaves the
 SE-ratio band and the noise control leaves the efficiency band with probability above 0.999.
-Each `mechanism_correct` fit set and the necessity fit set take the rule of plan X70 rev 2.7
+Each `mechanism_correct` fit set and the node-only fit set take the rule of plan X70 rev 2.7
 from the wrong-learner pilot of 800 draws per fit label: the larger of 1,200 and the smallest
 multiple of 400 that passes with probability 0.99 at the pilot's standardized bias plus one of
 its standard errors, with no cap. A need above 4,000 stops the declaration for a diagnosis.
@@ -144,23 +155,40 @@ the study is a defect suspect. Without $W$ the wrong learner's plug-in coefficie
 zero in every sample, 3.49 standard errors from the truth, so its robustness cell reads the
 targeting alone.
 
-The power cell's exact-law power at n = 2,000 is above 0.99. At bias zero every positive bias
-arm passes with probability above 0.99. That stays true while the true bias is below 0.108
+Elsewhere the wrong hazard learner's plug-in lies close to the truth: +0.46, -1.01 and -0.96
+standard errors for the `base` rule, policy and `stay`, and +0.76 and -0.16 for the `four`
+contrast and policy. Those cells pass whether or not targeting moves the estimate, so they are
+consistency checks, not evidence of the weighting over the policy paths. That weighting rests
+on the exact-law witnesses of `tests/unit/test_hazard_multinode.py` and on the node-only cell.
+The node-only learner's plug-in `four` contrast is zero in every sample, 2.20 standard errors
+from the truth, so that cell reads the targeting alone; the `four` policy has no such witness.
+
+The power cell's exact-law power at n = 2,000 is above 0.99. The necessity cells read the
+`base` `mechanism_correct` fits and the power cell the `base` calibration fits, so neither refits
+a configuration another fit set runs; the ladder's 2,000-row rung keeps its own draws so that
+every rung has 800. At bias zero every positive bias arm passes with probability above 0.99. That stays true while the true bias is below 0.108
 standard deviations at 1,200 replicates and below 0.077 at 800.
 
-With correctly specified parametric learners the hazard fit and the iterated-mean fit are both
-efficient, so they differ by $o_P(n^{-1/2})$. The study reports the committed pilot's ratios and
-the decreasing share with its interval, with no floor: X70 reports the agreement of the two fits
-instead of requiring a gap (the owner's decision of 2026-11-13).
+The iterated-mean fit regresses each node on the cell means of $W$ and the arms it conditions
+on, a saturated regression, so with the correct mechanism both fits are correctly specified and
+asymptotically efficient, and they differ by $o_P(n^{-1/2})$. At n = 2,000 the `four` policy's
+regression reads up to 128 cells, so the paired difference also carries the noise of sparse
+cells. The study reports the committed pilot's ratios and the decreasing share with its
+interval, with no floor: X70 reports the agreement of the two fits instead of requiring a gap
+(the owner's decision of 2026-11-13).
 
 ## Limitations
 
 | limit | what it means for use |
 | --- | --- |
-| a binary treatment and no covariate after baseline | a covariate measured after baseline is part (b) of plan X70 |
+| a binary treatment and no covariate after baseline | a treatment with more than two levels is not measured, and a covariate measured after baseline is part (b) of plan X70 |
 | finite covariates and low-dimensional learners | the evidence covers correct or misspecified logistic learners. A flexible learner is outside it |
-| held cells | the laws keep every treatment prefix populated at n = 2,000. A policy over many nodes on a small sample holds cells and then reports no interval; held cells rest on `tests/unit/test_hazard_multinode.py` |
-| the one-step walk on several regimens | the regimen fits use the per-horizon walk. The one-step walk reaches the same targets, but slowly when regimens share paths |
+| held cells | the laws keep every treatment prefix populated at n = 2,000, and a held draw is a lost replicate. A policy over many nodes on a small sample holds cells and then reports no interval; held cells rest on `tests/unit/test_hazard_multinode.py` |
+| the one-step walk on regimen curves | the gated regimen cells use the per-horizon walk. The one-step walk is reported at 200 draws over `always`, `never` and `policy` on `base`, with no verdict, and takes 30 to 160 seconds a fit when a policy is present |
+| one cause | the competing-risk path rests on the exact-law tests of `tests/unit/test_hazard_multinode.py` |
+| one fold | every fit uses `n_folds=1`; cross-fitted path hazards rest on the unit tests |
+| no weights or clusters | sampling weights and the cluster variance rest on the unit tests |
+| a node-only witness for one contrast | the `four` policy and the `base` rule, policy and `stay` have no robustness cell whose wrong learner lies far from the truth |
 | no comparator | no external implementation targets these hazards over treatment paths |
 
 ## Reproduction

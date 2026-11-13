@@ -10,17 +10,27 @@ each regimen is the plug-in sum over its paths of the path mass times the target
 treatment at several nodes on the hazard path").
 
 **The laws** are those of :mod:`tests.studies.hazard_multinode_law`: ``base`` (plan X70
-section 4.3, three nodes) and ``five`` (the same factors at five nodes, so the policy has 32
-paths).  The treatment depends on ``W`` and the previous arm, dropout on ``W`` and the last two
-arms, and the hazard on ``W`` and the last two arms.
+section 4.3, three nodes) and ``four`` (the same form at four nodes with its own coefficients,
+so the policy has 16 paths).  The treatment depends on ``W`` and the previous arm, dropout on
+``W`` and the last two arms, and the hazard on ``W`` and the last two arms.  Plan X70 asked for
+a five-node variant; at five nodes the policy reads 32 prefix cells and a held cell is expected
+in about one fit in 500 at n = 2,000, so the variant has four nodes (design review a,
+finding 1).
 
 **Fit labels** (:data:`FITS`).  ``base`` fits the five regimens of section 4.3 (``always``,
 ``never``, the known rule ``rule``, the known policy ``policy`` and ``stay``, which keeps the
-previous arm) with ``never`` as reference.  ``five`` fits ``always``, ``never`` and ``policy``
-on the five-node law.  ``msm`` fits the logit working model :math:`\\operatorname{logit} m =
+previous arm) with ``never`` as reference.  ``four`` fits ``always``, ``never`` and ``policy``
+on the four-node law.  ``msm`` fits the logit working model :math:`\\operatorname{logit} m =
 \\beta_0 + \\beta_1 d + \\beta_2 t + \\beta_3 d W_1` over the eight static paths of the base law,
-with :math:`d` the cumulative dose of the path through :math:`t`.  Every fit label is a primary
-scenario.
+with :math:`d` the cumulative dose of the path through :math:`t`.  These three are the primary
+scenarios (:data:`SCENARIOS`).  ``onestep`` fits ``always``, ``never`` and ``policy`` on
+``base`` with the one-step walk; it carries only the reported ``one_step_walk`` family.
+
+**Held prefix cells.**  When no unit at risk with one treatment prefix has the event (or every
+one does), the shipped fit holds that cell and every regimen that reads it reports the plug-in
+with no interval (status ``constant_node_plugin``).  :func:`refuse_held_cells` turns such a fit
+into a recorded lost replicate on every path, primary, property and pilot, and the design test
+bounds the expected count of such fits over the whole study.
 
 **Truths and bounds** are exact sums over the paths and the support points of the observed law,
 computed by code that never calls the estimator, and the efficient influence function there is
@@ -47,6 +57,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cleverly.exceptions import DataError
 from cleverly.longitudinal import LTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import hazard_multinode_law as law
@@ -64,18 +75,20 @@ SEED = 20261115
 RESAMPLING_SEED = 2026111501
 
 #: The targeting algorithm of the regimen fits: the per-horizon walk, the shipped default, at
-#: about 1.5 seconds a ``base`` fit at n = 2,000.  On one such draw the one-step walk took 250
-#: seconds over the five ``base`` regimens, and 10,776 steps over always, never, the rule and
-#: the policy, against 166 over always and "stay"; the rule follows only the paths of always
-#: and never.
+#: about 1.5 seconds a ``base`` fit at n = 2,000.  On one ``base`` draw the one-step walk took
+#: 0.6 seconds over always and never, 33.5 over the policy and "stay", and 96 over always,
+#: never and the policy: the enumerated policy slows the one-step walk, not the rule.  The
+#: one-step walk on regimen curves is read by the reported ``onestep`` fit label.
 ALGORITHM = "iterative"
-#: The working model's fit takes the one-step walk, the only one that targets its scores.
-MSM_ALGORITHM = "one_step"
+#: The fit labels that take the one-step walk: the working model, the only fit whose scores
+#: the per-horizon walk does not target, and the reported ``onestep`` label.
+ONE_STEP_FITS = ("msm", "onestep")
 TOL = 1e-10
 #: The lower bound on the cumulative treatment and retention probability of every fit.  The
 #: shipped default, 0.01, lies within a factor of two of the smallest cumulative probability of
-#: either law (0.020 on ``base``, 0.011 on ``five``), so the declared bound is 1e-3, ten times
-#: below both, and no exact fit is clipped.
+#: ``base`` (0.0196; 0.042 on ``four``), so the declared bound is 1e-3, ten times below both,
+#: and no exact fit is clipped.  The pilot records each fit's smallest estimated cumulative
+#: probability, and so how often the default would have clipped.
 G_BOUNDS = 1e-3
 #: The reference regimen of the regimen fits.
 REFERENCE = "never"
@@ -83,10 +96,12 @@ REFERENCE = "never"
 #: Fit label -> ``(law, regimen labels, working model)``.
 FITS: dict[str, tuple[str, tuple[str, ...], bool]] = {
     "base": ("base", law.LABELS, False),
-    "five": ("five", ("always", "never", "policy"), False),
+    "four": ("four", ("always", "never", "policy"), False),
     "msm": ("base", law.static_paths(3), True),
+    "onestep": ("base", ("always", "never", "policy"), False),
 }
-SCENARIOS = tuple(FITS)
+#: The primary scenarios: every fit label but the reported ``onestep``.
+SCENARIOS = ("base", "four", "msm")
 
 
 def law_of(fit_label: str) -> law.Law:
@@ -95,7 +110,7 @@ def law_of(fit_label: str) -> law.Law:
 
 def algorithm(fit_label: str) -> str:
     """The targeting algorithm of one fit label."""
-    return MSM_ALGORITHM if FITS[fit_label][2] else ALGORITHM
+    return "one_step" if fit_label in ONE_STEP_FITS else ALGORITHM
 
 
 def regimens(fit_label: str) -> dict[str, Any]:
@@ -145,7 +160,7 @@ def truths(fit_label: str) -> dict[str, float]:
 
 
 ESTIMANDS = {scenario: estimand_names(scenario) for scenario in SCENARIOS}
-TRUTH = {scenario: truths(scenario) for scenario in SCENARIOS}
+TRUTH = {fit_label: truths(fit_label) for fit_label in FITS}
 
 
 def _cells(prefix: str, *suffixes: str) -> tuple[str, ...]:
@@ -153,13 +168,15 @@ def _cells(prefix: str, *suffixes: str) -> tuple[str, ...]:
 
 
 #: The calibration fit labels and their arms: on ``base`` the contrast of always with never by
-#: the last node and the risks of the rule, the policy and "stay"; on ``five`` the contrast and
-#: the policy's risk; on ``msm`` the dose and the dose-by-modifier coefficients.
-CALIBRATION_FITS = tuple(FITS)
+#: the last node and the risks of the rule, the policy and "stay"; on ``four`` the contrast and
+#: the policy's risk; on ``msm`` the dose and the dose-by-modifier coefficients.  The reported
+#: ``onestep`` label reads the contrast and the policy's risk of ``base``.
+CALIBRATION_FITS = SCENARIOS
 ARMS: dict[str, tuple[str, ...]] = {
     "base": ("contrast", "rule", "policy", "stay"),
-    "five": ("contrast", "policy"),
+    "four": ("contrast", "policy"),
     "msm": ("dose", "dose_W1"),
+    "onestep": ("contrast", "policy"),
 }
 CALIBRATION_LABELS = tuple(f"{fit}_{arm}" for fit in CALIBRATION_FITS for arm in ARMS[fit])
 #: The labels that carry the two derived calibration controls.
@@ -167,17 +184,34 @@ CONTROLLED_LABELS = ("base_contrast",)
 #: The contrast every robustness, necessity and power cell reads.
 CONTRAST_LABEL = "base_contrast"
 #: The ``mechanism_correct`` robustness cells beyond the four configurations of the contrast:
-#: every other calibration arm, each read from the ``mechanism_correct`` fit of its fit label,
-#: so the weighted walk is read at every regimen kind, over 32 policy paths, and on the working
-#: model.
+#: every other calibration arm, each read from the ``mechanism_correct`` fit of its fit label.
+#: Where the wrong hazard learner's plug-in lies near the truth (``base_rule`` +0.46,
+#: ``base_stay`` -0.96, ``base_policy`` -1.01, ``four_contrast`` +0.76 and ``four_policy``
+#: -0.16 efficiency SEs at n = 2,000) a cell is a consistency check: it passes whether or not
+#: the targeting moves the estimate.  The weighting over the policy paths rests on the exact-law
+#: witnesses of ``tests/unit/test_hazard_multinode.py`` and on :data:`NODE_DR_LABEL`.
 ROUTE_DR_LABELS = tuple(label for label in CALIBRATION_LABELS if label != CONTRAST_LABEL)
+#: The robustness cell of the node-only hazard learner (the at-risk event share at each node,
+#: no arm and no ``W``) with the correct mechanism, on the ``four`` contrast.  Its plug-in
+#: contrast is zero in every sample, 2.20 efficiency SEs from the truth at n = 2,000, so the
+#: targeting alone moves the estimate to the truth.
+NODE_DR_LABEL = "four_contrast"
+NODE_CONFIGURATION = "node_hazard"
 #: The joint labels: the band over every estimate of one fit.
-JOINT_LABELS = ("base_curve", "five_curve")
-RATE_SIZES = (1_000, 2_000, 8_000)
+JOINT_LABELS = ("base_curve", "four_curve")
+#: The ladder.  Its smallest rung is a rate rung that carries no claim; at 1,600 rows a ``base``
+#: fit holds a prefix cell with probability 1e-3 (0.017 at 1,000).
+RATE_SIZES = (1_600, 2_000, 8_000)
 LADDER_LABELS = ("base_contrast", "base_policy")
 #: The fits whose draws carry the reported comparison with the iterated-mean fit.
-DIFFERENCE_FITS = ("base", "five")
+DIFFERENCE_FITS = ("base", "four")
 DIFFERENCE_ARMS = ("paired_difference", "hazard_fit", "iterated_fit", "isotonic_difference")
+#: The reported fit label of the one-step walk on regimen curves, its family and its arms: the
+#: one-step fit's own row, and its paired difference against the per-horizon fit of the same
+#: regimens on the same draw.
+ONE_STEP_FIT = "onestep"
+ONE_STEP_FAMILY = "one_step_walk"
+ONE_STEP_ARMS = ("one_step_fit", "paired_difference")
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(
@@ -194,6 +228,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
             CONTRAST_LABEL, "both_correct", "outcome_correct", "mechanism_correct", "both_wrong"
         ),
         *(cell for label in ROUTE_DR_LABELS for cell in _cells(label, "mechanism_correct")),
+        *_cells(NODE_DR_LABEL, NODE_CONFIGURATION),
     ),
     "targeting_necessity": _cells(CONTRAST_LABEL, "targeted", "untargeted"),
     "root_n_and_efficiency": tuple(
@@ -223,6 +258,11 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
             for arm in ARMS["base"]
             for cell in _cells(f"base_{arm}", "mechanism_correct_difference")
         ),
+    ),
+    ONE_STEP_FAMILY: tuple(
+        cell
+        for arm in ARMS[ONE_STEP_FIT]
+        for cell in _cells(f"{ONE_STEP_FIT}_{arm}", *ONE_STEP_ARMS)
     ),
 }
 
@@ -264,7 +304,7 @@ STUDY = StudyRecord(
 CONFIGURATION = {
     "construction": "a binary treatment at every node, slots over full treatment paths with "
     "shared prefix updates; the per-horizon walk over every regimen, the one-step walk for the "
-    "working model",
+    "working model and the reported onestep fit label",
     "survival_model": "hazard",
     "targeting": {label: algorithm(label) for label in FITS},
     "tol": TOL,
@@ -289,18 +329,27 @@ def learners(configuration: str = "both_correct") -> dict[str, Any]:
     """The hazard and mechanism learners of one nuisance configuration.
 
     The wrong hazard learner is :class:`~tests.studies.hazard_multinode_law.LastArmLogistic`;
-    the wrong treatment and censoring learners are the prior share at each node.
+    the wrong treatment and censoring learners are the prior share at each node.  The
+    ``node_hazard`` configuration fits the node-only hazard learner, the prior share of the
+    event at each node, with the correct mechanism.
     """
     from sklearn.dummy import DummyClassifier
 
     hazard_correct = configuration in {"both_correct", "outcome_correct"}
-    mechanism_correct = configuration in {"both_correct", "mechanism_correct"}
+    mechanism_correct = configuration in {"both_correct", "mechanism_correct", NODE_CONFIGURATION}
 
     def mechanism() -> Any:
         return law.HistoryLogistic() if mechanism_correct else DummyClassifier(strategy="prior")
 
+    def hazard() -> Any:
+        if hazard_correct:
+            return law.HistoryLogistic()
+        if configuration == NODE_CONFIGURATION:
+            return DummyClassifier(strategy="prior")
+        return law.LastArmLogistic()
+
     return {
-        "outcome_learner": law.HistoryLogistic() if hazard_correct else law.LastArmLogistic(),
+        "outcome_learner": hazard(),
         "treatment_learner": mechanism(),
         "censoring_learner": mechanism(),
     }
@@ -317,7 +366,8 @@ _SPARSE = (
 #: other warning a fit raises is counted in its rows (``unexpected_warnings``).
 EXPECTED_WARNINGS: dict[str, dict[str, str]] = {
     "base": {"SparseInfluenceWarning": _SPARSE},
-    "five": {"SparseInfluenceWarning": _SPARSE},
+    "four": {"SparseInfluenceWarning": _SPARSE},
+    "onestep": {"SparseInfluenceWarning": _SPARSE},
 }
 
 
@@ -336,11 +386,18 @@ class FitRecord:
         The largest final relative score over the fit's hazard walks: the largest score
         component over its largest possible magnitude, ``max |score| / score_scale``, at the
         reported hazards.
+    n_iter : int
+        The largest iteration count over the fit's hazard walks.
+    smallest_cumulative : float
+        The smallest estimated cumulative treatment and retention probability of the fit,
+        before ``g_bounds``, over every unit and node (``nan`` when the fit reports none).
     """
 
     converged: bool
     unexpected_warnings: tuple[str, ...]
     final_score: float = 0.0
+    n_iter: int = 0
+    smallest_cumulative: float = float("nan")
 
     def columns(self) -> dict[str, float]:
         """The per-row columns: ``converged`` (0 or 1), ``final_score`` and the warning count."""
@@ -371,6 +428,43 @@ def walks(result: Any) -> list[Any]:
     return out
 
 
+def smallest_cumulative(result: Any) -> float:
+    """The smallest unbounded cumulative treatment and retention probability of a fit.
+
+    Every regimen fit of the hazard path carries the same ``(n, T)`` matrix at the observed
+    histories, before ``g_bounds``; the working model's fit reads the same matrix.
+    """
+    found = [getattr(item, "cumulative_unbounded", None) for item in result.fits.values()]
+    for msm_fit in getattr(result, "msm_fits", None) or ():
+        found += [getattr(item, "cumulative_unbounded", None) for item in msm_fit.fits]
+    values = [float(np.nanmin(np.asarray(m, dtype=float))) for m in found if m is not None]
+    return min(values, default=float("nan"))
+
+
+class HeldCellError(DataError):  # numpydoc ignore=PR01
+    """A fit reported an estimate without the influence-curve interval (a held prefix cell)."""
+
+
+def refuse_held_cells(fit_label: str, result: Any) -> None:
+    """Turn a fit with a non-inferential estimate into a recorded lost replicate.
+
+    A treatment prefix cell where no unit at risk has the event (or every one does) is held by
+    the shipped fit, and every regimen that reads it reports the plug-in with no interval
+    (status ``constant_node_plugin``).  The study measures the influence-curve interval, so the
+    draw is a lost replicate: :class:`HeldCellError` is a ``DataError``, which the harness
+    records under the failure bound, as ``canonical_survival_node_bounds.refuse_constant_nodes``
+    does.  It is checked on every estimate of the fit before any row reads one, so the primary
+    rows, the property rows (the joint band among them) and the pilot treat the draw alike.
+    The design test bounds the expected count of such draws over the study.
+    """
+    for name in estimand_names(fit_label):
+        status = result[name].inference
+        if status != "influence_curve":
+            raise HeldCellError(
+                f"{name} reports the inference status {status!r}, not the influence curve"
+            )
+
+
 def recorded(call: Any, expected: Sequence[str] = ()) -> tuple[Any, FitRecord]:
     """Run ``call()``, filtering the ``expected`` warning classes and recording every other one."""
     with warnings.catch_warnings(record=True) as caught:
@@ -382,7 +476,8 @@ def recorded(call: Any, expected: Sequence[str] = ()) -> tuple[Any, FitRecord]:
     found = walks(result)
     converged = all(bool(walk.converged) for walk in found)
     score = max((final_score(walk) for walk in found), default=0.0)
-    return result, FitRecord(converged, unexpected, score)
+    n_iter = max((int(walk.n_iter) for walk in found), default=0)
+    return result, FitRecord(converged, unexpected, score, n_iter, smallest_cumulative(result))
 
 
 def fit(
@@ -391,9 +486,16 @@ def fit(
     *,
     configuration: str = "both_correct",
     simultaneous: bool = False,
+    targeting: str | None = None,
 ) -> Any:
     """The subject's fit of one fit label's sample."""
-    return fit_recorded(fit_label, frame, configuration=configuration, simultaneous=simultaneous)[0]
+    return fit_recorded(
+        fit_label,
+        frame,
+        configuration=configuration,
+        simultaneous=simultaneous,
+        targeting=targeting,
+    )[0]
 
 
 def fit_recorded(
@@ -402,18 +504,24 @@ def fit_recorded(
     *,
     configuration: str = "both_correct",
     simultaneous: bool = False,
+    targeting: str | None = None,
 ) -> tuple[Any, FitRecord]:
-    """The subject's fit of one fit label's sample, with its :class:`FitRecord`."""
+    """The subject's fit of one fit label's sample, with its :class:`FitRecord`.
+
+    ``targeting`` overrides the fit label's algorithm (the ``onestep`` label's paired
+    per-horizon fit).  A fit with a held prefix cell raises :class:`HeldCellError`
+    (:func:`refuse_held_cells`).
+    """
     current = law_of(fit_label)
     _, _, msm = FITS[fit_label]
     target: dict[str, Any] = {"msm": law.working_model()} if msm else {"reference": REFERENCE}
-    return recorded(
+    result, record = recorded(
         lambda: LTMLE(
             regimens(fit_label),
             n_folds=1,
             simultaneous=simultaneous,
             survival_model="hazard",
-            targeting=algorithm(fit_label),
+            targeting=targeting or algorithm(fit_label),
             tol=TOL,
             g_bounds=G_BOUNDS,
             random_state=0,
@@ -422,6 +530,8 @@ def fit_recorded(
         ).fit(frame, **current.fit_columns()),
         expected=tuple(EXPECTED_WARNINGS.get(fit_label, {})),
     )
+    refuse_held_cells(fit_label, result)
+    return result, record
 
 
 def initial_estimates(result: Any, names: Sequence[str]) -> dict[str, float]:

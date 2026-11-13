@@ -25,8 +25,8 @@ with :math:`A_0 = 0`.  This is the base law of plan X70 section 4.3: the treatme
 (the treatment learner ``[W1, W2, A_1, ..., A_{k-1}]``) at each node, so an unpenalised
 logistic regression on those columns is correctly specified and not saturated: the factors
 leave every earlier arm but the last out, and every interaction out.  :data:`BASE` has three
-nodes and :data:`FIVE` has five, for the policy whose 32 paths the fit enumerates; the five-node
-law has the same form with its own coefficients (:data:`FIVE_MECHANISM`, :data:`FIVE_HAZARD`),
+nodes and :data:`FOUR` has four, for the policy whose 16 paths the fit enumerates; the four-node
+law has the same form with its own coefficients (:data:`FOUR_MECHANISM`, :data:`FOUR_HAZARD`),
 so that every treatment prefix keeps units at risk and events at n = 2,000.
 
 **The regimens** (:data:`REGIMENS`) are the static arms ``always`` and ``never``, the known
@@ -61,7 +61,9 @@ enumerates every support point of the observed law.
 **The wrong hazard learner** (:class:`LastArmLogistic`) regresses each node's event on
 :math:`A_k` alone: no :math:`A_{k-1}` and no :math:`W`, the wrong learner of plan X70
 section 5.  On a binary :math:`A_k` it is the at-risk event share of each arm, so its limit
-(:func:`wrong_hazard_limit`) is an exact weighted mean over the observed law.
+(:func:`wrong_hazard_limit`) is an exact weighted mean over the observed law.  **The node-only
+hazard learner** (the prior share at each node, :func:`node_hazards`) reads no arm at all, so
+its plug-in contrast of two regimens is zero in every sample (:func:`node_hazard_limit`).
 """
 
 from __future__ import annotations
@@ -369,25 +371,26 @@ MECHANISM: dict[str, Any] = {
 }
 #: The event hazard of the three-node law.
 HAZARD = (-2.2, 0.1, 0.4, 0.35, -0.55, -0.45)
-#: The factors of the five-node law.  The shipped hazard fit holds a prefix cell at zero when
+#: The factors of the four-node law.  The shipped hazard fit holds a prefix cell at zero when
 #: none of the units at risk with that treatment prefix has the event (and at one when all of
 #: them do), and a regimen that reads a held cell reports no interval.  The policy reads all
-#: 32 prefixes at node 5, so the five-node law keeps every prefix populated at n = 2,000: the
+#: 16 prefixes at node 4, so the four-node law keeps every prefix populated at n = 2,000: the
 #: treatment is close to balanced, dropout is rarer, and the hazard rises from about 0.05 at
-#: node 1 to about 0.5 at node 5, with smaller arm effects.  The expected number of held cells
-#: per fit at n = 2,000 is about 0.002 (``tests/unit/test_hazard_multinode_study_design.py``).
-#: Every path keeps a cumulative treatment and retention probability of at least 0.018.
-FIVE_MECHANISM: dict[str, Any] = {
+#: node 1 to about 0.3 at node 4, with smaller arm effects.  The expected number of held cells
+#: per fit at n = 2,000 is about 2e-9 (``tests/unit/test_hazard_multinode_study_design.py``
+#: sums it over every fit of the study).  Every path keeps a cumulative treatment and
+#: retention probability of at least 0.042.
+FOUR_MECHANISM: dict[str, Any] = {
     "first": (0.0, 0.2, 0.0),
     "later": (-0.1, 0.1, 0.0, 0.2),
     "dropout": (-4.0, 0.3, 0.15, 0.25, 0.2),
 }
-FIVE_HAZARD = (-3.0, 0.75, 0.2, 0.15, -0.25, -0.15)
+FOUR_HAZARD = (-3.0, 0.75, 0.2, 0.15, -0.25, -0.15)
 #: The primary law: three nodes.
 BASE = Law("base", 3, hazard=HAZARD, **MECHANISM)
-#: The five-node variant for the enumerated policy (32 paths).
-FIVE = Law("five", 5, hazard=FIVE_HAZARD, **FIVE_MECHANISM)
-LAWS = {"base": BASE, "five": FIVE}
+#: The four-node variant for the enumerated policy (16 paths).
+FOUR = Law("four", 4, hazard=FOUR_HAZARD, **FOUR_MECHANISM)
+LAWS = {"base": BASE, "four": FOUR}
 
 
 # ------------------------------------------------------------------ the regimens, fit side
@@ -599,7 +602,7 @@ def beta_sd(law: Law) -> np.ndarray:
 class HistoryLogistic(BaseEstimator, ClassifierMixin):
     """The correct learner of every factor: unpenalised logistic on the node's history.
 
-    Each factor of :data:`BASE` and :data:`FIVE` is logistic in ``W1``, ``W2`` and the last one
+    Each factor of :data:`BASE` and :data:`FOUR` is logistic in ``W1``, ``W2`` and the last one
     or two arms of the history the fit hands the learner, so the model is correct; it has no
     interaction, so it is not saturated, and targeting moves every fit.
     """
@@ -668,6 +671,41 @@ def wrong_risk(law: Law, label: str, horizon: int) -> float:
 def wrong_hazard_limit(law: Law, target: Target) -> float:
     """The plug-in value of a linear target at the limit of :class:`LastArmLogistic`."""
     return float(sum(c * wrong_risk(law, label, t) for c, label, t in target.terms))
+
+
+def node_hazards(law: Law) -> np.ndarray:
+    """``(T,)`` hazards at the limit of the node-only learner: the at-risk event share by node.
+
+    The learner is the prior share of the node's event (``DummyClassifier(strategy="prior")``
+    on each node's hazard fit), so it reads neither the arms nor ``W``.
+    """
+    events = np.zeros(law.n_times)
+    totals = np.zeros(law.n_times)
+    for row, mass in law.support():
+        for node in range(1, law.n_times + 1):
+            base = 2 + 3 * (node - 1)
+            if np.isnan(row[base]) or row[base + 1] == 0.0:
+                break
+            totals[node - 1] += mass
+            events[node - 1] += mass * float(row[base + 2] == 1.0)
+    return events / totals
+
+
+def node_hazard_limit(law: Law, target: Target) -> float:
+    """The plug-in value of a linear target at the limit of the node-only learner.
+
+    Every regimen has the same plug-in risk curve, so a contrast's plug-in is zero.
+    """
+    hazards = node_hazards(law)
+
+    def risk(horizon: int) -> float:
+        survival, total = 1.0, 0.0
+        for lam in hazards[:horizon]:
+            total += survival * lam
+            survival *= 1.0 - lam
+        return total
+
+    return float(sum(c * risk(t) for c, _, t in target.terms))
 
 
 def wrong_beta(law: Law) -> np.ndarray:

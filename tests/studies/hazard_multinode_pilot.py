@@ -2,7 +2,10 @@
 
 It draws no declared sample: every draw takes ``stream_seed(STUDY, "pilot", label, r)``, a
 stream no declared cell reads.  It writes one row per fit and estimand to
-``tests/canonical/hazard_multinode/pilot.csv.gz``, with the fit's refusal when it had one.  Run
+``tests/canonical/hazard_multinode/pilot.csv.gz``.  A draw whose fit held a prefix cell
+(:class:`~tests.studies.canonical_hazard_multinode.HeldCellError`) writes one row with
+``held`` 1, as the declared run records a lost replicate; any other exception writes one row
+with its class in ``refusal``, which every reading test rejects.  Run
 it as ``python -m tests.studies.hazard_multinode_pilot --jobs N --labels <label>``, one label
 per run: the pilot has no checkpoints and writes only when the label finishes, so a restart
 loses at most one label.  A label that runs replaces its rows and keeps the others.
@@ -10,19 +13,25 @@ loses at most one label.  A label that runs replaces its rows and keeps the othe
 =================================  ==============================================================
 label                              what it measures
 =================================  ==============================================================
-``calibration_<fit>``              the calibration fits of one fit label of
-                                   :data:`~tests.studies.canonical_hazard_multinode.FITS`,
+``calibration_<fit>``              the calibration fits of one primary scenario of
+                                   :data:`~tests.studies.canonical_hazard_multinode.SCENARIOS`,
                                    n = 2,000, 8,000 draws each
                                    (:data:`~tests.studies.repeated_sizing.CALIBRATION_PILOT_DRAWS`).
                                    They size the calibration family, and, being the primary
-                                   fits of every scenario, the primary rows
+                                   fits of every scenario, the primary rows.  ``base`` and
+                                   ``four`` fit with ``simultaneous=True``, as the declared
+                                   calibration fits do, and add the joint band's two rows
 ``wrong_learner_<fit>``            the wrong hazard learner and the correct mechanism on
-                                   ``base``, ``five`` and ``msm`` at n = 2,000, 800 draws each:
+                                   ``base``, ``four`` and ``msm`` at n = 2,000, 800 draws each:
                                    the fit's plug-in and targeted estimates.  They size every
                                    positive arm that fits the wrong hazard learner by the rule
                                    of plan X70 rev 2.7
+``wrong_learner_node``             the node-only hazard learner and the correct mechanism on
+                                   ``four``, 800 draws, sized by the same rule
+``both_wrong_base``                the ``both_wrong`` configuration on ``base``, 20 draws: its
+                                   convergence and time, which no other label measures
 ``fits_differ_<fit>``              the ``iterated_mean_difference`` family on ``base`` and
-                                   ``five`` at n = 2,000, 200 draws each.  Each draw fits the
+                                   ``four`` at n = 2,000, 200 draws each.  Each draw fits the
                                    declared hazard fit, the iterated-mean fit of the same
                                    regimens, and the iterated-mean fit with ``isotonic=True``
 ``fits_differ_mechanism_correct``  the ``base`` ``mechanism_correct`` configuration at
@@ -42,17 +51,21 @@ iterated-mean fit's (``iterated_estimate``, ``iterated_std_error``, ``iterated_c
 the isotonic fit's ``isotonic_estimate``; its ``largest_decrease`` row holds the largest decrease
 of an iterated-mean risk curve between nodes as ``estimate`` and that difference's standard
 error as ``std_error``.  A ``wrong_learner`` row holds the plug-in and targeted estimates
-(``wrong_plug_in``, ``wrong_targeted``).  A calibration row reads every estimate of the fit.
-Every row records its key's fits: ``converged`` (1 when every hazard walk met its tolerance),
-``final_score`` (the largest final relative score of a walk) and ``unexpected_warnings`` (the
-count of warnings outside the expected classes of
-:data:`~tests.studies.canonical_hazard_multinode.EXPECTED_WARNINGS`); no warning is suppressed
-wholesale.
+(``wrong_plug_in``, ``wrong_targeted``).  A calibration row reads every estimate of the fit;
+the joint rows ``joint_band`` and ``joint_pointwise`` hold in ``covered`` whether the band, and
+every pointwise interval, covered the whole curve.  Every row records its key's fits:
+``converged`` (1 when every hazard walk met its tolerance), ``final_score`` (the largest final
+relative score of a walk), ``n_iter`` (the largest iteration count of a walk),
+``unexpected_warnings`` (the count of warnings outside the expected classes of
+:data:`~tests.studies.canonical_hazard_multinode.EXPECTED_WARNINGS`; no warning is suppressed
+wholesale), ``smallest_cumulative`` (the smallest estimated cumulative treatment and retention
+probability, before ``g_bounds``) and ``seconds`` (the draw's wall time on one core).
 """
 
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +76,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.studies import canonical_hazard_multinode as study
 from tests.studies import hazard_multinode_properties as properties
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import joint_coverage_rows
 
 OUTPUT = study.STUDY.artifacts / "pilot.csv.gz"
 PILOT_N = 2_000
@@ -70,16 +84,23 @@ FITS_DIFFER_DRAWS = 200
 MECHANISM_DIFFER_DRAWS = 200
 WRONG_LEARNER_DRAWS = 800
 CALIBRATION_DRAWS = 8_000
+BOTH_WRONG_DRAWS = 20
 #: Every fit label with a positive arm that fits the wrong hazard learner.
-WRONG_LEARNER_FITS = tuple(study.FITS)
+WRONG_LEARNER_FITS = properties.CALIBRATION_FITS
+#: The pilot label of the node-only hazard learner.
+NODE_PILOT = "wrong_learner_node"
 
 #: ``label -> (fit label, draws)``.
 PILOTS: dict[str, tuple[str, int]] = {
     **{f"calibration_{fit}": (fit, CALIBRATION_DRAWS) for fit in properties.CALIBRATION_FITS},
     **{f"wrong_learner_{fit}": (fit, WRONG_LEARNER_DRAWS) for fit in WRONG_LEARNER_FITS},
+    NODE_PILOT: (properties.FIT_OF[properties.NODE_LABEL], WRONG_LEARNER_DRAWS),
+    "both_wrong_base": ("base", BOTH_WRONG_DRAWS),
     **{f"fits_differ_{fit}": (fit, FITS_DIFFER_DRAWS) for fit in study.DIFFERENCE_FITS},
     "fits_differ_mechanism_correct": ("base", MECHANISM_DIFFER_DRAWS),
 }
+#: The estimand names of the joint band's two rows on a calibration label.
+JOINT_ROWS = ("joint_band", "joint_pointwise")
 COLUMNS = (
     "label",
     "replicate",
@@ -98,14 +119,18 @@ COLUMNS = (
     "wrong_targeted",
     "converged",
     "final_score",
+    "n_iter",
     "unexpected_warnings",
+    "smallest_cumulative",
+    "seconds",
+    "held",
     "refusal",
 )
 
 
 def _row(label: str, replicate: int, **values: Any) -> dict[str, Any]:
     row: dict[str, Any] = dict.fromkeys(COLUMNS, np.nan)
-    row.update(label=label, replicate=replicate, n=PILOT_N, refusal="")
+    row.update(label=label, replicate=replicate, n=PILOT_N, held=0, refusal="")
     row.update(values)
     return row
 
@@ -177,11 +202,39 @@ def _mechanism_differ(
     return _paired_rows(label, replicate, "base", hazard, iterated)
 
 
+def _calibration(
+    label: str, replicate: int, frame: pd.DataFrame, records: Any
+) -> list[dict[str, Any]]:
+    """Every estimate of a calibration fit, and the joint band's rows where it has one."""
+    fit, _ = PILOTS[label]
+    joint = f"{fit}_curve"
+    banded = joint in properties.JOINT_LABELS
+    result = records.hazard(fit, frame, simultaneous=banded)
+    rows = _estimate_rows(label, replicate, fit, result)
+    if banded:
+        band, pointwise = joint_coverage_rows(
+            result,
+            study.truths(fit),
+            tuple(result.estimates),
+            label=joint,
+            replicate=replicate,
+            n=PILOT_N,
+            requested=PILOTS[label][1],
+            pointwise_critical=properties.CRITICAL,
+        )
+        for name, reading in zip(JOINT_ROWS, (band, pointwise), strict=True):
+            rows.append(
+                _row(label, replicate, fit_label=fit, estimand=name, covered=reading["covered"])
+            )
+    return rows
+
+
 def _wrong_learner(
     label: str, replicate: int, frame: pd.DataFrame, records: Any
 ) -> list[dict[str, Any]]:
     fit, _ = PILOTS[label]
-    wrong = records.hazard(fit, frame, configuration="mechanism_correct")
+    configuration = {NODE_PILOT: properties.NODE_CONFIGURATION, "both_wrong_base": "both_wrong"}
+    wrong = records.hazard(fit, frame, configuration=configuration.get(label, "mechanism_correct"))
     rows = _estimate_rows(label, replicate, fit, wrong)
     for row in rows:
         name = str(row["estimand"])
@@ -195,18 +248,25 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
     fit_label, _ = PILOTS[label]
     frame = properties.draw(fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate))
     records = properties.FitRecords()
+    start = time.perf_counter()
     try:
         if label == "fits_differ_mechanism_correct":
             rows = _mechanism_differ(label, replicate, frame, records)
         elif label.startswith("fits_differ_"):
             rows = _fits_differ(label, replicate, frame, records)
-        elif label.startswith("wrong_learner_"):
+        elif label.startswith("wrong_learner_") or label == "both_wrong_base":
             rows = _wrong_learner(label, replicate, frame, records)
         else:
-            rows = _estimate_rows(label, replicate, fit_label, records.hazard(fit_label, frame))
+            rows = _calibration(label, replicate, frame, records)
+    except study.HeldCellError:  # the declared run's lost replicate, recorded as one
+        return [_row(label, replicate, fit_label=fit_label, held=1)]
     except Exception as error:  # a refusal is a pilot finding, recorded with its class
         return [_row(label, replicate, fit_label=fit_label, refusal=type(error).__name__)]
-    columns = records.columns()
+    columns = {
+        **records.columns(),
+        "smallest_cumulative": records.smallest_cumulative(),
+        "seconds": time.perf_counter() - start,
+    }
     return [{**row, **columns} for row in rows]
 
 

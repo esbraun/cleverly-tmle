@@ -5,9 +5,9 @@ Every fit is ``LTMLE`` with ``survival_model="hazard"`` on a law of
 walk for the regimen fits and the one-step walk for the working model
 (:func:`~tests.studies.canonical_hazard_multinode.algorithm`).  A cell label
 names one estimate of one fit label of :data:`~tests.studies.canonical_hazard_multinode.FITS`:
-``base_contrast`` and ``five_contrast`` are the difference ``always`` minus ``never`` in the risk
-by the last node; ``base_rule``, ``base_policy``, ``base_stay`` and ``five_policy`` the risk of
-that regimen by the last node; ``msm_dose`` and ``msm_dose_W1`` the coefficients of ``d`` and
+``base_contrast``, ``four_contrast`` and ``onestep_contrast`` are the difference ``always``
+minus ``never`` in the risk by the last node; ``base_rule``, ``base_policy``, ``base_stay``,
+``four_policy`` and ``onestep_policy`` the risk of that regimen by the last node; ``msm_dose`` and ``msm_dose_W1`` the coefficients of ``d`` and
 ``d W1`` of the working model over the static paths.  A joint label ``<fit>_curve`` reads every
 estimate of one fit (each regimen's risk curve and its contrast with ``never`` at each node)
 under the simultaneous band.  Every truth is an exact sum over the paths and every efficiency
@@ -23,25 +23,33 @@ family                          cells, replications and size
                                 the shrunken-SE and noise controls on ``base_contrast``;
                                 :data:`CALIBRATION_REPLICATES` fits per fit label at
                                 n = 2,000
-``double_robustness``           ``base_contrast`` in four nuisance configurations, and every
+``double_robustness``           ``base_contrast`` in four nuisance configurations, every
                                 other calibration arm with the wrong hazard learner and the
                                 correct mechanism (the ``base`` arms from the ``base``
-                                ``mechanism_correct`` fits, the ``five`` and ``msm`` arms from
-                                fits of their own); :data:`DOUBLE_ROBUST_REPLICATES` at
-                                n = 2,000, or the wrong-learner count of
-                                :data:`MECHANISM_REPLICATES`
+                                ``mechanism_correct`` fits, the ``four`` and ``msm`` arms from
+                                fits of their own), and ``four_contrast`` with the node-only
+                                hazard learner and the correct mechanism;
+                                :data:`DOUBLE_ROBUST_REPLICATES` at n = 2,000, or the
+                                wrong-learner count of :data:`MECHANISM_REPLICATES` and
+                                :data:`NODE_REPLICATES`
 ``targeting_necessity``         ``base_contrast``: the targeted contrast and the contrast of
-                                the initial hazards of the same fit, with the wrong hazard
-                                learner and the correct mechanism; :data:`NECESSITY_REPLICATES`
-                                at n = 2,000
-``root_n_and_efficiency``       ``base_contrast`` and ``base_policy`` at n = 1,000, 2,000 and
-                                8,000; 800 each.  The 1,000 rung is a rate rung that carries
+                                the initial hazards of the same fit, read from the ``base``
+                                ``mechanism_correct`` fits (wrong hazard learner, correct
+                                mechanism); :data:`NECESSITY_REPLICATES` at n = 2,000
+``root_n_and_efficiency``       ``base_contrast`` and ``base_policy`` at n = 1,600, 2,000 and
+                                8,000; 800 each.  The 1,600 rung is a rate rung that carries
                                 no claim (it takes the harness's smallest-rung role)
-``power``                       ``base_contrast`` at n = 2,000; 800
-``simultaneous_coverage``       the band over every estimate of the ``base`` and the ``five``
+``power``                       ``base_contrast`` at n = 2,000, read from the ``base``
+                                calibration fits; :data:`POWER_REPLICATES`
+``simultaneous_coverage``       the band over every estimate of the ``base`` and the ``four``
                                 calibration fits, and its pointwise control
+``one_step_walk``               reported, no verdict: :data:`ONE_STEP_REPLICATES` draws of
+                                ``base`` at n = 2,000.  Each draw fits always, never and the
+                                policy with the one-step walk and with the per-horizon walk,
+                                and records the one-step fit's coverage and SE ratio, its
+                                convergence, and the paired difference of the two fits
 ``iterated_mean_difference``    reported, no verdict: :data:`DIFFERENCE_REPLICATES` draws at
-                                n = 2,000 of ``base`` and ``five``.  Each draw fits the hazard
+                                n = 2,000 of ``base`` and ``four``.  Each draw fits the hazard
                                 fit, the iterated-mean fit of the same regimens without and
                                 with ``isotonic=True``, and records the paired differences,
                                 each fit's coverage and SE ratio, and whether an iterated-mean
@@ -54,13 +62,26 @@ The wrong hazard learner is :class:`~tests.studies.hazard_multinode_law.LastArmL
 per-node logistic regression on the node's own arm with no earlier arm and no ``W`` (plan X70
 section 5).  ``W`` and the previous arm confound the arm, so its arm effect is biased, and its
 plug-in ``base_contrast`` lies 3.54 efficiency standard errors from the truth at n = 2,000
-(``tests/unit/test_hazard_multinode_study_design.py``).  The wrong mechanism is the prior share
-of the treatment and of the retention at each node.
+(``tests/unit/test_hazard_multinode_study_design.py``).  Elsewhere its plug-in lies within
+about one SE of the truth, and those ``mechanism_correct`` cells are consistency checks
+(:data:`~tests.studies.canonical_hazard_multinode.ROUTE_DR_LABELS`).  The node-only hazard
+learner, the at-risk event share of each node, has a plug-in ``four_contrast`` of zero in every
+sample, 2.20 SEs from the truth.  The wrong mechanism is the prior share of the treatment and of
+the retention at each node.
+
+**Shared fits.**  The necessity cells read the ``base`` ``mechanism_correct`` fits and the power
+cell reads the ``base`` calibration fits, so neither refits a configuration another fit set
+already runs.  The ladder's n = 2,000 rung keeps its own stream, so that every rung has the
+same replicate count.
 
 **The agreement reading** is reported with no floor.  :func:`fits_differ_reading` states the
-paired ratios and the share of decreasing iterated-mean curves with its interval.  Both fits are
-efficient, so where both nuisance fits are correct they differ by :math:`o_P(n^{-1/2})`, and X70
-reports their agreement instead of requiring a gap (the owner's decision of 2026-11-13).  Each
+paired ratios and the share of decreasing iterated-mean curves with its interval.  The
+iterated-mean fit regresses each node on the cell means of its design (:class:`CellMeans`,
+saturated in ``W`` and the arms it conditions on), so with the correct mechanism both fits are
+correctly specified and asymptotically efficient, and they differ by :math:`o_P(n^{-1/2})`.  At
+n = 2,000 the saturated regression reads up to 128 cells for the ``four`` policy, so the
+reading also carries its finite-sample noise.  X70 reports the agreement instead of requiring a
+gap (the owner's decision of 2026-11-13).  Each
 ``paired_difference`` row records the hazard estimate minus the iterated-mean estimate of the
 same draw (``isotonic_difference`` the same against the isotonic iterated-mean fit); its summary
 adds ``paired_sd_over_bound``, the SD of that difference over the efficiency-bound standard
@@ -80,6 +101,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.stats import beta, norm
+from sklearn.base import BaseEstimator
 
 from cleverly.longitudinal import LTMLE
 from tests.parallel import STUDY_JOBS
@@ -119,9 +141,11 @@ DOUBLE_ROBUST_N = 2_000
 #: :data:`DOUBLE_ROBUST_REPLICATES` and the wrong-learner pilot's need over the fit set's arms
 #: (plan X70 rev 2.7 rule, read by the design test).  Provisional until the wrong-learner pilot
 #: is committed.
-MECHANISM_REPLICATES = {"base": 1_200, "five": 1_200, "msm": 1_200}
-#: Provisional until the wrong-learner pilot is committed, as :data:`MECHANISM_REPLICATES`.
-NECESSITY_REPLICATES = 1_200
+MECHANISM_REPLICATES = {"base": 1_200, "four": 1_200, "msm": 1_200}
+#: The replicates of the node-only fit set, by the same rule from its own pilot label.
+NODE_REPLICATES = 1_200
+#: The necessity cells read the ``base`` ``mechanism_correct`` fits.
+NECESSITY_REPLICATES = MECHANISM_REPLICATES["base"]
 NECESSITY_N = 2_000
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
@@ -130,10 +154,14 @@ CALIBRATION_N = 2_000
 #: committed it is the rule read at a pilot of the declared size whose SE ratio is one
 #: (``tests/unit/test_hazard_multinode_study_design.py``); the committed pilot then sets it.
 CALIBRATION_REPLICATES = 4_000
-POWER_REPLICATES = 800
-POWER_N = 2_000
+#: The power cell reads the ``base`` calibration fits.
+POWER_REPLICATES = CALIBRATION_REPLICATES
+POWER_N = CALIBRATION_N
 DIFFERENCE_REPLICATES = 800
 DIFFERENCE_N = 2_000
+#: The reported one-step cells: about 96 seconds a draw (plan X70 design review a, finding 2).
+ONE_STEP_REPLICATES = 200
+ONE_STEP_N = 2_000
 
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -143,12 +171,16 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 TARGETING_DISPLACEMENT = 0.25
 CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
 DIFFERENCE_FAMILY = "iterated_mean_difference"
+ONE_STEP_FAMILY = study.ONE_STEP_FAMILY
+ONE_STEP_FIT = study.ONE_STEP_FIT
+NODE_LABEL = study.NODE_DR_LABEL
+NODE_CONFIGURATION = study.NODE_CONFIGURATION
 MECHANISM_DIFFERENCE = "mechanism_correct_difference"
 CONTRAST = study.CONTRAST_LABEL
 FITS = study.FITS
 #: The per-row record of each fit, and the summary columns that count it
 #: (:func:`convergence_reading`).  No verdict reads them.
-CONVERGENCE_COLUMNS = ("converged", "final_score", "unexpected_warnings")
+CONVERGENCE_COLUMNS = ("converged", "final_score", "unexpected_warnings", "n_iter")
 CONVERGENCE_SUMMARY = (
     "nonconverged_fits",
     "max_final_score",
@@ -188,7 +220,7 @@ JOINT_LABELS = study.JOINT_LABELS
 #: Joint label -> the fit label whose calibration fits carry it.
 JOINT_FIT = {label: label.removesuffix("_curve") for label in JOINT_LABELS}
 #: The fit labels whose ``mechanism_correct`` fits carry robustness cells beyond ``base``.
-ROUTE_FITS = tuple(fit for fit in FITS if fit != "base")
+ROUTE_FITS = tuple(fit for fit in CALIBRATION_FITS if fit != "base")
 
 
 def target(label: str) -> law.Target:
@@ -224,6 +256,11 @@ def _exact() -> tuple[dict[str, float], dict[str, float]]:
 TRUTHS, EFFICIENCY_SD = _exact()
 
 
+def node_limit(label: str) -> float:
+    """The plug-in value of a regimen cell label at the limit of the node-only learner."""
+    return law.node_hazard_limit(study.law_of(FIT_OF[label]), target(label))
+
+
 def wrong_limit(label: str) -> float:
     """The plug-in value of a cell label at the limit of the wrong hazard learner."""
     fit_label = FIT_OF[label]
@@ -243,6 +280,37 @@ def fit_label(
 ) -> Any:
     """The hazard fit of one fit label's sample."""
     return study.fit(label, frame, configuration=configuration, simultaneous=simultaneous)
+
+
+class CellMeans(BaseEstimator):
+    """The saturated regression: the weighted mean of the target in each distinct design row.
+
+    An iterated-mean regression design is ``[W1, W2]`` and the binary arms it conditions on, so
+    each design row is one cell of ``W`` and those arms, and the cell mean is the correct
+    regression of every node.  A row unseen in training predicts the overall weighted mean.
+    """
+
+    classes_ = np.array([0.0, 1.0])
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeans:
+        matrix = np.asarray(X, dtype=float)
+        outcome = np.asarray(y, dtype=float).reshape(-1)
+        weight = np.ones_like(outcome) if sample_weight is None else np.asarray(sample_weight)
+        cells, inverse = np.unique(matrix, axis=0, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        mass = np.bincount(inverse, weights=weight, minlength=len(cells))
+        hits = np.bincount(inverse, weights=weight * outcome, minlength=len(cells))
+        self.cells_ = {tuple(row): hit / m for row, hit, m in zip(cells, hits, mass, strict=True)}
+        self.mean_ = float(np.sum(weight * outcome) / np.sum(weight))
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        return np.array([self.cells_.get(tuple(row), self.mean_) for row in matrix])
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        p = self.predict(X)
+        return np.column_stack([1.0 - p, p])
 
 
 class NoWQuasiBinomial(QuasiBinomialGLM):
@@ -273,13 +341,14 @@ def iterated_fit(
 ) -> Any:
     """The iterated-mean fit of the same regimens on one fit label's sample.
 
-    Each node's regression is the unpenalised quasibinomial regression on the design an
-    iterated-mean fit hands its learners (``W1``, ``W2`` and the arms it conditions on), or on
-    that design without ``W`` when ``regression_correct`` is false (:class:`NoWQuasiBinomial`).
+    Each node's regression is the saturated cell-mean regression on the design an
+    iterated-mean fit hands its learners (``W1``, ``W2`` and the arms it conditions on,
+    :class:`CellMeans`), or the unpenalised quasibinomial regression on that design without
+    ``W`` when ``regression_correct`` is false (:class:`NoWQuasiBinomial`).
     The mechanism learners are the hazard fit's correct ones.  It filters no warning;
     :meth:`FitRecords.iterated` records them.
     """
-    regression = QuasiBinomialGLM if regression_correct else NoWQuasiBinomial
+    regression: Any = CellMeans if regression_correct else NoWQuasiBinomial
     mechanism = study.learners()
     del mechanism["outcome_learner"]
     return LTMLE(
@@ -344,9 +413,10 @@ def fits_differ_reading(
     standard error; ``decreasing`` counts the draws whose iterated-mean curve without isotonic
     decreases somewhere, out of ``draws``.  The reading returns the ratios, the largest of them
     and the smallest contrast ratio, the decreasing share with its Clopper-Pearson interval at
-    ``level``, and ``text``, the sentence that states them.  Both fits are efficient, so with
-    correct nuisance fits they differ by :math:`o_P(n^{-1/2})`, and X70 reports their agreement
-    instead of requiring a gap (the owner's decision of 2026-11-13).
+    ``level``, and ``text``, the sentence that states them.  With the correct mechanism and the
+    saturated iterated-mean regression both fits are asymptotically efficient, so they differ by
+    :math:`o_P(n^{-1/2})`, and X70 reports their agreement instead of requiring a gap (the
+    owner's decision of 2026-11-13).
     """
     tail = (1.0 - level) / 2.0
     low = float(beta.ppf(tail, decreasing, draws - decreasing + 1)) if decreasing else 0.0
@@ -406,21 +476,28 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
         for fit in ROUTE_FITS
     ),
     (
-        "targeting_necessity",
-        "wrong_hazard",
-        "mechanism_correct",
-        NECESSITY_N,
-        NECESSITY_REPLICATES,
-        "base",
+        "double_robustness",
+        f"{FIT_OF[NODE_LABEL]}_{NODE_CONFIGURATION}",
+        NODE_CONFIGURATION,
+        DOUBLE_ROBUST_N,
+        NODE_REPLICATES,
+        FIT_OF[NODE_LABEL],
     ),
     *(
         ("root_n_and_efficiency", f"n_{size}", "both_correct", size, RATE_REPLICATES, "base")
         for size in RATE_SIZES
     ),
-    ("power", "alternative", "both_correct", POWER_N, POWER_REPLICATES, "base"),
     *(
         (DIFFERENCE_FAMILY, fit, "both_correct", DIFFERENCE_N, DIFFERENCE_REPLICATES, fit)
         for fit in study.DIFFERENCE_FITS
+    ),
+    (
+        ONE_STEP_FAMILY,
+        ONE_STEP_FIT,
+        "both_correct",
+        ONE_STEP_N,
+        ONE_STEP_REPLICATES,
+        ONE_STEP_FIT,
     ),
 )
 
@@ -453,6 +530,15 @@ class DeclaredDifference:
 
     def truth(self) -> dict[str, float]:
         return {"paired_difference": 0.0, "largest_decrease": 0.0}
+
+
+class DeclaredOneStep:
+    """The zero every ``one_step_walk`` paired row is recorded against."""
+
+    name = "hazard_multinode__one_step_walk"
+
+    def truth(self) -> dict[str, float]:
+        return {"paired_difference": 0.0}
 
 
 def _dr_replicates(fit: str, configuration: str) -> int:
@@ -532,6 +618,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             MECHANISM_REPLICATES[fit],
             "mechanism_correct" if fit == "base" else f"{fit}_mechanism_correct",
         )
+    node_fit = FIT_OF[NODE_LABEL]
+    add(
+        "double_robustness",
+        f"{NODE_LABEL}__{NODE_CONFIGURATION}",
+        "positive",
+        DeclaredEstimates(node_fit),
+        ESTIMAND[NODE_LABEL],
+        DOUBLE_ROBUST_N,
+        NODE_REPLICATES,
+        f"{node_fit}_{NODE_CONFIGURATION}",
+    )
     # The reported paired difference reads the base ``mechanism_correct`` draws.
     for label, _ in COEFFICIENTS["base"]:
         add(
@@ -554,7 +651,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             ESTIMAND[CONTRAST],
             NECESSITY_N,
             NECESSITY_REPLICATES,
-            "wrong_hazard",
+            "mechanism_correct",
+            draws_of="double_robustness",
         )
     for size in RATE_SIZES:
         for label in study.LADDER_LABELS:
@@ -576,8 +674,31 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         ESTIMAND[CONTRAST],
         POWER_N,
         POWER_REPLICATES,
-        "alternative",
+        "base",
+        draws_of="interval_calibration",
     )
+    one_step = DeclaredOneStep()
+    for label, name in COEFFICIENTS[ONE_STEP_FIT]:
+        add(
+            ONE_STEP_FAMILY,
+            f"{label}__one_step_fit",
+            DIAGNOSTIC_ROLE,
+            DeclaredEstimates(ONE_STEP_FIT),
+            name,
+            ONE_STEP_N,
+            ONE_STEP_REPLICATES,
+            ONE_STEP_FIT,
+        )
+        add(
+            ONE_STEP_FAMILY,
+            f"{label}__paired_difference",
+            DIAGNOSTIC_ROLE,
+            one_step,
+            "paired_difference",
+            ONE_STEP_N,
+            ONE_STEP_REPLICATES,
+            ONE_STEP_FIT,
+        )
     for joint in JOINT_LABELS:
         cells.extend(
             joint_property_cells(
@@ -643,8 +764,12 @@ def cells_of(key: _Key) -> list[str]:
         joint = f"{label}_curve"
         if joint in JOINT_LABELS:
             names += [f"{JOINT_FAMILY}/{cell}" for cell in joint_cells(joint)]
+        if label == "base":
+            names.append(f"power/{CONTRAST}__alternative")
         return names
     if family == "double_robustness":
+        if configuration == NODE_CONFIGURATION:
+            return [f"{family}/{NODE_LABEL}__{NODE_CONFIGURATION}"]
         if label != "base":
             return [
                 f"{family}/{cell_label}__{configuration}" for cell_label, _ in COEFFICIENTS[label]
@@ -660,9 +785,17 @@ def cells_of(key: _Key) -> list[str]:
                 f"{DIFFERENCE_FAMILY}/{cell_label}__{MECHANISM_DIFFERENCE}"
                 for cell_label, _ in COEFFICIENTS[label]
             ]
+            names += [
+                f"targeting_necessity/{CONTRAST}__targeted",
+                f"targeting_necessity/{CONTRAST}__untargeted",
+            ]
         return names
-    if family == "targeting_necessity":
-        return [f"{family}/{CONTRAST}__targeted", f"{family}/{CONTRAST}__untargeted"]
+    if family == ONE_STEP_FAMILY:
+        return [
+            f"{family}/{cell_label}__{arm}"
+            for cell_label, _ in COEFFICIENTS[label]
+            for arm in study.ONE_STEP_ARMS
+        ]
     if family == "root_n_and_efficiency":
         return [f"{family}/{cell_label}__n_{n}" for cell_label in study.LADDER_LABELS]
     if family == DIFFERENCE_FAMILY:
@@ -674,7 +807,7 @@ def cells_of(key: _Key) -> list[str]:
             ),
             f"{family}/{label}__iterated_curve_decrease",
         ]
-    return [f"{family}/{CONTRAST}__alternative"]
+    raise KeyError(f"no fit set of family {family}")
 
 
 def cell_of(key: _Key) -> str:
@@ -690,11 +823,17 @@ def fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
     return fit_drawn(payload, _draw((payload,)))
 
 
-def _paired_row(cell: str, hazard: Any, other: float, common_row: dict[str, Any]) -> dict[str, Any]:
+def _paired_row(
+    cell: str,
+    hazard: Any,
+    other: float,
+    common_row: dict[str, Any],
+    family: str = DIFFERENCE_FAMILY,
+) -> dict[str, Any]:
     low, high = hazard.ci
     covered = int(low <= other <= high)
     return {
-        "property": DIFFERENCE_FAMILY,
+        "property": family,
         "cell": cell,
         "role": DIAGNOSTIC_ROLE,
         **common_row,
@@ -714,6 +853,7 @@ class FitRecords:
         self.records: list[study.FitRecord] = []
 
     def hazard(self, label: str, frame: pd.DataFrame, **settings: Any) -> Any:
+        """A hazard fit; a held prefix cell raises before any row reads it."""
         result, record = study.fit_recorded(label, frame, **settings)
         self.records.append(record)
         return result
@@ -729,7 +869,13 @@ class FitRecords:
             "converged": int(all(record.converged for record in self.records)),
             "final_score": max((r.final_score for r in self.records), default=0.0),
             "unexpected_warnings": sum(len(r.unexpected_warnings) for r in self.records),
+            "n_iter": max((r.n_iter for r in self.records), default=0),
         }
+
+    def smallest_cumulative(self) -> float:
+        """The smallest estimated cumulative probability over the key's hazard fits."""
+        values = [r.smallest_cumulative for r in self.records if np.isfinite(r.smallest_cumulative)]
+        return min(values, default=float("nan"))
 
 
 def stalled_fit(rows: pd.DataFrame) -> str | None:
@@ -830,6 +976,45 @@ def mechanism_difference_rows(
     ]
 
 
+def one_step_rows(
+    frame: pd.DataFrame,
+    common_row: dict[str, Any],
+    shared: dict[str, Any],
+    records: FitRecords,
+) -> list[dict[str, Any]]:
+    """The ``one_step_walk`` rows of one draw: the one-step fit, and its paired difference.
+
+    The draw is fitted twice over always, never and the policy: with the one-step walk, and
+    with the per-horizon walk of the primary fits.  Each arm records the one-step estimate
+    against its truth, and the one-step estimate minus the per-horizon estimate.
+    """
+    one_step = records.hazard(ONE_STEP_FIT, frame)
+    per_horizon = records.hazard(ONE_STEP_FIT, frame, targeting=study.ALGORITHM)
+    rows: list[dict[str, Any]] = []
+    for cell_label, name in COEFFICIENTS[ONE_STEP_FIT]:
+        rows.append(
+            replicate_row(
+                property_name=ONE_STEP_FAMILY,
+                cell=f"{cell_label}__one_step_fit",
+                role=DIAGNOSTIC_ROLE,
+                truth=TRUTHS[cell_label],
+                estimate=one_step[name],
+                alpha=STUDY.margins.alpha,
+                **shared,
+            )
+        )
+        rows.append(
+            _paired_row(
+                f"{cell_label}__paired_difference",
+                one_step[name],
+                float(per_horizon[name].psi),
+                common_row,
+                family=ONE_STEP_FAMILY,
+            )
+        )
+    return rows
+
+
 def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """The replicate rows of one fit of one fit set on its drawn sample.
 
@@ -861,6 +1046,8 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
 
     if family == DIFFERENCE_FAMILY:
         return _difference_rows(frame, common_row, shared, label, records)
+    if family == ONE_STEP_FAMILY:
+        return one_step_rows(frame, common_row, shared, records)
     if family == "interval_calibration":
         joint = f"{label}_curve"
         banded = joint in JOINT_LABELS
@@ -882,6 +1069,10 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
                     pointwise_critical=CRITICAL,
                 )
             )
+        if label == "base":
+            name = ESTIMAND[CONTRAST]
+            rows.append(row(CONTRAST, f"{CONTRAST}__alternative", "positive", result[name]))
+            rows[-1]["property"] = "power"
         return rows
     result = records.hazard(label, frame, configuration=configuration)
     if family == "root_n_and_efficiency":
@@ -890,6 +1081,9 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
             row(cell_label, f"{cell_label}__n_{n}", role, result[ESTIMAND[cell_label]])
             for cell_label in study.LADDER_LABELS
         ]
+    if family == "double_robustness" and configuration == NODE_CONFIGURATION:
+        name = ESTIMAND[NODE_LABEL]
+        return [row(NODE_LABEL, f"{NODE_LABEL}__{configuration}", "positive", result[name])]
     if family == "double_robustness" and label != "base":
         return [
             row(cell_label, f"{cell_label}__{configuration}", "positive", result[name])
@@ -906,21 +1100,35 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
                 if cell_label != CONTRAST
             ]
             rows += mechanism_difference_rows(frame, result, common_row, label, records)
+            rows += necessity_rows(result, shared)
         return rows
-    if family == "targeting_necessity":
-        return [
-            row(CONTRAST, f"{CONTRAST}__targeted", "positive", estimate),
-            control_row(
-                property_name=family,
-                cell=f"{CONTRAST}__untargeted",
-                truth=TRUTHS[CONTRAST],
-                estimate=plug_in(result, ESTIMAND[CONTRAST]),
-                standard_error=float(estimate.std_error),
-                critical=CRITICAL,
-                **shared,
-            ),
-        ]
-    return [row(CONTRAST, f"{CONTRAST}__alternative", "positive", estimate)]
+    raise KeyError(f"no fit set of family {family}")
+
+
+def necessity_rows(result: Any, shared: dict[str, Any]) -> list[dict[str, Any]]:
+    """The necessity rows of a ``base`` ``mechanism_correct`` fit: targeted and plug-in."""
+    estimate = result[ESTIMAND[CONTRAST]]
+    family = "targeting_necessity"
+    return [
+        replicate_row(
+            property_name=family,
+            cell=f"{CONTRAST}__targeted",
+            role="positive",
+            truth=TRUTHS[CONTRAST],
+            estimate=estimate,
+            alpha=STUDY.margins.alpha,
+            **shared,
+        ),
+        control_row(
+            property_name=family,
+            cell=f"{CONTRAST}__untargeted",
+            truth=TRUTHS[CONTRAST],
+            estimate=plug_in(result, ESTIMAND[CONTRAST]),
+            standard_error=float(estimate.std_error),
+            critical=CRITICAL,
+            **shared,
+        ),
+    ]
 
 
 def _payloads(
@@ -1004,7 +1212,7 @@ TARGETING_NECESSITY = property_verdicts.Necessity(
 
 
 def difference_readings(summary: pd.DataFrame) -> None:
-    """Publish the ``iterated_mean_difference`` rows with no verdict.
+    """Publish the ``iterated_mean_difference`` and ``one_step_walk`` rows with no verdict.
 
     Each paired row gains ``paired_sd_over_bound``: the empirical SD of the paired difference
     over the estimate's efficiency-bound standard error at the row's ``n``.  The decrease row's
@@ -1012,7 +1220,7 @@ def difference_readings(summary: pd.DataFrame) -> None:
     already holds.  Every row reads ``passed`` and ``property_passed`` as true, and its
     ``diagnostic`` role is what says that no margin was read.
     """
-    mask = summary["property"] == DIFFERENCE_FAMILY
+    mask = summary["property"].isin((DIFFERENCE_FAMILY, ONE_STEP_FAMILY))
     paired = ("__paired_difference", "__isotonic_difference", f"__{MECHANISM_DIFFERENCE}")
     for index in summary.index[mask]:
         cell = str(summary.loc[index, "cell"])
@@ -1091,8 +1299,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 #: The failure accounting's declared rules.  The calibration rule takes this study's efficiency
-#: band as an explicit argument.  ``iterated_mean_difference`` states no verdict, so no rule
-#: reads it.
+#: band as an explicit argument.  ``iterated_mean_difference`` and ``one_step_walk`` state no
+#: verdict, so no rule reads them.
 PROPERTY_RULES = (
     property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
     *property_verdicts.necessity_rules(TARGETING_NECESSITY),

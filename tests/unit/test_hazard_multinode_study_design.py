@@ -73,12 +73,17 @@ def _exact_fit(fit_label: str, configuration: str = "both_correct") -> Any:
 
 @pytest.fixture(scope="module")
 def exact_fits() -> dict[tuple[str, str], Any]:
-    """The exact-sample fit of every fit label and robustness configuration."""
-    return {
+    """The exact-sample fit of every primary scenario and robustness configuration."""
+    fits = {
         (fit, configuration): _exact_fit(fit, configuration)
-        for fit in study.FITS
+        for fit in study.SCENARIOS
         for configuration in properties.CONFIGURATIONS
     }
+    node_fit = properties.FIT_OF[properties.NODE_LABEL]
+    fits[(node_fit, properties.NODE_CONFIGURATION)] = _exact_fit(
+        node_fit, properties.NODE_CONFIGURATION
+    )
+    return fits
 
 
 # ---------------------------------------------------------------------------- independent routes
@@ -129,7 +134,7 @@ class TestTheTruths:
     def test_the_exact_sample_fit_returns_every_truth(
         self, exact_fits: dict[tuple[str, str], Any]
     ) -> None:
-        for fit in study.FITS:
+        for fit in study.SCENARIOS:
             result = exact_fits[(fit, "both_correct")]
             for name, truth in study.TRUTH[fit].items():
                 assert result[name].psi == pytest.approx(truth, abs=EXACT), (fit, name)
@@ -140,8 +145,8 @@ class TestTheTruths:
             "base_rule": 0.373959,
             "base_policy": 0.398387,
             "base_stay": 0.408532,
-            "five_contrast": -0.099037,
-            "five_policy": 0.787460,
+            "four_contrast": -0.119231,
+            "four_policy": 0.561092,
             "msm_dose": -0.500912,
             "msm_dose_W1": 0.253667,
         }
@@ -156,11 +161,11 @@ class TestTheTruths:
             for label in ("rule", "policy", "stay"):
                 assert min(abs(current.risk(label, last) - value) for value in static) > 0.02
 
-    @pytest.mark.parametrize(("law_name", "expected"), [("base", 0.0196), ("five", 0.0182)])
+    @pytest.mark.parametrize(("law_name", "expected"), [("base", 0.0196), ("four", 0.0423)])
     def test_the_bounds_never_bind(self, law_name: str, expected: float) -> None:
         """Every path keeps its cumulative treatment and retention probability ten times above
-        the declared bound, so no clipping touches a fit.  The shipped default would sit
-        within a factor of two of the smallest, which is why the study declares its own."""
+        the declared bound, so no clipping touches a fit.  On ``base`` the shipped default would
+        sit within a factor of two of the smallest, which is why the study declares its own."""
         current = law.LAWS[law_name]
         smallest = 1.0
         for (w1, w2), path in itertools.product(
@@ -174,40 +179,115 @@ class TestTheTruths:
             smallest = min(smallest, product)
         assert smallest == pytest.approx(expected, abs=1e-4)
         assert smallest >= 10.0 * study.G_BOUNDS
-        assert smallest < 2.0 * DEFAULT_LTMLE_G_BOUNDS[0]
+        if law_name == "base":
+            assert smallest < 2.0 * DEFAULT_LTMLE_G_BOUNDS[0]
 
-    @pytest.mark.parametrize("law_name", list(law.LAWS))
-    def test_the_prefix_cells_stay_populated(self, law_name: str) -> None:
-        """At n = 2,000 a fit holds a prefix cell with probability below 0.005.
 
-        The shipped fit holds a cell of the units at risk with one treatment prefix at zero
-        when none has the event, and at one when all do, and every regimen that reads it then
-        reports no interval.  The expected count of held cells over every node and prefix is
-        :math:`\\sum_c (1 - e_c)^n + (1 - (p_c - e_c))^n - 2 (1 - p_c)^n`, with :math:`p_c` the
-        mass of cell :math:`c` over the support and :math:`e_c` the mass of its events.
-        """
-        current = law.LAWS[law_name]
-        cells: dict[tuple[int, tuple[int, ...]], list[float]] = {}
-        for row, mass in current.support():
-            for node in range(1, current.n_times + 1):
-                base = 2 + 3 * (node - 1)
-                if np.isnan(row[base]) or row[base + 1] == 0.0:
-                    break
-                prefix = tuple(int(row[2 + 3 * (k - 1)]) for k in range(1, node + 1))
-                cell = cells.setdefault((node, prefix), [0.0, 0.0])
-                cell[0] += mass * float(row[base + 2] == 1.0)
-                cell[1] += mass
-        n = study.PRIMARY_N
-        held = sum(
+# ---------------------------------------------------------------------------- held prefix cells
+
+
+def _prefix_cells(current: law.Law) -> list[tuple[float, float]]:
+    """``(event mass, at-risk mass)`` of every ``(node, treatment prefix)`` cell."""
+    cells: dict[tuple[int, tuple[int, ...]], list[float]] = {}
+    for row, mass in current.support():
+        for node in range(1, current.n_times + 1):
+            base = 2 + 3 * (node - 1)
+            if np.isnan(row[base]) or row[base + 1] == 0.0:
+                break
+            prefix = tuple(int(row[2 + 3 * (k - 1)]) for k in range(1, node + 1))
+            cell = cells.setdefault((node, prefix), [0.0, 0.0])
+            cell[0] += mass * float(row[base + 2] == 1.0)
+            cell[1] += mass
+    assert len(cells) == 2 ** (current.n_times + 1) - 2
+    return [(event, total) for event, total in cells.values()]
+
+
+def expected_held(current: law.Law, n: int) -> float:
+    """The expected count of held prefix cells in one draw of ``n`` rows.
+
+    The shipped fit holds a cell of the units at risk with one treatment prefix at zero when
+    none has the event, and at one when all do.  Over every node and prefix the expected count
+    is :math:`\\sum_c (1 - e_c)^n + (1 - (p_c - e_c))^n - 2 (1 - p_c)^n`, with :math:`p_c` the
+    mass of cell :math:`c` over the support and :math:`e_c` the mass of its events.  It bounds
+    the chance that a draw holds a cell.
+    """
+    return float(
+        sum(
             (1.0 - event) ** n + (1.0 - (total - event)) ** n - 2.0 * (1.0 - total) ** n
-            for event, total in cells.values()
+            for event, total in _prefix_cells(current)
         )
-        assert len(cells) == 2 ** (current.n_times + 1) - 2
-        assert held < 0.005, held
+    )
+
+
+def held_units() -> list[tuple[str, str, int, int]]:
+    """Every set of draws the study and its pilot fit: ``(what, law, n, draws)``.
+
+    The property fit sets at their own n and replicate count, the primary scenarios, and every
+    pilot label.  Held cells depend on the draw alone, so a key that runs several fits of one
+    draw counts once.
+    """
+    units = [
+        (f"{family}/{stream}", study.FITS[fit][0], n, replicates)
+        for family, stream, _, n, replicates, fit in properties.FIT_SETS
+    ]
+    units += [
+        (f"primary/{scenario}", study.FITS[scenario][0], study.PRIMARY_N, study.PRIMARY_REPLICATES)
+        for scenario in study.SCENARIOS
+    ]
+    units += [
+        (f"pilot/{label}", study.FITS[fit][0], pilot.PILOT_N, draws)
+        for label, (fit, draws) in pilot.PILOTS.items()
+    ]
+    return units
+
+
+class TestTheHeldCells:
+    def test_the_held_fit_is_a_recorded_lost_replicate(self) -> None:
+        """A draw that holds a prefix cell raises a recordable ``DataError`` before any row.
+
+        At 120 rows of ``four`` a held cell is all but certain; the same draw at n = 2,000 rows
+        would fit.  The harness records a ``DataError`` as a lost replicate, and the pilot
+        writes it as ``held``.
+        """
+        from cleverly.exceptions import DataError
+        from cleverly.validation._failures import recordable
+
+        assert expected_held(law.FOUR, 120) > 3.0
+        frame = law.FOUR.draw(120, 1)
+        with pytest.raises(study.HeldCellError) as caught:
+            _quiet(study.fit_recorded, "four", frame)
+        assert isinstance(caught.value, DataError)
+        assert recordable(caught.value)
+
+    def test_the_expected_held_fits_stay_within_each_allowance(self) -> None:
+        """Over the whole study and its pilot, a held fit is rare and never exhausts a bound.
+
+        Each set of draws may lose ``floor(0.01 R)`` replicates (the failure bound, and the
+        pilot readings' own limit).  The expected held count of each set is ``R`` times
+        :func:`expected_held` at its own n, its excess over the allowance is a Poisson tail,
+        and the union of those tails over every set stays below 0.01.  The summed expected
+        count over the study and the pilot is recorded here: about 6.6 fits, all on the
+        three-node law, against tens of thousands of draws.
+        """
+        from scipy.stats import poisson
+
+        per_fit = {(name, n): expected_held(law.LAWS[name], n) for _, name, n, _ in held_units()}
+        total = 0.0
+        tails = {}
+        for what, name, n, draws in held_units():
+            mean = draws * per_fit[(name, n)]
+            allowance = int(np.floor(properties.FAILURE_BOUND * draws))
+            total += mean
+            tails[what] = float(poisson.sf(allowance, mean))
+        assert sum(tails.values()) < 0.01, tails
+        assert total == pytest.approx(6.65, abs=0.05), total
+        assert per_fit[("four", study.PRIMARY_N)] < 1e-8
+        assert per_fit[("base", study.PRIMARY_N)] < 2e-4
+        assert per_fit[("base", min(properties.RATE_SIZES))] < 1e-3
 
 
 class TestTheBounds:
-    @pytest.mark.parametrize("fit", ["base", "five"])
+    @pytest.mark.parametrize("fit", ["base", "four"])
     def test_the_reported_curve_is_the_iterated_mean_curve(
         self, exact_fits: dict[tuple[str, str], Any], fit: str
     ) -> None:
@@ -229,7 +309,7 @@ class TestTheBounds:
     def test_the_bounds_are_the_reported_curves(
         self, exact_fits: dict[tuple[str, str], Any]
     ) -> None:
-        for fit in study.FITS:
+        for fit in study.SCENARIOS:
             result = exact_fits[(fit, "both_correct")]
             weights = study.law_of(fit).exact_frame()["wt"].to_numpy()
             for label, name in properties.COEFFICIENTS[fit]:
@@ -243,8 +323,8 @@ class TestTheBounds:
             "base_rule": 0.789002,
             "base_policy": 0.559790,
             "base_stay": 0.749446,
-            "five_contrast": 2.823123,
-            "five_policy": 0.579448,
+            "four_contrast": 2.426687,
+            "four_policy": 0.641315,
             "msm_dose": 3.128782,
             "msm_dose_W1": 3.248549,
         }
@@ -342,7 +422,7 @@ class TestTheRobustnessCells:
     def test_every_positive_limit_is_the_truth(
         self, exact_fits: dict[tuple[str, str], Any]
     ) -> None:
-        for fit in study.FITS:
+        for fit in study.SCENARIOS:
             for configuration in ("outcome_correct", "mechanism_correct"):
                 result = exact_fits[(fit, configuration)]
                 for label, name in properties.COEFFICIENTS[fit]:
@@ -351,6 +431,25 @@ class TestTheRobustnessCells:
                         configuration,
                         label,
                     )
+        node_fit = properties.FIT_OF[properties.NODE_LABEL]
+        result = exact_fits[(node_fit, properties.NODE_CONFIGURATION)]
+        for label, name in properties.COEFFICIENTS[node_fit]:
+            assert result[name].psi == pytest.approx(properties.TRUTHS[label], abs=EXACT), label
+
+    def test_the_node_only_plug_in_is_zero_and_far(
+        self, exact_fits: dict[tuple[str, str], Any]
+    ) -> None:
+        """The node-only learner's plug-in contrast is zero, 2.20 SEs from the truth.
+
+        It reads no arm, so every regimen shares one plug-in curve; the exact-sample fit's
+        initial contrast is that zero, and only the targeting can move the estimate.
+        """
+        label = properties.NODE_LABEL
+        assert properties.node_limit(label) == 0.0
+        gap = (properties.node_limit(label) - properties.TRUTHS[label]) / _scale(label, 2_000)
+        assert gap == pytest.approx(NODE_GAP, abs=1e-3)
+        result = exact_fits[(properties.FIT_OF[label], properties.NODE_CONFIGURATION)]
+        assert abs(properties.plug_in(result, properties.ESTIMAND[label])) < 1e-12
 
     def test_the_both_wrong_control_is_discriminated(
         self, exact_fits: dict[tuple[str, str], Any]
@@ -397,11 +496,13 @@ WRONG_GAPS = {
     "base_rule": 0.457,
     "base_policy": -1.012,
     "base_stay": -0.962,
-    "five_contrast": 0.543,
-    "five_policy": -0.080,
+    "four_contrast": 0.759,
+    "four_policy": -0.157,
     "msm_dose": 4.643,
     "msm_dose_W1": -3.492,
 }
+#: The node-only learner's plug-in gap of ``four_contrast``, in efficiency SEs at n = 2,000.
+NODE_GAP = 2.197
 
 
 #: The cell labels whose wrong-learner plug-in is zero in every sample: the coefficient of
@@ -416,7 +517,23 @@ def _tolerated_bias(replicates: int) -> float:
     return MARGINS.standardized_bias - (z + float(norm.ppf(POSITIVE_PASS))) / np.sqrt(replicates)
 
 
-def _wrong_learner_errors(label: str) -> np.ndarray:
+def _kept(label: str) -> pd.DataFrame:
+    """One pilot label's rows without its held draws, which the declared run would lose.
+
+    Skips until the label is committed.  No draw may be refused, every draw is either kept or
+    held, and the held draws stay within the failure bound's allowance.
+    """
+    rows = _pilot(label)
+    if rows.empty:
+        pytest.skip(f"the pilot label {label} has not been committed")
+    assert rows["refusal"].fillna("").eq("").all()
+    held = rows.loc[rows["held"] == 1, "replicate"]
+    assert rows["replicate"].nunique() == pilot.PILOTS[label][1]
+    assert held.nunique() <= int(np.floor(properties.FAILURE_BOUND * pilot.PILOTS[label][1]))
+    return rows.loc[rows["held"] == 0]
+
+
+def _wrong_learner_errors(label: str, pilot_label: str | None = None) -> np.ndarray:
     """The pilot's targeted errors of one cell label under the wrong hazard learner.
 
     On ``base`` they pool ``fits_differ_mechanism_correct``, whose hazard fit is the same
@@ -424,24 +541,19 @@ def _wrong_learner_errors(label: str) -> np.ndarray:
     """
     fit = properties.FIT_OF[label]
     name = properties.ESTIMAND[label]
-    rows = _pilot(f"wrong_learner_{fit}")
-    if rows.empty:
-        pytest.skip("the wrong-learner pilot has not been committed")
+    rows = _kept(pilot_label or f"wrong_learner_{fit}")
     rows = rows.loc[rows["estimand"] == name]
-    assert rows["refusal"].fillna("").eq("").all()
-    assert len(rows) == pilot.WRONG_LEARNER_DRAWS
     values = rows["wrong_targeted"].to_numpy(dtype=float)
-    if fit == "base":
-        paired = _pilot("fits_differ_mechanism_correct")
+    if fit == "base" and pilot_label is None:
+        paired = _kept("fits_differ_mechanism_correct")
         paired = paired.loc[paired["estimand"] == name]
-        assert len(paired) == pilot.MECHANISM_DIFFER_DRAWS
         values = np.concatenate([values, paired["estimate"].to_numpy(dtype=float)])
     return values - properties.TRUTHS[label]
 
 
-def _needed(label: str) -> int:
+def _needed(label: str, pilot_label: str | None = None) -> int:
     """The plan X70 rev 2.7 count of one wrong-learner arm, from the pilot."""
-    error = _wrong_learner_errors(label)
+    error = _wrong_learner_errors(label, pilot_label)
     standardized = abs(error.mean()) / error.std(ddof=1) + 1.0 / np.sqrt(error.size)
     needed = int(properties.DOUBLE_ROBUST_REPLICATES)
     while sizing.bias_equivalent_probability(MARGINS, standardized, needed) < POSITIVE_PASS:
@@ -461,7 +573,7 @@ class TestTheWrongHazardLearner:
     def test_the_estimator_plug_in_is_the_limit(
         self, exact_fits: dict[tuple[str, str], Any]
     ) -> None:
-        for fit in study.FITS:
+        for fit in study.SCENARIOS:
             result = exact_fits[(fit, "mechanism_correct")]
             for label, name in properties.COEFFICIENTS[fit]:
                 assert properties.plug_in(result, name) == pytest.approx(
@@ -470,13 +582,9 @@ class TestTheWrongHazardLearner:
 
     @pytest.mark.parametrize("fit", pilot.WRONG_LEARNER_FITS)
     def test_the_pilot_plug_in_varies(self, fit: str) -> None:
-        rows = _pilot(f"wrong_learner_{fit}")
-        if rows.empty:
-            pytest.skip("the wrong-learner pilot has not been committed")
+        rows = _kept(f"wrong_learner_{fit}")
         for label, name in properties.COEFFICIENTS[fit]:
             arm = rows.loc[rows["estimand"] == name]
-            assert arm["refusal"].fillna("").eq("").all()
-            assert len(arm) == pilot.WRONG_LEARNER_DRAWS
             values = arm["wrong_plug_in"].to_numpy(dtype=float)
             if label in ZERO_PLUG_INS:
                 # No W in the hazards, so every cell risk is the same in each stratum.
@@ -487,12 +595,19 @@ class TestTheWrongHazardLearner:
             error = np.std(values, ddof=1) / np.sqrt(values.size)
             assert abs(values.mean() - properties.wrong_limit(label)) < 3.0 * error, label
 
+    def test_the_node_only_pilot_plug_in_is_zero(self) -> None:
+        rows = _kept(pilot.NODE_PILOT)
+        arm = rows.loc[rows["estimand"] == properties.ESTIMAND[properties.NODE_LABEL]]
+        assert np.max(np.abs(arm["wrong_plug_in"].to_numpy(dtype=float))) < 1e-10
+
 
 # ---------------------------------------------------------------------------- sizes
 
 
 class TestTheSizes:
     def test_the_power_cell_has_power(self) -> None:
+        """The power cell reads the ``base`` calibration fits; it has power at their count."""
+        assert properties.POWER_REPLICATES == properties.CALIBRATION_REPLICATES
         power = design_power(
             properties.TRUTHS[CONTRAST], properties.EFFICIENCY_SD[CONTRAST], properties.POWER_N
         )
@@ -539,21 +654,83 @@ class TestTheSizes:
 
     @staticmethod
     def _calibration_rows(fit: str) -> pd.DataFrame:
-        rows = _pilot(f"calibration_{fit}")
-        if rows.empty:
-            pytest.skip(f"the calibration pilot of {fit} has not been committed")
-        return rows
+        return _kept(f"calibration_{fit}")
+
+    @pytest.mark.parametrize("joint", study.JOINT_LABELS)
+    def test_the_joint_band_pilot_meets_the_band(self, joint: str) -> None:
+        """The pilot's joint coverage has a 99% interval that meets the gated band.
+
+        The calibration pilots of ``base`` and ``four`` fit with ``simultaneous=True``, as the
+        declared calibration fits do, so they read the band the ``simultaneous_coverage``
+        cells gate, over every estimate of the fit.
+        """
+        from scipy.stats import beta as beta_law
+
+        rows = self._calibration_rows(joint.removesuffix("_curve"))
+        band = rows.loc[rows["estimand"] == "joint_band", "covered"].to_numpy(dtype=float)
+        pointwise = rows.loc[rows["estimand"] == "joint_pointwise", "covered"]
+        assert band.size == rows["replicate"].nunique() == pointwise.size
+        hits, draws = int(band.sum()), band.size
+        low = float(beta_law.ppf(0.005, hits, draws - hits + 1)) if hits else 0.0
+        high = float(beta_law.ppf(0.995, hits + 1, draws - hits)) if hits < draws else 1.0
+        assert low <= MARGINS.calibration_coverage[1] and high >= MARGINS.calibration_coverage[0], (
+            low,
+            high,
+        )
+        print(joint, hits / draws, (low, high), "pointwise", float(pointwise.mean()))
+
+    def test_the_default_bound_reading(self) -> None:
+        """Record each calibration pilot's share of draws in which 0.01 would have clipped.
+
+        The declared bound is 1e-3 (:data:`~tests.studies.canonical_hazard_multinode.G_BOUNDS`);
+        the shipped default, 0.01, clips a draw whose smallest estimated cumulative probability
+        lies below it.  The evidence page states these shares.
+        """
+        for fit in properties.CALIBRATION_FITS:
+            rows = self._calibration_rows(fit).drop_duplicates("replicate")
+            smallest = rows["smallest_cumulative"].to_numpy(dtype=float)
+            assert np.isfinite(smallest).all()
+            assert smallest.min() >= study.G_BOUNDS, fit
+            print(fit, "share below 0.01:", float(np.mean(smallest < 0.01)))
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            *(f"wrong_learner_{fit}" for fit in pilot.WRONG_LEARNER_FITS),
+            pilot.NODE_PILOT,
+            "both_wrong_base",
+        ],
+    )
+    def test_the_wrong_learner_fits_converge(self, label: str) -> None:
+        """At most 1% of a wrong-learner label's kept draws fail to converge.
+
+        A cell with more non-converged fits is a defect suspect; the pilot reads each
+        configuration before the declaration, with its iterations and its time.
+        """
+        rows = _kept(label).drop_duplicates("replicate")
+        share = float((rows["converged"] == 0).mean())
+        assert share <= properties.NONCONVERGED_SUSPECT_SHARE, share
+        print(
+            label,
+            "nonconverged",
+            share,
+            "n_iter",
+            float(rows["n_iter"].mean()),
+            "seconds",
+            float(rows["seconds"].mean()),
+        )
 
     def test_the_calibration_replicates_follow_the_pilot(self) -> None:
+        """The arm-pooled rule at the pilot's ratios, read at the pilot's kept draws."""
         ratios = []
+        kept = []
         for fit in properties.CALIBRATION_FITS:
             rows = self._calibration_rows(fit)
-            assert rows["refusal"].fillna("").eq("").all()
             for _, name in properties.COEFFICIENTS[fit]:
                 arm = rows.loc[rows["estimand"] == name]
-                assert len(arm) == sizing.CALIBRATION_PILOT_DRAWS
+                kept.append(len(arm))
                 ratios.append(float(arm["std_error"].mean() / arm["estimate"].std(ddof=1)))
-        reading = mtp_study_tools.replicates_from_pilot(ratios, sizing.CALIBRATION_PILOT_DRAWS)
+        reading = mtp_study_tools.replicates_from_pilot(ratios, min(kept))
         assert not reading["suspect"]
         assert all(reading["screened"])
         assert reading["R"] == properties.CALIBRATION_REPLICATES
@@ -589,8 +766,16 @@ class TestTheSizes:
         for label, _ in properties.COEFFICIENTS[fit]:
             assert POSITIVE_ARMS[f"{label}__mechanism_correct"] == max(needs.values())
         if fit == "base":
-            assert needs[CONTRAST] == properties.NECESSITY_REPLICATES
-            assert POSITIVE_ARMS[f"{CONTRAST}__targeted"] == needs[CONTRAST]
+            # The necessity cells read the same fits.
+            assert properties.MECHANISM_REPLICATES["base"] == properties.NECESSITY_REPLICATES
+            assert POSITIVE_ARMS[f"{CONTRAST}__targeted"] == max(needs.values())
+
+    def test_the_node_only_arm_is_sized_by_the_pilot_rule(self) -> None:
+        label = properties.NODE_LABEL
+        assert _needed(label, pilot.NODE_PILOT) == properties.NODE_REPLICATES
+        assert POSITIVE_ARMS[f"{label}__{properties.NODE_CONFIGURATION}"] == (
+            properties.NODE_REPLICATES
+        )
 
     def test_the_positive_arms_follow_the_calibration_pilot(self) -> None:
         """The ``both_correct`` and ``outcome_correct`` arms and the claimed rungs, at the pilot."""
@@ -617,9 +802,12 @@ class TestTheSizes:
         """
         covered: dict[str, int] = {}
         groups = []
+        draws = []
         for scenario in study.SCENARIOS:
             rows = self._calibration_rows(scenario)
+            rows = rows.loc[~rows["estimand"].isin(pilot.JOINT_ROWS)]
             assert int(rows["n"].iloc[0]) == study.PRIMARY_N
+            draws.append(rows["replicate"].nunique())
             names = list(study.ESTIMANDS[scenario])
             hits = rows.pivot(index="replicate", columns="estimand", values="covered")[names]
             covered.update({f"{scenario}/{name}": int(hits[name].sum()) for name in names})
@@ -637,7 +825,7 @@ class TestTheSizes:
             sizing.primary_replicates(
                 MARGINS,
                 covered,
-                sizing.CALIBRATION_PILOT_DRAWS,
+                min(draws),
                 implementations=1,
                 coverage_pass=share,
                 bias_groups=groups,
@@ -673,20 +861,12 @@ class TestTheFitsDifferPilot:
 
     @staticmethod
     def _rows(fit: str) -> pd.DataFrame:
-        rows = _pilot(f"fits_differ_{fit}")
-        if rows.empty:
-            pytest.skip("the fits-differ pilot has not been committed")
-        return rows
-
-    def test_the_pilot_lost_no_fit(self, fit: str) -> None:
-        rows = self._rows(fit)
-        assert rows["refusal"].fillna("").eq("").all()
-        assert rows["replicate"].nunique() == pilot.FITS_DIFFER_DRAWS
+        return _kept(f"fits_differ_{fit}")
 
     def test_the_reading_is_complete_and_finite(self, fit: str) -> None:
         rows = self._rows(fit)
         decreases = rows.loc[rows["estimand"] == "largest_decrease", "estimate"]
-        assert len(decreases) == pilot.FITS_DIFFER_DRAWS
+        assert len(decreases) == rows["replicate"].nunique()
         assert np.isfinite(decreases.to_numpy(dtype=float)).all()
         for column in ("estimate", "iterated_estimate", "isotonic_estimate"):
             values = rows.loc[rows["estimand"] != "largest_decrease", column]
@@ -705,12 +885,8 @@ class TestTheFitsDifferPilot:
         print(reading["text"])
 
 
-@pytest.mark.skipif(
-    _pilot("fits_differ_mechanism_correct").empty, reason="the pilot has not been committed"
-)
 def test_the_mechanism_correct_ratios_are_reported() -> None:
-    rows = _pilot("fits_differ_mechanism_correct")
-    assert rows["refusal"].fillna("").eq("").all()
+    rows = _kept("fits_differ_mechanism_correct")
     ratios = _paired_ratios(rows, "base")
     assert all(np.isfinite(value) and value > 0.0 for value in ratios.values()), ratios
 
