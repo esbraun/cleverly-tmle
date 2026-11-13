@@ -55,12 +55,13 @@ def declared() -> tuple[int, float]:
 SIZING_TOLERANCE = 0.003
 
 
-def _sizes_at(inputs: tuple[Any, ...], replicates: int) -> None:
+def _sizes_at(inputs: tuple[list[float], list[int]], replicates: int) -> None:
     """``replicates`` is the rule's R within the tolerance: it passes and the step below fails."""
+    coverages, sizes = inputs
     target = study.SIZING_TARGET
-    assert study.family_pass(*inputs, replicates) >= target - SIZING_TOLERANCE
+    assert study.family_pass(coverages, sizes, replicates) >= target - SIZING_TOLERANCE
     below = replicates - study.SIZING_STEP
-    assert below <= 0 or study.family_pass(*inputs, below) < target + SIZING_TOLERANCE
+    assert below <= 0 or study.family_pass(coverages, sizes, below) < target + SIZING_TOLERANCE
 
 
 def test_the_committed_pilot_fixes_the_declared_replicates() -> None:
