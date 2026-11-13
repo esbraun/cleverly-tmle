@@ -713,22 +713,27 @@ class TestBandSupport:
         assert band.label == "supported"
 
     def test_every_band_row_lists_the_default_option_at_its_measured_draws(self) -> None:
+        from cleverly._support import T_BAND_OPTION
         from cleverly._support_rows import (
             BAND_CELLS,
             BAND_OPTION_DRAWS,
             DEFAULT_BAND_DRAWS,
             LONGITUDINAL_ROWS,
             POINT_ROWS,
+            T_BAND_CELLS,
         )
 
         rows = {row.id: row for row in (*POINT_ROWS, *LONGITUDINAL_ROWS)}
         banded = {row_id: row for row_id, row in rows.items() if "band" in row.kinds}
-        assert set(banded) == set(BAND_CELLS)
-        assert {row.band_options for row in banded.values()} == {(DEFAULT_BAND_OPTION,)}
+        assert set(banded) == set(BAND_CELLS) | set(T_BAND_CELLS)
         assert dict(BAND_OPTION_DRAWS) == {"D09": 1_000}
         for row_id, row in banded.items():
             measured = BAND_OPTION_DRAWS.get(row_id, DEFAULT_BAND_DRAWS)
-            assert row.band_option_draws == ((DEFAULT_BAND_OPTION, measured),)
+            listed = (
+                *(((DEFAULT_BAND_OPTION, measured),) if row_id in BAND_CELLS else ()),
+                *(((T_BAND_OPTION, DEFAULT_BAND_DRAWS),) if row_id in T_BAND_CELLS else ()),
+            )
+            assert row.band_option_draws == listed, row_id
         row = rows["G23.cross_fitted"]
         classification = Classification(row.key, {}, row)
         support = _support.support_for(classification, "influence_curve")
