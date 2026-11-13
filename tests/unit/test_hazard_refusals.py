@@ -555,9 +555,7 @@ def test_h26_declared_retention_at_the_first_node_is_refused() -> None:
         f"censoring_probabilities= declares the retention probabilities of {first!r} at node 1"
     )
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        _multinode({"always": (1, 1, 1)}).fit(
-            frame, **columns, censoring_probabilities=retention
-        )
+        _multinode({"always": (1, 1, 1)}).fit(frame, **columns, censoring_probabilities=retention)
     _assert_redirection(raised.value)
 
 

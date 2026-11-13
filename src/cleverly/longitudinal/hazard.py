@@ -2006,8 +2006,8 @@ def _enumerate_paths(
     """Every regimen's ``(n, T)`` treatment paths, their ``(n,)`` masses and owners.
 
     Each regimen's paths are built from the regimen on every row (:func:`path_slots`), with
-    the cap (H17) checked after every node at which a regimen draws from a policy.  The fourth entry counts, per regimen, the nodes
-    at which it draws from a known policy.
+    the cap (H17) checked after every node at which a regimen draws from a policy.  The
+    fourth entry counts, per regimen, the nodes at which it draws from a known policy.
     """
     from .regimen import DynamicRegimen, Regimen, counterfactual_policy_density
 
@@ -4131,9 +4131,7 @@ def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSp
         for time in range(2, data.n_times + 1):
             if known.treatment_at(time) is not None:
                 raise CapabilityError.from_refusal(
-                    hazard_declared_mechanism_refusal(
-                        "treatment", time, data.decision_name(time)
-                    )
+                    hazard_declared_mechanism_refusal("treatment", time, data.decision_name(time))
                 )
         for time in range(1, data.n_times + 1):
             if known.censoring_at(time) is not None:

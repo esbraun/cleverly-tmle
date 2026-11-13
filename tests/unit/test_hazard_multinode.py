@@ -1089,7 +1089,9 @@ def test_h17_static_arms_are_not_capped_at_any_size(monkeypatch: pytest.MonkeyPa
     with pytest.raises(_Reached):
         LTMLE(arms, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
     once = DynamicRegimen("once", (_coin(1),) + (1,) * (n_times - 1))
-    with pytest.raises(CapabilityError, match="draws its treatment from a known policy at 1 node, "):
+    with pytest.raises(
+        CapabilityError, match="draws its treatment from a known policy at 1 node, "
+    ):
         LTMLE({**arms, "once": once}, survival_model="hazard", n_folds=1, **_untouched()).fit(
             frame, **columns
         )
