@@ -49,6 +49,7 @@ __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CLASSIFIER_RATIO",
     "LONGITUDINAL_CONSTANT_TARGET",
+    "LONGITUDINAL_CONTINUATION_NOT_SCORED",
     "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
     "LONGITUDINAL_HELD_DECISION",
     "LONGITUDINAL_KNOWN_MECHANISM",
@@ -90,6 +91,14 @@ LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classificati
 #: event, or every follower holds 1.  The node's regression is that value, so no learner ran.
 LONGITUDINAL_CONSTANT_TARGET = (
     "every follower holds the same 0 or 1 target, regression is that value"
+)
+
+#: A hazard fit with covariates after baseline regresses the future of each node as a hazard
+#: curve over the later nodes, fitted on soft events read from the targeted later nodes.  Its
+#: loss is a soft-label log-likelihood with no observed label to score against, so the report
+#: lists one omission per node, regimen and cause in place of a row.
+LONGITUDINAL_CONTINUATION_NOT_SCORED = (
+    "the regression of the future is a soft-label hazard fit, which this report does not score"
 )
 
 #: A training fold of a cross-fitted fit held one target value, 0 or 1, at the node while the
@@ -1604,3 +1613,33 @@ def _hazard_nuisances(
                 )
             taken = taken + hazard
             earlier = earlier | target
+    _continuation_omissions(result, causes, omissions)
+
+
+def _continuation_omissions(
+    result: Any,
+    causes: tuple[str | None, ...],
+    omissions: list[LongitudinalNuisanceOmission],
+) -> None:
+    """One omission per node before the last horizon, regimen and cause of a fit whose
+    covariates after baseline give it continuation fits."""
+    from ..longitudinal.hazard_backward import later_covariates
+
+    if not later_covariates(result.data):
+        return
+    labels: dict[str, int] = {}
+    for fit in result.fits.values():
+        label = fit.regimen.label
+        labels[label] = max(labels.get(label, 0), int(fit.horizon))
+    for label, t_max in labels.items():
+        for time in range(1, t_max):
+            omissions.extend(
+                LongitudinalNuisanceOmission(
+                    "continuation",
+                    time,
+                    LONGITUDINAL_CONTINUATION_NOT_SCORED,
+                    regimen=label,
+                    cause=cause,
+                )
+                for cause in causes
+            )

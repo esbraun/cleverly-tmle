@@ -1062,6 +1062,26 @@ def test_clusters_iterate_best_and_the_bootstrap_run_on_this_path() -> None:
     assert booted.bootstrap.n_failed == 0
 
 
+def test_the_nuisance_report_names_each_unscored_continuation() -> None:
+    from cleverly.validation.longitudinal import LONGITUDINAL_CONTINUATION_NOT_SCORED
+
+    law = HeldLaw(n_times=3, causes=2)
+    report = fit(law, STATIC).diagnostics.nuisance_models()
+    rows = {
+        (row.regimen, row.time, row.cause)
+        for row in report.omissions
+        if row.reason == LONGITUDINAL_CONTINUATION_NOT_SCORED
+    }
+    expected = {
+        (label, time, cause)
+        for label in STATIC
+        for time in (1, 2)
+        for cause in ("relapse", "death")
+    }
+    assert rows == expected
+    assert any(row.role == "hazard" for row in report.rows)
+
+
 def test_cross_fitting_covers_the_truth_and_solves_every_node() -> None:
     """Five folds on draws: within four standard errors, and every pooled node walk solved.
 
