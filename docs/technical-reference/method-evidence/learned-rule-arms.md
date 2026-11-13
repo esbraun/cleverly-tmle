@@ -132,6 +132,7 @@ The support row was declared before the run: one P11 row with `treatment=("arms3
 fold-evaluated report. It needed the primary bias leg, coverage floor and SE sanity, every
 `interval_calibration` verdict, both `conservative_coverage` verdicts and the `targeting_necessity`
 verdicts to pass. They did on the committed identity intervals, and the row `T45` was registered.
+
 The package then moved the interval of a bounded mean of a yes/no outcome to the logit scale
 ([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
 standard errors the `missing_quadratic__declared` cell covers 0.9375, with a lower endpoint of
