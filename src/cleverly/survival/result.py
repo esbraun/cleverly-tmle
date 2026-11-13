@@ -349,6 +349,74 @@ def risk_names(
     return out
 
 
+def _json_ready(value: Any) -> Any:
+    """``value`` with every non-finite float replaced by ``None``, which strict JSON reads."""
+    if isinstance(value, dict):
+        return {key: _json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def restricted_level(
+    name: str,
+    value: float,
+    curve: FloatArray,
+    tau: float,
+    *,
+    n: int,
+    alpha: float,
+    support: Support,
+) -> ParameterEstimate:
+    """A restricted mean of one arm, with its interval on the range-logit scale of ``(0, tau)``.
+
+    A restricted mean lies in :math:`[0, \\tau]`, as a risk lies in :math:`[0, 1]`, so its
+    interval is formed on the logit of its position in that range and mapped back, the rule
+    the risks follow.  A value on the boundary has no logit and keeps the identity scale.
+
+    Parameters
+    ----------
+    name : str
+        The parameter name.
+    value : float
+        The estimate, in time units.
+    curve : ndarray
+        Its influence curve, in time units.
+    tau : float
+        The restriction time.
+    n : int
+        The number of units.
+    alpha : float
+        Significance level.
+    support : Support
+        The estimate's support.
+
+    Returns
+    -------
+    ParameterEstimate
+        The estimate, with ``transform`` the range-logit map of ``(0, tau)``.
+    """
+    from ..inference.results import transform_estimate
+
+    bounds = (0.0, float(tau))
+    estimate = make_estimate(
+        name,
+        value,
+        curve,
+        n=n,
+        scale="level",
+        alpha=alpha,
+        bounds=bounds,
+        rule_widened=False,
+        support=support,
+    )
+    if not 0.0 < value < tau:
+        return estimate
+    return replace(transform_estimate(estimate, Transform.range_logit(*bounds)), bounds=bounds)
+
+
 def build_estimates(
     walk: WalkResult,
     arms: tuple[str, str],
@@ -445,30 +513,33 @@ def build_estimates(
     pair = f"{arms[1]} vs {arms[0]}"
     for r, tau in enumerate(restricted):
         q = K + r
-        bounds = (0.0, float(tau))
-        span = (-float(tau), float(tau))
-        for a in (0, 1):
-            for j, cause in enumerate(labels):
-                p = (a * J + j) * Q + q
-                name = restricted_name("rmtl_regimen", arms[a], None if single else cause, tau)
-                out[name] = make_estimate(
-                    name,
-                    psi[p],
-                    ic[:, p],
-                    n=n,
-                    scale="level",
-                    alpha=alpha,
-                    bounds=bounds,
-                    rule_widened=False,
-                    support=support("level", q),
-                )
-        for j, cause in enumerate(labels):
-            p0, p1 = j * Q + q, (J + j) * Q + q
-            name = restricted_name("rmtl_regimen", pair, None if single else cause, tau)
-            out[name] = make_estimate(
+        tau = float(tau)
+        span = (-tau, tau)
+
+        def lost(a: int, j: int, q: int = q, tau: float = tau) -> tuple[float, FloatArray]:
+            # The walk targets RMTL / tau, so the walk does not depend on the unit of time;
+            # the report is in time units.
+            p = (a * J + j) * Q + q
+            return tau * float(psi[p]), tau * ic[:, p]
+
+        def level(
+            name: str, value: float, curve: FloatArray, q: int = q, tau: float = tau
+        ) -> ParameterEstimate:
+            return restricted_level(
+                name, value, curve, tau, n=n, alpha=alpha, support=support("level", q)
+            )
+
+        def difference(
+            name: str,
+            value: float,
+            curve: FloatArray,
+            q: int = q,
+            span: tuple[float, float] = span,
+        ) -> ParameterEstimate:
+            return make_estimate(
                 name,
-                psi[p1] - psi[p0],
-                ic[:, p1] - ic[:, p0],
+                value,
+                curve,
                 n=n,
                 scale="difference",
                 alpha=alpha,
@@ -476,39 +547,25 @@ def build_estimates(
                 rule_widened=False,
                 support=support("difference", q),
             )
+
+        for a in (0, 1):
+            for j, cause in enumerate(labels):
+                name = restricted_name("rmtl_regimen", arms[a], None if single else cause, tau)
+                out[name] = level(name, *lost(a, j))
+        for j, cause in enumerate(labels):
+            (v0, c0), (v1, c1) = lost(0, j), lost(1, j)
+            name = restricted_name("rmtl_regimen", pair, None if single else cause, tau)
+            out[name] = difference(name, v1 - v0, c1 - c0)
         # RMST(tau) = tau - sum_j RMTL_j(tau); its score is solved by linearity.
-        lost = [
-            (
-                sum(psi[(a * J + j) * Q + q] for j in range(J)),
-                np.sum([ic[:, (a * J + j) * Q + q] for j in range(J)], axis=0),
-            )
-            for a in (0, 1)
-        ]
+        total = []
+        for a in (0, 1):
+            parts = [lost(a, j) for j in range(J)]
+            total.append((sum(v for v, _ in parts), np.sum([c for _, c in parts], axis=0)))
         for a in (0, 1):
             name = restricted_name("rmst_regimen", arms[a], None, tau)
-            out[name] = make_estimate(
-                name,
-                float(tau) - lost[a][0],
-                -lost[a][1],
-                n=n,
-                scale="level",
-                alpha=alpha,
-                bounds=bounds,
-                rule_widened=False,
-                support=support("level", q),
-            )
+            out[name] = level(name, tau - total[a][0], -total[a][1])
         name = restricted_name("rmst_regimen", pair, None, tau)
-        out[name] = make_estimate(
-            name,
-            lost[0][0] - lost[1][0],
-            lost[0][1] - lost[1][1],
-            n=n,
-            scale="difference",
-            alpha=alpha,
-            bounds=span,
-            rule_widened=False,
-            support=support("difference", q),
-        )
+        out[name] = difference(name, total[0][0] - total[1][0], total[0][1] - total[1][1])
     return out
 
 
@@ -1004,13 +1061,12 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         stored = self.estimates[restricted_name(head, pair, cause, tau)]
         if first == 1:
             return stored
-        a = self.estimates[restricted_name(head, arm, cause, tau)]
-        b = self.estimates[restricted_name(head, versus, cause, tau)]
+        # The stored difference is on the identity scale, so its negation is the reverse.
         label = restricted_name(head, f"{arm} vs {versus}", cause, tau)
         return make_estimate(
             label,
-            a.psi - b.psi,
-            a.influence_curve - b.influence_curve,
+            -stored.psi,
+            -stored.influence_curve,
             n=self.n,
             scale="difference",
             alpha=self._alpha,
@@ -1156,38 +1212,46 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             ``estimates``, each estimate's
             :meth:`~cleverly.inference.ParameterEstimate.to_dict` by name; ``record``, the
             selected models and how the walk ended; and ``settings``, the arms, causes, target
-            times, restriction times, units and significance level.
+            times, restriction times, units and significance level.  A value that is not a
+            finite number, such as the p-value of a range-logit estimate, reads ``None``, so
+            the mapping passes ``json.dumps(..., allow_nan=False)``.
         """
         record = self.record
         propensity = record.propensity
-        return {
-            "estimates": {name: estimate.to_dict() for name, estimate in self.estimates.items()},
-            "record": {
-                "hazards": [selection.chosen_name for selection in record.hazards],
-                "censoring": record.censoring.chosen_name,
-                "propensity": None if propensity is None else propensity.names[propensity.chosen],
-                "steps": int(record.steps),
-                "halvings": int(record.halvings),
-                "converged": bool(record.converged),
-                "cutoff": float(record.cutoff),
-                "standardized_score": [float(v) for v in record.standardized_score],
-                "bounded_share": float(record.bounded_share),
-                "last_time_floor_share": float(record.last_time_floor_share),
-                "frozen_share": float(record.frozen_share),
-                "off_grid_share": float(record.off_grid_share),
-                "cross_fitted": bool(record.cross_fitted),
-                "n_folds": int(record.n_folds),
-                "grid_size": int(record.grid_size),
-            },
-            "settings": {
-                "arms": list(self.arms),
-                "causes": list(self.causes),
-                "horizons": [float(t) for t in self.horizons],
-                "restricted_horizons": [float(t) for t in self.restricted_horizons],
-                "n": int(self.n),
-                "alpha": self._alpha,
-            },
-        }
+        return _json_ready(
+            {
+                "estimates": {
+                    name: estimate.to_dict() for name, estimate in self.estimates.items()
+                },
+                "record": {
+                    "hazards": [selection.chosen_name for selection in record.hazards],
+                    "censoring": record.censoring.chosen_name,
+                    "propensity": None
+                    if propensity is None
+                    else propensity.names[propensity.chosen],
+                    "steps": int(record.steps),
+                    "halvings": int(record.halvings),
+                    "converged": bool(record.converged),
+                    "cutoff": float(record.cutoff),
+                    "standardized_score": [float(v) for v in record.standardized_score],
+                    "bounded_share": float(record.bounded_share),
+                    "last_time_floor_share": float(record.last_time_floor_share),
+                    "frozen_share": float(record.frozen_share),
+                    "off_grid_share": float(record.off_grid_share),
+                    "cross_fitted": bool(record.cross_fitted),
+                    "n_folds": int(record.n_folds),
+                    "grid_size": int(record.grid_size),
+                },
+                "settings": {
+                    "arms": list(self.arms),
+                    "causes": list(self.causes),
+                    "horizons": [float(t) for t in self.horizons],
+                    "restricted_horizons": [float(t) for t in self.restricted_horizons],
+                    "n": int(self.n),
+                    "alpha": self._alpha,
+                },
+            }
+        )
 
     def summary(self, *, detail: Literal["short", "full"] = "short") -> Any:
         """A printable report of the fit.

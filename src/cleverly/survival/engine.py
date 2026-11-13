@@ -544,7 +544,10 @@ class ContinuousSurvivalTMLE:
         target_index = np.searchsorted(grid, self.horizons, side="right") - 1
         target_weights = np.vstack(
             [point_weights(target_index, grid.size)]
-            + [restricted_weights(grid, tau)[None, :] for tau in restricted]
+            # Each restricted row is scaled by 1 / tau: the walk targets RMTL / tau, a share of
+            # [0, 1] like a risk, so its metric's floor and ridge do not depend on the unit of
+            # time.  build_estimates reports RMTL in time units.
+            + [restricted_weights(grid, tau)[None, :] / tau for tau in restricted]
         )
         X = np.column_stack([A.astype(float), L])
         rng = np.random.default_rng(self.random_state)

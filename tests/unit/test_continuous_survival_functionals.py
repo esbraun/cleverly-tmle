@@ -18,6 +18,7 @@ import pytest
 
 from cleverly._refusal import RefusalReason
 from cleverly.exceptions import CapabilityError
+from cleverly.inference.results import _reported_curve
 from cleverly.sensitivity import evalue, evalue_from_rr
 from cleverly.survival import ContinuousSurvivalTMLE, StratifiedNelsonAalen, _targeting
 from cleverly.survival._targeting import (
@@ -148,13 +149,13 @@ def test_the_engine_assembles_the_restricted_means_and_the_rmst(
                 assert lost.psi == pytest.approx(_rmtl_truth(a, j, tau), abs=1e-12)
                 assert lost.bounds == (0.0, tau)
                 gateaux = _rmtl_gateaux(a, j, tau)
-                assert np.max(np.abs(lost.influence_curve[first] - gateaux)) < 1e-10
+                assert np.max(np.abs(_reported_curve(lost)[first] - gateaux)) < 1e-10
                 total += gateaux
             # T-c9: RMST = tau - sum of the RMTLs, with the curve by linearity.
             survival = fit.rmst(str(a), tau)
             truth = tau - sum(_rmtl_truth(a, j, tau) for j in (1, 2))
             assert survival.psi == pytest.approx(truth, abs=1e-12)
-            assert np.max(np.abs(survival.influence_curve[first] + total)) < 1e-10
+            assert np.max(np.abs(_reported_curve(survival)[first] + total)) < 1e-10
         gain = fit.rmst("1", tau, versus="0")
         assert gain.name == f"rmst_regimen[1 vs 0 @ t={tau:g}]"
         assert gain.psi == pytest.approx(fit.rmst("1", tau).psi - fit.rmst("0", tau).psi)
@@ -503,7 +504,7 @@ def test_a_nonlinear_contrast_is_the_delta_method_by_finite_differences() -> Non
     gradient = np.array(
         [(function(point + h * e) - function(point - h * e)) / (2 * h) for e in np.eye(2)]
     )
-    curve = np.column_stack([fit[name].influence_curve for name in names]) @ gradient
+    curve = np.column_stack([_reported_curve(fit[name]) for name in names]) @ gradient
     std_err = float(np.sqrt(np.var(curve, ddof=1) / fit.n))
     assert derived.psi == pytest.approx(function(point), rel=1e-14)
     assert derived.std_error == pytest.approx(std_err, rel=1e-6)
@@ -519,7 +520,7 @@ def test_a_nonlinear_contrast_is_the_delta_method_by_finite_differences() -> Non
 def test_to_dict_round_trips_through_json() -> None:
     fit = _fit()
     record = fit.to_dict()
-    assert json.loads(json.dumps(record)) == record
+    assert json.loads(json.dumps(record, allow_nan=False)) == record
     assert set(record["estimates"]) == set(fit)
     name = "rmst_regimen[treated vs control @ t=1.5]"
     assert record["estimates"][name]["psi"] == fit[name].psi
@@ -558,3 +559,159 @@ def test_the_evalue_reads_the_ratio_of_the_two_arms_risks() -> None:
 def test_the_evalue_refuses_anything_but_the_pair(estimand: Any) -> None:
     with pytest.raises(CapabilityError, match="cif_regimen\\[treated, death @ t=2\\]"):
         evalue(_fit(), estimand)
+
+
+# ------------------------------------------------- the unit of time (review B1) and the scale
+
+
+#: Seconds in a Julian year: the same follow-up in the two units.
+_SECONDS = 365.25 * 24 * 3600
+
+
+@cache
+def _unit_fit(scale: float) -> Any:
+    frame = _sample()
+    frame = frame.assign(time=frame["time"] * scale)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return ContinuousSurvivalTMLE(
+            [0.5 * scale, 1.0 * scale],
+            restricted_horizons=(1.5 * scale,),
+            cross_fit=False,
+            random_state=0,
+            causes={1: "relapse", 2: "death"},
+            arms={"control": 0, "treated": 1},
+            reference="control",
+        ).fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+
+
+def test_the_walk_does_not_depend_on_the_unit_of_time() -> None:
+    # The metric floors each variance and adds a ridge relative to the largest one; a restricted
+    # mean in seconds would swamp the risks unless the walk targets RMTL / tau.
+    years, seconds = _unit_fit(1.0), _unit_fit(_SECONDS)
+    assert years.record.converged and seconds.record.converged
+    assert years.record.steps == seconds.record.steps
+    np.testing.assert_allclose(
+        years.record.standardized_score, seconds.record.standardized_score, rtol=1e-6, atol=1e-9
+    )
+    for arm in years.arms:
+        for cause in years.causes:
+            for t in (0.5, 1.0):
+                name = f"cif_regimen[{arm}, {cause} @ t={t:g}]"
+                other = f"cif_regimen[{arm}, {cause} @ t={t * _SECONDS:g}]"
+                assert seconds[other].psi == pytest.approx(years[name].psi, abs=1e-9)
+            lost, scaled = years.rmtl(arm, 1.5, cause), seconds.rmtl(arm, 1.5 * _SECONDS, cause)
+            assert scaled.psi == pytest.approx(lost.psi * _SECONDS, rel=1e-8)
+            np.testing.assert_allclose(np.array(scaled.ci) / _SECONDS, lost.ci, rtol=1e-8)
+        rmst = years.rmst(arm, 1.5)
+        assert seconds.rmst(arm, 1.5 * _SECONDS).psi == pytest.approx(rmst.psi * _SECONDS, rel=1e-8)
+
+
+def test_a_restricted_mean_takes_the_range_logit_interval_of_its_range() -> None:
+    fit = _fit()
+    for name in ("rmtl_regimen[treated, death @ t=1.5]", "rmst_regimen[control @ t=1.5]"):
+        estimate = fit[name]
+        assert estimate.interval_scale == "range_logit"
+        assert estimate.bounds == (0.0, 1.5)
+        low, high = estimate.ci
+        assert 0.0 < low < estimate.psi < high < 1.5
+        forward = estimate.transform.forward
+        half = (forward(high) - forward(low)) / 2
+        assert half == pytest.approx(1.959963984540054 * estimate.std_error, rel=1e-6)
+        assert forward(estimate.psi) == pytest.approx((forward(high) + forward(low)) / 2)
+    difference = fit["rmst_regimen[treated vs control @ t=1.5]"]
+    assert difference.interval_scale == "identity"
+    assert difference.bounds == (-1.5, 1.5)
+
+
+# ------------------------------- an independent brute force past the last target (review M1)
+
+
+def _brute_law(seed: int = 7) -> tuple[pd.DataFrame, float, float]:
+    rng = np.random.default_rng(seed)
+    n = 120
+    W = rng.binomial(1, 0.5, n)
+    A = rng.binomial(1, 0.35 + 0.3 * W)
+    h1 = 0.5 * np.exp(0.4 * W - 0.5 * A)
+    h2 = 0.3 * np.exp(-0.3 * W + 0.4 * A)
+    T0 = rng.exponential(1 / (h1 + h2))
+    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
+    C = rng.exponential(1 / 0.2, n)
+    T = np.minimum(T0, C)
+    D = np.where(T0 <= C, cause, 0)
+    frame = pd.DataFrame({"time": T, "event": D, "A": A, "W": W.astype(float)})
+    times = np.unique(T)
+    first = float(np.quantile(T[D > 0], 0.4))
+    tau = float(np.quantile(T[D > 0], 0.7))
+    tau = 0.5 * (times[times <= tau][-1] + times[times > tau][0])  # between grid points
+    return frame, first, tau
+
+
+def _plug_in(frame: pd.DataFrame, omega: np.ndarray, arm: int, cause: int, tau: float) -> Any:
+    """The RMTL of the weighted empirical law from scratch: Nelson-Aalen, Aalen-Johansen, and the
+    exact integral of the step function to ``tau``."""
+    W, A = frame["W"].to_numpy(), frame["A"].to_numpy()
+    T, D = frame["time"].to_numpy(), frame["event"].to_numpy()
+    value = 0.0
+    for w in (0.0, 1.0):
+        share = omega[w == W].sum() / omega.sum()
+        stratum = (arm == A) & (w == W)
+        survival, incidence, integral, previous = 1.0 + 0j, 0.0 + 0j, 0.0 + 0j, 0.0
+        for u in np.unique(T):
+            if u > tau:
+                break
+            integral += incidence * (u - previous)
+            previous = u
+            at_risk = omega[stratum & (u <= T)].sum()
+            if at_risk == 0:
+                continue
+            jumps = [omega[stratum & (u == T) & (j == D)].sum() / at_risk for j in (1, 2)]
+            incidence += survival * jumps[cause - 1]
+            survival *= 1 - jumps[0] - jumps[1]
+        integral += incidence * (tau - previous)
+        value += share * integral
+    return value
+
+
+def test_a_restricted_mean_past_the_last_target_time_is_its_own_gateaux_derivative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The saturated fit is the empirical law, so the walk takes no step and the engine's curve
+    is the complex-step Gateaux derivative of the plug-in at P_n.  ``tau`` lies past the last
+    target time and between grid points, so stopping the grid at the last target time, which
+    would hold the incidence flat to ``tau``, fails here."""
+    from cleverly.survival import engine
+
+    frame, first, tau = _brute_law()
+    assert tau > first
+    monkeypatch.setattr(engine, "_fit_propensity", _exact_propensity)
+    fit = ContinuousSurvivalTMLE(
+        [first],
+        restricted_horizons=(tau,),
+        cross_fit=False,
+        hazard_library=[StratifiedNelsonAalen((0, 1))],
+        censoring_library=[StratifiedNelsonAalen((0, 1))],
+        random_state=0,
+        causes={1: "c1", 2: "c2"},
+        arms={"0": 0, "1": 1},
+    ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+    assert fit.record.steps == 0
+    n = len(frame)
+    base = np.full(n, 1.0 / n, dtype=complex)
+    h = 1e-30
+    gateaux: dict[tuple[int, int], np.ndarray] = {}
+    for a in (0, 1):
+        for j in (1, 2):
+            out = np.empty(n)
+            for i in range(n):
+                omega = (1 - 1j * h) * base
+                omega[i] += 1j * h
+                out[i] = np.imag(_plug_in(frame, omega, a, j, tau)) / h
+            gateaux[a, j] = out
+            estimate = fit.rmtl(str(a), tau, f"c{j}")
+            truth = float(np.real(_plug_in(frame, base, a, j, tau)))
+            assert estimate.psi == pytest.approx(truth, abs=1e-12)
+            assert np.max(np.abs(_reported_curve(estimate) - out)) < 1e-10
+    gain = fit.rmst("1", tau, versus="0")
+    expected = -sum(gateaux[1, j] - gateaux[0, j] for j in (1, 2))
+    assert np.max(np.abs(gain.influence_curve - expected)) < 1e-10
