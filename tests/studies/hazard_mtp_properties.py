@@ -215,10 +215,8 @@ class NoWQuasiBinomial(QuasiBinomialGLM):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        # The parent's ``predict_proba`` calls this ``predict``, so it reads the slice too.
         return super().predict(np.asarray(X, dtype=float)[:, 2:])
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        return super().predict_proba(np.asarray(X, dtype=float)[:, 2:])
 
 
 def iterated_fit(
