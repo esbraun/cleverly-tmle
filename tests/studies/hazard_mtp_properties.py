@@ -54,13 +54,10 @@ mechanism is the prior share for the levels, a Gaussian density with no covariat
 density route, a classifier on the dose alone on the classifier route, and the prior share for
 the censoring.
 
-**The fits-differ reading** (plan X70 section 5 and rev 2.4) is reported, not gated.
-:func:`fits_differ_reading` states the paired ratios and the decreasing share with its interval
-beside the plan's floors, the named constants :data:`PAIRED_DIFFERENCE_FLOOR` and
-:data:`NON_MONOTONE_FLOOR`, which appear only in that text.  Both fits are efficient when their
-nuisance fits are correct, so on the gated laws they differ by :math:`o_P(n^{-1/2})`.  A
-decision on the requirement is pending with the project owner; if the owner keeps it, the
-family is redesigned.  Each ``paired_difference`` row records the hazard estimate
+**The agreement reading** is reported with no floor.  :func:`fits_differ_reading` states the
+paired ratios and the share of decreasing iterated-mean curves with its interval.  Both fits are
+efficient, so where both nuisance fits are correct they differ by :math:`o_P(n^{-1/2})`, and X70
+reports their agreement instead of requiring a gap (the owner's decision of 2026-11-13).  Each ``paired_difference`` row records the hazard estimate
 minus the iterated-mean estimate of the same draw (``isotonic_difference`` the same against the
 isotonic iterated-mean fit); its summary adds ``paired_sd_over_bound``, the SD of that
 difference over the efficiency-bound standard error.  The ``iterated_curve_decrease`` row
@@ -133,13 +130,6 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: The declared floor on the targeted arm's displacement from the plug-in, in the targeted
 #: arm's empirical standard deviations.
 TARGETING_DISPLACEMENT = 0.25
-#: The fits-differ floors of plan X70 section 5, quoted in the text of
-#: :func:`fits_differ_reading` and read by no verdict.  The paired-difference floor is the SD of
-#: hazard minus iterated-mean over the efficiency-bound standard error.  The non-monotone floor
-#: is the share of draws whose iterated-mean curve (without isotonic) decreases.  A decision on
-#: the requirement is pending with the project owner.
-PAIRED_DIFFERENCE_FLOOR = 0.05
-NON_MONOTONE_FLOOR = 0.10
 #: The influence-curve gap of a gated fit label: the SD of its influence curve minus the exact
 #: per-unit efficient influence function, over the efficiency bound.  The claim is the halving
 #: rule: a gated fit label's large-size gap is at most :data:`IC_GAP_FALL` times its median
@@ -327,21 +317,21 @@ def plug_in(result: Any, name: str) -> float:
     return study.initial_estimates(result, (name,))[name]
 
 
-# ------------------------------------------------------------------ the fits-differ reading
+# ------------------------------------------------------------------ the agreement reading
 
 
 def fits_differ_reading(
     paired_ratios: dict[str, float], decreasing: int, draws: int, level: float = 0.99
 ) -> dict[str, Any]:
-    """The reported fits-differ reading (plan X70 section 5, rev 2.4); it asserts nothing.
+    """The reported agreement of the hazard and iterated-mean fits; it carries no floor.
 
     ``paired_ratios`` maps each cell label to its paired-difference SD over the efficiency-bound
     standard error; ``decreasing`` counts the draws whose iterated-mean curve without isotonic
     decreases somewhere, out of ``draws``.  The reading returns the ratios, the largest of them
     and the smallest contrast ratio, the decreasing share with its Clopper-Pearson interval at
-    ``level``, and ``text``, the sentence that states them beside the plan's floors
-    :data:`PAIRED_DIFFERENCE_FLOOR` and :data:`NON_MONOTONE_FLOOR`.  The floors appear in that
-    sentence and nowhere else: no verdict reads them while the owner's decision is pending.
+    ``level``, and ``text``, the sentence that states them.  Both fits are efficient, so with
+    correct nuisance fits they differ by :math:`o_P(n^{-1/2})`, and X70 reports their agreement
+    instead of requiring a gap (the owner's decision of 2026-11-13).
     """
     tail = (1.0 - level) / 2.0
     low = float(beta.ppf(tail, decreasing, draws - decreasing + 1)) if decreasing else 0.0
@@ -356,10 +346,9 @@ def fits_differ_reading(
     share = decreasing / draws
     ratios = ", ".join(f"{label} {value:.3f}" for label, value in sorted(paired_ratios.items()))
     text = (
-        f"Paired-difference SD over the efficiency SE: {ratios} (plan X70 section 5 names a "
-        f"floor of {PAIRED_DIFFERENCE_FLOOR:g}). Decreasing iterated-mean curves: {decreasing} "
-        f"of {draws}, {share:.3f} with {level:.0%} interval [{low:.3f}, {high:.3f}] (the plan "
-        f"names a floor of {NON_MONOTONE_FLOOR:g}). Reported, not gated."
+        f"Paired-difference SD over the efficiency SE: {ratios}. Decreasing iterated-mean "
+        f"curves: {decreasing} of {draws}, {share:.3f} with {level:.0%} interval "
+        f"[{low:.3f}, {high:.3f}]. Reported, with no floor."
     )
     return {
         "ratios": dict(paired_ratios),

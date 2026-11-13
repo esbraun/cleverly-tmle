@@ -164,9 +164,9 @@ efficient, so on the gated laws they differ by $o_P(n^{-1/2})$. A 200-draw scrat
 declaration read the SD of their paired difference at most 4% of an efficiency standard error
 for every estimate on `levels` and `gaussian`. With both regressions omitting $W$ and the
 mechanism correct, it read at most 2%. No iterated-mean curve decreased in 200 draws per law.
-Plan X70 section 5 names a paired ratio of 0.05 and a decreasing share of 0.10. The study
-reports the committed pilot's ratios and share beside those figures and gates neither, while a
-decision on the requirement is pending with the project owner.
+The study reports the committed pilot's ratios and the decreasing share with its interval, with
+no floor: X70 reports the agreement of the two fits instead of requiring a gap (the owner's
+decision of 2026-11-13).
 
 ## Limitations
 

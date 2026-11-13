@@ -59,12 +59,11 @@ is re-sized, re-drawn or downgraded after a verdict is seen.
 * The ``iterated_mean_difference`` rows state no verdict and cannot be red.  Their summary
   reports each estimate's paired-difference ratio (against the iterated-mean fit without and
   with ``isotonic=True``), each fit's coverage and SE ratio side by side, and the share of
-  decreasing iterated-mean curves with its 99% interval.  The floors of plan X70 section 5 are
-  quoted beside the ratios by
-  :func:`tests.studies.hazard_mtp_properties.fits_differ_reading` and read by no test or
-  verdict; a decision on the requirement is pending with the project owner, and if the owner
-  keeps it the family is redesigned.  A run whose ratios fall below the floor is reported with
-  the ratios stated, not re-sized.
+  decreasing iterated-mean curves with its 99% interval
+  (:func:`tests.studies.hazard_mtp_properties.fits_differ_reading`).  No reading carries a
+  floor: X70 reports the agreement of the two fits instead of requiring a gap (the owner's
+  decision of 2026-11-13).  Both fits are efficient, so where both nuisance fits are correct
+  they cannot differ by more than o_P(n^-1/2).
 * Every replicate row records ``converged``, the fit's final relative score (``final_score``)
   and ``unexpected_warnings`` for the fits of its key.  A fit that does not converge and whose
   final relative score is above 1e-6 (``hazard_mtp_properties.STALLED_SCORE``) is a recordable

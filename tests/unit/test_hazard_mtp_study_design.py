@@ -1027,12 +1027,12 @@ def _paired_ratios(
 
 @pytest.mark.parametrize("fit_label", study.DIFFERENCE_FITS)
 class TestTheFitsDifferPilot:
-    """The ``iterated_mean_difference`` readings of plan X70 section 5, reported and not gated.
+    """The ``iterated_mean_difference`` readings, reported with no floor.
 
     :func:`~tests.studies.hazard_mtp_properties.fits_differ_reading` states the paired ratios and
-    the decreasing share with its interval beside the plan's floors; no test asserts a floor,
-    because the owner's decision on the requirement is pending.  Each fit's coverage and SE
-    ratio are reported side by side.
+    the decreasing share with its interval.  X70 reports the agreement of the two fits instead
+    of requiring a gap (the owner's decision of 2026-11-13).  Each fit's coverage and SE ratio
+    are reported side by side.
     """
 
     @staticmethod
@@ -1079,16 +1079,13 @@ def test_the_mechanism_correct_ratios_are_reported() -> None:
     assert all(np.isfinite(value) and value > 0.0 for value in ratios.values()), ratios
 
 
-def test_the_reading_is_reported_with_the_floors_in_its_text() -> None:
-    """The floors are named constants that the reading's text quotes and no verdict reads."""
-    assert properties.PAIRED_DIFFERENCE_FLOOR == 0.05
-    assert properties.NON_MONOTONE_FLOOR == 0.10
+def test_the_agreement_reading_carries_no_floor() -> None:
+    """The reading states the ratios and the decreasing share with its interval, and no floor."""
     reading = properties.fits_differ_reading({"levels_contrast": 0.03, "levels_risk": 0.02}, 0, 200)
     assert not {key for key in reading if key.endswith("passes")}
     assert reading["largest_ratio"] == 0.03 and reading["contrast_ratio"] == 0.03
     assert reading["share_interval"] == (0.0, pytest.approx(0.0261, abs=1e-4))
-    assert "0.05" in reading["text"] and "0.1" in reading["text"]
-    assert "Reported, not gated" in reading["text"]
+    assert "floor" in reading["text"] and "0.05" not in reading["text"]
 
 
 # ---------------------------------------------------------------------------- cells and seeds
