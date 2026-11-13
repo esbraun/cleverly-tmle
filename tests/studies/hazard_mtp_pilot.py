@@ -21,8 +21,10 @@ label                              what it measures
                                    the correct mechanism
 ``wrong_learner_<fit>``            the wrong hazard learner and the correct mechanism on
                                    ``levels``, ``gaussian_density``, ``gaussian_classifier``,
-                                   ``gaussian_crossfit`` and ``vector`` at n = 2,000, 200 draws
+                                   ``gaussian_crossfit`` and ``vector`` at n = 2,000, 800 draws
                                    each: the fit's plug-in and targeted estimates
+``wrong_learner_gaussian_density_  the same on ``gaussian_density`` at n = 8,000, 400 draws: does
+n8000``                            the density route's standardized bias fall with n
 ``ic_gap``                         each fit label's influence-curve gap against the exact
                                    efficient influence function (5 draws at n = 2,000 and one
                                    at n = 20,000, the reported ``untruncated_density`` too), and
@@ -39,6 +41,11 @@ label                              what it measures
 Order of the runner work (plan X70 rev 2.4, design review d): the calibration pilots, one label
 per run and committed after each; then the row thread sets the replicate counts from them; then
 the declaration commit with no skipped design test; then the declared run.
+
+The wrong-learner labels first ran 200 draws.  Their reading left two arms unsized, so plan X70
+rev 2.7 raised them to 800 draws, before any declared cell ran.  A rerun refits draws 0 to 199
+on the same seeds, which depend only on the label and the draw, so it reproduces them up
+to rounding across machines (within 1e-9 when checked).
 
 A ``fits_differ`` row holds the hazard fit's ``estimate``, ``std_error`` and ``covered``, the
 iterated-mean fit's (``iterated_estimate``, ``iterated_std_error``, ``iterated_covered``) and
@@ -70,7 +77,11 @@ OUTPUT = study.STUDY.artifacts / "pilot.csv.gz"
 PILOT_N = 2_000
 FITS_DIFFER_DRAWS = 200
 MECHANISM_DIFFER_DRAWS = 200
-WRONG_LEARNER_DRAWS = 200
+WRONG_LEARNER_DRAWS = 800
+#: The n and draws of ``wrong_learner_gaussian_density_n8000``, the scaling check of the density
+#: route's wrong-learner bias (plan X70 rev 2.7, design re-review 2 of part (c)).
+SCALING_N = 8_000
+SCALING_DRAWS = 400
 CALIBRATION_DRAWS = 8_000
 #: Every fit label with a positive arm that fits the wrong hazard learner.
 WRONG_LEARNER_FITS = (
@@ -102,9 +113,12 @@ PILOTS: dict[str, tuple[str, int]] = {
     **{f"fits_differ_{fit}": (fit, FITS_DIFFER_DRAWS) for fit in study.DIFFERENCE_FITS},
     "fits_differ_mechanism_correct": ("levels", MECHANISM_DIFFER_DRAWS),
     **{f"wrong_learner_{fit}": (fit, WRONG_LEARNER_DRAWS) for fit in WRONG_LEARNER_FITS},
+    "wrong_learner_gaussian_density_n8000": ("gaussian_density", SCALING_DRAWS),
     **{f"calibration_{fit}": (fit, CALIBRATION_DRAWS) for fit in properties.CALIBRATION_FITS},
     "ic_gap": ("", len(IC_GAP_JOBS)),
 }
+#: The labels drawn at another n than :data:`PILOT_N`.
+PILOT_SIZES: dict[str, int] = {"wrong_learner_gaussian_density_n8000": SCALING_N}
 COLUMNS = (
     "label",
     "replicate",
@@ -250,7 +264,8 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         except Exception as error:  # a refusal is a pilot finding, recorded with its class
             return [_row(label, replicate, refusal=type(error).__name__)]
     fit_label, _ = PILOTS[label]
-    frame = properties.draw(fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate))
+    n = PILOT_SIZES.get(label, PILOT_N)
+    frame = properties.draw(fit_label, n, stream_seed(study.STUDY, "pilot", label, replicate))
     records = properties.FitRecords()
     try:
         if label == "fits_differ_mechanism_correct":
@@ -262,9 +277,9 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         else:
             rows = _estimate_rows(label, replicate, fit_label, records.hazard(fit_label, frame))
     except Exception as error:  # a refusal is a pilot finding, recorded with its class
-        return [_row(label, replicate, refusal=type(error).__name__)]
+        return [_row(label, replicate, n=n, refusal=type(error).__name__)]
     columns = records.columns()
-    return [{**row, **columns} for row in rows]
+    return [{**row, **columns, "n": n} for row in rows]
 
 
 def run(

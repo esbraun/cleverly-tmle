@@ -663,6 +663,29 @@ def _tolerated_bias(replicates: int) -> float:
     return MARGINS.standardized_bias - (z + float(norm.ppf(POSITIVE_PASS))) / np.sqrt(replicates)
 
 
+def _wrong_learner_errors(fit_label: str) -> np.ndarray:
+    """The pilot's targeted contrast errors of one wrong-learner fit label at n = 2,000.
+
+    On ``levels`` they pool ``fits_differ_mechanism_correct``, whose hazard fit is the same
+    wrong-learner fit on its own seeds (plan X70 rev 2.7).
+    """
+    label = f"{fit_label}_contrast"
+    name = properties.ESTIMAND[label]
+    rows = _pilot(f"wrong_learner_{fit_label}")
+    if rows.empty:
+        pytest.skip("the pilot has not been committed")
+    rows = rows.loc[rows["estimand"] == name]
+    assert rows["refusal"].fillna("").eq("").all()
+    assert len(rows) == pilot.WRONG_LEARNER_DRAWS
+    values = rows["wrong_targeted"].to_numpy(dtype=float)
+    if fit_label == "levels":
+        paired = _pilot("fits_differ_mechanism_correct")
+        paired = paired.loc[paired["estimand"] == name]
+        assert len(paired) == pilot.MECHANISM_DIFFER_DRAWS
+        values = np.concatenate([values, paired["estimate"].to_numpy(dtype=float)])
+    return values - properties.TRUTHS[label]
+
+
 def _independent_wrong_limit(current: law.Law, aim: law.Target) -> float:
     """The wrong learner's plug-in by a score solve with adaptive quadrature over the dose."""
 
@@ -929,18 +952,24 @@ class TestTheSizes:
         assert _tolerated_bias(properties.RATE_REPLICATES) == pytest.approx(0.0767, abs=1e-3)
 
     @pytest.mark.parametrize("fit_label", pilot.WRONG_LEARNER_FITS)
-    def test_the_wrong_learner_arms_pass_at_the_pilot_bias(self, fit_label: str) -> None:
-        """Each positive arm that fits the wrong hazard learner, read at its pilot.
+    def test_the_wrong_learner_arms_are_sized_by_the_pilot_rule(self, fit_label: str) -> None:
+        """Each positive arm that fits the wrong hazard learner takes the pre-committed size.
 
-        The arm is read at the pilot's standardized bias plus one of its standard errors.
+        Plan X70 rev 2.7 (design re-review 2 of part (c)) fixed the rule before the 800-draw
+        reading: the arm's replicates are the larger of
+        :data:`~tests.studies.hazard_mtp_properties.DOUBLE_ROBUST_REPLICATES` and the smallest
+        multiple of 400 that passes with :data:`POSITIVE_PASS` at the pilot's |standardized
+        bias| plus one of its standard errors, with no cap; a reading that needs more than
+        4,000 stops the declaration for a diagnosis.  On ``levels`` the reading pools the
+        ``fits_differ_mechanism_correct`` draws, the same hazard fit on its own seeds.
         """
-        rows = _pilot(f"wrong_learner_{fit_label}")
-        if rows.empty:
-            pytest.skip("the pilot has not been committed")
-        label = f"{fit_label}_contrast"
-        rows = rows.loc[rows["estimand"] == properties.ESTIMAND[label]]
-        error = rows["wrong_targeted"].to_numpy(dtype=float) - properties.TRUTHS[label]
+        error = _wrong_learner_errors(fit_label)
         standardized = abs(error.mean()) / error.std(ddof=1) + 1.0 / np.sqrt(error.size)
+        needed = int(properties.DOUBLE_ROBUST_REPLICATES)
+        while sizing.bias_equivalent_probability(MARGINS, standardized, needed) < POSITIVE_PASS:
+            needed += 400
+        assert needed <= 4_000, (fit_label, standardized, needed)
+        label = f"{fit_label}_contrast"
         cells = [
             cell
             for cell in POSITIVE_ARMS
@@ -950,10 +979,31 @@ class TestTheSizes:
             cells.append(f"{CONTRAST}__targeted")
         assert cells
         for cell in cells:
-            probability = sizing.bias_equivalent_probability(
-                MARGINS, standardized, POSITIVE_ARMS[cell]
-            )
-            assert probability >= POSITIVE_PASS, (cell, probability)
+            assert POSITIVE_ARMS[cell] == needed, (cell, standardized)
+
+    def test_the_density_route_bias_does_not_grow_with_n(self) -> None:
+        """The scaling check of the density route's wrong-learner bias (plan X70 rev 2.7).
+
+        A finite-sample remainder's standardized bias falls like :math:`n^{-1/2}`; a binning
+        bias of order :math:`n^{-1/6}` grows like :math:`n^{1/3}` in SE units.  The rule fixed
+        before the reading: the density route is a defect suspect, and the declaration stops,
+        when its standardized bias at n = 8,000 is at least the one at n = 2,000 and more than
+        two of its standard errors from zero.
+        """
+        small = _wrong_learner_errors("gaussian_density")
+        rows = _pilot("wrong_learner_gaussian_density_n8000")
+        if rows.empty:
+            pytest.skip("the pilot has not been committed")
+        rows = rows.loc[rows["estimand"] == properties.ESTIMAND["gaussian_density_contrast"]]
+        assert rows["refusal"].fillna("").eq("").all()
+        assert len(rows) == pilot.SCALING_DRAWS
+        assert (rows["n"] == pilot.SCALING_N).all()
+        large = rows["wrong_targeted"].to_numpy(dtype=float)
+        large = large - properties.TRUTHS["gaussian_density_contrast"]
+        small_bias = abs(small.mean()) / small.std(ddof=1)
+        large_bias = abs(large.mean()) / large.std(ddof=1)
+        suspect = large_bias >= small_bias and large_bias > 2.0 / np.sqrt(large.size)
+        assert not suspect, (small_bias, large_bias)
 
     def test_the_positive_arms_follow_the_calibration_pilot(self) -> None:
         """The ``both_correct`` and ``outcome_correct`` arms and the claimed rungs, at the pilot."""
