@@ -155,3 +155,20 @@ def test_the_quoted_pricing_numbers() -> None:
         rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
         assert _cp_lower(rows["covered_shipped"]) == pytest.approx(lower, abs=5e-5)
         assert _cp_lower(rows["covered_shipped"]) >= 0.90 > _cp_lower(rows["covered_committed"])
+
+
+def test_the_learned_rule_conservative_cell_falls_below_its_floor() -> None:
+    """A green cell the logit interval turns red: 0.940 becomes 0.9375 against a floor of 0.92.
+
+    The learned-rule value of the three-arm law sits near 0.72, far from its bounds, and three
+    of 1,200 fits lose coverage.  The exact interval's lower end moves from 0.9201 to 0.9173.
+    """
+    frame = audit.read(audit.record_for("learned-rule-arms"))
+    rows = frame.loc[frame["cell"] == "missing_quadratic__declared"]
+    assert len(rows) == 1_200
+    assert rows["covered_committed"].mean() == pytest.approx(0.94)
+    assert rows["covered_shipped"].mean() == pytest.approx(0.9375)
+    assert _cp_lower(rows["covered_committed"]) == pytest.approx(0.9201, abs=5e-5)
+    assert _cp_lower(rows["covered_shipped"]) == pytest.approx(0.9173, abs=5e-5)
+    floor = audit.record_for("learned-rule-arms").margins.calibration_coverage[0]
+    assert _cp_lower(rows["covered_shipped"]) < floor <= _cp_lower(rows["covered_committed"])

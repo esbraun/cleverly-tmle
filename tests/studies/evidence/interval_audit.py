@@ -368,11 +368,26 @@ def _pricing_audit() -> Audit:
     )
 
 
+def _learned_rule_audit() -> Audit:
+    # No scan: every arm of the law has probability at least 0.166 on its support, so each arm
+    # holds hundreds of rows at n = 2,000 and a constant arm cell is negligible.  The derived
+    # controls build their own intervals and stay out.
+    return Audit(
+        truth={"three_arms": ("ey_learned_rule[learned rule]",)},
+        cells=(
+            "interval_calibration/three_arms__declared",
+            "conservative_coverage/missing_quadratic__declared",
+            "targeting_necessity/drop_w1__targeted",
+        ),
+    )
+
+
 #: Study slug to the factory of its audit declaration.
 AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
     "mtp-pricing": _pricing_audit,
+    "learned-rule-arms": _learned_rule_audit,
 }
 
 
