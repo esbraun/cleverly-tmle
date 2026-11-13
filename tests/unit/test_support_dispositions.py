@@ -140,7 +140,7 @@ class TestDefaults:
 
     @pytest.mark.parametrize(
         "owner",
-        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "RM18-one-sided-bias", "F28", "F27"],
+        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "RM18-one-sided-bias", "F27"],
     )
     def test_the_flagged_experimental_owners_are_flagged(self, owner: str) -> None:
         (entry,) = self.draft(
@@ -157,7 +157,7 @@ class TestDefaults:
         assert "no default for owner X41-negative-control" in entry.flag
 
     def test_a_family_with_no_kind_rule_is_flagged(self) -> None:
-        (entry,) = self.draft(positive("study-a", "property", "other/x", owner="F28"))
+        (entry,) = self.draft(positive("study-a", "property", "other/x", owner="F27"))
         assert "no kind rule" in entry.flag
 
 
@@ -197,7 +197,7 @@ class TestRender:
                 positive(
                     "study-a", "property", "interval_calibration/x", owner="X13-finite-sample"
                 ),
-                positive("study-a", "property", "interval_calibration/y", owner="F28"),
+                positive("study-a", "property", "interval_calibration/y", owner="F27"),
             ],
             ROWS,
         )
@@ -208,7 +208,7 @@ class TestRender:
 
     def test_a_pipe_in_a_cell_does_not_split_the_table_row(self) -> None:
         entries = sd.draft_entries(
-            [positive("study-a", "property", "interval_calibration/x|y", owner="F28")], ROWS
+            [positive("study-a", "property", "interval_calibration/x|y", owner="F27")], ROWS
         )
         line = next(row for row in sd.render_draft(entries).splitlines() if "study-a" in row)
         assert line.count("|") == 9

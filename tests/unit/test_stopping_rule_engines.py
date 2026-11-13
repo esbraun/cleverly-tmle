@@ -464,7 +464,8 @@ class TestFoldSolvesCountTheirOwnUnits:
             )
 
     def test_the_common_update_fit_uses_every_unit(self, frame: Any) -> None:
-        result = self._fit(frame, cv_evaluation=True)
+        # The treated counts differ across these equal clusters, so att and atc refuse.
+        result = self._fit(frame, cv_evaluation=True, estimands=("ate", "ey1", "ey0"))
         np.testing.assert_allclose(
             result.fluctuations["mean"].thresholds, 1.0 / frame["cluster"].nunique(), rtol=1e-12
         )

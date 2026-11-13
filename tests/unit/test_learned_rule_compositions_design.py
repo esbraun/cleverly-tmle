@@ -88,3 +88,22 @@ def test_the_few_cluster_controls_use_the_fit_scale() -> None:
     assert bound == pytest.approx(properties.FEW_CLUSTER_BOUND, abs=2e-6)
     clusters = properties.FEW_CLUSTER_N // law.CLUSTER_SIZES["clustered_few"]
     assert properties.FEW_CLUSTER_DF == min(clusters - 2, clusters - law.N_FOLDS) == 20
+
+
+def test_the_clustered_fold_evaluated_fit_reads_t_with_j_minus_v() -> None:
+    """The clustered calibration fit at 200 clusters in 10 folds reports ``J - V = 190`` df.
+
+    Fix-4 (d) moved it from the normal reference; a later change that silently returned the
+    normal reference would read ``None`` here. One draw of the declared clustered cell.
+    """
+    from tests.studies import _learned_rule_law as base
+
+    (key,) = [
+        key
+        for key in properties._payloads(study.STUDY, 1)
+        if key[0][0] == "interval_calibration" and key[0][7] == "clustered"
+    ]
+    result, _, _ = law.measured(
+        properties._draw(key), "clustered", base.outcome_learner(), key[0][6]
+    )
+    assert result.estimates[law.ESTIMAND].reference_df == 190

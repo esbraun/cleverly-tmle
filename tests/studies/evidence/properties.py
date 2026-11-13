@@ -1097,7 +1097,7 @@ def se_ratio_deficit_interval(
 
 @dataclass(frozen=True)
 class PairedSpreadRatio:
-    """A paired spread ratio and its percentile-bootstrap interval."""
+    """A paired ratio, of spreads or of mean standard errors, and its percentile interval."""
 
     ratio: float
     interval: Interval
@@ -1165,6 +1165,83 @@ def paired_spread_ratio_interval(
     return PairedSpreadRatio(
         ratio=float(observed_spreads[0] / observed_spreads[1]),
         interval=percentile_interval(ratios, confidence_level=confidence_level),
+    )
+
+
+def paired_se_ratio_interval(
+    numerator: pd.DataFrame,
+    denominator: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> PairedSpreadRatio:
+    """Bootstrap the ratio of two arms' mean standard errors, paired on replication.
+
+    ``mean(numerator SE) / mean(denominator SE)`` over the replications both arms kept. The
+    bootstrap draws paired rows with one shared index matrix, as
+    :func:`paired_spread_ratio_interval` does, so a draw keeps the dependence between the two
+    SEs of one fit. The few-cluster IID control reads the IID SE over the cluster SE of the same
+    fits (``few_cluster_reference_verdicts``).
+
+    Parameters
+    ----------
+    numerator : pandas.DataFrame
+        One arm's rows, with ``replicate`` and ``std_error``.
+    denominator : pandas.DataFrame
+        The other arm's rows, with the same columns.
+    replicates : int
+        Bootstrap replicates.
+    confidence_level : float
+        The interval's coverage.
+    seed : int
+        The resampling seed.
+
+    Returns
+    -------
+    PairedSpreadRatio
+        The point ratio and its percentile-bootstrap interval.
+
+    Raises
+    ------
+    ValueError
+        When the arms are not paired, a standard error is not finite and positive, or fewer
+        than two replications pair.
+    """
+    for label, frame in (("numerator", numerator), ("denominator", denominator)):
+        missing = {"replicate", "std_error"}.difference(frame.columns)
+        if missing:
+            raise ValueError(f"the {label} is missing required columns {sorted(missing)}")
+        if frame["replicate"].duplicated().any():
+            raise ValueError(f"the {label} contains duplicate replication keys")
+    numerator, denominator = paired(numerator, denominator)
+    ordered_numerator = numerator.sort_values("replicate")
+    ordered_denominator = denominator.sort_values("replicate")
+    if not np.array_equal(
+        ordered_numerator["replicate"].to_numpy(), ordered_denominator["replicate"].to_numpy()
+    ):
+        raise ValueError("the numerator and denominator are not paired on replication")
+    if len(ordered_numerator) < 2:
+        raise ValueError("a paired SE ratio needs at least two paired replications")
+    values = np.column_stack(
+        [
+            ordered_numerator["std_error"].to_numpy(dtype=float),
+            ordered_denominator["std_error"].to_numpy(dtype=float),
+        ]
+    )
+    if not (np.isfinite(values).all() and (values > 0.0).all()):
+        raise ValueError("the paired standard errors must all be finite and positive")
+    rng = np.random.default_rng(seed)
+    means = np.concatenate(
+        [
+            draws.mean(axis=1)
+            for draws in bootstrap_draw_blocks(values, replicates=replicates, rng=rng)
+        ]
+    )
+    observed = values.mean(axis=0)
+    return PairedSpreadRatio(
+        ratio=float(observed[0] / observed[1]),
+        interval=percentile_interval(means[:, 0] / means[:, 1], confidence_level=confidence_level),
     )
 
 

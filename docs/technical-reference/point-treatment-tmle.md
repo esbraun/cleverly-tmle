@@ -579,8 +579,14 @@ These requests with `strata=` refuse before any learner:
 change the estimand. The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li
 (2024), Section 2, at equal or unequal cluster sizes. Pass `weights` equal to one over the
 cluster size to estimate the cluster-average mean $\mu_C$. Below 40 clusters with positive weight
-mass the interval uses a Student $t$ reference, and below 10 the fit withholds it
-([clusters](inference.md#clusters)).
+mass the interval uses a Student $t$ reference, a fold-evaluated estimate uses $t_{J-V}$ at every
+cluster count, and below 3 clusters the fit withholds the interval ([clusters](inference.md#clusters)).
+`cv_evaluation=True` refuses a clustered fit without a learned rule, before any learner, when the
+clusters differ in a requested estimand's denominator mass: the total weight, or the row count
+when unweighted, for the means and the ATE, the treated mass for the ATT and the control mass for
+the ATC. The refusal has code `api_redirection` and names the stacked report, which estimates the
+same parameter without the ratio bias of the equal fold average
+([clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass)).
 
 A fit with a declared missing treatment admits fixed weights, clusters and baseline strata, as the
 missing-outcome TMLE does. The weights tilt the law, and the composite mechanism is the tilted
@@ -1418,17 +1424,20 @@ regime.
 | --- | --- | --- |
 | `targeting_scheme="fold"` | each validation fold fits its own $\varepsilon_v$ on its own rows, so each fold's score is solved exactly. The estimate and the variance keep the form above | Montoya (2023b), Section 3.2, Step 2(c), and Section 4.2. That each fold's remainder is then its own second-order term under C3 and C4 is this package's step |
 | `weights=` | the target is the fold-average value in the weighted population of [weights, strata, and clusters](#weights-strata-and-clusters). The rule is the plug-in of the weighted outcome regression, so it is the rule of the weighted population. Each validation fold normalises its weights, its estimate $\psi^*_{nv}$ is the weighted mean over its rows, and its curve term is $(w_i/\bar w_v) D_i$ | the shipped weighted fold-evaluated fit. Weighted and unweighted rules differ in the limit only when the outcome regression is misspecified or the weight depends on the outcome |
-| `id=` | the cluster is the unit. Folds move whole clusters, so each rule is learned on training clusters. Each fold term is the centred variance of the fold's cluster totals, with the few-cluster $t$ reference of [CV-TMLE](cv-tmle.md) | the shipped clustered fold-evaluated fit |
+| `id=` | the cluster is the unit. Folds move whole clusters, so each rule is learned on training clusters. Each fold term is the centred variance of the fold's cluster totals, with a $t$ reference on $J-V$ degrees of freedom at every cluster count ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). The fit stays experimental at unequal cluster sizes | the shipped clustered fold-evaluated fit |
 
 A cluster effect on the outcome makes a main-terms outcome learner misspecified for the row-level
 regression, which averages over the effect. The interval then rests on condition C4 through a
 correct treatment model. When cluster sizes depend on the outcome, the fold-evaluated point carries
-the ratio bias that [CV-TMLE](cv-tmle.md) measures. For an unweighted fit the bias vanishes at
-equal sizes. A weighted fold mean is a ratio of weighted sums at any sizes.
+the ratio bias of [clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass). For an
+unweighted fit the bias vanishes at equal sizes. A weighted fold mean is a ratio of weighted sums
+at any sizes. The learned-rule value is exempt from the refusal that bias triggers elsewhere,
+because its target is defined by the $1/V$ average, and the stacked report is a different
+data-adaptive target rather than a redirect.
 
 The [compositions study](method-evidence/learned-rule-compositions.md) measures each setting at
 n = 2,000, and its fits read supported. Coverage is 0.9427 under fold targeting, 0.9537 with
-known weights at `misspecified_limit`, and 0.9445 at 200 equal clusters of 10. At 30 clusters the
+known weights at `misspecified_limit`, and 0.9465 at 200 equal clusters of 10. At 30 clusters the
 t interval covers 0.9400 to 0.9528. The study draws equal cluster sizes only, so its key marks a
 learned-rule fit with unequal sizes (`unequal_clusters`), and such a fit reads experimental. A
 fit with both weights and clusters also reads experimental, because no cell measures it. Weights
@@ -1796,7 +1805,8 @@ $\tilde\psi^{s}_{0n}$.
 The stacked report motivates its own use with clusters. When cluster sizes depend on the outcome,
 the fold-evaluated point carries a ratio bias of order $V/J$, and the stacked point a smaller one:
 at 200 clusters in 5 folds the [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md)
-measured 0.13 and 0.02 empirical SDs for the arm-indexed fit it reads ([CV-TMLE](cv-tmle.md)).
+measured 0.13 and 0.02 empirical SDs for the arm-indexed fit it read before `cv_evaluation=True`
+refused such clusters ([clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass)).
 
 The registered [stacked study](method-evidence/learned-rule-stacked.md) calibrates the stacked
 learned-rule interval at nominal n = 2,000 with ten folds and the RM30 logistic learners, in
