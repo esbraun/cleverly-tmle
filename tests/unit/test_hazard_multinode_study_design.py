@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import itertools
 import warnings
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -140,8 +140,8 @@ class TestTheTruths:
             "base_rule": 0.373959,
             "base_policy": 0.398387,
             "base_stay": 0.408532,
-            "five_contrast": -0.275896,
-            "five_policy": 0.570281,
+            "five_contrast": -0.099037,
+            "five_policy": 0.787460,
             "msm_dose": -0.500912,
             "msm_dose_W1": 0.253667,
         }
@@ -156,7 +156,7 @@ class TestTheTruths:
             for label in ("rule", "policy", "stay"):
                 assert min(abs(current.risk(label, last) - value) for value in static) > 0.02
 
-    @pytest.mark.parametrize(("law_name", "expected"), [("base", 0.0196), ("five", 0.0110)])
+    @pytest.mark.parametrize(("law_name", "expected"), [("base", 0.0196), ("five", 0.0182)])
     def test_the_bounds_never_bind(self, law_name: str, expected: float) -> None:
         """Every path keeps its cumulative treatment and retention probability ten times above
         the declared bound, so no clipping touches a fit.  The shipped default would sit
@@ -175,6 +175,35 @@ class TestTheTruths:
         assert smallest == pytest.approx(expected, abs=1e-4)
         assert smallest >= 10.0 * study.G_BOUNDS
         assert smallest < 2.0 * DEFAULT_LTMLE_G_BOUNDS[0]
+
+    @pytest.mark.parametrize("law_name", list(law.LAWS))
+    def test_the_prefix_cells_stay_populated(self, law_name: str) -> None:
+        """At n = 2,000 a fit holds a prefix cell with probability below 0.005.
+
+        The shipped fit holds a cell of the units at risk with one treatment prefix at zero
+        when none has the event, and at one when all do, and every regimen that reads it then
+        reports no interval.  The expected count of held cells over every node and prefix is
+        :math:`\\sum_c (1 - e_c)^n + (1 - (p_c - e_c))^n - 2 (1 - p_c)^n`, with :math:`p_c` the
+        mass of cell :math:`c` over the support and :math:`e_c` the mass of its events.
+        """
+        current = law.LAWS[law_name]
+        cells: dict[tuple[int, tuple[int, ...]], list[float]] = {}
+        for row, mass in current.support():
+            for node in range(1, current.n_times + 1):
+                base = 2 + 3 * (node - 1)
+                if np.isnan(row[base]) or row[base + 1] == 0.0:
+                    break
+                prefix = tuple(int(row[2 + 3 * (k - 1)]) for k in range(1, node + 1))
+                cell = cells.setdefault((node, prefix), [0.0, 0.0])
+                cell[0] += mass * float(row[base + 2] == 1.0)
+                cell[1] += mass
+        n = study.PRIMARY_N
+        held = sum(
+            (1.0 - event) ** n + (1.0 - (total - event)) ** n - 2.0 * (1.0 - total) ** n
+            for event, total in cells.values()
+        )
+        assert len(cells) == 2 ** (current.n_times + 1) - 2
+        assert held < 0.005, held
 
 
 class TestTheBounds:
@@ -214,8 +243,8 @@ class TestTheBounds:
             "base_rule": 0.789002,
             "base_policy": 0.559790,
             "base_stay": 0.749446,
-            "five_contrast": 2.528426,
-            "five_policy": 0.621779,
+            "five_contrast": 2.823123,
+            "five_policy": 0.579448,
             "msm_dose": 3.128782,
             "msm_dose_W1": 3.248549,
         }
@@ -229,7 +258,7 @@ class TestTheBounds:
 class _Recorder(law.HistoryLogistic):
     """The correct learner, recording the width and last column of each design it fits."""
 
-    seen: list[tuple[int, np.ndarray]] = []
+    seen: ClassVar[list[tuple[int, np.ndarray]]] = []
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _Recorder:
         matrix = np.asarray(X, dtype=float)
@@ -317,9 +346,11 @@ class TestTheRobustnessCells:
             for configuration in ("outcome_correct", "mechanism_correct"):
                 result = exact_fits[(fit, configuration)]
                 for label, name in properties.COEFFICIENTS[fit]:
-                    assert result[name].psi == pytest.approx(
-                        properties.TRUTHS[label], abs=EXACT
-                    ), (fit, configuration, label)
+                    assert result[name].psi == pytest.approx(properties.TRUTHS[label], abs=EXACT), (
+                        fit,
+                        configuration,
+                        label,
+                    )
 
     def test_the_both_wrong_control_is_discriminated(
         self, exact_fits: dict[tuple[str, str], Any]
@@ -366,11 +397,17 @@ WRONG_GAPS = {
     "base_rule": 0.457,
     "base_policy": -1.012,
     "base_stay": -0.962,
-    "five_contrast": 1.822,
-    "five_policy": -0.701,
+    "five_contrast": 0.543,
+    "five_policy": -0.080,
     "msm_dose": 4.643,
     "msm_dose_W1": -3.492,
 }
+
+
+#: The cell labels whose wrong-learner plug-in is zero in every sample: the coefficient of
+#: ``d W1``, since the wrong hazards do not depend on ``W``.  The robustness cell then reads
+#: the targeting alone.
+ZERO_PLUG_INS = ("msm_dose_W1",)
 
 
 def _tolerated_bias(replicates: int) -> float:
@@ -441,6 +478,11 @@ class TestTheWrongHazardLearner:
             assert arm["refusal"].fillna("").eq("").all()
             assert len(arm) == pilot.WRONG_LEARNER_DRAWS
             values = arm["wrong_plug_in"].to_numpy(dtype=float)
+            if label in ZERO_PLUG_INS:
+                # No W in the hazards, so every cell risk is the same in each stratum.
+                assert properties.wrong_limit(label) == 0.0
+                assert np.max(np.abs(values)) < 1e-10, label
+                continue
             assert np.var(values, ddof=1) > 0.0
             error = np.std(values, ddof=1) / np.sqrt(values.size)
             assert abs(values.mean() - properties.wrong_limit(label)) < 3.0 * error, label
@@ -547,7 +589,7 @@ class TestTheSizes:
         for label, _ in properties.COEFFICIENTS[fit]:
             assert POSITIVE_ARMS[f"{label}__mechanism_correct"] == max(needs.values())
         if fit == "base":
-            assert properties.NECESSITY_REPLICATES == needs[CONTRAST]
+            assert needs[CONTRAST] == properties.NECESSITY_REPLICATES
             assert POSITIVE_ARMS[f"{CONTRAST}__targeted"] == needs[CONTRAST]
 
     def test_the_positive_arms_follow_the_calibration_pilot(self) -> None:

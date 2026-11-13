@@ -63,10 +63,11 @@ PRIMARY_N = 2_000
 SEED = 20261115
 RESAMPLING_SEED = 2026111501
 
-#: The targeting algorithm of the regimen fits: the per-horizon walk, the shipped default.  The
-#: one-step walk over every target of the five ``base`` regimens takes 10,000 to 14,000 steps
-#: at n = 2,000 (160 to 250 seconds a fit): the rule's and "stay"'s targets lie close to
-#: combinations of always's and never's, which the walk's diagonal metric crosses slowly.
+#: The targeting algorithm of the regimen fits: the per-horizon walk, the shipped default, at
+#: about 1.5 seconds a ``base`` fit at n = 2,000.  On one such draw the one-step walk took 250
+#: seconds over the five ``base`` regimens, and 10,776 steps over always, never, the rule and
+#: the policy, against 166 over always and "stay"; the rule follows only the paths of always
+#: and never.
 ALGORITHM = "iterative"
 #: The working model's fit takes the one-step walk, the only one that targets its scores.
 MSM_ALGORITHM = "one_step"
@@ -129,7 +130,9 @@ def truths(fit_label: str) -> dict[str, float]:
     _, labels, msm = FITS[fit_label]
     if msm:
         beta = law.exact_beta(current)
-        return {law.coefficient_name(term): float(b) for term, b in zip(law.TERMS, beta, strict=True)}
+        return {
+            law.coefficient_name(term): float(b) for term, b in zip(law.TERMS, beta, strict=True)
+        }
     out: dict[str, float] = {}
     for t in range(1, current.n_times + 1):
         reference = current.risk(REFERENCE, t)
@@ -303,9 +306,19 @@ def learners(configuration: str = "both_correct") -> dict[str, Any]:
     }
 
 
+_SPARSE = (
+    "the influence curve of a static arm's risk by the last node is carried by the few units "
+    "that followed the arm to an event, whose weight is the inverse of a cumulative treatment "
+    "and retention probability as small as 0.02, so the variance estimate's relative SD passes "
+    "0.125 on every draw at n = 2,000 (Kish size about 15 for always at node 3 on base); the "
+    "calibration rows read the resulting intervals"
+)
 #: The warning classes a fit label is expected to raise, filtered by name, with why.  Every
 #: other warning a fit raises is counted in its rows (``unexpected_warnings``).
-EXPECTED_WARNINGS: dict[str, dict[str, str]] = {}
+EXPECTED_WARNINGS: dict[str, dict[str, str]] = {
+    "base": {"SparseInfluenceWarning": _SPARSE},
+    "five": {"SparseInfluenceWarning": _SPARSE},
+}
 
 
 @dataclass(frozen=True)

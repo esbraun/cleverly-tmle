@@ -646,7 +646,9 @@ def cells_of(key: _Key) -> list[str]:
         return names
     if family == "double_robustness":
         if label != "base":
-            return [f"{family}/{cell_label}__{configuration}" for cell_label, _ in COEFFICIENTS[label]]
+            return [
+                f"{family}/{cell_label}__{configuration}" for cell_label, _ in COEFFICIENTS[label]
+            ]
         names = [f"{family}/{CONTRAST}__{configuration}"]
         if configuration == "mechanism_correct":
             names += [

@@ -26,8 +26,8 @@ with :math:`A_0 = 0`.  This is the base law of plan X70 section 4.3: the treatme
 logistic regression on those columns is correctly specified and not saturated: the factors
 leave every earlier arm but the last out, and every interaction out.  :data:`BASE` has three
 nodes and :data:`FIVE` has five, for the policy whose 32 paths the fit enumerates; the five-node
-law takes a weaker treatment mechanism (:data:`FIVE_MECHANISM`), so that no path's cumulative
-treatment and retention probability falls near the declared bound.
+law has the same form with its own coefficients (:data:`FIVE_MECHANISM`, :data:`FIVE_HAZARD`),
+so that every treatment prefix keeps units at risk and events at n = 2,000.
 
 **The regimens** (:data:`REGIMENS`) are the static arms ``always`` and ``never``, the known
 rule ``rule`` (treat at every node when :math:`W_2 \ge 2`), the known policy ``policy``
@@ -78,7 +78,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import DynamicRegimen
-from cleverly.msm import MSM, MSMLink
+from cleverly.msm import MSM
 
 #: The baseline strata and their mass.
 STRATA = tuple((w1, w2) for w1 in (0, 1) for w2 in (0, 1, 2, 3))
@@ -367,20 +367,26 @@ MECHANISM: dict[str, Any] = {
     "later": (-1.4, 0.3, 0.45, 1.3),
     "dropout": (-3.4, 0.3, 0.15, 0.25, 0.2),
 }
-#: The treatment mechanism of the five-node law: the same form with weaker dependence, so that
-#: every one of its 32 paths keeps a cumulative treatment and retention probability of at least
-#: 0.011 in every stratum (the three-node law's smallest is 0.020).
-FIVE_MECHANISM: dict[str, Any] = {
-    "first": (-0.4, 0.3, 0.15),
-    "later": (-0.2, 0.1, 0.05, 0.4),
-    "dropout": MECHANISM["dropout"],
-}
-#: The event hazard of both laws.
+#: The event hazard of the three-node law.
 HAZARD = (-2.2, 0.1, 0.4, 0.35, -0.55, -0.45)
+#: The factors of the five-node law.  The shipped hazard fit holds a prefix cell at zero when
+#: none of the units at risk with that treatment prefix has the event (and at one when all of
+#: them do), and a regimen that reads a held cell reports no interval.  The policy reads all
+#: 32 prefixes at node 5, so the five-node law keeps every prefix populated at n = 2,000: the
+#: treatment is close to balanced, dropout is rarer, and the hazard rises from about 0.05 at
+#: node 1 to about 0.5 at node 5, with smaller arm effects.  The expected number of held cells
+#: per fit at n = 2,000 is about 0.002 (``tests/unit/test_hazard_multinode_study_design.py``).
+#: Every path keeps a cumulative treatment and retention probability of at least 0.018.
+FIVE_MECHANISM: dict[str, Any] = {
+    "first": (0.0, 0.2, 0.0),
+    "later": (-0.1, 0.1, 0.0, 0.2),
+    "dropout": (-4.0, 0.3, 0.15, 0.25, 0.2),
+}
+FIVE_HAZARD = (-3.0, 0.75, 0.2, 0.15, -0.25, -0.15)
 #: The primary law: three nodes.
 BASE = Law("base", 3, hazard=HAZARD, **MECHANISM)
 #: The five-node variant for the enumerated policy (32 paths).
-FIVE = Law("five", 5, hazard=HAZARD, **FIVE_MECHANISM)
+FIVE = Law("five", 5, hazard=FIVE_HAZARD, **FIVE_MECHANISM)
 LAWS = {"base": BASE, "five": FIVE}
 
 
@@ -507,7 +513,7 @@ def working_model() -> MSM:
     return MSM(
         design=cast(Callable[[Any, Any], Any], design),
         terms=TERMS,
-        link=cast(MSMLink, "logit"),
+        link="logit",
         design_kind="known",
     )
 

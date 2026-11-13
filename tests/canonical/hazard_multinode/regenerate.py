@@ -65,7 +65,11 @@ is re-sized, re-drawn or downgraded after a verdict is seen.
   replicates is a defect suspect (``convergence_defect_suspect``; the count adds the cell's
   lost replicates, so it can only over-state), does not pass, and blocks the pull request.
   The summary also counts ``nonconverged_fits`` and ``unexpected_warning_fits`` per cell.
-* No warning class is expected on any fit label.  A warning is counted in
+* ``SparseInfluenceWarning`` is expected on the ``base`` and ``five`` regimen fits, where it
+  fires on every draw at n = 2,000: a static arm's risk by the last node reads its influence
+  curve from few weighted units (``canonical_hazard_multinode.EXPECTED_WARNINGS``).  A red
+  calibration row there is still read by the calibration bullet above, never excused by the
+  warning.  On ``msm`` it is unexpected.  Every unexpected warning is counted in
   ``unexpected_warnings`` and reported; no verdict reads that count.
 * A replication that raises is never redrawn.  A recordable failure costs its replicate under
   the declared bound of 0.01; a cell past its bound takes the route above with the count stated.
