@@ -1103,7 +1103,8 @@ def fit_hazards(
     Parameters
     ----------
     data : LongitudinalData
-        A survival panel of a held design with no covariate after baseline.
+        A survival panel of a held design.  A covariate block at a node up to ``k`` enters
+        the node-``k`` design through the mechanism history.
     levels : sequence of Plan
         One plan per treatment level, from :func:`level_plans`.
     learner : object

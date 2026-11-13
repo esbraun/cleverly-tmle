@@ -6983,7 +6983,8 @@ class LTMLE(_SequentialEstimator):
     pseudo_learner : object or None
         Learner specification for the intermediate regressions, whose outcome is a
         ``[0, 1]``-valued prediction rather than the outcome itself.  It defaults to
-        ``outcome_learner``'s library read as a regression.
+        ``outcome_learner``'s library read as a regression.  A hazard fit uses it only on a
+        design with covariates measured after baseline, and refuses it otherwise.
     treatment_learner : object or None
         Learner specification for the treatment mechanism at each node, as for
         :class:`~cleverly.TMLE`.
@@ -7128,9 +7129,11 @@ class LTMLE(_SequentialEstimator):
         How a survival curve is modelled.  ``"iterated_mean"`` runs one backward
         recursion per horizon, and its curve can decrease.  ``"hazard"`` fits the
         cause-specific hazard at every node and targets it (Moore and van der Laan 2009;
-        Cai and van der Laan 2020).  It needs one baseline treatment held over every node,
-        categorical, and no covariate after baseline; other designs are refused before any
-        learner.  The outcome learner is then the hazard learner.
+        Cai and van der Laan 2020).  It needs one baseline treatment held over every node;
+        other designs are refused before any learner.  The outcome learner is then the
+        hazard learner.  With covariates measured after baseline it needs
+        ``targeting="one_step"``, and ``pseudo_learner`` fits each node's regression of the
+        future (Rytgaard, Gerds and van der Laan 2022).
     targeting : {"iterative", "one_step"}
         The hazard targeting algorithm.  ``"iterative"`` targets each horizon on its own,
         restarting from the initial hazards.  ``"one_step"`` walks one set of hazards until

@@ -925,7 +925,7 @@ interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the 
 `LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
 in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.
 Through a study, pass `ModelSpec(hazard_pooling="pooled")`. The option needs one baseline
-treatment and no covariate measured after baseline.
+treatment and no covariate measured after the first time point.
 
 `LTMLE(node_bounds={t: (lower, upper)})` declares the known range of the outcome regression at chosen
 nodes, keyed by grid time. Through a study, pass `Targeting(node_bounds=...)`. The node's
