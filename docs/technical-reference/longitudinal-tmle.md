@@ -1834,6 +1834,12 @@ do, so the outcome regression conditions on every arm the mechanism reads. `lmtp
 them at $t-k$, so `markov_order=k` holds one more arm in the outcome regression than `lmtp` at
 the same $k$. Indices below 1 are dropped.
 
+On a held design, one baseline decision $A$ held over
+every node, the arm of every window node is $A$, so every design with a non-empty arm range keeps
+$A$'s block at every node: the observed arm in a mechanism, and the rule or policy block in an
+outcome regression. Without it, retention that depends on $A$ and the outcome regression under a
+rule or policy of $L_1$ would both pool over the arms.
+
 When the restriction is false, the nuisance fits converge to projections on the window. The fit
 is consistent when one nuisance family, fitted on the window, is consistent. That family needs the
 restriction to hold for it. The interval needs the restriction and a consistent fit for both
@@ -1855,6 +1861,12 @@ whose outcome reads a rule arm at $t-k-1$, order 0 returns the truth through the
 regressions. A window one node short, a dropped rule block and an arm window that starts at
 $t-k$ each fail an exact-law check. `SDR` reads the same designs, and the
 same file runs the witnesses and the rule-block control on `SDR`.
+
+On a held law whose retention,
+covariates and outcome read $A$, order 0 returns the truth at $10^{-10}$ for a static plan, a rule
+and a policy of $L_1$: `LTMLE` and `SDR` with both families right and with either family wrong,
+`SequentialGComputation` and `SequentialIPW`. A window that drops $A$ after node 2 misses by more
+than $10^{-3}$.
 
 The restriction is a statement about the observed-data law, so data can contradict it, but the
 fit does not test it. It shrinks the model's tangent space, so the efficient influence curve of

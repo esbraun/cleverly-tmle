@@ -5,8 +5,11 @@ The order ``k`` restricts the observed-data model.  At node ``t`` the mechanisms
 regression reads ``W, L_{t-k}..L_t`` plus the rule and policy blocks of the nodes in
 ``[t-k-1, t]``.  The frames a rule or a policy reads keep the full history.
 
+On a held design every node's arm is the baseline decision, so every window keeps it.
+
 The exact tests check each design's columns against the source columns.  The witnesses run
-on laws that a sample realises exactly (:mod:`tests.unit._markov_law_support`).  At
+on laws that a sample realises exactly (:mod:`tests.unit._markov_law_support`, and
+:mod:`tests.unit._held_markov_law_support` for the held design).  At
 ``P_n = P_0`` a fit returns the truth when either nuisance family is right, so a check on
 the outcome side holds the mechanism wrong, and a check on the mechanism side holds the
 outcome regression wrong.
@@ -22,6 +25,7 @@ import pytest
 from sklearn.dummy import DummyClassifier
 
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+from cleverly import longitudinal as longitudinal_module
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE, SDR, DynamicRegimen, LongitudinalData
@@ -30,6 +34,7 @@ from cleverly.longitudinal.data import markov_restriction
 from cleverly.longitudinal.regimen import resolve_plans
 from cleverly.longitudinal.sequential import outcome_design
 from tests.discrete_law_longitudinal import CellMeans
+from tests.unit import _held_markov_law_support as held_law
 from tests.unit import _markov_law_support as law
 
 EXACT = 1e-12
@@ -539,3 +544,163 @@ def test_sequential_g_computation_reads_the_window() -> None:
     """The order-1 window returns the truth on the order-1 law, and the order-0 window misses."""
     assert max(_gcomp_errors(1)) < EXACT
     assert max(_gcomp_errors(0)) > 1e-3
+
+
+# ------------------------------------------------------------------ the held treatment
+
+#: The held law's regimens and their probabilities of treating given ``(W, L1)``.
+HELD: dict[str, Any] = {
+    "never": (0, lambda w, l1: 0.0),
+    "always": (1, lambda w, l1: 1.0),
+    "rule": (
+        DynamicRegimen(
+            "rule", (lambda h: 1 - np.asarray(h["L1"], dtype=float),), rule_kind="known"
+        ),
+        lambda w, l1: float(1 - l1),
+    ),
+    "policy": (
+        DynamicRegimen(
+            "policy",
+            (
+                Stochastic(
+                    lambda h: np.column_stack(
+                        [0.3 + 0.4 * np.asarray(h["L1"]), 0.7 - 0.4 * np.asarray(h["L1"])]
+                    ),
+                    "policy",
+                    density_kind="known",
+                ),
+            ),
+        ),
+        lambda w, l1: 0.7 - 0.4 * l1,
+    ),
+}
+
+
+@pytest.fixture(scope="module")
+def held_frame() -> pd.DataFrame:
+    return held_law.frame()
+
+
+def _held_errors(
+    frame: pd.DataFrame, estimator: str, mechanism: str = "cell", outcome: str = "cell"
+) -> dict[str, float]:
+    """Estimate minus truth for each held regimen, at order 0."""
+    g = (
+        (lambda: CellMeans())
+        if mechanism == "cell"
+        else (lambda: DummyClassifier(strategy="prior"))
+    )
+    learners: dict[str, Any] = {
+        "outcome_learner": CellMeans() if outcome == "cell" else DummyClassifier(strategy="prior"),
+        "pseudo_learner": CellMeans() if outcome == "cell" else _MeanRegressor(),
+        "treatment_learner": g(),
+        "censoring_learner": g(),
+    }
+    if estimator == "SequentialGComputation":
+        learners = {k: learners[k] for k in ("outcome_learner", "pseudo_learner")}
+    if estimator == "SequentialIPW":
+        learners = {k: learners[k] for k in ("treatment_learner", "censoring_learner")}
+    cls = getattr(longitudinal_module, estimator)
+    result = cls(
+        {label: regimen for label, (regimen, _) in HELD.items()},
+        reference="never",
+        n_folds=1,
+        random_state=0,
+        simultaneous=False,
+        **learners,
+    ).fit(held_law.design(0).prepare(frame))
+    return {
+        label: result.fits[label].psi_scaled - held_law.truth(treat)
+        for label, (_, treat) in HELD.items()
+    }
+
+
+class TestTheHeldTreatment:
+    """On a held design every window keeps the baseline decision, the arm of every node."""
+
+    def test_the_mechanisms_keep_the_held_arm(self, held_frame: pd.DataFrame) -> None:
+        data = held_law.design(0).prepare(held_frame)
+        filled = held_frame.fillna(0.0)
+        # Node 1's treatment mechanism has no earlier arm.
+        np.testing.assert_array_equal(data.history_design(1), _columns(filled, ["W", "L1"]))
+        for time in (2, 3):
+            np.testing.assert_array_equal(
+                data.history_design(time), _columns(filled, ["W", f"L{time}", "A"])
+            )
+            np.testing.assert_array_equal(
+                data.history_design(time, include_current=True),
+                _columns(filled, ["W", f"L{time}", "A"]),
+            )
+
+    def test_the_outcome_designs_keep_the_held_arm_off_a_static_plan(
+        self, held_frame: pd.DataFrame
+    ) -> None:
+        data = held_law.design(0).prepare(held_frame)
+        filled = held_frame.fillna(0.0)
+        plans = dict(
+            zip(
+                HELD,
+                resolve_plans(
+                    tuple(
+                        DynamicRegimen(label, (regimen,)) if isinstance(regimen, int) else regimen
+                        for label, (regimen, _) in HELD.items()
+                    ),
+                    data,
+                ),
+                strict=True,
+            )
+        )
+        base = _columns(filled, ["W", "L3"])
+        np.testing.assert_array_equal(outcome_design(data, plans["always"], 3), base)
+        rule_arm = np.nan_to_num(plans["rule"].values[:, :1], nan=0.0)
+        np.testing.assert_array_equal(
+            outcome_design(data, plans["rule"], 3), np.hstack([base, rule_arm])
+        )
+        np.testing.assert_array_equal(
+            outcome_design(data, plans["policy"], 3), np.hstack([base, _columns(filled, ["A"])])
+        )
+
+    @pytest.mark.parametrize("order", [0, 1, 2])
+    def test_a_non_held_design_starts_its_arms_before_the_window(
+        self, panel: pd.DataFrame, order: int
+    ) -> None:
+        data = _design(order).prepare(panel)
+        for time in range(1, NODES + 1):
+            assert data.window_arm_start(time) == max(1, data.window_start(time) - 1)
+
+    @pytest.mark.parametrize(
+        ("estimator", "mechanism", "outcome"),
+        [
+            ("LTMLE", "cell", "cell"),
+            ("LTMLE", "wrong", "cell"),
+            ("LTMLE", "cell", "wrong"),
+            ("SDR", "cell", "cell"),
+            ("SDR", "wrong", "cell"),
+            ("SDR", "cell", "wrong"),
+            ("SequentialGComputation", "cell", "cell"),
+            ("SequentialIPW", "cell", "cell"),
+        ],
+    )
+    def test_order_zero_returns_the_truth(
+        self, held_frame: pd.DataFrame, estimator: str, mechanism: str, outcome: str
+    ) -> None:
+        errors = _held_errors(held_frame, estimator, mechanism, outcome)
+        assert max(abs(value) for value in errors.values()) < 1e-10, errors
+
+    def test_a_window_that_drops_the_held_arm_misses_the_truth(
+        self, held_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation control: the arm range of a non-held design, on the held one."""
+        monkeypatch.setattr(
+            LongitudinalData,
+            "window_arm_start",
+            lambda self, time: (
+                1 if self.markov_order is None else max(1, self.window_start(time) - 1)
+            ),
+        )
+        # Retention reads the arm: inverse weighting misses every regimen.
+        ipw = _held_errors(held_frame, "SequentialIPW")
+        assert min(abs(value) for value in ipw.values()) > 1e-3, ipw
+        # A rule or a policy leaves both arms among the followers: the regressions miss.
+        gcomp = _held_errors(held_frame, "SequentialGComputation")
+        assert min(abs(gcomp[label]) for label in ("rule", "policy")) > 1e-3, gcomp
