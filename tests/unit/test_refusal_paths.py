@@ -628,10 +628,12 @@ class TestTheLongitudinalWrappersKeepTheInnerCode:
             longitudinal_estimator.longitudinal_truncation_curve(result, [(0.9, 0.1)])
         assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
-    def test_a_replay_refusal_names_its_omission_and_its_code(self) -> None:
+    @staticmethod
+    def _forest_fit(random_state: int | None) -> Any:
+        """A fit whose recursive learners are a forest with no seed of its own."""
         frame, _ = make_longitudinal(n=90, seed=47)
         unseeded = RandomForestRegressor(n_estimators=2)
-        fitted = LTMLE(
+        return LTMLE(
             {"always": 1},
             reference="always",
             outcome_learner=unseeded,
@@ -639,7 +641,7 @@ class TestTheLongitudinalWrappersKeepTheInnerCode:
             treatment_learner=LogisticRegression(max_iter=1000),
             censoring_learner=LogisticRegression(max_iter=1000),
             n_folds=1,
-            random_state=7,
+            random_state=random_state,
             simultaneous=False,
         ).fit(
             frame,
@@ -649,8 +651,24 @@ class TestTheLongitudinalWrappersKeepTheInnerCode:
             time_varying=((), ("L2",)),
             censoring=("C1", "C2"),
         )
+
+    def test_a_replay_refusal_names_its_omission_and_its_code(self) -> None:
+        """An unseeded fit gives the forest no seed, so its clone cannot repeat the draws."""
+        fitted = self._forest_fit(None)
         with pytest.raises(CapabilityError) as raised:
             fitted.diagnostics.truncation_curve([0.2])
         assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED in str(raised.value)
         assert str(raised.value) == raised.value.refusal.message()
+
+    def test_the_fit_seed_reaches_the_forest_and_the_replay_is_exact(self) -> None:
+        """The sibling: a seeded fit gives the forest its seed, so the curve replays it."""
+        fitted = self._forest_fit(7)
+        assert fitted.replay_recipe is not None
+        assert fitted.replay_recipe.outcome_learner.random_state == 7
+        replay = longitudinal_estimator._refit_bound(
+            fitted, fitted.repeats[0], fitted.config.g_bounds
+        )
+        assert longitudinal_estimator._exact_replay_equal(replay.estimates, fitted.estimates)
+        assert longitudinal_estimator._exact_replay_equal(replay.fits, fitted.fits)
+        fitted.diagnostics.truncation_curve([0.2])

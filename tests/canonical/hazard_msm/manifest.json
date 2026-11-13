@@ -1,0 +1,119 @@
+{
+  "schema_version": 2,
+  "study": "working model over the hazard curve, one-step targeting",
+  "slug": "hazard-msm",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "1f52ba733f0c64946c875f67b83c2d45bf9207e8",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 2000,
+    "seed": 20261117,
+    "resampling_seed": 2026111701,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "survival": [
+        "msm_regimen[(intercept)]",
+        "msm_regimen[a]",
+        "msm_regimen[t]",
+        "msm_regimen[a_W1]"
+      ],
+      "competing": [
+        "msm_regimen[(intercept), relapse]",
+        "msm_regimen[a, relapse]",
+        "msm_regimen[t, relapse]",
+        "msm_regimen[a_W1, relapse]",
+        "msm_regimen[(intercept), death]",
+        "msm_regimen[a, death]",
+        "msm_regimen[t, death]",
+        "msm_regimen[a_W1, death]"
+      ]
+    },
+    "construction": "held point-treatment survival, one-step hazard walk on working-model scores",
+    "survival_model": "hazard",
+    "targeting": "one_step",
+    "tol": 1e-10,
+    "cross_fit": false,
+    "working_model": "logit m = b0 + b1 a + b2 t + b3 a W1 over (regimen, visit), uniform h",
+    "terms": [
+      "(intercept)",
+      "a",
+      "t",
+      "a_W1"
+    ],
+    "link": "logit",
+    "outcome_learner": "unpenalized logistic regression on W1, W2, A, A W1 per visit and cause",
+    "treatment_learner": "unpenalized logistic regression on W1, W2, W1 W2",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, A per visit",
+    "regimens": {
+      "a1": 1,
+      "a0": 0
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_hazard_msm.py": "9cf15daaf6f3765a53380c0f9fe1a35c64ff314cda62eff5a3e54d1d203ce39d",
+    "tests/studies/hazard_msm_properties.py": "b083555ad531fd7df61fecd04c1bf7a2f2a1840ac5cb64ae1a8c05aa4ffacf0b",
+    "tests/studies/hazard_msm_law.py": "831cc87cf7788f9bf18955e826258e55e7473b838003189a2cacad18328b7d29",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "src/cleverly/longitudinal/hazard.py": "1754a4c267b19d76bbaa1633d674dd92e28ff25972e500ad1f078c94c77d62de",
+    "src/cleverly/msm.py": "2846a29655dd80c6850917229c84afe4d6195094d5b07511e4a4dfc5fba08721",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "1167356fe67ff14c53c62266c6140c880e0f14af90eaf3914571c6f85dfc1505",
+    "tests/studies/evidence/property_verdicts.py": "80dd5aa45bdb65f5b8526861035d1012c389d0e6e492eb46febc40fa65a2316e",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "0407058d966ab0c455baeab27608b8090015271c512b779e966165e79a97ffc5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "0e5fb8e70845e384235af800147564b3a0b4c9d23efdad2b027d755ff87a96a7",
+    "summary.csv": "c490c2c947e5be02397205ecfa56fecd92c5ef29278a73205f1c6cd5c3c7a6cd",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "c813ffef24d315c9e5ef4ce0adb8120e8832a66c403687be3e60d788686ad656",
+    "property-replicates.parquet": "de8947ad7146af843dcbc050b7b507d52d886859edc851aff726e9fa1f8ba575",
+    "properties.csv": "da4e6688f634697447e3506f42d36c7ca596d4d41d5a83de7ae584cafeaf83c2"
+  }
+}

@@ -9,6 +9,10 @@ adaptive-iptw,simultaneous_coverage,joint coverage in calibration band,se_low
 adaptive-iptw,targeting_necessity,bias discriminated,pair_collapse
 adaptive-iptw,targeting_necessity,bias equivalent,none
 adaptive-iptw,targeting_necessity,least displacement over labels,control_concentrated
+band-t-reference,simultaneous_coverage,joint coverage below nominal,se_low
+band-t-reference,simultaneous_coverage,joint coverage in calibration band,se_low
+band-t-reference-held-out,simultaneous_coverage,joint coverage below nominal,se_high
+band-t-reference-held-out,simultaneous_coverage,joint coverage in calibration band,se_low
 calibration-slope-warning,power,rejection floor,rejection/0.01
 calibration-slope-warning,warning_rate,false warnings under the ceiling,se_low
 calibration-slope-warning,warning_rate,warnings above the ceiling,se_high
@@ -472,6 +476,15 @@ conditional-projection,interval_calibration,se ratio in calibration band,affine
 conditional-projection,power,rejection floor,affine
 conditional-projection,type_i_error,coverage floor,coverage/0.5
 conditional-projection,type_i_error,rejection ceiling,rejection/0.1
+continuous-time-survival,double_robustness,bias discriminated,pair_collapse
+continuous-time-survival,double_robustness,bias equivalent,bias
+continuous-time-survival,double_robustness,se ratio in union band,se/0.05
+continuous-time-survival,interval_calibration,coverage in calibration band,shift/0.7
+continuous-time-survival,interval_calibration,efficiency above band,pair_collapse
+continuous-time-survival,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+continuous-time-survival,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+continuous-time-survival,interval_calibration,se ratio below band,se_high
+continuous-time-survival,interval_calibration,se ratio in calibration band,se/0.9
 cross-fitted-longitudinal-msm,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
 cross-fitted-longitudinal-msm,crossfit_overfitting,coverage gain,shift/3
 cross-fitted-longitudinal-msm,crossfit_overfitting,cross-fit se ratio honest,se_low
@@ -1784,6 +1797,25 @@ missingness-tilt-inference,interval_calibration,se ratio in calibration band,se/
 missingness-tilt-inference,targeting_necessity,bias discriminated,pair_collapse
 missingness-tilt-inference,targeting_necessity,bias equivalent,bias
 missingness-tilt-inference,targeting_necessity,least displacement over labels,control_concentrated
+hazard-msm,double_robustness,bias discriminated,pair_collapse
+hazard-msm,double_robustness,bias equivalent,bias
+hazard-msm,double_robustness,se ratio in union band,se/0.05
+hazard-msm,interval_calibration,coverage in calibration band,shift/0.7
+hazard-msm,interval_calibration,efficiency above band,pair_collapse
+hazard-msm,interval_calibration,efficiency empirical in efficiency band,mixed/2
+hazard-msm,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-msm,interval_calibration,se ratio below band,se_high
+hazard-msm,interval_calibration,se ratio in calibration band,affine
+hazard-msm,power,rejection floor,rejection/0.01
+hazard-msm,root_n_and_efficiency,bias equivalent,bias
+hazard-msm,root_n_and_efficiency,coverage floor,coverage/0.5
+hazard-msm,root_n_and_efficiency,se ratio sanity,se_high
+hazard-msm,root_n_rate,slope in root-n band,contract
+hazard-msm,simultaneous_coverage,joint coverage below nominal,se_low
+hazard-msm,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-msm,targeting_necessity,bias discriminated,pair_collapse
+hazard-msm,targeting_necessity,bias equivalent,bias
+hazard-msm,targeting_necessity,least displacement over labels,control_concentrated
 option-stopping-ltmle,interval_calibration,coverage in calibration band,shift/0.7
 option-stopping-ltmle,interval_calibration,noise se ratio below band,se_high
 option-stopping-ltmle,interval_calibration,se ratio below band,se_high

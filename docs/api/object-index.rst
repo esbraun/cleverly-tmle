@@ -115,6 +115,10 @@ categorized API tables.
    cleverly.longitudinal.StructuralNestedMeanResult
    cleverly.longitudinal.StructuralModelCheck
    cleverly.longitudinal.snmm
+   cleverly.survival.ContinuousSurvivalTMLE
+   cleverly.survival.ContinuousSurvivalResult
+   cleverly.survival.ContinuousSurvivalRecord
+   cleverly.survival.CoxHazard
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport

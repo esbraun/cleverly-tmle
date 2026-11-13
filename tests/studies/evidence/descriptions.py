@@ -212,6 +212,11 @@ ARMS: dict[str, str] = {
     "crossfit_strata": "the three marginal and nine stratum parameters of the cross-fitted fit",
     "default_fit": "the shipped TMLE() defaults on the binary law",
     "ordinary_binary": "ordinary in-sample TMLE over ten binary-outcome estimands",
+    # The larger and smaller sizes of three band-t-reference shapes.
+    "categorical_ltmle_n8000": "five categorical regimen means and four contrasts, at n = 8,000",
+    "cde_z0_n8000": "the controlled direct-effect fit at intermediate level zero, at n = 8,000",
+    "strata_n8000": "the six marginal and eighteen stratum parameters of the in-sample fit, at n = 8,000",
+    "strata_n1000": "the six marginal and eighteen stratum parameters of the in-sample fit, at n = 1,000",
     "fold_evaluated": "fold-evaluated CV-TMLE over five estimands",
     "weighted": "weighted point-treatment TMLE over five estimands",
     "learned_weighted": "weighted point-treatment TMLE with learned nuisances",
@@ -1539,6 +1544,68 @@ ARMS.update(
     }
 )
 
+#: The labels of ``hazard-msm``: one coefficient of the working model over the hazard curve, per
+#: fit.  Mirrored from ``tests.studies.hazard_msm_properties``, which this module cannot import.
+_HAZARD_MSM_TERMS = {
+    "intercept": "the intercept",
+    "a": "the treatment coefficient",
+    "t": "the visit coefficient",
+    "a_W1": "the treatment-by-W1 coefficient",
+}
+_HAZARD_MSM_CAUSES = {"relapse": "relapse", "death": "death"}
+ARMS.update(
+    {
+        **{
+            f"survival_logit_{term}": (
+                f"the survival law with an a x W1 hazard term, {words} of the logit working model "
+                "over the risk curve"
+            )
+            for term, words in _HAZARD_MSM_TERMS.items()
+        },
+        "survival_identity_a_W1": (
+            "the survival law with an a x W1 hazard term, the treatment-by-W1 coefficient of the "
+            "identity-link working model over the risk curve"
+        ),
+        **{
+            f"competing_logit_{term}_{cause}": (
+                f"the competing law with an a x W1 hazard term, {words} of the logit working "
+                f"model over the cumulative incidence of {cause_words}"
+            )
+            for term, words in _HAZARD_MSM_TERMS.items()
+            for cause, cause_words in _HAZARD_MSM_CAUSES.items()
+        },
+        "survival_logit_coefficients": (
+            "the survival law with an a x W1 hazard term, the four coefficients of the logit "
+            "working model read as one joint set"
+        ),
+        **{
+            f"overlap_logit_{term}": (
+                f"the survival hazard under limited treatment overlap, {words} of the logit "
+                "working model over the risk curve"
+            )
+            for term, words in _HAZARD_MSM_TERMS.items()
+        },
+        "overlap_logit": (
+            "the survival hazard under limited treatment overlap, the iterated-mean fit of the "
+            "risk curve without a working model, n = 2,000"
+        ),
+    }
+)
+
+
+#: The robustness label of ``continuous-time-survival`` (X91 part G).  Mirrored from
+#: ``tests.studies.continuous_survival_properties``, which this module cannot import; its
+#: calibration label ``both_rd`` takes this study's words from :data:`STUDY_ARMS`.
+ARMS.update(
+    {
+        "treated_c1": (
+            "the continuous-time competing-risks law with covariate-dependent censoring, the "
+            "treated arm's risk of cause 1 by t = 1.12, ten outer folds, n = 1,000"
+        ),
+    }
+)
+
+
 #: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
 #: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
 #: which this module cannot import; :data:`STUDY_ARMS` gives each study's own words.
@@ -1704,6 +1771,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     ),
     "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
     "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
+    "cleverly-band-t-reference": "`cleverly` shipped TMLE() default fit with band_reference='t'",
+    "cleverly-band-t-reference-held-out": (
+        "`cleverly` shipped TMLE() default fit with band_reference='t'"
+    ),
     "cleverly-stratified-incremental": "`cleverly` incremental TMLE with baseline strata",
     "npcausal-stratified": "R `npcausal` `ipsi`, once per stratum subset and on every row",
     "cleverly-stratified-msm": "`cleverly` identity-link MSM TMLE with baseline strata",
@@ -2013,6 +2084,9 @@ SCENARIOS: dict[str, str] = {
     "multi_arm_binary": "three-arm binary-outcome law",
     "stratified_binary": "binary-outcome law with three unequal baseline strata",
     "default_fit": "binary-outcome law, fitted with the shipped TMLE() defaults",
+    "t_reference_fit": (
+        "binary-outcome law, fitted with the shipped TMLE() defaults and band_reference='t'"
+    ),
     "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
     "multi_arm_binary_oat": "three-arm binary-outcome law, outcome-adaptive selector",
     "multi_arm_selector_discrete": "three-arm binary-outcome law, discrete selector",
@@ -3141,6 +3215,40 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("simultaneous_coverage", "pointwise_joint_control"): (
         "the pointwise 95% intervals of the same fits, read jointly",
         "joint coverage upper endpoint must fall below the nominal rate",
+    ),
+    # band-t-reference: the t band, its paired normal-reference control and its df arms.
+    ("simultaneous_coverage", "t_band"): (
+        "the default multiplier band with band_reference='t', which reads each estimate's "
+        "critical value on a Student t reference with max(Kish, 5) degrees of freedom",
+        "joint coverage interval inside the calibration coverage band",
+    ),
+    ("simultaneous_coverage", "normal_reference_control"): (
+        "the default band, on the normal reference, from the same fits, draws and critical value",
+        "none. The paired gain of the t band over it is reported and gates nothing",
+    ),
+    ("simultaneous_coverage", "moment_df_diagnostic"): (
+        "the t band with the moment-matched df 2K / (1 - K/m) in place of the Kish count",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "model_df_diagnostic"): (
+        "the t band with the Kish count of the covariate-cell means of the squared curve",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "common_df_copula_diagnostic"): (
+        "the t band with one df, the floored smallest Kish count, for every estimate",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "common_df_mvt_diagnostic"): (
+        "the band from the multivariate t with one shared df, the floored smallest Kish count",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "floor_2_diagnostic"): (
+        "the t band with the df floor 2 in place of 5",
+        "none. The row is a diagnostic and states no verdict",
+    ),
+    ("simultaneous_coverage", "floor_10_diagnostic"): (
+        "the t band with the df floor 10 in place of 5",
+        "none. The row is a diagnostic and states no verdict",
     ),
     ("repeat_stability", "three_repeats"): (
         "the median ATE over three fold draws across labelled base seeds",
@@ -8903,6 +9011,88 @@ STUDY_ESTIMANDS.update(
 )
 
 
+#: ``hazard-msm``: the one-step hazard walk on the scores of a working model over the risk
+#: curve.  The laws and fits are those of ``tests/studies/hazard_msm_law.py``, which this
+#: module cannot import.  The shared ``survival`` and ``competing`` keys describe the laws of
+#: ``point-survival-hazard``, so the study names its own.
+_HAZARD_MSM_SLUG = "hazard-msm"
+STUDY_SCENARIOS.update(
+    {
+        (_HAZARD_MSM_SLUG, "survival"): (
+            "five visits, one cause, a binary baseline treatment, visit dropout; the hazard has "
+            "an a x W1 term and the treatment and dropout mechanisms are logistic"
+        ),
+        (_HAZARD_MSM_SLUG, "competing"): (
+            "four visits, two competing causes, a binary baseline treatment, visit dropout; each "
+            "cause's hazard has an a x W1 term and both mechanisms are logistic"
+        ),
+    }
+)
+_HAZARD_MSM_TERM_WORDS = {
+    "(intercept)": "intercept",
+    "a": "treatment coefficient",
+    "t": "visit coefficient",
+    "a_W1": "treatment-by-W1 coefficient",
+}
+STUDY_ESTIMANDS.update(
+    {
+        (_HAZARD_MSM_SLUG, f"msm_regimen[{term}]"): (
+            f"{words} of the logit working model (1, a, t, a W1) over the risk by each visit "
+            "under each static arm"
+        )
+        for term, words in _HAZARD_MSM_TERM_WORDS.items()
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_HAZARD_MSM_SLUG, f"msm_regimen[{term}, {cause}]"): (
+            f"{words} of the logit working model (1, a, t, a W1) over the cumulative incidence "
+            f"of {cause} by each visit under each static arm"
+        )
+        for term, words in _HAZARD_MSM_TERM_WORDS.items()
+        for cause in ("relapse", "death")
+    }
+)
+PROPERTIES["iterated_mean_difference"] = (
+    "reported, not judged: on a law with limited treatment overlap, how far the hazard fit of "
+    "the working model sits from the iterated-mean fit of the same model on the same draw, how "
+    "each fit's interval calibrates, and how often the iterated-mean risk curve decreases "
+    "between visits; and how far the two fits sit apart when both outcome regressions are "
+    "misspecified and the treatment and censoring models are correct"
+)
+CELLS.update(
+    {
+        ("iterated_mean_difference", "paired_difference"): (
+            "the hazard coefficient minus the iterated-mean coefficient of the same working model "
+            "on the same draw",
+            "no verdict; the SD of the difference over the efficiency-bound standard error is "
+            "reported",
+        ),
+        ("iterated_mean_difference", "hazard_fit"): (
+            "the hazard fit of the working model, against the exact coefficient",
+            "no verdict; coverage and SE ratio are reported beside the iterated-mean fit's",
+        ),
+        ("iterated_mean_difference", "iterated_fit"): (
+            "the iterated-mean fit of the same working model on the same draw, against the exact "
+            "coefficient",
+            "no verdict; coverage and SE ratio are reported beside the hazard fit's",
+        ),
+        ("iterated_mean_difference", "mechanism_correct_difference"): (
+            "the hazard coefficient minus the iterated-mean coefficient of the same working model "
+            "on the same draw, with both outcome regressions omitting W2 and the treatment and "
+            "censoring models correct",
+            "no verdict; the SD of the difference over the efficiency-bound standard error is "
+            "reported",
+        ),
+        ("iterated_mean_difference", "iterated_curve_decrease"): (
+            "the largest decrease of the iterated-mean risk curve of either arm between "
+            "consecutive visits",
+            "no verdict; the share of draws whose curve decreases somewhere is reported",
+        ),
+    }
+)
+
+
 #: ``option-treatment-adjustment`` (X76 part (d)): point TMLE with the treatment mechanism fitted
 #: on the declared subset ``(W1, W2)`` of the adjustment set ``(W1, W2, Z)``.  The laws, settings
 #: and cells are those of ``tests/studies/_option_adjustment_laws.py`` and its properties module.
@@ -9661,6 +9851,68 @@ CELLS.update(
         ("reported_large_move", "stalled_fits"): (
             f"{_LG2_GS2}: the share of replications with a logistic fit stopped at max_iter",
             _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: ``continuous-time-survival`` (X91 part G): the one-step continuous-time TMLE of Rytgaard and
+#: van der Laan (2024) for the risks of two competing causes.  The scenario, estimand and cell
+#: names are those of ``tests/studies/continuous_survival.py`` and its properties module.
+_CONTINUOUS_SLUG = "continuous-time-survival"
+IMPLEMENTATIONS["cleverly-continuous-survival-tmle"] = (
+    "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
+    "least favourable path of every cause hazard, both arms tilted (Rytgaard and van der Laan "
+    "2024)"
+)
+STUDY_SCENARIOS[(_CONTINUOUS_SLUG, "both_cf_1k")] = (
+    "a three-level factor and a normal covariate, a binary treatment, two competing causes with "
+    "constant hazards and independent censoring (van Hage et al. 2025, scenario 1, with an "
+    "arm-specific term); the default Cox libraries and treatment learner, ten outer folds, "
+    "n = 1,000"
+)
+_CONTINUOUS_ARMS = {"treated": "treatment", "control": "no treatment"}
+for _arm, _words in _CONTINUOUS_ARMS.items():
+    for _cause in (1, 2):
+        for _time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[
+                (_CONTINUOUS_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")
+            ] = f"risk of cause {_cause} by t = {_time} under {_words}"
+for _cause in (1, 2):
+    for _time in ("1.12", "2.32"):
+        STUDY_ESTIMANDS[
+            (_CONTINUOUS_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment"
+        )
+STUDY_ARMS[(_CONTINUOUS_SLUG, "both_rd")] = (
+    "the continuous-time competing-risks law, the difference in the risk of cause 1 by "
+    "t = 1.12 between treatment and no treatment, ten outer folds, n = 1,000"
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_CONTINUOUS_SLUG, "double_robustness", "treated_c1", "mechanism_correct"): (
+            "the event hazards wrong (a Cox model on the treatment alone), with the default "
+            "treatment learner and censoring library",
+            "bias interval inside the equivalence margin",
+        ),
+        (_CONTINUOUS_SLUG, "double_robustness", "treated_c1", "outcome_correct"): (
+            "the default event-hazard library, with the treatment model wrong (it omits the "
+            "normal covariate) and the censoring hazard wrong (a Cox model on the treatment "
+            "alone)",
+            "bias interval inside the equivalence margin",
+        ),
+        (_CONTINUOUS_SLUG, "double_robustness", "treated_c1", "both_wrong"): (
+            "the event hazards, the treatment model and the censoring hazard all wrong: no "
+            "sufficient condition holds",
+            "bias interval must fall entirely outside the margin",
+        ),
+        (_CONTINUOUS_SLUG, "interval_calibration", "both_rd", "correctly_specified"): (
+            "the default libraries, each of which holds the true model, read against the exact "
+            "efficient influence-curve spread",
+            "SE ratio and coverage intervals both inside their calibration bands, with both "
+            "efficiency-ratio intervals inside their bands",
         ),
     }
 )

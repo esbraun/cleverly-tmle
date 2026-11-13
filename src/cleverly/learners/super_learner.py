@@ -50,7 +50,7 @@ from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import DataError
 from ..utils.parallel import map_parallel
-from ._fitting import Task, as_target, clone_learner, fit_learner, infer_task, predict_mean
+from ._fitting import Task, as_target, fit_learner, infer_task, predict_mean, seed_unset
 from .crossfit import Folds, make_folds
 from .library import _resolve_library
 
@@ -201,7 +201,12 @@ class SuperLearner(BaseEstimator):
         for probabilities pass ``(0, 1)``, since a regression candidate can
         otherwise predict outside the unit interval.
     random_state : int or None
-        Seed for the inner fold split, for reproducibility.
+        Seed for the inner fold split, and for every library candidate whose own
+        ``random_state`` is unset (at any depth of its ``get_params``).  A candidate's
+        explicit seed is kept.  ``None`` seeds neither, and a stochastic candidate with no
+        seed of its own then draws from numpy's global generator.  A
+        ``numpy.random.Generator`` draws the folds and then one integer seed for the
+        candidates, since scikit-learn estimators do not accept a Generator.
     n_jobs : int
         Number of joblib workers.  Candidate fits across folds are independent
         and are dispatched in parallel.
@@ -346,6 +351,17 @@ class SuperLearner(BaseEstimator):
             cluster=groups,
             random_state=self.random_state,
         )
+        # Every candidate with no seed of its own takes the ensemble's.  scikit-learn refuses a
+        # Generator as a random_state, so a Generator seed gives one integer drawn from it,
+        # after the fold draw: the fit stays a function of the generator's state.  The draw
+        # happens only when some candidate needs it, so a library whose candidates all carry
+        # their own seeds leaves the generator where the fold draw left it.
+        seed: Any = self.random_state
+        if isinstance(seed, np.random.Generator) and any(
+            seed_unset(estimator, 0) is not estimator for _, estimator in library
+        ):
+            seed = int(seed.integers(2**32))
+        library = [(name, seed_unset(estimator, seed)) for name, estimator in library]
 
         cv_predictions = self._cross_validate(x, target, weights, library, folds, resolved_task)
 
@@ -809,15 +825,20 @@ def resolve_learner(
     """Turn a learner specification into an estimator ready to be fitted per fold.
 
     ``None`` falls back to ``fallback`` and then to a concrete default
-    :class:`SuperLearner`. An explicit SuperLearner with no ``random_state`` inherits
-    the enclosing estimator's seed on a clone, so repeated cross-fitting redraws its
-    inner folds without mutating the caller's template.
+    :class:`SuperLearner`. When the enclosing estimator passes a seed, every ``random_state``
+    of the learner that is ``None`` takes it, on a clone
+    (:func:`~cleverly.learners._fitting.seed_unset`), so a seeded fit is a function of its
+    data and seed and the caller's template is never mutated. A bare stochastic learner then
+    fits with the estimator's seed, and an explicit SuperLearner with no seed of its own
+    draws its inner folds from it, so repeated cross-fitting redraws them; the ensemble in
+    turn seeds its candidates. An explicit seed is kept, and ``random_state=None`` leaves the
+    learner as it is.
 
     A free function rather than a method so that the C-TMLE candidate search -- and
     anything else that needs the same learner the estimator would have built -- does
     not have to reach into a private method on the estimator to get one.
 
-    The seed-inheriting clone goes through :func:`~cleverly.learners._fitting.clone_learner`
+    The seeding clone goes through :func:`~cleverly.learners._fitting.clone_learner`
     for the same reason every per-fold clone does.  Cloning a SuperLearner clones its whole
     library, so a nested member that refuses would otherwise escape here as a raw
     scikit-learn exception naming neither the library nor the remedy.
@@ -832,11 +853,7 @@ def resolve_learner(
             random_state=random_state,
             n_jobs=1,
         )
-    if isinstance(spec, SuperLearner) and spec.random_state is None and random_state is not None:
-        inherited = clone_learner(spec)
-        inherited.set_params(random_state=random_state)
-        return inherited
     from .library import _validate_learner
 
     _validate_learner(spec, "nuisance learner", optional=False)
-    return spec
+    return seed_unset(spec, random_state)

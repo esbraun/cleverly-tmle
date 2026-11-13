@@ -12,8 +12,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from cleverly import (
     AssessmentStatus,
@@ -1072,44 +1076,104 @@ def test_stable_replay_omissions_cover_rng_and_unclonable_cases(result) -> None:
     assert recipe.omissions == (LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,)
 
 
-def test_nested_super_learner_random_states_are_audited() -> None:
-    seeded = SuperLearner(
-        library=[RandomForestRegressor(n_estimators=2, random_state=7)],
+def _inherits(member_state: Any, ensemble_state: Any) -> SuperLearner:
+    return SuperLearner(
+        library=[RandomForestRegressor(n_estimators=2, random_state=member_state)],
         n_folds=2,
-        random_state=7,
-    )
-    unseeded_member = SuperLearner(
-        library=[RandomForestRegressor(n_estimators=2, random_state=None)],
-        n_folds=2,
-        random_state=7,
+        random_state=ensemble_state,
     )
 
-    assert _replay_random_state_omissions([seeded]) == ()
-    assert _replay_random_state_omissions([unseeded_member]) == (
+
+def test_nested_super_learner_random_states_are_audited() -> None:
+    """A member with no seed of its own replays when its ensemble carries an integer seed.
+
+    The ensemble gives such a member its seed at fit, so the audit reads the member's ``None``
+    as the inherited seed. The witness: the same member under an ensemble with no seed, which
+    nothing reaches, is still refused, and a generator object passed down is non-integer.
+    """
+    assert _replay_random_state_omissions([_inherits(7, 7)]) == ()
+    assert _replay_random_state_omissions([_inherits(None, 7)]) == ()
+    assert _replay_random_state_omissions([_inherits(None, None)]) == (
         LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,
     )
-    regimen = resolve_regimens({"always": 1}, 2)[0]
-    recipe = _replay_recipe(
-        [Plan(regimen, np.ones((3, 2)))],
-        unseeded_member,
-        LinearRegression(),
-        alpha=0.0,
-        max_iter=1,
-        tol=1e-8,
-        n_jobs=1,
+    assert _replay_random_state_omissions([_inherits(None, np.random.RandomState(1))]) == (
+        LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,
     )
-    assert recipe.omissions == (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,)
+    # The inherited seed reaches every depth of the member, as the ensemble's fit seeds it.
+    piped = SuperLearner(
+        library=[make_pipeline(StandardScaler(), RandomForestRegressor(n_estimators=2))],
+        n_folds=2,
+        random_state=7,
+    )
+    assert _replay_random_state_omissions([piped]) == ()
+    # An ensemble nested in a seeded ensemble's library is seeded by it, and seeds its own.
+    assert (
+        _replay_random_state_omissions(
+            [SuperLearner(library=[_inherits(None, None)], n_folds=2, random_state=7)]
+        )
+        == ()
+    )
 
+    # A None in a list-valued parameter is out of get_params(deep=True)'s reach, so the
+    # ensemble's seed never reaches it and the audit, reading what the fit seeds, refuses it.
+    unreached = GridSearchCV(
+        TransformedTargetRegressor(regressor=Ridge()),
+        {"regressor": [RandomForestRegressor(n_estimators=5)]},
+        cv=2,
+    )
+    assert _replay_random_state_omissions(
+        [SuperLearner(library=[unreached], n_folds=2, random_state=7)]
+    ) == (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,)
+
+    regimen = resolve_regimens({"always": 1}, 2)[0]
+    for ensemble_state, expected in ((7, ()), (None, (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,))):
+        recipe = _replay_recipe(
+            [Plan(regimen, np.ones((3, 2)))],
+            _inherits(None, ensemble_state),
+            LinearRegression(),
+            alpha=0.0,
+            max_iter=1,
+            tol=1e-8,
+            n_jobs=1,
+        )
+        assert recipe.omissions == expected
+
+
+def test_an_inherited_member_seed_replays_exactly() -> None:
     frame, _ = make_longitudinal(n=90, seed=47)
+    ensemble = _inherits(None, 7)
     result = LTMLE(
         {"always": 1},
         **{
             **SETTINGS,
             "reference": "always",
-            "outcome_learner": unseeded_member,
-            "pseudo_learner": unseeded_member,
+            "outcome_learner": ensemble,
+            "pseudo_learner": ensemble,
             "n_folds": 1,
             "random_state": 7,
+        },
+    ).fit(frame, **COLUMNS)
+
+    assert replayability(result).refit_nuisances
+    assert replayability(result).unreconstructible == ()
+    replay = longitudinal_estimator._refit_bound(result, result.repeats[0], result.config.g_bounds)
+    assert _exact_replay_equal(replay.estimates, result.estimates)
+    assert _exact_replay_equal(replay.fits, result.fits)
+
+
+def test_an_unseeded_ensemble_under_an_unseeded_fit_is_still_refused() -> None:
+    """The nonzero witness on a real fit: no seed reaches the member, so no replay."""
+    frame, _ = make_longitudinal(n=90, seed=47)
+    ensemble = _inherits(None, None)
+    result = LTMLE(
+        {"always": 1},
+        **{
+            **SETTINGS,
+            "reference": "always",
+            "outcome_learner": ensemble,
+            "pseudo_learner": ensemble,
+            "n_folds": 1,
+            "random_state": None,
         },
     ).fit(frame, **COLUMNS)
     assert replayability(result).unreconstructible == (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,)

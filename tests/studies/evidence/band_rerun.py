@@ -141,6 +141,16 @@ EXCLUDED = {
         "them; the band-finite-sample PR 1 run measured them"
     ),
 }
+#: Studies registered after the flip, whose committed run already measured its band cells under
+#: :data:`DEFAULT_BAND`, so the wave has nothing to rerun: slug to the ``cleverly_commit`` its
+#: manifest records (a descendant of :data:`FLIP_COMMIT`) and why.  :func:`validate_plan` holds
+#: each entry to its manifest.
+POST_FLIP = {
+    "hazard-msm": (
+        "1f52ba733f0c64946c875f67b83c2d45bf9207e8",
+        "X70 part (d), first registered 2026-11-13 from a run at 1f52ba7, after the flip",
+    ),
+}
 #: The text that shows a study's band options are explicit, for each excluded study.
 EXCLUSION_WITNESS = {
     "longitudinal-sdr": 'BandOptions(band_scale="logit", kind="mammen", n_replicates=10_000',
@@ -317,9 +327,14 @@ def band_pins(record: StudyRecord) -> list[str]:
 
 
 def candidate_records() -> list[StudyRecord]:
-    """Every registered study whose committed ``properties.csv`` holds a positive band cell."""
+    """Every registered study whose committed ``properties.csv`` holds a positive band cell.
+
+    A study of :data:`POST_FLIP` is not a candidate: its run postdates the flip.
+    """
     out = []
     for record in registered():
+        if record.slug in POST_FLIP:
+            continue
         path = record.artifacts / "properties.csv"
         if path.exists() and not band_cells(pd.read_csv(path)).empty:
             out.append(record)
@@ -703,6 +718,10 @@ def validate_plan(plan: Mapping[str, Any]) -> list[str]:
         out += [f"{slug}: {text}" for text in validate_entry(record, entry)]
     if plan.get("totals") != totals(studies):
         out.append("the totals differ from the studies")
+    for slug, (commit, _) in POST_FLIP.items():
+        manifest = json.loads((record_for(slug).artifacts / "manifest.json").read_bytes())
+        if manifest["generated_with"]["subject"]["cleverly_commit"] != commit:
+            out.append(f"{slug}: its manifest no longer records the post-flip run {commit[:7]}")
     return out
 
 

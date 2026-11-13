@@ -985,6 +985,9 @@ def _msm_score_rows(
     """The working-model solver rows of one draw."""
     rows = []
     for msm_fit in msm_fits:
+        if msm_fit.hazard is not None:
+            rows.extend(_hazard_msm_score_rows(result, msm_fit, tolerance=tolerance, draw=draw))
+            continue
         times = sorted({step.time for fit in msm_fit.fits for step in fit.steps})
         for time in times:
             contribution, maximum, fluctuation = _msm_node_contributions(result, msm_fit, time)
@@ -1011,6 +1014,42 @@ def _msm_score_rows(
                         draw,
                     )
                 )
+    return rows
+
+
+def _hazard_msm_score_rows(
+    result: Any, msm_fit: Any, *, tolerance: float, draw: int | None
+) -> list[LongitudinalScoreRow]:
+    """One solver row per term of a hazard working model, at its last horizon.
+
+    The walk solves one score per coefficient and cause, summed over every cell and node,
+    so each row reads the walk's record for ``(term, cause)``.
+    """
+    record = msm_fit.hazard
+    time = max(cell.horizon for cell in msm_fit.model.cells)
+    converged = bool(record.converged)
+    rows = []
+    for term in msm_fit.model.terms:
+        index = record.targets.index((term, msm_fit.cause))
+        score = abs(float(record.score[index]))
+        relative = score / max(float(record.score_scale[index]), 1e-300)
+        rows.append(
+            LongitudinalScoreRow(
+                None,
+                msm_fit.cause,
+                None,
+                time,
+                term,
+                "solver",
+                float(result.scaler.range * score),
+                relative,
+                converged,
+                converged and relative <= tolerance,
+                int(record.n_iter),
+                record.failure,
+                draw,
+            )
+        )
     return rows
 
 

@@ -2078,6 +2078,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # X70 part (d) (``hazard-msm``): the hazard fit beside the iterated-mean fit of the same
+        # working model on the same draws, and the iterated-mean curve's decreasing share, each
+        # reported with no verdict.
+        "iterated_mean_difference",
         # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
         # nuisance errors, the oracle Hessian checks and the split-stability readings, each
         # reported with no verdict.

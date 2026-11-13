@@ -1163,6 +1163,42 @@ $\Sigma$. `test_the_bounded_walk_loss_never_rises` checks the walk loss of a bou
 | `truncation_curve()` | a rerun of the targeting at each bound from the stored initial hazards. It refits no learner |
 | `n_bootstrap=` | shown with the label `experimental`. No support row lists `bootstrap` for a hazard fit |
 
+#### A working model over the hazard curve
+
+`msm=` with `survival_model="hazard"` and `targeting="one_step"` projects the hazard fit's cells onto
+a working model, as `msm=` does on an iterated-mean fit
+([marginal structural models](msm-projections.md#the-longitudinal-projection)). A cell is a regimen
+$r$ and a horizon $t$, and each cause $j$ gets its own projection. The implementation is
+`target_hazard_msm` in `longitudinal/hazard.py`.
+
+| item | contract |
+| --- | --- |
+| estimand | $\beta_j$ solves $E\bigl[\sum_c h(c, V)\,\varphi(c, V)\,\{\Psi_{c,j}(W) - m(c, V; \beta)\}\bigr] = 0$, with $\Psi_{c,j}(W) = \sum_a q_r(a \mid W) F_j(t \mid a, W)$ and $V$ among the baseline covariates. Under the logit link this is the parameter of Rosenblum and van der Laan (2010), (14). It is defined whether or not $m$ holds |
+| influence curve | $D^*_\beta = M^{-1} \sum_c h\varphi\, w\,\bigl[D^{(1)}_{c,j} + \Psi_{c,j}(W) - m(c, V; \beta)\bigr]$, where $D^{(1)}_{c,j}$ is the hazard part of the cell's influence curve above, $w$ the observation weight, and $M = E[\sum_c h\,\tfrac{dm}{d\eta}\,\varphi\varphi^\top]$. The chain rule of Rosenblum and van der Laan (2010), (17), applied to the cell curves. It is the iterated-mean MSM curve with the cell residual replaced by $D^{(1)}_{c,j}$ |
+| targets | the $p$ coefficient scores of each cause, $P_n\, w \sum_c h\varphi\, D^{(1)}_{c,j}$, walked together over every cause. Each is a per-unit sum of the cell scores, so the walk's direction is the cell direction with per-unit coefficients $\sum_m \gamma_{jm} h\varphi_m$. Solving the cell scores instead solves these only when $h\varphi$ does not vary with $V$ |
+| projection | `cleverly.msm.solve_projection` of the targeted plug-ins $\Psi^*_{c,j}(W_i)$, the solver of the iterated-mean MSM. A hazard fit has no outcome scaler, so the plug-ins enter raw |
+| metric | the full empirical covariance of the targets' cell-centred curves at the initial fit, floored at $10^{-12}$ on its diagonal and fixed for the walk. The coefficient scores of an intercept, a dose and a trend share most of their cells, and a diagonal metric then walks thousands of steps. It is fixed at the initial fit, as Remark 2 of Rytgaard and van der Laan (2024) fixes its diagonal metric. A metric changes the direction of each step, not where the walk stops: the stopping rule reads the relative score and not the metric, and the norm of a positive definite metric is zero only at a zero score |
+| remainder | each cell's hazard remainder, a sum over nodes of products of the hazard error and the error of $q/(gG)$ (Moore and van der Laan 2009, Section 4.1.2), plus the second-order term of the projection. No regression is fitted on an estimated index |
+| settings | competing causes, observation weights, clusters, cross-fitting, the declared `stopping=` rules and `iterate="best"` apply as on the cell walk. A declared rule reads the coefficient targets |
+| refused | the per-horizon algorithm (H14) and `isotonic=True` (H5) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)). `node_bounds=` beside `msm=` stays refused on either survival model (R-i3) |
+
+`result.msm_fits[j].hazard` holds the walk record, shared by every cause: its targets are
+`(term, cause)` pairs and its initial levels are the coefficients projected from the initial
+hazards. `converged` reads the walk and the projection. `diagnostics.score_equations()` gives one
+`solver` row per term and cause, at the last horizon. `truncation_curve()` re-targets the
+coefficient scores from the stored initial hazards. Each cell's fit in `result.fits` reads the
+walked hazards and serves the positivity diagnostics; its own score is not solved.
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_msm.py` | on finite laws realised exactly, a wrong hazard learner with the true mechanism gives the exact projection within `1e-8`, for one cause and for each of two competing causes, while its plug-in misses. The parameter is computed by a Newton solve in the test, and its efficient influence function by complex-step derivatives; with saturated hazards the curve equals it within `1e-10`. The same holds for observation weights, against the projection and the curve of the tilted law; for a projection weight $h$ that varies with $V$ and the cell; for the curve of each competing cause; and for a known stochastic regimen. Clusters leave the coefficients unchanged and move the variance. Mutation: targeting the cells misses the modifier's coefficient, with a control on a model without a modifier. A saturated design reproduces the cell estimates. A diagonal metric reaches the same coefficients in more than ten times the steps |
+
+The [hazard working-model study](method-evidence/hazard-msm.md) covers the in-sample fit of a
+held two-level baseline treatment with correctly specified logistic learners, on one cause and
+on two competing causes. Support rows `G60` license its point estimates and Wald intervals, and
+the simultaneous band on one cause. Another composition, such as cross-fitting, observation
+weights, clusters or a flexible learner, matches no row and is labelled `experimental`.
+
 #### Targeting rules on the hazard walk
 
 `stopping=`, `iterate=` and `step_bound=` act on the hazard targeting as follows. A default fit
@@ -1173,7 +1209,7 @@ these settings existed.
 | --- | --- | --- |
 | `stopping=` | the Newton loop of each horizon stops when the largest score over its threshold, over the targets of that horizon, is at most one | the walk stops when the largest score over its threshold, over every target, is at most one |
 | `iterate="best"` | reports the iterate $k \ge 1$ with the smallest raw score 2-norm, the first of any tie | reports the step $k \ge 1$ with the smallest $\Sigma$-norm, the last of any tie. The walk accepts no step that raises that norm, so this step is the last accepted one |
-| `step_bound=` | each iteration steps by a length in $(0, \delta]$ along $s / \lVert s \rVert_2$, with $s$ the score vector of the horizon. `step_search=True` takes the length that minimises the walk loss with $h$ held fixed | refused (R-c4, `api_redirection`): the walk takes its steps in `step_size` |
+| `step_bound=` | each iteration steps by a length in $(0, \delta]$ along $s / \lVert s \rVert_2$, with $s$ the score vector of the horizon. `step_search=True` takes the length that minimises the walk loss with $h$ held fixed (the root of its slope, to machine precision) | refused (R-c4, `api_redirection`): the walk takes its steps in `step_size` |
 
 A declared rule reads the threshold of [stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate).
 The units $n_u$ are the clusters of `id=` when the data declare it, and the rows otherwise. The
@@ -1345,7 +1381,7 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
 | `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
 | `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence. With two and three causes, a full cell keeps the fitted shares, the maximum-likelihood fallback reads it over the causes alone, and a correct split survives a wrong treatment model. The upper clip keeps the cause ratios of a unit outside a full cell, and with one cause it equals the plain clip. Each has a deliberate mutation |
-| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11, by type and message, before any learner |
+| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11 and H14, by type and message, before any learner |
 | `tests/unit/test_hazard_targeting_rules.py` | the targeting rules on both algorithms, and H13 |
 | `tests/unit/test_hazard_node_bounds.py` | bounded hazards: the refusals, the identities, the exact checks, the finite-sample witness, the held cells and the mutation controls |
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
@@ -1686,7 +1722,7 @@ sums no risk curve.
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions. Under `LTMLE` their outcome is a bounded prediction. Under [`SDR`](#the-sequentially-doubly-robust-estimator) it is a transform that can leave $[0, 1]$, so the pseudo learner must fit a real-valued target |
 | `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism keeps the out-of-fold probabilities only, so its memory does not grow with $K$ |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
-| `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
+| `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=`, `band_scale=`, `band_reference=` | interval level, and the simultaneous bands across the reported regimens. [Simultaneous bands](inference.md#simultaneous-bands) states each band option and the rows that license it |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
 | `ratio_trim=` | trims the per-node density ratios at a declared quantile, as `lmtp` does. A fit whose trim moves a ratio reports no interval. [Ratio trimming](#ratio-trimming) states the rule |
 | `hazard_pooling=` | `"pooled"` fits one censoring model over every at-risk unit and node, with the grid time as a column. Under `survival_model="hazard"` it also fits each cause's hazard once over every node. [Pooled censoring](#pooled-censoring) states the rows |
@@ -2053,7 +2089,7 @@ the band. A name that withholds inference in one draw withholds it in the report
 | part | `repeats=1` | `repeats` above 1 |
 | --- | --- | --- |
 | fold assignment | `random_state`, or a fresh seed under `None` | seed $r$ of `CrossFitPlan(random_state=..., repeats=R).seeds()`. A fresh seed replaces each `None` |
-| learners | `random_state` | the seed of the draw, so a Super Learner's inner folds draw again |
+| learners | `random_state`, given to every learner `random_state` that is `None`, including a Super Learner's candidates | the seed of the draw, given the same way, so a Super Learner's inner folds and its candidates with no seed of their own draw again |
 | multiplier band | `random_state` | `random_state` when it is an integer. Under `None` the fit draws one seed and records it as `config.multiplier_seed`. Every draw and a `CausalStudy` band use it |
 
 At one draw a `random_state=None` fit sends `None` to its learners, as before. The point-treatment

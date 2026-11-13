@@ -553,7 +553,17 @@ def measured(row: Any) -> str:
     if family == "simultaneous_coverage":
         # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
         # is read from.  The bias and SE columns hold a max-t statistic and a critical value.
-        return f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        measured = f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        # A reference control also reports the paired gain of its t band over it, which gates
+        # nothing (band-t-reference).
+        if str(row.role) == "reference_control" and pd.notna(
+            getattr(row, "coverage_gain_ci_lower", None)
+        ):
+            measured += (
+                ", paired gain of the t band "
+                f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+            )
+        return measured
     if family == property_verdicts.FOLD_POLICY_FAMILY:
         measured = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
         # Absent on the reference arm, which is differenced against itself.
@@ -923,6 +933,25 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
+    if family == "iterated_mean_difference":
+        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+        # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
+        # row the share of draws whose iterated-mean risk curve decreases.
+        cell = str(row.cell)
+        if pd.notna(getattr(row, "paired_sd_over_bound", float("nan"))):
+            return (
+                f"paired SD over bound {render(float(row.paired_sd_over_bound))}, mean "
+                f"difference {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+            )
+        if cell.endswith("__iterated_curve_decrease"):
+            return (
+                f"decreasing share {render(float(row.rejection_rate))}, 99% interval "
+                f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+            )
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 

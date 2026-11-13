@@ -244,7 +244,7 @@ def _reference(
             for k in range(data.n_times)
         ),
     )
-    fits = _run_hazard(
+    fits, _ = _run_hazard(
         data,
         [plan],
         level_plans(data),

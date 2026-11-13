@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "study": "continuous-time survival TMLE",
+  "slug": "continuous-time-survival",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-continuous-survival-tmle",
+      "cleverly_version": "0.2.3",
+      "cleverly_commit": "ae62688a4081751c886bfe959589563fe54b4733",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 7600,
+    "n": 1000,
+    "seed": 2026911961,
+    "resampling_seed": 2026911962,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-continuous-survival-tmle": 0.01
+    },
+    "scenarios": {
+      "both_cf_1k": [
+        "cif_regimen[treated, cause1 @ t=1.12]",
+        "cif_regimen[treated, cause1 @ t=2.32]",
+        "cif_regimen[treated, cause2 @ t=1.12]",
+        "cif_regimen[treated, cause2 @ t=2.32]",
+        "cif_regimen[control, cause1 @ t=1.12]",
+        "cif_regimen[control, cause1 @ t=2.32]",
+        "cif_regimen[control, cause2 @ t=1.12]",
+        "cif_regimen[control, cause2 @ t=2.32]",
+        "ate_regimen[treated vs control, cause1 @ t=1.12]",
+        "ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "ate_regimen[treated vs control, cause2 @ t=2.32]"
+      ]
+    },
+    "construction": "Rytgaard and van der Laan (2024) one-step TMLE, both arms tilted",
+    "law": "Hage et al. (2025) scenario 1 with departures (tests/studies/continuous_survival_law.py)",
+    "times": [
+      0.46,
+      1.12,
+      2.32
+    ],
+    "beta": 1.0,
+    "n_folds": 10,
+    "learner_folds": 5,
+    "learners": {
+      "default": "cox.default_library() for each hazard; logistic + lasso C in (1, 0.1, 0.03)",
+      "hazard_wrong": "CoxHazard('treatment')",
+      "propensity_wrong": "unpenalized logistic on X1, X2",
+      "censoring_wrong": "CoxHazard('treatment') on the dependent-censoring law"
+    },
+    "sizes": {
+      "both_cf_1k": 1000
+    },
+    "variance_method": "influence curve",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.2,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/continuous_survival.py": "61202d8bee9c011630fd3511d65ca57051acad5ae29ca86350464af00c8ccd29",
+    "tests/studies/continuous_survival_law.py": "0b022895d8115269d5e5324d0ed1be969134d538c8df0f142778a32cff5f1b7b",
+    "tests/studies/continuous_survival_properties.py": "1c6d479184f04a4b7ca67419e1bb17c98815f441e17a023d9d170bd05fc9c61d",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/stratified_incremental_msm_properties.py": "628403ef4caf95d465f20c8d44e510a405eaa95ab66db9a8478aa6bba42482d6",
+    "tests/studies/canonical_stratified_incremental_msm.py": "c53a6365f91e03ab6876c36624e6034390a0510288f4eac0c5a186bf96b98f04",
+    "tests/studies/stratified_alternating_law.py": "06dd359ac9b20bbbedad07080baeca51b5d35f4940a9e3bb750e54c86620f276",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/discrete_law.py": "cecd125d7cc80652937d83edbd29f792cd05468baf634cc7b2855fd17db778f2"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "f31947d4a95fffa63b7dd0d7d5f60986cca4f28d69decd8578f344bdfd9b0bff",
+    "summary.csv": "8879f8949b358555651f94d60152fa843e27d258e8ea4f7d3aa2e544c515b63f",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "02e4624b32a14a9d2ee9e4d9d1bbf2d7afaf263e1230991e58192d455b5674ce",
+    "property-replicates.parquet": "00da2284a291198cf219ef70fc382a5e3d8987968986ce194d62fb51413819f5",
+    "properties.csv": "50a186283b4f236ac26dddc3ea859fc82805c8da4bba833ada04154b63b159d4",
+    "targeting-readings.csv": "fcdfcfb8b06d1d7606c2857679279cbe6d0abd1769a79573be8fa1f035457284",
+    "early-time.csv": "38b43a8ab2bd1d446adbcbe2fa2ea6033469fe3a9caea1df21bee43c952b080f",
+    "reported-cells.csv": "32b8ab522ac3697abda368fcc405c8d24b02e1224305deb11e068bf805a024b5",
+    "reported-replicates.csv": "154fc9132f586ee3d9f067a0452fa238fa6b8372536df9e3b5570a83bbda72e3",
+    "failures.csv": "5237d92bb5dba14913a3a7f923111635e192542023ff09e94406e5d95093eacb",
+    "failure-accounting.csv": "e50dcd43940f18545c845f6cbbaeb5236060cce395cac1ea41f939669cc9cd52",
+    "property-failures.csv": "9c326add107cfd905bf9d7470ec9c2075cde812abb878fb1e0e472dabdbdb994",
+    "property-failure-accounting.csv": "5c9c2f4433ad1fb46d6232d49c65a1f5390cf80113c48dd1cce9aa94ac629c19",
+    "property-failure-witnesses.parquet": "90f3c0fd61de7141d33193aa4f099637a7b4846c664ecbe9ca9ae171e20f84d0"
+  }
+}

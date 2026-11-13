@@ -26,6 +26,8 @@ from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.longitudinal import LTMLE, LongitudinalData
+from cleverly.longitudinal.collaborative import SurvivalCTMLE
+from cleverly.longitudinal.drift import SurvivalDRTMLE
 
 #: ``configuration -> estimand -> (psi, standard error)`` at ``57024984``.
 PINNED: dict[str, dict[str, tuple[float, float]]] = {
@@ -108,6 +110,50 @@ def test_hazard_ltmle_matches_the_values_before_the_block_split(name: str) -> No
             simultaneous=False,
         ).fit(data)
     for estimand, (psi, std_error) in PINNED[name].items():
+        estimate = result.estimates[estimand]
+        assert float(estimate.psi) == pytest.approx(psi, rel=1e-9), estimand
+        assert float(np.sqrt(estimate.variance)) == pytest.approx(std_error, rel=1e-9), estimand
+
+
+#: ``estimator -> estimand -> (psi, standard error)`` at ``9246a334``, the commit before X70
+#: part (d) changed the hazard internals that ``SurvivalCTMLE`` and ``SurvivalDRTMLE`` import.
+PINNED_IMPORTERS: dict[str, dict[str, tuple[float, float]]] = {
+    "SurvivalCTMLE": {
+        "risk_regimen[a1 @ t=3]": (0.39400382659424465, 0.0365774418759882),
+        "risk_regimen[a0 @ t=3]": (0.5831829385550144, 0.036199471625225625),
+        "ate_regimen[a1 vs a0 @ t=3]": (-0.1891791119607697, 0.05056865595938722),
+    },
+    "SurvivalDRTMLE": {
+        "risk_regimen[a1 @ t=3]": (0.38613114048543085, 0.03799542570102349),
+        "risk_regimen[a0 @ t=3]": (0.5806603643258216, 0.036867763888552466),
+        "ate_regimen[a1 vs a0 @ t=3]": (-0.19452922384039073, 0.052168336564386596),
+    },
+}
+
+
+@pytest.mark.parametrize("name", list(PINNED_IMPORTERS))
+def test_the_hazard_importers_match_the_values_before_x70(name: str) -> None:
+    data = LongitudinalData.from_time_to_event(
+        _frame(1), time="time", event="event", treatment="A", baseline=["W1", "W2"]
+    )
+    learner = LogisticRegression(max_iter=2000)
+    estimator: type[LTMLE] = SurvivalCTMLE if name == "SurvivalCTMLE" else SurvivalDRTMLE
+    extra = (
+        {}
+        if name == "SurvivalCTMLE"
+        else {"treatment_learner": learner, "censoring_learner": learner}
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = estimator(
+            {"a1": 1, "a0": 0},
+            reference="a0",
+            outcome_learner=learner,
+            random_state=0,
+            simultaneous=False,
+            **extra,
+        ).fit(data)
+    for estimand, (psi, std_error) in PINNED_IMPORTERS[name].items():
         estimate = result.estimates[estimand]
         assert float(estimate.psi) == pytest.approx(psi, rel=1e-9), estimand
         assert float(np.sqrt(estimate.variance)) == pytest.approx(std_error, rel=1e-9), estimand

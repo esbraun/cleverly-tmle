@@ -40,7 +40,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import influence_variance
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import _median_adjusted_variance, make_estimate
-from cleverly.inference.multiplier import median_bands, simultaneous_bands
+from cleverly.inference.multiplier import median_bands, simultaneous_bands, t_critical_values
 from cleverly.inference.results import (
     estimate_covariance,
     median_covariance,
@@ -624,6 +624,26 @@ def test_band_uses_split_adjusted_se_and_median_critical_value(design: str, repe
         _close((high + low) / 2.0, estimate.psi)
         marginal = estimate.ci
         assert low <= marginal[0] and marginal[1] <= high
+
+
+def test_t_band_maps_the_median_critical_value_with_the_combined_curves() -> None:
+    """A repeated ``t`` band maps the median ``c`` through each combined curve's Kish df.
+
+    The critical value stays the median over draws; each estimate's half width is its own
+    ``t`` quantile at that median, with the df read from the median-combined curve.
+    """
+    result = _fit("ltmle", repeats=4, band_scale="identity", band_reference="t")
+    band = result.simultaneous
+    assert band.reference == "t"
+    _close(band.critical_value, np.median(np.array(band.draw_critical_values)))
+    names = list(band.bands)
+    curves = np.column_stack([result[name].influence_curve for name in names])
+    nus, values = t_critical_values(band.critical_value, curves)
+    for index, name in enumerate(names):
+        low, high = band.bands[name]
+        _close(band.reference_df[name], nus[index])
+        _close((high - low) / 2.0, values[index] * result[name].std_error)
+        assert values[index] > band.critical_value
 
 
 def _study_result(repeats: int, random_state: int | None = 11) -> Any:
@@ -1552,6 +1572,9 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "n_multiplier": _witness(EACH_DRAW, "settings"),
     "multiplier_kind": _witness(EACH_DRAW, "settings"),
     "band_scale": _witness(EACH_DRAW, "settings"),
+    "band_reference": _witness(
+        "test_t_band_maps_the_median_critical_value_with_the_combined_curves"
+    ),
     "max_iter": _witness(EACH_DRAW, "settings"),
     "tol": _witness(EACH_DRAW, "settings"),
     "random_state": _witness("test_none_seed_draws_fresh_concrete_seeds"),

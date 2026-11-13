@@ -23,6 +23,7 @@ from cleverly.estimators.base import TMLEResult
 from cleverly.estimators.dose_response import DoseResponseTMLE
 from cleverly.inference import multiplier
 from cleverly.inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
@@ -58,6 +59,7 @@ BAND_SIGNATURES: tuple[tuple[Any, str, str, str], ...] = (
 
 def test_the_constants_are_the_declared_default() -> None:
     assert (DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES) == ("logit", "mammen", 10_000)
+    assert DEFAULT_BAND_REFERENCE == "normal"
 
 
 @pytest.mark.parametrize(
@@ -72,6 +74,7 @@ def test_every_band_signature_defaults_to_the_declared_band(
     assert parameters[draws].default == DEFAULT_N_REPLICATES
     assert parameters[kind].default == DEFAULT_KIND
     assert parameters[scale].default == DEFAULT_BAND_SCALE
+    assert parameters["band_reference"].default == DEFAULT_BAND_REFERENCE
 
 
 def test_the_method_and_the_dose_response_curve_use_the_default() -> None:
@@ -81,6 +84,7 @@ def test_the_method_and_the_dose_response_curve_use_the_default() -> None:
         DEFAULT_KIND,
         DEFAULT_BAND_SCALE,
     )
+    assert inference.band_reference == DEFAULT_BAND_REFERENCE
     assert inspect.signature(DoseResponseTMLE).parameters["n_replicates"].default == (
         DEFAULT_N_REPLICATES
     )
@@ -131,7 +135,14 @@ def test_the_curve_band_passes_rademacher_at_1000(
 def test_the_multiplier_module_states_the_default() -> None:
     """The module docstring says why each default holds, which the inference page links."""
     text = multiplier.__doc__ or ""
-    for topic in ("Why the transform", "Why Mammen", "same on either scale", "Why no bootstrap-t"):
+    topics = (
+        "Why the transform",
+        "Why Mammen",
+        "same on either scale",
+        "Why no bootstrap-t",
+        "Why a t reference is an option",
+    )
+    for topic in topics:
         assert topic in text, topic
 
 
@@ -141,7 +152,7 @@ def test_the_support_tables_read_the_default_band() -> None:
     from cleverly._support_rows import DEFAULT_BAND_DRAWS
     from cleverly.estimators.dose_response import DOSE_RESPONSE_BAND_DRAWS
 
-    assert DEFAULT_BAND_OPTION == (DEFAULT_KIND, DEFAULT_BAND_SCALE)
+    assert DEFAULT_BAND_OPTION == (DEFAULT_KIND, DEFAULT_BAND_SCALE, DEFAULT_BAND_REFERENCE)
     assert DEFAULT_BAND_DRAWS == DOSE_RESPONSE_BAND_DRAWS == DEFAULT_N_REPLICATES
 
 

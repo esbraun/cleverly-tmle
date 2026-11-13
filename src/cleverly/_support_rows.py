@@ -21,6 +21,7 @@ from typing import Any, Final
 from ._support import (
     DEFAULT_BAND_OPTION,
     KEY_AXES,
+    T_BAND_OPTION,
     Kind,
     SupportKey,
     SupportRow,
@@ -38,6 +39,8 @@ __all__ = [
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
     "SHORTFALLS",
+    "T_BAND_CELLS",
+    "T_BAND_STUDY",
     "UNMAPPED_BAND_CELLS",
     "TheoryAnchor",
     "default_options",
@@ -572,6 +575,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             splitting=("stacked",),
             qualifiers=["strata"],
+            kinds=_WALD | {"band"},
             cells=["stratified_binary"],
         )
     )
@@ -1581,11 +1585,6 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P1", "P2"),
             missing=("outcome", "intermediate"),
             cells=["binary_cde_z0_mar", "binary_cde_z1_mar"],
-            limits=[
-                "The simultaneous band at z = 0 is red.",
-                "band-finite-sample: the default band at z = 0 reads joint coverage 0.9119 to "
-                "0.9397 (default-simultaneous-bands, cde_z0).",
-            ],
         )
     )
     rows.append(
@@ -2401,9 +2400,26 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ),
     # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
     # band; stochastic-categorical-ltmle's primary band cell, which BAND_CELLS maps here, passes.
+    # A band shortfall binds the default band only: the t band has cells of its own
+    # (T_BAND_CELLS), so it does not read the sentence.
     ("G08.in_sample", "band"): (
         "Row G08.in_sample is red for the default band of its configuration: joint coverage "
-        "0.9191 to 0.9458 (default-simultaneous-bands, categorical_ltmle; band-finite-sample)."
+        "0.9191 to 0.9458 (default-simultaneous-bands, categorical_ltmle; band-finite-sample). "
+        "A plain band with band_reference='t' is supported on this row (band-t-reference)."
+    ),
+    # band-finite-sample: default_bands:cde_z0 measures this configuration's default band. T30
+    # licenses the t band alone (T_BAND_CELLS).
+    ("T30", "band"): (
+        "Row T30 is red for the default band of its configuration at z = 0: joint coverage "
+        "0.9119 to 0.9397 (default-simultaneous-bands, cde_z0; band-finite-sample). A plain band "
+        "with band_reference='t' is supported on this row (band-t-reference)."
+    ),
+    # strata-boundary-mean: canonical-stratified-tmle's strata band cell measures this
+    # configuration's default band. T13 licenses the t band alone (T_BAND_CELLS).
+    ("T13", "band"): (
+        "Row T13 is red for the default band of its configuration: joint coverage 0.9196 to "
+        "0.9462 (canonical-stratified-tmle, strata; strata-boundary-mean). A plain band with "
+        "band_reference='t' is supported on this row (band-t-reference)."
     ),
 }
 
@@ -2589,14 +2605,16 @@ DEFAULT_BAND_DRAWS: Final[int] = 10_000
 #: band with :data:`~cleverly._support.DEFAULT_BAND_OPTION` and fewer draws than its row's count
 #: is experimental.
 #:
-#: Every row that licenses ``band`` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
+#: Every row in :data:`BAND_CELLS` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
 #: configuration band-finite-sample Wave 2 regenerated every band cell with (Mammen, logit), and
 #: every cell :data:`BAND_CELLS` maps to such a row passes on the regenerated rows (the Wave 2
-#: decision record).  A red cell that measures a row's configuration without licensing it still
-#: binds the row: ``G08.in_sample`` carries the ``categorical_ltmle`` reading of
-#: default-simultaneous-bands as a band shortfall (:data:`SHORTFALLS`), and ``T30``, which
-#: licenses no band, states the ``cde_z0`` reading as a limit.  Any other multiplier or scale
-#: reads experimental with :data:`~cleverly._support.UNMEASURED_BAND_OPTION`.
+#: decision record).  A red cell that measures a row's default band without licensing it still
+#: binds the row as a band shortfall (:data:`SHORTFALLS`), which a listed ``t`` band does not
+#: read: ``G08.in_sample`` and ``T30`` carry the ``categorical_ltmle`` and ``cde_z0`` readings
+#: of default-simultaneous-bands, and ``T13`` the ``strata`` reading of
+#: canonical-stratified-tmle.  ``T30`` and ``T13`` license the ``t`` band alone
+#: (:data:`T_BAND_CELLS`).  Any other multiplier or scale reads experimental with
+#: :data:`~cleverly._support.UNMEASURED_BAND_OPTION`.
 BAND_OPTION_DRAWS: Final[Mapping[str, int]] = {
     # multi-arm-mar-drtmle keeps N_MULTIPLIER = 1_000 (canonical_multi_arm_mar_drtmle.py, a
     # fixed design), so its arms band cell measured the Mammen logit band at 1,000 draws.
@@ -2604,10 +2622,61 @@ BAND_OPTION_DRAWS: Final[Mapping[str, int]] = {
 }
 
 
-def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
-    """Attach the shortfall, limit and band-draw tables to their rows.
+def _band(study: str, setting: str) -> str:
+    return f"{study}:simultaneous_coverage/{setting}__simultaneous_band"
 
-    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS` and :data:`BAND_OPTION_DRAWS`.
+
+def _t_band(study: str, setting: str) -> str:
+    return f"{study}:simultaneous_coverage/{setting}__t_band"
+
+
+#: The study whose cells license :data:`~cleverly._support.T_BAND_OPTION`.
+T_BAND_STUDY: Final[str] = "band-t-reference"
+
+#: The ``band-t-reference`` cells that license :data:`~cleverly._support.T_BAND_OPTION` on each
+#: row, written by :func:`_t_band` (Fix-2 plan, section 1.1 item 4). Every cell passed its joint
+#: rule, and so did its gated pointwise control; the paired gain over the normal-reference
+#: control is reported and gates nothing. Each licence covers the whole row key, as a
+#: :data:`BAND_CELLS` licence does. A row named here licenses ``band``, cites
+#: ``band-t-reference`` and lists the ``t`` triple; a row with no :data:`BAND_CELLS` entry lists
+#: the ``t`` triple alone, so its default band reads experimental. The held-out
+#: ``strata_n1000`` cell of ``band-t-reference-held-out`` licenses no row.
+T_BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    # default_band_properties.SOURCES["categorical_ltmle"]: canonical-categorical-ltmle's
+    # in-sample fit, at n = 2,000 and n = 8,000.
+    "G08.in_sample": (
+        _t_band("band_t_reference", "categorical_ltmle"),
+        _t_band("band_t_reference", "categorical_ltmle_n8000"),
+    ),
+    # SOURCES["categorical_ltmle_crossfit"]: the cross-fitted categorical LTMLE fit.
+    "G08.cross_fitted": (_t_band("band_t_reference", "categorical_ltmle_crossfit"),),
+    # band_t_reference_properties._six_regimens: longitudinal-sdr's cross-fitted band fit.
+    "G23.cross_fitted": (_t_band("band_t_reference", "six_regimens"),),
+    # SOURCES["ordinary_binary"]: ordinary in-sample TMLE over the binary estimands.
+    "T01.binary": (_t_band("band_t_reference", "ordinary_binary"),),
+    # band_t_reference_properties._strata: canonical-stratified-tmle's in-sample fit.
+    "T13": (
+        _t_band("band_t_reference", "strata"),
+        _t_band("band_t_reference", "strata_n8000"),
+    ),
+    # _strata(crossfit=True): the cross-fitted stratified fit.
+    "T14": (_t_band("band_t_reference", "crossfit_strata"),),
+    # SOURCES["point_msm"]: the in-sample point-treatment MSM fit.
+    "T18": (_t_band("band_t_reference", "point_msm"),),
+    # SOURCES["cde_z0"]: cde-tmle's z = 0 fit with missing outcomes, at n = 2,000 and 8,000.
+    "T30": (
+        _t_band("band_t_reference", "cde_z0"),
+        _t_band("band_t_reference", "cde_z0_n8000"),
+    ),
+}
+
+
+def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
+    """Attach the shortfall, limit, ``t`` band and band-draw tables to their rows.
+
+    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS` and
+    :data:`BAND_OPTION_DRAWS`. A ``t`` band cell measured the band at
+    :data:`DEFAULT_BAND_DRAWS` draws.
     """
     out = []
     for row in rows:
@@ -2615,8 +2684,20 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
             (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
         )
         limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
+        if T_BAND_CELLS.get(row.id):
+            options = (*row.band_options, T_BAND_OPTION) if "band" in row.kinds else ()
+            row = replace(
+                row,
+                kinds=row.kinds | {"band"},
+                evidence=tuple(dict.fromkeys((*row.evidence, T_BAND_STUDY))),
+                band_options=options or (T_BAND_OPTION,),
+            )
+        measured = {
+            DEFAULT_BAND_OPTION: BAND_OPTION_DRAWS.get(row.id, DEFAULT_BAND_DRAWS),
+            T_BAND_OPTION: DEFAULT_BAND_DRAWS,
+        }
         draws = (
-            ((DEFAULT_BAND_OPTION, BAND_OPTION_DRAWS.get(row.id, DEFAULT_BAND_DRAWS)),)
+            tuple((option, measured[option]) for option in row.band_options)
             if "band" in row.kinds
             else ()
         )
@@ -5171,7 +5252,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
-#: collaborative TMLE of a risk curve (``G50``) and the drift-corrected survival TMLE (``G51``).
+#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``) and
+#: the working model over the hazard curve (``G60``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5484,6 +5566,66 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_msm_rows() -> tuple[SupportRow, ...]:
+    """The working model over the hazard curve of ``hazard-msm`` (X70 part (d)): ``G60``.
+
+    ``LTMLE(msm=..., survival_model="hazard", targeting="one_step")`` keys ``msm`` on the hazard
+    ``LTMLE`` key, with a two-level baseline treatment held over the visits.  The rows were added
+    because every declared verdict passed: 12 of 12 primary tests and 51 of 51 property cells
+    with a verdict (calibration with its controls, the simultaneous band, robustness on both
+    laws, targeting necessity, the root-n rate and power), with no failed fit.  The numbers are
+    the committed results (``tests/canonical/hazard_msm``).
+    """
+    slug = ["hazard-msm"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a logistic arm and visit dropout, "
+        "and logistic pseudo-hazards with an a x W1 term; the logit working model "
+        "(1, a, t, a W1) with uniform cell weights and V = W1, and one identity-link "
+        "coefficient. Correctly specified low-dimensional logistic learners at n = 2,000, one "
+        "fold; a wrong hazard learner or wrong mechanisms only in the robustness cells. A "
+        "flexible learner, a weight that varies with V or the cell, cross-fitting, observation "
+        "weights or clusters rest on the exact-law tests alone. No comparator: no maintained "
+        "package targets these coefficient scores."
+    )
+    common: dict[str, Any] = {
+        "held": True,
+        "msm": True,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+    }
+    return (
+        long_row(
+            "G60.survival",
+            slug,
+            outcome_kind="survival",
+            treatment=("2",) * 5,
+            kinds=_LONG_BAND,
+            cells=["survival"],
+            limits=[
+                "One event type over five visits. The primary rows read coverage 0.948 to 0.954 "
+                "over 2,400 draws, the calibration cells SE ratio 0.988 to 1.014 over 5,200, and "
+                "the max-t band over the four coefficients joint coverage 0.946.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G60.competing",
+            slug,
+            outcome_kind="competing",
+            treatment=("2",) * 4,
+            cells=["competing"],
+            limits=[
+                "Relapse and death over four visits, each cause with its own projection. The "
+                "primary rows read coverage 0.940 to 0.956 over 2,400 draws; no band is "
+                "validated on this law.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -5622,6 +5764,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_separable_rows(),
         *_survival_ctmle_rows(),
         *_survival_dr_tmle_rows(),
+        *_hazard_msm_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
@@ -5635,6 +5778,11 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 #: estimate cannot license a configuration, so it is not the evidence of a row. A study of an
 #: engine that no support key reads is the other case: its reason names what a row would need.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "band-t-reference-held-out": (
+        "It holds out one t band cell, the strata law at n = 1,000, to test the rule out of "
+        "sample. The cell licenses no row: band-t-reference licenses the t band, and this study "
+        "is a reported check of it."
+    ),
     "adaptive-tmle-trial": (
         "It measures the intervals of AdaptiveTMLEMethod on a trial pooled with external data. "
         "No support key reads a TrialWithExternalData fit, so no row can name the "
@@ -5738,6 +5886,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
         # Roadmap: F27.
         "and licenses no configuration."
+    ),
+    "continuous-time-survival": (
+        "It measures ContinuousSurvivalTMLE, which no support key reads: the continuous-time fit "
+        "has no node structure to classify. cleverly.survival.result.continuous_survival_support, "
+        "not a support row, records the configurations the study licenses."
     ),
     "adaptive-iptw-pairing": (
         "It pairs the gate study's fits with R drtmle replicate by replicate, has no property "
@@ -5897,10 +6050,6 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
 # ------------------------------------------------------------------ band cells
 
 
-def _band(study: str, setting: str) -> str:
-    return f"{study}:simultaneous_coverage/{setting}__simultaneous_band"
-
-
 #: The band cells that license each row's ``band`` kind, as ``"<study directory>:<cell>"``
 #: (band-finite-sample plan, section 4.5). A cell maps to a row only where the fit that
 #: produces the cell falls under the row's key, checked against the study's design module
@@ -5993,6 +6142,11 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     "G44.law_i": (_band("longitudinal_repeated_crossfit", "i_ipsi"),),
     # long_horizon_properties.fit_key: the joint arm of the K = 5 binary fit set.
     "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
+    # hazard_msm_properties: the joint fit of the four survival-law coefficients.
+    "G60.survival": (_band("hazard_msm", "survival_logit_coefficients"),),
+    # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
+    # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
+    "T14": (_band("tmle3_stratified", "crossfit_strata"),),
 }
 
 _DEFAULT_BANDS_REASON = (
@@ -6032,11 +6186,21 @@ UNMAPPED_BAND_CELLS: Final[Mapping[str, str]] = {
 } | {
     # Rows that cite default-simultaneous-bands for a red reading of their own default band.
     _band("default_bands", "cde_z0"): (
-        "It measures the default band of the configuration of row T30, which licenses no band, "
-        "and it is red; the row states the reading as a limit."
+        "It measures the default band of the configuration of row T30, which licenses the t band "
+        "alone, and it is red; the row carries the reading as a band shortfall."
     ),
     _band("default_bands", "categorical_ltmle"): (
         "It measures the default band of the configuration of row G08.in_sample and it is red; "
         "the row carries the reading as a band shortfall."
+    ),
+    # band-t-reference-held-out: the held-out cell of the t reference (Fix-2 plan 5.2).
+    _t_band("band_t_reference_held_out", "strata_n1000"): (
+        "Held out and declared at risk: it tests the rule out of sample on the strata law at "
+        "n = 1,000 and licenses no row."
+    ),
+    # canonical-stratified-tmle is cited by T14's band since its crossfit_strata cell licenses it.
+    _band("tmle3_stratified", "strata"): (
+        "It measures the default band of the configuration of row T13, which licenses the t band "
+        "alone, and it is red; the row carries the reading as a band shortfall."
     ),
 }

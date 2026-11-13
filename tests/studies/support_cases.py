@@ -2130,6 +2130,29 @@ def _gap_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _band_t_reference_cases() -> tuple[RowCase, ...]:
+    """The cases of ``band-t-reference`` (Fix-2): each cell's fit, for each row it licenses.
+
+    Each cell refits its source shape with the default band and reads the ``t`` band from the
+    same estimates, so the cell's fit classifies as its source fit does.
+    """
+    from tests.studies.band_t_reference import CELLS
+
+    return tuple(
+        _observed(
+            row,
+            "band-t-reference",
+            cell.label,
+            "band_t_reference_properties.py:221",
+            "band_t_reference_properties",
+            lambda study, cell=cell: study.shape(cell.source).draw(min(cell.n, 2_000), 0)[0],
+            lambda study, frame, cell=cell: study.shape(cell.source).fit(frame),
+        )
+        for cell in CELLS
+        for row in cell.rows
+    )
+
+
 def _plugin_limit_cases() -> tuple[RowCase, ...]:
     """The cases of ``omitted-variable-bound-plugin-se`` (X26): each scenario runs the study's fit."""
     where = "omitted_variable_bound_plugin.py:612"
@@ -2681,6 +2704,27 @@ def _survival_dr_tmle_cases() -> tuple[RowCase, ...]:
     return (case("G51.estimated", "both_1k"), case("G51.declared", "known_1k"))
 
 
+def _hazard_msm_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-msm`` (X70 part (d)): ``G60``.
+
+    Each runs the study's own fit of one scenario, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_msm", "hazard-msm"
+
+    def case(scenario: str) -> RowCase:
+        return _observed(
+            f"G60.{scenario}",
+            slug,
+            scenario,
+            f"{module}.py:245",
+            module,
+            lambda study: study.SCENARIOS[scenario].draw(1_000, 0),
+            lambda study, frame: study.fit(scenario, frame),
+        )
+
+    return (case("survival"), case("competing"))
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -3218,6 +3262,7 @@ CASES: tuple[RowCase, ...] = (
     *_c_cases(),
     *_gap_cases(),
     *_plugin_limit_cases(),
+    *_band_t_reference_cases(),
     *_long_cases(),
     *_vector_cases(),
     *_categorical_incremental_cases(),
@@ -3237,6 +3282,7 @@ CASES: tuple[RowCase, ...] = (
     *_separable_cases(),
     *_survival_ctmle_cases(),
     *_survival_dr_tmle_cases(),
+    *_hazard_msm_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
