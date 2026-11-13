@@ -390,6 +390,281 @@ def test_a_healthy_draw_takes_no_status_and_builds_its_band() -> None:
     assert fit.simultaneous is not None
 
 
+def _constant_arm_frame(n: int = 600) -> pd.DataFrame:
+    """A binary treatment whose treated rows all hold the event, with a healthy control arm."""
+    rng = np.random.default_rng(0)
+    w = rng.normal(size=n)
+    a = rng.binomial(1, expit(0.3 * w)).astype(float)
+    y = np.where(a == 1.0, 1.0, rng.binomial(1, expit(0.2 + 0.5 * w))).astype(float)
+    return pd.DataFrame({"W": w, "A": a, "Y": y})
+
+
+def _logistic_fit(frame: pd.DataFrame, **settings: Any) -> Any:
+    fit_keys = {"weights", "delta", "treatment_delta"}
+    declared = {key: settings.pop(key) for key in list(settings) if key in fit_keys}
+    estimator = TMLE(
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+        **settings,
+    )
+    return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], **declared).single()
+
+
+def _statuses(fit: Any) -> dict[str, str]:
+    return {name: str(estimate.inference) for name, estimate in fit.estimates.items()}
+
+
+def _tmle_module() -> Any:
+    import importlib
+
+    return importlib.import_module("cleverly.estimators.tmle")
+
+
+def test_a_ratio_that_reads_the_constant_arm_is_withheld() -> None:
+    frame = law.sample(500, CONSTANT_CELL_SEED)
+    fit = stratified_tmle.fit_cleverly(frame, estimands=("ey", "ate", "rr", "or"))
+    for name in ("ey[1][V=2]", "ate[V=2]", "rr[V=2]", "or[V=2]"):
+        assert fit[name].inference == CONSTANT_ARM_CELL_STATUS, name
+    assert fit["rr"].inference == "influence_curve"
+    with pytest.raises(CapabilityError):
+        _ = fit["rr[V=2]"].ci
+
+
+def test_a_ratio_check_gated_on_bounds_shows_the_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The mutation the builder once carried: a target without bounds skipped the check.
+    module = _tmle_module()
+    shipped = module.bounded_status
+
+    def gated(inference: Any, psi: float, bounds: Any, **kwargs: Any) -> Any:
+        return inference if bounds is None else shipped(inference, psi, bounds, **kwargs)
+
+    monkeypatch.setattr(module, "bounded_status", gated)
+    frame = law.sample(500, CONSTANT_CELL_SEED)
+    fit = stratified_tmle.fit_cleverly(frame, estimands=("ey", "rr", "or"))
+    assert fit["ey[1][V=2]"].inference == CONSTANT_ARM_CELL_STATUS
+    assert fit["rr[V=2]"].inference == "influence_curve"
+    assert fit["or[V=2]"].inference == "influence_curve"
+
+
+def test_a_contrast_or_ratio_inherits_the_range_status_of_a_mean_it_reads() -> None:
+    from cleverly.estimators.tmle import _carry_cell_status
+
+    assert bounded_status("influence_curve", 1.4, None, reads_out_of_range=True) == (
+        OUT_OF_RANGE_STATUS
+    )
+    assert bounded_status("influence_curve", 0.4, (-1.0, 1.0), reads_out_of_range=True) == (
+        OUT_OF_RANGE_STATUS
+    )
+    assert bounded_status("constant_node_plugin", 1.4, None, reads_out_of_range=True) == (
+        "constant_node_plugin"
+    )
+    ratio = make_estimate("rr", 1.4, _curve(0.05), n=400, scale="ratio", log_psi=math.log(1.4))
+    pooled = {"rr": replace(ratio, inference=OUT_OF_RANGE_STATUS)}
+    assert _carry_cell_status({"rr": ratio}, pooled)["rr"].inference == OUT_OF_RANGE_STATUS
+    # A whole-sample mean that took the status from its own value passes on nothing: the fold
+    # estimate makes its own range check.
+    edge = make_estimate("ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    inside = replace(_mean(0.6), inference="influence_curve")
+    assert _carry_cell_status({"ey1": inside}, {"ey1": edge})["ey1"].inference == (
+        "influence_curve"
+    )
+
+
+@pytest.fixture(scope="module")
+def constant_arm_frame() -> pd.DataFrame:
+    return _constant_arm_frame()
+
+
+def _discrete_policies() -> list[Any]:
+    from cleverly.interventions import ModifiedPolicy
+
+    return [
+        ModifiedPolicy("natural", apply=lambda a, h: np.asarray(a), policy_kind="known"),
+        ModifiedPolicy(
+            "none", apply=lambda a, h: np.zeros_like(np.asarray(a)), policy_kind="known"
+        ),
+    ]
+
+
+def _axis_settings(axis: str) -> dict[str, Any]:
+    from cleverly.interventions import Incremental, RiskRatioTilt, Static
+
+    return {
+        "regime": {"interventions": [Static(1), Static(0)]},
+        "ipsi": {"incremental": [Incremental(2.0), Incremental(1.0)]},
+        "rr_tilt": {"policies": [RiskRatioTilt(1.0), RiskRatioTilt(0.5)]},
+        "policy": {"policies": _discrete_policies()},
+    }[axis]
+
+
+#: Per axis, the estimates that read the all-event treated arm and those that do not. A static
+#: regime of control and a policy that treats nobody read only the control arm; the natural
+#: course reads each observed outcome directly, as ``ey_obs`` does, so it reads no arm.
+AXIS_WITNESSES = {
+    "regime": (
+        {"ey_regime[always 1]", "ate_regime[always 0 vs always 1]"},
+        {"ey_regime[always 0]"},
+    ),
+    "ipsi": (
+        {"ey_ipsi[odds x2]", "ate_ipsi[natural course vs odds x2]"},
+        {"ey_ipsi[natural course]"},
+    ),
+    "rr_tilt": (
+        {"ey_rr_tilt[rr 0.5]", "ate_rr_tilt[rr 0.5 vs natural course]"},
+        {"ey_rr_tilt[natural course]"},
+    ),
+    "policy": (set(), {"ey_policy[natural]", "ey_policy[none]", "ate_policy[none vs natural]"}),
+}
+
+
+@pytest.mark.parametrize("axis", sorted(AXIS_WITNESSES))
+def test_a_regime_tilt_or_policy_mean_that_reads_the_constant_arm_is_withheld(
+    constant_arm_frame: pd.DataFrame, axis: str
+) -> None:
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        statuses = _statuses(_logistic_fit(constant_arm_frame, **_axis_settings(axis)))
+    withheld, shown = AXIS_WITNESSES[axis]
+    assert set(statuses) == withheld | shown
+    assert {name for name in withheld if statuses[name] == CONSTANT_ARM_CELL_STATUS} == withheld
+    assert {name for name in shown if statuses[name] == "influence_curve"} == shown
+
+
+def test_a_static_regime_reads_its_arm_as_the_arm_mean_does(
+    constant_arm_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cleverly.interventions import Static
+
+    arm = _logistic_fit(constant_arm_frame, estimands=("ey1", "ey0"))
+    regime = _logistic_fit(constant_arm_frame, interventions=[Static(1), Static(0)])
+    assert regime["ey_regime[always 1]"].psi == pytest.approx(arm["ey1"].psi, abs=1e-9)
+    assert regime["ey_regime[always 1]"].inference == arm["ey1"].inference
+    assert arm["ey1"].inference == CONSTANT_ARM_CELL_STATUS
+    # Mutation: an axis that maps no arm, as the check did when it read the arm axis alone.
+    monkeypatch.setattr(_tmle_module(), "_arms_read_by_code", lambda *a, **k: None)
+    mutated = _logistic_fit(constant_arm_frame, interventions=[Static(1), Static(0)])
+    assert mutated["ey_regime[always 1]"].inference == "influence_curve"
+    low, high = mutated["ey_regime[always 1]"].ci
+    assert high - low < 1e-3
+
+
+def test_a_learned_rule_that_assigns_the_constant_arm_is_withheld() -> None:
+    import warnings
+
+    from cleverly.interventions import Static
+    from tests.unit import _learned_rule_support as learned
+
+    frame = learned.law_frame(400, 0)
+    frame.loc[frame["A"] == 1.0, "Y"] = 1.0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = learned.fit(frame, interventions=[Static(0)])
+    statuses = _statuses(fit)
+    assert statuses["ey_learned_rule[learned rule]"] == CONSTANT_ARM_CELL_STATUS
+    assert statuses["ate_learned_rule[learned rule vs always 0]"] == CONSTANT_ARM_CELL_STATUS
+    assert statuses["ey_known_regime[always 0]"] == "influence_curve"
+
+
+def _drop_argument(monkeypatch: pytest.MonkeyPatch, argument: str) -> None:
+    module = _tmle_module()
+    shipped = module.constant_outcome_cells
+
+    def without(*args: Any, **kwargs: Any) -> Any:
+        kwargs.pop(argument)
+        return shipped(*args, **kwargs)
+
+    monkeypatch.setattr(module, "constant_outcome_cells", without)
+
+
+def _weighted_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    # A zero-weight treated row holds the other outcome value; the fit reads no such row.
+    row = int(np.flatnonzero(frame["A"].to_numpy() == 1.0)[0])
+    out = frame.assign(wt=1.0)
+    out.loc[row, ["wt", "Y"]] = (0.0, 0.0)
+    return out
+
+
+def _missing_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    # An unobserved treated row holds the other outcome value in its filled cell.
+    row = int(np.flatnonzero(frame["A"].to_numpy() == 1.0)[0])
+    out = frame.assign(D=1.0)
+    out.loc[row, ["D", "Y"]] = (0.0, 0.0)
+    return out
+
+
+@pytest.mark.parametrize("argument", ["weights", "observed"])
+def test_the_detector_reads_only_rows_of_positive_weight_with_an_observed_outcome(
+    constant_arm_frame: pd.DataFrame, argument: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if argument == "weights":
+        frame, declared = _weighted_frame(constant_arm_frame), {"weights": "wt"}
+    else:
+        frame = _missing_frame(constant_arm_frame)
+        declared = {"delta": "D", "missingness_learner": LogisticRegression()}
+    settings = {"estimands": ("ey1", "ey0"), **declared}
+    assert _logistic_fit(frame, **settings)["ey1"].inference == CONSTANT_ARM_CELL_STATUS
+    _drop_argument(monkeypatch, argument)
+    assert _logistic_fit(frame, **settings)["ey1"].inference == "influence_curve"
+
+
+def test_a_drtmle_fit_withholds_the_constant_arm(constant_arm_frame: pd.DataFrame) -> None:
+    from cleverly.estimators import DRTMLE
+
+    estimator = DRTMLE(
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
+        reduced_treatment_learner=LogisticRegression(),
+        n_folds=3,
+        learner_folds=2,
+        random_state=0,
+        simultaneous=False,
+        estimands=("ey1", "ey0", "ate"),
+    )
+    fit = estimator.fit(constant_arm_frame, outcome="Y", treatment="A", covariates=["W"]).single()
+    assert _statuses(fit) == {
+        "ey1": CONSTANT_ARM_CELL_STATUS,
+        "ey0": "influence_curve",
+        "ate": CONSTANT_ARM_CELL_STATUS,
+    }
+
+
+def test_a_composite_fit_reads_the_rows_with_a_recorded_treatment(
+    constant_arm_frame: pd.DataFrame,
+) -> None:
+    rng = np.random.default_rng(1)
+    n = len(constant_arm_frame)
+    recorded = rng.binomial(1, 0.9, n).astype(float)
+    responded = rng.binomial(1, 0.9, n).astype(float)
+    frame = constant_arm_frame.assign(
+        A=np.where(recorded == 1.0, constant_arm_frame["A"], np.nan),
+        Y=np.where(responded == 1.0, constant_arm_frame["Y"], np.nan),
+        DeltaA=recorded,
+        Delta=responded,
+    )
+    # A row whose treatment is unrecorded holds an observed non-event; it is in no arm.
+    row = int(np.flatnonzero((recorded == 0.0) & (responded == 1.0))[0])
+    frame.loc[row, "Y"] = 0.0
+    fit = _logistic_fit(
+        frame,
+        estimands=("ey0", "ey1", "ate"),
+        missingness_learner=LogisticRegression(),
+        delta="Delta",
+        treatment_delta="DeltaA",
+    )
+    assert _statuses(fit) == {
+        "ey1": CONSTANT_ARM_CELL_STATUS,
+        "ey0": "influence_curve",
+        "ate": CONSTANT_ARM_CELL_STATUS,
+    }
+
+
 # ----------------------------------------------------------------------------------- T18b
 
 
@@ -628,23 +903,96 @@ def test_every_stamped_site_passes_a_family() -> None:
 
 
 def test_a_custom_target_records_no_family() -> None:
+    from cleverly.targets import TARGETS, Target, register
     from cleverly.targets.builtin import BUILTIN_TARGETS
 
-    assert all(target.name for target in BUILTIN_TARGETS)
-    frame = _gaussian_frame()
-    fit = (
-        TMLE(
-            outcome_learner=LinearRegression(),
-            treatment_learner=LogisticRegression(),
-            cross_fit=False,
-            random_state=0,
+    ate = next(target for target in BUILTIN_TARGETS if target.name == "ate")
+
+    def half_ate(ctx: Any) -> list[Any]:
+        one, zero = ctx.means[1.0], ctx.means[0.0]
+        curve = 0.5 * (one.influence_curve - zero.influence_curve)
+        return [ctx.finish("half_ate", 0.5 * (one.psi - zero.psi), curve, "difference")]
+
+    register(
+        Target(
+            name="half_ate",
+            group="mean",
+            scale="difference",
+            build=half_ate,
+            identification=ate.identification,
         )
-        .fit(frame, outcome="Y", treatment="A", covariates=["W"])
-        .single()
     )
+    try:
+        fit = (
+            TMLE(
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(),
+                cross_fit=False,
+                estimands=("ate", "half_ate"),
+                random_state=0,
+            )
+            .fit(_gaussian_frame(), outcome="Y", treatment="A", covariates=["W"])
+            .single()
+        )
+    finally:
+        del TARGETS["half_ate"]
     # The built-in targets of a continuous outcome record "gaussian"; a target outside the
-    # built-in list keeps None, so the t reference PR 3 reads stays opt-in.
+    # built-in list, fitted in the same loop, keeps None, so the t reference PR 3 reads stays
+    # opt-in.
     assert fit["ate"].outcome_family == "gaussian"
-    custom = make_estimate("custom", 1.0, _curve(0.1), n=400)
-    assert custom.outcome_family is None
-    assert custom.effective_df is None
+    assert fit["half_ate"].psi == pytest.approx(0.5 * fit["ate"].psi, rel=1e-12)
+    assert fit["half_ate"].outcome_family is None
+    assert fit["half_ate"].effective_df is None
+
+
+# ----------------------------------------------------------------------------------- m4, m5
+
+
+def test_an_estimate_with_a_t_reference_keeps_it_on_singleton_clusters() -> None:
+    curve = _curve(0.03)
+    estimate = make_estimate(
+        "ey1",
+        0.6,
+        curve,
+        n=400,
+        cluster=np.arange(400),
+        scale="level",
+        bounds=UNIT,
+        reference_df=12,
+    )
+    assert estimate.n_clusters == estimate.n
+    assert estimate.interval_scale == "identity"
+    assert estimate.ci == wald_ci(0.6, estimate.std_error, df=12)
+    normal = replace(estimate, reference_df=None)
+    assert normal.interval_scale == "range_logit"
+
+
+def test_a_narrowed_band_keeps_an_out_of_range_member_as_the_engine_does() -> None:
+    from types import SimpleNamespace
+
+    from cleverly.study import _narrow_bands
+
+    edge = make_estimate("ey1", 1.0, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    others = {
+        name: make_estimate(name, psi, _curve(0.03, seed=seed), n=400, scale="level", bounds=UNIT)
+        for name, psi, seed in (("ey0", 0.6, 1), ("ey2", 0.4, 2))
+    }
+    engine = simultaneous_bands(
+        {"ey1": edge, **others}, n_replicates=500, random_state=0, band_scale="identity"
+    )
+    assert "ey1" in engine.bands
+    result = SimpleNamespace(
+        simultaneous=engine,
+        n_repeats=1,
+        data=SimpleNamespace(cluster=None),
+    )
+    narrowed = _narrow_bands(result, {"ey1": edge, "ey0": others["ey0"]}, SimpleNamespace())
+    assert narrowed is not None
+    assert set(narrowed.bands) == {"ey1", "ey0"}
+
+
+def test_a_nan_estimate_takes_no_range_status_and_shows_no_interval() -> None:
+    estimate = make_estimate("ey1", math.nan, _curve(0.02), n=400, scale="level", bounds=UNIT)
+    assert estimate.inference == "influence_curve"
+    assert all(math.isnan(limit) for limit in estimate.ci)
+    assert math.isnan(estimate.wald_test(0.5).pvalue)

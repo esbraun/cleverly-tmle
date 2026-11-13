@@ -678,8 +678,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "close to zero although the true outcome variance there can be positive, so the "
                 "plug-in standard error leaves that arm's variance out, and no "
                 "degrees-of-freedom rule can detect it. On the registered boundary law such "
-                "intervals covered in none of 191 samples. A contrast or ratio that reads such "
-                "an estimate takes this status too, and a fit with such an estimate reports no "
+                "intervals covered in none of 191 samples. A mean under a regime, a learned "
+                "rule, a tilt or a policy of a discrete treatment reads every arm it puts "
+                "weight on. A contrast or ratio that reads such an estimate takes this status "
+                "too, and a fit with such an estimate reports no "
                 "simultaneous band. The plug-in standard error remains as a diagnostic under "
                 "plugin_std_error. F41 in docs/roadmap.md holds the route that reopens it."
             ),
@@ -704,10 +706,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             reason=(
                 "An estimate of a mean or a difference of a yes/no outcome reports no confidence "
                 "interval, no p-value and no standard error when its value lies on or outside "
-                "the range the parameter can take. The interval is formed on a scale that maps "
-                "that range onto the real line, and the scale is undefined at or beyond its "
-                "ends. A contrast or ratio that reads such an estimate takes this status too. "
-                "The plug-in standard error remains as a diagnostic under plugin_std_error. F41 "
+                "the range the parameter can take. There the logit interval of an unclustered "
+                "mean is undefined, and an interval on the outcome's own scale, which a "
+                "difference or a clustered estimate takes, would reach past the range. A "
+                "contrast or ratio that reads such an estimate takes this status too. The plug-in "
+                "standard error remains as a diagnostic under plugin_std_error. F41 "
                 "in docs/roadmap.md holds the route that reopens it."
             ),
             assessment_note=(

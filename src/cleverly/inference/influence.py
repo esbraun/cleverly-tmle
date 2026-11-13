@@ -186,8 +186,12 @@ def parameter_bounds(kind: BoundedKind | None, family: str) -> tuple[float, floa
 
 
 def outside_bounds(psi: float, bounds: tuple[float, float] | None) -> bool:
-    """Whether an estimate lies on or outside its open range, in float arithmetic."""
-    if bounds is None:
+    """Whether an estimate lies on or outside its open range, in float arithmetic.
+
+    A ``nan`` estimate is not outside its range: it has no value to place, and its interval is
+    ``(nan, nan)`` under any status.
+    """
+    if bounds is None or math.isnan(psi):
         return False
     low, high = bounds
     return not (low < psi < high)
@@ -220,14 +224,17 @@ def bounded_status(
     bounds: tuple[float, float] | None,
     *,
     constant_cell: bool = False,
+    reads_out_of_range: bool = False,
 ) -> InferenceStatus:
-    """The status a builder gives an estimate of a bounded parameter.
+    """The status a builder gives an estimate that reads bounded means.
 
     ``"constant_arm_cell_plugin"`` when a treatment arm the estimate reads holds a single
     observed outcome value in its stratum, else ``"out_of_range_plugin"`` when the estimate
-    lies on or outside ``bounds``, else ``inference``. The constant cell wins when both apply,
-    because it is the cause. Either replaces ``"influence_curve"`` and every status that shows
-    its interval, and neither replaces a status that already withholds it.
+    lies on or outside ``bounds`` or reads a mean that does, else ``inference``. The constant
+    cell wins when both apply, because it is the cause. Either replaces ``"influence_curve"``
+    and every status that shows its interval, and neither replaces a status that already
+    withholds it. An estimate without ``bounds``, such as a risk ratio, takes a status only
+    from ``constant_cell`` and ``reads_out_of_range``.
 
     Parameters
     ----------
@@ -236,10 +243,14 @@ def bounded_status(
     psi : float
         The estimate.
     bounds : tuple of float or None
-        The open range of the parameter, from :func:`parameter_bounds`. ``None`` sets no status.
+        The open range of the parameter, from :func:`parameter_bounds`. ``None`` sets no range
+        check on ``psi`` itself.
     constant_cell : bool, default=False
         Whether an arm the estimate reads holds one observed outcome value, from
         :func:`constant_outcome_cells`.
+    reads_out_of_range : bool, default=False
+        Whether a bounded mean the estimate is a function of lies on or outside its range,
+        so that a contrast or ratio of it inherits the status.
 
     Returns
     -------
@@ -255,12 +266,14 @@ def bounded_status(
     'constant_arm_cell_plugin'
     >>> bounded_status("influence_curve", 0.3, (0.0, 1.0))
     'influence_curve'
+    >>> bounded_status("influence_curve", 1.4, None, constant_cell=True)
+    'constant_arm_cell_plugin'
     """
-    if bounds is None or not supplies_inference(inference):
+    if not supplies_inference(inference):
         return inference
     if constant_cell:
         return CONSTANT_ARM_CELL_STATUS
-    if outside_bounds(psi, bounds):
+    if reads_out_of_range or outside_bounds(psi, bounds):
         return OUT_OF_RANGE_STATUS
     return inference
 
@@ -1138,13 +1151,15 @@ class ParameterEstimate:
         An unclustered estimate with :attr:`bounds` ``(0, 1)``, the ``"level"`` scale and no
         :attr:`transform` forms its interval and test on the logit scale with the normal
         reference. A difference keeps the identity scale, and a clustered estimate keeps its
-        reference.
+        reference. An estimate with a Student t reference keeps it too, which covers singleton
+        clusters: their count equals :attr:`n`, but a stratum with few of them reads a t.
         """
         if (
             self.transform is not None
             or self.scale != "level"
             or self.bounds != (0.0, 1.0)
             or self.n_clusters < self.n
+            or self.reference_df is not None
         ):
             return None
         return Transform.range_logit(*self.bounds)
@@ -1378,6 +1393,12 @@ class ParameterEstimate:
     @property
     def ci(self) -> tuple[float, float]:
         """Confidence interval at level ``1 - alpha``.
+
+        On a bounded unclustered mean (:attr:`interval_scale` ``"range_logit"``) the limits are
+        mapped back from the logit scale, so an estimate within about ``1e-12`` of a bound with
+        a wide standard error can show a limit that rounds to the bound itself, ``0.0`` or
+        ``1.0``, in float arithmetic. The test of that bound still reads it as outside the open
+        range and gives p-value 0. The interval holds the open range in exact arithmetic.
 
         Raises
         ------

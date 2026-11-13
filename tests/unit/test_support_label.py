@@ -188,9 +188,6 @@ def assert_golden_summary(result: Any, name: str) -> None:
 def assert_numbers_equal(actual: dict[str, Any], golden: dict[str, Any]) -> None:
     """Every number of ``actual`` that is not a label key equals the golden one, ``rtol=1e-10``."""
     kept = {key: value for key, value in actual.items() if not key.startswith(LABEL_KEYS)}
-    # ``interval_scale`` came after the golden copies. These fits have a continuous outcome,
-    # so their intervals stay on the identity scale and no number moves.
-    assert kept.pop("interval_scale", "identity") == "identity"
     assert set(kept) == set(golden)
     for key, value in kept.items():
         if isinstance(value, float):

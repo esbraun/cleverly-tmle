@@ -45,7 +45,12 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
-from .inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
+from .inference.multiplier import (
+    SimultaneousBands,
+    band_member,
+    median_bands,
+    simultaneous_bands,
+)
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
@@ -2967,8 +2972,10 @@ def _narrow_bands(
     already return ``None`` there rather than a one-parameter band.
 
     A parameter that supplies no inference on its own, such as a constant-node risk of a
-    longitudinal fit, stays out of the family, as the engine's band leaves it out.  The band is
-    a joint statement over the retained parameters that supply inference.
+    longitudinal fit, stays out of the family, as the engine's band leaves it out.  An estimate
+    on or outside its range stays in, as in the engine's band
+    (:func:`~cleverly.inference.multiplier.band_member`).  The band is a joint statement over
+    the retained members.
 
     A longitudinal fit with ``repeats > 1`` takes the engine's own repeat rule,
     :func:`~cleverly.inference.multiplier.median_bands`: the median of the draws' critical
@@ -2978,7 +2985,7 @@ def _narrow_bands(
     bands = result.simultaneous
     if bands is None:
         return None
-    family = {name: estimate for name, estimate in retained.items() if estimate.supplies_inference}
+    family = {name: estimate for name, estimate in retained.items() if band_member(estimate)}
     if set(family) == set(bands.bands):
         return bands
     if len(family) < 2:

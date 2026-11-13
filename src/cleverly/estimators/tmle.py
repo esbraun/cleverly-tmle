@@ -94,6 +94,7 @@ import numpy as np
 from .._inference_status import (
     CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
+    OUT_OF_RANGE_STATUS,
     InferenceStatus,
     supplies_inference,
 )
@@ -196,6 +197,7 @@ from ..inference.influence import (
     median_estimates,
     missing_outcome_correction_parts,
     natural_course_mean,
+    outside_bounds,
     parameter_bounds,
     reduced_correction_parts,
     stamp_inference,
@@ -6225,6 +6227,24 @@ class TMLE:
         if cell_rows is None and index is None:
             cell_rows = np.arange(data.n, dtype=np.int64)
         cells: frozenset[float] | None = None
+        arm_reads: dict[float, frozenset[float]] | None = None
+        # The withheld statuses read the arms of a binary outcome on the rows the estimate
+        # reads; a fold-evaluated call (``cell_rows`` None) takes them from the whole-sample
+        # estimates instead (``_carry_cell_status``).
+        checks_cells = cell_rows is not None and data.family == "binomial"
+        if checks_cells:
+            keep = (np.asarray(weights) > 0.0) & np.asarray(observed, dtype=bool)
+            arm_reads = _arms_read_by_code(
+                codes,
+                np.asarray(treatment),
+                keep,
+                targeted.levels,
+                regimes=regimes,
+                incremental=incremental,
+                policies=policies,
+                msm=msm,
+                contrast=contrast,
+            )
         for target in targets_for(target_group, requested):
             try:
                 # One target is one functional, not one number: with K arms `ey` is a mean
@@ -6240,9 +6260,12 @@ class TMLE:
                         # A custom target's functional need not be an outcome mean, so it
                         # records no family.
                         changes["outcome_family"] = data.family
-                    if bounds is not None and cell_rows is not None:
+                    recorded = context.reads.get(estimate.name)
+                    if checks_cells and (bounds is not None or recorded is not None):
+                        assert cell_rows is not None
                         constant = False
-                        if target.parameter_axis == "arm":
+                        inherited = False
+                        if arm_reads is not None:
                             if cells is None:
                                 cells = frozenset(
                                     float(arm)
@@ -6254,11 +6277,26 @@ class TMLE:
                                         observed=data.observed,
                                     )
                                 )
-                            # A target that records no reads counts as reading every arm.
-                            reads = context.reads.get(estimate.name, frozenset(codes))
-                            constant = bool(cells & reads)
+                            # A target that records no reads counts as reading every code.
+                            read = recorded if recorded is not None else frozenset(codes)
+                            arms = frozenset().union(
+                                *(arm_reads.get(code, frozenset()) for code in read)
+                            )
+                            constant = bool(cells & arms)
+                            # A contrast or ratio of a mean on or outside (0, 1) takes the
+                            # mean's status. Only a target that records its reads names the
+                            # means it is a function of.
+                            inherited = recorded is not None and any(
+                                code in context.means
+                                and outside_bounds(context.means[code].psi, (0.0, 1.0))
+                                for code in recorded
+                            )
                         changes["inference"] = bounded_status(
-                            estimate.inference, estimate.psi, bounds, constant_cell=constant
+                            estimate.inference,
+                            estimate.psi,
+                            bounds,
+                            constant_cell=constant,
+                            reads_out_of_range=inherited,
                         )
                     out[estimate.name] = replace(estimate, **changes) if changes else estimate
             except ValueError:
@@ -6685,6 +6723,103 @@ def _second_moment_over_n_squared(curve: FloatArray) -> float:
     return float(np.sum(np.square(values)) / values.size**2)
 
 
+def _arms_read_by_code(
+    codes: Sequence[float],
+    treatment: FloatArray,
+    keep: BoolArray,
+    levels: Sequence[float],
+    *,
+    regimes: RegimeSet | None,
+    incremental: IPSISet | None,
+    policies: PolicySet | None,
+    msm: MSMSet | None,
+    contrast: EffectModificationSet | None,
+) -> dict[float, frozenset[float]] | None:
+    r"""The treatment arms whose outcome residuals each parameter code's mean reads.
+
+    A mean of a discrete treatment reads arm ``a`` when its residual term
+    :math:`h(A, W)\{Y - \bar Q(A, W)\}` carries a nonzero weight on some row of ``keep`` that
+    received ``a``. On such an arm a single observed outcome value leaves the arm's residual
+    variance out of the influence curve, which is the constant-cell defect
+    (:func:`~cleverly.inference.influence.bounded_status`). An arm mean reads its own arm. A
+    regime, a learned rule or an IPSI tilt reads every arm where its density
+    :math:`g^\star(a \mid W)` is positive on such a row, and a policy on a categorical
+    treatment every arm where its ratio is nonzero. The natural course, an IPSI tilt with
+    one factor on every level or a policy that moves no row, reads no arm: its curve is
+    :math:`Y - \psi` exactly, which reads each observed outcome as the empirical mean
+    ``ey_obs`` does.
+
+    Parameters
+    ----------
+    codes : sequence of float
+        The fit's parameter codes: arms, regimes, tilts or policies.
+    treatment : ndarray
+        ``(m,)`` treatment codes of the rows the estimates read.
+    keep : ndarray
+        ``(m,)`` booleans, the rows of positive weight with an observed outcome.
+    levels : sequence of float
+        The arm codes, ascending, that index the arm columns of a regime or tilt density.
+    regimes : RegimeSet or None
+        The regimes or learned rule of a regime fit, on the same rows.
+    incremental : IPSISet or None
+        The tilts of an IPSI fit, on the same rows.
+    policies : PolicySet or None
+        The policies or risk-ratio tilts of a policy fit, on the same rows.
+    msm : MSMSet or None
+        The working model of an MSM fit.
+    contrast : EffectModificationSet or None
+        The projection of an effect-modification fit.
+
+    Returns
+    -------
+    dict of float to frozenset of float, or None
+        The arms each code reads. ``None`` when the codes are not counterfactual means of a
+        discrete treatment: working-model and projection coefficients, a policy on a
+        continuous or vector treatment, and any fit whose treatment is not one column.
+    """
+    if contrast is not None or msm is not None or treatment.ndim != 1:
+        return None
+    if policies is not None:
+        if not policies.is_discrete:
+            return None
+        ratio = np.asarray(policies.policy_ratio, dtype=float)
+        moved = np.asarray(policies.moved, dtype=bool)[keep]
+        mixing = np.asarray(policies.weights, dtype=float)
+        out: dict[float, frozenset[float]] = {}
+        for column, code in enumerate(codes):
+            if not moved[:, mixing[column] > 0.0].any():
+                # The natural course: its curve is ``Y - psi`` exactly, as for ``ey_obs``.
+                out[float(code)] = frozenset()
+                continue
+            out[float(code)] = frozenset(
+                float(arm) for arm in np.unique(treatment[keep & (ratio[:, column] != 0.0)])
+            )
+        return out
+    natural: set[int] = set()
+    if incremental is not None:
+        density = np.asarray(incremental.values, dtype=float)
+        # A tilt with one factor on every level is the natural course.
+        natural = {
+            column for column, factors in enumerate(incremental.factors) if len(set(factors)) == 1
+        }
+    elif regimes is not None:
+        density = np.asarray(regimes.values, dtype=float)
+    else:
+        return {float(code): frozenset({float(code)}) for code in codes}
+    out = {}
+    for column, code in enumerate(codes):
+        arms: set[float] = set()
+        if column in natural:
+            out[float(code)] = frozenset(arms)
+            continue
+        for position, level in enumerate(levels):
+            rows = keep & (treatment == level)
+            if np.any(density[rows, position, column] > 0.0):
+                arms.add(float(level))
+        out[float(code)] = frozenset(arms)
+    return out
+
+
 def _carry_cell_status(
     estimates: Mapping[str, ParameterEstimate],
     pooled: Mapping[str, ParameterEstimate],
@@ -6693,7 +6828,8 @@ def _carry_cell_status(
 
     A fold-evaluated estimate reads the rows of its stratum, or of the whole sample, so it
     takes ``"constant_arm_cell_plugin"`` when the estimate of the same name built on those rows
-    has it, and ``"out_of_range_plugin"`` when its own value lies on or outside its bounds
+    has it, and ``"out_of_range_plugin"`` when its own value lies on or outside its bounds or
+    when that estimate inherited the status from a mean it reads
     (:func:`~cleverly.inference.influence.bounded_status`). No fold's own rows set a status.
     It also keeps the outcome family of that estimate.
 
@@ -6713,10 +6849,21 @@ def _carry_cell_status(
     for name, estimate in estimates.items():
         source = pooled.get(name)
         constant = source is not None and source.inference == CONSTANT_ARM_CELL_STATUS
+        # A whole-sample contrast or ratio that inherited the range status from a mean it
+        # reads, rather than taking it from its own value, passes it on.
+        inherited = (
+            source is not None
+            and source.inference == OUT_OF_RANGE_STATUS
+            and not outside_bounds(source.psi, source.bounds)
+        )
         out[name] = replace(
             estimate,
             inference=bounded_status(
-                estimate.inference, estimate.psi, estimate.bounds, constant_cell=constant
+                estimate.inference,
+                estimate.psi,
+                estimate.bounds,
+                constant_cell=constant,
+                reads_out_of_range=inherited,
             ),
             outcome_family=None if source is None else source.outcome_family,
         )
