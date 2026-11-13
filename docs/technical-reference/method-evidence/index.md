@@ -111,6 +111,7 @@ eliminated-competing-events
 separable-effects
 survival-ctmle
 survival-dr-tmle
+hazard-msm
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
