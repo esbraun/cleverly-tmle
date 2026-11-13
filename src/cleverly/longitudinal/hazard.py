@@ -149,7 +149,7 @@ __all__ = [
 ]
 
 #: The two hazard targeting algorithms.
-HazardAlgorithm = Literal["per_horizon", "one_step"]
+HazardAlgorithm = Literal["per_horizon", "one_step", "untargeted"]
 
 #: The roadmap item that tracks hazard targeting outside its held baseline design.
 HAZARD_ROADMAP = "X70"
@@ -954,7 +954,10 @@ class HazardFit:
         regimen's record then sums the node scores and scales, each multiplied by
         :math:`n_k / n`, ``n_iter`` is the total of accepted steps, ``trace`` holds the final
         relative score of each node walk in walk order (the last node first), and
-        ``initial_levels`` is node 1's initial plug-in.  Empty on every other fit.
+        ``initial_levels`` is node 1's initial plug-in.  That plug-in's continuation was
+        fitted on the *targeted* later nodes, so it is not the untargeted estimator's
+        plug-in; :func:`~cleverly.longitudinal.hazard_backward.untargeted` gives that one.
+        Empty on every other fit.
     """
 
     algorithm: HazardAlgorithm

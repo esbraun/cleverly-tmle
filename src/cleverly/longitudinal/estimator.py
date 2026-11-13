@@ -5584,7 +5584,11 @@ class _SequentialEstimator:
             # Covariates after baseline: one backward pass per regimen (X70 part (b1)).  The
             # refusals H28-H31 keep the per-horizon algorithm, msm=, a declared stopping rule
             # and every replay away from it, and the separable refusal keeps a separable regimen.
-            assert msm is None and not separable
+            if msm is not None or separable:
+                raise RuntimeError(
+                    "a hazard fit with covariates after baseline reached the backward pass "
+                    "with msm= or a separable regimen, which its refusals keep away"
+                )
             initial, walked = target_time_varying(
                 prepared,
                 plans,

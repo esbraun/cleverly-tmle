@@ -355,7 +355,8 @@ value at each visit, declared with `time_varying=`. When it predicts both dropou
 fit must adjust for it. With one treatment at baseline, the hazard model takes such covariates under
 `targeting="one_step"`. At each time point it fits the chance of the event, then a regression of what
 happens later given the history so far, so it needs no model of the covariate itself.
-`pseudo_learner` fits that regression; by default it is the `outcome_learner` library.
+`pseudo_learner` fits that regression. By default it reuses the `outcome_learner` library, so pass
+`pseudo_learner` yourself when `outcome_learner` is a single classifier.
 
 The answer it targets is the same as the default fit's, and when the models fit well both have the
 same precision in large samples. What the hazard fit adds is a curve that never dips, and with
@@ -365,7 +366,8 @@ large sample they nearly agree.
 
 A covariate declared at the first time point only is measured before the treatment, so it is an
 ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in
-`baseline=`. `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen refuse it; declare it
+`baseline=`. The hazard model refuses `markov_order=`, which would drop that covariate at later
+time points. `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen refuse it; declare it
 in `baseline=` for those. No registered study measures the hazard fit with covariates after baseline
 yet, so its results are labelled `experimental`.
 [Covariates after baseline on the hazard path](../technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)

@@ -439,12 +439,21 @@ def test_a_wrong_hazard_and_continuation_with_the_right_mechanism_is_exact(cause
         assert len(record.nodes) == law.n_times
         assert record.n_iter > 0
     # The untargeted plug-in misses, so the exact estimate is not an accident.
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(backward, "_TARGETED", False)
+    with backward.untargeted():
         untargeted = fit(law, REGIMENS)
     assert worst_miss(law, untargeted, DENSITIES) > MISSED
     record = untargeted.fits[f"{NEVER}{', relapse' if causes == 2 else ''} @ t=4"].hazard
     assert record.n_iter == 0
+    assert record.algorithm == "untargeted"
+    assert all(node.algorithm == "untargeted" for node in record.nodes)
+    assert "was not targeted" in str(untargeted.summary(detail="full"))
+    # The context is left: the next fit is targeted.
+    assert (
+        fit(law, REGIMENS)
+        .fits[f"{NEVER}{', relapse' if causes == 2 else ''} @ t=4"]
+        .hazard.algorithm
+        == "one_step"
+    )
 
 
 def _up(a: Any, h: Any) -> Any:
@@ -1004,9 +1013,7 @@ def test_the_window_would_pool_the_node_hazards_over_the_arms() -> None:
         patch.setattr(backward, "refuse_hazard_markov", lambda data: None)
         lifted = fit(law, STATIC, **settings)
     assert worst_miss(law, lifted, STATIC_DENSITIES) > MISSED
-    reference = fit(
-        law, STATIC, survival_model="iterated_mean", targeting="iterative", **settings
-    )
+    reference = fit(law, STATIC, survival_model="iterated_mean", targeting="iterative", **settings)
     assert worst_miss(law, reference, STATIC_DENSITIES) < EXACT
 
 
@@ -1086,7 +1093,8 @@ def test_cross_fitting_covers_the_truth_and_solves_every_node() -> None:
     """Five folds on draws: within four standard errors, and every pooled node walk solved.
 
     ``CellMeans`` predicts zero on a held-out row whose cell its training folds never saw, so
-    the cumulative mechanism is bounded at 0.01, below the law's smallest true cumulative
+    the cumulative mechanism is bounded at 0.01 (``g_bounds=(0.01, 1.0)`` is the default
+    ``DEFAULT_LTMLE_G_BOUNDS``, passed here to name it), below the law's smallest true cumulative
     (about 0.026, ``0.25 * expit(0.3) ** 4``): the bound moves no correct prediction.
     """
     law = HeldLaw(causes=1)

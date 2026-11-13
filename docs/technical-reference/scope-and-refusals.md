@@ -612,9 +612,10 @@ the type and the message of each one, with learners that raise if they are fitte
 | H29 | `msm=` with `survival_model="hazard"` on a held design with a covariate after baseline | `fit` | `CapabilityError`, `api_redirection` | "msm= with survival_model='hazard' on a design with covariates measured after baseline is not built. Each regimen is targeted by its own backward pass, and a coefficient score sums cells of every regimen, so it needs one joint walk per node over every regimen's panel, which this fit does not run. Fit msm= with survival_model='iterated_mean'." |
 | H30 | a declared `stopping=` rule with `survival_model="hazard"` on a held design with a covariate after baseline | `fit` | `MethodConfigurationError`, `api_redirection` | "stopping={rule!r} with survival_model='hazard' on a design with covariates measured after baseline is not built. The rule sets each target's threshold from the spread of its whole influence curve, which this fit has only after its backward pass, and each node walk stops on its own relative score. No split of the threshold over the node walks is implemented. Use stopping='relative' (the default)." |
 | H31 | `truncation_curve()`, or any other hazard replay, on a fit with a covariate after baseline | replay | `CapabilityError`, `api_redirection` | "the replay re-targets retained initial hazards, and this fit's regressions of the future were fitted on outcomes built from targeted later hazards, which change with g_bounds, so a replay would refit learners. Refit with each g_bounds= value." |
+| H32 | `markov_order=` with `survival_model="hazard"` | `fit` | `CapabilityError`, `api_redirection` | "markov_order={k} with survival_model='hazard' is not built. On a design with one baseline treatment held over the nodes, the window starts its treatment blocks after node 1, so the node hazard designs past the window leave out the held treatment, and a covariate declared at node 1 with it. Those hazards would be pooled over the arms the regimens compare, and the estimate would rest on the treatment and censoring models alone. Use survival_model='iterated_mean' with markov_order=, or omit markov_order=." |
 
-The fit checks H3 first, then H2 and H1. On a held design with a covariate after baseline it then
-checks H28, H29 and H30, and on any other held design H6. H16 and H19 follow, regimen by regimen.
+The fit checks H3 first, then H2, H1 and H32. On a held design with a covariate after baseline it
+then checks H28, H29 and H30, and on any other held design H6. H16 and H19 follow, regimen by regimen.
 H20 is checked when the separable regimens are read, before the companion check of
 [separable effects](longitudinal-tmle.md#separable-effects) that refuses every other
 regimen that is not a static arm. H24 follows the pooled-design check. H31 and H25 are raised by
@@ -622,7 +623,8 @@ the replay before any targeting.
 
 A covariate after baseline means a `time_varying=` block at a node after the first. A block at node
 1 alone precedes the treatment, so on a held design the hazard engine fits it, also with
-`hazard_pooling="pooled"`, and the estimate equals the fit with that block declared baseline.
+`hazard_pooling="pooled"`, and the estimate equals the fit with that block declared baseline. A
+hazard fit refuses `markov_order=` (H32), whose window would leave that block out at later nodes.
 `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen still refuse any block, one at node 1
 included, because each source fits baseline covariates only. Declare such a block in `baseline=`
 instead: it precedes the treatment, so the estimand is the same.

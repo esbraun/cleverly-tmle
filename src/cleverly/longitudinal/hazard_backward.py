@@ -72,19 +72,20 @@ pseudo-outcome as the soft events.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._warnings import warn as _warn
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CapabilityError, Refusal, RefusalReason
+from ..exceptions import CapabilityError, ConvergenceWarning, Refusal, RefusalReason
 from ..fluctuation._score import relative_score
 from ..learners.crossfit import Folds
 from .data import LongitudinalData, RegimenMasks
-from .._warnings import warn as _warn
-from ..exceptions import ConvergenceWarning
 from .hazard import (
     HAZARD_BOUND_EXCLUDES_DATA,
     HazardBounds,
@@ -112,24 +113,44 @@ __all__ = [
     "fit_continuation",
     "fold_hazards",
     "hazard_iterative_refusal",
+    "hazard_markov_refusal",
     "hazard_msm_refusal",
     "hazard_replay_refusal",
-    "hazard_markov_refusal",
-    "refuse_hazard_markov",
     "hazard_stopping_refusal",
     "later_covariates",
     "node_panel",
     "node_slots",
     "pseudo_distribution",
+    "refuse_hazard_markov",
     "soft_held_cells",
     "target_time_varying",
+    "untargeted",
 ]
 
-#: Whether the backward pass walks each node.  ``False`` runs the untargeted backward pass:
-#: no walk, and each continuation fitted on the untargeted pseudo-outcome.  A private seam for
-#: the targeting-necessity family of the ``hazard-time-varying`` study and one unit test; no
-#: public argument reaches it.
-_TARGETED = True
+#: Set inside :func:`untargeted`: the backward pass then walks no node, and each continuation
+#: is fitted on the untargeted pseudo-outcome.  A context variable, so a thread or a task that
+#: did not enter the context never sees it.  A private seam for the targeting-necessity family
+#: of the ``hazard-time-varying`` study and the unit tests; no public argument reaches it.
+_UNTARGETED: ContextVar[bool] = ContextVar("hazard_backward_untargeted", default=False)
+
+
+@contextmanager
+def untargeted() -> Iterator[None]:
+    """Run every hazard fit with covariates after baseline in the block untargeted.
+
+    Its records carry ``algorithm="untargeted"`` and the summary says so, so its intervals are
+    not read as a targeted fit's.
+
+    Yields
+    ------
+    None
+        Control returns to the block.
+    """
+    token = _UNTARGETED.set(True)
+    try:
+        yield
+    finally:
+        _UNTARGETED.reset(token)
 
 
 def later_covariates(data: LongitudinalData) -> tuple[str, ...]:
@@ -298,8 +319,8 @@ def hazard_replay_refusal() -> Refusal:
 #: registered study (``hazard-time-varying``) has not run.  A support classification reads it.
 HAZARD_TIME_VARYING_CONDITION = Refusal(
     RefusalReason.INFERENCE_GAP,
-    "survival_model='hazard' with covariates measured after baseline has no registered "
-    "simulation study yet, so the coverage of its intervals is not measured.",
+    "A hazard fit (survival_model='hazard') with covariates measured after baseline has no "
+    "registered simulation study yet, so the coverage of its intervals is not measured.",
     alternative=(
         "survival_model='iterated_mean' with isotonic=True has registered studies on designs "
         "with covariates after baseline."
@@ -903,7 +924,7 @@ def _walked(
     score, scale = scores(panel.initial, panel.inputs, panel.horizons)
     relative = relative_score(score.reshape(-1), scale.reshape(-1))
     return panel.initial, HazardFit(
-        algorithm="one_step",
+        algorithm="untargeted",
         targets=targets,
         converged=bool(relative <= tol),
         n_iter=0,
@@ -1068,7 +1089,7 @@ def _assemble(
     failure = next((fit.failure for fit in fits if not fit.converged), None)
     shares, excluded = _bound_stamps(panels)
     record = HazardFit(
-        algorithm="one_step",
+        algorithm="untargeted" if all(f.algorithm == "untargeted" for f in fits) else "one_step",
         targets=tuple((plan.label, cause, t) for cause in causes for t in horizons),
         converged=converged,
         n_iter=sum(fit.n_iter for fit in fits),
@@ -1336,7 +1357,7 @@ def target_time_varying(
     slots = {plan.label: _mtp_slots(data, plan) for plan in plans}
     mtp = tuple(entry for entry in slots.values() if entry is not None)
     single = folds.is_single
-    walk = _TARGETED
+    walk = not _UNTARGETED.get()
     if single:
         initial = fit_hazards(
             data, levels, learner=outcome_learner, folds=folds, n_jobs=n_jobs, slots=mtp
@@ -1489,6 +1510,9 @@ def _regimen_fits(
         for h, t in enumerate(horizons):
             clever = np.where(at_risk, weight, 0.0)
             clever[:, t:] = 0.0
+            # Node k is flagged when any held cell of its panel up to t lies in a cell the
+            # regimen reads, a continuation sub-node included.  That can flag a node whose own
+            # hazard is not held, which only adds a conservative constant_node_plugin status.
             constant = tuple(
                 panel.node
                 for panel in fit.panels
