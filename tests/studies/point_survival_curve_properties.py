@@ -36,16 +36,16 @@ family                            cells, replications and size
                                   (``all_reported``), each with its pointwise control
 ================================  =========================================================
 
-**The isotonic cell does not exercise a binding projection.**  Its curve rises from 0.375 at
-node 1 to 0.758 at node 2, a step of about nine standard errors at n = 2,000, so the declared
-binding share is zero (``X14-impl-review.md`` F4).  The cell checks that the projection
-leaves a regular curve's inference unchanged.  It is not evidence for an interval after a
-projection that moves a level.  No law gives such evidence inside the theory.  The increment
-between two horizons is the event mass at the later node, so the binding share is about
-:math:`\\Phi(-\\sqrt{m})`, with :math:`m` the expected number of observed events there.  On
-this law with the arm-1 node-2 hazard lowered to 0.02, the share is 0.136 at n = 2,000 with
-1.3 expected events.  A projection binds often only where a node has almost no events, and
-there Westling, van der Laan and Carone (2020), Theorem 2, does not apply.
+**The isotonic cell does not exercise a binding projection.**  Its declared binding share is
+zero (``X14-impl-review.md`` F4), and the cell checks that the projection leaves a regular
+curve's inference unchanged.  It is not evidence for an interval after a projection that moves
+a level.  The reason is its learners: each horizon's level is the mean of its targeted node-1
+regression, and the node-1 fluctuation solves its score, so the difference of the two levels is
+:math:`D = P_n[H_1\\, dY] + P_n[(1 - H_1)\\, dQ^*]` up to the score residuals, with
+:math:`dY = (1 - Y_1) Q^*_2 \\ge 0` and :math:`dQ^*` the gap between the two horizons' node-1
+regressions.  Saturated cell-mean regressions make the second term zero, so :math:`D \\ge 0`
+whatever the event count.  A projection binds only when the two node-1 fits differ (Fix-8 plan
+section 2.7); the declared study ``isotonic-binding`` measures such a law.
 
 A curve band is the shipped multiplier band (:func:`cleverly.inference.multiplier.
 simultaneous_bands`, 2,000 rademacher draws, ``random_state=0``) over the five risks of one

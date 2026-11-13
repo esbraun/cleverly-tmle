@@ -1809,3 +1809,9 @@ option-patience,ordered_late_confounder,bias discriminated,control_diffuse
 option-patience,ordered_whole_path,bias equivalent,bias
 option-patience,patience_bias,bias equivalent,bias
 option-patience,patience_witness,coverage floor,shift/3
+tests.studies.isotonic_binding_properties,binding_witness,share floor,shift/3
+tests.studies.isotonic_binding_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.isotonic_binding_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.isotonic_binding_properties,interval_calibration,se ratio below band,se_high
+tests.studies.isotonic_binding_properties,interval_calibration,se ratio in calibration band,se/0.05
+tests.studies.isotonic_binding_properties,material_move,share floor,positive_diffuse

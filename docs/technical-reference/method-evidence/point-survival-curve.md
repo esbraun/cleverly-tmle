@@ -208,16 +208,23 @@ replaced the Rademacher band on the identity scale at 2,000 draws. This is the b
 one regimen reports.
 
 **The isotonic cell does not exercise a binding projection.** The `isotonic_t2` cell fits
-`survival_model="iterated_mean"` with `isotonic=True` on a law with a treatment at two nodes. Its
-curve rises from 0.375 at node 1 to 0.758 at node 2. That step is about nine standard errors at
-n = 2,000. The diagnostic `isotonic_t2__moved` therefore records that the projection moved the level
-in none of the 4,800 replications. The cell shows that the projection leaves the inference of a
-regular curve unchanged. It is not evidence for an interval after a projection that moves a level.
+`survival_model="iterated_mean"` with `isotonic=True` on a law with a treatment at two nodes. The
+diagnostic `isotonic_t2__moved` records that the projection moved the level in none of the 4,800
+replications. The cell shows that the projection leaves the inference of a regular curve
+unchanged. It is not evidence for an interval after a projection that moves a level.
 
-The property module gives the reason. The increment between two horizons is the event mass at the
-later node. The binding share is about $\Phi(-\sqrt{m})$, with $m$ the expected number of observed
-events there. A projection binds often only where a node has almost no events. There Westling, van
-der Laan and Carone (2020), Theorem 2, does not apply.
+The reason is the cell's learners, not the size of the step. Each horizon's level is the mean of
+its targeted node-1 regression, and the node-1 fluctuation solves its score. The difference of
+two levels is therefore $D = P_n[H_1\, dY] + P_n[(1 - H_1)\, dQ^*]$, up to the score
+residuals. Here $H_1$ is the node-1 clever covariate, $dY = (1 - Y_1) Q^*_{2}$ is nonnegative,
+and $dQ^*$ is the gap between the two horizons' node-1 regressions. The cell's regressions are
+saturated cell means, so the second term is zero and $D \ge 0$ whatever the number of events.
+
+A projection can bind only when the two horizons' node-1 fits differ, as with a logistic
+outcome learner beside a linear pseudo-outcome learner on a continuous covariate. It binds when
+the true increment is small against the noise of that gap. The declared study `isotonic-binding`
+measures such a law (Fix-8 plan section 5.8) and has not run.
+`tests/unit/test_isotonic_binding_witness.py` checks the identity on a sample of each kind.
 
 ## Measured values
 
@@ -278,7 +285,7 @@ der Laan and Carone (2020), Theorem 2, does not apply.
 | the declared `tmle3` settings differ | the bounds, the censoring convention, the step and the stopping rule differ by construction. The pairs read under the default margins and not as an exactness check |
 | one primary scenario | the 15 truth tests read the five-visit `survival` law. The other laws enter the property cells only |
 | learners that contain the truth | the primary fit uses unpenalized logistic regressions. The property cells use correct additive or saturated learners, apart from the declared wrong ones. A flexible learner is outside the evidence |
-| the isotonic cell does not bind | the diagnostic reports a binding share of zero, so no cell supports an interval after a projection that moves a level |
+| the isotonic cell does not bind | the cell's saturated learners cannot move a level, and its diagnostic reports a binding share of zero. No cell here supports an interval after a projection that moves a level. The declared study `isotonic-binding` measures one and has not run |
 | the per-horizon algorithm has three cells only | `targeting="iterative"` appears in one calibration, one weighted and one clustered cell. It has no double-robustness or necessity cell here. The [hazard study](point-survival-hazard.md) holds those cells |
 | no cross-fitting | every fit uses one fold. The [cross-fitted study](point-survival-curve-crossfit.md) covers five folds |
 

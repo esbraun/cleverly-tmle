@@ -361,8 +361,9 @@ Three registered studies measure hazard fits on a design with one baseline treat
 The first two agree with R packages fitted to the same samples (`survtmle` and `tmle3`). The
 cross-fitted one has no comparison, because no package fits that construction. The one-step study
 also holds one cell that fits the default iterated-mean model with `isotonic=True` on a law with
-treatment at two time points. Its curve rises steeply enough that the projection never moved a
-risk, so no study yet measures an interval at a risk that the projection moved.
+treatment at two time points. It fits every model by group averages, and with such models the
+projection cannot move a risk, so no study yet measures an interval at a risk that the
+projection moved. A study of a design where it does move one is declared and has not run.
 :::
 
 ## Let the data choose the treatment and censoring models

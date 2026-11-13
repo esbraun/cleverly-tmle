@@ -1506,7 +1506,7 @@ rows, and a fit outside those rows carries the experimental label. Part (g) is o
 | (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Done: [`option-treatment-adjustment`](technical-reference/method-evidence/option-treatment-adjustment.md), rows `T54` |
 | (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias at a trim that binds on a law with weak support, beside the untrimmed fit. The trimmed fit reports no interval, so the study reads the point only. Done: [`option-ratio-trim`](technical-reference/method-evidence/option-ratio-trim.md), point-only rows `G56` |
 | (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does. Done: [`option-markov-order`](technical-reference/method-evidence/option-markov-order.md), row `G57` |
-| (g) | `isotonic=True` | bias and coverage on a law where the projection binds. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its projection does not bind |
+| (g) | `isotonic=True` | coverage of the interval at a projected level on a law where the projection binds, and the share of draws it moves. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its saturated learners cannot bind. Declared as `isotonic-binding`, not yet run |
 
 `iterate="best"` and `step_bound=` under `stopping="relative"` keep the support of the fit. That
 walk stops only at the solution of the score equation, to `tol`.

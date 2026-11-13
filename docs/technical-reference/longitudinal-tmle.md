@@ -1403,9 +1403,15 @@ estimate with the unprojected half-widths, and that band loses coverage. The tes
 level, and the identity check fails.
 
 The `isotonic_t2` cell of the [point survival curve study](method-evidence/point-survival-curve.md)
-fits `isotonic=True` on a curve that rises by about nine standard errors, so the projection moved
-no level in its 4,800 replications. On that law the projection left the interval unchanged. No registered study measures an interval after a projection that moves
-a level.
+fits `isotonic=True` with saturated cell-mean learners, so the projection moved no level in its
+4,800 replications. On a two-horizon iterated-mean fit the difference of the two levels is
+$D = P_n[H_1\, dY] + P_n[(1 - H_1)\, dQ^*]$ up to the node-1 score residuals, with
+$dY = (1 - Y_1) Q^*_{2} \ge 0$ and $dQ^*$ the gap between the two horizons' node-1 regressions.
+Saturated regressions make the second term zero, so such a fit never binds. A logistic outcome
+learner beside a linear pseudo-outcome learner on a continuous covariate can bind. No
+registered study measures an interval after a projection that moves a level. The declared study
+`isotonic-binding` measures it on a two-node law with a continuous covariate, where pilots moved
+the level on 0.36 of draws and by at least 0.1 standard errors on 0.19, and it has not run.
 
 ### Known node mechanisms
 
