@@ -132,7 +132,7 @@ The test fails on four states.
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | stratified incremental and MSM targeting, Small-sample Wald intervals |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
-| [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
+| [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata, DR-TMLE with baseline strata and fold-wise reduced regressions |
 | [`X16-plugin-variance`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE candidate sequences |
 | [`F1-power-design`](../../roadmap.md#red-cell-owners) | 1 | ordinary known stochastic categorical longitudinal TMLE |
 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) | 1 | longitudinal modified treatment policies |
@@ -154,7 +154,7 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 208 | 41 studies |
+| total | 209 | 42 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -269,6 +269,7 @@ same text as the "measured" column of its study page.
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/pd_s__untargeted` | control | the family's joint clause | bias 0.0380 to 0.0424, margin 0.0043 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/rm_d__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0010, margin 0.0048 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `targeting_necessity/rm_d__untargeted` | control | the family's joint clause | bias -0.0244 to -0.0211, margin 0.0046 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [DR-TMLE with baseline strata and fold-wise reduced regressions](stratified-dr-tmle-foldwise.md) | truth | `cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]` | cleverly-drtmle-foldwise | its truth gate | bias 0.0013 to 0.0056, coverage 0.9073, SE ratio 0.8820 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/hajek_x_contrast__main_terms` | control | its own rule | bias 0.1306 to 0.1344, margin 0.0175, coverage 0.5072 to 0.5348, SE ratio 0.9970 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ht_x_contrast__main_terms` | control | its own rule | bias 0.1637 to 0.1682, margin 0.0208, coverage 0.4709 to 0.4984, SE ratio 0.9988 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ice_x_contrast__main_terms` | control | its own rule | bias 0.1075 to 0.1111, margin 0.0162, coverage 0.5952 to 0.6221, SE ratio 1.0002 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |

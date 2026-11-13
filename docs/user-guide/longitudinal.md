@@ -916,11 +916,15 @@ reports its point estimate with a diagnostic standard error, under the status
 `IPSI` and a fit with `survival_model="hazard"` refuse the option.
 
 `LongitudinalTreatment(markov_order=k)` lets each model at node `t` read the baseline covariates
-and only the last `k` nodes of history. It assumes that the earlier history adds nothing to those
+and only the last `k + 1` nodes of history. It assumes that the earlier history adds nothing to those
 models. The causal conditions still need the full history: every confounder of each decision must
 be recorded somewhere in it. The estimate stays on target in large samples when one family of
 models, the outcome models or the treatment and censoring models, is right on the window. The
 interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the declaration.
+
+A treatment given once and held stays in every model, since it is the treatment at every
+node. A covariate measured before that treatment leaves the models once it is out of the window,
+so declare it in `baseline=` to keep it.
 
 `LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
 in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.

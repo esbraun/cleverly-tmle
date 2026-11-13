@@ -82,11 +82,11 @@ def mutant_bias_over_sd(estimand: str) -> float:
 
     data_module = importlib.import_module("cleverly.longitudinal.data")
     source = textwrap.dedent(inspect.getsource(LongitudinalData.history_design))
-    old = "max(1, self.window_start(time) - 1)"
+    old = "first = self.window_arm_start(time)"
     assert source.count(old) == 1
     namespace: dict[str, object] = {}
     exec(
-        compile(source.replace(old, "self.window_start(time)"), "<m>", "exec"),
+        compile(source.replace(old, "first = self.window_start(time)"), "<m>", "exec"),
         vars(data_module),
         namespace,
     )

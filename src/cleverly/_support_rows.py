@@ -1680,6 +1680,10 @@ def _d_rows() -> tuple[SupportRow, ...]:
             limits=[
                 "The one-inconsistent-nuisance cells are red.",
                 LEAK,
+                "The red one-inconsistent-nuisance cells fit the pooled reduced regressions. "
+                "The foldwise default passes on their own draws at n = 1,500 "
+                "(drtmle-foldwise-n1500), and in drtmle-foldwise for treatment_correct at "
+                "n = 1,000 and for both regimes at n = 3,000; row D11 covers it.",
             ],
         ),
         point_row(
@@ -1691,7 +1695,14 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
             # Roadmap: RM18.
-            limits=["The boundary and one-sided-bias cells are red.", LEAK],
+            limits=[
+                "The boundary and one-sided-bias cells are red.",
+                LEAK,
+                "The red treatment_correct cell fits the pooled reduced regressions. The "
+                "foldwise default passes on its draws at n = 2,000 (drtmle-foldwise) and on the "
+                "primary law and the outcome_correct cell (multi-arm-drtmle-foldwise); row D12 "
+                "covers it.",
+            ],
         ),
         point_row(
             "D03",
@@ -1705,9 +1716,11 @@ def _d_rows() -> tuple[SupportRow, ...]:
             limits=[
                 "Two truth cells and the small-stratum cell are red.",
                 LEAK,
-                "Foldwise reduced regressions do not remove the stratified treatment_correct "
-                "bias: a 200-draw pilot at n = 2,000 read foldwise marginal 0.29, v1 0.30, "
-                "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
+                "The red treatment_correct cells fit the pooled reduced regressions. Under the "
+                "foldwise default the marginal ATE bias reads 0.40, 0.27 and 0.20 SD at n = "
+                "2,000, 4,000 and 8,000 and contracts faster than n^-1/2, consistent with second "
+                "order (log-bias slope -1.07, 99% interval -1.22 to -0.93; "
+                "stratified-drtmle-foldwise); row D13 covers it.",
             ],
         ),
         point_row(
@@ -1842,14 +1855,66 @@ def _d_rows() -> tuple[SupportRow, ...]:
         ),
         # X83: the default cross-fitted fit, foldwise reduced regressions on the
         # canonical-drtmle law. Its key is the key of D07.estimated_g_stacked, so the two merge.
+        # Fix-6 adds the default at n = 1,500 on the RM18 cells' draws.
         point_row(
             "D11",
-            ["drtmle-foldwise"],
+            ["drtmle-foldwise", "drtmle-foldwise-n1500"],
             families=("P1",),
             engine=dr,
             splitting=("stacked",),
             options={"reduced_crossfit": "foldwise"},
             cells=["both_correct", "outcome_correct", "treatment_correct"],
+        ),
+        # Fix-6: the default cross-fitted three-arm fit, foldwise reduced regressions on the
+        # canonical-multi-arm-drtmle law, and the X83 multi-arm treatment_correct cell.
+        point_row(
+            "D12",
+            ["multi-arm-drtmle-foldwise", "drtmle-foldwise"],
+            families=("P1", "P2"),
+            engine=dr,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
+            cells=[
+                "multi_arm_binary_drtmle",
+                "double_robustness/outcome_correct",
+                "double_robustness/multi_arm_drtmle__treatment_correct",
+            ],
+            limits=[
+                "The foldwise outcome_correct cell runs at n = 1,000 only "
+                "(multi-arm-drtmle-foldwise); no foldwise multi-arm outcome_correct cell runs at "
+                "n = 2,000, the size of the primary rows and of the treatment_correct cell "
+                "(drtmle-foldwise)."
+            ],
+        ),
+        # Fix-6: the default cross-fitted stratified fit, foldwise reduced regressions on the
+        # canonical-stratified-drtmle law, and the X83 stratified outcome_correct cells.
+        point_row(
+            "D13",
+            ["stratified-drtmle-foldwise", "drtmle-foldwise"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            options={"reduced_crossfit": "foldwise"},
+            cells=[
+                "stratified_both_correct",
+                "stratified_contraction",
+                "double_robustness/marginal_ate__stratified",
+                "double_robustness/v0_ate__stratified",
+                "double_robustness/v1_ate__stratified",
+                "double_robustness/v2_ate__stratified",
+            ],
+            limits=[
+                "The smallest-stratum truth cell ey[1][V=2] is red and a defect suspect "
+                "(X8-drtmle-small-stratum): its SE is under-reported by about 12% (SE ratio "
+                "0.882, 99% interval 0.858 to 0.908) and its coverage is 0.907, pending Fix-3's "
+                "small-stratum correction.",
+                "The treatment_correct bias is a finite-sample limit: the marginal ATE reads "
+                "0.40, 0.27 and 0.20 SD at n = 2,000, 4,000 and 8,000, and the marginal and v1 "
+                "biases contract faster than n^-1/2, consistent with second order "
+                "(stratified-drtmle-foldwise; X8-drtmle-one-sided-bias).",
+            ],
         ),
     ]
     return _merged(
@@ -2390,6 +2455,12 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
     # under the same row id, and change the four dispositions of ``mtp-pricing`` in
     # ``tests/studies/evidence/support_dispositions.py`` (see ``_X40_PRICE_DOWN`` there).
+    ("D13", "wald"): (
+        "Row D13 is red for the smallest-stratum treated mean, a defect suspect pending Fix-3's "
+        # Roadmap: X8-drtmle-small-stratum.
+        "small-stratum correction: coverage 0.9073 and SE ratio 0.8820 (99% interval 0.8584 to "
+        "0.9079)."
+    ),
     ("G39.ltmle.tau5", "wald"): (
         "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
         "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
@@ -2435,14 +2506,23 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         "failures 32 of 10000 (worst case fails)",
     ),
     "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
-    "D01": ("RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",),
+    "D01": (
+        "RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",
+        "RM18-one-sided-bias: bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888",
+        "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
+    ),
     "D02": (
         "RM18-boundary: coverage 0.8988 to 0.9542, bias 0.000900",
+        "RM18-one-sided-bias: bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998",
         "RM18-boundary: coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123",
         "RM18-boundary: bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888",
     ),
     "D03": (
         "X8-drtmle-small-stratum: bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388",
+        "X8-drtmle-one-sided-bias: bias 0.0136 to 0.0185, margin 0.0067, SE ratio 0.9902",
+        "X8-drtmle-one-sided-bias: bias 0.0094 to 0.0162, margin 0.0093, SE ratio 0.9505",
+        "X8-drtmle-one-sided-bias: bias 0.0123 to 0.0214, margin 0.0124, SE ratio 0.9364",
+        "X8-drtmle-one-sided-bias: bias 0.0179 to 0.0286, margin 0.0147, SE ratio 1.0627",
         (
             "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, "
             "empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to"

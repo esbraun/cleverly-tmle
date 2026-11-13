@@ -989,6 +989,68 @@ def _d_cases() -> tuple[RowCase, ...]:
         )
     )
     add(
+        _seeded(
+            "D11",
+            "drtmle-foldwise-n1500",
+            "both_correct",
+            "drtmle_foldwise_n1500.py:294",
+            "drtmle_foldwise_n1500",
+            "both_correct",
+            400,
+            lambda study, frame: study.foldwise.fit_cleverly(
+                frame, "both_correct", study.foldwise.PRIMARY_FIT
+            ),
+        )
+    )
+    add(
+        _seeded(
+            "D12",
+            "multi-arm-drtmle-foldwise",
+            "multi_arm_binary_drtmle",
+            "multi_arm_drtmle_foldwise.py:231",
+            "multi_arm_drtmle_foldwise",
+            "multi_arm_binary_drtmle",
+            400,
+        )
+    )
+    add(
+        _observed(
+            "D12",
+            "drtmle-foldwise",
+            "double_robustness/multi_arm_drtmle__treatment_correct",
+            "drtmle_foldwise_properties.py:709",
+            "drtmle_foldwise_properties",
+            lambda module: _study("multi_arm_drtmle_foldwise").draw_from_seed(
+                "multi_arm_binary_drtmle", 400, 0
+            )[0],
+            lambda module, frame: DRTMLE(**module.multi_arm_settings(module.multi_arm_cell())).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
+            ),
+        )
+    )
+    add(
+        _seeded(
+            "D13",
+            "stratified-drtmle-foldwise",
+            "stratified_both_correct",
+            "stratified_drtmle_foldwise.py:374",
+            "stratified_drtmle_foldwise",
+            "stratified_both_correct",
+            600,
+        )
+    )
+    add(
+        _observed(
+            "D13",
+            "drtmle-foldwise",
+            "double_robustness/marginal_ate__stratified",
+            "drtmle_foldwise_properties.py:724",
+            "drtmle_foldwise_properties",
+            lambda module: module.stratified.draw_from_seed(module.stratified.SCENARIO, 600, 0)[0],
+            lambda module, frame: module.stratified_fit(frame),
+        )
+    )
+    add(
         _case(
             "D02",
             "canonical-multi-arm-drtmle",

@@ -1290,7 +1290,8 @@ class LongitudinalData:
         ``t`` the treatment and censoring mechanisms read ``W``, ``L_{t-k}, ..., L_t`` and
         ``A_{t-k-1}, ..., A_{t-1}``.  The outcome regression reads ``W`` and
         ``L_{t-k}, ..., L_t``, plus the arms of the rule and policy nodes in ``[t-k-1, t]``.
-        The estimand does not change.
+        On a held design every node's arm is the baseline decision, so the window keeps it at
+        every node.  The estimand does not change.
 
         Parameters
         ----------
@@ -3197,6 +3198,32 @@ class LongitudinalData:
             return 1
         return max(1, time - self.markov_order)
 
+    def window_arm_start(self, time: int) -> int:
+        """The first treatment node whose arm the nuisance designs at ``time`` read.
+
+        Under :attr:`markov_order` ``k`` the window holds the arms ``A_{t-k-1}, ...``, the
+        arms that precede its covariates ``L_{t-k}, ..., L_t``, so the start is
+        ``max(1, window_start(time) - 1)``.  On a held design it is ``1``: every node's
+        arm is the node-1 decision, so every window holds it, and node 1 is the one block
+        that carries it (an identity node adds no block of its own).  Starting later would
+        drop the held treatment from every node past ``k + 2`` and pool those models over
+        the arms.  The mechanism designs (:meth:`history_design`) and the windowed outcome
+        design read their arms from this one start.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+
+        Returns
+        -------
+        int
+            ``1`` without an order or on a held design, else ``max(1, window_start(time) - 1)``.
+        """
+        if self.markov_order is None or self.treatment_held:
+            return 1
+        return max(1, self.window_start(time) - 1)
+
     def window_covariates(self, time: int) -> FloatArray:
         """``[W, L_s, ..., L_t]`` from :meth:`window_start` ``s``, as a finite matrix.
 
@@ -3446,14 +3473,17 @@ class LongitudinalData:
         test claiming to say that should be mutated and seen to fail before it is trusted.
 
         Under :attr:`markov_order` ``k`` the design holds ``W``, ``L_{t-k}, ..., L_t`` and the
-        blocks of ``A_{t-k-1}, ..., A_{t-1}``, plus ``A_t`` with ``include_current``.
+        blocks of ``A_{t-k-1}, ..., A_{t-1}``, plus ``A_t`` with ``include_current``.  On a held
+        design those arms are all the node-1 decision, whose block every design with a
+        non-empty arm range keeps (:meth:`window_arm_start`).
         """
         columns = [self.window_covariates(time)]
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
         # Under a Markov order k the window holds A_{t-k-1}, ..., A_{t-1}: the arms that
-        # precede the window's covariates L_{t-k}, ..., L_t.
-        first = 1 if self.markov_order is None else max(1, self.window_start(time) - 1)
+        # precede the window's covariates L_{t-k}, ..., L_t.  On a held design every one of
+        # them is the node-1 decision, so the range starts at node 1 (window_arm_start).
+        first = self.window_arm_start(time)
         for t in range(first, last + 1):
             if self.is_held_node(t):
                 # One block per *decision*: an identity node repeats node 1, so it adds
