@@ -535,7 +535,8 @@ class Clause:
     statistic : str
         The statistic type (rev 3 section 4): ``S1``, ``S1f`` and ``S2`` to ``S15``, and
         ``S7s``, the S7 gain of a band over its identity-scale control, whose pair is a
-        positive cell and a ``scale_control`` cell rather than a positive and a control.
+        positive cell and a ``scale_control`` cell rather than a positive and a control, and
+        ``S7r``, the S7 gain of a ``t`` band over its ``reference_control`` cell.
     applies : Callable
         Whether the clause is part of a summary row's verdict.
     read : Callable

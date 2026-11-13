@@ -153,6 +153,11 @@ REPORTING_ROWS: Mapping[RedKey, str] = {
         "property",
         "sequential_double_robustness/both_correct__n_2000",
     ): "its coverage floor; a reporting cell, with n below the tail size",
+    RedKey(
+        "band-t-reference",
+        "property",
+        "simultaneous_coverage/strata_n1000__t_band",
+    ): "its joint coverage; the held-out cell, declared at risk, licenses no row",
 }
 
 
