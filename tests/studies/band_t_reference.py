@@ -16,27 +16,33 @@ Declared before the pilot (Fix-2 plan rev 3.1, sections 2 and 5):
   it with its own copy of Fix-3's check (:func:`tests.studies.band_t_reference_properties.
   constant_arm_cells`), so the verdicts hold for the code before Fix-3's PR 2;
 * the paired controls of 5.2: the normal-reference control of each cell and the pointwise
-  joint control.  The normal-reference control's clause is a formula of pilot quantities
-  (:func:`magnitude_threshold`, :func:`carries_witness`), so the pilot's role is mechanical;
-* the red-cell reading (5.5): a passing cell with every clause of its controls licenses the
-  triple on its rows; a cell whose coverage passes but whose clause fails licenses nothing; a
-  red positive cell keeps the option experimental on its rows.  Neither outcome changes the
-  default band.  A failing witness or magnitude clause is a design or implementation failure
-  and is diagnosed before any reading.  A high-Kish cell above 0.98 is a finding against the
-  rule;
+  joint control.  The pointwise control is gated (joint coverage below 0.95).  The
+  normal-reference control's paired gain is a reported reading, not a gate (plan rev 3.3): its
+  declared clause value is still a formula of pilot quantities (:func:`magnitude_threshold`,
+  :func:`carries_witness`), committed as :data:`REFERENCE_THRESHOLDS` and published beside the
+  gain interval, but it enters no verdict and no sizing.  The pilot's role stays mechanical;
+* the deterministic checks of :func:`tests.studies.evidence.simultaneous.t_band_rows` (the
+  package ``c_j`` agree with the rule, the expansion bound, the widening witness) stay gated:
+  a replicate that fails one stops the run;
+* the red-cell reading (5.5, rev 3.3): a cell whose coverage passes the joint rule licenses
+  the triple on its rows; a red positive cell keeps the option experimental on its rows.
+  Neither outcome changes the default band.  A gain reading below its declared value is
+  reported with the cell and diagnosed, and licenses or blocks nothing.  A high-Kish cell
+  above 0.98 is a finding against the rule;
 * the held-out ``strata_n1000`` cell is published by the companion study
   ``band-t-reference-held-out`` (:mod:`tests.studies.band_t_reference_held_out`) under the
   ``reporting`` policy: judged by the same rule, outside the sizing family, licensing no row, and
   a red verdict there blocks nothing in this study;
 * the replication count: :func:`declared_replicates` on the pilot, the larger of the arm-pooled
-  predictive rule over the eleven licensing cells and over the three red shapes, each with
-  its clauses (5.3).  :data:`PLANNED_REPLICATES` is that rule on the planning values.
+  predictive rule over the eleven licensing cells and over the three red shapes, on coverage
+  alone (5.3, rev 3.3), committed as :data:`DECLARED_REPLICATES`.  :data:`PLANNED_REPLICATES`
+  was that rule with the gain clauses on the planning values.
 
 The primary scenario is the shipped ``TMLE()`` default fit of ``default-simultaneous-bands``
 with ``band_reference="t"``: the band changes no estimate, SE or pointwise interval, so its
 primary rows are that fit's pointwise results against the exact truth.
 
-Nothing here has run.  The study is not in :func:`~tests.studies.evidence.registry.registered`
+The pilot has run and is committed; the main run has not.  The study is not in :func:`~tests.studies.evidence.registry.registered`
 until its run commits artifacts.
 """
 
@@ -85,10 +91,10 @@ ESTIMANDS = ("ate", "att", "atc", "ey1", "ey0", "rr", "or")
 #: never enter a verdict.
 PILOT_REPLICATES = 800
 PILOT_STREAM = "band-t-reference/pilot"
-#: The committed pilot readings, once the pilot has run.
+#: The committed pilot readings.
 PILOT_PATH = ROOT / "tests" / "studies" / "band_t_reference_pilot.csv"
-#: The declared replication count on the planning values (5.3).  The run uses
-#: :func:`declared_replicates` on the committed pilot.
+#: The replication count rev 3.1 declared on the planning values, with the gain clauses (5.3).
+#: The run uses :data:`DECLARED_REPLICATES`.
 PLANNED_REPLICATES = 5_200
 #: Above this no R sizes the family; the shortfall goes to the owner before any main run.
 MAXIMUM_REPLICATES = 8_000
@@ -104,9 +110,10 @@ Z995 = float(stats.norm.ppf(0.995))
 #: The magnitude threshold's ceiling (5.2).
 MAGNITUDE_CEILING = 0.003
 
-#: The cell groups of 5.2.  ``red``: the magnitude clause.  ``witness``: the nonzero witness
-#: where :func:`carries_witness` selects it.  ``no_clause``: no gain bound.  ``held_out``: the
-#: witness where selected, outside the sizing family, licensing nothing.
+#: The cell groups of 5.2, which name the declared value each gain reading is published
+#: against (rev 3.3: none gates).  ``red``: the magnitude value.  ``witness``: the nonzero
+#: witness where :func:`carries_witness` selects it.  ``no_clause``: no value.  ``held_out``:
+#: the witness where selected, outside the sizing family, licensing nothing.
 RED = "red"
 WITNESS = "witness"
 NO_CLAUSE = "no_clause"
@@ -133,7 +140,7 @@ class Cell:
     planning_coverage : float or None
         The planning coverage of 5.3 (post hoc on the red shapes, guessed elsewhere).
     planning_gain : float or None
-        The planning paired gain of 5.3.
+        The planning paired gain of 5.3, which rev 3.1 sized its clauses on.
     arms : tuple of TArm
         The diagnostic df arms the cell reads.
     """
@@ -224,10 +231,10 @@ def carries_witness(gain: float, sd: float, replicates: int) -> bool:
 
 
 def clause_threshold(cell: Cell, gain: float, sd: float, replicates: int) -> float | None:
-    """The lower limit the cell's paired gain must reach, or ``None`` for no clause.
+    """The declared value the cell's paired-gain lower limit is reported against, or ``None``.
 
     A red cell whose ``m*`` falls below the witness floor carries the witness only, and the
-    design review is told (:func:`witness_only_red_cells`).
+    design review is told (:func:`witness_only_red_cells`).  The value gates nothing (rev 3.3).
     """
     if cell.group == RED:
         return max(magnitude_threshold(gain, sd, replicates), SCALE_GAIN_FLOOR)
@@ -276,7 +283,7 @@ def reference_thresholds(
     replicates: int,
     cells: Sequence[Cell] = CELLS,
 ) -> dict[str, float | None]:
-    """Each label's clause threshold at ``replicates``; empty before the pilot."""
+    """Each label's declared gain value at ``replicates``; empty before the pilot."""
     if pilot is None:
         return {}
     return {
@@ -301,9 +308,8 @@ def witness_only_red_cells(pilot: Mapping[str, PilotReading], replicates: int) -
 # The arm-pooled predictive rule (guide/studies.md, "Sizing"), as rows/Fix-2/diag/sizing.py
 # computes it: normal-normal pooling of the planning coverages, tau at its one-sided 80%
 # Q-profile upper bound, the study's Monte Carlo noise drawn, family-wise pass of the CP rule,
-# the smallest multiple of 400 with pass probability at least 0.95.  Each gated clause is drawn
-# with its gain's planning uncertainty, independently of the coverage draws (an assumption the
-# design test states).
+# the smallest multiple of 400 with pass probability at least 0.95.  The gated family is the
+# cells' coverage alone (rev 3.3): the paired gains are reported, so they size nothing.
 
 SIZING_DRAWS = 40_000
 SIZING_SEED = 20261112
@@ -329,39 +335,16 @@ def _cp_ok(k: np.ndarray, replicates: int, low: float = 0.92, high: float = 0.98
     return np.asarray((lower >= low) & (upper <= high))
 
 
-#: One gated clause for the sizing: ``(gain, sd, pilot replicates, cell)``.
-Clause = tuple[float, float, int, Cell]
-
-
-def _clause_pass(
-    clauses: Sequence[Clause], replicates: int, draws: int, rng: np.random.Generator
-) -> np.ndarray:
-    ok = np.ones(draws, dtype=bool)
-    for gain, sd, pilot_replicates, cell in clauses:
-        threshold = clause_threshold(cell, gain, sd, replicates)
-        if threshold is None:
-            continue
-        true = np.clip(
-            gain + sd / math.sqrt(pilot_replicates) * rng.standard_normal(draws), 1e-6, 1
-        )
-        observed = true + np.sqrt(true * (1 - true) / replicates) * rng.standard_normal(draws)
-        clipped = np.clip(observed, 1e-6, 1)
-        lower = observed - Z995 * np.sqrt(clipped * (1 - clipped) / replicates)
-        ok &= lower >= threshold
-    return ok
-
-
 def family_pass(
     coverages: Sequence[float],
     pilot_replicates: Sequence[int],
     replicates: int,
     *,
-    clauses: Sequence[Clause] = (),
     pooled: bool = True,
     draws: int = SIZING_DRAWS,
     seed: int = SIZING_SEED,
 ) -> float:
-    """The family-wise probability that every cell and clause passes at ``replicates``."""
+    """The family-wise probability that every cell's CP rule passes at ``replicates``."""
     rng = np.random.default_rng(seed)
     y = np.asarray(coverages, dtype=float)
     v = y * (1 - y) / np.asarray(pilot_replicates, dtype=float)
@@ -377,59 +360,45 @@ def family_pass(
     else:
         plan = y + np.sqrt(v) * rng.standard_normal((draws, len(y)))
     k = rng.binomial(replicates, np.clip(plan, 0, 1))
-    return float(
-        np.mean(_cp_ok(k, replicates).all(axis=1) & _clause_pass(clauses, replicates, draws, rng))
-    )
+    return float(np.mean(_cp_ok(k, replicates).all(axis=1)))
 
 
 def size(
     coverages: Sequence[float],
     pilot_replicates: Sequence[int],
     *,
-    clauses: Sequence[Clause] = (),
     ceiling: int = MAXIMUM_REPLICATES,
 ) -> tuple[int | None, float]:
     """The smallest multiple of 400 up to ``ceiling`` whose family pass reaches 0.95."""
     for replicates in range(SIZING_STEP, ceiling + 1, SIZING_STEP):
-        probability = family_pass(coverages, pilot_replicates, replicates, clauses=clauses)
+        probability = family_pass(coverages, pilot_replicates, replicates)
         if probability >= SIZING_TARGET:
             return replicates, probability
-    return None, family_pass(coverages, pilot_replicates, ceiling, clauses=clauses)
+    return None, family_pass(coverages, pilot_replicates, ceiling)
 
 
 def _sizing_inputs(
     cells: Sequence[Cell], pilot: Mapping[str, PilotReading] | None
-) -> tuple[list[float], list[int], list[Clause]]:
-    """Coverages, pilot sizes and clauses: the pilot's, or the planning values of 5.3."""
+) -> tuple[list[float], list[int]]:
+    """Coverages and pilot sizes: the pilot's, or the planning values of 5.3."""
     coverages: list[float] = []
     sizes: list[int] = []
-    clauses: list[Clause] = []
     for cell in cells:
         if pilot is None:
-            coverage, size_, gain = cell.planning_coverage, PILOT_REPLICATES, cell.planning_gain
-            assert coverage is not None
-            sd = None if gain is None else math.sqrt(gain * (1.0 - gain))
+            assert cell.planning_coverage is not None
+            coverages.append(float(cell.planning_coverage))
+            sizes.append(PILOT_REPLICATES)
         else:
-            reading = pilot[cell.label]
-            coverage, size_, gain, sd = (
-                reading.coverage,
-                reading.replicates,
-                reading.gain,
-                reading.gain_sd,
-            )
-        coverages.append(float(coverage))
-        sizes.append(int(size_))
-        if cell.group in {RED, WITNESS} and gain is not None and sd is not None:
-            clauses.append((float(gain), float(sd), int(size_), cell))
-    return coverages, sizes, clauses
+            coverages.append(pilot[cell.label].coverage)
+            sizes.append(pilot[cell.label].replicates)
+    return coverages, sizes
 
 
 def declared_replicates(pilot: Mapping[str, PilotReading] | None = None) -> tuple[int, float]:
     """The declared R and its family pass: the larger of the two pooled rules of 5.3.
 
-    The eleven licensing cells pooled with every clause the formulas assign, and the three red
-    shapes pooled on their own with their magnitude clauses.  ``pilot=None`` evaluates the
-    planning values.
+    The eleven licensing cells pooled, and the three red shapes pooled on their own, each on
+    the cells' coverage alone (rev 3.3).  ``pilot=None`` evaluates the planning values.
 
     Raises
     ------
@@ -438,8 +407,7 @@ def declared_replicates(pilot: Mapping[str, PilotReading] | None = None) -> tupl
     """
     outcomes = []
     for cells in (LICENSING, RED_CELLS):
-        coverages, sizes, clauses = _sizing_inputs(cells, pilot)
-        replicates, probability = size(coverages, sizes, clauses=clauses)
+        replicates, probability = size(*_sizing_inputs(cells, pilot))
         if replicates is None:
             raise RuntimeError(
                 f"no R up to {MAXIMUM_REPLICATES} sizes the family (pass {probability:.3f}); "
@@ -454,12 +422,30 @@ def held_out_pass(replicates: int, coverage: float, pilot_replicates: int) -> fl
     return family_pass([coverage], [pilot_replicates], replicates, pooled=False)
 
 
-#: The pilot's R, ``declared_replicates(read_pilot())[0]``, committed by hand with the pilot so
-#: that no import reruns the sizing; the design test recomputes it.  ``None`` before the pilot.
-DECLARED_REPLICATES: int | None = None
-#: The replication count every cell declares: the pilot's once committed, the planning value
-#: before.
-REPLICATES = PLANNED_REPLICATES if DECLARED_REPLICATES is None else DECLARED_REPLICATES
+#: The pilot's R, ``declared_replicates(read_pilot())[0]``, committed by hand so that no import
+#: reruns the sizing; the design test recomputes it.  The red family decides it (pass 0.957;
+#: 0.94998 at 5,200), the licensing family needing 2,400.
+DECLARED_REPLICATES = 5_600
+#: The replication count every cell declares.
+REPLICATES = DECLARED_REPLICATES
+#: Each label's declared gain value, ``reference_thresholds(read_pilot(), REPLICATES)``,
+#: committed by hand and recomputed by the design test.  Published beside each reference
+#: control's gain interval; it gates nothing (rev 3.3).  Every red ``m*`` falls below the
+#: witness floor at this R, so the red cells carry the witness value only, and no
+#: second-group cell carries the witness.
+REFERENCE_THRESHOLDS: dict[str, float | None] = {
+    "categorical_ltmle": SCALE_GAIN_FLOOR,
+    "cde_z0": SCALE_GAIN_FLOOR,
+    "strata": SCALE_GAIN_FLOOR,
+    "categorical_ltmle_n8000": None,
+    "cde_z0_n8000": None,
+    "strata_n8000": None,
+    "categorical_ltmle_crossfit": None,
+    "crossfit_strata": None,
+    "six_regimens": None,
+    "ordinary_binary": None,
+    "point_msm": None,
+}
 
 
 @dataclass(frozen=True)
@@ -480,6 +466,8 @@ class Declaration:
         Its committed pilot readings.
     smoke_labels : tuple of str
         The cells its smoke run fits.
+    reference_thresholds : dict
+        Each label's committed declared gain value (``None`` for none), reported, not gated.
     """
 
     record: StudyRecord
@@ -488,6 +476,7 @@ class Declaration:
     pilot_stream: str
     pilot_path: Path
     smoke_labels: tuple[str, ...]
+    reference_thresholds: Mapping[str, float | None]
 
 
 #: Every study-specific module the runner and the property module reach (the set
@@ -632,6 +621,7 @@ DECLARATION = Declaration(
     pilot_stream=PILOT_STREAM,
     pilot_path=PILOT_PATH,
     smoke_labels=SMOKE_LABELS,
+    reference_thresholds=REFERENCE_THRESHOLDS,
 )
 
 

@@ -9,7 +9,7 @@ cell                                       role               reading
 ``<label>__t_band``                        positive           the joint rule: the 99% CP
                                                               interval inside (0.92, 0.98)
 ``<label>__normal_reference_control``      reference_control  the default band on the same
-                                                              fit; the paired gain clause
+                                                              fit; the paired gain, reported
 ``<label>__pointwise_joint_control``       control            joint pointwise coverage below
                                                               0.95
 ``<label>__<arm>_diagnostic``              diagnostic         a secondary df rule, reported
@@ -23,6 +23,11 @@ module's copy of Fix-3's check) is refused and counted not covered on every band
 Seeds: ``stream_seed(STUDY, "property_sample", "simultaneous_coverage", label, r)`` for the
 run, and the salted ``band-t-reference/pilot`` stream for the pilot, so no draw is shared with
 ``default-simultaneous-bands``, ``canonical-stratified-tmle`` or ``longitudinal-sdr``.
+
+The reference control's paired gain is a reported reading (plan rev 3.3): the summary carries
+its interval and the row passes; :func:`reference_readings` sets it beside the declared value.
+It is not in :data:`PROPERTY_RULES` and sizes nothing.  The joint rule, the pointwise control
+and the deterministic checks inside ``t_band_rows`` stay gated.
 
 ``python -m tests.studies.band_t_reference_properties --smoke`` fits
 :data:`~tests.studies.band_t_reference.SMOKE_LABELS` at
@@ -56,7 +61,12 @@ from tests.studies.evidence.property_verdicts import (
 )
 from tests.studies.evidence.replication import fit_properties, recording
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import FAMILY, t_band_rows, t_property_cells
+from tests.studies.evidence.simultaneous import (
+    FAMILY,
+    SCALE_GAIN_FLOOR,
+    t_band_rows,
+    t_property_cells,
+)
 
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: The per-replicate diagnostics file (plan 5.2), written beside the rows.
@@ -340,19 +350,20 @@ def property_artifacts(
 
 
 def declared_thresholds(declaration: Declaration) -> dict[str, float | None]:
-    """Each label's declared gain clause, from the study's committed pilot at its R."""
+    """Each label's declared gain value, recomputed from the study's committed pilot at its R.
+
+    The design test compares it with the committed ``declaration.reference_thresholds``.
+    """
     return study.reference_thresholds(
         study.read_pilot(declaration.pilot_path), declaration.replicates, declaration.cells
     )
 
 
 def summarize(declaration: Declaration, rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared summary of a study, read by the joint rule and the paired-gain clauses.
+    """The shared summary of a study: the joint rule gated, the paired gains reported.
 
-    Raises
-    ------
-    ValueError
-        Before the study's pilot is committed, since no reference clause is declared yet.
+    Every reference control is read with no threshold, so its row carries the gain interval
+    and passes (plan rev 3.3).
     """
     summary, rates = apply_shared_verdicts(rows, declaration.record, rate_labels=())
     simultaneous_coverage_verdicts(
@@ -360,9 +371,35 @@ def summarize(declaration: Declaration, rows: pd.DataFrame) -> pd.DataFrame:
         margins=declaration.record.margins,
         rows=rows,
         record=declaration.record,
-        reference_thresholds=declared_thresholds(declaration),
+        reference_thresholds=dict.fromkeys(declaration.reference_thresholds),
     )
     return finish(summary, rates)
+
+
+def reference_readings(declaration: Declaration, summary: pd.DataFrame) -> pd.DataFrame:
+    """Each reference control's gain interval beside its declared value, reported only.
+
+    ``reached`` is whether the 99% lower limit reaches the declared value and the witness
+    floor; it is empty where the cell declares no value.  No verdict reads it.
+    """
+    out = []
+    for cell in declaration.cells:
+        row = summary.loc[summary["cell"] == study.REFERENCE_CELLS[cell.label]].iloc[0]
+        threshold = declaration.reference_thresholds[cell.label]
+        low = float(row["coverage_gain_ci_lower"])
+        out.append(
+            {
+                "label": cell.label,
+                "group": cell.group,
+                "declared_value": threshold,
+                "gain_ci_lower": low,
+                "gain_ci_upper": float(row["coverage_gain_ci_upper"]),
+                "reached": None
+                if threshold is None
+                else bool(low >= max(threshold, SCALE_GAIN_FLOOR)),
+            }
+        )
+    return pd.DataFrame(out)
 
 
 def property_cells_of(declaration: Declaration) -> tuple[PropertyCell, ...]:
@@ -392,13 +429,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return generate_property_artifacts(n_jobs=n_jobs)[0]
 
 
-def thresholds() -> dict[str, float | None]:
-    """Each label's declared gain clause, from the committed pilot at the declared R."""
-    return declared_thresholds(DECLARATION)
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared summary, read by the joint rule and the paired-gain clauses."""
+    """The shared summary: the joint rule gated, the paired gains reported."""
     return summarize(DECLARATION, rows)
 
 
@@ -407,8 +439,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return property_cells_of(DECLARATION)
 
 
-#: The failure accounting's declared rules: the joint rule with the reference clause.
-PROPERTY_RULES = (property_verdicts.simultaneous_rule(reference_thresholds=thresholds()),)
+#: The failure accounting's declared rules: the joint rule, without the reported reference gain.
+PROPERTY_RULES = (property_verdicts.simultaneous_rule(),)
 
 
 # ------------------------------------------------------------------------ pilot and smoke

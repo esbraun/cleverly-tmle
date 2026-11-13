@@ -3,7 +3,8 @@
 The strata law at n = 1,000 (plan 5.2) was not used to choose the rule or the floor: planning
 draws on a disjoint stream fixed only its n.  It is declared at risk.  On planning draws about
 2% of its fits read a constant arm cell, which no band rule can repair, and the predicted pass
-probability of its gated reading is about 0.76 at R = 5,200.  The cell licenses no row and is
+probability of its gated reading was about 0.76 at R = 5,200 (its committed pilot, at 0.9575,
+puts it near 0.99 at the declared R).  The cell licenses no row and is
 outside the sizing family, so its verdict must block nothing in ``band-t-reference``.  It
 therefore lives in this companion study under ``publication_policy="reporting"``: a red verdict
 is published with an owner, as a reporting study's red rows are.
@@ -18,9 +19,11 @@ Declared reading (plan 5.2): green, the rule holds out of sample; red with the s
 reading (fits with no constant cell, ``t-band-replicates.csv``) inside (0.92, 0.98), the
 shortfall is the refusal rate, reported with the measured constant-cell share; red with that
 reading also outside, a finding against the rule (D5).  The floor arms move D4 only as plan 5.2
-states.
+states.  The paired gain over the normal-reference control is a reported reading, as in
+``band-t-reference`` (plan rev 3.3): its declared value, :data:`REFERENCE_THRESHOLDS`, is
+published beside the gain interval and gates nothing.
 
-Nothing here has run.  The study is not in :func:`~tests.studies.evidence.registry.registered`
+The pilot has run and is committed; the main run has not.  The study is not in :func:`~tests.studies.evidence.registry.registered`
 until its run commits artifacts.
 """
 
@@ -55,6 +58,10 @@ CELLS = (HELD_OUT_CELL,)
 #: stated beside it (:func:`held_out_pass`).
 REPLICATES = main_study.REPLICATES
 SMOKE_LABELS = (HELD_OUT_CELL.label,)
+#: The held-out cell's declared gain value, ``reference_thresholds(read_pilot(PILOT_PATH),
+#: REPLICATES, CELLS)``, committed by hand and recomputed by the design test: its pilot gain does
+#: not carry the witness, so no value.  Reported, never gated.
+REFERENCE_THRESHOLDS: dict[str, float | None] = {HELD_OUT_CELL.label: None}
 PROPERTY_CELLS = {FAMILY: cell_names(HELD_OUT_CELL)}
 
 STUDY = StudyRecord(
@@ -95,6 +102,7 @@ DECLARATION = Declaration(
     pilot_stream=PILOT_STREAM,
     pilot_path=PILOT_PATH,
     smoke_labels=SMOKE_LABELS,
+    reference_thresholds=REFERENCE_THRESHOLDS,
 )
 
 CONFIGURATION = {
@@ -102,7 +110,7 @@ CONFIGURATION = {
     "primary_law": main_study.CONFIGURATION["primary_law"],
     "band_rule": main_study.CONFIGURATION["band_rule"],
     "cell": {"source": HELD_OUT_CELL.source, "n": HELD_OUT_CELL.n, "rows": ()},
-    "replicates": f"band-t-reference's declared R ({REPLICATES} before the pilot)",
+    "replicates": f"band-t-reference's declared R ({REPLICATES})",
 }
 
 

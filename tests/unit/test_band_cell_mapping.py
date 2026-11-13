@@ -246,9 +246,10 @@ def t_mapping_problems(
     """Every way ``mapping`` breaks the licence rule, as short sentences.
 
     A row lists the triple exactly when it has an entry; each cell is written by ``_t_band``,
-    is a positive ``__t_band`` row of band-t-reference that passed, and every clause of its
-    paired controls passed; a row only in this mapping lists the ``t`` triple and not the
-    default; a ``t`` row licenses ``band``.
+    is a positive ``__t_band`` row of band-t-reference that passed, and its gated paired
+    control passed (the pointwise control; the reference gain is reported and passes, plan rev
+    3.3); a row only in this mapping lists the ``t`` triple and not the default; a ``t`` row
+    licenses ``band``.
     """
     problems = []
     for row_id in t_band_rows(rows) ^ {row_id for row_id, cells in mapping.items() if cells}:
@@ -268,7 +269,7 @@ def t_mapping_problems(
             if not passed.get(cell, False):
                 problems.append(f"{row_id}: {cell} did not pass")
             if not controls_passed.get(cell, False):
-                problems.append(f"{row_id}: a control clause of {cell} did not pass")
+                problems.append(f"{row_id}: a gated control of {cell} did not pass")
     return problems
 
 

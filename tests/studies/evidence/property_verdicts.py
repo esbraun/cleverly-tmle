@@ -2474,8 +2474,9 @@ def simultaneous_rule(
 ) -> pf.FamilyRule:
     """The joint-coverage family's accounting rule, with the reference clause when declared.
 
-    A study with normal-reference controls (``band-t-reference``) passes the threshold of
-    each label, as :func:`simultaneous_coverage_verdicts` reads them.
+    A study that gates a normal-reference control's paired gain passes the threshold of each
+    label, as :func:`simultaneous_coverage_verdicts` reads them.  ``band-t-reference`` reports
+    that gain and gates only coverage (Fix-2 plan rev 3.3), so it passes none.
     """
     extra = () if reference_thresholds is None else (_reference_gain_clause(reference_thresholds),)
     return pf.FamilyRule(

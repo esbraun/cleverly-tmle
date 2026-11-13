@@ -5,8 +5,10 @@ optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.d
 The study has no comparator. Its pilot,
 ``python -m tests.studies.band_t_reference_held_out_properties --pilot``, writes
 ``tests/studies/band_t_reference_held_out_pilot.csv`` on the salted stream
-``band-t-reference-held-out/pilot`` and fixes only the held-out cell's gain clause by the
-declared formula. The cell runs at ``band-t-reference``'s declared R.
+``band-t-reference-held-out/pilot``; it is committed. It fixed only the held-out cell's declared
+gain value (``band_t_reference_held_out.REFERENCE_THRESHOLDS``: none, the pilot gain carrying no
+witness). The paired gain is reported beside that value and gates nothing (plan rev 3.3). The
+cell runs at ``band-t-reference``'s declared R, 5,600.
 
 Red-cell reading (declared before the pilot; plan 5.2). The study publishes under
 ``reporting``. Green: the rule holds out of sample. Red with the shown-band reading (fits with

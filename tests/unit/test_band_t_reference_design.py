@@ -1,14 +1,16 @@
-"""The declaration of the ``band-t-reference`` study, before its pilot and run (Fix-2 plan 5).
+"""The declaration of the ``band-t-reference`` study, after its pilot and before its run (Fix-2).
 
-The sizing rule reproduces the plan's planning numbers.  The clause formulas, the seed streams,
-the cells and the row reader are checked here, each with a control that fails when the
-component it guards is wrong: the nonzero witness, the df agreement with the package, the
-expansion gate, the constant-cell sentinel and the paired-gain rule.  One replication of each
-fit shape runs through the declared rows.  Nothing here starts the pilot or the run.
+The sizing rule reproduces the committed R from the committed pilot, on coverage alone (plan
+rev 3.3).  The clause formulas, the seed streams, the cells and the row reader are checked here,
+each with a control that fails when the component it guards is wrong: the nonzero witness, the
+df agreement with the package, the expansion gate, the constant-cell sentinel, the joint rule
+and the paired-gain reading, which is reported and gates nothing.  One replication of each fit
+shape runs through the declared rows.  Nothing here starts the run.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import math
 from typing import Any
@@ -26,6 +28,7 @@ from tests.studies import band_t_reference_held_out as held_out
 from tests.studies import band_t_reference_held_out_properties as held_out_properties
 from tests.studies import band_t_reference_properties as properties
 from tests.studies import default_band_properties
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence import simultaneous as joint
 from tests.studies.evidence.property_verdicts import reference_gain_verdict
 from tests.studies.evidence.red_cells import REPORTING_ROWS
@@ -35,47 +38,50 @@ from tests.unit.test_study_provenance import _required_from
 pytestmark = pytest.mark.xdist_group("band_t_reference_design")
 
 
-@functools.cache
-def planned() -> tuple[int, float]:
-    return study.declared_replicates()
-
-
 # ------------------------------------------------------------------------------- sizing
 
 
-def test_the_planning_values_size_the_study_at_5200() -> None:
-    """Plan 5.3: the three red shapes with their magnitude clauses bind, at 5,200 (0.958)."""
-    replicates, probability = planned()
-    assert replicates == study.PLANNED_REPLICATES == 5_200
-    assert probability == pytest.approx(0.958, abs=0.002)
-    # No pilot is committed yet, so R is the planning value and DECLARED_REPLICATES is unset.
-    assert study.read_pilot() is None and study.DECLARED_REPLICATES is None
-    assert study.REPLICATES == study.PLANNED_REPLICATES
-    assert held_out.REPLICATES == study.REPLICATES
-
-
-def test_a_committed_pilot_fixes_the_declared_replicates() -> None:
-    """Once the pilot is committed, DECLARED_REPLICATES must be the rule on it."""
+@functools.cache
+def declared() -> tuple[int, float]:
     pilot = study.read_pilot()
-    if pilot is None:
-        pytest.skip("the pilot has not run")
-    assert study.declared_replicates(pilot)[0] == study.DECLARED_REPLICATES
+    assert pilot is not None
+    return study.declared_replicates(pilot)
 
 
-def test_the_licensing_family_alone_sizes_lower() -> None:
-    """The eleven licensing cells, pooled with every clause, read 3,600 (0.960) [guess]."""
-    coverages, sizes, clauses = study._sizing_inputs(study.LICENSING, None)
-    assert len(coverages) == 11 and len(clauses) == 9
-    replicates, probability = study.size(coverages, sizes, clauses=clauses)
-    assert replicates == 3_600
-    assert probability == pytest.approx(0.960, abs=0.002)
+def test_the_committed_pilot_fixes_the_declared_replicates() -> None:
+    """Rev 3.3: the larger of the two pooled coverage rules on the pilot, 5,600 (0.957)."""
+    replicates, probability = declared()
+    assert replicates == study.DECLARED_REPLICATES == study.REPLICATES == 5_600
+    assert probability == pytest.approx(0.957, abs=0.002)
+    assert held_out.REPLICATES == study.REPLICATES
+    assert study.DECLARATION.replicates == held_out.DECLARATION.replicates == study.REPLICATES
 
 
-def test_the_clauses_raise_the_red_family_above_the_cells_alone() -> None:
-    """Control: the same red family without its clauses sizes lower, so the clauses bind."""
-    coverages, sizes, _ = study._sizing_inputs(study.RED_CELLS, None)
-    replicates, _ = study.size(coverages, sizes)
-    assert replicates is not None and replicates < planned()[0]
+def test_the_red_family_decides_r_and_the_licensing_family_sizes_lower() -> None:
+    """The three red shapes need 5,600 (0.94998 at 5,200); the eleven licensing cells 2,400."""
+    pilot = study.read_pilot()
+    red = study._sizing_inputs(study.RED_CELLS, pilot)
+    licensing = study._sizing_inputs(study.LICENSING, pilot)
+    assert len(licensing[0]) == 11 and len(red[0]) == 3
+    assert study.size(*red)[0] == 5_600
+    assert study.family_pass(*red, 5_200) < study.SIZING_TARGET
+    assert study.size(*licensing)[0] == 2_400
+
+
+def test_a_family_that_cannot_reach_the_target_refuses_to_size() -> None:
+    """Control: a coverage at the rule's edge sizes no R below the ceiling."""
+    assert study.size([0.921, 0.921, 0.921], [800, 800, 800], ceiling=1_600)[0] is None
+
+
+def test_the_committed_thresholds_are_the_formulas_on_the_pilot() -> None:
+    """The declared gain values are still computed, and the committed ones match them."""
+    assert properties.declared_thresholds(study.DECLARATION) == study.REFERENCE_THRESHOLDS
+    assert properties.declared_thresholds(held_out.DECLARATION) == held_out.REFERENCE_THRESHOLDS
+    assert set(study.REFERENCE_THRESHOLDS) == {cell.label for cell in study.CELLS}
+    pilot = study.read_pilot()
+    assert pilot is not None
+    witness_only = study.witness_only_red_cells(pilot, study.REPLICATES)
+    assert witness_only == [cell.label for cell in study.RED_CELLS]
 
 
 # ---------------------------------------------------------------------- clause formulas
@@ -420,3 +426,81 @@ def test_the_reference_verdict_reads_the_witness_and_the_magnitude() -> None:
     zero = _gain_rows(np.zeros(4_000))
     assert not reference_gain_verdict(zero, study.STUDY, cell, joint.SCALE_GAIN_FLOOR)[2]
     assert reference_gain_verdict(zero, study.STUDY, cell, None)[2]
+
+
+# ------------------------------------------------------------- the gated and reported reads
+
+
+def _family_rows(band: float, *, gain: float = 0.0, replicates: int = 1_200) -> pd.DataFrame:
+    """Every declared cell of ``ordinary_binary`` over ``replicates`` copies of one replicate.
+
+    The ``t`` band covers on a ``band`` share of replicates, the normal reference on a share
+    ``gain`` lower (each covered replicate of the reference is covered by the band), and the
+    pointwise control on half.
+    """
+    cell = study.CELL_BY_LABEL["ordinary_binary"]
+    key = properties.payloads((cell.label,), 1, pilot=True)[0]
+    rows, _ = properties.fit_replication(key, properties._draw(key))
+    base = pd.DataFrame(rows)
+    index = np.arange(replicates)
+    t_covered = (index % 1_000) < round(band * 1_000)
+    normal_covered = (index % 1_000) < round((band - gain) * 1_000)
+    frames = []
+    for replicate in index:
+        frame = base.copy()
+        frame["replicate"] = replicate
+        frame["requested_replicates"] = replicates
+        suffix = frame["cell"].str.split("__", n=1).str[1]
+        frame.loc[suffix == joint.T_BAND, "covered"] = int(t_covered[replicate])
+        frame.loc[suffix == joint.REFERENCE_CONTROL, "covered"] = int(normal_covered[replicate])
+        frame.loc[suffix == "pointwise_joint_control", "covered"] = int(replicate % 2)
+        frames.append(frame)
+    return properties._ordered(pd.concat(frames, ignore_index=True))
+
+
+def _declared_with_a_value() -> study.Declaration:
+    """``ordinary_binary`` alone, given the witness value its group never declares."""
+    cell = study.CELL_BY_LABEL["ordinary_binary"]
+    return dataclasses.replace(
+        study.DECLARATION,
+        cells=(cell,),
+        replicates=1_200,
+        reference_thresholds={cell.label: joint.SCALE_GAIN_FLOOR},
+    )
+
+
+def test_a_zero_gain_is_reported_and_gates_nothing() -> None:
+    """Rev 3.3: a reference control below its declared value passes; the reading says so."""
+    declaration = _declared_with_a_value()
+    summary = properties.summarize(declaration, _family_rows(0.95)).set_index("cell")
+    assert bool(summary.loc[f"ordinary_binary__{joint.T_BAND}", "passed"])
+    assert bool(summary.loc[f"ordinary_binary__{joint.REFERENCE_CONTROL}", "passed"])
+    assert bool(summary.loc["ordinary_binary__pointwise_joint_control", "passed"])
+    readings = properties.reference_readings(declaration, summary.reset_index())
+    assert readings["gain_ci_lower"].iloc[0] == 0.0
+    assert not bool(readings["reached"].iloc[0])
+    gained = properties.summarize(declaration, _family_rows(0.95, gain=0.05)).reset_index()
+    assert bool(properties.reference_readings(declaration, gained)["reached"].iloc[0])
+
+
+def test_the_joint_rule_still_gates_the_t_band_and_the_pointwise_control() -> None:
+    """Mutation control: a t band at 0.85, or a control at full coverage, fails its verdict."""
+    declaration = _declared_with_a_value()
+    low = properties.summarize(declaration, _family_rows(0.85)).set_index("cell")
+    assert not bool(low.loc[f"ordinary_binary__{joint.T_BAND}", "passed"])
+    rows = _family_rows(0.95)
+    rows.loc[rows["cell"] == "ordinary_binary__pointwise_joint_control", "covered"] = 1
+    full = properties.summarize(declaration, rows).set_index("cell")
+    assert not bool(full.loc["ordinary_binary__pointwise_joint_control", "passed"])
+
+
+@pytest.mark.parametrize("module", [properties, held_out_properties])
+def test_the_failure_accounting_gates_coverage_and_not_the_gain(module: Any) -> None:
+    """The declared rules hold the joint rule's clauses and no reference-gain clause."""
+    (rule,) = module.PROPERTY_RULES
+    statistics = {clause.statistic for clause in rule.clauses}
+    assert "S2" in statistics and "S7r" not in statistics
+    plain = property_verdicts.simultaneous_rule()
+    assert [clause.statistic for clause in rule.clauses] == [
+        clause.statistic for clause in plain.clauses
+    ]

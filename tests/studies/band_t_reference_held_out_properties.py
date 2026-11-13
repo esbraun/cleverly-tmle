@@ -34,13 +34,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return generate_property_artifacts(n_jobs=n_jobs)[0]
 
 
-def thresholds() -> dict[str, float | None]:
-    """The held-out cell's declared gain clause, from this study's committed pilot."""
-    return engine.declared_thresholds(DECLARATION)
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared summary, read by the joint rule and the paired-gain clause."""
+    """The shared summary: the joint rule gated, the paired gain reported."""
     return engine.summarize(DECLARATION, rows)
 
 
@@ -49,8 +44,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return engine.property_cells_of(DECLARATION)
 
 
-#: The failure accounting's declared rules: the joint rule with the reference clause.
-PROPERTY_RULES = (property_verdicts.simultaneous_rule(reference_thresholds=thresholds()),)
+#: The failure accounting's declared rules: the joint rule, without the reported reference gain.
+PROPERTY_RULES = (property_verdicts.simultaneous_rule(),)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
