@@ -338,6 +338,44 @@ def _drop(panel: Any, sub_nodes: slice) -> HazardInputs:
     return replace(panel.inputs, at_risk=at_risk)
 
 
+def test_a_panel_holds_its_node_rows_and_its_scale_sums_to_the_record() -> None:
+    """Panel rows, the ``n_k / n`` rescaling of the scale, and a zero-weight row's slot (4.4)."""
+    law = HeldLaw()
+    frame = law.frame()
+    with spied("backward_pass") as passes:
+        result = fit(law, STATIC, frame=frame)
+    n = len(frame)
+    for (label, level), entry in zip(STATIC.items(), passes, strict=True):
+        node2 = next(panel for panel in entry.panels if panel.node == 2)
+        entering = (frame["C1"] == 1) & (frame["Y1"] == 0) & (frame["A"] == level)
+        np.testing.assert_array_equal(node2.rows, np.flatnonzero(entering.to_numpy()))
+        scale = np.zeros((1, law.n_times))
+        for panel, state in zip(entry.panels, entry.states, strict=True):
+            rows = hazard_module._score_parts(state, panel.inputs, panel.horizons)[2]
+            scale[:, [t - 1 for t in panel.reported]] += rows[0].sum(axis=-1) / n
+        record = result.fits[f"{label} @ t=4"].hazard
+        np.testing.assert_allclose(record.score_scale, scale.reshape(-1), rtol=0.0, atol=1e-12)
+    # A policy that puts no mass on A = 0 when W1 = 1: those rows carry no weight at node 1,
+    # whose two slots let the observed slot change.
+    with spied("backward_pass") as passes:
+        fit(law, {"half": Stochastic(_half_policy, "q", density_kind="known")}, frame=frame)
+    node1 = passes[0].panels[0]
+    state = passes[0].states[0]
+    inputs = node1.inputs
+    assert node1.node == 1 and inputs.q.shape[-1] == 2
+    idle = inputs.loss_weight[:, 0] == 0.0
+    assert idle.any()
+    moved = replace(inputs, observed=np.where(idle, 1 - inputs.observed, inputs.observed))
+    np.testing.assert_array_equal(
+        scores(state, moved, node1.horizons)[0], scores(state, inputs, node1.horizons)[0]
+    )
+
+
+def _half_policy(frame: Any) -> np.ndarray:
+    p = np.where(np.asarray(frame["W1"], dtype=float) == 1.0, 1.0, 0.5)
+    return np.column_stack([1.0 - p, p])
+
+
 # --------------------------------------------------------- law-as-data witnesses
 
 
@@ -963,7 +1001,7 @@ def test_a_continuous_covariate_after_baseline_covers_the_truth() -> None:
             targeting="one_step",
             step_size=STEP,
             tol=TOL,
-            outcome_learner=Logistic(),
+            outcome_learner=wrong_hazard(),
             pseudo_learner=ClippedLinear(),
             treatment_learner=Logistic(),
             censoring_learner=Logistic(),
