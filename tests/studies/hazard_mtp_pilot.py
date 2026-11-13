@@ -23,6 +23,11 @@ label                              what it measures
                                    ``levels``, ``gaussian_density``, ``gaussian_classifier``,
                                    ``gaussian_crossfit`` and ``vector`` at n = 2,000, 200 draws
                                    each: the fit's plug-in and targeted estimates
+``ic_gap``                         each fit label's influence-curve gap against the exact
+                                   efficient influence function (5 draws at n = 2,000 and one
+                                   at n = 20,000, the reported ``untruncated_density`` too), and
+                                   one fit at n = 40,000 per gated fit label whose
+                                   influence-curve SD is read against the bound
 ``calibration_<fit>``              the calibration fits of one fit label of
                                    :data:`~tests.studies.canonical_hazard_mtp.FITS`, n = 2,000,
                                    8,000 draws each
@@ -76,16 +81,34 @@ WRONG_LEARNER_FITS = (
     "vector",
 )
 
-#: ``label -> (fit label, draws)``.
+#: The n of the large fits whose influence-curve SD is read against the efficiency bound.
+BOUND_N = 40_000
+#: Every fit of the ``ic_gap`` label: ``(fit label, n, draw)``.  Each gated fit label and the
+#: reported one take :data:`~tests.studies.hazard_mtp_properties.IC_GAP_DRAWS` draws at the
+#: small size and one at the large size; each gated fit label takes one draw at
+#: :data:`BOUND_N`.
+IC_GAP_JOBS: tuple[tuple[str, int, int], ...] = (
+    *(
+        (fit, n, r)
+        for fit in (*properties.CALIBRATION_FITS, *properties.REPORTED_FITS)
+        for n, draws in zip(properties.IC_GAP_SIZES, (properties.IC_GAP_DRAWS, 1), strict=True)
+        for r in range(draws)
+    ),
+    *((fit, BOUND_N, 0) for fit in properties.CALIBRATION_FITS),
+)
+
+#: ``label -> (fit label, draws)``; ``ic_gap`` runs :data:`IC_GAP_JOBS`, one fit label each.
 PILOTS: dict[str, tuple[str, int]] = {
     **{f"fits_differ_{fit}": (fit, FITS_DIFFER_DRAWS) for fit in study.DIFFERENCE_FITS},
     "fits_differ_mechanism_correct": ("levels", MECHANISM_DIFFER_DRAWS),
     **{f"wrong_learner_{fit}": (fit, WRONG_LEARNER_DRAWS) for fit in WRONG_LEARNER_FITS},
     **{f"calibration_{fit}": (fit, CALIBRATION_DRAWS) for fit in properties.CALIBRATION_FITS},
+    "ic_gap": ("", len(IC_GAP_JOBS)),
 }
 COLUMNS = (
     "label",
     "replicate",
+    "fit_label",
     "n",
     "estimand",
     "truth",
@@ -185,8 +208,46 @@ def _wrong_learner(
     return rows
 
 
+def _ic_gap(replicate: int) -> list[dict[str, Any]]:
+    """One fit of :data:`IC_GAP_JOBS`: each arm's influence-curve reading.
+
+    At a size of :data:`~tests.studies.hazard_mtp_properties.IC_GAP_SIZES` the ``estimate`` is
+    the gap SD(IC - EIF) / bound against the exact per-unit efficient influence function of
+    :meth:`~tests.studies.hazard_mtp_law.Law.frame_curves`; at :data:`BOUND_N` it is
+    SD(IC) / bound.
+    """
+    fit_label, n, draw = IC_GAP_JOBS[replicate]
+    current = study.law_of(fit_label)
+    frame = current.draw(n, stream_seed(study.STUDY, "pilot", "ic_gap", fit_label, n, draw))
+    records = properties.FitRecords()
+    result = records.hazard(fit_label, frame)
+    rows = []
+    for label, name in properties.COEFFICIENTS[fit_label]:
+        curve = np.asarray(result[name].influence_curve)
+        if n != BOUND_N:
+            curve = curve - current.frame_curves(properties.target(label), frame)
+        rows.append(
+            _row(
+                "ic_gap",
+                replicate,
+                fit_label=fit_label,
+                n=n,
+                estimand=label,
+                estimate=float(np.std(curve) / properties.EFFICIENCY_SD[label]),
+                std_error=float(result[name].std_error),
+                **records.columns(),
+            )
+        )
+    return rows
+
+
 def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
     label, replicate = job
+    if label == "ic_gap":
+        try:
+            return _ic_gap(replicate)
+        except Exception as error:  # a refusal is a pilot finding, recorded with its class
+            return [_row(label, replicate, refusal=type(error).__name__)]
     fit_label, _ = PILOTS[label]
     frame = properties.draw(fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate))
     records = properties.FitRecords()

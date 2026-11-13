@@ -144,9 +144,10 @@ NON_MONOTONE_FLOOR = 0.10
 #: per-unit efficient influence function, over the efficiency bound.  A gated fit label must
 #: keep the median over :data:`IC_GAP_DRAWS` draws at the small size, and the one draw at the
 #: large size, within :data:`IC_GAP_BOUND`, and its large-size gap at most :data:`IC_GAP_FALL`
-#: times its small-size median: the gap falls toward zero as n grows
-#: (``tests/unit/test_hazard_mtp_study_design.py``, ``TestTheInfluenceCurveGap``).  Read on the
-#: design test's own seed stream, never a declared one.
+#: times its small-size median: the gap falls toward zero as n grows.  The ``ic_gap`` label of
+#: :mod:`tests.studies.hazard_mtp_pilot` fits the draws on its own seed stream, never a declared
+#: one, and ``tests/unit/test_hazard_mtp_study_design.py`` (``TestTheInfluenceCurveGap``) reads
+#: the committed rows against these bounds.
 IC_GAP_SIZES = (2_000, 20_000)
 IC_GAP_DRAWS = 5
 IC_GAP_BOUND = {2_000: 0.30, 20_000: 0.10}
