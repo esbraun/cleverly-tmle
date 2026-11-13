@@ -115,10 +115,7 @@ declared cell reads, and the design test recomputes the rule.
 ## Red-cell route
 
 The study is registered under `reporting`, and no cell is red. The declared reading is in
-`tests/canonical/option_ratio_trim/regenerate.py`. Its seed is shared with
-[treatment-mechanism covariates on point TMLE](option-treatment-adjustment.md): the two
-declarations took the same record seed, so their primary replicates read the same integer seeds
-on unrelated laws, and every property stream hashes a label of its own.
+`tests/canonical/option_ratio_trim/regenerate.py`.
 
 ## Measured values
 

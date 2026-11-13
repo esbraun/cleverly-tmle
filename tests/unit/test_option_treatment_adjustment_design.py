@@ -65,16 +65,6 @@ def naive_limit(n: int) -> float:
     return (one - zero - laws.truth("LDA")["ate"]) / np.sqrt(variance / n)
 
 
-#: The one registered study that shares this record's seed.  Parts D and E were declared in
-#: parallel and both took 20267641/20267642, and the committed runs drew from it.  Their primary
-#: replicates read the same integer seeds on different laws (point ``LDA``, longitudinal
-#: ``LE``), so the samples are dependent across the two studies but not identical, and no
-#: claim of either study reads the other.  Every property stream hashes a label of its own
-#: (``stream_seed``), so the property draws do not share seeds.  Changing the seed would need
-#: both studies rerun.
-SHARED_SEED_STUDY = "option-ratio-trim"
-
-
 class TestTheDeclaration:
     def test_the_constants(self) -> None:
         assert study.SLUG == "option-treatment-adjustment"
@@ -91,12 +81,10 @@ class TestTheDeclaration:
         seeds = {
             (record.seed, record.resampling_seed)
             for record in registered()
-            if record.slug not in {study.SLUG, SHARED_SEED_STUDY}
+            if record.slug != study.SLUG
         }
         assert not {study.SEED, study.RESAMPLING_SEED} & {s for pair in seeds for s in pair}
         assert pilot.PILOT_SEED not in {s for pair in seeds for s in pair}
-        shared = {r.seed for r in registered() if r.slug == SHARED_SEED_STUDY}
-        assert shared == {study.SEED}
 
     def test_registered_with_its_committed_run(self) -> None:
         assert study.SLUG in {record.slug for record in registered()}

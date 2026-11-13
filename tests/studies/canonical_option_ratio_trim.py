@@ -53,8 +53,8 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 SLUG = "option-ratio-trim"
-SEED = 20267641
-RESAMPLING_SEED = 20267642
+SEED = 20267661
+RESAMPLING_SEED = 20267662
 FAILURE_BOUND = 0.01
 IMPLEMENTATION = "cleverly"
 

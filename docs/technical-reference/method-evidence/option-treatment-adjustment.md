@@ -103,10 +103,7 @@ phase 2,400. The design test recomputes each count.
 ## Red-cell route
 
 The study is registered under `reporting`, and no cell is red. The declared reading is in
-`tests/canonical/option_treatment_adjustment/regenerate.py`. Its seed is shared with
-[ratio trimming on LTMLE and SDR](option-ratio-trim.md): the two declarations took the same
-record seed, so their primary replicates read the same integer seeds on unrelated laws, and
-every property stream hashes a label of its own.
+`tests/canonical/option_treatment_adjustment/regenerate.py`.
 
 ## Measured values
 
