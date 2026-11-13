@@ -195,9 +195,6 @@ def covariate_pass_probability(ratio: float, replicates: int) -> float:
 #: ``E sqrt(chi2_k / k)`` at ``k = J - V = 30``: the ratio of a perfectly calibrated SE from a
 #: 30-df variance to the true SD, under normal cluster totals.
 JENSEN_RATIO = 0.9917
-#: The pre-declaration re-score of the committed covariate positive cell (Fix-4 plan 2.1).
-#: Recorded, not a forecast: the registered pair runs on a fresh stream.
-COMMITTED_COVERAGE = {"normal": 0.9325, "t30": 0.9425}
 
 
 class TestTheCovariatePairDesign:
@@ -293,12 +290,22 @@ class TestTheCovariatePairDesign:
         assert covariate_pass_probability(ratio, unequal_study.COVARIATE_REPLICATES) >= 0.95
 
     def test_the_committed_rescore(self) -> None:
+        """Both arms read the positive's own fits: t30 and the normal quantile on one SE.
+
+        Before the regeneration this re-scored the first run's rows at 0.9325 (normal) and
+        0.9425 (t30). Those rows were replaced, so it now ties each published coverage to the
+        same replicate rows under its own critical value.
+        """
         rows = pd.read_parquet(unequal_study.STUDY.artifact("property-replicates.parquet"))
+        summary = pd.read_csv(unequal_study.STUDY.artifact("properties.csv")).set_index("cell")
         cell = rows[rows["cell"] == "cluster_robust_fold_evaluated_cluster_covariate"]
         error = (cell["estimate"] - cell["truth"]).abs() / cell["std_error"]
-        for name, critical in (("normal", norm.ppf(0.975)), ("t30", t_dist.ppf(0.975, 30))):
+        for name, critical in (
+            (unequal_properties.COVARIATE_NORMAL_CELL, norm.ppf(0.975)),
+            ("cluster_robust_fold_evaluated_cluster_covariate", t_dist.ppf(0.975, 30)),
+        ):
             assert float((error <= critical).mean()) == pytest.approx(
-                COMMITTED_COVERAGE[name], abs=1e-12
+                float(summary.loc[name, "coverage"]), abs=1e-12
             )
 
 

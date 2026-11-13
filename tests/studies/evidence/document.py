@@ -457,10 +457,16 @@ def measured(row: Any) -> str:
         return measured
     if family == "clustered_inference":
         if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
-            # A reported arm is paired with no control, so it has no coverage gain.
+            # A reported arm is paired with no control, so it has no coverage gain, and its
+            # summary carries no SE-ratio interval: the arm reuses its positive's point and SE.
+            se_ratio = (
+                _interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)
+                if pd.notna(row.se_ratio_ci_lower)
+                else render(float(row.se_ratio))
+            )
             return (
                 f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
-                f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+                f"SE ratio {se_ratio}"
             )
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "

@@ -1578,6 +1578,9 @@ class TestPublishedVerdicts:
         if not clustered.empty:
             margins = study.margins
             for row in clustered.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    # A reported arm states no verdict; the reported-row check above reads it.
+                    continue
                 if row.role == "positive":
                     expected = (
                         margins.calibration_se_ratio[0]
@@ -3907,7 +3910,12 @@ class TestPropertyFailures:
                 selected = summary.loc[
                     (summary["property"] == row["property"]) & summary["cell"].isin(cells)
                 ]
-                roles = sorted(selected["role"].astype(str))
+                # A reported arm may share the group; the pair reads only the two roles.
+                roles = sorted(
+                    role
+                    for role in selected["role"].astype(str)
+                    if role != property_verdicts.DIAGNOSTIC_ROLE
+                )
                 if roles != ["control", "positive"]:
                     wrong.append((row["property"], row["cell"], roles))
         assert wrong == []
