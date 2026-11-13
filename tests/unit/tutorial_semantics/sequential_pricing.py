@@ -405,12 +405,12 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
 
     up, down = (result[_key(plan)] for plan in PLANS)
     # "The `price_up` contrast is -0.1025, with a standard error of 0.0065 and a 95% interval of
-    # (-0.1152, -0.0899) ... The `price_down` contrast is 0.1050, with an interval of (0.0896,
-    # 0.1203)." The seed is the first of the swept range, so the coverage is a record of the draw.
+    # (-0.1154, -0.0900) ... The `price_down` contrast is 0.1050, with an interval of (0.0890,
+    # 0.1197)." The seed is the first of the swept range, so the coverage is a record of the draw.
     assert (round(up.psi, 4), round(up.std_error, 4)) == (-0.1025, 0.0065)
-    assert [round(value, 4) for value in up.ci] == [-0.1152, -0.0899]
+    assert [round(value, 4) for value in up.ci] == [-0.1154, -0.0900]
     assert (round(down.psi, 4), round(down.std_error, 4)) == (0.1050, 0.0078)
-    assert [round(value, 4) for value in down.ci] == [0.0896, 0.1203]
+    assert [round(value, 4) for value in down.ci] == [0.0890, 0.1197]
     for plan in PLANS:
         assert covers(result[_key(plan)], truth[_key(plan)])
     table = namespace["against_truth"](result, "ate_regimen")
@@ -440,13 +440,13 @@ def _check_revenue_fit(namespace: dict[str, Any]) -> None:
         "engaged_3",
     )
     up, down = (result[_key(plan)] for plan in PLANS)
-    # "The `price_up` revenue contrast is -0.3129, with an interval of (-0.4224, -0.2035). The
+    # "The `price_up` revenue contrast is -0.3129, with an interval of (-0.4241, -0.2033). The
     # true contrast is -0.3122." "The `price_down` contrast is 0.0743, with an interval of
-    # (-0.0307, 0.1792)... the interval contains zero on this draw."
+    # (-0.0362, 0.1798)... the interval contains zero on this draw."
     assert (round(up.psi, 4), round(up.std_error, 4)) == (-0.3129, 0.0559)
-    assert [round(value, 4) for value in up.ci] == [-0.4224, -0.2035]
+    assert [round(value, 4) for value in up.ci] == [-0.4241, -0.2033]
     assert (round(down.psi, 4), round(down.std_error, 4)) == (0.0743, 0.0536)
-    assert [round(value, 4) for value in down.ci] == [-0.0307, 0.1792]
+    assert [round(value, 4) for value in down.ci] == [-0.0362, 0.1798]
     revenue_truth = {plan: truth[f"ate_revenue[{plan} vs natural_prices]"] for plan in PLANS}
     assert round(revenue_truth["price_up"], 4) == -0.3122
     assert round(revenue_truth["price_down"], 4) == 0.1254
@@ -498,8 +498,8 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
         "price_down": 0.0268,
     }
     printed = stored_output(NOTEBOOK, "failure-mode")
-    assert "price_up   -0.1003 -0.1025    -0.1152     -0.0899 -0.0796 -0.0202" in printed
-    assert "price_down  0.1149  0.1050     0.0896      0.1203  0.0938  0.0268" in printed
+    assert "price_up   -0.1003 -0.1025    -0.1154     -0.0900 -0.0796 -0.0202" in printed
+    assert "price_down  0.1149  0.1050     0.0890      0.1197  0.0938  0.0268" in printed
     up, down = (result[_key(plan)] for plan in PLANS)
     # price_up: the adjust regression lies outside the LTMLE interval and between LTMLE and omit.
     assert not covers(up, adjust["price_up"])

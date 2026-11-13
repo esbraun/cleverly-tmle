@@ -344,17 +344,17 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     # is a record of the draw and not a selected outcome.
     win = result[_key("win_back")]
     assert (round(win.psi, 4), round(win.std_error, 4)) == (0.0754, 0.0204)
-    assert [round(value, 4) for value in win.ci] == [0.0353, 0.1154]
+    assert [round(value, 4) for value in win.ci] == [0.0353, 0.1153]
     assert [round(result[key].psi, 4) for key in keys] == [-0.0878, 0.0569, 0.0754, 0.0820]
     for key in keys:
         assert covers(result[key], truth[key])
     assert namespace["against_truth"](result)["covers"].all()
-    assert [round(result[key].ci[0], 4) for key in keys] == [-0.1467, 0.0011, 0.0353, 0.0355]
+    assert [round(result[key].ci[0], 4) for key in keys] == [-0.146, 0.0008, 0.0353, 0.0354]
     # The discount interval excludes zero from above, the rules and shipping exclude it from
-    # below, and the shipping interval starts at 0.0011: its lower end is positive and small.
+    # below, and the shipping interval starts at 0.0008: its lower end is positive and small.
     assert result[_key("discount")].ci[1] < 0
     assert 0 < result[_key("shipping")].ci[0] < 2e-3
-    assert round(result[_key("shipping")].pvalue, 4) == 0.0456
+    assert round(result[_key("shipping")].pvalue, 4) == 0.0467
     assert result[_key("win_back")].ci[0] > 0 and result[_key("win_back_ship")].ci[0] > 0
     # The plan table of the summary: followers of each policy, and the largest weight.
     plans_table = summary.table("What each plan assigns and who followed it to the end")

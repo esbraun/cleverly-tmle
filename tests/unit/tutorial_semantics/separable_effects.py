@@ -26,6 +26,12 @@ NOTEBOOK = EXAMPLES / "separable-effects.ipynb"
 PLANS = ("high dose", "no pill", "high dose with supplement")
 PARTS = ("whole medicine", "fluid part", "potassium part")
 
+#: Decimals the prose writes that no stored output prints, each with its reason.
+UNPRINTED_DECIMALS = {
+    "1.3": "the upper end of the scatter-ratio range that 20 refits easily give, 0.7 to 1.3, a "
+    "reading aid rather than a result; _check_data asserts the ratio lies inside it",
+}
+
 
 def _near(value: float, printed: float, places: int) -> bool:
     """``value`` prints as ``printed`` to ``places`` decimals, with slack for library rounding."""

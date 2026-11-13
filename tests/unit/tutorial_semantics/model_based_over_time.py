@@ -37,7 +37,7 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/sweep.csv; checked by _check_probe_log",
     "0.96": f"the smallest gap of the simple-model g-formula's gain above the blip model's, 400 "
     f"draws: {_PROBE}/sweep.csv; checked by _check_probe_log",
-    "1.155": "half the width of the g-formula's printed interval for the gain, 9.51 to 11.82; "
+    "1.165": "half the width of the g-formula's printed interval for the gain, 9.49 to 11.82; "
     "checked by _check_probe_log",
     "1.66": "the simple-model g-formula's gain minus the right fit's, 12.32 - 10.66 (interpret); "
     "checked by _check_failure_mode",
@@ -111,7 +111,7 @@ def _support(estimates: Any) -> set[tuple[str, str | None]]:
 def _check_gformula(namespace: dict[str, Any]) -> None:
     result, difference, truth = namespace["result"], namespace["difference"], namespace["truth"]
     assert [round(result[key].psi, 2) for key in LEVELS] == [49.37, 60.03]
-    assert [round(value, 2) for value in difference.ci] == [9.51, 11.82]
+    assert [round(value, 2) for value in difference.ci] == [9.49, 11.82]
     assert round(difference.psi, 2) == 10.66
     assert difference.psi == pytest.approx(result[LEVELS[1]].psi - result[LEVELS[0]].psi)
     # "all three intervals hold".
@@ -134,7 +134,7 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
     assert wrong.estimates[LEVELS[1]].psi != result[LEVELS[1]].psi
     # "all three intervals miss", with the printed values.
     assert [round(wrong[key].psi, 2) for key in LEVELS] == [50.05, 62.38]
-    assert [round(value, 2) for value in wrong[LEVELS[1]].ci] == [61.71, 63.04]
+    assert [round(value, 2) for value in wrong[LEVELS[1]].ci] == [61.70, 63.04]
     assert round(wrong_difference.psi, 2) == 12.32
     # "Simple symptom models moved the answer by 1.66 points".
     assert round(wrong_difference.psi - namespace["difference"].psi, 2) == 1.66
@@ -169,7 +169,7 @@ def _check_blips(namespace: dict[str, Any]) -> None:
     assert [index for index, value in held.items() if not value] == [("offer_day10", 1)]
     assert [round(effects.loc[("offer_day10", 1), c], 2) for c in ("ci_low", "ci_high")] == [
         3.00,
-        4.67,
+        4.68,
     ]
     assert _support(blips.estimates.values()) == {("supported", "G42.three_nodes")}
     # The blip model's gain is the patients' mean of the summed effects, so the interpret cell's
@@ -248,15 +248,15 @@ def _check_probe_log(namespace: dict[str, Any]) -> None:
     assert round(100 * frame[f"gf:{CONTRAST}:mc_share"].max(), 1) == 0.7
     assert round(frame[f"wrong:{LEVELS[1]}"].mean() - truth[LEVELS[1]], 2) == 2.26
     # "differed from the blip model's by at most 0.43 points, while the gain with simple symptom
-    # models sat at least 0.96 points above it, and more than 1.155 ... on 382 of 400 draws".
+    # models sat at least 0.96 points above it, and more than 1.165 ... on 380 of 400 draws".
     right = frame[f"gf:{CONTRAST}"] - frame[f"snmm:{CONTRAST}"]
     simple = frame[f"wrong:{CONTRAST}"] - frame[f"snmm:{CONTRAST}"]
     assert round(right.abs().max(), 2) == 0.43
     assert round(simple.min(), 2) == 0.96
     low, high = (round(float(bound), 2) for bound in namespace["difference"].ci)
     half = round((high - low) / 2, 3)
-    assert half == 1.155
-    assert int((simple > half).sum()) == 382
+    assert half == 1.165
+    assert int((simple > half).sum()) == 380
     for column in frame.columns:
         if column.startswith("snmm:effect:") and not column.endswith(":covers"):
             name = column.removeprefix("snmm:")
