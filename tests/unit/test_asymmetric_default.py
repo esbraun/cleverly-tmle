@@ -214,7 +214,7 @@ def test_a_fit_records_the_components_of_its_difference() -> None:
             continue
         diff = fit[name]
         assert diff.interval_scale == "mover", name
-        one, zero = diff.components  # type: ignore[misc]
+        one, zero = diff.components
         assert one.psi == pytest.approx(fit[f"ey[1]{tag}"].psi, rel=EXACT)
         assert zero.psi == pytest.approx(fit[f"ey[0]{tag}"].psi, rel=EXACT)
         assert one.std_error == pytest.approx(fit[f"ey[1]{tag}"].std_error, rel=1e-10)
@@ -254,11 +254,12 @@ def test_a_withheld_arm_keeps_the_difference_withheld(monkeypatch: pytest.Monkey
     withheld = replace(difference, inference="constant_arm_cell_plugin")
     calls: list[Any] = []
     original = influence_module._range_logit_limits
-    monkeypatch.setattr(
-        influence_module,
-        "_range_logit_limits",
-        lambda *args: calls.append(args) or original(*args),
-    )
+
+    def recorded(*args: Any) -> Any:
+        calls.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(influence_module, "_range_logit_limits", recorded)
     low, high = withheld.plugin_interval
     assert math.isnan(low) and math.isnan(high)
     assert calls == []
