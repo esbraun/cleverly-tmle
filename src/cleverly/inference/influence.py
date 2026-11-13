@@ -822,13 +822,6 @@ class ParameterEstimate:
         """
         return "influence_curve" if self.policy is None else self.policy.source
 
-    def _inference_limits(self) -> tuple[float, float]:
-        """The interval on the inference scale, before a transform or the log is undone."""
-        center = self.inference_value
-        if self.policy is not None:
-            return self.policy.interval(center, self.alpha, self.reference_df)
-        return wald_ci(center, self._plugin_std_error(), self.alpha, df=self.reference_df)
-
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
 
@@ -845,9 +838,16 @@ class ParameterEstimate:
 
         One body for :attr:`ci` and :attr:`plugin_interval`, for the same reason
         :meth:`_plugin_std_error` has one.
+
+        Under ``variance="policy_weighted"`` the interval is the policy record's composed
+        interval (:meth:`_policy_interval`). Every other estimate runs the shipped body.
         """
+        if self.policy is not None:
+            return self._policy_interval()
+        center = self.inference_value
+        df = self.reference_df
         if self.transform is not None:
-            low, high = self._inference_limits()
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -856,9 +856,29 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = self._inference_limits()
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
             return (float(np.exp(low)), float(np.exp(high)))
-        return self._inference_limits()
+        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+
+    def _policy_interval(self) -> tuple[float, float]:
+        """The interval of an estimate under ``variance="policy_weighted"``.
+
+        The union of the default interval and the policy-weighted one on the inference scale
+        (:meth:`~cleverly.inference.policy.PolicyVariance.interval`), then mapped to the
+        reported scale as :meth:`_wald_interval` maps the default one.
+        """
+        assert self.policy is not None
+        low, high = self.policy.interval(self.inference_value, self.alpha, self.reference_df)
+        if self.transform is not None:
+            if not (np.isfinite(low) and np.isfinite(high)):
+                return (float("nan"), float("nan"))
+            mapped = sorted(
+                (float(self.transform.inverse(low)), float(self.transform.inverse(high)))
+            )
+            return (mapped[0], mapped[1])
+        if self.scale == "ratio":
+            return (float(np.exp(low)), float(np.exp(high)))
+        return (low, high)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the inference scale."""
@@ -1387,6 +1407,40 @@ _SECOND_MOMENT_CLUSTER_REFUSAL = (
 )
 
 
+def _policy_record(
+    ic: FloatArray,
+    covariance_rule: str,
+    cluster: IntArray | None,
+    policy: PolicyCovariance | None,
+    gradient: FloatArray | None,
+) -> PolicyVariance:
+    """The policy-weighted record of one estimate, for :func:`make_estimate`.
+
+    The default rules never reach this function, so their variance runs the shipped code.
+    """
+    if covariance_rule != "policy_weighted":
+        raise ValueError(
+            f"a policy-weighted covariance needs covariance_rule='policy_weighted'; got "
+            f"{covariance_rule!r}"
+        )
+    if policy is None or gradient is None:
+        raise ValueError("covariance_rule='policy_weighted' needs policy and gradient")
+    if cluster is not None:
+        raise ValueError("the policy-weighted variance is defined for independent rows only")
+    weights = np.asarray(gradient, dtype=float).reshape(-1)
+    if weights.size != len(policy.names):
+        raise ValueError(
+            f"gradient has {weights.size} entries and the policy covariance has "
+            f"{len(policy.names)} levels"
+        )
+    return PolicyVariance(
+        covariance=policy,
+        gradient=weights,
+        influence_variance=influence_variance(ic, None),
+        policy_variance=policy.quadratic(weights),
+    )
+
+
 def make_estimate(
     name: str,
     psi: float,
@@ -1466,37 +1520,15 @@ def make_estimate(
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     record: PolicyVariance | None = None
-    if (policy is None) != (gradient is None):
-        raise ValueError("policy and gradient are passed together")
-    if policy is not None and covariance_rule != "policy_weighted":
-        raise ValueError(
-            f"a policy-weighted covariance needs covariance_rule='policy_weighted'; got "
-            f"{covariance_rule!r}"
-        )
-    if covariance_rule == "second_moment":
+    if covariance_rule == "policy_weighted" or policy is not None or gradient is not None:
+        record = _policy_record(ic, covariance_rule, cluster, policy, gradient)
+        variance = record.variance
+    elif covariance_rule == "second_moment":
         if cluster is not None:
             raise ValueError(_SECOND_MOMENT_CLUSTER_REFUSAL)
         variance = stacked_second_moment_variance(ic)
     elif covariance_rule == "centered":
         variance = influence_variance(ic, cluster)
-    elif covariance_rule == "policy_weighted":
-        if policy is None or gradient is None:
-            raise ValueError("covariance_rule='policy_weighted' needs policy and gradient")
-        if cluster is not None:
-            raise ValueError("the policy-weighted variance is defined for independent rows only")
-        weights = np.asarray(gradient, dtype=float).reshape(-1)
-        if weights.size != len(policy.names):
-            raise ValueError(
-                f"gradient has {weights.size} entries and the policy covariance has "
-                f"{len(policy.names)} levels"
-            )
-        record = PolicyVariance(
-            covariance=policy,
-            gradient=weights,
-            influence_variance=influence_variance(ic, None),
-            policy_variance=policy.quadratic(weights),
-        )
-        variance = record.variance
     else:
         raise ValueError(
             "covariance_rule must be 'centered', 'second_moment' or 'policy_weighted'; got "

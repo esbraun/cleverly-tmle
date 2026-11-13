@@ -1303,14 +1303,10 @@ def support_for(
         return UNCLASSIFIED
     record = None if status == "influence_curve" else STATUS_RECORDS[status]
     withheld = record is not None and record.interval == "withheld"
+    if kind is None and policy and not withheld:
+        kind = "wald_policy"
     if kind is None:
-        kind = (
-            "point"
-            if withheld
-            else "wald_policy"
-            if policy
-            else ("wald_t" if reference_df is not None else "wald")
-        )
+        kind = "point" if withheld else ("wald_t" if reference_df is not None else "wald")
     row = classification.row
     reasons: list[str] = []
     evidence: list[str] = []

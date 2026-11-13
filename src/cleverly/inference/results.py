@@ -208,6 +208,8 @@ def shared_policy(estimates: Mapping[str, ParameterEstimate], names: Sequence[st
             f"the selected estimates {list(names)} declare covariance_rule='policy_weighted' "
             "without a policy-weighted record"
         )
+    # Content equality: two separately run fits pass only with identical matrices, which
+    # needs identical data and seeds, and their curves then agree as well.
     first = records[0].covariance  # type: ignore[union-attr]
     if any(not first.same_as(record.covariance) for record in records[1:]):  # type: ignore[union-attr]
         raise CapabilityError(
@@ -219,24 +221,24 @@ def shared_policy(estimates: Mapping[str, ParameterEstimate], names: Sequence[st
     return first
 
 
-def _reported_stack(estimate: ParameterEstimate, with_gradient: bool) -> FloatArray:
-    """The reported-scale curve, followed by the reported-scale policy gradient when asked.
+def _reported_stack(estimate: ParameterEstimate) -> FloatArray:
+    """The reported-scale curve, followed by the reported-scale policy gradient.
 
     A contrast, a ratio and a transform act linearly on the curve. The policy gradient over
     the fit's levels moves under the same map, so stacking the two lets one computation
-    carry both.
+    carry both. Only the ``"policy_weighted"`` rule reads it.
     """
-    curve = _reported_curve(estimate)
-    if not with_gradient:
-        return curve
     assert estimate.policy is not None
-    return np.concatenate([curve, _reported_vector(estimate, estimate.policy.gradient)])
+    return np.concatenate(
+        [
+            _reported_vector(estimate, estimate.influence_curve),
+            _reported_vector(estimate, estimate.policy.gradient),
+        ]
+    )
 
 
 def _split_stack(vector: FloatArray, policy: Any) -> tuple[FloatArray, dict[str, Any]]:
     """The curve, and the ``make_estimate`` arguments of the gradient, from a stacked vector."""
-    if policy is None:
-        return vector, {}
     k = len(policy.names)
     return vector[:-k], {"policy": policy, "gradient": vector[-k:]}
 
@@ -313,9 +315,12 @@ def smooth_contrast(
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
     policy = shared_policy(estimates, chosen) if rule == "policy_weighted" else None
-    # Under the policy-weighted rule each input's gradient over the fit's levels rides below
-    # its curve, so the delta method's one linear map carries both.
-    curves = [_reported_stack(estimates[key], policy is not None) for key in chosen]
+    if policy is None:
+        curves = [_reported_curve(estimates[key]) for key in chosen]
+    else:
+        # Under the policy-weighted rule each input's gradient over the fit's levels rides
+        # below its curve, so the delta method's one linear map carries both.
+        curves = [_reported_stack(estimates[key]) for key in chosen]
     value, curve = delta_method(
         function,
         [estimates[key].psi for key in chosen],
@@ -332,7 +337,9 @@ def smooth_contrast(
         curve = (1.0 / value) * curve
     if transform is not None:
         curve = _transform_slope(value, transform) * curve
-    curve, carried = _split_stack(curve, policy)
+    carried: dict[str, Any] = {}
+    if policy is not None:
+        curve, carried = _split_stack(curve, policy)
     estimate = make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
@@ -862,11 +869,33 @@ def _reported_curve(estimate: ParameterEstimate) -> FloatArray:
     Ratios store the curve of their log, and transformed estimates store the curve of
     their forward map. Undo that map before applying the contrast's derivative.
     """
-    return _reported_vector(estimate, estimate.influence_curve)
+    curve = estimate.influence_curve
+    if estimate.transform is not None:
+        mapped = float(estimate.transform.forward(estimate.psi))
+        slope = estimate.transform.slope(estimate.psi)
+        if not (np.isfinite(mapped) and np.isfinite(slope) and slope != 0.0):
+            raise ValueError(
+                f"the input estimate {estimate.name!r} needs a finite transformed value "
+                "and a finite nonzero slope to recover its reported-scale influence curve"
+            )
+        return np.asarray(curve / slope, dtype=float)
+    if estimate.scale == "ratio":
+        if not (np.isfinite(estimate.psi) and estimate.psi > 0.0):
+            raise ValueError(
+                f"the ratio input {estimate.name!r} needs a positive finite value to "
+                "recover its reported-scale influence curve"
+            )
+        return np.asarray(estimate.psi * curve, dtype=float)
+    return curve
 
 
 def _reported_vector(estimate: ParameterEstimate, curve: FloatArray) -> FloatArray:
-    """``curve``, a vector on the estimate's inference scale, mapped to its reported scale."""
+    """``curve``, a vector on the estimate's inference scale, mapped to its reported scale.
+
+    The arithmetic of :func:`_reported_curve`, for the policy-weighted rule, which maps the
+    curve and the policy gradient together. :func:`_reported_curve` keeps its own body so the
+    default rules run the shipped code.
+    """
     if estimate.transform is not None:
         mapped = float(estimate.transform.forward(estimate.psi))
         slope = estimate.transform.slope(estimate.psi)
@@ -955,9 +984,14 @@ def ratio_contrast(
     status = inference_status(estimates, chosen)
     policy = shared_policy(estimates, chosen) if rule == "policy_weighted" else None
     top, bottom = estimates[numerator], estimates[denominator]
-    # The log-ratio curves are linear in the input curves, so the policy gradients ride along.
-    psi_a, ic_a = top.psi, _reported_stack(top, policy is not None)
-    psi_b, ic_b = bottom.psi, _reported_stack(bottom, policy is not None)
+    if policy is None:
+        psi_a, ic_a = top.psi, _reported_curve(top)
+        psi_b, ic_b = bottom.psi, _reported_curve(bottom)
+    else:
+        # The log-ratio curves are linear in the input curves, so the policy gradients ride
+        # along.
+        psi_a, ic_a = top.psi, _reported_stack(top)
+        psi_b, ic_b = bottom.psi, _reported_stack(bottom)
     if complement:
         psi_a, ic_a = 1.0 - psi_a, -ic_a
         psi_b, ic_b = 1.0 - psi_b, -ic_b
@@ -975,7 +1009,9 @@ def ratio_contrast(
             f"the {'risk' if kind == 'rr' else 'odds'} ratio needs both inputs {domain}; got "
             f"{view}{numerator}={psi_a:.6g} and {view}{denominator}={psi_b:.6g}"
         ) from None
-    curve, carried = _split_stack(curve, policy)
+    carried: dict[str, Any] = {}
+    if policy is not None:
+        curve, carried = _split_stack(curve, policy)
     return make_estimate(
         name,
         float(np.exp(log_psi)),

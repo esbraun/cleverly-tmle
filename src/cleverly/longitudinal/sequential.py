@@ -2219,26 +2219,51 @@ def _continuous_node_ratios(
             n_jobs=n_jobs,
             fit_mask=fit_at,
         )
-    # Every plan's branch doses, at which the policy-weighted variance reads each ratio.
-    sources = (
-        []
-        if shifted is None
-        else [
+    if shifted is not None:
+        # variance="policy_weighted": the same ratios, and each plan's ratio at every plan's
+        # branch doses.  The default runs the shipped loop below.
+        sources = [
             ((source.label, branch), target)
             for source in plans
             for branch, target in enumerate(source.carry_targets(time) or ())
         ]
-    )
+        for plan in plans:
+            targets = plan.carry_targets(time)
+            assert targets is not None
+            if density is not None:
+                numerator = _density_numerator(plan, time, dose, frame, density)
+                moved = [
+                    _density_numerator(plan, time, target, frame, density) for _, target in sources
+                ]
+            else:
+                numerator, *moved = _classifier_numerators(
+                    plan,
+                    time,
+                    targets,
+                    [target for _, target in sources],
+                    treatment_learner=treatment_learner,
+                    history=history,
+                    dose=dose,
+                    weights=data.weights,
+                    folds=folds,
+                    fit_at=fit_at,
+                    groups=data.cluster,
+                    n_jobs=n_jobs,
+                    atoms=atoms,
+                )
+            numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
+            shifted[plan.label][time] = {
+                key: np.where(at_risk, value, 0.0)
+                for (key, _), value in zip(sources, moved, strict=True)
+            }
+        return density
     for plan in plans:
         targets = plan.carry_targets(time)
         assert targets is not None
         if density is not None:
             numerator = _density_numerator(plan, time, dose, frame, density)
-            moved = [
-                _density_numerator(plan, time, target, frame, density) for _, target in sources
-            ]
         else:
-            numerator, *moved = _classifier_numerator(
+            numerator = _classifier_numerator(
                 plan,
                 time,
                 targets,
@@ -2251,14 +2276,8 @@ def _continuous_node_ratios(
                 groups=data.cluster,
                 n_jobs=n_jobs,
                 atoms=atoms,
-                extra=[target for _, target in sources],
             )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
-        if shifted is not None:
-            shifted[plan.label][time] = {
-                key: np.where(at_risk, value, 0.0)
-                for (key, _), value in zip(sources, moved, strict=True)
-            }
     return density
 
 
@@ -2312,16 +2331,73 @@ def _classifier_numerator(
     groups: Any,
     n_jobs: int,
     atoms: Sequence[float],
-    extra: Sequence[FloatArray] = (),
-) -> list[FloatArray]:
+) -> FloatArray:
     """The classifier-route ratio of one plan at a continuous node, at the observed doses.
 
     On a plan with fold plans, a cross-fitted tuned plan of either target, outer fold
     ``k``'s classifier stacks the doses of fold ``k``'s map, :math:`d_{\\theta^{(-k)}}`, so no
     held-out row enters the map a classifier is trained on.
+    """
+    if plan.fold_plans and not folds.is_single:
+        branches = _node_branches(plan.fold_plans[0], time)
+        by_fold = []
+        for fold_plan in plan.fold_plans:
+            own = fold_plan.carry_targets(time)
+            assert own is not None
+            by_fold.append(
+                tuple(
+                    (probability, target)
+                    for (probability, _), target in zip(branches, own, strict=True)
+                )
+            )
+        assigned: tuple[tuple[float, FloatArray], ...] = by_fold[0]
+    else:
+        branches = _node_branches(plan, time)
+        by_fold = None
+        assigned = tuple(
+            (probability, target)
+            for (probability, _), target in zip(branches, targets, strict=True)
+        )
+    (numerator,) = classifier_ratio(
+        treatment_learner,
+        history,
+        dose,
+        assigned,
+        weights,
+        folds,
+        evaluate_at=[dose],
+        fit_mask=fit_at,
+        groups=groups,
+        n_jobs=n_jobs,
+        atoms=atoms,
+        assigned_by_fold=by_fold,
+    )
+    return numerator
 
-    Returns the ratio at the observed doses, then the same classifier's ratio at each dose of
-    ``extra``.
+
+def _classifier_numerators(
+    plan: Plan,
+    time: int,
+    targets: tuple[FloatArray, ...],
+    extra: Sequence[FloatArray],
+    *,
+    treatment_learner: Learner,
+    history: FloatArray,
+    dose: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    fit_at: BoolArray,
+    groups: Any,
+    n_jobs: int,
+    atoms: Sequence[float],
+) -> list[FloatArray]:
+    """:func:`_classifier_numerator`, and the same classifier's ratio at each dose of ``extra``.
+
+    Only ``variance="policy_weighted"`` calls it.  The plan's branches are assigned as in
+    :func:`_classifier_numerator`, which keeps its own body so the default fit runs the
+    shipped code.
+
+    Returns the ratio at the observed doses, then the ratio at each dose of ``extra``.
     """
     if plan.fold_plans and not folds.is_single:
         branches = _node_branches(plan.fold_plans[0], time)
