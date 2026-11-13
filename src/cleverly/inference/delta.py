@@ -43,11 +43,15 @@ from .._typing import FloatArray
 
 __all__ = [
     "Transform",
+    "cornish_fisher_factor",
     "delta_method",
+    "implied_correlation",
     "log_odds_ratio_influence",
     "log_ratio_influence",
+    "mover_ci",
     "one_sided_quantile",
     "reference_quantile",
+    "skew_widened_ci",
     "two_sided_pvalue",
     "wald_ci",
     "wald_statistic",
@@ -362,6 +366,221 @@ def wald_ci(
         return (float("nan"), float("nan"))
     half = critical * std_error + margin
     return (estimate - half, estimate + half)
+
+
+def cornish_fisher_factor(alpha: float) -> float:
+    """The factor ``K = 2 z^2 + 1`` of :func:`skew_widened_ci` at level ``1 - alpha``.
+
+    ``z`` is the ``1 - alpha / 2`` normal quantile. ``K`` is the polynomial of the one-term
+    Edgeworth expansion of a studentized mean, ``(2 x^2 + 1) / 6`` times the skewness over the
+    square root of the sample size, evaluated at ``z``.
+
+    Parameters
+    ----------
+    alpha : float
+        The two-sided significance level, in ``(0, 1)``.
+
+    Returns
+    -------
+    float
+        ``2 z^2 + 1``; 8.683 at ``alpha = 0.05``.
+    """
+    z = reference_quantile(alpha)
+    return 2.0 * z * z + 1.0
+
+
+def skew_widened_ci(
+    estimate: float,
+    std_error: float,
+    alpha: float = 0.05,
+    *,
+    df: float | None,
+    acceleration: float,
+    margin: float = 0.0,
+) -> tuple[float, float]:
+    r"""The skew-widened Wald interval: the hull of a t interval and its skew correction.
+
+    With ``q`` the critical value of :func:`reference_quantile` at ``df``, ``a`` the
+    acceleration of the estimate's influence curve
+    (:func:`~cleverly.inference.curve_acceleration`) and ``K = 2 z^2 + 1``
+    (:func:`cornish_fisher_factor`), the limits are
+
+    .. math::
+
+        \hat\psi - s \max(q, q - a K) - r, \qquad \hat\psi + s \max(q, q + a K) + r,
+
+    with ``s`` the standard error and ``r`` the ``margin``. For ``a > 0`` the upper limit moves
+    out by ``a K s`` and the lower one stays at the t limit, and the reverse for ``a < 0``. The
+    interval is the convex hull of the t interval and the Cornish-Fisher-corrected interval
+    ``[psi - s (q - a K), psi + s (q + a K)]``, so it contains the t interval on every sample
+    and never narrows a side. The correction removes the curve-skewness term of the
+    studentized statistic's one-term Edgeworth expansion and leaves its median-bias term, so
+    no per-tail rate is claimed for it.
+
+    Parameters
+    ----------
+    estimate : float
+        The estimate.
+    std_error : float
+        Its standard error.
+    alpha : float, default=0.05
+        The two-sided significance level.
+    df : float or None
+        Degrees of freedom of the Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference. A caller that caps the degrees of freedom
+        passes the capped value.
+    acceleration : float
+        The acceleration ``a`` of the estimate's influence curve.
+    margin : float, default=0.0
+        A non-negative amount added to each side's half-width.
+
+    Returns
+    -------
+    tuple of float
+        The lower and upper limits, ``nan`` when the standard error is not finite or is
+        negative, or the acceleration is not finite.
+
+    See Also
+    --------
+    wald_ci : The symmetric interval this one contains.
+
+    Examples
+    --------
+    >>> from cleverly.inference import skew_widened_ci, wald_ci
+    >>> low, high = skew_widened_ci(1.0, 0.5, df=12, acceleration=0.02)
+    >>> round(low, 4), round(high, 4)
+    (-0.0894, 2.1762)
+    >>> round(wald_ci(1.0, 0.5, df=12)[0], 4)
+    -0.0894
+    """
+    critical = reference_quantile(alpha, df)
+    if not (np.isfinite(std_error) and std_error >= 0 and np.isfinite(acceleration)):
+        return (float("nan"), float("nan"))
+    shift = float(acceleration) * cornish_fisher_factor(alpha)
+    lower = std_error * max(critical, critical - shift) + margin
+    upper = std_error * max(critical, critical + shift) + margin
+    return (float(estimate - lower), float(estimate + upper))
+
+
+def implied_correlation(
+    difference_variance: float, minuend_variance: float, subtrahend_variance: float
+) -> float:
+    """The correlation of two estimates implied by their variances and their difference's.
+
+    ``c = (v_1 + v_0 - v_d) / 2`` and ``r = c / sqrt(v_1 v_0)``, clipped to ``[-1, 1]``. It is
+    the correlation of the two estimates under the covariance rule of their variances when the
+    difference's influence curve is the difference of theirs, as for the treatment-arm means
+    and the difference of one fit. Read this way, :func:`mover_ci` with symmetric arm intervals
+    returns the difference's own Wald interval exactly.
+
+    Parameters
+    ----------
+    difference_variance : float
+        The variance of the difference ``psi_1 - psi_0``.
+    minuend_variance : float
+        The variance of ``psi_1``.
+    subtrahend_variance : float
+        The variance of ``psi_0``.
+
+    Returns
+    -------
+    float
+        The correlation, ``nan`` when either arm variance is not positive and finite or the
+        difference's variance is not finite.
+
+    Examples
+    --------
+    >>> from cleverly.inference import implied_correlation
+    >>> implied_correlation(1.0, 1.0, 1.0)
+    0.5
+    """
+    values = (difference_variance, minuend_variance, subtrahend_variance)
+    if not all(np.isfinite(value) for value in values):
+        return float("nan")
+    if not (minuend_variance > 0.0 and subtrahend_variance > 0.0):
+        return float("nan")
+    covariance = (minuend_variance + subtrahend_variance - difference_variance) / 2.0
+    return float(np.clip(covariance / np.sqrt(minuend_variance * subtrahend_variance), -1.0, 1.0))
+
+
+def mover_ci(
+    minuend: float,
+    minuend_interval: tuple[float, float],
+    subtrahend: float,
+    subtrahend_interval: tuple[float, float],
+    *,
+    correlation: float,
+) -> tuple[float, float]:
+    r"""The correlated MOVER interval of a difference from the intervals of its two terms.
+
+    With ``d = psi_1 - psi_0``, arm intervals ``(l_j, u_j)`` around ``psi_j`` and the
+    correlation ``r`` of the two estimates, the limits are
+
+    .. math::
+
+        L = d - \sqrt{(\psi_1 - l_1)^2 + (u_0 - \psi_0)^2 - 2 r (\psi_1 - l_1)(u_0 - \psi_0)},
+
+        U = d + \sqrt{(u_1 - \psi_1)^2 + (\psi_0 - l_0)^2 - 2 r (u_1 - \psi_1)(\psi_0 - l_0)}.
+
+    Each limit recovers the variance that the arm half-widths on its side imply. With ``r = 0``
+    it is the MOVER interval for independent estimates (Tang 2021, display 1). When both arm
+    intervals are symmetric, ``l_j = psi_j - q s_j``, it equals the Wald interval
+    ``d +/- q sqrt(s_1^2 + s_0^2 - 2 r s_1 s_0)`` for every ``r``.
+
+    Parameters
+    ----------
+    minuend : float
+        The estimate ``psi_1``.
+    minuend_interval : tuple of float
+        Its interval ``(l_1, u_1)``, which must contain it.
+    subtrahend : float
+        The estimate ``psi_0``.
+    subtrahend_interval : tuple of float
+        Its interval ``(l_0, u_0)``, which must contain it.
+    correlation : float
+        The correlation ``r`` of the two estimates, in ``[-1, 1]``
+        (:func:`implied_correlation`).
+
+    Returns
+    -------
+    tuple of float
+        The lower and upper limits, ``nan`` when any input is not finite.
+
+    Raises
+    ------
+    ValueError
+        When ``correlation`` lies outside ``[-1, 1]`` or an interval does not contain its
+        estimate.
+
+    See Also
+    --------
+    implied_correlation : The correlation of two arm estimates of one fit.
+
+    Examples
+    --------
+    >>> from cleverly.inference import mover_ci
+    >>> low, high = mover_ci(0.6, (0.5, 0.68), 0.2, (0.15, 0.27), correlation=0.0)
+    >>> round(low, 4), round(high, 4)
+    (0.2779, 0.4943)
+    """
+    values = (minuend, *minuend_interval, subtrahend, *subtrahend_interval, correlation)
+    if not all(np.isfinite(value) for value in values):
+        return (float("nan"), float("nan"))
+    if not -1.0 <= correlation <= 1.0:
+        raise ValueError(f"the correlation must lie in [-1, 1]; got {correlation}")
+    low_1, high_1 = minuend_interval
+    low_0, high_0 = subtrahend_interval
+    if not (low_1 <= minuend <= high_1 and low_0 <= subtrahend <= high_0):
+        raise ValueError("each arm interval must contain its estimate")
+    difference = minuend - subtrahend
+    down_1, up_1 = minuend - low_1, high_1 - minuend
+    down_0, up_0 = subtrahend - low_0, high_0 - subtrahend
+    lower = down_1**2 + up_0**2 - 2.0 * correlation * down_1 * up_0
+    upper = up_1**2 + down_0**2 - 2.0 * correlation * up_1 * down_0
+    return (
+        float(difference - np.sqrt(max(lower, 0.0))),
+        float(difference + np.sqrt(max(upper, 0.0))),
+    )
 
 
 def wald_statistic(

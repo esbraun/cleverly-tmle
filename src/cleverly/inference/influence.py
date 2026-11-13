@@ -115,6 +115,7 @@ __all__ = [
     "constant_outcome_cells",
     "counterfactual_mean_parts",
     "counterfactual_means",
+    "curve_acceleration",
     "effect_modification_coefficients",
     "has_t_reference",
     "ipsi_means",
@@ -882,6 +883,54 @@ def satterthwaite_df(curve: FloatArray, *, rows: Any = None, centered: bool = Tr
     return math.inf if spread == 0.0 else float(2.0 * np.sum(squares) ** 2 / spread)
 
 
+def curve_acceleration(curve: FloatArray, *, rows: Any = None, centered: bool = True) -> float:
+    r"""The acceleration of an influence curve, :math:`\tfrac16 \sum u_i^3 / (\sum u_i^2)^{3/2}`.
+
+    With ``u`` the curve's ``m`` terms over ``rows``, this is DiCiccio and Efron's (1996,
+    display 6.6) nonparametric acceleration with the curve's terms as the empirical influence
+    values. It equals :math:`\hat\gamma / (6 \sqrt{m})` in the terms' sample skewness
+    :math:`\hat\gamma`, so it is of order :math:`m^{-1/2}` on a skewed curve and of order
+    :math:`1/m` on a symmetric one. It is invariant to a positive rescaling of the curve and
+    changes sign with it.
+
+    Parameters
+    ----------
+    curve : ndarray
+        The per-observation influence curve.
+    rows : array-like or None, default=None
+        A boolean mask or integer indices of the terms to read. ``None`` reads every term.
+    centered : bool, default=True
+        Whether to centre the terms at their mean over ``rows`` first.
+
+    Returns
+    -------
+    float
+        The acceleration, ``0.0`` when every term is 0.
+
+    See Also
+    --------
+    kish_count : The effective number of terms of the same curve.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import curve_acceleration
+    >>> round(curve_acceleration(np.array([3.0, -1.0, -1.0, -1.0])), 6)
+    0.096225
+    >>> curve_acceleration(np.array([1.0, -1.0, 2.0, -2.0]))
+    0.0
+    """
+    values = np.asarray(curve, dtype=float).reshape(-1)
+    if rows is not None:
+        values = values[np.asarray(rows)]
+    if centered and values.size:
+        values = values - values.mean()
+    second = float(np.sum(values**2))
+    if second == 0.0:
+        return 0.0
+    return float(np.sum(values**3) / (6.0 * second**1.5))
+
+
 def constant_outcome_cells(
     outcome: Any,
     treatment: Any,
@@ -1029,6 +1078,10 @@ class ParameterEstimate:
         is built, so :func:`dataclasses.replace` recomputes it. ``None`` for a clustered
         estimate, whose reference is :attr:`reference_df`, and when :attr:`variance` is not
         positive and finite.
+    acceleration : float or None
+        The :func:`curve_acceleration` of :attr:`influence_curve` over the same rows and with
+        the same centring as :attr:`small_sample_df`, and ``None`` in the same cases. Computed
+        when the estimate is built. :attr:`ci` does not read it.
     effective_df : float or None
     interval_scale : str
     std_error : float
@@ -1114,18 +1167,40 @@ class ParameterEstimate:
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
+    acceleration: float | None = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "small_sample_df", self._small_sample_df())
+        object.__setattr__(self, "acceleration", self._acceleration())
 
-    def _small_sample_df(self) -> float | None:
-        """:attr:`small_sample_df`, from the curve's non-zero rows; no status is read or set."""
+    def _carrying_curve(self) -> FloatArray | None:
+        """The curve the small-sample quantities read, or ``None`` when they do not apply.
+
+        ``None`` on a clustered estimate and when :attr:`variance` is not positive and finite.
+        The quantities read the rows where the curve is not 0, centred there under the
+        ``"centered"`` covariance rule.
+        """
         if self.n_clusters < self.n:
             return None
         if not (np.isfinite(self.variance) and self.variance > 0.0):
             return None
-        curve = np.asarray(self.influence_curve, dtype=float).reshape(-1)
+        return np.asarray(self.influence_curve, dtype=float).reshape(-1)
+
+    def _small_sample_df(self) -> float | None:
+        """:attr:`small_sample_df`, from the curve's non-zero rows; no status is read or set."""
+        curve = self._carrying_curve()
+        if curve is None:
+            return None
         return satterthwaite_df(
+            curve, rows=curve != 0.0, centered=self.covariance_rule == "centered"
+        )
+
+    def _acceleration(self) -> float | None:
+        """:attr:`acceleration`, over the rows :attr:`small_sample_df` reads."""
+        curve = self._carrying_curve()
+        if curve is None:
+            return None
+        return curve_acceleration(
             curve, rows=curve != 0.0, centered=self.covariance_rule == "centered"
         )
 
