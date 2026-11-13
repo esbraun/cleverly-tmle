@@ -1,0 +1,10 @@
+falsifier,target_class,cell,leg,control,leg_failed,control_passed,fired
+scale,bounded means,ho_sparse_treat_ey1,lower,capped_t_binary_control,False,True,False
+composition,bounded means,ho_sparse_treat_ey1,lower,logit_t_control,False,False,False
+composition,bounded differences,ho_sparse_treat_ate,lower,logit_t_control,True,True,True
+df,continuous targets,ho_hurdle_ey1,lower,kish_control,True,True,True
+df,continuous targets,ho_hurdle_ate,lower,kish_control,False,True,False
+t,continuous targets,ho_hurdle_ey1,upper,normal_reference_control,False,False,False
+t,continuous targets,ho_hurdle_ate,upper,normal_reference_control,False,True,False
+binary coefficient,binary coefficients,ho_logit_msm_a,lower,capped_t_binary_control,True,True,True
+binary coefficient,binary coefficients,ho_logit_msm_w,lower,capped_t_binary_control,True,False,False
