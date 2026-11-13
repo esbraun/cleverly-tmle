@@ -38,9 +38,8 @@ its exact truth.
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/option_patience/regenerate.py`` before any run.
 
-**Declared, not registered.**  The record is not in ``registered()`` until its run is
-committed; the ``C12.greedy`` support row, the limit on ``C01.greedy`` and the evidence page
-land with that registration.
+**Registered** from its committed run, with the ``C12.greedy`` support row, the limit on
+``C01.greedy`` and the evidence page ``option-patience.md``.
 """
 
 from __future__ import annotations
@@ -110,11 +109,11 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
 }
 
 STUDY = StudyRecord(
-    name="patience on the cross-validated C-TMLE path",
+    name="Patience on the cross-validated C-TMLE path",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "option_patience",
     document="docs/technical-reference/method-evidence/option-patience.md",
-    anchor="option-patience",
+    anchor="patience-on-the-cross-validated-c-tmle-path",
     scenarios={PRIMARY_SCENARIO: PRIMARY_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

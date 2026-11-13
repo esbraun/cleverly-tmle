@@ -354,9 +354,25 @@ def measured(row: Any) -> str:
         return measured
     if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
-    if family == "residual_witness":
-        # X76 (a): the share of draws whose residual reaches 0.01 SE, with its exact interval.
-        return f"share {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family in {"residual_witness", "patience_witness", "late_confounder_stop", "reported_stop"}:
+        # X76 (a) and (c): a share of draws (a residual that reaches 0.01 SE, a counter that
+        # stopped, a model without W1), with its exact interval.
+        measured = f"share {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        if family == "late_confounder_stop" and pd.notna(
+            getattr(row, "conditional_bias_over_sd", None)
+        ):
+            measured += (
+                f", bias on those draws {render(float(row.conditional_bias_over_sd))} whole-path SD"
+            )
+        return measured
+    if family in {"greedy_late_confounder", "reported_displacement"}:
+        # X76 (c): the mean paired difference against the whole path on the same draws, in
+        # whole-path SDs, and the share of draws on which the two estimates are identical.
+        return (
+            f"mean difference {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"{render(float(row.paired_over_whole_sd))} whole-path SD, identical on "
+            f"{render(float(row.identical_share))}"
+        )
     if family in {"residual_necessity", *_RULE_REPORTED}:
         # X76 (a): a coverage reading of the plain or widened interval, with the residual the
         # rule left beside it.
@@ -894,6 +910,9 @@ _BIAS_GATED = frozenset(
         "trim_necessity",
         "order_necessity",
         "order_double_robustness",
+        "patience_bias",
+        "ordered_late_confounder",
+        "ordered_whole_path",
     }
 )
 
@@ -917,6 +936,7 @@ _X76_REPORTED = frozenset(
         "pooled_outcome",
         "trim_reported",
         "markov_reported",
+        "reported_estimate",
     }
 )
 

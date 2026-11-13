@@ -3042,7 +3042,7 @@ def _long_horizon_cases() -> tuple[RowCase, ...]:
 
 
 # The cases of the X76 option studies' rows, one function per part beside its row function in
-# cleverly._support_rows, each empty until its study passes.
+# cleverly._support_rows, each registered from its committed run.
 def _x76_stopping_point_cases() -> tuple[RowCase, ...]:
     """The cases of ``option-stopping-point`` (X76 part (a)): ``T52``.
 
@@ -3097,7 +3097,22 @@ def _x76_by_arm_cases() -> tuple[RowCase, ...]:
 
 
 def _x76_patience_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The case of ``option-patience`` (X76 part (c)): ``C12.greedy``.
+
+    It runs the study's own greedy fit with patience on a draw of law ``LC1``.
+    """
+    module = "_option_patience_laws"
+    return (
+        _observed(
+            "C12.greedy",
+            "option-patience",
+            "patience_bias/lc1_greedy",
+            f"{module}.py:419",
+            module,
+            lambda law: law.draw("lc1", 400, 0),
+            lambda law, frame: law.fit(frame, "lc1_greedy_patience"),
+        ),
+    )
 
 
 def _x76_adjustment_cases() -> tuple[RowCase, ...]:

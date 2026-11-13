@@ -16,23 +16,14 @@ the interval (F18). It has no comparator.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. The
-support row `C12.greedy` (the `C01.greedy` key with `patience` declared, kinds point), the limit
-on `C01.greedy`, the deletion of the greedy branch of `patience_conditions` in
-`src/cleverly/estimators/_option_support.py` and the evidence page land with the registration,
-after the run. The support key already keeps a greedy fit with `patience=` off `C01.greedy`, so
-the deletion changes no label until `C12.greedy` exists.
-
-The pre-ordered branch (`"ordered"`, `"discrete"`, `"lasso"`, `"learners"`) is permanent and
-names no roadmap item. At registration its text gains the study and the row: "(study
-option-patience, ordered_late_confounder) ... on strategy='greedy' each step adds the candidate
-that lowers the risk most, and the registered row C12.greedy covers it."
-
-The limit text that `C01.greedy` and `C12.greedy` are to carry, with the measured number of
-`reported_estimate/lc3_greedy_whole`: "On a law where the outcome regression omits a confounder
-and the selected treatment model is misspecified given the selected set, the greedy point
-estimate keeps a bias (study option-patience, greedy whole path on LC3: X SD at n = 2,000)."
-The pilot reads 0.42 SD. `C12.greedy` also carries "The selector plug-in interval is withheld."
+Registered from the run at `c4e89da` (`run.log`). Every gated cell passes. The study backs the
+support row `C12.greedy` (the `C01.greedy` key with `patience` declared, kinds point) and the
+limit on `C01.greedy` and `C12.greedy`: the greedy whole path on LC3 reads 0.42 SD. The greedy
+branch of `patience_conditions` in `src/cleverly/estimators/_option_support.py` is deleted, so
+the support key alone labels a greedy fit with `patience=`. The pre-ordered branch
+(`"ordered"`, `"discrete"`, `"lasso"`, `"learners"`) is permanent, names no roadmap item, and
+cites the cell `ordered_late_confounder` and the row `C12.greedy`. The evidence page is
+`docs/technical-reference/method-evidence/option-patience.md`.
 
 ## Run
 

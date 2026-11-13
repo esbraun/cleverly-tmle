@@ -1,10 +1,10 @@
 """The support label of a fit that declares a targeting or fitting option.
 
-``patience=`` runs, and its estimates carry the experimental label with roadmap X76 as the
-evidence (``cleverly.estimators._option_support``).  A declared stopping rule,
-``outcome_by_arm=True`` and ``treatment_adjustment=`` have registered rows (``T52`` and ``G55``,
-``T53``, ``T54``); the key routes a fit that declares one, and a fit outside those rows matches no
-row.  Under a declared rule the key records ``step_bound=`` and ``iterate=`` too, and no row
+``patience=`` on a pre-ordered C-TMLE path carries a permanent condition with no roadmap item
+(``cleverly.estimators._option_support``).  A declared stopping rule, ``outcome_by_arm=True``,
+``patience=`` on the greedy path and ``treatment_adjustment=`` have registered rows (``T52`` and
+``G55``, ``T53``, ``C12``, ``T54``); the key routes a fit that declares one, and a fit outside
+those rows matches no row.  Under a declared rule the key records ``step_bound=`` and ``iterate=`` too, and no row
 declares them.  ``iterate="best"`` and ``step_bound=`` under ``stopping="relative"`` keep the
 label of the fit without them.  The witness for each row is the same fit with the row removed
 from the table, and a mutation that removes the key's stopping options returns the default row.
@@ -20,11 +20,12 @@ import pytest
 
 from cleverly import _support as support_module
 from cleverly._summary._estimates import plain_support_reason
-from cleverly.estimators._option_support import OPTION_STUDIES_ROADMAP
 from tests.unit import test_patience as patience_module
 from tests.unit import test_stopping_rule_engines as engines
 from tests.unit import test_stopping_rule_longitudinal as longitudinal
 
+#: No condition names the option-study roadmap item any more (X76 parts (a) to (f) are done).
+OPTION_STUDIES_ROADMAP = "X76"
 REGISTERED_ROWS = support_module.registered_rows()
 
 
@@ -133,12 +134,27 @@ def test_a_treatment_restriction_carries_no_condition() -> None:
     assert {estimate.support.row for estimate in result.estimates.values()} == {None}
 
 
-def test_patience_is_experimental_and_the_whole_path_keeps_its_label() -> None:
-    whole = patience_module.fit()
-    patient = patience_module.fit(patience=2)
-    assert "experimental" in labels(patient)
-    assert any("patience=2" in e.support.reason for e in patient.estimates.values())
+def test_patience_on_a_pre_ordered_path_carries_the_permanent_condition() -> None:
+    ordered = patience_module.STRATEGIES["ordered"]
+    patient = patience_module.fit(**ordered, patience=2)
+    assert labels(patient) == {"experimental"}
+    assert all(
+        "stops a pre-ordered candidate path" in e.support.reason for e in patient.estimates.values()
+    )
+    assert OPTION_STUDIES_ROADMAP not in evidence(patient)
+    whole = patience_module.fit(**ordered)
     assert all("patience" not in e.support.reason for e in whole.estimates.values())
+
+
+def test_patience_on_the_greedy_path_is_routed_by_the_key() -> None:
+    # The fixture's continuous outcome is outside C12.greedy, so the fit matches no row, and its
+    # nearest row is the patience row rather than the whole path's C01.greedy.
+    patient = patience_module.fit(patience=2)
+    assert all(e.support.row is None for e in patient.estimates.values())
+    assert all("C12.greedy" in e.support.reason for e in patient.estimates.values())
+    assert all("pre-ordered" not in e.support.reason for e in patient.estimates.values())
+    whole = patience_module.fit()
+    assert all("C01.greedy" in e.support.reason for e in whole.estimates.values())
 
 
 @pytest.mark.parametrize(

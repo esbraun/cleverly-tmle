@@ -76,6 +76,7 @@ X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
     "T54": {"treatment_adjustment": True},
     "T52.scaled_var": {"stopping": "scaled_var"},
     "T52.sample_size": {"stopping": "sample_size"},
+    "C12": {"patience": True},
 }
 X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
     "ratio_trim": False,

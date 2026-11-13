@@ -9141,3 +9141,142 @@ STUDY_ARM_CELLS.update(
         },
     }
 )
+
+
+#: ``option-patience`` (X76 part (c)): ``CTMLE(patience=p)``.  The laws, fits and cells are
+#: those of ``tests/studies/_option_patience_laws.py`` and its properties module.
+_PATIENCE_SLUG = "option-patience"
+_LC1 = "law LC1 (the canonical-ctmle-selector binary law, three covariates), the ATE, n = 2,000"
+_LC2 = {
+    "lc2_lasso": "law LC2 (the canonical-ctmle-sequences lasso law), the ATE, n = 2,000",
+    "lc2_learners": "law LC2 (the canonical-ctmle-sequences learners law), the ATE, n = 2,000",
+}
+_LC3 = (
+    "law LC3 (confounder W1 omitted by the outcome regression, three instruments), the ATE, "
+    "n = 2,000"
+)
+_PATIENCE_STRATEGY = {
+    "greedy": "the greedy path",
+    "ordered": "the ordered path",
+    "discrete": "the discrete path",
+    "lasso": "the lasso path",
+    "learners": "the learners path",
+}
+_PATIENCE_LAW = {"lc1": _LC1, "lc3": _LC3, **_LC2}
+
+
+def _patience_fit(name: str) -> str:
+    """The words for one declared fit, ``<stream>_<strategy>_<patience|whole>`` or LC2's."""
+    stream, _, kind = name.rpartition("_")
+    if stream in _LC2:
+        law, strategy = _LC2[stream], stream.removeprefix("lc2_")
+    else:
+        prefix, _, strategy = stream.partition("_")
+        law = _PATIENCE_LAW[prefix]
+    patience = {"lc1": 1}.get(stream.partition("_")[0], 2)
+    setting = f"with patience={patience}" if kind == "patience" else "scoring the whole path"
+    return f"{law}: {_PATIENCE_STRATEGY[strategy]} {setting}, in sample"
+
+
+def _patience_stream(cell: str) -> tuple[str, str]:
+    """The law words and strategy of a stop or displacement cell, ``<stream>_<strategy>``."""
+    if cell in _LC2:
+        return _LC2[cell], cell.removeprefix("lc2_")
+    prefix, _, strategy = cell.partition("_")
+    return _PATIENCE_LAW[prefix], strategy
+
+
+STUDY_SCENARIOS[(_PATIENCE_SLUG, "lc1")] = (
+    f"{_LC1}: the greedy path with patience=1, in sample; the point estimate only"
+)
+_PAIRED_REQUIRED = (
+    "the 99% interval of the mean paired difference inside 0.25 SD of the whole-path estimates"
+)
+_SHARE_REQUIRED = "the lower limit of the share's exact 99% interval at least 0.3"
+PROPERTIES.update(
+    {
+        "patience_bias": (
+            "the greedy path with patience stays unbiased where the counter stops it early"
+        ),
+        "patience_witness": "the counter stops the greedy path before its end",
+        "ordered_late_confounder": (
+            "a pre-ordered path with patience can stop before the confounder the outcome "
+            "regression omits, and stays biased"
+        ),
+        "late_confounder_stop": (
+            "the ordered fits with patience leave out the confounder the outcome regression omits"
+        ),
+        "ordered_whole_path": "the whole ordered path on the same draws keeps the confounder",
+        "greedy_late_confounder": (
+            "on the late-confounder law the greedy path with patience returns the whole path's "
+            "estimate"
+        ),
+        "reported_estimate": "every other declared fit's point estimate, reported",
+        "reported_stop": "the share of draws on which the counter stops each path early, reported",
+        "reported_displacement": (
+            "the fit with patience minus its whole path on the same draw, reported"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("patience_bias", "lc1_greedy"): (
+            _patience_fit("lc1_greedy_patience"),
+            "bias interval inside the equivalence margin",
+        ),
+        ("patience_witness", "lc1_greedy"): (
+            f"{_patience_fit('lc1_greedy_patience')}: the share of draws the counter stopped "
+            "before the path's end",
+            _SHARE_REQUIRED,
+        ),
+        ("ordered_late_confounder", "lc3_ordered"): (
+            f"{_patience_fit('lc3_ordered_patience')}, the instruments ordered first",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        ("late_confounder_stop", "lc3_ordered"): (
+            f"{_patience_fit('lc3_ordered_patience')}, the instruments ordered first: the share "
+            "of draws whose selected treatment model leaves out W1",
+            _SHARE_REQUIRED,
+        ),
+        ("ordered_whole_path", "lc3_ordered"): (
+            f"{_patience_fit('lc3_ordered_whole')}, on the draws of the ordered fit with patience",
+            "bias interval inside the equivalence margin",
+        ),
+        ("greedy_late_confounder", "lc3_greedy"): (
+            f"{_LC3}: the greedy path with patience=2 minus the greedy whole path on the same draw",
+            _PAIRED_REQUIRED,
+        ),
+        **{
+            ("reported_estimate", name): (_patience_fit(name), _DIAGNOSTIC_REQUIRED)
+            for name in (
+                "lc1_discrete_patience",
+                "lc1_discrete_whole",
+                "lc1_greedy_whole",
+                "lc1_ordered_patience",
+                "lc1_ordered_whole",
+                "lc2_lasso_patience",
+                "lc2_lasso_whole",
+                "lc2_learners_patience",
+                "lc2_learners_whole",
+                "lc3_greedy_patience",
+                "lc3_greedy_whole",
+            )
+        },
+        **{
+            ("reported_stop", cell): (
+                f"{_patience_stream(cell)[0]}: {_PATIENCE_STRATEGY[_patience_stream(cell)[1]]} "
+                "with patience, the share of draws the counter stopped before the path's end",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for cell in ("lc1_discrete", "lc1_ordered", "lc2_lasso", "lc2_learners", "lc3_greedy")
+        },
+        **{
+            ("reported_displacement", cell): (
+                f"{_patience_stream(cell)[0]}: {_PATIENCE_STRATEGY[_patience_stream(cell)[1]]} "
+                "with patience minus its whole path on the same draw",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for cell in ("lc1_discrete", "lc1_greedy", "lc1_ordered", "lc2_lasso", "lc2_learners")
+        },
+    }
+)

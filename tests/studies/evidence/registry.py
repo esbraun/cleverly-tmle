@@ -684,6 +684,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
     from tests.studies.canonical_option_markov_order import STUDY as OPTION_MARKOV_ORDER
     from tests.studies.canonical_option_outcome_by_arm import STUDY as OPTION_OUTCOME_BY_ARM
+    from tests.studies.canonical_option_patience import STUDY as OPTION_PATIENCE
     from tests.studies.canonical_option_ratio_trim import STUDY as OPTION_RATIO_TRIM
     from tests.studies.canonical_option_stopping_ltmle import STUDY as OPTION_STOPPING_LTMLE
     from tests.studies.canonical_option_stopping_point import STUDY as OPTION_STOPPING_POINT
@@ -847,6 +848,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_STOPPING_POINT,
         OPTION_TREATMENT_ADJUSTMENT,
         OPTION_OUTCOME_BY_ARM,
+        OPTION_PATIENCE,
         DOSE_RESPONSE,
         MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,

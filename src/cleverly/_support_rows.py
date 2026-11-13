@@ -1910,6 +1910,15 @@ def _d_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit of ``C01.greedy`` and ``C12.greedy``: the greedy point estimate on a law where
+#: both selected nuisances are wrong (study ``option-patience``, Fix-8 plan 2.3).
+GREEDY_LATE_CONFOUNDER_LIMIT: Final[str] = (
+    "On a law where the outcome regression omits a confounder and the selected treatment model "
+    "is misspecified given the selected set, the greedy point estimate keeps a bias (study "
+    "option-patience, greedy whole path on LC3: 0.42 SD at n = 2,000)."
+)
+
+
 def _c_rows() -> tuple[SupportRow, ...]:
     """C-TMLE (``C`` rows). Every path withholds the interval, so each row licenses the point."""
     rows: list[SupportRow] = []
@@ -1923,7 +1932,10 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 kinds=_POINT,
                 cells=[f"binary_{strategy}"],
                 # Roadmap: F18.
-                limits=["The selector plug-in interval is withheld."],
+                limits=[
+                    "The selector plug-in interval is withheld.",
+                    *([GREEDY_LATE_CONFOUNDER_LIMIT] if strategy == "greedy" else []),
+                ],
             )
         )
         rows.append(
@@ -3079,9 +3091,9 @@ def _projection_rows() -> tuple[SupportRow, ...]:
     return tuple(rows)
 
 
-# The point rows of the X76 option studies, one function per part, each empty until its study
-# passes: a declared stopping rule (T52), outcome_by_arm=True (T53), patience= on the greedy
-# path (C12) and treatment_adjustment= (T54).
+# The point rows of the X76 option studies, one function per part, each registered from its
+# committed run: a declared stopping rule (T52), outcome_by_arm=True (T53), patience= on the
+# greedy path (C12) and treatment_adjustment= (T54).
 #: The limit every ``T52`` and ``G55`` row states first: what the interval is under a rule.
 _RULE_INTERVAL_LIMIT = (
     "Under a declared stopping rule the interval adds the remaining score to its half-width, "
@@ -3208,7 +3220,31 @@ def _x76_by_arm_rows() -> tuple[SupportRow, ...]:
 
 
 def _x76_patience_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``patience=`` on the greedy C-TMLE path (``C12``, study ``option-patience``).
+
+    The key of ``C01.greedy`` with ``patience`` declared. A pre-ordered path with ``patience``
+    keeps its permanent condition (``_option_support.patience_conditions``) and matches no row.
+    """
+    return (
+        point_row(
+            "C12.greedy",
+            ["option-patience"],
+            families=("P1",),
+            engine=_ctmle("greedy"),
+            kinds=_POINT,
+            options={"patience": True},
+            cells=["patience_bias/lc1_greedy", "greedy_late_confounder/lc3_greedy"],
+            # Roadmap: F18.
+            limits=[
+                "The selector plug-in interval is withheld.",
+                "The counter stopped the greedy path early on 85% of LC1 draws, with the point "
+                "estimate unbiased (cells patience_witness and patience_bias), and on LC3 the "
+                "patient estimate equals the whole path's on 98% of draws (cell "
+                "greedy_late_confounder).",
+                GREEDY_LATE_CONFOUNDER_LIMIT,
+            ],
+        ),
+    )
 
 
 #: The limit of both ``T54`` rows (study ``option-treatment-adjustment``).

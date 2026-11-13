@@ -396,6 +396,7 @@ row. A move to `gated` is a separate registry decision.
 | [Stopping rules on point TMLE](option-stopping-point.md) | 32 | 0 |
 | [treatment-mechanism covariates on point TMLE](option-treatment-adjustment.md) | 12 | 0 |
 | [per-arm outcome regressions on point TMLE](option-outcome-by-arm.md) | 17 | 0 |
+| [Patience on the cross-validated C-TMLE path](option-patience.md) | 7 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |

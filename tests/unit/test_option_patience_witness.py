@@ -18,9 +18,9 @@ control that must fail it:
 * **The outcome regression omits ``W1``.**  A spy reads the columns the LC3 outcome learner is
   handed: ``[A, W1, Z1, Z2, Z3]``, of which it keeps ``A, Z1, Z2, Z3``.
 * **The support label.**  A pre-ordered fit with patience carries the permanent condition with
-  no roadmap item; a greedy fit with patience carries the X76 condition, and the support key
-  alone keeps it off ``C01.greedy`` when the conditions are removed.  A permanent condition that
-  fires on the greedy path fails the greedy test.
+  no roadmap item; a greedy fit with patience lands on ``C12.greedy`` and reads supported, and
+  without that row the support key alone keeps it off ``C01.greedy``.  A permanent condition
+  that fires on the greedy path fails the greedy test.
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly import _support as support_module
 from cleverly.estimators import _option_support
-from cleverly.estimators._option_support import OPTION_STUDIES_ROADMAP
 from cleverly.estimators.ctmle import CTMLE, _PatienceCounter
 from tests.studies import _option_patience_laws as law
 from tests.studies import option_patience_pilot as pilot
@@ -187,13 +187,13 @@ class TestTheSupportLabel:
         assert support.row is None
         assert PRE_ORDERED_TEXT in support.reason
         assert "patience=2" in support.reason
-        assert OPTION_STUDIES_ROADMAP not in support.evidence
+        assert "X76" not in support.evidence
 
     @pytest.mark.parametrize("name", ["lc1_ordered_patience", "lc1_discrete_patience"])
     def test_every_pre_ordered_strategy_carries_it(self, name: str) -> None:
         support = law.fit(sample("lc1", LC1_STOPPED_DRAW), name)["ate"].support
         assert PRE_ORDERED_TEXT in support.reason
-        assert OPTION_STUDIES_ROADMAP not in support.evidence
+        assert "X76" not in support.evidence
 
     def test_the_conditions_cover_lasso_and_learners(self) -> None:
         for estimator in (
@@ -204,18 +204,16 @@ class TestTheSupportLabel:
             assert PRE_ORDERED_TEXT in condition.condition
             assert condition.roadmap is None
 
-    def assert_greedy_condition(self) -> None:
+    def assert_greedy_row(self) -> None:
         support = fitted("lc1", LC1_STOPPED_DRAW, "lc1_greedy_whole")["ate"].support
         assert support.row == "C01.greedy"
         patient = law.fit(sample("lc1", LC1_STOPPED_DRAW), "lc1_greedy_patience")["ate"].support
-        assert patient.label == "experimental"
-        assert patient.row is None
-        assert f"patience={law.LC1_PATIENCE}" in patient.reason
+        assert patient.label == "supported"
+        assert patient.row == "C12.greedy"
         assert PRE_ORDERED_TEXT not in patient.reason
-        assert OPTION_STUDIES_ROADMAP in patient.evidence
 
-    def test_a_greedy_fit_carries_the_study_condition(self) -> None:
-        self.assert_greedy_condition()
+    def test_a_greedy_fit_lands_on_its_c12_row(self) -> None:
+        self.assert_greedy_row()
 
     def test_mutation_the_permanent_condition_on_greedy_fails(
         self, monkeypatch: pytest.MonkeyPatch
@@ -228,14 +226,14 @@ class TestTheSupportLabel:
             [('== "greedy":', '== "never":')],
         )
         with pytest.raises(AssertionError):
-            self.assert_greedy_condition()
+            self.assert_greedy_row()
 
     def test_the_key_alone_keeps_a_greedy_patience_fit_off_its_row(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The deletion of the greedy condition, which lands with ``C12.greedy``, is safe."""
-        monkeypatch.setattr(_option_support, "patience_conditions", lambda estimator: [])
+        """Without ``C12`` the greedy patience fit matches no row, not ``C01.greedy``."""
+        kept = tuple(row for row in support_module.registered_rows() if row.id != "C12.greedy")
+        monkeypatch.setattr(support_module, "registered_rows", lambda: kept)
         support = law.fit(sample("lc1", LC1_STOPPED_DRAW), "lc1_greedy_patience")["ate"].support
         assert support.label == "experimental"
         assert support.row is None
-        assert "patience" in support.reason

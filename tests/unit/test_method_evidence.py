@@ -1771,6 +1771,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "trim_necessity",
         "order_necessity",
         "order_double_robustness",
+        "patience_bias",
+        "ordered_late_confounder",
+        "ordered_whole_path",
         "instrument_slow_outcome",
     }
 )
@@ -1894,6 +1897,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # ceiling and widened interval above a floor.  Checked row by row below.
         "residual_witness",
         "residual_necessity",
+        # X76 (c), the patience study: a stop share or a share of models without W1 against
+        # its floor, and the paired greedy difference against 0.25 whole-path SDs.
+        "patience_witness",
+        "late_confounder_stop",
+        "greedy_late_confounder",
     }
 )
 
@@ -1924,6 +1932,22 @@ SAME_DRAW_FAMILIES = {
     "option-stopping-ltmle": (
         frozenset({"interval_calibration", "residual_witness"}),
         frozenset({"interval_calibration", "residual_necessity", "residual_witness"}),
+    ),
+    # ``option-patience`` (X76 (c)): each law is one stream, fitted once per declared fit, so a
+    # patient fit and its whole path differ on the same draw in the counter alone.  On LC1 the
+    # stop share shows that the bias cell measures a stopped path; on LC3 the share of ordered
+    # fits without W1 explains the ordered control, the whole ordered path is its positive on
+    # the same draws, and the greedy cell pairs the greedy fits on those draws.
+    "option-patience": (
+        frozenset({"patience_bias", "patience_witness"}),
+        frozenset(
+            {
+                "greedy_late_confounder",
+                "late_confounder_stop",
+                "ordered_late_confounder",
+                "ordered_whole_path",
+            }
+        ),
     ),
 }
 
@@ -2027,6 +2051,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "step_bound",
         "trim_reported",
         "markov_reported",
+        "reported_estimate",
+        "reported_stop",
+        "reported_displacement",
         "instrument_reference",
         "instrument_slow_outcome_ladder",
         "instrument_slow_outcome_rate",
@@ -4015,7 +4042,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.option_patience_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

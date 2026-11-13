@@ -1,18 +1,19 @@
-"""The support conditions of ``patience=``, the one targeting option no study row keys.
+"""The support condition of ``patience=`` on a pre-ordered C-TMLE path.
 
-A fit that declares ``patience=`` runs, and its estimates carry the experimental label
-(:func:`patience_conditions`).  X76 part (c) in ``docs/roadmap.md`` tracks the greedy path's
-study; on a pre-ordered path the condition is permanent.
+A fit that declares ``patience=`` on ``"ordered"``, ``"discrete"``, ``"lasso"`` or ``"learners"``
+runs, and its estimates carry the experimental label (:func:`patience_conditions`).  The
+condition is permanent, so it names no roadmap item.  On ``"greedy"`` the support key decides.
 
-The other options have no condition.  The support key records each of them, so a fit that
-declares one lands on the row of the study that measured it or matches no row and reads
-experimental:
+The other options, and ``patience=`` on ``"greedy"``, have no condition.  The support key
+records each of them, so a fit that declares one lands on the row of the study that measured it
+or matches no row and reads experimental:
 
 =================================  =================================================  ==========
 option                             registered rows                                    study
 =================================  =================================================  ==========
 ``stopping=``                      ``T52`` (point), ``G55`` (``LTMLE``)               X76 (a)
 ``outcome_by_arm=True``            ``T53``                                            X76 (b)
+``patience=`` on ``"greedy"``      ``C12``                                            X76 (c)
 ``treatment_adjustment=``          ``T54``                                            X76 (d)
 =================================  =================================================  ==========
 
@@ -37,13 +38,9 @@ from typing import Any
 from .._refusal import Refusal, RefusalReason
 
 __all__ = [
-    "OPTION_STUDIES_ROADMAP",
     "patience_conditions",
     "point_option_conditions",
 ]
-
-#: The roadmap item that tracks the registered studies of these options.
-OPTION_STUDIES_ROADMAP = "X76"
 
 
 def patience_conditions(estimator: Any) -> list[Refusal]:
@@ -54,8 +51,8 @@ def patience_conditions(estimator: Any) -> list[Refusal]:
     after ``patience`` candidates that only add noise.  The counter then stops before it with a
     probability that does not shrink with the sample size, and the estimate keeps a bias no
     study can rule out.  That condition is permanent, so it names no roadmap item.  The greedy
-    path adds the candidate that lowers the risk most at each step; its condition names the
-    study that measures it.
+    path adds the candidate that lowers the risk most at each step, and the support key labels
+    it: ``C12.greedy`` (study ``option-patience``) covers it, so it carries no condition here.
 
     Parameters
     ----------
@@ -65,30 +62,22 @@ def patience_conditions(estimator: Any) -> list[Refusal]:
     Returns
     -------
     list of Refusal
-        One condition when ``patience`` is set, else none.
+        One condition when ``patience`` is set on a pre-ordered path, else none.
     """
     patience = getattr(estimator, "patience", None)
-    if patience is None:
+    if patience is None or str(getattr(estimator, "strategy", "greedy")) == "greedy":
         return []
-    if str(getattr(estimator, "strategy", "greedy")) == "greedy":
-        return [
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                f"The setting patience={patience} can stop the cross-validated path before "
-                "its best candidate, and no registered study covers that selection.",
-                alternative="patience=None scores the whole path, as the registered studies do.",
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        ]
     return [
         Refusal(
             RefusalReason.INFERENCE_GAP,
             f"The setting patience={patience} stops a pre-ordered candidate path after "
             f"{patience} candidates whose cross-validated risk is not a new minimum. A "
             "candidate the outcome regression needs that is ordered after them is never "
-            "scored, so the estimate can stay biased at every sample size.",
+            "scored, so the estimate can stay biased at every sample size (study "
+            "option-patience, cell ordered_late_confounder).",
             alternative=(
-                "patience=None scores the whole path, so a candidate ordered late is still scored."
+                "patience=None scores the whole path; on strategy='greedy' each step adds the "
+                "candidate that lowers the risk most, and the registered row C12.greedy covers it."
             ),
             roadmap=None,
         )

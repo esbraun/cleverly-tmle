@@ -213,16 +213,16 @@ on how the path is ordered.
 | path | what an early stop can skip | label of a fit with `patience=` |
 | --- | --- | --- |
 | `"ordered"`, `"discrete"`, `"lasso"`, `"learners"` | the order is fixed before any risk is read. With `p` noise candidates before a needed one, the probability of stopping before it tends to a positive constant, so the estimate is inconsistent with non-vanishing probability. No check on the data excludes such an order | experimental, permanently. The condition names no roadmap item |
-| `"greedy"` | each step adds the candidate that lowers the training risk most, so a candidate that removes bias on its own enters before the counter can stop. This is a heuristic, not a theorem: when only two candidates together remove the confounding, no single step lowers the risk at order one and the counter can stop before the pair. No source read here states a consistency property of an early-stopped path | experimental until the declared study `option-patience` runs (X76) |
+| `"greedy"` | each step adds the candidate that lowers the training risk most, so a candidate that removes bias on its own enters before the counter can stop. This is a heuristic, not a theorem: when only two candidates together remove the confounding, no single step lowers the risk at order one and the counter can stop before the pair. No source read here states a consistency property of an early-stopped path | supported on the row `C12.greedy` of the [patience study](method-evidence/option-patience.md); experimental outside it |
 
-The declared study `option-patience` measures both rows, and has not run. Its pilot (2,000
-draws at $n = 2{,}000$, `tests/studies/option_patience_pilot.csv`) reads the late-confounder law
-LC3: $W_1$ is a confounder that the outcome regression omits, and three instruments come before it
-in the `"ordered"` path. With patience 2, 69.6% of the ordered fits leave $W_1$ out, their
-bias is 3.55 whole-path SDs, and the fit's standardized bias is 1.36. The
-whole ordered path selects $W_1$ in 98.4% of the draws, with standardized bias
-0.023. The greedy fit with patience 2 returns the greedy whole path's estimate on
-98.3% of the draws.
+The registered study [`option-patience`](method-evidence/option-patience.md) measures both rows
+at $n = 2{,}000$. On the selector law the counter stops the greedy path early on 85% of draws,
+and the estimate stays unbiased (standardized bias 0.002). The late-confounder law LC3 has a
+confounder $W_1$ that the outcome regression omits, with three instruments before it in the
+`"ordered"` path. With patience 2, 71% of the ordered fits leave $W_1$ out, their bias is 3.32
+whole-path SDs, and the fit's standardized bias is 1.35, while the whole ordered path is unbiased
+(0.020). On the same law the greedy fit with patience 2 returns the greedy whole path's estimate
+on 98% of the draws.
 
 On LC3 the greedy path itself, with or without patience, keeps a standardized bias of
 0.42 at $n = 2{,}000$. It selects $W_1$ with a varying subset of the instruments, a
