@@ -680,7 +680,7 @@ def test_the_study_route_answers_the_setup_questions_and_reads_the_band_default(
         warnings.simplefilter("ignore")
         fit = effect.estimate(cross_fit=False, random_state=0)
     assert fit.simultaneous is not None
-    with pytest.raises(CapabilityError, match="evalue_from_rr"):
+    with pytest.raises(CapabilityError, match="two arms' risks at one cause"):
         evalue(fit)
 
 

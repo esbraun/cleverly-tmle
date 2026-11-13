@@ -136,6 +136,21 @@ _TIME_TO_EVENT_CONDITIONS = (
     "censoring is at random given (A, W), and U does not affect censoring given (A, W)."
 )
 
+#: The request a continuous-time survival fit answers, named in each of its refusals.
+_CONTINUOUS_FORM = (
+    "On a continuous-time survival fit, pass the two arms' risks at one cause and one target "
+    "time, evalue(result, ('cif_regimen[treated, death @ t=2]', "
+    "'cif_regimen[control, death @ t=2]')), for the E-value of their risk ratio."
+)
+
+#: The conditions of the continuous-time risk-ratio E-value, printed beside it.
+_CONTINUOUS_CONDITIONS = (
+    "The risk by time t is the probability of an event of the reported cause by t, which a "
+    "competing cause can prevent. The bound needs U to confound the treatment and the event "
+    "only: censoring is independent of the event times given (A, L), and U does not affect "
+    "censoring given (A, L)."
+)
+
 #: Printed beside the limit of a DR-TMLE fit whose treatment mechanism is estimated.
 _LINEAR_REMAINDER_NOTE = (
     "DR-TMLE with an estimated treatment mechanism has a remainder that is linear in the "
@@ -383,6 +398,7 @@ _Branch = Literal[
     "fixed_baseline_ate",
     "gaussian_difference",
     "time_to_event_rr",
+    "continuous_rr",
 ]
 
 
@@ -405,7 +421,8 @@ class _EValueSelection:
     source: str
     branch: _Branch
     features: tuple[str, ...] = ()
-    #: The denominator level of a ``time_to_event_rr`` request; ``None`` on every other branch.
+    #: The denominator level of a ``time_to_event_rr`` or ``continuous_rr`` request; ``None``
+    #: on every other branch.
     versus: str | None = None
 
 
@@ -535,22 +552,51 @@ def _select_time_to_event(result: Any, estimand: Any) -> _EValueSelection:
     )
 
 
+def _select_continuous(result: Any, estimand: Any) -> _EValueSelection:
+    """Admit the risk ratio of the two arms' risks at one cause and time of a continuous fit.
+
+    Every arm of :class:`~cleverly.survival.ContinuousSurvivalTMLE` is static, so the request
+    is the analogue of :func:`_select_time_to_event`.  The pair is checked by
+    :meth:`~cleverly.survival.ContinuousSurvivalResult.ratio`'s own index, and the ratio it
+    returns is what the E-value reads.  No coverage study registers the confidence-limit
+    E-value of this fit, so the limit prints as descriptive.
+    """
+    if not (isinstance(estimand, tuple) and len(estimand) == 2):
+        raise _EValueRefusal(
+            AssessmentStatus.DEFERRED,
+            "an E-value on a continuous-time survival fit reads the risk ratio of the two "
+            f"arms' risks at one cause and one time, and the request names {estimand!r}.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=_CONTINUOUS_FORM,
+        )
+    numerator, denominator = (str(name) for name in estimand)
+    index = result._risk_index()
+    top, bottom = index.get(numerator), index.get(denominator)
+    if top is None or bottom is None or top[1:] != bottom[1:] or top[0] == bottom[0]:
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE,
+            f"{numerator!r} and {denominator!r} are not the two arms' risks at one cause and "
+            "one target time of this fit.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=_CONTINUOUS_FORM,
+        )
+    for name in (numerator, denominator):
+        if not result.estimates[name].supplies_inference:
+            raise _refuse(
+                AssessmentStatus.UNAVAILABLE,
+                _evalue_inference_refusal(result.estimates[name].inference),
+            )
+    return _EValueSelection(
+        numerator, "continuous_rr", features=("continuous_time",), versus=denominator
+    )
+
+
 def _select_evalue(result: TMLEResult, estimand: Any) -> _EValueSelection:
     """Select the exact, approximate, or refusal branch for one request."""
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(result, ContinuousSurvivalResult):
-        raise _EValueRefusal(
-            AssessmentStatus.UNAVAILABLE,
-            "the E-value of a continuous-time survival fit has no registered reading of its "
-            "confidence-limit E-value yet.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=(
-                "Call cleverly.sensitivity.evalue_from_rr on the fit's reported rr_regimen "
-                "estimate, and on the limit of its interval nearer 1, for a descriptive reading."
-            ),
-            roadmap="X6",
-        )
+        return _select_continuous(result, estimand)
     if getattr(result, "assessment_family", None) != "point":
         eliminated = tuple(getattr(getattr(result, "data", None), "eliminated", ()) or ())
         if eliminated:
@@ -905,14 +951,19 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
     support = estimate.support
     parts: list[tuple[str, str]]
 
-    if selection.branch == "time_to_event_rr":
+    if selection.branch in ("time_to_event_rr", "continuous_rr"):
         assert selection.versus is not None
         ratio = result.ratio(source, selection.versus, kind="rr")
         estimate = ratio
         reported_estimand = ratio.name
         support = ratio.support
         rr, ci, approximate, scale = ratio.psi, ratio.ci, False, "risk ratio"
-        parts = [("censoring", _TIME_TO_EVENT_CONDITIONS)]
+        conditions = (
+            _CONTINUOUS_CONDITIONS
+            if selection.branch == "continuous_rr"
+            else _TIME_TO_EVENT_CONDITIONS
+        )
+        parts = [("censoring", conditions)]
     elif selection.branch == "reported_rr":
         rr, ci, approximate, scale = estimate.psi, (low, high), False, "risk ratio"
         parts = []
@@ -1055,7 +1106,9 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         support=support,
         bias_factor="per_arm_product" if per_arm else "single",
         limit_reading=_limit_reading(result, selection),
-        level=1.0 - float(result.config.alpha_sig),
+        # A continuous-time result keeps no method configuration; its estimates carry alpha.
+        level=1.0
+        - float(estimate.alpha if selection.branch == "continuous_rr" else result.config.alpha_sig),
     )
 
 
@@ -1080,7 +1133,7 @@ def _limit_reading(result: TMLEResult, selection: _EValueSelection) -> Resolutio
     reading = resolve(EVALUE_LIMIT_INSTRUMENT, "+".join(selection.features), fit)
     if (
         not reading.licensed
-        and result.fitted_method == "drtmle"
+        and getattr(result, "fitted_method", None) == "drtmle"
         and result.data.known_treatment is None
     ):
         reading = replace(reading, sentence=f"{reading.sentence} {_LINEAR_REMAINDER_NOTE}")

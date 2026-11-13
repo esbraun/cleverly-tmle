@@ -67,6 +67,12 @@ MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
 }
 
 
+#: Why a ratio of two continuous-time risks reads experimental.
+RATIO_REASON: Final[str] = (
+    "No registered study measures a continuous-time risk ratio or odds ratio."
+)
+
+
 def _experimental(reason: str) -> Support:
     return Support("experimental", reason, ("X91",), limits=CONTINUOUS_LIMITS)
 
@@ -135,7 +141,7 @@ def continuous_survival_support(
     if restricted:
         reasons.append("No registered study measures a continuous-time restricted mean.")
     elif scale == "ratio":
-        reasons.append("No registered study measures a continuous-time risk ratio.")
+        reasons.append(RATIO_REASON)
     low, high = MEASURED_EVENT_SHARE
     if event_share < low:
         reasons.append(
@@ -197,9 +203,7 @@ BAND_SUPPORT: Final[Support] = _experimental(
 OFF_GRID_SHARE: Final[float] = 0.40
 
 #: The support of a ratio of two risks: no registered study measures one.
-RATIO_SUPPORT: Final[Support] = _experimental(
-    "No registered study measures a continuous-time risk ratio or odds ratio."
-)
+RATIO_SUPPORT: Final[Support] = _experimental(RATIO_REASON)
 
 #: The support of a smooth function of reported estimates: no registered study measures one.
 CONTRAST_SUPPORT: Final[Support] = _experimental(
@@ -667,8 +671,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
 
         See Also
         --------
-        to_frame : Every estimate, with no time column.
-        rmst : The area under the survival curve up to a restriction time.
+        cleverly.survival.ContinuousSurvivalResult.to_frame
+            Every estimate, with no time column.
+        cleverly.survival.ContinuousSurvivalResult.rmst
+            The area under the survival curve up to a restriction time.
 
         Examples
         --------
@@ -881,7 +887,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         See Also
         --------
         cleverly.sensitivity.evalue : The E-value of this ratio.
-        contrast : Any other smooth function of reported estimates.
+        cleverly.survival.ContinuousSurvivalResult.contrast
+            Any other smooth function of reported estimates.
 
         Examples
         --------
@@ -1041,7 +1048,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
 
         See Also
         --------
-        rmst : The restricted mean survival time, tau minus the sum over causes.
+        cleverly.survival.ContinuousSurvivalResult.rmst
+            The restricted mean survival time, tau minus the sum over causes.
         """
         if cause is None:
             if not self._single():
@@ -1086,8 +1094,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
 
         See Also
         --------
-        rmtl : The restricted mean time lost to one cause.
-        curve : The targeted risks the restricted mean summarizes.
+        cleverly.survival.ContinuousSurvivalResult.rmtl
+            The restricted mean time lost to one cause.
+        cleverly.survival.ContinuousSurvivalResult.curve
+            The targeted risks the restricted mean summarizes.
 
         Examples
         --------
