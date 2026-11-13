@@ -292,26 +292,16 @@ def fit(
 
 
 def risk(result: Any, label: str, horizon: int, cause: str | None = None) -> float:
-    infix = "" if cause is None else f"{cause} "
-    name = (
-        f"risk_regimen[{label} @ t={horizon}]"
-        if cause is None
-        else f"risk_regimen[{label} @ {infix}t={horizon}]"
-    )
-    if name not in result.estimates:
-        matches = [
-            key
-            for key in result.estimates
-            if f"[{label} @" in key and f"t={horizon}]" in key and (cause is None or cause in key)
-        ]
-        (name,) = matches
-    return float(result.estimates[name].psi)
+    """The reported risk, or the cause incidence of a two-cause law."""
+    if cause is None:
+        return float(result.estimates[f"risk_regimen[{label} @ t={horizon}]"].psi)
+    return float(result.estimates[f"cif_regimen[{label}, {cause} @ t={horizon}]"].psi)
 
 
 def initial_level(result: Any, label: str, horizon: int) -> float:
     """The plug-in of the initial hazards, read from the walk's record."""
     record = result.fits[f"{label} @ t={horizon}"].hazard
-    index = record.targets.index((label, None, horizon))
+    index = record.targets.index((label, None, horizon))  # one cause
     return float(record.initial_levels[index])
 
 
@@ -511,3 +501,256 @@ def test_the_loss_is_weighted_by_omega() -> None:
     unweighted = replace(inputs, loss_weight=np.repeat(inputs.weights[:, None], 2, axis=1))
     gap = np.abs(derivative(unweighted) - expected)
     assert np.max(gap) > 1e-2 * np.max(np.abs(expected))
+
+
+# ------------------------------------------------------------------ the slots
+
+def test_each_slot_is_predicted_at_its_own_design() -> None:
+    """A dose slot reads the shifted dose; a mixed slot splices the shifted components.
+
+    At a mixed node :meth:`history_design` ignores an assignment, so the splice of
+    :meth:`component_design` at the branch's values is what moves the slot.
+    """
+    law = _law("continuous")
+    result = fit(law, {"up": policy("continuous", "up")}, "continuous")
+    data = result.data
+    (plan,) = result.repeats[0].replay_recipe.plans
+    slots = hazard_module.mtp_slots(data, plan)
+    assert slots is not None and slots.n_slots == 2
+    shifted = np.minimum(law.frame()["A"].to_numpy() + 1.0, 2.0)
+    np.testing.assert_array_equal(slots.values[1], shifted)
+    for time in (1, 2):
+        design = hazard_module.slot_design(data, time, slots, 1)
+        expected = data.history_design(
+            time, treatment=np.repeat(shifted[:, None], 2, axis=1), include_current=True
+        )
+        np.testing.assert_array_equal(design, expected)
+        assert not np.array_equal(design, data.history_design(time, include_current=True))
+
+    law = _law("mixed")
+    result = fit(law, {"up": policy("mixed", "up")}, "mixed")
+    data = result.data
+    (plan,) = result.repeats[0].replay_recipe.plans
+    slots = hazard_module.mtp_slots(data, plan)
+    assert slots is not None
+    frame = law.frame()
+    branch = np.column_stack([frame["F"], np.minimum(frame["A"] + 1.0, 2.0)])
+    np.testing.assert_array_equal(slots.values[1], branch)
+    design = hazard_module.slot_design(data, 1, slots, 1)
+    covariates = data.window_covariates(1)
+    np.testing.assert_array_equal(
+        design, np.hstack([covariates, data.component_design(1, values=branch)])
+    )
+    ignored = data.history_design(
+        1, treatment=np.asarray(branch[:, 1:2], dtype=float), include_current=True
+    )
+    assert not np.array_equal(design, ignored)
+    # The observed slot is the fit's own design.
+    np.testing.assert_array_equal(
+        hazard_module.slot_design(data, 1, slots, 0), data.history_design(1, include_current=True)
+    )
+
+
+def test_a_mixed_slot_at_the_observed_components_misses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Predicting the shifted slots at the observed components is the natural course's plug-in.
+
+    The control is the natural joint policy, whose slots are the observed components, so the
+    mutation changes nothing there and the fit stays exact.
+    """
+    law = _law("mixed")
+
+    def observed(data: Any, time: int, slots: Any, slot: int) -> np.ndarray:
+        return np.asarray(data.history_design(time, include_current=True))
+
+    monkeypatch.setattr(hazard_module, "slot_design", observed)
+    missed = fit(law, {"up": policy("mixed", "up")}, "mixed")
+    assert abs(risk(missed, "up", 1) - law.truth(UP, 1)) > MISSED
+    kept = fit(law, {"natural": policy("mixed", "natural")}, "mixed")
+    assert risk(kept, "natural", 1) == pytest.approx(law.truth(NATURAL, 1), abs=EXACT)
+
+
+def test_the_randomizer_mixes_its_branch_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The plug-in weighs each branch slot by its probability.
+
+    The mutation puts all the mass of the plug-in on the first branch and misses the
+    randomizer's truth.
+    """
+    law = _law("continuous")
+    original = hazard_module.mtp_slots
+
+    def first_branch(data: Any, plan: Any) -> Any:
+        slots = original(data, plan)
+        probabilities = np.zeros_like(slots.probabilities)
+        probabilities[:, 0] = 1.0
+        return replace(slots, probabilities=probabilities)
+
+    exact = fit(law, {"random": policy("continuous", "random")}, "continuous")
+    assert risk(exact, "random", 2) == pytest.approx(law.truth(RANDOM, 2), abs=EXACT)
+    from cleverly.longitudinal import estimator as estimator_module
+
+    monkeypatch.setattr(estimator_module, "mtp_slots", first_branch)
+    missed = fit(law, {"random": policy("continuous", "random")}, "continuous")
+    assert abs(risk(missed, "random", 2) - law.truth(RANDOM, 2)) > MISSED
+
+
+# ------------------------------------------------------------------ one walk per policy
+
+def test_each_policy_has_its_own_walk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two policies and a static arm: two weighted walks and the shared walk.
+
+    Each estimate is the one its regimen gets alone, and each is exact.  The mutation gives
+    the second policy the first policy's weight, as one walk over both would, and misses.
+    """
+    law = _law("categorical")
+    regimens = {"up": policy("categorical", "up"), "random": policy("categorical", "random")}
+    together = fit(law, {**regimens, "a0": 0}, "categorical")
+    records = {label: together.fits[f"{label} @ t=2"].hazard for label in ("up", "random", "a0")}
+    assert len({id(record) for record in records.values()}) == 3
+    for label, record in records.items():
+        assert {target[0] for target in record.targets} == {label}
+    for label, branches in (("up", UP), ("random", RANDOM)):
+        alone = fit(law, {label: regimens[label]}, "categorical")
+        for t in (1, 2):
+            assert risk(together, label, t) == risk(alone, label, t)
+            assert risk(together, label, t) == pytest.approx(law.truth(branches, t), abs=EXACT)
+    static = ((1.0, lambda a: 0),)
+    assert risk(together, "a0", 2) == pytest.approx(law.truth(static, 2), abs=EXACT)
+
+    original = hazard_module.mtp_inputs
+    first: list[Any] = []
+
+    def shared(*args: Any, **kwargs: Any) -> Any:
+        inputs = original(*args, **kwargs)
+        if not first:
+            first.append(inputs)
+            return inputs
+        return replace(inputs, inverse=first[0].inverse, loss_weight=first[0].loss_weight)
+
+    from cleverly.longitudinal import estimator as estimator_module
+
+    monkeypatch.setattr(estimator_module, "mtp_inputs", shared)
+    mutated = fit(law, regimens, "categorical")
+    assert abs(risk(mutated, "random", 2) - law.truth(RANDOM, 2)) > MISSED
+
+
+# ------------------------------------------------------------------ held cells
+
+def _final_states(result_calls: list[Any]) -> list[Any]:
+    return [state for reports in result_calls for state, _ in reports.values()]
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+def test_a_held_level_cell_holds_every_unit_at_that_level(targeting: str) -> None:
+    """A level with no death at node 1: every unit's hazard there stays exactly zero."""
+    law = GridLaw(causes=2, empty=lambda node, w, f, a: node == 1 and a == 2)
+    with captured("_target") as calls, captured("mtp_inputs") as inputs:
+        result = fit(law, {"up": policy("categorical", "up")}, "categorical", targeting=targeting)
+    assert inputs[0].empty[0, 2, 1] and not inputs[0].empty[0, 1, 1]
+    for state in _final_states(calls):
+        assert np.all(state.hazards[:, 0, 2, 1] == 0.0)
+        assert np.all(state.hazards[:, 0, 1, 1] > 0.0)
+    for cause, code in (("relapse", 1), ("death", 2)):
+        for t in (1, 2):
+            truth = law.truth(UP, t, code)
+            assert risk(result, "up", t, cause) == pytest.approx(truth, abs=EXACT)
+
+
+def test_a_held_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No death at node 1 at any dose: every slot copy there is held, and the walk converges.
+
+    Without the hold the clipped logit leaves a death score the walk cannot solve.
+    """
+    law = GridLaw(causes=2, empty=lambda node, w, f, a: node == 1)
+    with captured("_target") as calls:
+        result = fit(law, {"up": policy("continuous", "up")}, "continuous")
+    for state in _final_states(calls):
+        assert np.all(state.hazards[:, 0, :, 1] == 0.0)
+    assert result.fits["up, death @ t=2"].hazard.converged
+    for cause, code in (("relapse", 1), ("death", 2)):
+        truth = law.truth(UP, 2, code)
+        assert risk(result, "up", 2, cause) == pytest.approx(truth, abs=EXACT)
+
+    original = hazard_module._held_cells
+
+    def unheld(*args: Any, **kwargs: Any) -> Any:
+        empty, full, excluded = original(*args, **kwargs)
+        return np.zeros_like(empty), full, excluded
+
+    monkeypatch.setattr(hazard_module, "_held_cells", unheld)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mutated = fit(law, {"up": policy("continuous", "up")}, "continuous")
+    record = mutated.fits["up, death @ t=2"].hazard
+    gap = abs(risk(mutated, "up", 2, "death") - law.truth(UP, 2, 2))
+    assert not record.converged or gap > EXACT
+
+
+def test_a_held_mixed_cell_holds_the_slots_of_its_categorical_values() -> None:
+    """No death at node 1 with ``F = 1``: those slots are held, the ``F = 0`` slots are not."""
+    law = GridLaw(flag=True, n_times=1, causes=2, empty=lambda node, w, f, a: f == 1)
+    with captured("_target") as calls:
+        result = fit(law, {"up": policy("mixed", "up")}, "mixed")
+    flagged = law.frame()["F"].to_numpy() == 1.0
+    for state in _final_states(calls):
+        assert np.all(state.hazards[flagged, 0, :, 1] == 0.0)
+        assert np.all(state.hazards[~flagged, 0, :, 1] > 0.0)
+    for cause, code in (("relapse", 1), ("death", 2)):
+        truth = law.truth(UP, 1, code)
+        assert risk(result, "up", 1, cause) == pytest.approx(truth, abs=EXACT)
+
+
+# ------------------------------------------------------------------ cross-fitting
+
+def test_the_slot_hazards_are_cross_fitted() -> None:
+    """Each held-out row's shifted-slot hazard is the training folds' fit at its shifted dose.
+
+    The in-sample fit predicts something else at the same rows, so the check can tell the
+    two apart, and the weighted walk still solves its score.
+    """
+    law = _law("continuous")
+    with captured("fit_hazards") as calls:
+        result = fit(law, {"up": policy("continuous", "up")}, "continuous", n_folds=3)
+    assert result.fits["up @ t=2"].hazard.converged
+    data = result.data
+    (plan,) = result.repeats[0].replay_recipe.plans
+    slots = hazard_module.mtp_slots(data, plan)
+    assert slots is not None
+    at_risk, events = hazard_module.event_indicators(data)
+    design = data.history_design(1, include_current=True)
+    shifted = hazard_module.slot_design(data, 1, slots, 1)
+    assignment = result.folds.assignment
+    expected = np.empty(data.n)
+    for fold in np.unique(assignment):
+        train = at_risk[:, 0] & (assignment != fold)
+        learner = Wrong().fit(design[train], events[train, 0, 0])
+        held = assignment == fold
+        expected[held] = learner.predict_proba(shifted[held])[:, 1]
+    got = calls[0].slots["up"][:, 0, 1, 0]
+    np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-7)
+    in_sample = Wrong().fit(design[at_risk[:, 0]], events[at_risk[:, 0], 0, 0])
+    assert np.max(np.abs(in_sample.predict_proba(shifted)[:, 1] - got)) > 1e-4
+
+
+# ------------------------------------------------------------------ monotone curves
+
+@pytest.mark.parametrize("reading", ["categorical", "continuous"])
+def test_each_policy_walk_reports_a_monotone_curve(reading: str) -> None:
+    """On a sample that is not the law, each cause's curve is non-decreasing in floating point."""
+    law = GridLaw(n_times=3, causes=2)
+    frame = law.frame()
+    rows = np.random.default_rng(4).choice(len(frame), size=3_000, replace=False)
+    with warnings.catch_warnings(), exact_bins():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            {"up": policy(reading, "up"), "random": policy(reading, "random")},
+            n_folds=1,
+            survival_model="hazard",
+            targeting="one_step",
+            outcome_learner=Wrong(),
+            treatment_learner=CellProbabilities(),
+            censoring_learner=CellMeans(),
+        ).fit(frame.iloc[rows].reset_index(drop=True), **law.columns(reading))
+    for label in ("up", "random"):
+        for cause in ("relapse", "death"):
+            curve = [risk(result, label, t, cause) for t in (1, 2, 3)]
+            assert all(later >= earlier for earlier, later in zip(curve, curve[1:], strict=False))
