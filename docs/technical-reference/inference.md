@@ -60,12 +60,62 @@ under-covers erratically at moderate counts and near the boundary
 ([references](../references.md#intervals-for-a-proportion)); the logit interval cannot leave the
 range.
 
-Every other estimate keeps its interval: a difference of two such means (identity scale, normal
-reference), a working-model coefficient of a binary outcome, a ratio or a transformed contrast
-(normal reference on its own scale), every estimate of a continuous outcome, and every clustered
-estimate, whose reference is [Few clusters](#few-clusters). The point-treatment TMLE family (`TMLE`, `DRTMLE`,
-`CTMLE` and the composite missing-data fit) and the longitudinal estimators attach `bounds` to
-their means; `IPTW` and `ATMLE` attach none, so their intervals stay on the identity scale.
+A bounded difference of two such means of one fit, $\hat d = \hat\psi_1 - \hat\psi_0$ with
+`bounds` $(-1, 1)$, unclustered, forms its interval by correlated MOVER from the two means' logit
+intervals $(l_j, u_j)$. With $r$ the correlation of the two estimates,
+$r = (\widehat{se}_1^2 + \widehat{se}_0^2 - \widehat{se}_d^2) / (2\,\widehat{se}_1\widehat{se}_0)$,
+
+$$
+\hat d - \sqrt{(\hat\psi_1 - l_1)^2 + (u_0 - \hat\psi_0)^2 - 2r(\hat\psi_1 - l_1)(u_0 - \hat\psi_0)},
+\quad
+\hat d + \sqrt{(u_1 - \hat\psi_1)^2 + (\hat\psi_0 - l_0)^2 - 2r(u_1 - \hat\psi_1)(\hat\psi_0 - l_0)}.
+$$
+
+With $r = 0$ it is the MOVER interval of Tang (2021, display 1) for independent groups, and with
+symmetric arm intervals it is the difference's own Wald interval for every $r$
+([references](../references.md#asymmetric-intervals)). The correlation is exact where the
+difference's influence curve is the difference of the two means' curves, so the fit records the
+two means as `components` only after it checks that identity in the estimate and in the curve
+(`cleverly.inference.with_components`). The point-treatment TMLE family records them for an
+arm-mean difference such as `ate` and a stratum effect, the longitudinal estimators for a
+contrast of two bounded levels, and `result.contrast()` for a difference of two bounded level
+means of one result. `interval_scale` is `"mover"`. A
+difference without recorded components keeps the identity normal interval and says so with
+`interval_scale == "identity"`: an `att` or `atc`, a contrast that reads more than two arms, and a
+difference formed as the median over repeated cross-fitting splits, which does not carry the
+splits' arms.
+
+An unclustered estimate of a continuous outcome (`outcome_family == "gaussian"`) takes the
+skew-widened t. With $\nu$ the moment degrees of freedom of its influence curve (Fay and
+Graubard's Appendix A, `small_sample_df`), $t = t_{1-\alpha/2,\,\max(\nu, 5)}$, $a$ the curve's
+acceleration (DiCiccio and Efron's display 6.6, `curve_acceleration()`) and $K = 2z^2 + 1$,
+
+$$
+\left[\hat\psi - \widehat{se}\,\max(t,\ t - aK),\;\; \hat\psi + \widehat{se}\,\max(t,\ t + aK)\right].
+$$
+
+It contains the t interval on every sample and widens only the side the curve's skewness points
+to, by $|a| K\,\widehat{se}$; on a symmetric curve it is the t interval. `effective_df` reports
+$\max(\nu, 5)$, `interval_scale` is `"skew_t"`, and `summary()` adds a df column. A working-model
+coefficient, the working model's level means and an effect-curve row of a continuous outcome take
+it too, from the curve of each.
+
+On both asymmetric intervals the test inverts the interval. The p-value is the largest
+$\alpha$ at which the null still lies inside the level-$(1 - \alpha)$ interval, found on a grid of
+$\alpha$ and refined by bisection to $10^{-12}$, with a floor of $10^{-15}$; the statistic is
+$\Phi^{-1}(1 - p/2)$ with the sign of $\hat\psi - h$. Where the limits widen as $\alpha$ falls,
+the p-value is at most $\alpha$ exactly when the null lies outside the level-$(1 - \alpha)$
+interval. MOVER's limits can fail to widen monotonically when the two arms are strongly
+correlated ($r$ above about 0.87) and of unequal spread; there a p-value below $\alpha$ still
+means the null is outside the interval, but a null outside it can have a p-value above $\alpha$.
+The arms of a TMLE difference are nearly uncorrelated ($r$ about 0.005 on the registered laws).
+
+Every other estimate keeps its interval: a working-model coefficient of a binary outcome, a ratio
+or a transformed contrast (normal reference on its own scale), an estimate whose outcome family is
+not recorded, and every clustered estimate, whose reference is [Few clusters](#few-clusters). The
+point-treatment TMLE family (`TMLE`, `DRTMLE`, `CTMLE` and the composite missing-data fit) and the
+longitudinal estimators attach `bounds` to their means; `IPTW` and `ATMLE` attach none, so their
+intervals stay on the identity scale.
 
 Two cases report no interval, no p-value and no standard error
 ([Inference status](#inference-status)):
@@ -120,6 +170,25 @@ The plug-in interval covered the truth in none of those 191 samples. The withhol
 data, so it is itself random; the coverage claim is conditional on an interval being shown.
 F41 in the [roadmap](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound)
 holds the route to an interval in both withheld cases.
+
+The registered study [asymmetric-wald](method-evidence/asymmetric-wald-intervals.md) measures the
+two asymmetric intervals on held-out laws declared before any fit on them (D1 and D2, sparse arms
+near a bound; C1 to C3, skewed and symmetric continuous errors) and on the cells that refuted
+the earlier rule. Each gated cell passes a coverage clause and a tail clause: no one-sided miss
+rate shown above 0.040, by its 99% lower bound, on 4,000 fits. That is what the study tests; no
+per-tail rate is claimed, because the skew-widened t removes the skewness term of the
+studentized statistic's expansion and leaves its median-bias term. The lognormal law of
+skewness 2.0 keeps a heavy-side residue of 175 misses in 4,000 against a nominal 100.
+
+MOVER over-corrects: on D1 it misses 50 times below and 135 above, where the identity interval
+missed 258 times below and 56 above. The side the identity interval missed on becomes the
+conservative one, and the other side carries more than its nominal 100 misses, inside the tail
+clause. The expansion behind $a$ needs a finite sixth moment of the outcome. The lognormal law of
+skewness 6.2 covers 0.922, a stated limit of the measured range.
+
+D1 and D2 are new laws in mechanism classes already known to the study, a sparse arm near a bound,
+not new mechanisms. On the symmetric law C3 the skew-widened interval is 2.7% and 2.2% wider than
+the t interval, the price of the widening where no skew is present.
 
 ## Covariance rules
 

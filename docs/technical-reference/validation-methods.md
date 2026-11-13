@@ -808,8 +808,9 @@ $R$ is the indicator of the rows the representer reads. On complete data $R$ is 
 [Second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
 fits. The two primitives are exposed as `elements()`.
 
-The bounds and their confidence limits are formed on the identity scale for every target. On an
-unclustered mean of a yes/no outcome, whose reported interval is on the logit scale
+The bounds and their confidence limits are formed on the identity scale for every target. Where the reported interval is formed otherwise, on an unclustered
+mean of a yes/no outcome (the logit scale), a bounded difference of two such means (MOVER) or an
+unclustered estimate of a continuous outcome (the skew-widened t)
 ([small-sample scale](inference.md#small-sample-scale)), the limits at zero strength are therefore
 identity-scale limits and do not reduce to the reported interval.
 

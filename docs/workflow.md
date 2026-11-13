@@ -180,11 +180,14 @@ withholds the interval: report the point estimate and the reason the status give
 ([few clusters](technical-reference/inference.md#few-clusters)).
 
 In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
-on a scale that keeps it inside the possible range, so the interval need not be centred on the
-estimate. When a treatment group shows only one outcome value, in the data or in a subgroup, or an
-estimate sits exactly at 0 or 100 percent, it reports no interval for that estimate or for the
-effects and ratios that use it
-([small-sample scale](technical-reference/inference.md#small-sample-scale)).
+on a scale that keeps it inside the possible range, and builds the interval of a difference from
+the two groups' intervals, so an interval need not be centred on the estimate. For an outcome
+measured on a continuous scale, without clusters, it widens the interval with a t distribution
+when a few observations carry most of the uncertainty, and widens it further on the side where a
+skewed outcome makes misses more likely. The `df` column of the summary says how much. When a
+treatment group shows only one outcome value, in the data or in a subgroup, or an estimate sits
+exactly at 0 or 100 percent, it reports no interval for that estimate or for the effects and
+ratios that use it ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
 
 Save structured results when an audit trail matters:
 

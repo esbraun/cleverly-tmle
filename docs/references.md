@@ -2329,6 +2329,27 @@ sizes only the cluster sum is the delta-method variance of the row mean
   `band_scale="logit"` ([the band scale](technical-reference/inference.md#the-band-scale)) and
   for the logit interval of a mean of a yes/no outcome
   ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
+- Agresti & Caffo (2000), [*Simple and Effective Confidence Intervals for Proportions and
+  Differences of Proportions Result from Adding Two Successes and Two
+  Failures*](https://doi.org/10.1080/00031305.2000.10474560), DOI 10.1080/00031305.2000.10474560.
+  Coverage tables of intervals for a difference of independent proportions, the comparison
+  class of the MOVER interval of a bounded difference.
+
+## Asymmetric intervals
+
+- Tang (2021), [arXiv:2110.12636](https://arxiv.org/abs/2110.12636), section 2.1, display (1).
+  The MOVER interval of a difference of independent groups from each group's own interval,
+  restated from Howe (1974). The package adds the correlation of the two estimates of one fit,
+  read from the three variances, for a bounded difference
+  ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
+- DiCiccio & Efron (1996), [*Bootstrap Confidence
+  Intervals*](https://doi.org/10.1214/ss/1032280214), DOI 10.1214/ss/1032280214. Display (6.6)
+  gives the nonparametric acceleration from the empirical influence values, which
+  `curve_acceleration()` computes from the influence curve and the skew-widened t reads.
+- Kauermann & Carroll (2000), *A Note on the Efficiency of Sandwich Covariance Matrix
+  Estimation*, SFB 386 Discussion Paper 189 (the JASA version was not read). Theorem 2 gives the
+  coverage loss of the normal interval from the noise of the sandwich variance, which the moment
+  degrees of freedom of the skew-widened t address.
 
 ## Multiple testing
 
@@ -2344,7 +2365,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
   band.
 - Fay & Graubard (2001), [*Small-Sample Adjustments for Wald-Type Tests Using Sandwich
   Estimators*](https://doi.org/10.1111/j.0006-341X.2001.01198.x), DOI
-  10.1111/j.0006-341X.2001.01198.x. Appendix B's realised-term degrees of freedom is the Kish
+  10.1111/j.0006-341X.2001.01198.x. Appendix A's moment degrees of freedom is the
+  `small_sample_df` that the skew-widened t of a continuous outcome reads
+  ([small-sample scale](technical-reference/inference.md#small-sample-scale)), and Appendix B's
+  realised-term degrees of freedom is the Kish
   count of `band_reference="t"` ([the t reference](technical-reference/inference.md#the-t-reference)).
   No source derives it for an influence-curve estimator; the
   [`band-t-reference` study](technical-reference/method-evidence/band-t-reference.md) is the
