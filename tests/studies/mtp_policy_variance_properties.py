@@ -881,11 +881,28 @@ def pilot_rows(
     return rows
 
 
-def run_pilots(parts: Path, *, draws: int = PILOT_DRAWS, n_jobs: int = 1) -> pd.DataFrame:
-    """Every pilot set's ``draws`` draws, resumable in parts."""
+#: Round 2 of the pilot (rule S3): each flagged set's extended draws on the ``diagnostic``
+#: stream, 2,000 for a set read by the SE-ratio rule and 3,000 for one read by a coverage clause.
+#: Round 2 continues round 1's seeds, so its first :data:`PILOT_DRAWS` draws are round 1.
+ROUND_TWO: dict[str, int] = {
+    "p4_twin": 2_000,
+    "p5_twin": 2_000,
+    "p5_sdr_twin": 2_000,
+    "pricing_ltmle_tau2": 2_000,
+    "pricing_ltmle_tau3_tail": 3_000,
+}
+
+
+def pilot_draws(label: str) -> int:
+    """A pilot set's draws: :data:`PILOT_DRAWS`, or its round-2 count."""
+    return ROUND_TWO.get(label, PILOT_DRAWS)
+
+
+def run_pilots(parts: Path, *, n_jobs: int = 1) -> pd.DataFrame:
+    """Every pilot set's draws (:func:`pilot_draws`), resumable in parts."""
     frames = []
     for family, label, n, wald_only in PILOT_SETS:
-        keys = [(family, label, r, n, wald_only) for r in range(draws)]
+        keys = [(family, label, r, n, wald_only) for r in range(pilot_draws(label))]
         frames.append(
             tools.run_in_parts(
                 pilot_rows,
