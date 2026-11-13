@@ -165,8 +165,9 @@ commit `9996b04` classifies that training-fold update as a bug.
 **A hazard fit targets the coefficient scores on the hazards.** With `survival_model="hazard"`
 and `targeting="one_step"`, `LTMLE` walks one set of hazards along the coefficient scores of every
 cause and projects the targeted cell plug-ins with the same solver. It runs no backward pass.
-[A working model over the hazard curve](longitudinal-tmle.md#a-working-model-over-the-hazard-curve)
-states that construction.
+The subsection "A working model over the hazard curve" of
+[hazard-based survival targeting](longitudinal-tmle.md#hazard-based-survival-targeting) states
+that construction.
 
 **Under a link, the targeting is still one backward pass.** The node covariate is the projection
 weight times the design, which is free of the coefficient, so each node fluctuates once. The
