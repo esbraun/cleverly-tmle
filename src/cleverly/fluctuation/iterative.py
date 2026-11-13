@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
-from scipy.optimize import minimize_scalar
+from scipy.optimize import brentq
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from .._warnings import warn as _warn
@@ -922,9 +922,88 @@ def _solve_fluctuation_ruled(
     )
 
 
-#: The tolerance of the bounded line search on ``t``, ``sqrt(eps)`` as in ``tmle3``'s ``optim``.
-#: A looser one moves the step by up to its own size, which the exact tests of the step catch.
-_STEP_SEARCH_XATOL = 1.4901161193847656e-08
+#: brentq's smallest admissible relative tolerance, so that the root is exact to the last bits.
+#: A search on loss values cannot place the minimiser closer than about ``sqrt(eps)``; the root
+#: of the slope has no such floor.
+_ROOT_RTOL = 4.0 * float(np.finfo(float).eps)
+#: The smallest positive float, so that only the relative tolerance stops brentq and a step of
+#: ``1e-20`` is still found exactly.
+_ROOT_XTOL = float(np.finfo(float).tiny)
+#: brentq's iteration cap.  The measured searches took 5 to 31 slope evaluations.
+_ROOT_MAXITER = 200
+#: The descent check's rounding slack, in ``eps`` times the absolute mass of the loss.  It covers
+#: ``eps * log2(N)`` for sums of up to ``2**64`` terms, and the round-off rise of about ``1e-16``
+#: that an exact step shows at convergence.
+_DESCENT_SLACK = 64.0
+
+
+def _line_step(
+    slope: Callable[[float], float],
+    delta: float,
+    *,
+    loss: Callable[[float], float] | None = None,
+    mass: float = 0.0,
+) -> float:
+    r"""The minimiser over :math:`[0, \delta]` of a line loss, as the root of its slope.
+
+    The length is 0 when the slope at 0 is not negative (no descent, or a ``nan``), and
+    :math:`\delta` when the slope at :math:`\delta` is not positive.  Otherwise it is the root
+    of ``slope`` on :math:`[0, \delta]`, found by :func:`scipy.optimize.brentq` with the
+    smallest relative tolerance it accepts and no absolute floor.  A bracketing root finder
+    keeps a sign change, so on a slope with jumps it converges to a point where the computed
+    sign changes from negative to positive: a local minimiser of the loss.  A result that
+    brentq reports as unconverged is still inside such a bracket, and is used.
+
+    With ``loss``, the step must also descend: :math:`L(t) \le L(0) + 64\,\epsilon\,A`, with
+    :math:`A` = ``mass`` the absolute mass of the loss at 0.  A local minimiser of a line loss
+    that is not unimodal can sit above :math:`L(0)`, so the length then halves until the check
+    passes, at most 64 times, and is 0 if it never does.  Because the slope at 0 is negative,
+    a short enough length always passes.
+
+    Parameters
+    ----------
+    slope : callable
+        The derivative of the line loss in the length, right-sided at kinks.
+    delta : float
+        The largest length, positive.
+    loss : callable, optional
+        The line loss.  Given, the step is checked for descent.
+    mass : float
+        The absolute mass of the loss at 0, which scales the rounding slack of the check.
+
+    Returns
+    -------
+    float
+        The length.
+    """
+    start = slope(0.0)
+    if not start < 0.0:
+        return 0.0
+    end = slope(delta)
+    if not np.isfinite(end):
+        return 0.0
+    if end <= 0.0:
+        length = float(delta)
+    else:
+        root, _ = brentq(
+            slope,
+            0.0,
+            delta,
+            xtol=_ROOT_XTOL,
+            rtol=_ROOT_RTOL,
+            maxiter=_ROOT_MAXITER,
+            full_output=True,
+            disp=False,
+        )
+        length = float(root)
+    if loss is None:
+        return length
+    ceiling = loss(0.0) + _DESCENT_SLACK * float(np.finfo(float).eps) * mass
+    for _ in range(64):
+        if loss(length) <= ceiling:
+            return length
+        length *= 0.5
+    return 0.0
 
 
 def _bounded_step(
@@ -943,11 +1022,13 @@ def _bounded_step(
     :math:`d = \operatorname{sign}(s)`.  Under ``search`` the length :math:`t^*` minimises the
     weighted mean quasi-loss :math:`-\sum_i w_i [y_i \log p_i + (1-y_i)\log(1-p_i)] / \sum_i w_i`
     with :math:`p_i = \operatorname{expit}(\mathrm{offset}_i + t\,(Hd)_i)` over
-    :math:`t \in [0, \delta]`, by bounded Brent search with ``xatol`` of
-    :data:`_STEP_SEARCH_XATOL`.  The derivative of the loss along :math:`d` at 0 is
-    proportional to :math:`-\lVert s \rVert < 0`, so the minimiser lies in
-    :math:`(0, \delta]` and the lower bound needs no sign.  Without ``search`` the length is
-    :math:`\delta`.
+    :math:`t \in [0, \delta]`.  :func:`_line_step` finds it as the root of the loss's slope
+    :math:`-\sum_i w_i (y_i - p_i)(Hd)_i / \sum_i w_i`, to machine precision, and takes
+    :math:`\delta` when the slope there is not positive.  Weights are non-negative, so the loss
+    is convex in :math:`t` and the root is its minimiser.  The slope at 0 is proportional to
+    :math:`-\lVert s \rVert < 0`, so the minimiser lies in :math:`(0, \delta]`.  This is the
+    unclipped quasi-loss; ``quasi_loglik`` clips predictions at ``1e-15`` only to keep the
+    logarithm finite.  Without ``search`` the length is :math:`\delta`.
 
     Parameters
     ----------
@@ -982,16 +1063,10 @@ def _bounded_step(
     if total <= 0.0 or not np.any(covariate):
         return np.zeros_like(direction), 0.0
 
-    def loss(t: float) -> float:
-        return -quasi_loglik(y, expit(offset + t * covariate), weights) / total
+    def slope(t: float) -> float:
+        return -float(np.sum(weights * (y - expit(offset + t * covariate)) * covariate)) / total
 
-    found = minimize_scalar(
-        loss,
-        bounds=(0.0, delta),
-        method="bounded",
-        options={"xatol": _STEP_SEARCH_XATOL},
-    )
-    length = float(found.x)
+    length = _line_step(slope, delta)
     return length * direction, length
 
 
@@ -1021,7 +1096,9 @@ def _solve_fluctuation_bounded(
     carried fits and ``epsilon`` by it, and recomputes the score.  The walk ends when the rule
     is met (``tol`` on the relative score under ``stopping="relative"``, the rule ratio under a
     declared rule), when the score is exactly zero, when a step moves nothing, or after
-    ``max_iter`` iterations.  A walk that has not met the rule reports ``converged=False`` and
+    ``max_iter`` iterations.  Under ``step_search`` a step moves nothing when its length is 0
+    or no fitted prediction changed.  The fixed step keeps the test ``max|step| <= tol``.  A
+    walk that has not met the rule reports ``converged=False`` and
     ``failure="max_iter_reached"``, which the caller reads as for any unconverged step.
 
     The score and the quasi-loss are the shipped ones: the score is ``mean(w h (Y - Q*))`` on the
@@ -1073,7 +1150,8 @@ def _solve_fluctuation_bounded(
     best = BestIterate() if iterate == "best" else None
 
     while iterations < max_iter and not met and float(np.linalg.norm(score)) > 0.0:
-        step, _ = _bounded_step(
+        before = current.observed[mask]
+        step, length = _bounded_step(
             fit_submodel.observed[mask],
             y[mask],
             logit(current.observed[mask]),
@@ -1102,7 +1180,11 @@ def _solve_fluctuation_bounded(
                 iterate_norm(score),
                 (epsilon, current, carried, score, thresholds, ratio),
             )
-        if not met and float(np.max(np.abs(step))) <= tol:
+        if not met and (
+            (length == 0.0 or np.array_equal(current.observed[mask], before))
+            if step_search
+            else float(np.max(np.abs(step))) <= tol
+        ):
             break
 
     reported: int | None = None
