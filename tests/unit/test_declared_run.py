@@ -76,7 +76,7 @@ def _writing_driver(
     ``fail="before"`` raises before the manifest exists, as a failed fit does.
     ``fail="after"`` raises after it, as a failed gated verdict does.  ``calls`` collects the
     command line and the reference of each call.  ``optional=True`` also writes the failure
-    records and their accounting, as a run with a comparator failure does.
+    records and their accounting, as a run with a comparator or property failure does.
     """
 
     def driver(
@@ -91,7 +91,7 @@ def _writing_driver(
         record = study.STUDY
         names = (*ARTIFACT_NAMES, *record.extra_artifacts, *record.property_artifacts)
         if optional:
-            names = (*names, *regenerate.OPTIONAL_ARTIFACT_NAMES)
+            names = (*names, *declared_run.OPTIONAL_FILES)
         paths = [output / name for name in names]
         for path in paths:
             path.write_text("artifact\n", encoding="utf-8", newline="\n")
@@ -342,12 +342,13 @@ class TestTheRecord:
         _, enter, _ = study
         here = tmp_path / "here"
         here.mkdir()
-        for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
+        for name in declared_run.OPTIONAL_FILES:
             (here / name).write_text("stale\n", encoding="utf-8")
         _guard(monkeypatch, ["--output", str(tmp_path / "run")])
         monkeypatch.setattr(declared_run, "regenerate", _writing_driver(optional=optional))
         enter(here)
-        for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
+        assert set(regenerate.PROPERTY_FAILURE_FILES) <= set(declared_run.OPTIONAL_FILES)
+        for name in declared_run.OPTIONAL_FILES:
             copied = here / name
             assert copied.exists() is optional
             if optional:

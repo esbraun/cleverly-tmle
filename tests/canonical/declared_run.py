@@ -44,6 +44,7 @@ from typing import Any
 from tests.canonical.regenerate import (
     ARTIFACT_NAMES,
     OPTIONAL_ARTIFACT_NAMES,
+    PROPERTY_FAILURE_FILES,
     RUN_NOTES,
     Reference,
 )
@@ -55,6 +56,10 @@ from tests.studies.evidence.registry import ROOT
 
 #: What a declared run writes beside the study's artifacts.
 RECORD_FILES = ("manifest.json", "run.log")
+
+#: What a run writes only when a fit failed: a comparator's records and accounting, and a
+#: property fit's records, accounting and witnesses.
+OPTIONAL_FILES = (*OPTIONAL_ARTIFACT_NAMES, *PROPERTY_FAILURE_FILES)
 
 
 def thread_refusals() -> list[str]:
@@ -124,10 +129,11 @@ def publish_run(
     if missing:
         raise RuntimeError(f"the run wrote no {missing} to {output}; nothing is copied")
     here.mkdir(parents=True, exist_ok=True)
-    # The failure records and their accounting exist only when a comparator failed (RM39 part
-    # a2).  One left in ``here`` by an earlier run would outlive this run's manifest.
-    optional = [name for name in OPTIONAL_ARTIFACT_NAMES if (output / name).exists()]
-    for name in OPTIONAL_ARTIFACT_NAMES:
+    # The failure records and their accounting exist only when a comparator or a property fit
+    # failed (RM39 parts a2 and b2).  One left in ``here`` by an earlier run would outlive this
+    # run's manifest.
+    optional = [name for name in OPTIONAL_FILES if (output / name).exists()]
+    for name in OPTIONAL_FILES:
         if name not in optional:
             (here / name).unlink(missing_ok=True)
     names = (*names, *optional)
