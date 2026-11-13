@@ -352,11 +352,28 @@ def test_a_measured_configuration_reads_supported(fitted) -> None:  # type: igno
     for estimate in fitted.estimates.values():
         assert estimate.support.label == "supported"
         assert estimate.support.evidence == (DOSE_RESPONSE_STUDY,)
-    # The band cell measured the default band: Mammen, logit scale, 10,000 draws.
+    # The band cell measured the Mammen multiplier at 10,000 draws on the identity scale.
     assert fitted.band.support.label == "supported"
     assert fitted.band.support.evidence == (DOSE_RESPONSE_STUDY,)
-    assert (fitted.band.kind, fitted.band.band_scale) == ("mammen", "logit")
+    assert "identity scale" in fitted.band.support.reason
+    assert fitted.band.kind == "mammen"
     assert fitted.band.n_replicates == DOSE_RESPONSE_BAND_DRAWS == 10_000
+
+
+def test_the_band_is_not_range_bounded(fitted) -> None:  # type: ignore[no-untyped-def]
+    """The default ``band_scale="logit"`` maps nothing here: the estimates carry no range.
+
+    Each band is the identity-scale ``psi +/- c * se``, so a limit can leave [0, 1]; a band
+    built on the logit of a bounded estimate would be asymmetric around ``psi``.
+    """
+    band = fitted.band
+    assert band.band_scale == "logit"
+    for name, estimate in fitted.estimates.items():
+        assert estimate.bounds is None
+        assert band.scales[name] == "identity"
+        low, high = band.bands[name]
+        half = band.critical_value * estimate.std_error
+        assert (low, high) == pytest.approx((estimate.psi - half, estimate.psi + half), abs=1e-12)
 
 
 def test_a_band_with_fewer_draws_than_its_cell_reads_experimental() -> None:

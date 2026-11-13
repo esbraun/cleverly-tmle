@@ -6,8 +6,9 @@ before any run:
 * each replication fits ``TMLE`` in sample with the calibration cell's learners (the oracle
   outcome regression and a main-terms multinomial logistic treatment model),
   ``estimands=("ey", "ate", "rr", "or")``, reference arm ``high``, the study's ``g_bounds``,
-  and ``simultaneous=True`` with its defaults: 1000 rademacher draws seeded by
-  ``random_state=0``.  The band covers nine parameters: three arm means, two differences, two
+  and ``simultaneous=True`` with its defaults seeded by ``random_state=0``: since
+  band-finite-sample the Mammen multiplier at 10,000 draws, on the logit scale for the means and
+  differences (1,000 Rademacher draws on the identity scale before it).  The band covers nine parameters: three arm means, two differences, two
   risk ratios and two odds ratios.  The ratio bands are exponentiated from the log scale;
 * the law is ``Sampler(effect=0.6)``, n = 2,000 and R = 2,400 on a dedicated stream
   ``stream_seed(STUDY, "property_sample", "simultaneous_coverage", "arms", r)``;

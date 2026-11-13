@@ -311,12 +311,18 @@ class SupportKey:
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
-        policy has a cap tuned on the data. A longitudinal key holds the inverse-probability
-        ``normalization``, the policy density ``ratio``, the ``survival_model``, the hazard
-        ``targeting`` algorithm, the ``isotonic`` projection, whether the fit declares
-        ``node_bounds``, the ``hazard_pooling``, whether it declares a ``ratio_trim``, the data's
-        ``markov_order``, and whether a regimen has a ``tuned_cap``. No key holds the band's
+        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
+        a ``patience`` or a ``treatment_adjustment`` subset, and under a declared stopping rule
+        the ``step_bound`` (``"none"``, ``"search"`` or ``"fixed"``) and the reported
+        ``iterate``; under ``stopping="relative"`` those two read ``"none"`` and ``"last"``,
+        because the walk then stops only at a solved score equation. A point key on the policy
+        axis holds the policy density ``ratio``, and ``tuned_cap`` when a policy has a cap tuned
+        on the data. A longitudinal key holds the inverse-probability ``normalization``, the
+        policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm,
+        the ``isotonic`` projection, whether the fit declares ``node_bounds``, the
+        ``hazard_pooling``, whether it declares a ``ratio_trim``, whether the data declare a
+        ``markov_order``, whether a regimen has a ``tuned_cap``, and the ``stopping``,
+        ``step_bound`` and ``iterate`` of a point key. No key holds the band's
         ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
         are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
@@ -662,6 +668,29 @@ def _unequal_clusters(data: Any) -> bool:
     return bool(sizes.min() != sizes.max())
 
 
+def _stopping_options(estimator: Any) -> dict[str, str]:
+    """The stopping rule of a fit and, under a declared rule, its step bound and iterate.
+
+    Under ``stopping="relative"`` the walk stops only where the score equation is solved to
+    ``tol``, so a step bound or ``iterate="best"`` leaves the estimator the default one (see
+    :mod:`cleverly.estimators._option_support`) and the key records the defaults. Under a
+    declared rule the walk stops early, where the bound and the reported iterate move the
+    estimate, so the key records them.
+    """
+    stopping = str(getattr(estimator, "stopping", "relative"))
+    if stopping == "relative":
+        return {"stopping": stopping, "step_bound": "none", "iterate": "last"}
+    if getattr(estimator, "step_bound", None) is None:
+        bound = "none"
+    else:
+        bound = "search" if getattr(estimator, "step_search", True) else "fixed"
+    return {
+        "stopping": stopping,
+        "step_bound": bound,
+        "iterate": str(getattr(estimator, "iterate", "last")),
+    }
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -749,6 +778,10 @@ def point_key(
         "fluctuation": estimator.fluctuation,
         "targeting": estimator.targeting,
         "target_weights": estimator.target_weights,
+        **_stopping_options(estimator),
+        "outcome_by_arm": bool(getattr(estimator, "outcome_by_arm", False)),
+        "patience": getattr(estimator, "patience", None) is not None,
+        "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
     if method == "drtmle":
         for name in ("guard", "reduction", "update_order", "randomized"):
@@ -943,8 +976,9 @@ def longitudinal_key(
             ("node_bounds", bool(getattr(estimator, "node_bounds", None))),
             ("hazard_pooling", _option(getattr(estimator, "hazard_pooling", "node"))),
             ("ratio_trim", getattr(estimator, "ratio_trim", None) is not None),
-            ("markov_order", _option(getattr(data, "markov_order", None))),
+            ("markov_order", getattr(data, "markov_order", None) is not None),
             ("tuned_cap", tuned_cap),
+            *_stopping_options(estimator).items(),
         ),
     )
     learners = {
@@ -1231,6 +1265,33 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
 }
 
 
+def _named_axis(axis: str, key: SupportKey, row_key: SupportKey) -> str:
+    """``axis`` with the qualifiers or options on which ``key`` and ``row_key`` differ.
+
+    A reader then learns which declaration keeps the nearest row from covering the fit. An
+    option reads ``name=value`` with the fit's value when that value is a bool, an integer,
+    ``None`` or a word, and its bare name otherwise (a value the fit lacks, a float, a tuple or
+    a class name), so the reason never holds a full stop, a comma or a parenthesis inside the
+    parentheses, and :func:`cleverly._summary._estimates.plain_support_reason` can still split
+    it.
+    """
+    if axis == "qualifiers":
+        return f"qualifiers ({' and '.join(sorted(key.qualifiers ^ row_key.qualifiers))})"
+    if axis != "options":
+        return axis
+    mine, theirs = dict(key.options), dict(row_key.options)
+    named = []
+    for name in sorted(mine.keys() | theirs.keys()):
+        if name in mine and name in theirs and mine[name] == theirs[name]:
+            continue
+        value = mine.get(name)
+        plain = isinstance(value, (bool, int, type(None))) or (
+            isinstance(value, str) and value.isidentifier()
+        )
+        named.append(f"{name}={value!r}" if name in mine and plain else name)
+    return f"options ({' and '.join(named)})"
+
+
 def _sentence(text: str) -> str:
     """``text`` as a sentence: opened with a capital letter and closed with a full stop."""
     text = text.strip()
@@ -1297,14 +1358,8 @@ def support_for(
             nearest_id, axes = classification.nearest
             nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
-            if nearest is not None and "qualifiers" in axes:
-                # Name the qualifiers that differ, so a reader learns which declaration
-                # keeps the row from covering the fit.
-                differing = sorted(classification.key.qualifiers ^ nearest.key.qualifiers)
-                axes = tuple(
-                    f"qualifiers ({' and '.join(differing)})" if axis == "qualifiers" else axis
-                    for axis in axes
-                )
+            if nearest is not None:
+                axes = tuple(_named_axis(axis, classification.key, nearest.key) for axis in axes)
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
     elif not row.licenses(kind, classification.key.family):

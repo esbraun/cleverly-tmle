@@ -224,7 +224,8 @@ cross-fitted, on iid unweighted rows with complete outcomes.
 | any other combination | | | `experimental` | `experimental` | none |
 
 The band reads `supported` only where the study's band cell measured it, on the 15 pairs of the
-binary declaration. A pair below the support floor reads `experimental` with
+binary declaration, with at least 10,000 Mammen draws. The pairs' estimates carry no range, so the
+band stays on the identity scale and a limit can leave [0, 1]. A pair below the support floor reads `experimental` with
 [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) as its evidence, and a
 band over such a pair reads `experimental` too. The label does not read the learners, the sample
 size, the number or spacing of the pairs, or the law. The study measured declared sieve learners,

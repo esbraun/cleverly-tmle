@@ -1164,3 +1164,30 @@ def test_a_complete_rerun_may_add_only_the_declared_primary_failure_bound() -> N
     assert "configuration differs" in " ".join(
         band_rerun.normal_run_findings(changed, rerun, {"cleverly": 0.01})
     )
+
+
+@pytest.mark.parametrize("slug", PLANNED)
+def test_the_decision_reads_the_committed_properties(slug: str, plan: dict[str, Any]) -> None:
+    """Each moved cell of ``band-rerun-decision.json`` is its committed ``properties.csv`` row.
+
+    The decision is what the red-cell ledgers and the support rows cite; a committed summary
+    that moved after it, or a decision edited by hand, would leave them citing another reading.
+    """
+    decision = json.loads((ROOT / "tests/canonical/band-rerun-decision.json").read_bytes())
+    entry = plan["studies"][slug]
+    summary = pd.read_csv(ROOT / entry["artifact_directory"] / "properties.csv")
+    committed = {
+        reading["cell"]: reading
+        for reading in band_rerun.moved_readings(summary, entry["moved_cells"])
+    }
+    cells = decision["readings"][slug]["cells"]
+    assert sorted(cell["cell"] for cell in cells) == sorted(committed)
+    for cell in cells:
+        row = committed[cell["cell"]]
+        assert (cell["passed"], cell["replicates"], cell["role"]) == (
+            row["passed"],
+            row["replicates"],
+            row["role"],
+        ), cell["cell"]
+        for name in ("coverage", "coverage_ci_lower", "coverage_ci_upper"):
+            assert cell[name] == pytest.approx(row[name], abs=1e-12), (cell["cell"], name)

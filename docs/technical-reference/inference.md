@@ -480,7 +480,9 @@ estimates a familywise critical value.
 | `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `logit` (the default) or `identity` |
 
 The default band (Mammen multiplier, logit scale, 10,000 draws) is the same for `simultaneous_bands()`,
-`median_bands()`, every estimator and `Inference`. The module docstring of
+`median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
+its range. `DoseResponseTMLE` passes none, so its band is the Mammen band at 10,000 draws on the
+identity scale, and a limit can leave [0, 1]. The module docstring of
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
 says why each choice holds, and `tests/unit/test_band_defaults.py` pins every signature to it. A
 projection curve's band (`ProjectionCurve.band()`, `TMLEResult.effect_curve()`) is a different
@@ -501,10 +503,18 @@ The band-finite-sample rerun re-measured each cell the change moved on its commi
 (`tests/canonical/band-rerun-plan.json` lists them, and
 `tests/canonical/band-rerun-decision.json` records each reading). Every cell that `BAND_CELLS` maps
 to a row passes, so each row that lists the band kind lists `multiplier_kind="mammen"` with
-`band_scale="logit"`.
+`band_scale="logit"`. Five cells that were red before the rerun passed and left their red-cell
+ledgers under the declaration's rule that a red cell turns green when its rerun reading passes.
+That reading re-reads the same replicates under the new band, paired, rather than replicating
+them independently; the cells were selected on the same data; and no family-wise control spans
+the 81 per-cell 99% tests. A red cell also binds a row whose band another cell licenses: the
+`categorical_ltmle` cell of `default-simultaneous-bands` measures the default band of row
+`G08.in_sample` at joint coverage 0.9191 to 0.9458, so that row's band reads `experimental` with
+the reading as its reason.
 
-Two studies pin 1,000 draws by design, so row `D09` needs at least 1,000 and
-every other row at least 10,000. Fewer draws make the band `experimental`. The `rademacher` and
+Row `D09` licenses its band at 1,000 draws, the count `multi-arm-mar-drtmle` pins by design, and
+every other row needs at least 10,000. `composite-missing-drtmle` pins 1,000 draws too, but its
+band cells license no row. Fewer draws make the band `experimental`. The `rademacher` and
 `normal` multipliers and `band_scale="identity"` read `experimental` on every row, with the reason
 "no registered study after band-finite-sample". The `longitudinal-sdr` study still reports the
 former default band (Rademacher, identity scale, 2,000 draws) on its own fits, at joint coverage

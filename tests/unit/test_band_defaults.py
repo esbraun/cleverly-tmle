@@ -30,7 +30,14 @@ from cleverly.inference.multiplier import (
     multiplier_critical_value,
     simultaneous_bands,
 )
-from cleverly.longitudinal import IPSI, LTMLE, SDR, StructuralNestedMean, SurvivalCTMLE
+from cleverly.longitudinal import (
+    IPSI,
+    LTMLE,
+    SDR,
+    StructuralNestedMean,
+    SurvivalCTMLE,
+    SurvivalDRTMLE,
+)
 
 from .test_conditional_contrast import law_study, linear_contrast, oracle
 
@@ -43,6 +50,8 @@ BAND_SIGNATURES: tuple[tuple[Any, str, str, str], ...] = (
     (SDR, "n_multiplier", "multiplier_kind", "band_scale"),
     (IPSI, "n_multiplier", "multiplier_kind", "band_scale"),
     (SurvivalCTMLE, "n_multiplier", "multiplier_kind", "band_scale"),
+    # It builds no band and refuses simultaneous=True; its options still take the default.
+    (SurvivalDRTMLE, "n_multiplier", "multiplier_kind", "band_scale"),
     (StructuralNestedMean, "n_multiplier", "multiplier_kind", "band_scale"),
 )
 
@@ -134,3 +143,14 @@ def test_the_support_tables_read_the_default_band() -> None:
 
     assert DEFAULT_BAND_OPTION == (DEFAULT_KIND, DEFAULT_BAND_SCALE)
     assert DEFAULT_BAND_DRAWS == DOSE_RESPONSE_BAND_DRAWS == DEFAULT_N_REPLICATES
+
+
+def test_the_drift_corrected_survival_tmle_takes_the_band_options_and_builds_no_band() -> None:
+    """Its multiplier options are inert, as on the other engines; only a band is refused."""
+    from cleverly.exceptions import CapabilityError
+
+    arms = {"a1": 1, "a0": 0}
+    other = {"n_multiplier": 500, "multiplier_kind": "rademacher", "band_scale": "identity"}
+    assert SurvivalDRTMLE(arms, **other)._settings_refusal() is None
+    with pytest.raises(CapabilityError, match="band"):
+        SurvivalDRTMLE(arms, simultaneous=True)._validate_settings()

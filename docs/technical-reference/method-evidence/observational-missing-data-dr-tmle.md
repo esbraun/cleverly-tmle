@@ -191,9 +191,13 @@ two-sided test is 0.738, and at n = 1,000 it is 0.957. The design of the band ce
 `tests/unit/test_simultaneous_cell_design.py`: pointwise joint coverage 0.8832, 0.8835 and 0.8220,
 and control power 1.0 at 2,400 replications. The study fixes `n_multiplier=1_000` by design, so
 its bands measure the Mammen multiplier on the logit scale at 1,000 draws rather than the default
-10,000. When the default band moved from the Rademacher multiplier on the identity scale, the
-band-finite-sample rerun ran the whole study again on its own seeds with the new band, and no
-verdict changed (`tests/canonical/band-rerun-decision.json`).
+10,000. When the default band moved from the Rademacher multiplier on the identity scale, a
+targeted rerun of the band fits alone missed the replay rule (tolerance 1e-9): one estimate of the
+observational pointwise control at replication r855 moved by 1.3e-9, with the baseline run under
+Python 3.13.7 and NumPy 2.5.3 and the rerun under 3.13.16 and 2.5.4. So the band-finite-sample
+rerun ran the whole study again on its own seeds with the new band, and no verdict changed
+(`tests/canonical/drtmle_composite/band_rerun/complete-rerun.json` records the miss, and
+`tests/canonical/band-rerun-decision.json` the readings).
 
 ## Measured values and declared margins
 

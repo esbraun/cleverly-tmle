@@ -334,7 +334,13 @@ no condition masks it. The fit reads no learner before the preflight ends.
 
 The targeting and fitting options also run as experimental. The condition is collected in the
 same preflight, and `tests/unit/test_option_support.py` checks each label against the fit
-without the option.
+without the option. The support key records each option too (`point_key`, `longitudinal_key`),
+and `step_bound=` and `iterate=` only under a declared stopping rule. A fit that declares an
+option then matches only a row whose study declared it; today those are the `conditional-projection` rows, which fit one outcome
+regression per arm (`outcome_by_arm=True`). When the nearest row differs on options, the
+reason names each differing option, with the fit's value when that value is a word, an integer,
+a truth value or `None`. Each key value and the reason are checked in
+`tests/unit/test_support_key.py`.
 
 | option | runs as experimental | keeps the label of the fit | roadmap |
 | --- | --- | --- | --- |
@@ -344,10 +350,10 @@ without the option.
 | `patience=` | any value | `None` | X76 |
 | `treatment_adjustment=` | a declared subset | the whole adjustment set | X76 |
 
-The longitudinal support rows read four fitting options (`_x33_options` in
-`src/cleverly/_support_rows.py`). No registered study fits `ratio_trim=` or a declared
-`markov_order`, so a fit with either matches no row and carries the experimental label. The rows
-`G45.mean_model` and `G45.hazard_model` of the [node-bounds study](method-evidence/survival-node-bounds.md)
+The longitudinal support rows read the fitting options of `_x33_options` in
+`src/cleverly/_support_rows.py`. No registered study fits `ratio_trim=`, a declared
+`markov_order` or a stopping rule, so a fit with any of them matches no row and carries the
+experimental label. The rows `G45.mean_model` and `G45.hazard_model` of the [node-bounds study](method-evidence/survival-node-bounds.md)
 cover `node_bounds=` together with `hazard_pooling="pooled"` on a held survival design with two
 arms, fitted in sample. Any other
 fit with `node_bounds=` or pooled censoring carries the experimental label.

@@ -2110,6 +2110,23 @@ def _gap_cases() -> tuple[RowCase, ...]:
             400,
         )
     )
+    # default_band_properties.SOURCES refits each source study's subject fit with the default
+    # band; these two configurations classify onto rows that cite the study for a red reading.
+    for row, setting, where, n in (
+        ("T30", "cde_z0", "default_band_properties.py:149", 2000),
+        ("G08.in_sample", "categorical_ltmle", "default_band_properties.py:110", 400),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "default-simultaneous-bands",
+                setting,
+                where,
+                "default_band_properties",
+                lambda study, setting=setting, n=n: study.SOURCES[setting].draw(n, 0)[0],
+                lambda study, frame, setting=setting: study.SOURCES[setting].fit(frame),
+            )
+        )
     return tuple(cases)
 
 
@@ -3023,6 +3040,36 @@ def _long_horizon_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+# The cases of the X76 option studies' rows, one function per part beside its row function in
+# cleverly._support_rows, each empty until its study passes.
+def _x76_stopping_point_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
+def _x76_by_arm_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
+def _x76_patience_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
+def _x76_adjustment_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
+def _x76_stopping_long_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
+def _x76_trim_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
+def _x76_markov_cases() -> tuple[RowCase, ...]:
+    return ()
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -3054,4 +3101,11 @@ CASES: tuple[RowCase, ...] = (
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
+    *_x76_stopping_point_cases(),
+    *_x76_by_arm_cases(),
+    *_x76_patience_cases(),
+    *_x76_adjustment_cases(),
+    *_x76_stopping_long_cases(),
+    *_x76_trim_cases(),
+    *_x76_markov_cases(),
 )
