@@ -1770,6 +1770,29 @@ regressions. A window one node short, a dropped rule block and an arm window tha
 $t-k$ each fail an exact-law check. `SDR` reads the same designs, and the
 same file runs the witnesses and the rule-block control on `SDR`.
 
+The restriction is a statement about the observed-data law, so data can contradict it, but the
+fit does not test it. It shrinks the model's tangent space, so the efficient influence curve of
+the restricted model can differ from the full-history one. The windowed fit uses the
+full-history curve form on smaller designs, so a study can claim a valid interval under the
+restriction and claims no efficiency.
+
+**Evidence.** The declared study `option-markov-order` has not run, so a windowed fit reads
+`experimental`. Its law has four nodes, and the treatment and outcome read one node back, so
+order 1 is the smallest correct window. The study will measure the interval of order 1 on
+$E[Y^{\text{always}}]$ and the ATE and of order 2 on the ATE, beside the full-history fit on the
+same draws. Order 0 drops both sides, and its ATE bias is 1.37 SDs in the exact-law limit at
+$n = 2{,}000$. On a second law the treatment reads only $A_{t-1}$, which the order-0 window
+keeps, so the order-0 fit is unbiased through its mechanisms.
+
+A first version of the law had weak support for the always-treated path. Its order-1 and
+full-history fits both covered 0.919 for $E[Y^{\text{always}}]$ at $n = 2{,}000$. The shortfall
+was the law's, not the window's, so the declared law replaced it.
+
+`tests/unit/test_option_markov_order_witness.py` fits the study law's quadrature form with
+probability weights. Order 1, order 2 and the full history return the truth to $10^{-8}$, and
+order 0 misses it. A window one node short fails the order-1 check, and a mechanism arm window
+that starts at $t-k$ fails the second law's check.
+
 ### Pooled censoring
 
 `LTMLE(hazard_pooling="pooled")` replaces the censoring model of each node with one logistic

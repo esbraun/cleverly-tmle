@@ -1793,3 +1793,9 @@ tests.studies.option_outcome_by_arm_properties,interval_calibration,coverage in 
 tests.studies.option_outcome_by_arm_properties,interval_calibration,noise se ratio below band,none
 tests.studies.option_outcome_by_arm_properties,interval_calibration,se ratio below band,se_high
 tests.studies.option_outcome_by_arm_properties,interval_calibration,se ratio in calibration band,se/0.05
+tests.studies.option_markov_order_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.option_markov_order_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.option_markov_order_properties,interval_calibration,se ratio below band,se_high
+tests.studies.option_markov_order_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.option_markov_order_properties,order_double_robustness,bias equivalent,bias
+tests.studies.option_markov_order_properties,order_necessity,bias discriminated,control_diffuse

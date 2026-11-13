@@ -96,6 +96,7 @@ SYNTHETIC_MODULES = (
     "tests.studies.option_stopping_ltmle_properties",
     "tests.studies.option_treatment_adjustment_properties",
     "tests.studies.option_outcome_by_arm_properties",
+    "tests.studies.option_markov_order_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.

@@ -3945,6 +3945,7 @@ UNCOMMITTED_MODULES: tuple[str, ...] = (
     "tests.studies.option_stopping_ltmle_properties",
     "tests.studies.option_treatment_adjustment_properties",
     "tests.studies.option_outcome_by_arm_properties",
+    "tests.studies.option_markov_order_properties",
 )
 
 
