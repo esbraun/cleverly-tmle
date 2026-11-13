@@ -86,15 +86,18 @@ bagging, neural networks) draws from it. So the seed must reach every learner a 
   Both use `cleverly.learners._fitting.seed_unset`, which keeps explicit seeds and never mutates
   the caller's object. `random_state=None` is the caller asking for no seed, and stays unseeded.
 - A user learner fitted outside those two routes takes the seed in scope through `seed_unset`:
-  the A-TMLE working basis (the fit's seed), the EP final learner (the TMLE seed), the parametric
-  g-formula learners (the estimator's `random_state`), and the marginal sensitivity bounds' quantile
-  and tail learners (the draw's seed).
+  the A-TMLE working basis (the fit's seed), the EP final learner (the TMLE seed), the learned-rule
+  EP learner (each fold's seed), the parametric g-formula learners (the estimator's
+  `random_state`), and the marginal sensitivity bounds' quantile and tail learners (the draw's
+  seed, or 0 when the draw has none, as the default candidates take).
 - A custom learner must take its randomness from its `random_state`. A learner that draws from
   `np.random` directly cannot be seeded from outside.
 - No module seeds numpy's global generator.
 
-The named exception is the boundary learner of a tuned cap (`interventions/tuning.py`,
-`clone(tuner.learner)`), which has no seed in scope. `tests/unit/test_learner_seeding.py` fits a SAGA
+Two named exceptions have no seed in scope. The boundary learner of a tuned cap
+(`interventions/tuning.py`, `clone(tuner.learner)`) is one. `learned_rule_truth`
+(`datasets/treatment_rules.py`) refits the caller's outcome learner unseeded and documents that it
+needs a deterministic learner. `tests/unit/test_learner_seeding.py` fits a SAGA
 candidate under two global seeds and checks that a seeded fit is equal bit for bit and that an
 unseeded one differs. *Reconsider when* a learner needs a different seed per candidate; today every
 candidate takes the same seed, as `default_library(task, random_state=s)` already gives them.

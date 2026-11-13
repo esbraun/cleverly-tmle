@@ -204,7 +204,9 @@ class SuperLearner(BaseEstimator):
         Seed for the inner fold split, and for every library candidate whose own
         ``random_state`` is unset (at any depth of its ``get_params``).  A candidate's
         explicit seed is kept.  ``None`` seeds neither, and a stochastic candidate with no
-        seed of its own then draws from numpy's global generator.
+        seed of its own then draws from numpy's global generator.  A
+        ``numpy.random.Generator`` draws the folds and then one integer seed for the
+        candidates, since scikit-learn estimators do not accept a Generator.
     n_jobs : int
         Number of joblib workers.  Candidate fits across folds are independent
         and are dispatched in parallel.
@@ -335,14 +337,11 @@ class SuperLearner(BaseEstimator):
         if resolved_task == "classification" and levels.size > 2:
             return self._fit_one_vs_rest(x, target, weights, levels, groups)
 
-        library = [
-            (name, seed_unset(estimator, self.random_state))
-            for name, estimator in _resolve_library(
-                self.library,
-                resolved_task,
-                random_state=self.random_state,
-            )
-        ]
+        library = _resolve_library(
+            self.library,
+            resolved_task,
+            random_state=self.random_state,
+        )
         names = [name for name, _ in library]
 
         folds = make_folds(
@@ -352,6 +351,13 @@ class SuperLearner(BaseEstimator):
             cluster=groups,
             random_state=self.random_state,
         )
+        # Every candidate with no seed of its own takes the ensemble's.  scikit-learn refuses a
+        # Generator as a random_state, so a Generator seed gives one integer drawn from it,
+        # after the fold draw: the fit stays a function of the generator's state.
+        seed: Any = self.random_state
+        if isinstance(seed, np.random.Generator):
+            seed = int(seed.integers(2**32))
+        library = [(name, seed_unset(estimator, seed)) for name, estimator in library]
 
         cv_predictions = self._cross_validate(x, target, weights, library, folds, resolved_task)
 

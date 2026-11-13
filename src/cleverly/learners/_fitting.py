@@ -110,8 +110,8 @@ def seed_unset(learner: Learner, seed: int | None) -> Learner:
     Raises
     ------
     MethodConfigurationError
-        When ``learner`` has no ``set_params`` and a nested ``random_state`` is unset, so the
-        seed cannot be given to it.
+        When an unset ``random_state`` sits on ``learner`` or a nested object that has no
+        working ``set_params``, so the seed cannot be given to it.
 
     Examples
     --------
@@ -137,18 +137,23 @@ def seed_unset(learner: Learner, seed: int | None) -> Learner:
     ]
     if not unset:
         return learner
+    refusal = MethodConfigurationError(
+        f"{type(learner).__name__} cannot take the fit's seed for its unset parameters "
+        f"{sorted(unset)}: it, or the nested object holding one of them, has no working "
+        "set_params, and its fit would draw from numpy's global generator. Give those "
+        "parameters a seed of your own, or pass a learner whose get_params and set_params "
+        "round-trip its constructor arguments, which every scikit-learn estimator, pipeline "
+        "and search does."
+    )
     if callable(getattr(learner, "set_params", None)):
         seeded = clone_learner(learner)
-        seeded.set_params(**dict.fromkeys(unset, seed))
+        try:
+            seeded.set_params(**dict.fromkeys(unset, seed))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise refusal from exc
         return seeded
     if unset != ["random_state"]:
-        raise MethodConfigurationError(
-            f"{type(learner).__name__} has no set_params, so the fit's seed cannot reach its "
-            f"unset nested parameters {sorted(unset)}, and its fit would draw from numpy's "
-            "global generator. Give those parameters a seed of your own, or pass a learner "
-            "whose get_params and set_params round-trip its constructor arguments, which "
-            "every scikit-learn estimator, pipeline and search does."
-        )
+        raise refusal
     # What sklearn.base.clone already relies on for an object with get_params alone.
     return type(learner)(**{**get_params(deep=False), "random_state": seed})
 

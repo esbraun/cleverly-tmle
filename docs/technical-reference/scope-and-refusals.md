@@ -554,17 +554,19 @@ the learner as the fit resolved it holds an explicit integer. A fit with an inte
 first gives that seed to every `random_state` of the learner that is `None`, at any depth, and a
 Super Learner with an integer `random_state` gives its own seed to every library member with no
 seed of its own. The check reads the resolved learner, each nested learner, and each member of a
-Super Learner library, and it reads a member's `None` under such a Super Learner as that seed. It
-reads the declared parameter and not the fitted behavior, so a `None` that no seed reaches is
-refused even where the fit is deterministic.
+Super Learner library, and it reads each library member as the Super Learner's fit seeds it. A
+`None` held inside a list or dict parameter, such as a search grid, is out of that seed's reach
+and is refused. With `repeats` above 1 each draw passes its own seed, a fresh integer under
+`random_state=None`. The check reads the declared parameter and not the fitted behavior, so a
+`None` that no seed reaches is refused even where the fit is deterministic.
 
 | the learner you pass | what replay does |
 | --- | --- |
 | `LinearRegression()` | accepts it, because the class declares no `random_state` |
 | `LogisticRegression(random_state=0)` | accepts it, because the declared state is an explicit integer |
 | `LogisticRegression()`, fit with an integer `random_state` | accepts it, because the fit gives the learner its seed |
-| `LogisticRegression()`, fit with `random_state=None` | refuses it as `longitudinal_replay_random_state_unseeded` |
-| `SuperLearner(library=[LogisticRegression()], random_state=None)`, fit with `random_state=None` | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `LogisticRegression()`, fit with `random_state=None` at one draw | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `SuperLearner(library=[LogisticRegression()], random_state=None)`, fit with `random_state=None` at one draw | refuses it as `longitudinal_replay_random_state_unseeded` |
 | `LogisticRegression(random_state=rng)`, for a generator `rng` | refuses it as `longitudinal_replay_random_state_non_integer` |
 
 `tests/unit/test_longitudinal_truncation_refit.py` checks an unseeded learner, a non-integer state,

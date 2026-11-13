@@ -12,8 +12,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -1111,6 +1113,17 @@ def test_nested_super_learner_random_states_are_audited() -> None:
         )
         == ()
     )
+
+    # A None in a list-valued parameter is out of get_params(deep=True)'s reach, so the
+    # ensemble's seed never reaches it and the audit, reading what the fit seeds, refuses it.
+    unreached = GridSearchCV(
+        TransformedTargetRegressor(regressor=Ridge()),
+        {"regressor": [RandomForestRegressor(n_estimators=5)]},
+        cv=2,
+    )
+    assert _replay_random_state_omissions(
+        [SuperLearner(library=[unreached], n_folds=2, random_state=7)]
+    ) == (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,)
 
     regimen = resolve_regimens({"always": 1}, 2)[0]
     for ensemble_state, expected in ((7, ()), (None, (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,))):

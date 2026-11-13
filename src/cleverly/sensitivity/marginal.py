@@ -1129,7 +1129,8 @@ def marginal_sensitivity_bounds(
         The regression of the tail pseudo-outcome. By default the bounds select, by
         out-of-fold squared loss, between a linear regression and a shallow booster.
         A declared learner, and the regressor ``quantile_learner`` returns, take the
-        cross-fitting draw's seed for every ``random_state`` they leave unset.
+        cross-fitting draw's seed (0 when the draw has none, as the default candidates take)
+        for every ``random_state`` they leave unset.
 
     Returns
     -------

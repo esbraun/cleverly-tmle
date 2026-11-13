@@ -1298,11 +1298,11 @@ class _LongitudinalReplayRecipe:
 def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ...]:
     """Return stable reasons the recursive learner templates cannot replay exactly.
 
-    A ``random_state`` of ``None`` inside the library of a :class:`SuperLearner` whose own
-    ``random_state`` is set is not an omission: the ensemble gives every candidate with no
-    seed of its own its seed at fit
-    (:func:`~cleverly.learners._fitting.seed_unset`), so it is read as that inherited seed.
-    A ``None`` that no seed reaches is.
+    A :class:`SuperLearner` seeds its library at fit with
+    :func:`~cleverly.learners._fitting.seed_unset` and its own ``random_state``, so the audit
+    reads each library member as that function returns it: the audit accepts exactly the
+    ``None`` seeds the fit replaces, and refuses one it does not reach (a ``None`` held in a
+    list or dict parameter, which ``get_params(deep=True)`` does not expand).
     """
 
     omissions: list[str] = []
@@ -1313,38 +1313,42 @@ def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ..
         elif isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
             omissions.append(LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER)
 
-    seen: set[tuple[int, int]] = set()
+    seen: set[int] = set()
 
-    def visit(value: Any, inherited: Any) -> None:
-        if (id(value), id(inherited)) in seen:
+    def as_fitted(entry: Any, seed: Any) -> Any:
+        """A library entry as the ensemble's fit seeds it; the name of a pair is dropped."""
+        if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], str):
+            entry = entry[1]
+        return seed_unset(entry, seed)
+
+    def visit(value: Any) -> None:
+        if id(value) in seen:
             return
-        seen.add((id(value), id(inherited)))
+        seen.add(id(value))
         if isinstance(value, Mapping):
             for item in value.values():
-                visit(item, inherited)
+                visit(item)
             return
         if isinstance(value, (tuple, list)):
             for item in value:
                 # Named Super Learner candidates are ``(name, estimator)`` pairs; the
                 # string is harmless and the estimator is reached on the next item.
-                visit(item, inherited)
+                visit(item)
             return
         get_params = getattr(value, "get_params", None)
         if not callable(get_params):
             return
         params = get_params(deep=False)
-        own = params.get("random_state")
-        seed = inherited if own is None else own
         for name, item in params.items():
             if name == "random_state":
-                classify(seed)
-            elif isinstance(value, SuperLearner) and name == "library":
-                visit(item, seed)
+                classify(item)
+            elif isinstance(value, SuperLearner) and name == "library" and item is not None:
+                visit([as_fitted(entry, params.get("random_state")) for entry in item])
             else:
-                visit(item, inherited)
+                visit(item)
 
     for learner in learners:
-        visit(learner, None)
+        visit(learner)
     return tuple(dict.fromkeys(omissions))
 
 
@@ -6923,9 +6927,9 @@ class LTMLE(_SequentialEstimator):
         differ.  The one-step hazard walk ranks its steps by the norm it walks on and takes the
         last of any tie, so ``"best"`` there reports the last accepted step.
     random_state : int or None
-        The seed of the outer split.  A default learner, and a
-        :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
-        ``None`` draws a fresh seed for the split.
+        The seed of the outer split.  Every learner ``random_state`` that is ``None``,
+        including those of a :class:`~cleverly.learners.SuperLearner`'s candidates, inherits
+        it.  ``None`` draws a fresh seed for the split.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7243,7 +7247,8 @@ class SDR(_SequentialEstimator):
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed of the outer split, inherited by a default learner.
+        The seed of the outer split, inherited by every learner ``random_state`` that is
+        ``None``, including a Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7529,7 +7534,8 @@ class IPSI(_SequentialEstimator):
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed of the outer split, inherited by a default learner.
+        The seed of the outer split, inherited by every learner ``random_state`` that is
+        ``None``, including a Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -7995,7 +8001,8 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed inherited by a default learner.
+        The seed inherited by every learner ``random_state`` that is ``None``, including a
+        Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
@@ -8215,7 +8222,8 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
         ``"logit"`` builds it on the logit of the estimate's position in its range
         (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None
-        The seed inherited by a default learner.
+        The seed inherited by every learner ``random_state`` that is ``None``, including a
+        Super Learner's candidates.
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int

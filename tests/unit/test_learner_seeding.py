@@ -40,15 +40,21 @@ from cleverly import (
     TrialATE,
     TrialWithExternalData,
 )
-from cleverly.bases import Linear, Sieve
+from cleverly.bases import Linear, Modifiers, Sieve
 from cleverly.estimators import TMLE
 from cleverly.exceptions import MethodConfigurationError
+from cleverly.interventions import LearnedRule
 from cleverly.learners._fitting import seed_unset
 from cleverly.learners.super_learner import resolve_learner
 from cleverly.longitudinal import ParametricGFormula
 from cleverly.sensitivity import marginal_sensitivity_bounds
+from tests.studies import _learned_rule_law as learned_rule_law
+from tests.unit import _learned_rule_support as learned_rule_support
 from tests.unit.test_ep_contract import MODIFIERS, law_study, oracle
 from tests.unit.test_marginal_sensitivity import gaussian_frame
+
+#: The learned-rule EP modifiers of ``tests/unit/test_learned_rule_ep.py``.
+EP_RULE_MODIFIERS = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
 
 #: Two global seeds under which an unseeded stochastic fit differs.
 GLOBAL_SEEDS = (1, 2)
@@ -230,7 +236,7 @@ def test_a_learner_without_set_params_is_rebuilt_with_the_seed() -> None:
 
 def test_a_nested_unset_seed_without_set_params_is_refused_by_name() -> None:
     learner = _NoSetParams(random_state=1, nested=_saga())
-    with pytest.raises(MethodConfigurationError, match="_NoSetParams has no set_params"):
+    with pytest.raises(MethodConfigurationError, match="_NoSetParams cannot take the fit's seed"):
         seed_unset(learner, 5)
 
 
@@ -409,3 +415,44 @@ def test_the_parametric_g_formula_seeds_declared_learners(random_state: int | No
     assert settings is not None
     assert settings.treatment_learner.random_state == random_state
     assert declared.random_state is None
+
+
+def test_the_learned_rule_ep_learner_takes_each_fold_seed(recorded: list[Any]) -> None:
+    """The EP loss fits its declared learner directly, so it takes the fold's seed there."""
+    result = learned_rule_support.fit(
+        learned_rule=LearnedRule(
+            loss="ep",
+            modifiers=EP_RULE_MODIFIERS,
+            sieve=Sieve.default(EP_RULE_MODIFIERS, max_size=3, size=2),
+            learner=_RecordsSeed(),
+        )
+    )
+    _, fold_seeds = learned_rule_law.split_seeds(result)
+    assert recorded
+    assert set(recorded) == set(fold_seeds)
+
+
+def test_a_nested_object_without_set_params_is_refused_by_name() -> None:
+    """A pipeline step with ``get_params`` and no ``set_params`` gets the named refusal."""
+    learner = Pipeline([("model", _NoSetParams())])
+    with pytest.raises(MethodConfigurationError, match="Pipeline cannot take the fit's seed"):
+        seed_unset(learner, 5)
+    assert learner.get_params()["model__random_state"] is None
+
+
+def test_a_generator_seed_keeps_and_seeds_its_candidates() -> None:
+    """scikit-learn refuses a Generator, so the ensemble draws one integer seed from it."""
+    x, y = _draw()
+
+    def ensemble() -> SuperLearner:
+        return SuperLearner(
+            [("saga", _saga()), ("glm", LogisticRegression())],
+            task="classification",
+            n_folds=3,
+            random_state=np.random.default_rng(0),  # type: ignore[arg-type]
+        )
+
+    fitted = [_under(seed, lambda: ensemble().fit(x, y)) for seed in GLOBAL_SEEDS]
+    assert fitted[0].learner_names_ == ("saga", "glm")
+    assert isinstance(fitted[0].fitted_learners_[0].random_state, int)
+    assert np.array_equal(fitted[0].predict_proba(x), fitted[1].predict_proba(x))

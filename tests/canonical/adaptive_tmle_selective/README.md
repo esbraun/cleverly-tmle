@@ -31,13 +31,19 @@ python -m tests.canonical.adaptive_tmle_trial.pilot --study selective --replicat
 
 The committed run predates two result-determining changes, so a replay at main reproduces its
 rows only approximately. Its lasso candidate came from `default_library(task)` with no seed, so
-for a binary target the SAGA solver drew its sample order from numpy's global generator and no
-two runs agreed; `SuperLearner(random_state=...)` now gives that candidate the ensemble's seed. The
-run also predates #605, which made `meta_learner="auto"` pick `cc_ls` for the regression outcome
-ensemble, where the run used NNLS. The owner decided on 2026-11-13 not to rerun for these changes
-("we should wait for a more substantial change than seeding to rerun studies"), so the study's
-`CONFIGURATION` keeps describing what the run ran. The Fix-5 A/B replay of 20 replicates measured
-the gap in the estimate at a median of 2e-5 and a maximum of 0.007.
+for a binary target the SAGA solver drew its sample order from numpy's global generator;
+`SuperLearner(random_state=...)` now gives that candidate the ensemble's seed. The run also
+predates #605, which made `meta_learner="auto"` pick `cc_ls` for the regression outcome ensemble,
+where the run used NNLS. The owner decided on 2026-11-13 not to rerun for these changes ("we
+should wait for a more substantial change than seeding to rerun studies"), so the study's
+`CONFIGURATION` keeps describing what the run ran.
+
+Two measurements bound what a replay shows, and neither is the full-size gap, which was not
+measured. Two unseeded replays of 20 replicates at main 1702164, both after #605, differed from
+each other by a median of 2e-5 and a maximum of 0.007 in the estimate: that is the run-to-run
+spread of the unseeded code. A replay of 2 replicates (4 rows) at main 0ffb28e differed from the
+committed rows by at most 0.0030
+(`replay --studies adaptive-tmle-selective --replicates 2 --jobs 4`).
 
 ## Declaration history
 
