@@ -1792,8 +1792,9 @@ def is_multinode(data: LongitudinalData) -> bool:
 #: eight whole one-step fits of a known policy with full support at every node (logistic
 #: learners, one fold), recorded in ``tests/unit/test_hazard_multinode.py`` as ``PEAKS``.  Least
 #: squares on ``(nTU, nTUJ)`` gives 145 and 132 bytes (on ``nTUJ`` alone, 257).  The constants are
-#: raised to 165 and 150, so the prediction exceeds every measured peak by 10 to 17 per cent;
-#: the bytes per value did not grow with ``T`` or ``U`` across the fixtures (``U`` up to 128).
+#: raised to 165 and 150, so with the design floor the prediction exceeds every measured peak by
+#: 13 to 42 per cent (13 to 20 per cent except the 44-column fixture, where the floor adds); the
+#: bytes per value did not grow with ``T`` or ``U`` across the fixtures (``U`` up to 128).
 PATH_SLOT_BYTES = 165.0
 
 #: Bytes per value of an ``(n, T, U, J)`` array in the traced peak; see :data:`PATH_SLOT_BYTES`.
@@ -2010,9 +2011,13 @@ def _enumerate_paths(
 ) -> tuple[list[FloatArray], list[FloatArray], list[int], tuple[int, ...]]:
     """Every regimen's ``(n, T)`` treatment paths, their ``(n,)`` masses and owners.
 
-    Each regimen's paths are built from the regimen on every row (:func:`path_slots`), with
-    the cap (H17) checked after every node at which a regimen draws from a policy.  The
-    fourth entry counts, per regimen, the nodes at which it draws from a known policy.
+    Each regimen's paths are built from the regimen on every row (:func:`path_slots`).  The
+    cap (H17) applies when some regimen draws from a policy, and it reads the paths of every
+    regimen whatever their order: during a policy's enumeration it counts the paths so far
+    plus one for each regimen that never draws (a lower bound of the final count, so a
+    refusal there is final and the enumeration stops early), and once all paths are built it
+    is checked on the full count.  The fourth entry counts, per regimen, the nodes at which
+    it draws from a known policy.
     """
     from .regimen import DynamicRegimen, Regimen, counterfactual_policy_density
 
@@ -2023,6 +2028,25 @@ def _enumerate_paths(
     masses: list[FloatArray] = []
     owners: list[int] = []
     draws: list[int] = []
+    fixed = [not _draws_from_policy(plan.regimen, n_times) for plan in plans]
+
+    def check(label: str, drawn: int, own: int, total: int) -> None:
+        peak = path_peak(n, n_times, total, n_causes, n_columns)
+        if peak > PATH_PEAK_LIMIT:
+            raise CapabilityError.from_refusal(
+                hazard_path_cap_refusal(
+                    label,
+                    drawn,
+                    own,
+                    n=n,
+                    n_times=n_times,
+                    n_slots=total,
+                    n_causes=n_causes,
+                    n_columns=n_columns,
+                    peak=peak,
+                )
+            )
+
     for r, plan in enumerate(plans):
         regimen = plan.regimen
         current: list[tuple[FloatArray, FloatArray]] = [(np.zeros((n, n_times)), np.ones(n))]
@@ -2078,28 +2102,26 @@ def _enumerate_paths(
                 # one level per arm, and that engine fits any number of rows uncapped.  The
                 # cap guards the growth that only a draw from a policy causes.
                 continue
-            total = len(paths) + len(current)
-            peak = path_peak(n, n_times, total, n_causes, n_columns)
-            if peak > PATH_PEAK_LIMIT:
-                raise CapabilityError.from_refusal(
-                    hazard_path_cap_refusal(
-                        plan.label,
-                        drawn,
-                        len(current),
-                        n=n,
-                        n_times=n_times,
-                        n_slots=total,
-                        n_causes=n_causes,
-                        n_columns=n_columns,
-                        peak=peak,
-                    )
-                )
+            pending = sum(fixed[r + 1 :])
+            check(plan.label, drawn, len(current), len(paths) + len(current) + pending)
         for codes, mass in current:
             paths.append(codes)
             masses.append(mass)
             owners.append(r)
         draws.append(drawn)
+    if not all(fixed):
+        widest = max((r for r in range(len(plans)) if not fixed[r]), key=lambda r: owners.count(r))
+        check(plans[widest].label, draws[widest], owners.count(widest), len(paths))
     return paths, masses, owners, tuple(draws)
+
+
+def _draws_from_policy(regimen: object, n_times: int) -> bool:
+    """Whether a regimen draws its treatment from a known policy or a tilt at some node."""
+    from .regimen import DynamicRegimen
+
+    return isinstance(regimen, DynamicRegimen) and any(
+        regimen.is_policy(time) or regimen.is_tilt(time) for time in range(1, n_times + 1)
+    )
 
 
 def _path_structure(
@@ -4069,7 +4091,7 @@ def hazard_later_mtp_refusal(label: str, time: int) -> Refusal:
     )
 
 
-def hazard_declared_mechanism_refusal(factor: str, time: int, name: str) -> Refusal:
+def hazard_declared_mechanism_refusal(factor: str, time: int, name: str, first: str) -> Refusal:
     """The refusal of a declared mechanism factor that depends on the treatment history (H26).
 
     Parameters
@@ -4080,6 +4102,9 @@ def hazard_declared_mechanism_refusal(factor: str, time: int, name: str) -> Refu
         The node, counted from one.
     name : str
         The treatment or censoring column of that node.
+    first : str
+        The treatment column of the first node, named in the mapping form that declares it
+        alone.
 
     Returns
     -------
@@ -4097,7 +4122,11 @@ def hazard_declared_mechanism_refusal(factor: str, time: int, name: str) -> Refu
         "give. Only the treatment probabilities of the first node, which follow no earlier "
         "treatment, can be declared on this fit.",
         "Leave this factor to be estimated by its learner, or use "
-        "survival_model='iterated_mean', which reads declared factors at the observed history.",
+        "survival_model='iterated_mean', which reads declared factors at the observed history. "
+        f"To declare the treatment probabilities of the first node alone, pass the mapping form "
+        f"treatment_probabilities="
+        f"{{{first!r}: {{level: column or array, ...}}}}; an array over every node is refused "
+        "even when its later columns are missing.",
     )
 
 
@@ -4136,13 +4165,15 @@ def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSp
         for time in range(2, data.n_times + 1):
             if known.treatment_at(time) is not None:
                 raise CapabilityError.from_refusal(
-                    hazard_declared_mechanism_refusal("treatment", time, data.decision_name(time))
+                    hazard_declared_mechanism_refusal(
+                        "treatment", time, data.decision_name(time), data.decision_name(1)
+                    )
                 )
         for time in range(1, data.n_times + 1):
             if known.censoring_at(time) is not None:
                 raise CapabilityError.from_refusal(
                     hazard_declared_mechanism_refusal(
-                        "censoring", time, data.censoring_names[time - 1]
+                        "censoring", time, data.censoring_names[time - 1], data.decision_name(1)
                     )
                 )
     for regimen in regimens:

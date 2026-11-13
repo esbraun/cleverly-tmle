@@ -535,7 +535,10 @@ def test_h26_a_known_tilt_after_the_first_node_is_refused() -> None:
         "declared value does not give. Only the treatment probabilities of the first node, "
         "which follow no earlier treatment, can be declared on this fit. Leave this factor to "
         "be estimated by its learner, or use survival_model='iterated_mean', which reads "
-        "declared factors at the observed history."
+        "declared factors at the observed history. To declare the treatment probabilities of "
+        "the first node alone, pass the mapping form treatment_probabilities={'A1': {level: "
+        "column or array, ...}}; an array over every node is refused even when its later "
+        "columns are missing."
     )
     tilt = DynamicRegimen("tilt", (1, Incremental({0: 1.0, 1: 2.0, 2: 1.0}), 1))
     for regimens in ({"tilt": tilt}, {"always": (1, 1, 1)}):

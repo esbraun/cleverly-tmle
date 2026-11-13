@@ -1099,3 +1099,35 @@ def test_h17_static_arms_are_not_capped_at_any_size(monkeypatch: pytest.MonkeyPa
         LTMLE({**arms, "once": once}, survival_model="hazard", n_folds=1, **_untouched()).fit(
             frame, **columns
         )
+
+
+@pytest.mark.parametrize("policy_first", [True, False])
+def test_h17_counts_every_regimen_whatever_their_order(
+    monkeypatch: pytest.MonkeyPatch, policy_first: bool
+) -> None:
+    """Four static arms and a policy that draws at node 1 hold six paths, over the limit
+    here, and five paths are under it: the fit is refused in either order of the regimens."""
+    n, n_times = 2_000, 6
+    frame, columns = _random_panel(n, n_times)
+    monkeypatch.setattr(hazard_module, "PATH_SLOT_BYTES", 0.0)
+    monkeypatch.setattr(
+        hazard_module, "PATH_STATE_BYTES", hazard_module.PATH_PEAK_LIMIT / (n * n_times * 5.5)
+    )
+    p = n_times + 1
+    assert (
+        hazard_module.path_peak(n, n_times, 5, 1, p)
+        < hazard_module.PATH_PEAK_LIMIT
+        < hazard_module.path_peak(n, n_times, 6, 1, p)
+    )
+    arms: dict[str, Any] = {
+        "always": (1,) * n_times,
+        "never": (0,) * n_times,
+        "late": (0, 0, 0, 1, 1, 1),
+        "early": (1, 1, 1, 0, 0, 0),
+    }
+    once = {"once": DynamicRegimen("once", (_coin(1),) + (1,) * (n_times - 1))}
+    chosen = {**once, **arms} if policy_first else {**arms, **once}
+    with pytest.raises(CapabilityError, match=r"regimen 'once' .* 6 paths, 1 causes"):
+        LTMLE(chosen, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
+    with pytest.raises(_Reached):
+        LTMLE(arms, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
