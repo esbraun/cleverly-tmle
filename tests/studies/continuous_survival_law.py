@@ -182,10 +182,10 @@ def event_time_quartiles(n: int = 2_000_000, seed: int = 2026911951) -> tuple[fl
 
 
 TRUTH: Mapping[str, float] = truth()
-#: The first target time.  Its rows are published but not gated: at n = 4,000 the
-#: influence-curve standard error of the treated arm's risk of cause 2 there reads about 6% below
-#: the sampling spread (13% at 1,000), so coverage sits at 0.88 to 0.92 although the estimate is
-#: unbiased and efficient (pilot at 1756bf8; X91-G-design.md section 15).
+#: The first target time.  Its rows are published but not gated: in the committed pilot
+#: (aa19c6d6, cross-fitted) the influence-curve standard error there reads up to 10% below the
+#: sampling spread at n = 1,000 (5% at 4,000) and coverage runs 0.878 to 0.956 at 1,000 (0.926
+#: to 0.957 at 4,000), although the estimate is unbiased and efficient (X91-G-design.md 15).
 EARLY_TIME = TIMES[0]
 #: The targets the record gates: every one at the two later times.
 GATED: tuple[str, ...] = tuple(name for name in TRUTH if f"@ t={EARLY_TIME:g}]" not in name)

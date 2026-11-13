@@ -106,8 +106,9 @@ class ContinuousSurvivalRecord:
         :math:`\\pi S_c(t_K^-)` at the last target time is below the floor: the
         counterfactual reach of the positivity bound.
     frozen_share : float
-        The share of (unit, arm) pairs, over both arms, that the walk held in place once a step
-        would have taken their survival at the last target time below its floor.
+        The share of (unit, arm) pairs, over both arms, that the walk held for at least one
+        trial step because that step would have taken their survival at the last target time
+        below its floor.  A pair is held for one step only.
     off_grid_share : float
         The share of random times in the window, among those where a score is not identically
         zero, at which the score equation holds to the cutoff.

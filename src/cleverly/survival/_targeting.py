@@ -264,8 +264,9 @@ class WalkResult:
     final_step : float
         The step size at the end.
     frozen_share : float
-        The share of (unit, arm) pairs held in place on at least one step, because that step
-        would have taken their survival at the last target time below the floor.
+        The share of (unit, arm) pairs held for at least one trial step, accepted or not,
+        because that step would have taken their survival at the last target time below the
+        floor.
     history : list of float
         The stopping statistic after each accepted step, the initial fit's first.
     """
@@ -391,11 +392,20 @@ def walk(
         trial = evaluate(problem, candidate)
         low = trial.survival[..., -1] < survival_floor
         if low.any():
-            # Pairs the step takes below the floor are held for this step and the same step is
-            # tried again; they move again on the next step, whose direction is recomputed.
             del candidate, trial
-            frozen |= low
-            ever |= low
+            new = low & ~frozen
+            if new.any():
+                # Pairs the step takes below the floor are held for this step and the same step
+                # is tried again; they move again on the next step, whose direction is
+                # recomputed.
+                frozen |= new
+                ever |= new
+                continue
+            # Only held pairs read below the floor (a tilt of zero can round a held pair's
+            # survival down by an ulp), so holding more cannot help: halve as for a rejection.
+            step /= 2
+            halvings += 1
+            frozen[:] = False
             continue
         trial_length = float(np.sqrt(trial.score @ metric @ trial.score))
         if not np.isfinite(trial_length) or trial_length >= length:

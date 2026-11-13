@@ -13,9 +13,11 @@ Scope (Eric's decisions, 2026-11-12).  The record gates the default fit, cross-f
 n = 1,000, on the twelve targets at the two later times.  At n = 4,000 the shared rules asked for
 about 800 core-hours, so the full-sample fit and both n = 4,000 fits are reported cells.  The
 first time's six targets come from the same primary fits and publish as ``early-time.csv`` with
-no verdict.  At that time the influence-curve standard error of the treated arm's risk of cause 2
-runs below the sampling spread (SE ratio 0.90 at n = 1,000 cross-fitted, 0.95 at 4,000), while the
-estimate is unbiased and its spread matches the efficient one; the roadmap carries the finding.
+no verdict.  At that time the influence-curve standard error runs below the sampling spread (the
+lowest SE ratio, on the control arm's risk of cause 1, is 0.904 at n = 1,000 cross-fitted and 0.947
+at 4,000; the treated arm's risk of cause 2 has the lowest coverage, 0.878 at 1,000), while the
+estimates are unbiased and their spread matches the efficient one; the roadmap carries the
+finding.
 
 Pilot readings the declaration rests on:
 
@@ -44,8 +46,8 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
   nuisance library holds the truth.  Diagnose it against ``tests/unit/test_continuous_survival.py``
   (the exact-law influence curve and its mutation controls).
 * A red coverage or SE-ratio row of ``both_cf_1k`` at the middle time on cause 2 of the treated
-  arm, with its SE ratio's 99% interval below 1, its bias equivalent and its coverage interval
-  reaching 0.90, reads as the early-time standard-error finding reaching the middle time at
+  arm, with its SE ratio's 99% interval below 1, its bias equivalent and its coverage interval's
+  upper bound at or above 0.90, reads as the early-time standard-error finding reaching the middle time at
   n = 1,000, and takes the route above with the measured ratio stated.  Any other red
   coverage row is a variance defect suspect.
 * A red positive ``double_robustness`` cell is a defect suspect, except that

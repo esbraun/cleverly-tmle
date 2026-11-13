@@ -236,6 +236,34 @@ def test_freezing_the_other_cause_keeps_the_bias(
     assert np.max(np.abs(_bias(result.evaluation.psi))) > 1e-3
 
 
+def test_a_held_pair_that_still_reads_below_the_floor_halves_the_step(
+    wrong_hazard: tuple[Problem, np.ndarray], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A tilt of zero can round a held pair's survival down by an ulp.  Here every trial pushes
+    # the lowest pair down, held or not, so holding it cannot help: the walk must halve, where
+    # retrying the same step would loop forever.
+    import signal
+
+    problem, dlam = wrong_hazard
+    lowest = np.unravel_index(np.argmin(evaluate(problem, dlam).survival[..., -1]), (2, problem.n))
+    original = _targeting.tilt_jumps
+
+    def rounding(current: np.ndarray, increment: np.ndarray) -> np.ndarray:
+        out = original(current, increment)
+        out[lowest[0], :, lowest[1]] *= 1.01
+        return out
+
+    monkeypatch.setattr(_targeting, "WALK_SURVIVAL_FLOOR", 1.0)
+    monkeypatch.setattr(_targeting, "tilt_jumps", rounding)
+    signal.signal(signal.SIGALRM, lambda *_: pytest.fail("the walk did not stop"))
+    signal.alarm(60)
+    try:
+        result = walk(problem, dlam, cutoff=1e-7, max_steps=20_000)
+    finally:
+        signal.alarm(0)
+    assert result.halvings > 0
+
+
 def test_the_true_hazards_take_no_step_under_any_censoring_model() -> None:
     problem, dlam = _problem(tie_rule=False)
     assert walk(problem, dlam, cutoff=1e-12).steps == 0
@@ -607,6 +635,23 @@ def test_a_target_past_one_arms_follow_up_is_refused() -> None:
     with pytest.raises(CapabilityError, match="followed only to"):
         ContinuousSurvivalTMLE([2.0, 6.0], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("jump", "match"), [(0.5, "combined jump of one or more"), (0.45, "survival reaches zero")]
+)
+def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
+    jump: float, match: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both checks read the fitted hazards of one draw, so they raise DataError, which a study
+    # records as a failed replicate; a CapabilityError would stop the whole run.
+    from cleverly.survival import engine
+
+    monkeypatch.setattr(engine, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
+    with pytest.raises(DataError, match=match):
+        ContinuousSurvivalTMLE([2.0], cross_fit=False).fit(
+            _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
         )
 
 

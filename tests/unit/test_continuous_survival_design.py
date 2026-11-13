@@ -278,6 +278,13 @@ class TestTheCells:
         assert set(study.STUDY.scenarios[study.GATED_CELL]) == set(law.GATED)
         reported = set(properties.REPORTED_CELLS)
         assert reported == {*study.PILOT_CELLS, "positivity_4k"} - {study.GATED_CELL}
+        for cell, (configuration, n, _) in properties.REPORTED_CELLS.items():
+            law_name, settings = properties.CONFIGURATIONS[configuration]
+            if cell in study.PILOT_CELLS:
+                cross_fit, size = study.PILOT_CELLS[cell]
+                assert (law_name, settings.get("cross_fit", True), n) == ("base", cross_fit, size)
+            else:
+                assert (law_name, settings, n) == ("positivity", {}, 4_000)
 
     def test_the_record_declares_every_cell_the_module_writes(self) -> None:
         written = {(family, cell) for family, cell, _, _ in properties.declared_truths()}
