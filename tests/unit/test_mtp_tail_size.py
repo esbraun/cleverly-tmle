@@ -174,3 +174,15 @@ def test_the_one_branch_mutation_moves_the_estimate() -> None:
     shipped = _fit(frame, law.OracleRatio())[name]
     mutated = _fit(frame, law.OracleRatio(one_branch=True))[name]
     assert abs(mutated.psi - shipped.psi) > 3 * shipped.std_error
+
+
+def test_a_residual_at_the_policy_dose_moves_the_exact_form() -> None:
+    """Witness 3a on ``p4``: the mutated recursion misses ``Var D`` by more than 1%.
+
+    The shipped form meets it to 1e-8 (witness 1).  The mutation takes each node's residual
+    against its regression at the policy dose.  On ``p1`` the exact move is 0.33%, below the
+    plan's 1% floor, so ``p1`` is not asserted here (reported to the plan).
+    """
+    shipped = tail.diagonal_variance("p4")
+    mutated = tail.diagonal_variance("p4", shift="policy_residual")
+    assert mutated / shipped - 1.0 > 0.01

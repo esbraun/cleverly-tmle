@@ -61,7 +61,7 @@ TAIL_SD_TARGET = 0.25
 
 Quantity = Literal["ey", "ate"]
 Mutation = Literal["none", "one_branch", "first_ratio_only"]
-Shift = Literal["none", "observed_dose", "no_ratio"]
+Shift = Literal["none", "observed_dose", "no_ratio", "policy_residual"]
 
 
 def tail_size(kappa: float) -> int:
@@ -357,11 +357,14 @@ def _inner_terms(
 ) -> np.ndarray:
     r""":math:`S_1(a_1, w)` at each ``(w, a1)`` point, by quadrature over ``L2`` and ``A2``."""
     u = float(law.upper(w2))
-    _, d2_left = law.MAPS[left]
-    _, d2_right = law.MAPS[right]
+    d1_left, d2_left = law.MAPS[left]
+    d1_right, d2_right = law.MAPS[right]
     flat_w, flat_a = w.ravel(), a1.ravel()
-    m1_left = law.first_regression(left, "B", flat_w, np.full(flat_w.size, w2), flat_a, order)
-    m1_right = law.first_regression(right, "B", flat_w, np.full(flat_w.size, w2), flat_a, order)
+    # The policy_residual defect reads each node's regression at the plan's policy dose.
+    at_left = d1_left(flat_a, u) if shift == "policy_residual" else flat_a
+    at_right = d1_right(flat_a, u) if shift == "policy_residual" else flat_a
+    m1_left = law.first_regression(left, "B", flat_w, np.full(flat_w.size, w2), at_left, order)
+    m1_right = law.first_regression(right, "B", flat_w, np.full(flat_w.size, w2), at_right, order)
     a2, weight_a2 = law.dose_nodes(u, order, _extra(u))
     ww, aa = flat_w[:, None], flat_a[:, None]
     total = np.zeros(flat_w.size)
@@ -379,7 +382,13 @@ def _inner_terms(
             np.ones_like(moved) if shift == "no_ratio" else law.node_ratio(right, 2, moved, mean, u)
         )
         m2 = law.outcome_mean(ww, aa, l2, moved)
-        carried = ratio * m2 * (1.0 - m2)
+        target = m2 * (1.0 - m2)
+        if shift == "policy_residual":
+            # E[(Y - m_2(d^L(a)))(Y - m_2(d^R(a))) | a] at the moved dose a.
+            target = target + (m2 - law.outcome_mean(ww, aa, l2, d2_left(moved, u))) * (
+                m2 - law.outcome_mean(ww, aa, l2, d2_right(moved, u))
+            )
+        carried = ratio * target
         total += p * np.sum(weight_a2 * g2 * (e_left * e_right + carried), axis=1)
     return total.reshape(w.shape)
 
@@ -397,9 +406,11 @@ def diagonal_variance(
         ``left`` itself (``None``) or the natural plan.
     order : int, default=40
         The Gauss-Legendre order of each segment.
-    shift : {"none", "observed_dose", "no_ratio"}, default="none"
+    shift : {"none", "observed_dose", "no_ratio", "policy_residual"}, default="none"
         A deliberate defect: evaluate each :math:`S_t` at :math:`A_t` instead of
-        :math:`A^d_t`, or drop the factor :math:`r(A^d)`.
+        :math:`A^d_t`, drop the factor :math:`r(A^d)`, or take each node's residual against
+        its regression at the policy dose :math:`A^d_t` rather than the observed dose (the
+        exact-law reading of witness 3a).
 
     Returns
     -------

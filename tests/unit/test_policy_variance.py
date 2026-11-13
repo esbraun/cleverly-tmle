@@ -7,7 +7,7 @@ The fits below are of the five-node pricing law (``tests/studies/mtp_pricing_com
 wins for the moved plans and the natural plan's diagonal is its influence-curve variance, so
 both sources are exercised.
 
-Witnesses, by number: 4 the fallback, 5 the finite-sample value on law B, 7 the refusals before any learner, 8 the support kind,
+Witnesses, by number: 3b the residual at the observed dose, 4 the fallback, 5 the finite-sample value on law B, 7 the refusals before any learner, 8 the support kind,
 11 nesting, 12 ``contrast()`` and ``ratio()``, 13 ``transform=``, 14 repeats, 15 the
 downstream refusals, 16 the diagnostics and the warning text, plus the save and load round
 trip and the composed interval of a Student-t default.  Witness 6 reproduces the measured probe
@@ -698,12 +698,23 @@ LAW_B_MC_SE = 0.05
 def test_the_finite_sample_variance_meets_the_exact_law() -> None:
     """Witness 5: one 200,000-row law-B draw lands within 3 MC SE of the quadrature value."""
     n = 200_000
-    frame = law_b.sample_b(n, 1)
+    result = _law_b_fit(law_b.sample_b(n, 1), ("natural", "p4"))
+    covariance = result["ey_regimen[p4]"].policy.covariance
+    index = covariance.names.index("ey_regimen[p4]")
+    exact = tail.diagonal_variance("p4")
+    assert abs(n * covariance.matrix[index, index] - exact) < 3 * LAW_B_MC_SE
+
+
+# ----------------------------------------------------------------------------- witness 3b
+
+
+def _law_b_fit(frame: pd.DataFrame, labels: tuple[str, ...]) -> Any:
+    """The boundaries law's correct regressions and exact ratio under the option."""
     outcome, pseudo, _ = boundaries.learners(frame, "correct")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = LTMLE(
-            law_b.regimens(("natural", "p4")),
+        return LTMLE(
+            law_b.regimens(labels),
             reference="natural",
             outcome_learner=outcome,
             pseudo_learner=pseudo,
@@ -724,7 +735,37 @@ def test_the_finite_sample_variance_meets_the_exact_law() -> None:
             time_varying=[[], ["L2"]],
             continuous_treatment={"A1": law_b.SUPPORT, "A2": law_b.SUPPORT},
         )
-    covariance = result["ey_regimen[p4]"].policy.covariance
-    index = covariance.names.index("ey_regimen[p4]")
-    exact = tail.diagonal_variance("p4")
-    assert abs(n * covariance.matrix[index, index] - exact) < 3 * LAW_B_MC_SE
+
+
+def _diagonal(result: Any) -> dict[str, float]:
+    covariance = next(iter(result.estimates.values())).policy.covariance
+    n = len(next(iter(result.estimates.values())).influence_curve)
+    return {name: n * covariance.matrix[i, i] for i, name in enumerate(covariance.names)}
+
+
+def test_a_residual_at_the_policy_dose_moves_the_paired_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Witness 3b: on one 5,000-row law-B sample the mutation moves each moved plan's
+    variance by more than 0.5%, upward, the sign of the exact-law move of witness 3a."""
+    frame = law_b.sample_b(5_000, 1)
+    labels = ("natural", "p1", "p4")
+    shipped = _diagonal(_law_b_fit(frame, labels))
+
+    def at_policy_dose(fit: Any) -> tuple[np.ndarray, ...]:
+        steps = sorted(fit.steps, key=lambda step: step.time)
+        return tuple(
+            np.where(
+                step.trained_on,
+                np.asarray(step.pseudo_outcome)
+                - np.asarray(step.targeted if step.marginal is None else step.marginal),
+                0.0,
+            )
+            for step in steps
+        )
+
+    monkeypatch.setattr(policy_module, "_residuals", at_policy_dose)
+    mutated = _diagonal(_law_b_fit(frame, labels))
+    assert mutated["ey_regimen[natural]"] == shipped["ey_regimen[natural]"]
+    for name in ("ey_regimen[p1]", "ey_regimen[p4]"):
+        assert mutated[name] / shipped[name] - 1.0 > 0.005
