@@ -28,9 +28,10 @@ rows and the verdicts.
 
 **Primary.**  :data:`PRIMARY_REPLICATES` fits of the owner law of ``strata-boundary-mean``
 (``canonical-stratified-tmle``) at :data:`PRIMARY_N`, its ``ey[1][V=2]`` and ``ate[V=2]``.
-The primary rows record the interval the package ships, the baseline the rule is read against;
-the rule's interval and the small-sample columns of the same fits go to ``primary-rule.csv``
-(:func:`extra_artifacts`).
+The primary rows publish the rule's interval in the shared columns, so the primary measures the
+correction the study is about; a withheld interval is published as the point, a miss
+(:func:`primary_limits`).  The shipped interval of the same fits, the baseline, and the
+small-sample columns go to ``primary-shipped.csv`` (:func:`extra_artifacts`).
 
 **Design numbers.**  :func:`two_leg_pass`, :func:`lower_leg_pass`, :func:`paired_gain_power`
 and :func:`family_pass` are the exact binomial sizing of plan 5.4 (``rev4_sizing.py``), and
@@ -540,6 +541,15 @@ def rule_columns(frame: pd.DataFrame, estimand: str, estimate: Any, family: str)
 
     trigger = withheld_trigger(frame, estimand, estimate)
     limits = bounded(estimate)
+    if (
+        estimate.scale in ("level", "difference")
+        and estimate.n_clusters >= estimate.n
+        and (limits is None) != (family == "gaussian")
+    ):
+        raise ValueError(
+            f"{estimand}: a {family} group's level or difference target "
+            f"{'has no' if limits is None else 'has'} bounds; the group's family is misdeclared"
+        )
     nu = estimate.small_sample_df
     low, high, scale = rule_interval(
         float(estimate.psi),
@@ -554,7 +564,9 @@ def rule_columns(frame: pd.DataFrame, estimand: str, estimate: Any, family: str)
             estimate, outcome_family=family, interval_scale=scale, withheld=trigger
         ),
         "nu": math.nan if nu is None else float(nu),
-        "kish": kish_count(curve, rows=curve != 0.0),
+        "kish": kish_count(
+            curve, rows=curve != 0.0, centered=estimate.covariance_rule == "centered"
+        ),
         "bound_low": math.nan if limits is None else limits[0],
         "bound_high": math.nan if limits is None else limits[1],
         "rule_lower": low,
@@ -564,8 +576,9 @@ def rule_columns(frame: pd.DataFrame, estimand: str, estimate: Any, family: str)
 
 # ------------------------------------------------------------------------------ the record
 
-#: The primary rows' rule columns, which the replicate file drops (:func:`extra_artifacts`).
-PRIMARY_RULE_FILE = "primary-rule.csv"
+#: The shipped interval and the small-sample columns of every primary row, which the replicate
+#: file does not carry (:func:`extra_artifacts`).
+PRIMARY_SHIPPED_FILE = "primary-shipped.csv"
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {}
 for _group in GROUPS:
@@ -623,7 +636,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     publication_policy="reporting",
     property_artifacts=("falsifiers.csv",),
-    extra_artifacts=(PRIMARY_RULE_FILE,),
+    extra_artifacts=(PRIMARY_SHIPPED_FILE,),
 )
 
 CONFIGURATION = {
@@ -639,7 +652,8 @@ CONFIGURATION = {
     },
     "primary": (
         f"{PRIMARY_SCENARIO}: canonical_stratified_tmle.fit_cleverly at n={PRIMARY_N}, the "
-        "shipped interval in the shared columns"
+        "rule's interval in the shared columns (a withheld one as the point), the shipped "
+        "interval in primary-shipped.csv"
     ),
 }
 
@@ -659,22 +673,37 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
+#: The shipped interval's columns a primary row carries beside the published schema.
+SHIPPED_COLUMNS = ("shipped_std_error", "shipped_ci_lower", "shipped_ci_upper", "shipped_covered")
 #: The columns a primary row carries beside the published schema.
-PRIMARY_EXTRA_COLUMNS = (*EXTRA_PROPERTY_COLUMNS, "rule_covered")
+PRIMARY_EXTRA_COLUMNS = (*EXTRA_PROPERTY_COLUMNS, *SHIPPED_COLUMNS)
+
+
+def primary_limits(estimate: float, extra: Mapping[str, Any]) -> tuple[float, float]:
+    """The rule's limits a primary row publishes: the point itself when withheld.
+
+    The published schema needs finite ordered limits, and a withheld interval is a miss in
+    every reading of this study, so it is published as the degenerate interval at the estimate,
+    which covers only a truth equal to the estimate.
+    """
+    if extra["withheld"] != "":
+        return estimate, estimate
+    return float(extra["rule_lower"]), float(extra["rule_upper"])
 
 
 def primary_rows(
     frame: pd.DataFrame, truth: Mapping[str, float], scenario: str, replicate: int
 ) -> list[dict[str, Any]]:
-    """The primary rows of one draw: the shipped interval, and the rule beside it."""
+    """The primary rows of one draw: the rule's interval, and the shipped one beside it."""
     result = stratified_tmle.fit_cleverly(frame)
     rows = []
     for name in PRIMARY_ESTIMANDS:
         estimate = result[name]
         reference = float(truth[name])
-        std_error, low, high = reported_inference(estimate)
+        shipped_se, shipped_low, shipped_high = reported_inference(estimate)
         extra = rule_columns(frame, name, estimate, "binomial")
-        shown = extra["withheld"] == ""
+        psi = float(estimate.psi)
+        low, high = primary_limits(psi, extra)
         rows.append(
             {
                 "implementation": STUDY.implementation,
@@ -683,18 +712,19 @@ def primary_rows(
                 "n": len(frame),
                 "estimand": name,
                 "truth": reference,
-                "estimate": float(estimate.psi),
-                "inference_estimate": float(estimate.psi),
-                "std_error": std_error,
+                "estimate": psi,
+                "inference_estimate": psi,
+                "std_error": float(estimate.plugin_std_error),
                 "ci_lower": low,
                 "ci_upper": high,
                 "inference_scale": "identity",
                 "covered": int(low <= reference <= high),
                 "initial_estimate": math.nan,
                 **extra,
-                "rule_covered": int(
-                    shown and extra["rule_lower"] <= reference <= extra["rule_upper"]
-                ),
+                "shipped_std_error": shipped_se,
+                "shipped_ci_lower": shipped_low,
+                "shipped_ci_upper": shipped_high,
+                "shipped_covered": int(shipped_low <= reference <= shipped_high),
             }
         )
     return rows
@@ -731,16 +761,17 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """The rule's reading of every primary row, beside the shipped interval.
+    """The shipped interval of every primary row, beside the rule's reading of it.
 
-    The replicate file keeps the published schema only, so :data:`PRIMARY_RULE_FILE` is where
-    the primary phase publishes the rule's interval, its withheld trigger and the small-sample
+    The replicate file keeps the published schema only, and its interval is the rule's, so
+    :data:`PRIMARY_SHIPPED_FILE` is where the primary phase publishes the interval the package
+    ships today (the baseline the rule replaces), the withheld trigger and the small-sample
     columns of each draw.  No verdict reads it.
     """
     keys = ["scenario", "replicate", "estimand", "truth", "estimate", "std_error"]
     frame = rows.loc[:, [*keys, *PRIMARY_EXTRA_COLUMNS]]
     order = ["scenario", "replicate", "estimand"]
-    return {PRIMARY_RULE_FILE: frame.sort_values(order, ignore_index=True)}
+    return {PRIMARY_SHIPPED_FILE: frame.sort_values(order, ignore_index=True)}
 
 
 # ------------------------------------------------------------------------------ the design

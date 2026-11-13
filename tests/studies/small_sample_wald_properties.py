@@ -19,7 +19,8 @@ as misses; the failure accounting's worst case reads every lost fit as a miss to
 declared lower leg over all ``R`` fits (plan 5.1).  The *upper leg* reads the shown fits only
 (``shown_ci_upper``); a lost fit is absent from it by declaration, like a withheld one.
 ``lower_leg_ci_lower`` and ``lower_leg_ci_upper`` publish the declared lower leg over all
-requested fits directly.
+requested fits directly, and every reading the accounting does not correct reads it
+(:func:`leg_passes`): the falsifiers, the controls and the reported rows.
 
 **Verdicts** (:func:`summarize_properties`): a positive two-sided coverage cell passes when its
 lower leg's 99% lower end is at least 0.92 and its shown-only 99% upper end at most 0.98; a
@@ -108,6 +109,16 @@ SUMMARY_COLUMNS = (
     "gain_b",
     "gain_c",
     "gain_lower",
+    "expected_failed",
+    "paired_se_ratio_difference",
+    "paired_se_ratio_difference_ci_lower",
+    "paired_se_ratio_difference_ci_upper",
+)
+
+#: The leverage pairs whose SE ratios are differenced on their shared draws (plan 5.2.1).
+LEVERAGE_PAIRS = (
+    ("leverage_crossfit_ey1", "leverage_in_sample_ey1"),
+    ("leverage_crossfit_ate", "leverage_in_sample_ate"),
 )
 
 
@@ -350,8 +361,23 @@ def gain_lower(b: int, c: int, level: float = study.PAIRED_GAIN_LEVEL) -> float:
     return float(stats.beta.ppf(1.0 - level, b, c + 1)) if b > 0 else 0.0
 
 
+def _reader(block: pd.DataFrame) -> Any:
+    """The interval a cell's rows record at any level: the rule's, or a control's candidate."""
+    if str(block["property"].iloc[0]) == study.CONTROL:
+        name = CONTROL_CANDIDATE[str(block["cell"].iloc[0]).split("__", 1)[1]]
+        return lambda alpha: candidate_interval(block, name, alpha=alpha)
+    return lambda alpha: rule_vectors(block, alpha=alpha)
+
+
 def cell_readings(block: pd.DataFrame) -> dict[str, Any]:
-    """Every :data:`SUMMARY_COLUMNS` value of one cell's rows (stamped)."""
+    """Every :data:`SUMMARY_COLUMNS` value of one cell's rows (stamped).
+
+    The miss rates and the other levels read the interval the rows' ``covered`` reads: the
+    rule's, or on a control row its control's candidate.  The paired gain compares the rule
+    with the identity normal interval, so a control row leaves it empty.
+    """
+    interval = _reader(block)
+    control = str(block["property"].iloc[0]) == study.CONTROL
     requested = int(block["requested_replicates"].iloc[0])
     covered = block["covered"].to_numpy(dtype=int)
     withheld = block["withheld"].to_numpy()
@@ -359,7 +385,7 @@ def cell_readings(block: pd.DataFrame) -> dict[str, Any]:
     truth = block["truth"].to_numpy(dtype=float)
     psi = block["estimate"].to_numpy(dtype=float)
     se = block["std_error"].to_numpy(dtype=float)
-    low, high = rule_vectors(block, alpha=study.ALPHA)
+    low, high = interval(study.ALPHA)
     out: dict[str, Any] = {"shown_replicates": int(shown.sum())}
     hits = int(covered[shown].sum())
     out["shown_coverage"] = hits / shown.sum() if shown.any() else math.nan
@@ -372,7 +398,7 @@ def cell_readings(block: pd.DataFrame) -> dict[str, Any]:
         out["lower_miss_rate"] = float(np.mean(shown & (truth < low)))
         out["upper_miss_rate"] = float(np.mean(shown & (truth > high)))
     for level in study.REPORTED_LEVELS:
-        at_low, at_high = rule_vectors(block, alpha=1.0 - level)
+        at_low, at_high = interval(1.0 - level)
         out[f"coverage_{round(level * 100):02d}"] = float(np.mean(_covers(block, at_low, at_high)))
     nu = block["nu"].to_numpy(dtype=float)
     nu = nu[np.isfinite(nu)]
@@ -380,7 +406,9 @@ def cell_readings(block: pd.DataFrame) -> dict[str, Any]:
         out[name] = float(np.quantile(nu, q)) if nu.size else math.nan
     error = psi - truth
     out["se_error_correlation"] = (
-        float(np.corrcoef(se, error)[0, 1]) if len(block) > 2 and np.std(se) > 0 else math.nan
+        float(np.corrcoef(se, error)[0, 1])
+        if len(block) > 2 and np.std(se) > 0 and np.std(error) > 0
+        else math.nan
     )
     spread = float(np.std(psi, ddof=1)) if len(block) > 1 else math.nan
     z = float(stats.norm.ppf(1.0 - study.ALPHA / 2.0))
@@ -391,11 +419,61 @@ def cell_readings(block: pd.DataFrame) -> dict[str, Any]:
         applies = bool(np.isfinite(c_low).any() or np.isfinite(c_high).any())
         covers[name] = _covers(block, c_low, c_high)
         out[f"candidate_{name}"] = float(np.mean(covers[name])) if applies else math.nan
+    if control:
+        out["gain_b"] = out["gain_c"] = out["gain_lower"] = math.nan
+        return out
     rule = covered.astype(bool)
     identity = covers["identity_normal"]
     b, c = int(np.sum(rule & ~identity)), int(np.sum(~rule & identity))
     out["gain_b"], out["gain_c"], out["gain_lower"] = b, c, gain_lower(b, c)
     return out
+
+
+def leg_passes(row: pd.Series) -> bool:
+    """Both declared legs: the lower leg over all requested fits, the upper over shown fits.
+
+    The lower leg reads ``lower_leg_ci_lower``, withheld and failed fits as misses over every
+    requested fit (plan 5.1, B-1).  A reading no accounting corrects (a falsifier, a control, a
+    reported row) reads this, not the complete-case ``coverage_ci_lower``.
+    """
+    low, high = STUDY.margins.calibration_coverage
+    return bool(row["lower_leg_ci_lower"] >= low and row["shown_ci_upper"] <= high)
+
+
+def paired_ratio_difference(
+    left: pd.DataFrame, right: pd.DataFrame, *, seed: int
+) -> tuple[float, float, float]:
+    """The difference of two cells' SE ratios on their shared replicates, with its interval.
+
+    Each SE ratio is the mean reported SE over the SD of the estimates.  The bootstrap draws
+    replicates jointly for both cells, :attr:`Margins.bootstrap_replicates` times, and the
+    interval is the percentile one at the study's confidence level.
+    """
+    margins = STUDY.margins
+    joined = left.merge(right, on="replicate", suffixes=("_l", "_r"))
+    if len(joined) < 3:
+        return math.nan, math.nan, math.nan
+
+    def ratio(se: np.ndarray, psi: np.ndarray) -> np.ndarray:
+        return se.mean(axis=-1) / psi.std(axis=-1, ddof=1)
+
+    arrays = {
+        key: joined[key].to_numpy(dtype=float)
+        for key in ("std_error_l", "estimate_l", "std_error_r", "estimate_r")
+    }
+    point = float(
+        ratio(arrays["std_error_l"], arrays["estimate_l"])
+        - ratio(arrays["std_error_r"], arrays["estimate_r"])
+    )
+    rng = np.random.default_rng(seed)
+    index = rng.integers(0, len(joined), size=(margins.bootstrap_replicates, len(joined)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        draws = ratio(arrays["std_error_l"][index], arrays["estimate_l"][index]) - ratio(
+            arrays["std_error_r"][index], arrays["estimate_r"][index]
+        )
+    tail = (1.0 - margins.confidence_level) / 2.0
+    low, high = np.nanquantile(draws, [tail, 1.0 - tail])
+    return point, float(low), float(high)
 
 
 def _law_of(cell: str) -> tuple[str, str] | None:
@@ -459,17 +537,31 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             summary.at[index, "expected_constant_cell"] = laws.constant_cell_share(
                 source[0], int(line["n"]), source[1]
             )
-        ratio = ratio_intervals(
-            block,
-            replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, "se_ratio", family, cell),
-        )["se_ratio"]
+            if source[0] == "h2":
+                # B-1: H2's failed fits against their exact expectation.
+                requested = int(block["requested_replicates"].iloc[0])
+                summary.at[index, "expected_failed"] = (
+                    laws.h2_empty_cell(int(line["n"])) * requested
+                )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            # A cell whose estimates do not vary (fits on a bound) has no finite ratio.
+            ratio = ratio_intervals(
+                block,
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(STUDY, "se_ratio", family, cell),
+            )["se_ratio"]
         summary.at[index, "se_ratio_ci_lower"] = ratio.low
         summary.at[index, "se_ratio_ci_upper"] = ratio.high
-        legs = bool(
-            line["coverage_ci_lower"] >= low and summary.at[index, "shown_ci_upper"] <= high
-        )
+        if line["role"] == DIAGNOSTIC:
+            # No accounting corrects a reported row, so it reads the declared lower leg.
+            legs = leg_passes(summary.loc[index])
+        else:
+            # The complete case; the failure accounting turns it into the worst case, which is
+            # the declared lower leg (D13).
+            legs = bool(
+                line["coverage_ci_lower"] >= low and summary.at[index, "shown_ci_upper"] <= high
+            )
         if family == study.NON_H1:
             passed = bool(
                 line["coverage_ci_lower"] >= study.NON_H1_FLOOR
@@ -483,6 +575,17 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         else:
             passed = legs
         summary.at[index, "passed"] = passed
+    for left, right in LEVERAGE_PAIRS:
+        blocks = [rows.loc[rows["cell"] == name] for name in (left, right)]
+        if any(block.empty for block in blocks):
+            continue
+        point, lower, upper = paired_ratio_difference(
+            *blocks, seed=stream_seed(STUDY, "se_ratio_difference", left, right)
+        )
+        mask = summary["cell"].isin((left, right))
+        summary.loc[mask, "paired_se_ratio_difference"] = point
+        summary.loc[mask, "paired_se_ratio_difference_ci_lower"] = lower
+        summary.loc[mask, "paired_se_ratio_difference_ci_upper"] = upper
     witness = pd.DataFrame([witness_row(rows, summary.columns)])
     summary = pd.concat([summary, witness], ignore_index=True)
     return finish(summary.reset_index(drop=True), rates)
@@ -499,7 +602,7 @@ def _row(summary: pd.DataFrame, family: str, cell: str) -> pd.Series | None:
 def _lower_fails(row: pd.Series | None) -> bool | None:
     if row is None:
         return None
-    return bool(row["coverage_ci_lower"] < STUDY.margins.calibration_coverage[0])
+    return bool(row["lower_leg_ci_lower"] < STUDY.margins.calibration_coverage[0])
 
 
 def _upper_fails(row: pd.Series | None) -> bool | None:
@@ -511,8 +614,7 @@ def _upper_fails(row: pd.Series | None) -> bool | None:
 def _both_pass(row: pd.Series | None) -> bool | None:
     if row is None:
         return None
-    low, high = STUDY.margins.calibration_coverage
-    return bool(row["coverage_ci_lower"] >= low and row["shown_ci_upper"] <= high)
+    return leg_passes(row)
 
 
 #: The declared falsifiers of plan 5.3: name, target class, the cell, the leg that must fail,

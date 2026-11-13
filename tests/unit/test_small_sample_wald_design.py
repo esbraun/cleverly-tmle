@@ -285,6 +285,9 @@ def test_family_pass_probabilities() -> None:
 
 
 def test_reported_and_rejected_designs() -> None:
+    # rare_ate at its inherited withheld share: 0.4933 at perfect calibration (plan 5.4), and
+    # 0.8440 at its exploratory shown coverage 0.9556 (rev3/rev4_sizing.out).
+    assert printed(study.two_leg_pass(0.95, withheld=0.0157), 0.4933, 4)
     assert printed(study.two_leg_pass(0.9556, withheld=0.0157), 0.8440, 4)
     assert printed(study.two_leg_pass(0.970, withheld=1.2e-4), 0.6211, 4)
     assert printed(study.two_leg_pass(0.9533, withheld=1.2e-4), 0.9998, 4)
@@ -474,3 +477,320 @@ def test_held_out_fit_plumbing_on_an_owner_law() -> None:
     weights = inside["W"].value_counts(normalize=True).sort_index()
     plug_in = float((cells[1] * weights).sum())
     assert float(estimate.psi) == pytest.approx(plug_in, abs=0.02)
+
+
+# ------------------------------------------------------------- verdicts, from synthetic rows
+
+
+def synthetic_rows(
+    cell: str,
+    *,
+    family: str,
+    role: str,
+    requested: int,
+    failed: int = 0,
+    withheld: int = 0,
+    covers: int,
+    trigger: str = "constant_cell",
+    estimate: float | None = None,
+) -> pd.DataFrame:
+    """Rows of one cell with known counts: ``failed`` replicates absent, ``withheld`` rows
+    withheld, ``covers`` shown rows covering.  The estimates are a fixed normal sample."""
+    present = requested - failed
+    rng = np.random.default_rng(len(cell) + requested)
+    truth = 0.9 if estimate is not None else 3.0
+    psi = (
+        np.full(present, estimate) if estimate is not None else truth + rng.normal(0, 0.1, present)
+    )
+    flags = np.array([trigger] * withheld + [""] * (present - withheld))
+    covered = np.zeros(present, dtype=int)
+    covered[withheld : withheld + covers] = 1
+    return pd.DataFrame(
+        {
+            "property": family,
+            "cell": cell,
+            "role": role,
+            "replicate": np.arange(failed, requested),
+            "n": 2000,
+            "requested_replicates": requested,
+            "failed_replicates": failed,
+            "truth": truth,
+            "estimate": psi,
+            "std_error": 0.1 + 0.01 * rng.random(present),
+            "covered": covered,
+            "rejected": 1 - covered,
+            "df": 20.0,
+            "curve_kurtosis": 10.0,
+            "carrying_rows": 120,
+            "interval_scale": "identity",
+            "outcome_family": "gaussian",
+            "withheld": flags,
+            "nu": 20.0,
+            "kish": 9.0,
+            "bound_low": math.nan if estimate is None else 0.0,
+            "bound_high": math.nan if estimate is None else 1.0,
+            "rule_lower": psi - 0.2,
+            "rule_upper": psi + 0.2,
+        }
+    )
+
+
+@pytest.fixture(scope="module")
+def heldout_summary() -> pd.DataFrame:
+    """``ho_hurdle_ey1`` with 3 failed fits and 1,870 covers among 1,997 rows (review M1), its
+    two controls on the same fits, and an n = 500 witness source with 8 constant-cell fits."""
+    cell = "ho_hurdle_ey1"
+    frames = [
+        synthetic_rows(
+            cell, family=study.HELDOUT, role="positive", requested=2000, failed=3, covers=1870
+        ),
+        synthetic_rows(
+            f"{cell}__kish_control",
+            family=study.CONTROL,
+            role=study.DIAGNOSTIC,
+            requested=2000,
+            failed=3,
+            covers=1900,
+        ),
+        synthetic_rows(
+            f"{cell}__normal_reference_control",
+            family=study.CONTROL,
+            role=study.DIAGNOSTIC,
+            requested=2000,
+            failed=3,
+            covers=1850,
+        ),
+        synthetic_rows(
+            study.WITNESS_SOURCE,
+            family=study.REPORTED,
+            role=study.DIAGNOSTIC,
+            requested=40,
+            withheld=8,
+            covers=30,
+            estimate=1.0,
+        ),
+    ]
+    return props.summarize_properties(pd.concat(frames, ignore_index=True))
+
+
+def _summary_row(summary: pd.DataFrame, cell: str) -> pd.Series:
+    return summary.loc[summary["cell"] == cell].iloc[0]
+
+
+def test_the_lower_leg_counts_failed_fits_as_misses(heldout_summary: pd.DataFrame) -> None:
+    row = _summary_row(heldout_summary, "ho_hurdle_ey1")
+    # Complete case over 1,997 clears 0.92; the declared leg over 2,000 does not.
+    assert row["coverage_ci_lower"] == pytest.approx(0.92102, abs=5e-6)
+    assert row["lower_leg_ci_lower"] == pytest.approx(0.91949, abs=5e-6)
+    assert row["lower_leg_coverage"] == pytest.approx(1870 / 2000)
+    # The verdict column is the complete case, and the accounting's worst case turns it red.
+    assert bool(row["passed"])
+    rule = study_rule(row)
+    ctx = props.pf.Context(props.STUDY, pd.DataFrame(), heldout_summary)
+    lower = rule.clause("coverage lower leg")
+    assert lower.read(ctx, row).passed
+    assert not all(judged.passed for _, judged in lower.candidates(ctx, row))
+    upper = rule.clause("coverage upper leg, shown only")
+    assert [label for label, _ in upper.candidates(ctx, row)] == ["lost fits absent"]
+
+
+def study_rule(row: pd.Series) -> props.pf.FamilyRule:
+    rule = props.pf.rule_for(str(row["property"]), props)
+    assert rule is not None
+    return rule
+
+
+def test_the_falsifier_reads_the_declared_lower_leg(heldout_summary: pd.DataFrame) -> None:
+    table = props.falsifiers(heldout_summary).set_index(["falsifier", "cell"])
+    df = table.loc[("df", "ho_hurdle_ey1")]
+    # The lower leg fails over all R and kish_control passes both legs: the df falsifier fires.
+    # Read complete-case (the old ``coverage_ci_lower``), it would not.
+    assert bool(df["leg_failed"]) and bool(df["control_passed"]) and bool(df["fired"])
+    t = table.loc[("t", "ho_hurdle_ey1")]
+    assert not bool(t["leg_failed"]) and not bool(t["fired"])
+    # A falsifier whose cell or control is absent reads nothing and does not fire.
+    absent = table.loc[("scale", "ho_sparse_treat_ey1")]
+    assert absent["leg_failed"] is None and not bool(absent["fired"])
+    control = _summary_row(heldout_summary, "ho_hurdle_ey1__kish_control")
+    assert control["lower_leg_ci_lower"] >= 0.92 and props.leg_passes(control)
+
+
+def test_the_upper_leg_reads_shown_fits_only() -> None:
+    rows = synthetic_rows(
+        "ho_hurdle_ate",
+        family=study.HELDOUT,
+        role="positive",
+        requested=2000,
+        withheld=100,
+        covers=1880,
+    )
+    readings = props.cell_readings(rows)
+    assert readings["shown_replicates"] == 1900
+    assert readings["shown_coverage"] == pytest.approx(1880 / 1900)
+    assert readings["shown_ci_upper"] > 0.98
+    assert readings["lower_leg_coverage"] == pytest.approx(0.94)
+    summary = pd.DataFrame([{"property": study.HELDOUT, "cell": "ho_hurdle_ate", **readings}])
+    assert props._upper_fails(summary.iloc[0]) and not props._lower_fails(summary.iloc[0])
+    # Over all 2,000 fits the upper end would sit inside the band: the leg must not read that.
+    assert stats.beta.ppf(0.995, 1881, 120) < 0.98
+
+
+@pytest.mark.parametrize(("covers", "passes"), [(1870, False), (1880, True)])
+def test_both_legs_either_side_of_the_margin(covers: int, passes: bool) -> None:
+    rows = synthetic_rows(
+        "ho_logit_msm_a", family=study.HELDOUT, role="positive", requested=2000, covers=covers
+    )
+    readings = pd.Series(props.cell_readings(rows))
+    assert props.leg_passes(readings) is passes
+    assert props._lower_fails(readings) is not passes
+
+
+def test_the_paired_gain() -> None:
+    assert props.gain_lower(8, 0) > 0.5 > props.gain_lower(7, 0)
+    clause = props._paired_gain()
+    ctx = props.pf.Context(props.STUDY, pd.DataFrame(), pd.DataFrame())
+    row = pd.Series({"cell": "student_ey1", "gain_b": 8, "gain_c": 0, "failed_replicates": 1})
+    assert clause.applies(ctx, row) and clause.read(ctx, row).passed
+    # One lost fit may be one the identity interval alone covers: c + 1 fails at b = 8.
+    assert [judged.passed for _, judged in clause.candidates(ctx, row)] == [True, False]
+    assert not clause.read(ctx, row.copy().replace({8: 7})).passed
+    assert not clause.applies(ctx, pd.Series({"cell": "boundary_mean_n8000"}))
+
+
+def test_the_witness(heldout_summary: pd.DataFrame) -> None:
+    row = _summary_row(heldout_summary, "constant_cell_witness")
+    # Eight constant-cell fits sit on the bound: the point never covers, and 1 - 0.005^(1/8)
+    # = 0.484 is below 0.50.
+    assert row["replicates"] == 8 and row["coverage"] == 0.0
+    assert row["coverage_ci_upper"] == pytest.approx(1 - 0.005 ** (1 / 8), rel=1e-9)
+    assert bool(row["passed"])
+    seven = synthetic_rows(
+        study.WITNESS_SOURCE,
+        family=study.REPORTED,
+        role=study.DIAGNOSTIC,
+        requested=40,
+        withheld=7,
+        covers=30,
+        estimate=1.0,
+    )
+    columns = list(heldout_summary.columns)
+    assert props.witness_row(seven, columns)["coverage_ci_upper"] > 0.5
+    assert not props.witness_row(seven, columns)["passed"]
+
+
+def test_control_rows_read_their_own_interval(heldout_summary: pd.DataFrame) -> None:
+    control = _summary_row(heldout_summary, "ho_hurdle_ey1__normal_reference_control")
+    assert math.isnan(control["gain_b"])
+    rows = synthetic_rows(
+        "ho_hurdle_ey1__normal_reference_control",
+        family=study.CONTROL,
+        role=study.DIAGNOSTIC,
+        requested=50,
+        covers=45,
+    )
+    low, high = props.candidate_interval(rows, "identity_normal")
+    truth = rows["truth"].to_numpy()
+    assert props.cell_readings(rows)["lower_miss_rate"] == pytest.approx(np.mean(truth < low))
+    assert props.cell_readings(rows)["upper_miss_rate"] == pytest.approx(np.mean(truth > high))
+
+
+#: Plan 5.3's falsifiers, written out independently: cell -> (leg, control) per target class.
+DECLARED_FALSIFIERS = {
+    ("scale", "ho_sparse_treat_ey1"): ("lower", "capped_t_binary_control"),
+    ("composition", "ho_sparse_treat_ey1"): ("lower", "logit_t_control"),
+    ("composition", "ho_sparse_treat_ate"): ("lower", "logit_t_control"),
+    ("df", "ho_hurdle_ey1"): ("lower", "kish_control"),
+    ("df", "ho_hurdle_ate"): ("lower", "kish_control"),
+    ("t", "ho_hurdle_ey1"): ("upper", "normal_reference_control"),
+    ("t", "ho_hurdle_ate"): ("upper", "normal_reference_control"),
+    ("binary coefficient", "ho_logit_msm_a"): ("lower", "capped_t_binary_control"),
+    ("binary coefficient", "ho_logit_msm_w"): ("lower", "capped_t_binary_control"),
+}
+
+
+def _matches_plan(falsifiers: tuple[tuple[str, ...], ...]) -> bool:
+    found = {(name, cell): (leg, control) for name, _, cell, leg, control in falsifiers}
+    return found == DECLARED_FALSIFIERS
+
+
+def test_the_falsifiers_are_the_declared_ones() -> None:
+    assert _matches_plan(props.FALSIFIERS)
+    for name, _, cell, _, control in props.FALSIFIERS:
+        group = study.GROUP_OF_CELL[cell]
+        assert control in study.controls_of(group, study.CELL_BY_NAME[cell]), (name, cell)
+
+
+def test_a_mutated_falsifier_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: a swapped leg, or a control that never passes, changes the reading."""
+    swapped = tuple(
+        (name, target, cell, "upper" if leg == "lower" else "lower", control)
+        for name, target, cell, leg, control in props.FALSIFIERS
+    )
+    assert not _matches_plan(swapped)
+    summary = pd.DataFrame(
+        [
+            {"property": study.HELDOUT, "cell": "ho_hurdle_ey1", "lower_leg_ci_lower": 0.91,
+             "shown_ci_upper": 0.95},
+            {"property": study.CONTROL, "cell": "ho_hurdle_ey1__kish_control",
+             "lower_leg_ci_lower": 0.93, "shown_ci_upper": 0.97},
+        ]
+    )  # fmt: skip
+    fired = props.falsifiers(summary).set_index(["falsifier", "cell"])["fired"]
+    assert bool(fired.loc[("df", "ho_hurdle_ey1")])
+    monkeypatch.setattr(props, "FALSIFIERS", swapped)
+    mutated = props.falsifiers(summary).set_index(["falsifier", "cell"])["fired"]
+    assert not bool(mutated.loc[("df", "ho_hurdle_ey1")])
+
+
+@pytest.mark.parametrize(
+    ("cell_lower", "control_lower", "fires"),
+    [(0.91, 0.93, True), (0.91, 0.91, False), (0.93, 0.93, False), (0.93, 0.91, False)],
+)
+def test_a_falsifier_fires_only_when_the_leg_fails_and_the_control_passes(
+    cell_lower: float, control_lower: float, fires: bool
+) -> None:
+    summary = pd.DataFrame(
+        [
+            {"property": study.HELDOUT, "cell": "ho_hurdle_ey1", "lower_leg_ci_lower": cell_lower,
+             "shown_ci_upper": 0.95},
+            {"property": study.CONTROL, "cell": "ho_hurdle_ey1__kish_control",
+             "lower_leg_ci_lower": control_lower, "shown_ci_upper": 0.97},
+        ]
+    )  # fmt: skip
+    fired = props.falsifiers(summary).set_index(["falsifier", "cell"])["fired"]
+    assert bool(fired.loc[("df", "ho_hurdle_ey1")]) is fires
+
+
+# ------------------------------------------------------------- the primary
+
+
+def test_the_primary_publishes_the_rule() -> None:
+    """Review M2: the shared columns hold the rule's interval, the shipped one goes aside."""
+    from tests.studies.evidence.replication import invalid_rows
+    from tests.studies.evidence.schema import REPLICATE_COLUMNS
+
+    rows = study.draw_and_fit(replicates=2, n=study.PRIMARY_N, n_jobs=1).rows
+    assert invalid_rows(rows.loc[:, list(REPLICATE_COLUMNS)]) is None
+    for _, row in rows.iterrows():
+        low, high = study.primary_limits(row["estimate"], row)
+        assert (row["ci_lower"], row["ci_upper"]) == (low, high)
+        if row["withheld"] == "":
+            assert (low, high) == (row["rule_lower"], row["rule_upper"])
+        assert row["covered"] == int(low <= row["truth"] <= high)
+        assert row["shipped_covered"] == int(
+            row["shipped_ci_lower"] <= row["truth"] <= row["shipped_ci_upper"]
+        )
+    shipped = study.extra_artifacts(rows)[study.PRIMARY_SHIPPED_FILE]
+    assert set(study.SHIPPED_COLUMNS) <= set(shipped.columns)
+    assert set(study.STUDY.extra_artifacts) == {study.PRIMARY_SHIPPED_FILE}
+    withheld = {"withheld": "constant_cell", "rule_lower": math.nan, "rule_upper": math.nan}
+    assert study.primary_limits(0.9995, withheld) == (0.9995, 0.9995)
+
+
+def test_a_misdeclared_family_is_refused() -> None:
+    """Review n3: a binomial level target carries bounds, so a gaussian declaration stops."""
+    frame = l1.sample(2000, 20261113)
+    estimate = study.stratified_tmle.fit_cleverly(frame)["ey[1][V=2]"]
+    assert study.rule_columns(frame, "ey[1][V=2]", estimate, "binomial")["bound_high"] == 1.0
+    with pytest.raises(ValueError, match="misdeclared"):
+        study.rule_columns(frame, "ey[1][V=2]", estimate, "gaussian")
