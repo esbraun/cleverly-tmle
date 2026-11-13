@@ -63,6 +63,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from .._typing import BoolArray, FloatArray
 from ..data.validate import arm_indicators
 from ..interventions.policy import induced_probabilities, policy_branches, policy_moves_dose
+from ..learners._threads import thread_limit
 from .data import LongitudinalData
 from .regimen import Plan
 from .sequential import Mechanism, RegimenFit
@@ -360,8 +361,11 @@ def _fit_variance_regression(
         constant = float(values.mean()) if values.size else float("nan")
         return [np.full(np.asarray(points).shape[0], constant) for points in evaluate_at]
     model = HistGradientBoostingRegressor(loss=loss, random_state=seed, **VARIANCE_LEARNER)
-    model.fit(np.asarray(design, dtype=float), values)
-    return [
-        np.asarray(model.predict(np.asarray(points, dtype=float)), dtype=float)
-        for points in evaluate_at
-    ]
+    # The nuisance fits' thread limit (cleverly.learners.set_thread_limit): an unlimited
+    # OpenMP pool beside other busy processes slowed one fit by two orders of magnitude.
+    with thread_limit():
+        model.fit(np.asarray(design, dtype=float), values)
+        return [
+            np.asarray(model.predict(np.asarray(points, dtype=float)), dtype=float)
+            for points in evaluate_at
+        ]
