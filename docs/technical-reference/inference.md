@@ -647,7 +647,7 @@ terms give a small count. It is the realised-term degrees of freedom of
 Reading each estimate on its own $t$ reference at the multiplier's tail is the
 comparison-specific construction of
 [Pallmann, Ritz and Hothorn (2018, section 2.4)](../references.md#multiple-testing), whose df
-are residual df of Gaussian models. No source derives it for an
+are residual df of Gaussian models. No source derives the Kish count for an
 influence-curve estimator, so the finite-sample claim rests on the study, cell by cell. To first
 order $c_j/\hat c - 1 = (\hat c^2 + 1)/(4\nu_j)$, and since $K_j \to \infty$ under a fixed law
 with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 bounds

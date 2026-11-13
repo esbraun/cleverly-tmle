@@ -2627,7 +2627,7 @@ DEFAULT_BAND_DRAWS: Final[int] = 10_000
 #: band with :data:`~cleverly._support.DEFAULT_BAND_OPTION` and fewer draws than its row's count
 #: is experimental.
 #:
-#: Every row that licenses ``band`` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
+#: Every row in :data:`BAND_CELLS` lists :data:`~cleverly._support.DEFAULT_BAND_OPTION`, the
 #: configuration band-finite-sample Wave 2 regenerated every band cell with (Mammen, logit), and
 #: every cell :data:`BAND_CELLS` maps to such a row passes on the regenerated rows (the Wave 2
 #: decision record).  A red cell that measures a row's default band without licensing it still
