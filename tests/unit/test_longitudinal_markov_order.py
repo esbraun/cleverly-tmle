@@ -632,21 +632,20 @@ def mutated(owner: type, name: str, old: str, new: str) -> Any:
 class TestTheHeldTreatment:
     """On a held design every window keeps the baseline decision, the arm of every node."""
 
-    def test_the_mechanisms_keep_the_held_arm(self, held_frame: pd.DataFrame) -> None:
-        data = held_law.design(0).prepare(held_frame)
+    @pytest.mark.parametrize("order", [0, 1])
+    def test_the_mechanisms_keep_the_held_arm(self, held_frame: pd.DataFrame, order: int) -> None:
+        data = held_law.design(order).prepare(held_frame)
         filled = held_frame.fillna(0.0)
         # Node 1's treatment mechanism has no earlier arm.
         np.testing.assert_array_equal(data.history_design(1), _columns(filled, ["W", "L1"]))
         for time in (2, 3):
+            window = ["W", *(f"L{s}" for s in _window(time, order)), "A"]
+            np.testing.assert_array_equal(data.history_design(time), _columns(filled, window))
             np.testing.assert_array_equal(
-                data.history_design(time), _columns(filled, ["W", f"L{time}", "A"])
-            )
-            np.testing.assert_array_equal(
-                data.history_design(time, include_current=True),
-                _columns(filled, ["W", f"L{time}", "A"]),
+                data.history_design(time, include_current=True), _columns(filled, window)
             )
 
-    def test_the_outcome_designs_keep_the_held_arm_off_a_static_plan(
+    def test_the_outcome_designs_keep_the_held_arm_under_a_rule_or_policy(
         self, held_frame: pd.DataFrame
     ) -> None:
         data = held_law.design(0).prepare(held_frame)

@@ -1862,11 +1862,13 @@ regressions. A window one node short, a dropped rule block and an arm window tha
 $t-k$ each fail an exact-law check. `SDR` reads the same designs, and the
 same file runs the witnesses and the rule-block control on `SDR`.
 
-On a held law whose retention,
-covariates and outcome read $A$, order 0 returns the truth at $10^{-10}$ for a static plan, a rule
-and a policy of $L_1$: `LTMLE` and `SDR` with both families right and with either family wrong,
-`SequentialGComputation` and `SequentialIPW`. A window that drops $A$ after node 2 misses by more
-than $10^{-3}$.
+On a three-node held law whose retention, covariates and outcome read $A$, order 0 returns
+the truth at $10^{-10}$ for a static plan, a rule and a policy of $L_1$: `LTMLE` and `SDR` with
+both families right and with either family wrong, `SequentialGComputation` and `SequentialIPW`.
+Two controls drop $A$ after node 2. Dropped from the treatment and censoring models, it makes
+`SequentialIPW` miss every plan by more than $10^{-3}$. Dropped from the outcome regressions, it
+makes `SequentialGComputation` miss the rule and the policy by more than $10^{-3}$, and the static
+plans stay exact.
 
 The restriction is a statement about the observed-data law, so data can contradict it, but the
 fit does not test it. It shrinks the model's tangent space, so the efficient influence curve of
