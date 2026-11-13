@@ -117,10 +117,10 @@ study names no comparator and its agreement block stays empty.
 <!-- generated: accuracy -->
 <!-- /generated -->
 
-The primary rows draw 1,600 samples of 2,000 rows for each of `levels`, `gaussian_density`,
-`gaussian_classifier` and `vector` and report every risk and contrast of each fit. The count is
-provisional: the shared primary rule (`repeated_sizing.primary_replicates`) sets it from the
-calibration pilots, which have not run.
+The primary rows draw 2,400 samples of 2,000 rows for each of `levels`, `gaussian_density`,
+`gaussian_classifier` and `vector` and report every risk and contrast of each fit. The shared
+primary rule (`repeated_sizing.primary_replicates`) sets that count from the committed
+calibration pilots of these fit labels.
 
 ## Agreement with the canonical implementation
 
@@ -134,9 +134,9 @@ calibration pilots, which have not run.
 
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
-| `interval_calibration` | the contrast and the policy's risk of each gated fit label, with the shrunken-SE and noise controls on the `levels` and `gaussian_density` contrasts | 4,000 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
+| `interval_calibration` | the contrast and the policy's risk of each gated fit label, with the shrunken-SE and noise controls on the `levels` and `gaussian_density` contrasts | 4,400 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
 | `interval_calibration`, reported | the contrast and the policy's risk of `untruncated_density` | 800 at n = 2,000 | nothing: the rows are reported with no verdict |
-| `simultaneous_coverage` | the band over every estimate of the `levels` and `gaussian_density` fits, and its pointwise control | 4,000 at n = 2,000 | joint coverage outside the calibration band |
+| `simultaneous_coverage` | the band over every estimate of the `levels` and `gaussian_density` fits, and its pointwise control | 4,400 at n = 2,000 | joint coverage outside the calibration band |
 | `double_robustness` | the `levels` contrast with both, one or neither nuisance correct; the contrast of `gaussian_density`, `gaussian_classifier`, `gaussian_crossfit` and `vector` with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000 | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
 | `targeting_necessity` | the `levels` contrast from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000 | the targeted bias outside the margin, or a displacement below 0.25 |
 | `root_n_and_efficiency`, `root_n_rate` | the `levels` contrast and risk at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
@@ -145,8 +145,8 @@ calibration pilots, which have not run.
 | `iterated_mean_difference` | on `levels` and `gaussian_density`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of the iterated-mean curve. On the `levels` `mechanism_correct` draws: the same paired difference with both regressions omitting $W$ | 800 at n = 2,000, and the 1,200 robustness draws | nothing: the family is reported with no verdict |
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
-over the ten gated arms at a pilot of 8,000 draws that reads a ratio of one. The committed
-calibration pilot replaces that reading once it runs. At 4,000 replicates the shrunken-SE
+over the ten gated arms, read at the committed calibration pilot of 8,000 draws per fit label.
+At 4,400 replicates the shrunken-SE
 control leaves the SE-ratio band and the noise control leaves the efficiency band with
 probability above 0.999.
 

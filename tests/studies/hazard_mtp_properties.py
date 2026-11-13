@@ -116,9 +116,9 @@ NECESSITY_N = 2_000
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
-#: PROVISIONAL until the calibration pilot is committed: the arm-pooled rule over the ten
-#: calibration arms at a pilot ratio of one (``tests/unit/test_hazard_mtp_study_design.py``).
-CALIBRATION_REPLICATES = 4_000
+#: The arm-pooled rule over the ten calibration arms, read at the committed calibration pilot
+#: (``tests/unit/test_hazard_mtp_study_design.py``).
+CALIBRATION_REPLICATES = 4_400
 POWER_REPLICATES = 800
 POWER_N = 2_000
 DIFFERENCE_REPLICATES = 800

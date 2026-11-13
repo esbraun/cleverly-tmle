@@ -77,11 +77,9 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.oracle_density_bins import oracle_bins
 
-#: PROVISIONAL.  A placeholder until the calibration pilot is committed: the shared primary rule
-#: (``repeated_sizing.primary_replicates``, read by the design test) then sets this count from
-#: the calibration pilots of the primary fit labels, in a declaration commit with no skipped
-#: design test, before any declared run.
-PRIMARY_REPLICATES = 1_600
+#: Set by the shared primary rule (``repeated_sizing.primary_replicates``, read by the design
+#: test) from the committed calibration pilots of the primary fit labels.
+PRIMARY_REPLICATES = 2_400
 PRIMARY_N = 2_000
 SEED = 20261119
 RESAMPLING_SEED = 2026111901
