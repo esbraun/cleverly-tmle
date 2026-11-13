@@ -9,6 +9,10 @@ adaptive-iptw,simultaneous_coverage,joint coverage in calibration band,se_low
 adaptive-iptw,targeting_necessity,bias discriminated,pair_collapse
 adaptive-iptw,targeting_necessity,bias equivalent,none
 adaptive-iptw,targeting_necessity,least displacement over labels,control_concentrated
+band-t-reference,simultaneous_coverage,joint coverage below nominal,se_low
+band-t-reference,simultaneous_coverage,joint coverage in calibration band,se_low
+band-t-reference-held-out,simultaneous_coverage,joint coverage below nominal,se_high
+band-t-reference-held-out,simultaneous_coverage,joint coverage in calibration band,se_low
 calibration-slope-warning,power,rejection floor,rejection/0.01
 calibration-slope-warning,warning_rate,false warnings under the ceiling,se_low
 calibration-slope-warning,warning_rate,warnings above the ceiling,se_high
