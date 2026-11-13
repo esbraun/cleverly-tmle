@@ -109,7 +109,9 @@ class TestTheTruths:
                 return out
 
             solved = root(score, np.zeros(len(law.TERMS)), tol=1e-14)
-            assert solved.success
+            # Some SciPy releases report "xtol too small" at an exact root, so the test reads
+            # the score at the solution rather than the solver's success flag.
+            assert np.max(np.abs(score(solved.x))) < 1e-12, solved.message
             np.testing.assert_allclose(
                 law.exact_beta(current, cause, link), solved.x, rtol=0, atol=1e-10
             )
