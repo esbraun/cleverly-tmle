@@ -145,7 +145,12 @@ def continuous_survival_support(
         reasons.append("No registered study measures a continuous-time restricted mean.")
     elif scale == "ratio":
         reasons.append(RATIO_REASON)
-    if restricted_horizons and not restricted:
+    if restricted_horizons > 1:
+        reasons.append(
+            f"The fit targets {restricted_horizons} restricted horizons; no registered study "
+            "targets more than one."
+        )
+    elif restricted_horizons and not restricted:
         reasons.append(
             "The fit also targets restricted means, which moves its risks, and no registered "
             "study measures such a fit."

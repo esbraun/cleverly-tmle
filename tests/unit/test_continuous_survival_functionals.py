@@ -327,6 +327,10 @@ def test_the_support_reads_a_restricted_mean_as_unmeasured() -> None:
         scale="level", default_nuisances=True, settings=measured, restricted_horizons=1, **common
     )
     assert moved.label == "experimental" and "moves its risks" in moved.reason
+    several = continuous_survival_support(
+        scale="level", default_nuisances=True, settings=measured, restricted_horizons=2, **common
+    )
+    assert "targets 2 restricted horizons" in several.reason
 
 
 # ----------------------------------------------------------------- T-c4: refusal C1
