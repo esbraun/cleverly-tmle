@@ -1,7 +1,10 @@
 """Every hazard and isotonic refusal, pinned by type and message before any learner.
 
 X14 shipped H1 to H13.  X70 narrowed H5 and added H14 (part (d)); part (c) closed H7 and H11,
-whose tests now check that the same designs fit, and added H16, H19, H20, H24 and H25.
+whose tests now check that the same designs fit, and added H16, H19, H20, H24 and H25.  Part
+(b1) narrowed H2 to a design with a treatment at several nodes and H6 to a design without
+covariates after baseline; its own refusals H28 to H31 are pinned in
+``tests/unit/test_hazard_time_varying.py``.
 
 Each fit passes learners that raise on ``fit``, so a refusal that reached a learner would
 fail with ``AssertionError`` rather than the refusal under test.
@@ -86,21 +89,42 @@ def test_h1_a_treatment_at_several_nodes_is_refused() -> None:
     _assert_gap(raised.value)
 
 
-def test_h2_a_covariate_after_baseline_is_refused() -> None:
+def test_h2_a_covariate_after_baseline_beside_several_treatment_nodes_is_refused() -> None:
+    """X70 part (b1) narrowed H2 to a design with a treatment at several nodes.
+
+    It is checked before H1, so a design with both gets the message that names the covariates.
+    """
     law = survival_law(with_l2=True)
     message = (
-        "survival_model='hazard' models the event and censoring hazards given the baseline "
-        "treatment and the baseline covariates. This fit declares covariates measured after "
-        "baseline (L2), and hazard targeting with such covariates is not built: it needs a "
-        "model and a fluctuation of each later covariate. X70 in docs/roadmap.md tracks this. "
-        "LTMLE with survival_model='iterated_mean' adjusts for them, and isotonic=True makes "
-        "its curve monotone."
+        "survival_model='hazard' on a design with a treatment at several nodes models the event "
+        "and censoring hazards given the treatment history and the baseline covariates. This "
+        "fit declares covariates measured after baseline (L2), and hazard targeting with such "
+        "covariates on a design with a treatment at several nodes is not built. X70 in "
+        "docs/roadmap.md tracks this. LTMLE with survival_model='iterated_mean' adjusts for "
+        "them, and isotonic=True makes its curve monotone. If one baseline treatment is held "
+        "over every node, declare treatment='A'."
     )
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        LTMLE({"a1": 1}, n_folds=1, survival_model="hazard", **_refusing()).fit(
-            law.frame(), **law.fit_columns()
-        )
+        LTMLE(
+            {"a1": 1}, n_folds=1, survival_model="hazard", targeting="one_step", **_refusing()
+        ).fit(law.frame(), **law.fit_columns(held=False))
     _assert_gap(raised.value)
+
+
+def test_h2_a_covariate_after_baseline_on_a_held_design_now_fits() -> None:
+    """X70 part (b1): a held design with a covariate after baseline is fitted (one step)."""
+    law = survival_law(with_l2=True)
+    result = LTMLE(
+        {"a1": 1},
+        n_folds=1,
+        survival_model="hazard",
+        targeting="one_step",
+        outcome_learner=CellMeans(),
+        pseudo_learner=CellMeans(),
+        treatment_learner=CellProbabilities(),
+        censoring_learner=CellMeans(),
+    ).fit(law.frame(), **law.fit_columns())
+    assert result.fits["a1 @ t=3"].hazard.nodes
 
 
 @pytest.mark.parametrize(
@@ -201,14 +225,18 @@ def test_r_d1_a_ratio_trim_on_a_hazard_fit_is_refused(targeting: str) -> None:
     assert LTMLE({"a1": 1}, ratio_trim=0.5, **_refusing()).ratio_trim == 0.5
 
 
-def test_h6_a_pseudo_learner_on_a_hazard_fit_is_refused() -> None:
+def test_h6_a_pseudo_learner_on_a_hazard_fit_without_later_covariates_is_refused() -> None:
+    """X70 part (b1) moved H6 to the fit: with covariates after baseline it fits the continuation."""
     message = (
-        "pseudo_learner= is not used with survival_model='hazard'. A hazard fit regresses the "
-        "event indicator at each node and fits no pseudo-outcome. Pass the hazard learner as "
-        "outcome_learner="
+        "pseudo_learner= is not used with survival_model='hazard' on a design with baseline "
+        "covariates only. Such a fit regresses the event indicator at each node and fits no "
+        "pseudo-outcome. Pass the hazard learner as outcome_learner="
+    )
+    estimator = LTMLE(
+        {"a1": 1}, n_folds=1, survival_model="hazard", pseudo_learner=_Refuse(), **_refusing()
     )
     with pytest.raises(ValueError, match=re.escape(message)):
-        LTMLE({"a1": 1}, survival_model="hazard", pseudo_learner=_Refuse(), **_refusing())
+        estimator.fit(LAW.frame(), **LAW.fit_columns())
 
 
 def test_h7_a_modified_treatment_policy_now_fits() -> None:
