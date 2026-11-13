@@ -36,7 +36,7 @@ from .exceptions import CapabilityError, DataError, RefusalReason
 from .fluctuation._score import StopContext, rule_ratio_at
 from .inference.cluster import cluster_inference_status, cluster_reference_df
 from .inference.delta import reference_quantile
-from .inference.influence import ParameterEstimate, make_estimate
+from .inference.influence import ParameterEstimate, family_of, make_estimate
 from .inference.multiplier import MultiplierKind, multiplier_critical_value
 from .inference.results import estimate_covariance
 from .utils.frames import as_frame, backend_of, frame_from_dict, is_dataframe
@@ -1586,6 +1586,7 @@ def score_assessment(
             inference=inference,  # type: ignore[arg-type]
             reference_df=reference_df,
             support=support,
+            outcome_family=family_of(data),
         )
 
     def built(

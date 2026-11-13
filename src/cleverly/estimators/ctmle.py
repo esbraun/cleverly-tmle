@@ -2100,6 +2100,7 @@ default="greedy"
         index: IntArray | None = None,
         drop_undefined: bool = False,
         natural_course: Any = None,
+        cell_rows: IntArray | None = None,
     ) -> dict[str, Any]:
         """Every estimand, with the stack-failure status on an estimate that reads a failed arm.
 
@@ -2127,6 +2128,7 @@ default="greedy"
                 index=index,
                 drop_undefined=drop_undefined,
                 natural_course=natural_course,
+                cell_rows=cell_rows,
             )
             # Only the first build records: the shipped rebuild below reads the same targets.
             READS_SINK.reset(reads_token)
@@ -2165,6 +2167,7 @@ default="greedy"
                         alpha_sig,
                         reference,
                         natural_course=natural_course,
+                        cell_rows=cell_rows,
                     )
                 finally:
                     _SHIPPED.reset(shipped_token)

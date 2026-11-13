@@ -192,6 +192,27 @@ def outside_bounds(psi: float, bounds: tuple[float, float] | None) -> bool:
     return not (low < psi < high)
 
 
+def family_of(data: Any) -> OutcomeFamily | None:
+    """The outcome family an estimate of ``data`` records: its resolved family, or ``None``.
+
+    Parameters
+    ----------
+    data : object
+        A validated data container with a ``family`` attribute.
+
+    Returns
+    -------
+    {"binomial", "gaussian"} or None
+        The resolved family, and ``None`` for a container that records none.
+    """
+    family = getattr(data, "family", None)
+    if family == "binomial":
+        return "binomial"
+    if family == "gaussian":
+        return "gaussian"
+    return None
+
+
 def bounded_status(
     inference: InferenceStatus,
     psi: float,
@@ -2103,6 +2124,7 @@ def median_estimates(
             reference_df=minimum_reference_df(parts),
             support=parts[0].support,
             bounds=parts[0].bounds,
+            outcome_family=parts[0].outcome_family,
         )
     return out
 
