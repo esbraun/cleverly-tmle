@@ -532,6 +532,69 @@ def replicate_row(
     }
 
 
+#: The columns a small-sample row records beside :data:`REPLICATE_COLUMNS`, so that every
+#: reference and every withheld count a summary reads is recomputed from the rows.
+SMALL_SAMPLE_COLUMNS = (
+    "df",
+    "curve_kurtosis",
+    "carrying_rows",
+    "interval_scale",
+    "outcome_family",
+    "withheld",
+)
+
+#: The withheld triggers a small-sample row can record; ``""`` is a shown interval.
+WITHHELD_TRIGGERS = ("", "constant_cell", "out_of_range")
+
+
+def small_sample_columns(
+    estimate: Any, *, outcome_family: str | None, interval_scale: str, withheld: str
+) -> dict[str, Any]:
+    r"""The :data:`SMALL_SAMPLE_COLUMNS` of one estimate under a declared outcome family.
+
+    ``df`` is the estimate's :attr:`~cleverly.inference.ParameterEstimate.effective_df` with
+    ``outcome_family`` recorded on it, and ``inf`` for the normal reference.
+    ``curve_kurtosis`` is the sample kurtosis :math:`m \sum u^4 / (\sum u^2)^2` of the curve
+    over its ``carrying_rows``, the ``m`` rows where it is not 0, centred there under the
+    ``"centered"`` covariance rule.  ``interval_scale`` and ``withheld`` are the caller's: the
+    scale of the interval it reads and its trigger, one of :data:`WITHHELD_TRIGGERS`.
+
+    Parameters
+    ----------
+    estimate : Any
+        A :class:`~cleverly.inference.ParameterEstimate`.
+    outcome_family : {"binomial", "gaussian"} or None
+        The outcome family the caller declares for the estimate.
+    interval_scale : str
+        The scale of the interval the row records.
+    withheld : str
+        The withheld trigger, ``""`` when the interval is shown.
+
+    Returns
+    -------
+    dict
+        One value per :data:`SMALL_SAMPLE_COLUMNS` entry.
+    """
+    from cleverly.inference import kish_count
+
+    if withheld not in WITHHELD_TRIGGERS:
+        raise ValueError(f"unknown withheld trigger {withheld!r}")
+    declared = dataclasses.replace(estimate, outcome_family=outcome_family)
+    curve = np.asarray(estimate.influence_curve, dtype=float).reshape(-1)
+    rows = curve != 0.0
+    carrying = int(rows.sum())
+    count = kish_count(curve, rows=rows, centered=estimate.covariance_rule == "centered")
+    effective = declared.effective_df
+    return {
+        "df": math.inf if effective is None else float(effective),
+        "curve_kurtosis": carrying / count if 0.0 < count < math.inf else math.nan,
+        "carrying_rows": carrying,
+        "interval_scale": interval_scale,
+        "outcome_family": "" if outcome_family is None else outcome_family,
+        "withheld": withheld,
+    }
+
+
 def control_row(
     *,
     property_name: str,

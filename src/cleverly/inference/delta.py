@@ -29,6 +29,7 @@ a ratio of ATTs, a percentage change, a contrast across subgroups.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -211,7 +212,21 @@ class Transform:
         return (float(self.forward(value + h)) - float(self.forward(value - h))) / (2.0 * h)
 
 
-def reference_quantile(alpha: float, df: int | None = None) -> float:
+def _normal_reference(df: float | None) -> bool:
+    """Whether ``df`` names the normal reference, after refusing an unusable one.
+
+    ``None`` or infinite degrees of freedom name the normal.  Any other value must be a number
+    of at least 1, so NaN and ``df < 1`` are refused here, for every interval, limit and test
+    alike.
+    """
+    if df is None or df == math.inf:
+        return True
+    if not df >= 1:
+        raise ValueError(f"a Student t reference needs at least 1 degree of freedom; got {df}")
+    return False
+
+
+def reference_quantile(alpha: float, df: float | None = None) -> float:
     """The two-sided critical value of a Wald interval at level ``1 - alpha``.
 
     The one place an interval or a sensitivity limit reads a reference quantile.
@@ -220,8 +235,9 @@ def reference_quantile(alpha: float, df: int | None = None) -> float:
     ----------
     alpha : float
         The two-sided significance level, in ``(0, 1)``.
-    df : int or None, default=None
-        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+    df : float or None, default=None
+        Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference.
 
     Returns
     -------
@@ -234,32 +250,33 @@ def reference_quantile(alpha: float, df: int | None = None) -> float:
     >>> from cleverly.inference import reference_quantile
     >>> round(reference_quantile(0.05), 4), round(reference_quantile(0.05, df=10), 4)
     (1.96, 2.2281)
+    >>> round(reference_quantile(0.05, df=17.5), 4)
+    2.1052
     """
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must lie in (0, 1); got {alpha}")
-    if df is None:
+    if _normal_reference(df):
         return float(stats.norm.ppf(1.0 - alpha / 2.0))
-    if df < 1:
-        raise ValueError(f"a Student t reference needs at least 1 degree of freedom; got {df}")
     return float(stats.t.ppf(1.0 - alpha / 2.0, df))
 
 
-def one_sided_quantile(level: float, df: int | None = None) -> float:
+def one_sided_quantile(level: float, df: float | None = None) -> float:
     """The quantile at ``level`` of the reference of a one-sided limit.
 
     Parameters
     ----------
     level : float
         The one-sided coverage level, in ``(0, 1)``.
-    df : int or None, default=None
-        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+    df : float or None, default=None
+        Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference.
 
     Returns
     -------
     float
         The normal quantile, or the t quantile with ``df`` degrees of freedom.
     """
-    if df is None:
+    if _normal_reference(df):
         return float(stats.norm.ppf(level))
     return float(stats.t.ppf(level, df))
 
@@ -305,7 +322,7 @@ def wald_ci(
     std_error: float,
     alpha: float = 0.05,
     *,
-    df: int | None = None,
+    df: float | None = None,
     margin: float = 0.0,
 ) -> tuple[float, float]:
     """Wald confidence interval at level ``1 - alpha``, optionally widened by a margin.
@@ -322,8 +339,9 @@ def wald_ci(
         The standard error on that scale.
     alpha : float, default=0.05
         The two-sided significance level.
-    df : int or None, default=None
-        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+    df : float or None, default=None
+        Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference.
     margin : float, default=0.0
         A non-negative amount added to the half-width, on the same scale.
 
@@ -351,7 +369,7 @@ def wald_statistic(
     null: float,
     std_error: float,
     *,
-    df: int | None = None,
+    df: float | None = None,
     margin: float = 0.0,
 ) -> tuple[float, float]:
     """The Wald statistic and its two-sided p-value.
@@ -369,8 +387,9 @@ def wald_statistic(
         The null value on the same scale.
     std_error : float
         The standard error on that scale.
-    df : int or None, default=None
-        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+    df : float or None, default=None
+        Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference.
     margin : float, default=0.0
         The non-negative half-width margin of the interval the test inverts.
 
@@ -382,15 +401,16 @@ def wald_statistic(
         ``2 * Phi(-d)``, or ``2 * F_t(-d; df)``, with
         ``d = max(0, |statistic| - margin / std_error)``; ``nan`` when the statistic is ``nan``.
     """
+    normal = _normal_reference(df)
     if not np.isfinite(std_error) or std_error <= 0:
         return float("nan"), float("nan")
     z = (value - null) / std_error
     distance = float(np.maximum(0.0, abs(z) - margin / std_error))
-    tail = stats.norm.sf(distance) if df is None else stats.t.sf(distance, df)
+    tail = stats.norm.sf(distance) if normal else stats.t.sf(distance, df)
     return float(z), float(2.0 * tail)
 
 
-def two_sided_pvalue(estimate: float, std_error: float, *, df: int | None = None) -> float:
+def two_sided_pvalue(estimate: float, std_error: float, *, df: float | None = None) -> float:
     """Two-sided p-value for ``H0: estimate = 0``.
 
     Parameters
@@ -399,8 +419,9 @@ def two_sided_pvalue(estimate: float, std_error: float, *, df: int | None = None
         The estimate on its inference scale.
     std_error : float
         The standard error on that scale.
-    df : int or None, default=None
-        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+    df : float or None, default=None
+        Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference.
 
     Returns
     -------

@@ -1488,6 +1488,18 @@ shift-policies,targeting_necessity,bias equivalent,bias
 shift-policies,targeting_necessity,least displacement over labels,control_concentrated
 shift-policies,type_i_error,coverage floor,coverage/0.5
 shift-policies,type_i_error,rejection ceiling,rejection/0.1
+small-sample-wald,corrected_coverage,coverage lower leg,se_low
+small-sample-wald,corrected_coverage,"coverage upper leg, shown only",se_high
+small-sample-wald,corrected_coverage,paired gain,affine
+small-sample-wald,diagnosis_bounded,coverage lower leg,se_low
+small-sample-wald,diagnosis_bounded,"coverage upper leg, shown only",se_high
+small-sample-wald,diagnosis_continuous,coverage lower leg,none
+small-sample-wald,diagnosis_continuous,"coverage upper leg, shown only",se_high
+small-sample-wald,diagnosis_continuous,paired gain,se/1.05
+small-sample-wald,heldout_coverage,coverage lower leg,none
+small-sample-wald,heldout_coverage,"coverage upper leg, shown only",se_high
+small-sample-wald,non_h1,non-H1 control upper end,se_high
+small-sample-wald,non_h1,non-H1 lower end,se_low
 stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
 stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,coverage gain,shift/3
 stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
