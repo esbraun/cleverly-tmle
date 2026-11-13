@@ -7,7 +7,7 @@ The fits below are of the five-node pricing law (``tests/studies/mtp_pricing_com
 wins for the moved plans and the natural plan's diagonal is its influence-curve variance, so
 both sources are exercised.
 
-Witnesses, by number: 4 the fallback, 7 the refusals before any learner, 8 the support kind,
+Witnesses, by number: 4 the fallback, 5 the finite-sample value on law B, 7 the refusals before any learner, 8 the support kind,
 11 nesting, 12 ``contrast()`` and ``ratio()``, 13 ``transform=``, 14 repeats, 15 the
 downstream refusals, 16 the diagnostics and the warning text, plus the save and load round
 trip and the composed interval of a Student-t default.  Witness 6 reproduces the measured probe
@@ -48,8 +48,11 @@ from cleverly.longitudinal import LTMLE, SDR
 from cleverly.longitudinal import policy_variance as policy_module
 from cleverly.longitudinal.estimator import POLICY_VARIANCE_REFUSALS
 from cleverly.msm import MSM
+from tests.studies import canonical_mtp_boundaries as boundaries
 from tests.studies import canonical_mtp_pricing as pricing
+from tests.studies import mtp_boundaries_common as law_b
 from tests.studies import mtp_pricing_common as common
+from tests.studies import mtp_tail_size_common as tail
 from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.unit._natural_course_support import Counting, CountingLinear, CountingLogistic
 
@@ -682,3 +685,46 @@ def test_the_shipped_variance_reproduces_the_probe(estimator: str, rep: int) -> 
     assert estimate.psi == pytest.approx(reference["psi"], rel=1e-10)
     assert matrix[down, down] == pytest.approx(reference["variance"], rel=1e-10)
     assert matrix[down, natural] == pytest.approx(reference["covariance"], rel=1e-10)
+
+
+# ----------------------------------------------------------------------------- witness 5
+
+#: The Monte Carlo SE of ``n * Sigma[p4, p4]`` at 200,000 law-B rows, from a pilot of three
+#: draws (seeds 1 to 3 read 3.205, 3.237 and 3.142, SD 0.048), declared before this test.
+#: The influence-curve variance of the same draws read 3.60, 3.50 and 2.69.
+LAW_B_MC_SE = 0.05
+
+
+def test_the_finite_sample_variance_meets_the_exact_law() -> None:
+    """Witness 5: one 200,000-row law-B draw lands within 3 MC SE of the quadrature value."""
+    n = 200_000
+    frame = law_b.sample_b(n, 1)
+    outcome, pseudo, _ = boundaries.learners(frame, "correct")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            law_b.regimens(("natural", "p4")),
+            reference="natural",
+            outcome_learner=outcome,
+            pseudo_learner=pseudo,
+            treatment_learner=law_b.OracleRatio(),
+            n_folds=1,
+            g_bounds=boundaries.G_BOUNDS,
+            ratio="classifier",
+            simultaneous=False,
+            random_state=0,
+            max_iter=100,
+            tol=1e-10,
+            variance="policy_weighted",
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            continuous_treatment={"A1": law_b.SUPPORT, "A2": law_b.SUPPORT},
+        )
+    covariance = result["ey_regimen[p4]"].policy.covariance
+    index = covariance.names.index("ey_regimen[p4]")
+    exact = tail.diagonal_variance("p4")
+    assert abs(n * covariance.matrix[index, index] - exact) < 3 * LAW_B_MC_SE
