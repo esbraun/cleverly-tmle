@@ -393,6 +393,7 @@ row. A move to `gated` is a separate registry decision.
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [collaborative TMLE of a risk curve](survival-ctmle.md) | 14 | 0 |
+| [Stopping rules on point TMLE](option-stopping-point.md) | 32 | 0 |
 | [treatment-mechanism covariates on point TMLE](option-treatment-adjustment.md) | 12 | 0 |
 | [per-arm outcome regressions on point TMLE](option-outcome-by-arm.md) | 17 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
@@ -401,6 +402,7 @@ row. A move to `gated` is a separate registry decision.
 | [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | 78 | 0 |
 | [long-horizon longitudinal TMLE](long-horizon-longitudinal-tmle.md) | 159 | 0 |
 | [long-horizon categorical longitudinal TMLE](long-horizon-categorical-longitudinal-tmle.md) | 234 | 0 |
+| [Stopping rules on LTMLE](option-stopping-ltmle.md) | 18 | 0 |
 | [Ratio trimming on LTMLE and SDR](option-ratio-trim.md) | 9 | 0 |
 | [Markov-order windows on LTMLE](option-markov-order.md) | 15 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 81 | 0 |

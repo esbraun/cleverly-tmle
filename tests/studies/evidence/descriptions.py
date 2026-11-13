@@ -1556,6 +1556,35 @@ ARMS.update(
     }
 )
 
+#: The fit labels of the stopping-rule studies (``option-stopping-point``,
+#: ``option-stopping-ltmle``): law, rule and walk.  :data:`STUDY_ARMS` gives each study's words.
+ARMS.update(
+    {
+        f"{law}_{rule}_{walk}": f"law {law}, stopping rule {rule}, {walk} walk"
+        for law in ("binary", "continuous", "l3", "l4")
+        for rule in ("sv", "ss", "rel")
+        for walk in ("newton", "one_step")
+    }
+)
+ARMS.update(
+    {
+        "binary_ss_newton_step_bound": "the binary law, sample_size, Newton walk, step bound",
+        "ln_ey1": "law LN, the mean under treatment",
+        "ln_ey1_k1": "law LN, the mean under treatment, threshold times 1",
+        "ln_ey1_rel": "law LN, the mean under treatment, the relative rule",
+        **{
+            f"l2_{rule}_one_step_{target}": f"law L2, stopping rule {rule}, one-step, {target}"
+            for rule in ("sv", "ss")
+            for target in ("ate", "ey1")
+        },
+        "l4_mc_risk": "law L4, mechanism-correct learners, the arm-1 risk",
+        "l4_mc_k1_risk": "law L4, mechanism-correct learners, the arm-1 risk, threshold times 1",
+        "l4_mc_contrast": "law L4, mechanism-correct learners, the risk difference",
+        "l4_sv_one_step_risk": "law L4, scaled_var, one-step, the arm-1 risk",
+        "l4_ss_one_step_risk": "law L4, sample_size, one-step, the arm-1 risk",
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -8883,5 +8912,232 @@ CELLS.update(
             f"{_LF2}, always against never, n = 2,000: the order-0 fit with correct mechanisms",
             _DIAGNOSTIC_REQUIRED,
         ),
+    }
+)
+
+
+#: The stopping-rule studies (X76 part (a)): ``option-stopping-point`` and
+#: ``option-stopping-ltmle``.  The laws, fits and cells are those of
+#: ``tests/studies/_option_stopping_laws.py`` and the two properties modules.
+_STOP_POINT = "option-stopping-point"
+_STOP_LTMLE = "option-stopping-ltmle"
+_RULE_WORDS = {"sv": "stopping='scaled_var'", "ss": "stopping='sample_size'"}
+_WALK_WORDS = {"newton": "the Newton walk", "one_step": "the one-step walk"}
+_STOP_LAWS = {
+    (_STOP_POINT, "binary"): (
+        "the canonical-tmle binary law, logistic outcome and treatment GLMs, in sample, "
+        "n = 2,000, the ATE"
+    ),
+    (_STOP_POINT, "continuous"): (
+        "the canonical-tmle continuous law, a linear outcome and a logistic treatment GLM, in "
+        "sample, n = 2,000, the ATE"
+    ),
+    (_STOP_LTMLE, "l3"): (
+        "law L3 (the canonical-ltmle censored two-node law with its learners), always against "
+        "never, n = 2,000"
+    ),
+    (_STOP_LTMLE, "l4"): (
+        "law L4 (the point-survival-curve five-visit survival law, one-step hazard walk, with "
+        "its learners), the risk difference at visit 5, n = 2,000"
+    ),
+}
+STUDY_SCENARIOS.update(
+    {
+        (_STOP_POINT, "binary"): (
+            f"{_STOP_LAWS[_STOP_POINT, 'binary']} and the mean under treatment; "
+            "stopping='scaled_var' on the one-step walk, the widened interval"
+        ),
+        (_STOP_POINT, "continuous"): (
+            f"{_STOP_LAWS[_STOP_POINT, 'continuous']} and the mean under treatment; "
+            "stopping='scaled_var' on the one-step walk, the widened interval"
+        ),
+        (_STOP_LTMLE, "L3"): (
+            f"{_STOP_LAWS[_STOP_LTMLE, 'l3']}; the per-node Newton walk under "
+            "stopping='scaled_var', the widened interval"
+        ),
+        (_STOP_LTMLE, "L4"): (
+            f"{_STOP_LAWS[_STOP_LTMLE, 'l4']} and the arm-1 risk; stopping='scaled_var', the "
+            "widened interval"
+        ),
+    }
+)
+
+
+def _stop_fits() -> dict[tuple[str, str], str]:
+    fits: dict[tuple[str, str], str] = {}
+    for (slug, law), words in _STOP_LAWS.items():
+        walks = (
+            ("newton", "one_step")
+            if slug == _STOP_POINT
+            else (("newton",) if law == "l3" else ("one_step",))
+        )
+        for rule in ("sv", "ss"):
+            for walk in walks:
+                fits[slug, f"{law}_{rule}_{walk}"] = (
+                    f"{words}: {_RULE_WORDS[rule]} on {_WALK_WORDS[walk]}"
+                )
+        walk = "one_step" if law == "l4" else "newton"
+        fits[slug, f"{law}_rel_{walk}"] = f"{words}: stopping='relative' on {_WALK_WORDS[walk]}"
+    return fits
+
+
+_STOP_FITS = _stop_fits()
+_LN = (
+    "law LN (the outcome regression omits the confounding term V, so the initial score has a "
+    "fixed sign), the mean under treatment, n = 2,000"
+)
+_L4_MC = "law L4 with intercept-only hazard learners and correct mechanisms, n = 2,000"
+_STOP_EXTRA = {
+    (_STOP_POINT, "binary_ss_newton_step_bound"): (
+        f"{_STOP_LAWS[_STOP_POINT, 'binary']}: stopping='sample_size' on the Newton walk with "
+        "step_bound=0.05, the tmle3 pairing"
+    ),
+    (_STOP_POINT, "ln_ey1"): f"{_LN}: one-step stopping='scaled_var', every threshold times 8",
+    (_STOP_POINT, "ln_ey1_k1"): f"{_LN}: one-step stopping='scaled_var' at the declared thresholds",
+    (_STOP_POINT, "ln_ey1_rel"): f"{_LN}: one-step stopping='relative'",
+    **{
+        (_STOP_POINT, f"l2_{rule}_one_step_{target}"): (
+            f"law L2 (Y = 4 W1 + 0.5 W2 + 0.1 A + noise, correct linear and logistic GLMs), "
+            f"{'the ATE' if target == 'ate' else 'the mean under treatment'}, n = 2,000: "
+            f"{_RULE_WORDS[rule]} on the one-step walk"
+        )
+        for rule in ("sv", "ss")
+        for target in ("ate", "ey1")
+    },
+    (_STOP_LTMLE, "l4_mc_risk"): (
+        f"{_L4_MC}, the arm-1 risk at visit 5: stopping='scaled_var', every threshold times 8"
+    ),
+    (_STOP_LTMLE, "l4_mc_k1_risk"): (
+        f"{_L4_MC}, the arm-1 risk at visit 5: stopping='scaled_var' at the declared thresholds"
+    ),
+    (_STOP_LTMLE, "l4_mc_contrast"): (
+        f"{_L4_MC}, the risk difference at visit 5: stopping='scaled_var', every threshold times 8"
+    ),
+    **{
+        (_STOP_LTMLE, f"l4_{rule}_one_step_risk"): (
+            f"law L4, the arm-1 risk at visit 5, n = 2,000: {_RULE_WORDS[rule]} on the one-step "
+            "hazard walk"
+        )
+        for rule in ("sv", "ss")
+    },
+}
+STUDY_ARMS.update(_STOP_FITS)
+STUDY_ARMS.update(_STOP_EXTRA)
+PROPERTIES.update(
+    {
+        "residual_witness": (
+            "the rule leaves a score residual: the share of draws whose residual reaches 0.01 "
+            "standard errors"
+        ),
+        "residual_necessity": (
+            "where the rule leaves a large residual, the plain interval under-covers and the "
+            "widened interval covers"
+        ),
+        "plain_interval": (
+            "the plain Wald interval of each calibration fit, without the residual, reported"
+        ),
+        "relative_reference": "the fit under stopping='relative' on the same draws, reported",
+        "necessity_reference": (
+            "the necessity law's fits at the declared thresholds, under the relative rule or on "
+            "another estimand, reported"
+        ),
+        "contrast_residual": (
+            "the plain and widened intervals of a one-step fit whose residual is not negligible, "
+            "reported"
+        ),
+        "step_bound": "a rule fit with a step bound, which the support key keeps experimental, reported",
+    }
+)
+_WIDENED_REQUIRED = "SE ratio and coverage intervals both inside their calibration bands"
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (slug, "interval_calibration", arm, "widened"): (
+                "the interval adds the remaining score to its half-width",
+                _WIDENED_REQUIRED,
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" not in arm
+        },
+        **{
+            (slug, "residual_witness", arm, "witness"): (
+                "the share of draws whose absolute residual is at least 0.01 standard errors",
+                (
+                    "the lower limit of the share's exact 99% interval at least 0.5"
+                    if arm in {"binary_sv_one_step", "continuous_sv_one_step", "l4_sv_one_step"}
+                    else _DIAGNOSTIC_REQUIRED
+                ),
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" not in arm
+        },
+        **{
+            (slug, "plain_interval", arm, "plain"): (
+                "the plain Wald interval of the same fits, without the residual",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" not in arm
+        },
+        **{
+            (slug, "relative_reference", arm, "widened"): (
+                "the default rule, whose residual is below tol",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" in arm
+        },
+        (_STOP_POINT, "step_bound", "binary_ss_newton_step_bound", "widened"): (
+            "the widened interval",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        (_STOP_POINT, "residual_necessity", "ln_ey1", "plain"): (
+            "the plain interval, without the residual",
+            "the upper limit of the coverage's exact 99% interval below 0.92",
+        ),
+        (_STOP_POINT, "residual_necessity", "ln_ey1", "widened"): (
+            "the widened interval of the same fits",
+            "the lower limit of the coverage's exact 99% interval at least 0.90",
+        ),
+        (_STOP_LTMLE, "residual_necessity", "l4_mc_risk", "plain"): (
+            "the plain interval, without the residual",
+            "the upper limit of the coverage's exact 99% interval below 0.92",
+        ),
+        (_STOP_LTMLE, "residual_necessity", "l4_mc_risk", "widened"): (
+            "the widened interval of the same fits",
+            "the lower limit of the coverage's exact 99% interval at least 0.90",
+        ),
+        **{
+            (_STOP_POINT, "necessity_reference", arm, kind): (
+                f"the {kind} interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for arm, kinds in (("ln_ey1_k1", ("plain", "widened")), ("ln_ey1_rel", ("widened",)))
+            for kind in kinds
+        },
+        **{
+            (_STOP_LTMLE, "necessity_reference", arm, kind): (
+                f"the {kind} interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for arm in ("l4_mc_contrast", "l4_mc_k1_risk")
+            for kind in ("plain", "widened")
+        },
+        **{
+            (_STOP_POINT, "contrast_residual", f"l2_{rule}_one_step_{target}", kind): (
+                f"the {kind} interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for rule in ("sv", "ss")
+            for target in ("ate", "ey1")
+            for kind in ("plain", "widened")
+        },
+        **{
+            (_STOP_LTMLE, "reported_calibration", f"l4_{rule}_one_step_risk", "widened"): (
+                "the widened interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for rule in ("sv", "ss")
+        },
     }
 )

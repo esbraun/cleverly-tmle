@@ -23,6 +23,7 @@ no second copy of the study's settings.
 
 from __future__ import annotations
 
+import functools
 import importlib
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -3043,7 +3044,30 @@ def _long_horizon_cases() -> tuple[RowCase, ...]:
 # The cases of the X76 option studies' rows, one function per part beside its row function in
 # cleverly._support_rows, each empty until its study passes.
 def _x76_stopping_point_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-stopping-point`` (X76 part (a)): ``T52``.
+
+    Each runs the study's own fit of one rule and walk on a draw of the ``L1`` law of its
+    outcome.
+    """
+    module, slug = "_option_stopping_laws", "option-stopping-point"
+
+    def case(rule: str, label: str, targeting: str, walk: str, outcome: str) -> RowCase:
+        return _observed(
+            f"T52.{rule}.{walk}.{outcome}",
+            slug,
+            f"interval_calibration/{outcome}_{label}_{walk}__widened",
+            f"{module}.py:176",
+            module,
+            lambda laws: laws.draw_l1(outcome, 400, 0)[0],
+            lambda laws, frame: laws.fit_point(outcome, frame, stopping=rule, targeting=targeting),
+        )
+
+    return tuple(
+        case(rule, label, targeting, walk, outcome)
+        for rule, label in (("scaled_var", "sv"), ("sample_size", "ss"))
+        for targeting, walk in (("iterative", "newton"), ("one_step", "one_step"))
+        for outcome in ("binary", "continuous")
+    )
 
 
 def _x76_by_arm_cases() -> tuple[RowCase, ...]:
@@ -3098,7 +3122,42 @@ def _x76_adjustment_cases() -> tuple[RowCase, ...]:
 
 
 def _x76_stopping_long_cases() -> tuple[RowCase, ...]:
-    return ()
+    """The cases of ``option-stopping-ltmle`` (X76 part (a)): ``G55``.
+
+    Each runs the study's own fit of one rule: the per-node Newton walk on a draw of ``L3``
+    and the one-step hazard walk on a draw of ``L4``.
+    """
+    module, slug = "_option_stopping_laws", "option-stopping-ltmle"
+    cases = []
+    for rule, label in (("scaled_var", "sv"), ("sample_size", "ss")):
+        cases.append(
+            _observed(
+                f"G55.{rule}.end_of_study",
+                slug,
+                f"interval_calibration/l3_{label}_newton__widened",
+                f"{module}.py:308",
+                module,
+                lambda laws: laws.draw_l3(400, 0)[0],
+                functools.partial(_stopping_fit, "fit_l3", rule),
+            )
+        )
+        cases.append(
+            _observed(
+                f"G55.{rule}.survival",
+                slug,
+                f"interval_calibration/l4_{label}_one_step__widened",
+                f"{module}.py:352",
+                module,
+                lambda laws: laws.draw_l4(400, 0)[0],
+                functools.partial(_stopping_fit, "fit_l4", rule),
+            )
+        )
+    return tuple(cases)
+
+
+def _stopping_fit(name: str, rule: str, laws: Any, frame: Any) -> Any:
+    """``laws.<name>(frame, stopping=rule)``, bound late so each case keeps its own rule."""
+    return getattr(laws, name)(frame, stopping=rule)
 
 
 def _x76_trim_cases() -> tuple[RowCase, ...]:

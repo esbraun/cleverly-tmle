@@ -1719,7 +1719,6 @@ def classify_longitudinal_fit(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
-    conditions: Sequence[Refusal] = (),
     tuned_cap: bool = False,
     separable_first: int | None = None,
 ) -> Classification | None:
@@ -1745,9 +1744,6 @@ def classify_longitudinal_fit(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
-    conditions : sequence of Refusal, default ()
-        The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
-        experimental.
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data.
     separable_first : int or None, default None
@@ -1770,7 +1766,7 @@ def classify_longitudinal_fit(
             tuned_cap=tuned_cap,
             separable_first=separable_first,
         )
-        classification = classify_key(key, learners, conditions)
+        classification = classify_key(key, learners)
     except Exception as error:
         directory = recording_directory()
         if directory is not None:

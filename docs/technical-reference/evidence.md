@@ -415,14 +415,15 @@ binary theorem.
 
 ## Targeting and fitting options
 
-The options `stopping=`, `step_bound=`, `step_search=`, `iterate=` and `patience=` have no
+The options `step_bound=`, `step_search=`, `iterate=` and `patience=` have no
 registered study. `treatment_adjustment=` has the registered study
 [treatment-mechanism covariates on point TMLE](method-evidence/option-treatment-adjustment.md),
 and `outcome_by_arm=` the registered study
 [per-arm outcome regressions on point TMLE](method-evidence/option-outcome-by-arm.md). The
-stopping rules have two declared studies that have not run, `option-stopping-point` and `option-stopping-ltmle`
-(`tests/canonical/option_stopping_point/regenerate.py` and
-`tests/canonical/option_stopping_ltmle/regenerate.py`). A fluctuation coefficient is
+stopping rules `stopping="scaled_var"` and `"sample_size"` have the registered studies
+[stopping rules on point TMLE](method-evidence/option-stopping-point.md) and
+[stopping rules on LTMLE](method-evidence/option-stopping-ltmle.md), which back rows `T52` and
+`G55`. A fluctuation coefficient is
 zero at the truth, so an exact-law check cannot see a stopping rule or a step. Each option
 therefore rests on a hand computation, a nonzero witness and a deliberate-mutation control. The
 Python tests below gate the change.

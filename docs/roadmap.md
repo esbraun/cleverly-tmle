@@ -1495,14 +1495,14 @@ Acceptance: the study test of part (b).
 
 ### X76. Studies of the targeting and fitting options
 
-These options run. Parts (b), (d), (e) and (f) are done: their registered studies back support
+These options run. Parts (a), (b), (d), (e) and (f) are done: their registered studies back support
 rows, and a fit outside those rows carries the experimental label. A fit that declares an option
 of the open parts carries the experimental label, and
 `src/cleverly/estimators/_option_support.py` writes each remaining condition.
 
 | part | option | what a study measures |
 | --- | --- | --- |
-| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Declared as `option-stopping-point` and `option-stopping-ltmle`, not yet run |
+| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Done: [`option-stopping-point`](technical-reference/method-evidence/option-stopping-point.md) and [`option-stopping-ltmle`](technical-reference/method-evidence/option-stopping-ltmle.md), rows `T52` and `G55`. A rule with `step_bound=` or `iterate="best"`, and a one-step end-of-study walk, stay experimental |
 | (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm. Done: [`option-outcome-by-arm`](technical-reference/method-evidence/option-outcome-by-arm.md), rows `T53` |
 | (c) | `patience=` on the cross-validated C-TMLE path | bias when the counter stops the greedy path early, beside the whole path. Declared as `option-patience`, not yet run. A pre-ordered strategy with `patience=` stays experimental permanently: the counter can stop before a needed candidate at every sample size |
 | (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Done: [`option-treatment-adjustment`](technical-reference/method-evidence/option-treatment-adjustment.md), rows `T54` |

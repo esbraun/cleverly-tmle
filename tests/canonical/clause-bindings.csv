@@ -1764,20 +1764,20 @@ missingness-tilt-inference,interval_calibration,se ratio in calibration band,se/
 missingness-tilt-inference,targeting_necessity,bias discriminated,pair_collapse
 missingness-tilt-inference,targeting_necessity,bias equivalent,bias
 missingness-tilt-inference,targeting_necessity,least displacement over labels,control_concentrated
-tests.studies.option_stopping_ltmle_properties,interval_calibration,coverage in calibration band,shift/0.7
-tests.studies.option_stopping_ltmle_properties,interval_calibration,noise se ratio below band,se_high
-tests.studies.option_stopping_ltmle_properties,interval_calibration,se ratio below band,se_high
-tests.studies.option_stopping_ltmle_properties,interval_calibration,se ratio in calibration band,se/0.05
-tests.studies.option_stopping_ltmle_properties,residual_necessity,coverage ceiling,pair_collapse
-tests.studies.option_stopping_ltmle_properties,residual_necessity,coverage floor,se_low
-tests.studies.option_stopping_ltmle_properties,residual_witness,coverage floor,shift/3
-tests.studies.option_stopping_point_properties,interval_calibration,coverage in calibration band,affine
-tests.studies.option_stopping_point_properties,interval_calibration,noise se ratio below band,none
-tests.studies.option_stopping_point_properties,interval_calibration,se ratio below band,se_high
-tests.studies.option_stopping_point_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.option_stopping_point_properties,residual_necessity,coverage ceiling,pair_collapse
-tests.studies.option_stopping_point_properties,residual_necessity,coverage floor,se_low
-tests.studies.option_stopping_point_properties,residual_witness,coverage floor,shift/3
+option-stopping-ltmle,interval_calibration,coverage in calibration band,shift/0.7
+option-stopping-ltmle,interval_calibration,noise se ratio below band,se_high
+option-stopping-ltmle,interval_calibration,se ratio below band,se_high
+option-stopping-ltmle,interval_calibration,se ratio in calibration band,se/0.05
+option-stopping-ltmle,residual_necessity,coverage ceiling,se_high
+option-stopping-ltmle,residual_necessity,coverage floor,se_low
+option-stopping-ltmle,residual_witness,coverage floor,shift/3
+option-stopping-point,interval_calibration,coverage in calibration band,affine
+option-stopping-point,interval_calibration,noise se ratio below band,se_high
+option-stopping-point,interval_calibration,se ratio below band,se_high
+option-stopping-point,interval_calibration,se ratio in calibration band,affine
+option-stopping-point,residual_necessity,coverage ceiling,se_high
+option-stopping-point,residual_necessity,coverage floor,se_low
+option-stopping-point,residual_witness,coverage floor,shift/3
 option-treatment-adjustment,double_robustness,bias discriminated,pair_collapse
 option-treatment-adjustment,double_robustness,bias equivalent,bias
 option-treatment-adjustment,double_robustness,se ratio in union band,se/0.05

@@ -354,6 +354,17 @@ def measured(row: Any) -> str:
         return measured
     if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family == "residual_witness":
+        # X76 (a): the share of draws whose residual reaches 0.01 SE, with its exact interval.
+        return f"share {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family in {"residual_necessity", *_RULE_REPORTED}:
+        # X76 (a): a coverage reading of the plain or widened interval, with the residual the
+        # rule left beside it.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, "
+            f"mean absolute residual {render(float(row.mean_abs_residual))} SE"
+        )
     if family in _X76_REPORTED:
         # The reported fits of the X76 option studies: no verdict, so the row prints the
         # bias, the coverage and the SE ratio beside the exact-law limit where the law fixes
@@ -883,6 +894,17 @@ _BIAS_GATED = frozenset(
         "trim_necessity",
         "order_necessity",
         "order_double_robustness",
+    }
+)
+
+#: The reported families of the stopping-rule studies (X76 (a)), which read a coverage.
+_RULE_REPORTED = frozenset(
+    {
+        "plain_interval",
+        "relative_reference",
+        "necessity_reference",
+        "contrast_residual",
+        "step_bound",
     }
 )
 

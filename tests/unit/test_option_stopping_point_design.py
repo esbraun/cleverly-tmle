@@ -126,9 +126,18 @@ class TestTheDeclaration:
         from tests.studies import canonical_option_stopping_ltmle as sibling
         from tests.studies.evidence.registry import registered
 
-        seeds = {record.seed for record in registered()} | {sibling.SEED, pilot.PILOT_SEED}
+        others = [record for record in registered() if record.slug != study.SLUG]
+        seeds = {record.seed for record in others} | {sibling.SEED, pilot.PILOT_SEED}
         assert study.SEED not in seeds
-        assert study.RESAMPLING_SEED not in {r.resampling_seed for r in registered()}
+        assert study.RESAMPLING_SEED not in {r.resampling_seed for r in others}
+
+    def test_registered_with_its_committed_run(self) -> None:
+        from tests.studies.evidence.registry import registered
+        from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
+
+        assert study.SLUG in {record.slug for record in registered()}
+        assert study.STUDY.artifact("property-replicates.parquet").exists()
+        assert properties.__name__ not in UNCOMMITTED_MODULES
 
     def test_the_record_declares_the_cells_the_module_builds(self) -> None:
         assert study.STUDY.property_cells == properties.PROPERTY_CELLS

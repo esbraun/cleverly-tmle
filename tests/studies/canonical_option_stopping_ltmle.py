@@ -37,8 +37,8 @@ a one-step end-of-study walk.  The design test pins that equality.
 
 **No comparator**, for the reason ``option-stopping-point`` gives.  **Publication policy** is
 ``reporting``; the red-cell reading is declared in
-``tests/canonical/option_stopping_ltmle/regenerate.py`` before any run.  **Declared, not
-registered**: the ``G55`` support rows land with the registration.
+``tests/canonical/option_stopping_ltmle/regenerate.py`` before any run.  **Registered**: the
+declared run is committed at 674c4f1, and the record backs the ``G55`` support rows.
 """
 
 from __future__ import annotations
@@ -246,11 +246,11 @@ SCENARIOS: dict[str, tuple[str, ...]] = {
 }
 
 STUDY = StudyRecord(
-    name="stopping rules on LTMLE",
+    name="Stopping rules on LTMLE",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "option_stopping_ltmle",
     document="docs/technical-reference/method-evidence/option-stopping-ltmle.md",
-    anchor="option-stopping-ltmle",
+    anchor="stopping-rules-on-ltmle",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

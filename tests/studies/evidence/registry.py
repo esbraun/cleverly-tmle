@@ -685,6 +685,8 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_option_markov_order import STUDY as OPTION_MARKOV_ORDER
     from tests.studies.canonical_option_outcome_by_arm import STUDY as OPTION_OUTCOME_BY_ARM
     from tests.studies.canonical_option_ratio_trim import STUDY as OPTION_RATIO_TRIM
+    from tests.studies.canonical_option_stopping_ltmle import STUDY as OPTION_STOPPING_LTMLE
+    from tests.studies.canonical_option_stopping_point import STUDY as OPTION_STOPPING_POINT
     from tests.studies.canonical_option_treatment_adjustment import (
         STUDY as OPTION_TREATMENT_ADJUSTMENT,
     )
@@ -842,6 +844,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_DR_TMLE,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
+        OPTION_STOPPING_POINT,
         OPTION_TREATMENT_ADJUSTMENT,
         OPTION_OUTCOME_BY_ARM,
         DOSE_RESPONSE,
@@ -879,6 +882,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LONG_HORIZON_LTMLE,
         LONG_HORIZON_CATEGORICAL_LTMLE,
         LONG_HORIZON_SDR,
+        OPTION_STOPPING_LTMLE,
         OPTION_RATIO_TRIM,
         OPTION_MARKOV_ORDER,
         POINT_SURVIVAL,

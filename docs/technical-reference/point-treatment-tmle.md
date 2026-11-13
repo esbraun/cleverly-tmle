@@ -767,6 +767,17 @@ $o(n^{-1/2})$, and it depends on the outcome's units. For a rare binary outcome 
 `span` it can reach about one standard error at $n = 100$. The realised line reports the exact
 value on every fit.
 
+**Evidence.** The registered study
+[`option-stopping-point`](method-evidence/option-stopping-point.md) measures the widened interval
+in sample at n = 2,000 on the `canonical-tmle` binary and continuous laws, under both rules, on
+the Newton and the one-step walk. The widened interval covers 0.949 to 0.957 of the ATE. On the
+one-step walk a `scaled_var` residual reaches 0.01 SE on 0.854 (binary) and 0.999 (continuous) of
+draws. With every threshold eight times larger, so that the rule binds hard, the plain interval
+of the mean under treatment covers 0.837 and the widened one 0.977. The
+support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
+`experimental`. The binary-outcome interval rows will be recomputed with the composed half-width
+when the planned small-sample interval for bounded estimates ships.
+
 #### What the result reports
 
 | output | content |

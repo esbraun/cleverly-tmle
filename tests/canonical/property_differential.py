@@ -92,8 +92,6 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: long-horizon studies bind to their committed rows, so they are subjects by slug.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
-    "tests.studies.option_stopping_point_properties",
-    "tests.studies.option_stopping_ltmle_properties",
     "tests.studies.option_patience_properties",
 )
 

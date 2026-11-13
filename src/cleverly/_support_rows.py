@@ -3082,8 +3082,78 @@ def _projection_rows() -> tuple[SupportRow, ...]:
 # The point rows of the X76 option studies, one function per part, each empty until its study
 # passes: a declared stopping rule (T52), outcome_by_arm=True (T53), patience= on the greedy
 # path (C12) and treatment_adjustment= (T54).
+#: The limit every ``T52`` and ``G55`` row states first: what the interval is under a rule.
+_RULE_INTERVAL_LIMIT = (
+    "Under a declared stopping rule the interval adds the remaining score to its half-width, "
+    "psi +/- (z se + |r_n|). The plain interval of the same fit has no level guarantee: where "
+    "the rule binds hard it covers 0.837 and the widened one 0.977 (study "
+    "option-stopping-point, cells residual_necessity, every threshold times 8). The bootstrap "
+    "is refused under a rule, and a step bound or iterate='best' under a rule is not covered."
+)
+
+
+def _rule_newton_limit(largest: str) -> str:
+    """The limit of a row whose cells read the Newton walk (plan 3.2, design review S2).
+
+    ``largest`` is the largest absolute residual of the row's cell over its draws, in SE units.
+    """
+    return (
+        f"On the Newton walk the rule leaves a residual of at most {largest} SE, and no draw "
+        "reaches 0.01 SE (cells residual_witness), so these cells measure an estimator "
+        "indistinguishable from the default: their coverage and SE ratio equal the relative "
+        "fit's on the same draws."
+    )
+
+
+#: The share of draws whose residual reaches 0.01 SE on each one-step cell of
+#: ``option-stopping-point`` (cells ``residual_witness``).
+_POINT_WITNESS_SHARE = {
+    ("binary", "scaled_var"): "0.854",
+    ("binary", "sample_size"): "0.303",
+    ("continuous", "scaled_var"): "0.999",
+    ("continuous", "sample_size"): "0.751",
+}
+
+_RULE_LABELS = {"scaled_var": "sv", "sample_size": "ss"}
+
+
 def _x76_stopping_point_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """A declared stopping rule on ordinary TMLE (``T52``, study ``option-stopping-point``).
+
+    One row per rule, walk and outcome over the in-sample ``T01`` key, with the rule in the
+    options and the default step bound and iterate, so a bound or ``iterate="best"`` under a
+    rule matches no row.
+    """
+    rows = []
+    for rule, label in _RULE_LABELS.items():
+        for targeting, walk in (("iterative", "newton"), ("one_step", "one_step")):
+            for outcome, axis in (("binary", BINARY), ("continuous", CONTINUOUS)):
+                if targeting == "iterative":
+                    walk_limit = _rule_newton_limit("1e-10" if outcome == "binary" else "0.0014")
+                else:
+                    share = _POINT_WITNESS_SHARE[(outcome, rule)]
+                    walk_limit = (
+                        f"On the one-step walk the rule binds: the residual reaches 0.01 SE "
+                        f"on a share {share} of draws (cell "
+                        f"residual_witness/{outcome}_{label}_one_step__witness)."
+                    )
+                rows.append(
+                    point_row(
+                        f"T52.{rule}.{walk}.{outcome}",
+                        ["option-stopping-point"],
+                        families=("P1",),
+                        outcome=axis,
+                        options={"stopping": rule, "targeting": targeting},
+                        cells=[f"interval_calibration/{outcome}_{label}_{walk}__widened"],
+                        limits=[
+                            _RULE_INTERVAL_LIMIT,
+                            walk_limit,
+                            "Measured in sample at n = 2,000 on the canonical-tmle binary and "
+                            "continuous laws, for the ATE and the arm means.",
+                        ],
+                    )
+                )
+    return tuple(rows)
 
 
 #: The limit of every ``T53`` row (study ``option-outcome-by-arm``).
@@ -5145,7 +5215,7 @@ def _learned_regimen_rows() -> tuple[SupportRow, ...]:
                 "instrument resolves in-sample rule learning.",
                 "A continuous outcome with q_bounds=, declared node bounds, ratio_trim=, an "
                 "uncensored panel and a known mechanism are keyed apart and read experimental; a "
-                "stopping rule reads experimental through its fit condition. More than two "
+                "stopping rule is keyed apart and reads experimental. More than two "
                 "nodes, repeats above 1, n_folds=1, weights and clusters refuse. No comparator: "
                 "no maintained package fits a learned two-node regimen by cross-validated TMLE.",
             ],
@@ -5412,7 +5482,57 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
 # The longitudinal rows of the X76 option studies, one function per part, each empty until its
 # study passes: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """A declared stopping rule on ``LTMLE`` (``G55``, study ``option-stopping-ltmle``).
+
+    ``G55.<rule>.end_of_study`` is the key of ``G01``, whose walk is the per-node Newton
+    fluctuation, so a one-step end-of-study walk under a rule matches no row (design review
+    S2). ``G55.<rule>.survival`` is the key of ``G31.survival``, the one-step hazard walk.
+    """
+    slug = ["option-stopping-ltmle"]
+    witness = {"scaled_var": "0.816", "sample_size": "0.248"}
+    rows = []
+    for rule, label in _RULE_LABELS.items():
+        rows.append(
+            long_row(
+                f"G55.{rule}.end_of_study",
+                slug,
+                stopping=rule,
+                kinds=_LONG_DERIVED,
+                cells=[f"interval_calibration/l3_{label}_newton__widened"],
+                limits=[
+                    _RULE_INTERVAL_LIMIT,
+                    _rule_newton_limit("1.3e-7"),
+                    "Measured in sample at n = 2,000 on the canonical-ltmle censored two-node "
+                    "law, for the ATE of the always and never regimens.",
+                ],
+            )
+        )
+        rows.append(
+            long_row(
+                f"G55.{rule}.survival",
+                slug,
+                outcome_kind="survival",
+                held=True,
+                treatment=("2",) * 5,
+                survival_model="hazard",
+                targeting="one_step",
+                stopping=rule,
+                kinds=_LONG_WALD,
+                cells=[f"interval_calibration/l4_{label}_one_step__widened"],
+                limits=[
+                    _RULE_INTERVAL_LIMIT,
+                    f"On the one-step hazard walk the rule binds: the residual reaches 0.01 SE "
+                    f"on a share {witness[rule]} of draws (cell "
+                    f"residual_witness/l4_{label}_one_step__witness). Where it binds hard the "
+                    "plain interval of the arm-1 risk covers 0.874 and the widened one 0.979 "
+                    "(cells residual_necessity).",
+                    "Measured at n = 2,000 on the point-survival-curve five-visit law, for the "
+                    "risk difference at visit 5. The simultaneous band under a rule is not "
+                    "measured.",
+                ],
+            )
+        )
+    return tuple(rows)
 
 
 #: The limit of every ``G56`` row (study ``option-ratio-trim``).

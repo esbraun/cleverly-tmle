@@ -41,8 +41,8 @@ reads each cell against its exact truth alone.
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/option_stopping_point/regenerate.py`` before any run.
 
-**Declared, not registered.**  The record is not in ``registered()`` until its run is
-committed; the ``T52`` support rows land with that registration.
+**Registered.**  The declared run is committed at 7833316, and the record is in
+``registered()``; it backs the ``T52`` support rows.
 """
 
 from __future__ import annotations
@@ -305,11 +305,11 @@ PRIMARY_FIT = "sv_one_step"
 SCENARIOS: dict[str, tuple[str, ...]] = dict.fromkeys(OUTCOMES, ("ate", "ey1"))
 
 STUDY = StudyRecord(
-    name="stopping rules on point TMLE",
+    name="Stopping rules on point TMLE",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "option_stopping_point",
     document="docs/technical-reference/method-evidence/option-stopping-point.md",
-    anchor="option-stopping-point",
+    anchor="stopping-rules-on-point-tmle",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

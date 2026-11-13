@@ -711,6 +711,30 @@ def ruled_curve() -> Any:
 
 
 @functools.cache
+def ruled_two_term_curve() -> Any:
+    """The fit of :func:`ruled_curve` projected on ``(W1, W2)``: two tested terms (review R1)."""
+    from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+    from cleverly.bases import Linear, Modifiers
+
+    frame = laws.draw_l1("binary", 1000, 20261112)[0]
+    covariates = tuple(column for column in frame.columns if column not in ("A", "Y"))
+    study = CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=covariates)
+    )
+    estimand = ConditionalContrast(
+        Modifiers(["W1", "W2"], domains={"W1": (-5.0, 5.0), "W2": (-5.0, 5.0)}),
+        model=Linear(["W1", "W2"]),
+    )
+    return study.identify(estimand).estimate(
+        **laws.point_learners("binary"),
+        cross_fit=False,
+        random_state=0,
+        targeting="one_step",
+        stopping="scaled_var",
+    )
+
+
+@functools.cache
 def ruled_msm() -> Any:
     """A one-step ``scaled_var`` logit working model over three dose levels."""
     from cleverly import MSMProjection
@@ -760,6 +784,25 @@ def assert_heterogeneity_read_at_the_residual(fit: Any) -> None:
     read = max(0.0, np.sqrt(test.statistic) - margin) ** 2
     assert test.p_value == pytest.approx(float(stats.chi2.sf(read, 1)), rel=1e-10)
     assert test.p_value > float(stats.chi2.sf(test.statistic, 1))
+
+
+def assert_two_term_margin(fit: Any) -> None:
+    """Two tested terms: the margin is ``sqrt(s' Sigma^-1 s)`` in the joint covariance.
+
+    A margin that ignores the correlation of the coefficients, ``sqrt(sum s_j^2 / Sigma_jj)``,
+    differs from it, so this check fails a diagonal-only margin.
+    """
+    from cleverly.inference.results import estimate_covariance
+
+    test = fit.heterogeneity_test()
+    names = list(fit.estimates)[1:]
+    covariance = estimate_covariance(fit.estimates, names)
+    scores = np.array([fit.estimates[name].score for name in names])
+    margin = float(np.sqrt(scores @ np.linalg.solve(covariance, scores)))
+    assert test.df == 2
+    assert test.residual_margin == pytest.approx(margin, rel=1e-10)
+    read = max(0.0, np.sqrt(test.statistic) - margin) ** 2
+    assert test.p_value == pytest.approx(float(stats.chi2.sf(read, 2)), rel=1e-10)
 
 
 def assert_fitted_means_widened(fit: Any) -> None:
@@ -822,6 +865,19 @@ class TestWidenedConsumers:
     def test_the_heterogeneity_test_reads_the_statistic_less_the_residual(self) -> None:
         assert_heterogeneity_read_at_the_residual(ruled_curve())
 
+    def test_two_tested_terms_read_the_margin_in_the_joint_covariance(self) -> None:
+        fit = ruled_two_term_curve()
+        from cleverly.inference.results import estimate_covariance
+
+        names = list(fit.estimates)[1:]
+        covariance = estimate_covariance(fit.estimates, names)
+        scores = np.array([fit.estimates[name].score for name in names])
+        joint = float(np.sqrt(scores @ np.linalg.solve(covariance, scores)))
+        diagonal = float(np.sqrt(np.sum(scores**2 / np.diag(covariance))))
+        # The witness: the two forms differ well beyond the check's tolerance.
+        assert abs(joint - diagonal) > 1e-2 * joint
+        assert_two_term_margin(fit)
+
     def test_a_working_model_fitted_mean_adds_the_linear_predictor_residual(self) -> None:
         assert_fitted_means_widened(ruled_msm())
 
@@ -855,6 +911,25 @@ class TestWidenedConsumers:
         )
         with pytest.raises(AssertionError):
             assert_heterogeneity_read_at_the_residual(ruled_curve())
+
+    def test_the_mutation_that_reads_a_diagonal_margin_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Review R1, mutation M-a: s' Sigma^-1 s read as sum s_j^2 / Sigma_jj.
+        mutate(
+            monkeypatch,
+            effect_curves_module,
+            effect_curves_module,
+            "heterogeneity_test",
+            [
+                (
+                    "scores @ np.linalg.solve(covariance, scores)",
+                    "np.sum(scores**2 / np.diag(covariance))",
+                )
+            ],
+        )
+        with pytest.raises(AssertionError):
+            assert_two_term_margin(ruled_two_term_curve())
 
     def test_the_mutation_that_drops_the_fitted_means_margin_fails(
         self, monkeypatch: pytest.MonkeyPatch

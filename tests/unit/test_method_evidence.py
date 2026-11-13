@@ -1083,6 +1083,27 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own count {count}"
                 )
 
+        # X76 (a): a positive residual-share or widened-coverage row answers to the lower limit
+        # of its exact interval, the plain control to the upper limit, against the study's
+        # declared floors and ceiling.
+        limits = published.loc[
+            published["property"].isin({"residual_witness", "residual_necessity"})
+        ]
+        if not limits.empty:
+            declared = study.runner()
+            for row in limits.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.property == "residual_witness":
+                    expected = row.coverage_ci_lower >= declared.WITNESS_SHARE
+                elif row.role == "positive":
+                    expected = row.coverage_ci_lower >= declared.NECESSITY_FLOOR
+                else:
+                    expected = row.coverage_ci_upper < declared.NECESSITY_CEILING
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own limit"
+                )
+
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
@@ -1868,6 +1889,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "oracle_comparison",
         "calibration",
         "risk_comparison",
+        # X76 (a), the stopping-rule studies: a witness row's share of draws whose residual
+        # reaches 0.01 SE against its floor, and the necessity pair's plain interval below a
+        # ceiling and widened interval above a floor.  Checked row by row below.
+        "residual_witness",
+        "residual_necessity",
     }
 )
 
@@ -1889,6 +1915,16 @@ SAME_DRAW_FAMILIES = {
     # shows that trimming leaves a remainder that double robustness otherwise removes, on the
     # draws whose correct-outcome fits the point cells measure.
     "option-ratio-trim": (frozenset({"trim_necessity", "trim_point"}),),
+    # The stopping-rule studies (X76 (a)): the witness reads the share of draws on which the
+    # rule leaves a residual of at least 0.01 SE, on the fits whose widened interval the
+    # calibration cell measures, so it shows that those cells measure a binding rule.  On L4 the
+    # necessity pair refits the same draws with intercept-only hazards and every threshold
+    # times 8, so that the rule binds hard on data the calibration cells also read.
+    "option-stopping-point": (frozenset({"interval_calibration", "residual_witness"}),),
+    "option-stopping-ltmle": (
+        frozenset({"interval_calibration", "residual_witness"}),
+        frozenset({"interval_calibration", "residual_necessity", "residual_witness"}),
+    ),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
@@ -1981,6 +2017,14 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # constructed-error ladder, its fitted slope and the parametric fit
         # (``option-treatment-adjustment``).
         "pooled_outcome",
+        # X76 (a): the plain interval beside each widened one, the relative fit on the same
+        # draws, the threshold-times-1 and relative references of the necessity law, the
+        # contrasts of L2, and the step-bounded walk, each reported with no verdict.
+        "plain_interval",
+        "relative_reference",
+        "necessity_reference",
+        "contrast_residual",
+        "step_bound",
         "trim_reported",
         "markov_reported",
         "instrument_reference",
@@ -3971,11 +4015,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = (
-    "tests.studies.option_stopping_point_properties",
-    "tests.studies.option_stopping_ltmle_properties",
-    "tests.studies.option_patience_properties",
-)
+UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.option_patience_properties",)
 
 
 def _property_modules() -> list[Any]:

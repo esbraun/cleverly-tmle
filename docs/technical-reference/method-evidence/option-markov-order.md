@@ -158,9 +158,10 @@ from the committed results and checked at the precision printed.
 - **Validity, not efficiency.** No cell gates an efficiency band, and the row makes no
   efficiency claim for the windowed fit.
 - **Orders 1 and 2 on four binary nodes.** The cells measure one law family with censoring, in
-  sample, with linear outcome regressions and logistic mechanisms. Other node counts, flexible
-  learners, cross-fitting, SDR, g-computation, IPW, IPSI and survival outcomes with a window
-  read experimental.
+  sample, with linear outcome regressions and logistic mechanisms. Other node counts,
+  cross-fitting, SDR, g-computation, IPW, IPSI and survival outcomes with a window read
+  experimental. The row pins no learner, as `G01` pins none, so a windowed fit with another
+  learner reads supported and rests on the theory alone.
 - **Static plans only.** The cells read always and never; dynamic and stochastic plans with a
   window read experimental.
 - **No comparator.** R `ltmle` has no window option.

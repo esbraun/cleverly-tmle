@@ -31,11 +31,13 @@ Red-cell reading (declared before any run; Fix-8 plan section 5.0 and ``guide/st
   lower limit is at least 0.90, because the widened interval is conservative by construction.
   That is its declared gate, not a reading of a red row. A red N positive is a defect suspect.
 * A red W cell (the share of ``scaled_var`` one-step draws whose residual is at least 0.01 SE,
-  lower limit below 0.5) means the fast-tier witness does not carry over to this law: it is a
-  red of the study's witness, and the K cells it guards keep their own verdicts.
+  lower limit below 0.5) means the fast-tier witness does not carry over to this law, so the
+  K cells may not measure a rule that binds. It is a defect suspect like every red gating row
+  outside the calibration positives; the K cells keep their own verdicts.
 * A red primary row (a ``cleverly`` truth row) reads as a red calibration positive does: finite
   sample only under the same three conditions, with an owner row, and otherwise a defect suspect.
-* No red control, W cell or N cell takes an owner row.
+* No red control, W cell or N cell takes an owner row, and such a red blocks registration
+  until it is diagnosed.
   ``tests/unit/test_option_stopping_point_design.py`` applies this reading through
   ``tests.studies.mtp_study_tools.gating_findings`` to the gated cells and the truth rows.
 * Every ``diagnostic`` row (plain intervals, relative fits, LN references, L2 cells, the
