@@ -127,8 +127,7 @@ def publish_run(
     here.mkdir(parents=True, exist_ok=True)
     # The failure records and their accounting exist only when a fit failed: the comparator's
     # (RM39 part a2) and the property phase's (part b2).  One left in ``here`` by an earlier run
-    # would outlive this run's manifest.  The property files were once left out, so the X91
-    # part G run's had to be copied by hand.
+    # would outlive this run's manifest.
     every_optional = (*OPTIONAL_ARTIFACT_NAMES, *PROPERTY_FAILURE_FILES)
     optional = [name for name in every_optional if (output / name).exists()]
     for name in every_optional:

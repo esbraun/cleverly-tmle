@@ -641,6 +641,7 @@ class ContinuousSurvivalTMLE:
             return continuous_survival_support(
                 scale=scale,
                 event_share=shares[k],
+                n=n,
                 causes=J,
                 cross_fitted=self.cross_fit,
                 default_nuisances=self._default_nuisances,

@@ -66,12 +66,14 @@ x_l = \sum_p v_p\, \frac{c_{l,p}}{\pi\, S_c},
 $$
 
 on the observed jump times. The direction $v = \Sigma^{-1} P_n D / \lVert P_n D \rVert_{\Sigma}$
-uses the covariance $\Sigma$ of the influence curves held at the initial fit (Remark 2). In
+uses the covariance $\Sigma$ of the influence curves, held at the initial fit as Remark 2 holds
+the metric. In
 continuous time this is the source's exponential tilt; on observed jumps it keeps each cell's
 summed jump below one, so the incidences and the survival add to one at every step. A step is
 accepted when it lowers $\lVert P_n D \rVert_\Sigma$, and halved otherwise. The walk stops when
 $\max_p |P_n D_p| / \hat\sigma_p \le 1 / (\sqrt n \log n)$ (Section 4.3), or at `max_iter`
-accepted steps with a `ConvergenceWarning`.
+accepted steps, at `2 * max_iter` rejected ones, or at a step below $10^{-8}$, with a
+`ConvergenceWarning`.
 
 Two departures from `concrete` 1.0.5 are deliberate. Each arm's hazard is tilted for every unit,
 as the source's submodel tilts the hazard function; `concrete` tilts only the units whose received
@@ -107,10 +109,12 @@ which the score equation also holds (`off_grid_share`).
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, two causes, a risk or a risk
-difference, at a time by which 40% to 85% of the observed events have happened
+that configuration: cross-fitted, the default libraries and settings, at least 1,000 units, two
+causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
+cause have happened
 (`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
 ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
-early reads experimental. `tests/unit/test_continuous_survival.py` checks the influence curve
+early reads experimental. The time condition is calibrated on this one law and does not read
+how many events each arm and cause has. `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
 control for each censoring, survival and tilting term.

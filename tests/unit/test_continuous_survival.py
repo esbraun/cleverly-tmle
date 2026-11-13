@@ -715,7 +715,7 @@ def test_pairs_that_reach_the_survival_floor_are_held_and_the_walk_still_converg
 
 
 def test_the_support_reads_the_measured_configuration_and_times() -> None:
-    frame = _sample(600, seed=4)
+    frame = _sample(1_000, seed=4)
     observed = frame.loc[frame["event"] > 0, "time"].to_numpy()
     early, middle, late = (float(np.quantile(observed, q)) for q in (0.25, 0.5, 0.75))
     with warnings.catch_warnings():
@@ -742,3 +742,11 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
         warnings.simplefilter("ignore")
         stepped = changed.fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
     assert all("step_size" in estimate.support.reason for estimate in stepped.values())
+    small = ContinuousSurvivalTMLE([middle], n_folds=5, random_state=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        half = small.fit(
+            frame.iloc[:600], time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert all("n_folds" in estimate.support.reason for estimate in half.values())
+    assert all("600 units" in estimate.support.reason for estimate in half.values())

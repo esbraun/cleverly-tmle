@@ -20,8 +20,14 @@ CONTINUOUS_SURVIVAL_STUDY: Final[str] = "continuous-time-survival"
 #: event times (shares 0.5 and 0.75); at the lower quartile (0.25) the influence-curve standard
 #: error read up to 8% below the sampling spread and coverage fell to 0.88, so that time was
 #: published without a verdict.  The band leaves at least five sampling standard deviations at
-#: n = 1,000 between each gated time and its edge.
+#: n = 1,000 between each gated time and its edge, and so reaches past the measured shares (about
+#: 0.44 to 0.80 over the study's draws).  It is calibrated on one law: it reads neither the events
+#: of each arm and cause nor n, which :data:`MEASURED_N` bounds.
 MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
+
+#: The sample size the study gates.  A smaller fit has fewer events of each arm and cause; at the
+#: early time the cell with the fewest events (about 16 per fit) covered least.
+MEASURED_N: Final[int] = 1_000
 
 #: The limits every continuous-time estimate states, supported or not.
 CONTINUOUS_LIMITS: Final[tuple[str, ...]] = (
@@ -32,6 +38,10 @@ CONTINUOUS_LIMITS: Final[tuple[str, ...]] = (
     "0.918 to 0.960 over 400 draws (reported, not gated).",
     "Under near-violations of positivity (treatment probabilities near 0 or 1) the intervals "
     "under-cover badly: a reported cell at n = 4,000 covered 0.37 to 0.97.",
+    "The time condition reads the share of observed events, of any cause, by the target time. "
+    "It is calibrated on one law, extends past the measured shares (about 0.44 to 0.80), and "
+    "does not read how many events each arm and cause has. The study targeted three times "
+    "jointly.",
 )
 
 #: The constructor settings the study measures at their defaults, each with its default.
@@ -42,6 +52,9 @@ MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
     "step_size": 0.1,
     "tol": None,
     "tilt": "all",
+    "n_folds": 10,
+    "learner_folds": 5,
+    "alpha": 0.05,
 }
 
 
@@ -53,6 +66,7 @@ def continuous_survival_support(
     *,
     scale: str,
     event_share: float,
+    n: int,
     causes: int,
     cross_fitted: bool,
     default_nuisances: bool,
@@ -61,8 +75,9 @@ def continuous_survival_support(
     """The support of one continuous-time estimate.
 
     An estimate reads ``supported`` when the registered ``continuous-time-survival`` study
-    measures its configuration: a risk or a risk difference with two causes, at a time by which
-    between 40% and 85% of the observed events have happened (:data:`MEASURED_EVENT_SHARE`),
+    measures its configuration: a risk or a risk difference with two causes and at least
+    :data:`MEASURED_N` units, at a time by which between 40% and 85% of the observed events have
+    happened (:data:`MEASURED_EVENT_SHARE`),
     from a cross-fitted fit with the default libraries and the settings of
     :data:`MEASURED_DEFAULTS`.  Otherwise it reads ``experimental`` with every reason that
     applies.
@@ -73,6 +88,8 @@ def continuous_survival_support(
         The estimate's scale.
     event_share : float
         The share of the observed events, any cause, at or before the estimate's time.
+    n : int
+        The number of units.
     causes : int
         The number of event types.
     cross_fitted : bool
@@ -91,13 +108,13 @@ def continuous_survival_support(
     --------
     >>> from cleverly.survival.result import MEASURED_DEFAULTS, continuous_survival_support
     >>> support = continuous_survival_support(
-    ...     scale="level", event_share=0.6, causes=2, cross_fitted=True,
+    ...     scale="level", event_share=0.6, n=1_000, causes=2, cross_fitted=True,
     ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
     ... )
     >>> support.label
     'supported'
     >>> continuous_survival_support(
-    ...     scale="ratio", event_share=0.6, causes=2, cross_fitted=True,
+    ...     scale="ratio", event_share=0.6, n=1_000, causes=2, cross_fitted=True,
     ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
     ... ).label
     'experimental'
@@ -114,8 +131,14 @@ def continuous_survival_support(
         )
     elif event_share > high:
         reasons.append(
-            f"{event_share:.0%} of the observed events happen by this time, beyond the "
-            f"{high:.0%} that the registered study's latest gated time reaches."
+            f"{event_share:.0%} of the observed events happen by this time, beyond the measured "
+            f"band ({low:.0%} to {high:.0%}); the registered study's latest gated time sits at "
+            "75%."
+        )
+    if n < MEASURED_N:
+        reasons.append(
+            f"The fit has {n:,} units, and the registered study gates n = {MEASURED_N:,}; a "
+            "smaller sample has fewer events of each arm and cause."
         )
     if causes != 2:
         reasons.append(

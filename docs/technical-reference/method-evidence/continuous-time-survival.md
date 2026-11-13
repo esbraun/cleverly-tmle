@@ -89,7 +89,8 @@ These readings carry no verdict.
 ### The early time
 
 `early-time.csv` holds the six targets at $t = 0.46$ from the primary fits. Every estimate is
-unbiased (standardized bias within 0.035), and its spread matches the efficient one, but the
+unbiased (standardized bias within 0.035), and its spread is within 2.5% of the efficient one
+(`efficiency_sd` in `tests/studies/continuous_survival_law.py`), but the
 influence-curve standard error runs below the sampling spread. The treated arm's risk of cause 2
 reads SE ratio 0.924 and coverage 0.881, the control arm's risk of cause 1 reads 0.962 and 0.919,
 and the other four read SE ratios 0.965 to 1.005 and coverage 0.924 to 0.945. The fit's support
@@ -171,8 +172,8 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| one law, the default libraries, n = 1,000 | the evidence covers the default Cox libraries and treatment learner, cross-fitted, on one law; a replaced library or learner reads experimental |
-| times by which 40% to 85% of the observed events have happened | the gated times sit at 50% and 75%. At 25% the standard error ran up to 8% low and coverage fell to 0.88, so an estimate at an earlier time reads experimental, as does one beyond 85% |
+| one law, the default libraries, n = 1,000 | the evidence covers the default Cox libraries and treatment learner and the default settings, cross-fitted, on one law, with three target times fitted jointly; a replaced library, learner or setting, or a fit below 1,000 units, reads experimental |
+| times by which 40% to 85% of the observed events have happened | the gated times sit at 50% and 75%. At 25% the standard error ran up to 8% low and coverage fell to 0.88, so an estimate at an earlier time reads experimental, as does one beyond 85%. The band reaches past the measured shares (about 44% to 80%), is calibrated on this law, and does not read how many events each arm and cause has: at the early time the cell with the fewest events, about 16 per fit, covered least |
 | two causes | a single event type, or more than two, reads experimental |
 | risks and risk differences | risk ratios and the simultaneous band are not measured and read experimental |
 | in-sample fits | coverage fell to 0.900 at the gated times and 0.855 at the early time; an in-sample fit reads experimental |
