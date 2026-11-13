@@ -3,25 +3,30 @@
 from __future__ import annotations
 
 import re
+import sys
 import warnings
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly.survival import ContinuousSurvivalTMLE
 from tests.studies import continuous_survival as registered
 from tests.studies import continuous_survival_functionals as study
 from tests.studies import continuous_survival_functionals_law as functionals
+from tests.studies import continuous_survival_functionals_pilot as pilot
 from tests.studies import continuous_survival_functionals_properties as properties
 from tests.studies import continuous_survival_law as law
+from tests.studies import repeated_sizing as sizing
+from tests.studies.evidence.seeds import replicate_seed
 
 STUDIES = Path(__file__).resolve().parents[1] / "studies"
 
 
 def test_the_declaration_is_the_plans() -> None:
     assert study.PILOT_REPLICATES == 800
-    assert study.PRIMARY_REPLICATES == 3_200 == study.STUDY.replicates
+    assert study.STUDY.replicates == study.PRIMARY_REPLICATES
     assert study.PRIMARY_N == 1_000 == study.STUDY.n
     assert study.TAU == law.TIMES[2] == 2.32
     assert study.MARGINS.standardized_bias == 0.2
@@ -137,3 +142,85 @@ def test_the_risk_only_walk_leaves_the_restricted_means_untargeted() -> None:
     assert not np.allclose(scores[indices], targeted_scores[indices])
     name = functionals.rmtl_name("treated", "cause1")
     assert probed[name].psi != targeted[name].psi
+
+
+# ------------------------------------------------------------------------- the sizes
+
+PILOT = pilot.read()
+
+
+def test_the_primary_count_is_the_shared_rules_on_the_committed_pilot() -> None:
+    # Before the pilot is committed the record holds the placeholder, which regenerate.py
+    # refuses; once it is committed the count must be the rule's, so the placeholder fails.
+    if PILOT.empty:
+        assert study.PRIMARY_REPLICATES == study.PENDING_REPLICATES
+        return
+    assert PILOT["replicate"].nunique() == study.PILOT_REPLICATES
+    assert set(PILOT["n"]) == {study.PRIMARY_N}
+    refused = PILOT.loc[PILOT["refusal"].fillna("").ne(""), "replicate"].nunique()
+    assert refused / study.PILOT_REPLICATES <= study.FAILURE_BOUND
+    assert pilot.primary_count(PILOT) == study.PRIMARY_REPLICATES
+
+
+def test_the_calibration_count_meets_the_at_target_rule() -> None:
+    declared = properties.CALIBRATION_REPLICATES
+    assert declared % sizing.BUDGET_STEP == 0
+    assert declared >= pilot.at_target_count() == 2_400
+    at_target = float(sizing.calibration_pass(study.MARGINS, declared, np.array([1.0]), 0.95)[0])
+    assert at_target >= 0.95
+    assert (
+        sizing.calibration_control_probability(
+            study.MARGINS, declared, properties.SHRUNKEN_SE_FACTOR
+        )
+        > 0.999
+    )
+    if not PILOT.empty:
+        _, plug_in = pilot.calibration_check(PILOT, declared)
+        assert plug_in >= 0.90, "extend the pilot before declaring the calibration cell"
+
+
+def test_a_declared_run_waits_for_the_pilot(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.canonical.continuous_survival_functionals import regenerate
+
+    monkeypatch.setattr(sys, "argv", ["regenerate", "--output", "/tmp/x"])
+    if PILOT.empty:
+        with pytest.raises(SystemExit, match="run the pilot first"):
+            regenerate.refuse_unsized()
+    monkeypatch.setattr(sys, "argv", ["regenerate", "--replicates", "2", "--output", "/tmp/x"])
+    regenerate.refuse_unsized()
+
+
+def test_the_pilot_draws_from_its_own_stream() -> None:
+    primary = {
+        replicate_seed(study.STUDY, study.GATED_CELL, r) for r in range(study.PILOT_REPLICATES)
+    }
+    seeds = {pilot.pilot_seed(r) for r in range(study.PILOT_REPLICATES)}
+    assert len(seeds) == study.PILOT_REPLICATES
+    assert not seeds & primary
+
+
+def test_the_pilot_sizes_from_rows_like_its_own() -> None:
+    # Synthetic rows in the pilot's columns, calibrated and unbiased, so the rule runs end to
+    # end: the bias clause at the 0.2 margin needs at least 6,000.
+    rng = np.random.default_rng(0)
+    rows = []
+    for replicate in range(study.PILOT_REPLICATES):
+        for name in functionals.GATED:
+            error = rng.normal(0.0, 0.01)
+            rows.append(
+                {
+                    "replicate": replicate,
+                    "estimand": name,
+                    "truth": 0.5,
+                    "estimate": 0.5 + error,
+                    "inference_estimate": 0.5 + error,
+                    "inference_scale": "identity",
+                    "std_error": 0.01,
+                    "covered": int(abs(error) <= 0.0196),
+                    "refusal": "",
+                }
+            )
+    frame = pd.DataFrame(rows)
+    assert pilot.primary_count(frame) >= 6_000
+    at_target, plug_in = pilot.calibration_check(frame, properties.CALIBRATION_REPLICATES)
+    assert at_target > 0.99 and plug_in > 0.90

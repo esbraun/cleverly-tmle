@@ -50,8 +50,8 @@ The primary rows report 25 targets of each fit: each arm's risk of each cause an
 difference at the median and upper quartile, each cause's risk ratio there on the log scale, and
 at $\tau$ the RMTL of each arm and cause, the RMST of each arm and their differences. Each row
 takes the primary rule: coverage above 0.90, the SE ratio inside (0.8, 1.2) and the bias within
-0.2 SD. The design value is 3,200 replicates. The pilot of 800 draws sets the count by the shared
-rule before the run, up to the registered study's 7,600.
+0.2 SD. The pilot of 800 draws on its own stream sets the count by the shared primary rule
+before the run, about 6,000 to 7,200 at the registered study's coverages.
 
 ## Agreement with the canonical implementation
 
@@ -65,7 +65,7 @@ rule before the run, up to the registered study's 7,600.
 
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
-| `interval_calibration` | the RMST difference at $\tau$, with the shrunken-SE control (factor 0.85) and the noise control | 3,200 at n = 1,000 | an SE ratio or coverage interval outside its band |
+| `interval_calibration` | the RMST difference at $\tau$, with the shrunken-SE control (factor 0.85) and the noise control | 3,200 at n = 1,000, by the at-target rule checked against the pilot's SE ratio | an SE ratio or coverage interval outside its band |
 | targeting necessity (reported) | the RMTLs of a fit whose walk targets the risks only, on 1,000 of the primary draws | 1,000 at n = 1,000 | nothing: the share of fits whose RMTL score exceeds the cutoff, the bias and the coverage are reported |
 | `simultaneous_coverage` (second phase) | the band over every risk and risk difference, and its pointwise control | under its own declaration | joint coverage outside the calibration band |
 
@@ -81,6 +81,7 @@ The band row waits for the default band of the band thread's PR 2 and runs as a 
 
 ## Reproduction
 
+Run the pilot first, as `python -m tests.studies.continuous_survival_functionals_pilot --jobs N`.
 Run `python -m tests.canonical.continuous_survival_functionals.regenerate --output DIR` with an
 empty scratch directory outside the repository to regenerate the artifacts. The red-cell
 readings and the budget are declared in

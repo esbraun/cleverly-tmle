@@ -71,8 +71,11 @@ STUDY = study.STUDY
 
 CALIBRATION = "interval_calibration"
 CALIBRATION_N = study.PRIMARY_N
-#: The plan's design value (5.4): a calibration row passes with probability 0.997 at an SE
-#: ratio of 1.00 and the shrunk-SE control is detected with probability 1.000.
+#: The plan's design value (5.4).  An 800-draw pilot cannot size the cell by the pooled rule
+#: (its SE ratio's predictive SD is near half the band), so ``guide/studies.md``'s at-target rule
+#: applies: pass probability at SE ratio 1 and nominal coverage at least 0.95 (2,400 is the
+#: smallest such multiple of 400; 3,200 gives 0.997), and at least 0.90 at the pilot's own ratio,
+#: or a longer pilot.  The shrunk-SE control is detected with probability 1.000.
 CALIBRATION_REPLICATES = 3_200
 SHRUNKEN_SE_FACTOR = 0.85
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))

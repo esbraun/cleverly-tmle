@@ -25,9 +25,11 @@ The RMST difference also has a calibration cell with its two derived controls, t
 control at 0.85 among them, in :mod:`tests.studies.continuous_survival_functionals_properties`,
 which also holds the targeting-necessity reading and the declared second-phase band row.
 
-**Size and seeds.** :data:`PILOT_REPLICATES` is the plan's pilot; :data:`PRIMARY_REPLICATES` is
-the design value of plan 5.4 (a calibration row passes with probability 0.997 at an SE ratio of
-1.00), which the shared rule confirms or raises from the pilot before any declared draw.
+**Size and seeds.** The pilot (:mod:`tests.studies.continuous_survival_functionals_pilot`,
+:data:`PILOT_REPLICATES` draws on its own stream) sets :data:`PRIMARY_REPLICATES` by the shared
+primary rule, :func:`~tests.studies.repeated_sizing.primary_replicates`.  Until the pilot is
+committed the count is the placeholder 0, and ``regenerate.py`` refuses a declared run; the
+design test recomputes the count from the committed pilot and fails on any other value.
 :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a cell
 draws from ``replicate_seed(STUDY, cell, r)``.
 """
@@ -52,11 +54,12 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-#: The plan's pilot (X6 plan rev 2, 5.4).
+#: The plan's pilot (X6 plan rev 2, 5.4), on its own stream.
 PILOT_REPLICATES = 800
-#: The plan's design value; the shared rule confirms or raises it from the pilot before any
-#: declared draw.
-PRIMARY_REPLICATES = 3_200
+#: The placeholder until the pilot is committed; then the shared primary rule's count from it
+#: (:func:`tests.studies.continuous_survival_functionals_pilot.primary_count`).
+PENDING_REPLICATES = 0
+PRIMARY_REPLICATES = PENDING_REPLICATES
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
@@ -196,7 +199,13 @@ def result_rows(
                 "std_error": float(estimate.std_error),
                 "ci_lower": float(low),
                 "ci_upper": float(high),
+                # The scale of ``std_error`` and ``inference_estimate``: the log for a ratio,
+                # the reported scale otherwise.  A risk, an RMTL and an RMST form their interval
+                # on the logit of their place in (0, 1) or (0, tau) and map it back, as #637's
+                # risks do; ``interval_scale`` records that, and ``ci_lower``, ``ci_upper`` and
+                # ``covered`` record that interval.
                 "inference_scale": "log" if ratio else "identity",
+                "interval_scale": estimate.interval_scale,
                 "covered": int(low <= reference <= high),
                 "initial_estimate": float(initial.get(name, float("nan"))),
             }
@@ -206,6 +215,7 @@ def result_rows(
 
 #: The columns a primary row carries beside the published schema.
 EXTRA_COLUMNS = (
+    "interval_scale",
     "seconds",
     "steps",
     "halvings",
