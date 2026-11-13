@@ -216,11 +216,22 @@ alone would make `truncation_curve()` refuse.
 
 A parameter status sits beside the fit status. `PARAMETER_STATUSES` in
 `src/cleverly/_inference_status.py` names the statuses that one parameter takes, and today it
-holds `constant_node_plugin` only. `_estimates` stamps it through `_parameter_status`, in the fit
+holds `constant_node_plugin`, `constant_arm_cell_plugin` and `out_of_range_plugin`. The last two
+are set by `bounded_status` in `cleverly.inference.influence` and described after the table.
+`_estimates` stamps `constant_node_plugin` through `_parameter_status`, in the fit
 and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
 the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
 when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
 status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
+
+`bounded_status` sets the two bounded-mean statuses. `make_estimate` applies it to every estimate
+with `bounds`, so an estimate on or outside its bounds takes `out_of_range_plugin`. TMLE's
+`_estimates_for` passes `constant_cell=True` when an arm that an arm-axis target reads holds one
+outcome value among the rows the estimate reads (`constant_outcome_cells`), and the longitudinal
+`_estimates` applies it to each level and contrast. A fold-evaluated estimate takes the status of
+the pooled estimate of the same name (`_carry_cell_status`). The constant cell takes precedence over
+the range, either one over a status that shows its interval, and neither over a status that already
+withholds. Contrasts and ratios inherit them through `inference_status`.
 
 | path | status it sets |
 | --- | --- |
@@ -231,7 +242,7 @@ status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 | a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
 | a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
-| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
+| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. A member under `constant_arm_cell_plugin` makes `simultaneous_bands()` refuse and the fit skip its default band with the reason in `summary()`; a member under `out_of_range_plugin` stays in the family and keeps the band it had before the status, as `band_member` decides: the logit band refuses it and the identity band covers it. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
 
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of

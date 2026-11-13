@@ -5321,8 +5321,9 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     ),
     "small-sample-wald": (
         "It measures the small-sample Wald interval rule, computed from the public inference "
-        "functions, while the shipped intervals stay unchanged. No shipped fit reports the "
-        "interval it measures, so no row can name it until the default reads the rule."
+        "functions. The shipped default reads the rule's logit interval for an unclustered mean "
+        "of a yes/no outcome. No shipped fit reports the rule's intervals for a difference or a "
+        "continuous outcome, so no row names them."
     ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
