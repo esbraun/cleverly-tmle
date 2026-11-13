@@ -19,9 +19,8 @@ A cell whose coverage passes but whose clause fails licenses nothing. A red posi
 the option experimental on its rows and is diagnosed (D5). A failing nonzero witness or
 magnitude clause is a design or implementation failure, diagnosed before any reading. A
 high-Kish cell above 0.98 is a finding against the rule. The held-out ``strata_n1000`` cell is
-a reporting row: green, the rule holds out of sample; red with its shown-band reading inside
-(0.92, 0.98), the shortfall is the refusal rate; red with that reading outside, a finding
-against the rule. No replicate count, cell, margin or seed moves after a verdict is seen.
+its own reporting study, ``band-t-reference-held-out``. No replicate count, cell, margin or
+seed moves after a verdict is seen.
 """
 
 from pathlib import Path
