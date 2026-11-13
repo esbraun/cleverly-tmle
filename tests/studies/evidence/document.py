@@ -381,6 +381,20 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
+    if family == "stratified_contraction":
+        # Fix-6's stratified ladder: a rate row answers to its slope, and a rung to its SE ratio
+        # alone, so the rung prints that interval beside its published bias and coverage, and
+        # the coverage its bias and SE ratio imply.
+        if "__rate_" in str(row.cell):
+            return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+        rung = (
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"bias {render(float(row.standardized_bias))} SD, "
+            f"coverage {render(float(row.coverage))}"
+        )
+        if str(row.role) == "control":
+            return rung
+        return f"{rung} against {render(float(row.implied_coverage))} implied"
     if family in {"refuter_size", "refuter_power"}:
         # The cell's verdict reads the count of its trials, so the row prints that count.
         word = "rejections" if family == "refuter_size" else "detections"
