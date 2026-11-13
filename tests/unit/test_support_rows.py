@@ -229,6 +229,55 @@ class TestControls:
         assert classify(estimator, data, ("ate",)).row.id == "T01.binary"  # type: ignore[union-attr]
 
 
+class TestDefaultMultiArmDRTMLE:
+    """Fix-6 D6: the default cross-fitted three-arm ``DRTMLE`` reads row ``D12``.
+
+    The row's cells are free strings, so this is the gate: a real fit of the default lands on
+    ``D12``, and ``D12``'s key is the key of ``multi-arm-drtmle-foldwise``'s own fit.
+    """
+
+    @staticmethod
+    def estimator(**settings: Any) -> Any:
+        from sklearn.linear_model import LinearRegression, LogisticRegression
+
+        from cleverly.estimators import DRTMLE
+
+        return DRTMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
+            cross_fit=True,
+            estimands=("ey", "ate"),
+            reference=0.0,
+            random_state=0,
+            **settings,
+        )
+
+    def test_a_default_cross_fitted_three_arm_fit_reads_d12(self) -> None:
+        result = (
+            self.estimator()
+            .fit(frame(600, arms=3, seed=1), outcome="Y", treatment="A", covariates=["W1", "W2"])
+            .single()
+        )
+        supports = {estimate.support for estimate in result.estimates.values()}
+        assert {support.row for support in supports} == {"D12"}
+        assert {support.label for support in supports} == {"supported"}
+
+    def test_d12_is_keyed_on_the_multi_arm_foldwise_study_fit(self) -> None:
+        from tests.studies.support_cases import case_key
+
+        (case,) = [c for c in CASES if c.slug == "multi-arm-drtmle-foldwise"]
+        assert case_key(case) == ROWS["D12"].key
+
+    def test_control_the_pooled_option_reads_d02(self) -> None:
+        estimator, data, estimands = _build(
+            self.estimator(reduced_crossfit="pooled"), frame(240, arms=3), ("ey", "ate")
+        )
+        assert classify(estimator, data, estimands).row.id == "D02"  # type: ignore[union-attr]
+
+
 class TestExpansion:
     def test_rows_over_makes_one_row_per_value(self) -> None:
         base = ROWS["T05.binary"]

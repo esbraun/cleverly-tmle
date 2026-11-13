@@ -1717,6 +1717,10 @@ def _d_rows() -> tuple[SupportRow, ...]:
             limits=[
                 "The one-inconsistent-nuisance cells are red.",
                 LEAK,
+                "The red one-inconsistent-nuisance cells fit the pooled reduced regressions. "
+                "The foldwise default passes on their own draws at n = 1,500 "
+                "(drtmle-foldwise-n1500) and at n = 1,000 and 3,000 (drtmle-foldwise); row D11 "
+                "covers it.",
             ],
         ),
         point_row(
@@ -1728,7 +1732,14 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
             # Roadmap: RM18.
-            limits=["The boundary and one-sided-bias cells are red.", LEAK],
+            limits=[
+                "The boundary and one-sided-bias cells are red.",
+                LEAK,
+                "The red treatment_correct cell fits the pooled reduced regressions. The "
+                "foldwise default passes on its draws at n = 2,000 (drtmle-foldwise) and on the "
+                "primary law and the outcome_correct cell (multi-arm-drtmle-foldwise); row D12 "
+                "covers it.",
+            ],
         ),
         point_row(
             "D03",
@@ -1879,14 +1890,37 @@ def _d_rows() -> tuple[SupportRow, ...]:
         ),
         # X83: the default cross-fitted fit, foldwise reduced regressions on the
         # canonical-drtmle law. Its key is the key of D07.estimated_g_stacked, so the two merge.
+        # Fix-6 adds the default at n = 1,500 on the RM18 cells' draws.
         point_row(
             "D11",
-            ["drtmle-foldwise"],
+            ["drtmle-foldwise", "drtmle-foldwise-n1500"],
             families=("P1",),
             engine=dr,
             splitting=("stacked",),
             options={"reduced_crossfit": "foldwise"},
             cells=["both_correct", "outcome_correct", "treatment_correct"],
+        ),
+        # Fix-6: the default cross-fitted three-arm fit, foldwise reduced regressions on the
+        # canonical-multi-arm-drtmle law, and the X83 multi-arm treatment_correct cell.
+        point_row(
+            "D12",
+            ["multi-arm-drtmle-foldwise", "drtmle-foldwise"],
+            families=("P1", "P2"),
+            engine=dr,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
+            cells=[
+                "multi_arm_binary_drtmle",
+                "double_robustness/outcome_correct",
+                "double_robustness/multi_arm_drtmle__treatment_correct",
+            ],
+            limits=[
+                "The foldwise outcome_correct cell runs at n = 1,000 only "
+                "(multi-arm-drtmle-foldwise); no foldwise multi-arm outcome_correct cell runs at "
+                "n = 2,000, the size of the primary rows and of the treatment_correct cell "
+                "(drtmle-foldwise)."
+            ],
         ),
     ]
     return _merged(
