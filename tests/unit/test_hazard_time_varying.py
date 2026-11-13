@@ -989,6 +989,30 @@ def test_node_bounds_bound_the_node_hazard_only() -> None:
     assert bounds.bounded[0] and not bounds.bounded[1:].any()
 
 
+def test_a_bound_that_excludes_a_cell_warns_and_is_stamped_on_the_record() -> None:
+    """Events at the last node only, a positive lower bound at node 2: that node cell is out."""
+    law = HeldLaw(n_times=3, last_only=True)
+    with pytest.warns(ConvergenceWarning, match="excludes the data") as caught:
+        result = LTMLE(
+            STATIC,
+            survival_model="hazard",
+            targeting="one_step",
+            step_size=STEP,
+            tol=TOL,
+            node_bounds={2.0: (0.01, 0.6)},
+            **{**_fit_settings(), "pseudo_learner": wrong_continuation()},
+        ).fit(law.frame(), **law.columns())
+    texts = [str(w.message) for w in caught if "excludes the data" in str(w.message)]
+    assert len(texts) == 1
+    assert texts[0].startswith("the declared node bound at node(s) 2 excludes the data")
+    for fit_ in result.fits.values():
+        record = fit_.hazard
+        assert record.bound_excludes_data
+        assert {cell[0] for cell in record.bound_excludes_data} == {2}
+        assert {entry[0] for entry in record.share_clipped} == {2}
+    assert "node bounds clipped" in str(result.summary(detail="full"))
+
+
 def test_cross_fitting_covers_the_truth_and_solves_every_node() -> None:
     """Five folds on draws: within four standard errors, and every pooled node walk solved.
 

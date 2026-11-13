@@ -83,7 +83,10 @@ from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..fluctuation._score import relative_score
 from ..learners.crossfit import Folds
 from .data import LongitudinalData, RegimenMasks
+from .._warnings import warn as _warn
+from ..exceptions import ConvergenceWarning
 from .hazard import (
+    HAZARD_BOUND_EXCLUDES_DATA,
     HazardBounds,
     HazardFit,
     HazardInputs,
@@ -91,6 +94,7 @@ from .hazard import (
     InitialHazards,
     MTPSlots,
     _score_terms,
+    clipped_shares,
     event_indicators,
     fit_hazards,
     influence,
@@ -1062,6 +1066,7 @@ def _assemble(
     curves = curves * weights
     converged = all(fit.converged for fit in fits)
     failure = next((fit.failure for fit in fits if not fit.converged), None)
+    shares, excluded = _bound_stamps(panels)
     record = HazardFit(
         algorithm="one_step",
         targets=tuple((plan.label, cause, t) for cause in causes for t in horizons),
@@ -1075,8 +1080,63 @@ def _assemble(
         failure=failure if not converged else None,
         tol=fits[0].tol,
         nodes=tuple(fits),
+        share_clipped=shares,
+        bound_excludes_data=excluded,
     )
     return BackwardFit(levels, curves, record, tuple(panels), tuple(states))
+
+
+def _bound_stamps(
+    panels: Sequence[NodePanel],
+) -> tuple[tuple[tuple[int, int, float], ...], tuple[tuple[int, int, int], ...]]:
+    """The clipped shares and excluded cells of every bounded node, keyed by the data's node.
+
+    A node bound acts on sub-node 0 of its panel only, so sub-node 0 of the node-``k`` panel is
+    node ``k``.  Shares are ``(node, cause, share)`` and excluded cells ``(node, slot key,
+    cause)``, in node order, as :func:`~cleverly.longitudinal.hazard.clipped_shares` and the
+    shipped record report them.
+    """
+    shares: list[tuple[int, int, float]] = []
+    excluded: list[tuple[int, int, int]] = []
+    for panel in sorted(panels, key=lambda entry: entry.node):
+        inputs = panel.inputs
+        if inputs.node_bounds is None or not inputs.node_bounds.active:
+            continue
+        shares.extend(
+            (panel.node, j, share)
+            for sub, j, share in clipped_shares(panel.initial.hazards, inputs)
+            if sub == 1
+        )
+        if inputs.excluded is not None:
+            excluded.extend(
+                (panel.node, int(key), int(j))
+                for sub, key, j in np.argwhere(inputs.excluded)
+                if sub == 0
+            )
+    return tuple(shares), tuple(excluded)
+
+
+def warn_bound_excludes(data: LongitudinalData, records: Sequence[HazardFit]) -> None:
+    """Warn once when a node bound excludes a cell of any regimen's panels.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    records : sequence of HazardFit
+        The regimen records of the fit.
+    """
+    cells = sorted({cell for record in records for cell in record.bound_excludes_data})
+    if not cells:
+        return
+    grid = data.time_grid
+    nodes = sorted({cell[0] for cell in cells})
+    named = ", ".join(f"{grid[k - 1] if grid is not None else k:g}" for k in nodes)
+    _warn(
+        HAZARD_BOUND_EXCLUDES_DATA.format(nodes=named, count=len(cells)),
+        ConvergenceWarning,
+        stacklevel=4,
+    )
 
 
 # ---------------------------------------------------------------- cross-fitting
@@ -1288,6 +1348,7 @@ def target_time_varying(
         )
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
+    records: list[HazardFit] = []
     for plan in plans:
         weight = clever_weights(data, plan, mechanism, g_bounds)
         entry = slots[plan.label]
@@ -1347,9 +1408,12 @@ def target_time_varying(
             node_bounds=node_bounds,
             slots=entry,
         )
+        records.append(fit.record)
         out.update(
             _regimen_fits(data, plan, mechanism, fit, weight, horizons, causes, g_bounds, t_max)
         )
+    if walk:
+        warn_bound_excludes(data, records)
     return initial, out
 
 
