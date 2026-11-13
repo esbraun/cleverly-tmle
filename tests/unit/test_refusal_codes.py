@@ -340,6 +340,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/datasets/synthetic.py", "rows were selected; raise n_population"): "data "
     "generator argument: too small a population for the requested sample is a malformed "
     "argument of a generator",
+    (
+        "src/cleverly/longitudinal/hazard.py",
+        "pseudo_learner= is not used with survival_model='hazard'",
+    ): "an unused learner argument (H6): a hazard fit on a design with baseline covariates "
+    "only fits no pseudo-outcome, so the argument is malformed for that fit and no "
+    "estimator capability is missing",
     ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
