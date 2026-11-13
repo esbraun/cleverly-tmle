@@ -31,7 +31,8 @@ comparator.
 | treatment learner | `LogisticRegression(C=inf, max_iter=5000)` on $(W_1, W_2)$, the multinomial maximum-likelihood fit of a correct model |
 | support key | family `P11`, `treatment` `("arms3",)`, `splitting` `("fold_evaluated",)`, pinned by `test_the_fit_keys_three_arms_fold_evaluated` in `tests/unit/test_learned_rule_arms_harness.py` |
 | truth | per replication: refit each fold's outcome learner on the fit's training rows with the package's `fit_on_rows`, take the argmax at the three arms, require it to equal the fit's rule on every validation row and the stored fold rule on every row, and integrate $\bar Q_0(d_v(W), W)$ by the trapezoid rule on 4,001 points of $W_1$ for each $W_2$; weight $1/V$ |
-| stored variance | $V^{-2}\sum_v n_v^{-2}\sum_{i\in v} D_i^2$ of the stored curve. The committed interval is $\hat\psi \pm 1.96\,\mathrm{SE}$; the package now forms it on the logit scale |
+| stored variance | $V^{-2}\sum_v n_v^{-2}\sum_{i\in v} D_i^2$ of the stored curve |
+| interval | the package's interval of a bounded mean, $\operatorname{expit}\{\operatorname{logit}\hat\psi \pm 1.96\,\mathrm{SE}/(\hat\psi(1 - \hat\psi))\}$. The shrunken-SE, noise and shrunken coverage controls form the same interval at their own estimate and SE. The first run used $\hat\psi \pm 1.96\,\mathrm{SE}$, and the study is declared for a rerun under this interval on the same seeds |
 | primary budget | 1,200 replications of the `declared` fit |
 | primary verdicts | the framework defaults on the error: the 99% Student bias interval inside 0.25 SD, the lower end of the 99% Clopper-Pearson coverage interval at or above 0.90, and the SE-ratio interval inside 0.80 to 1.20 |
 | seeds | `seed=20268111` and `resampling_seed=20268112` |
@@ -134,14 +135,15 @@ fold-evaluated report. It needed the primary bias leg, coverage floor and SE san
 verdicts to pass. They did on the committed identity intervals, and the row `T45` was registered.
 
 The package then moved the interval of a bounded mean of a yes/no outcome to the logit scale
-([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
-standard errors the `missing_quadratic__declared` cell covers 0.9375, with a lower endpoint of
-0.9173 against its floor of 0.92 (`tests/canonical/learned_rule_arms/interval-audit.parquet`), so
-the row was withdrawn and every three-arm fit reads experimental. The cell is published red under
-`reporting` with the owner
-[`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners). The shift is chance: 11 of
-1,200 fits sit at the boundary of one interval or the other, 4 gained and 7 lost, and the SE ratio
-is 0.996 (`properties.csv`).
+([small-sample scale](../inference.md#small-sample-scale)). Read under that interval, on the first
+run's estimates and standard errors, the `missing_quadratic__declared` cell covered 0.9375, with a
+lower endpoint of 0.9173 against its floor of 0.92. So the row was withdrawn, and every three-arm
+fit reads experimental. The shift is chance: 11 of 1,200 fits sat at the boundary of one interval
+or the other, 4 gained and 7 lost, and the SE ratio is 0.996 (`properties.csv`). The study is
+declared for a rerun under the shipped interval on the same seeds, with the policy `reporting`, and
+the cell is published red with the owner
+[`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners). This page's tables are
+those of the first run until the rerun replaces them.
 
 ### The margin of the fitted rules
 

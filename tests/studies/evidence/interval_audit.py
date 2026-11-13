@@ -15,10 +15,10 @@ its rows, in the Parquet row format of its other row files: one record per bound
 ``covered`` and ``rejected``.  ``tests/unit/test_interval_audit.py`` recomputes every shipped
 column from the record and every committed column from the study's row files.
 
-A study with audited property cells also commits ``interval-audit-properties.csv``: its own
-property summary of those cells under the shipped interval.  The committed ``properties.csv`` and
-``performance-tests.csv`` stay as the record of the identity interval, and the red-cell ledger
-reads a cell that passes there and fails under the shipped interval from this file.  Write or refresh an audit file with::
+The committed ``properties.csv`` and ``performance-tests.csv`` stay as the record of the
+identity interval.  A study rerun under the shipped interval records it in its own rows and has
+no audit: ``learned-rule-arms`` left this list when its conservative coverage cell went red on
+logit and the study was declared for a rerun.  Write or refresh an audit file with::
 
     python -m tests.studies.evidence.interval_audit canonical-stratified-tmle
 """
@@ -68,9 +68,6 @@ COLUMNS = (
     "covered_shipped",
     "rejected_shipped",
 )
-
-#: The property verdicts of the audited cells under the shipped interval, beside the audit.
-PROPERTIES_FILE = "interval-audit-properties.csv"
 
 #: The withheld triggers, as the two parameter statuses name them.
 CONSTANT_ARM_CELL = "constant_arm_cell"
@@ -373,65 +370,12 @@ def _pricing_audit() -> Audit:
     )
 
 
-def _learned_rule_audit() -> Audit:
-    # No scan: every arm of the law has probability at least 0.166 on its support, so each arm
-    # holds hundreds of rows at n = 2,000 and a constant arm cell is negligible.  The derived
-    # controls build their own intervals and stay out.
-    return Audit(
-        truth={"three_arms": ("ey_learned_rule[learned rule]",)},
-        cells=(
-            "interval_calibration/three_arms__declared",
-            "conservative_coverage/missing_quadratic__declared",
-            "targeting_necessity/drop_w1__targeted",
-        ),
-    )
-
-
 #: Study slug to the factory of its audit declaration.
 AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
     "mtp-pricing": _pricing_audit,
-    "learned-rule-arms": _learned_rule_audit,
 }
-
-
-def shipped_property_rows(record: StudyRecord, frame: pd.DataFrame | None = None) -> pd.DataFrame:
-    """The study's property rows with ``covered`` and ``rejected`` read under the shipped interval.
-
-    Only the audited records change.  ``rejected`` changes only where the committed row recorded
-    one, as :func:`shipped` reads it.
-    """
-    frame = read(record) if frame is None else frame
-    rows = read_rows(record.artifacts / "property-replicates.parquet")
-    audited = frame.loc[frame["source"] == "property"]
-    keys = ["property", "cell", "replicate"]
-    merged = rows[keys].merge(
-        audited[[*keys, "covered_shipped", "rejected_shipped"]], on=keys, how="left"
-    )
-    hit = merged["covered_shipped"].notna().to_numpy()
-    rows.loc[hit, "covered"] = merged.loc[hit, "covered_shipped"].to_numpy(dtype=int)
-    reject = hit & merged["rejected_shipped"].notna().to_numpy()
-    rows.loc[reject, "rejected"] = merged.loc[reject, "rejected_shipped"].to_numpy()
-    return rows
-
-
-def shipped_properties(record: StudyRecord) -> pd.DataFrame:
-    """The study's own property summary of the audited cells under the shipped interval.
-
-    The summary is the study module's ``summarize_properties`` of the rows that
-    :func:`shipped_property_rows` returns, so every rule, clause and band is the registered one.
-    """
-    frame = read(record)
-    summary = record.properties().summarize_properties(shipped_property_rows(record, frame))
-    audited = frame.loc[frame["source"] == "property", ["property", "cell"]].drop_duplicates()
-    return summary.merge(audited, on=["property", "cell"]).reset_index(drop=True)
-
-
-def read_properties(record: StudyRecord) -> pd.DataFrame | None:
-    """A study's committed shipped-interval property verdicts, or ``None`` when it has none."""
-    path = record.artifacts / PROPERTIES_FILE
-    return pd.read_csv(path) if path.exists() else None
 
 
 def record_for(slug: str) -> StudyRecord:
@@ -448,10 +392,6 @@ def write(slug: str) -> Path:
     frame = build(record, AUDITS[slug]()).drop(columns=list(VALUES))
     path = record.artifacts / AUDIT_FILE
     write_rows(frame, path, dtype=dict.fromkeys(TEXT, str))
-    if (frame["source"] == "property").any():
-        shipped_properties(record).to_csv(
-            record.artifacts / PROPERTIES_FILE, index=False, lineterminator="\n"
-        )
     return path
 
 
