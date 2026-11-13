@@ -682,8 +682,67 @@ def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFram
 
 # ------------------------------------------------------------------------ the record
 
+
+def _property_cells() -> dict[str, tuple[str, ...]]:
+    """Every published property cell, by family.
+
+    :mod:`tests.studies.mtp_policy_variance_properties` declares the fit sets; the design test
+    checks that its cells are these.
+    """
+
+    def option(label: str, *, gated: bool, wald_control: bool) -> list[str]:
+        out = []
+        for q in ("ey", "ate"):
+            out += [f"{label}__{q}__option", f"{label}__{q}__wald"]
+            out += [f"{label}__{q}__coverage_floor_control"] if gated else []
+            out += [f"{label}__{q}__inflated_se_control"] if wald_control else []
+        return out
+
+    policy = [
+        cell
+        for est in ("ltmle", "sdr")
+        for label, gated, control in (
+            (f"pricing_{est}_tau5", True, True),
+            (f"pricing_{est}_tau2", True, False),
+            (f"boundaries_{est}_p4", True, False),
+            (f"pricing_learned_{est}_tau5", False, False),
+        )
+        for cell in option(label, gated=gated, wald_control=control)
+    ]
+    calibration = [
+        f"p4_{est}__{kind}"
+        for est in ("ltmle", "sdr")
+        for kind in (
+            "option",
+            "wald",
+            "shrunken_se_control",
+            "inflated_se_control",
+            "noise_control",
+            "coverage_floor_control",
+        )
+    ]
+    twins = [
+        f"{label}__{kind}"
+        for label in ("p4_twin", "p4_sdr_twin", "p5_twin", "p5_sdr_twin", "up_oracle_tau5_twin")
+        for kind in ("correctly_specified", "shrunken_se_control", "noise_control")
+    ]
+    return {
+        "policy_variance": tuple(policy),
+        "policy_calibration": tuple(calibration),
+        "interval_calibration": tuple(twins),
+        "reporting_calibration": ("up_learned_classifier_tau5_twin__wald",),
+        "sdr_default_pseudo": ("p4_sdr__superlearner__wald", "p4_sdr__superlearner__option"),
+        "tail_option": tuple(
+            f"{twin}__{q}__{kind}"
+            for twin in LARGE_TWINS
+            for q in ("ey", "ate")
+            for kind in ("option", "wald")
+        ),
+    }
+
+
 #: Every published property cell (:mod:`tests.studies.mtp_policy_variance_properties`).
-PROPERTY_CELLS: dict[str, tuple[str, ...]] = {}
+PROPERTY_CELLS: dict[str, tuple[str, ...]] = _property_cells()
 
 STUDY = StudyRecord(
     name="policy-weighted variance for heavy density ratios",
