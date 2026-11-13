@@ -602,10 +602,16 @@ class TestTheSupport:
             row = SupportRow("RB", key, kinds, ("study-b",), **fields)  # type: ignore[arg-type]
             return classify_key(key, learners, rows=[row])
 
+        short = (("band", "Row RB is red for the default band."),)
         return {
             "default only": classified(),
             "both": classified(band_options=(DEFAULT_BAND_OPTION, T_OPTION)),
             "t only": classified(band_options=(T_OPTION,)),
+            "both, short": classified(
+                band_options=(DEFAULT_BAND_OPTION, T_OPTION), shortfalls=short
+            ),
+            "t only, short": classified(band_options=(T_OPTION,), shortfalls=short),
+            "default only, short": classified(shortfalls=short),
         }
 
     @staticmethod
@@ -634,6 +640,55 @@ class TestTheSupport:
         default = self._band(rows["t only"])
         assert default.label == "experimental"  # type: ignore[attr-defined]
         assert "band_reference='normal'" in default.reason  # type: ignore[attr-defined]
+
+    def test_a_band_shortfall_binds_the_default_band_and_not_a_listed_t_band(
+        self, rows: dict
+    ) -> None:
+        for name in ("both, short", "t only, short"):
+            assert self._band(rows[name], options=T_OPTION).label == "supported", name  # type: ignore[attr-defined]
+            default = self._band(rows[name])
+            assert default.label == "experimental", name  # type: ignore[attr-defined]
+            assert "red for the default band" in default.reason, name  # type: ignore[attr-defined]
+        # A t band on a row that does not list it still reads the shortfall.
+        unlisted = self._band(rows["default only, short"], options=T_OPTION)
+        assert unlisted.label == "experimental"  # type: ignore[attr-defined]
+        assert "red for the default band" in unlisted.reason  # type: ignore[attr-defined]
+        # The shortfall still binds a listed t band of another shape.
+        clustered = self._band(rows["both, short"], options=T_OPTION, shape="clustered")
+        assert clustered.label == "experimental"  # type: ignore[attr-defined]
+
+    def test_dropping_the_shortfall_rule_fails(
+        self, rows: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation control: with the default band's shortfall bound on every option, the
+        listed t band reads experimental, which the test above refuses."""
+        from cleverly import _support
+
+        monkeypatch.setattr(_support, "DEFAULT_BAND_OPTION", T_OPTION)
+        band = self._band(rows["both, short"], options=T_OPTION)
+        assert band.label == "experimental"  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        ("row_id", "shortfall"),
+        [("G08.in_sample", True), ("T30", True), ("T13", True), ("G23.cross_fitted", False)],
+    )
+    def test_the_licensed_rows_support_the_t_band(self, row_id: str, shortfall: bool) -> None:
+        from cleverly._support import Classification, band_support, registered_rows, support_for
+
+        row = next(r for r in registered_rows() if r.id == row_id)
+        classification = Classification(row.key, {}, row)
+        estimate = support_for(classification, "influence_curve")
+        t_band = band_support(
+            classification, "influence_curve", [estimate], options=T_OPTION, draws=10_000
+        )
+        assert t_band.label == "supported", t_band.reason
+        assert "band-t-reference" in row.evidence
+        default = band_support(classification, "influence_curve", [estimate], draws=10_000)
+        assert default.label == ("experimental" if shortfall else "supported"), default.reason
+        few = band_support(
+            classification, "influence_curve", [estimate], options=T_OPTION, draws=1_000
+        )
+        assert few.label == "experimental"
 
     @pytest.mark.parametrize("shape", ["clustered", "weighted", "repeated"])
     def test_a_t_band_of_another_shape_is_experimental_on_every_row(

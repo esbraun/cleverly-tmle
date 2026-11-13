@@ -1,11 +1,12 @@
-"""The declaration of the ``band-t-reference`` study, after its pilot and before its run (Fix-2).
+"""The declaration of the ``band-t-reference`` study, and the reading of its run (Fix-2).
 
 The sizing rule reproduces the committed R from the committed pilot, on coverage alone (plan
 rev 3.3).  The clause formulas, the seed streams, the cells and the row reader are checked here,
 each with a control that fails when the component it guards is wrong: the nonzero witness, the
 df agreement with the package, the expansion gate, the constant-cell sentinel, the joint rule
 and the paired-gain reading, which is reported and gates nothing.  One replication of each fit
-shape runs through the declared rows.  Nothing here starts the run.
+shape runs through the declared rows.  Nothing here starts the run.  The tables the study pages
+quote beside the generated ones are rebuilt here from the committed artifacts.
 """
 
 from __future__ import annotations
@@ -150,11 +151,12 @@ def test_the_held_out_cell_is_its_own_reporting_study() -> None:
     assert held_out.STUDY.artifacts.name == "band_t_reference_held_out"
 
 
-def test_each_licensed_row_exists_and_the_mapping_waits_for_the_run() -> None:
+def test_each_licensed_row_exists_and_the_mapping_holds_every_passing_cell() -> None:
     rows = {row.id for row in registered_rows()}
+    mapped = {cell for cells in T_BAND_CELLS.values() for cell in cells}
     for cell in study.LICENSING:
         assert cell.rows and set(cell.rows) <= rows, cell.label
-    assert dict(T_BAND_CELLS) == {}
+        assert f"band_t_reference:{joint.FAMILY}/{cell.label}__t_band" in mapped, cell.label
 
 
 RECORDS = {
@@ -166,9 +168,10 @@ RECORDS = {
 }
 
 
-def test_the_studies_are_declared_and_not_registered() -> None:
-    slugs = {record.slug for record in registered()}
-    assert study.SLUG not in slugs and held_out.SLUG not in slugs
+def test_both_studies_are_registered() -> None:
+    records = {record.slug: record for record in registered()}
+    assert records[study.SLUG] is study.STUDY
+    assert records[held_out.SLUG] is held_out.STUDY
 
 
 @pytest.mark.parametrize("which", sorted(RECORDS))
@@ -185,10 +188,11 @@ def test_each_record_lists_every_module_its_entry_points_reach(which: str) -> No
 
 
 def test_the_seeds_are_unique() -> None:
-    """No registered study shares a seed or resampling seed with either declared study."""
+    """No other registered study shares a seed or resampling seed with either study."""
     taken = {
         seed
         for record in registered()
+        if record.slug not in {study.SLUG, held_out.SLUG}
         for seed in (record.seed, record.resampling_seed)
         if seed is not None
     }
@@ -512,3 +516,75 @@ def test_the_configuration_names_no_key_the_record_owns(module: Any) -> None:
     from tests.studies.evidence.manifest import RECORD_CONFIGURATION_KEYS
 
     assert not RECORD_CONFIGURATION_KEYS & set(module.CONFIGURATION)
+
+
+# ----------------------------------------------------------------- the published reading
+
+
+def _page_table(path: str, first: str) -> list[list[str]]:
+    """The rows of the pipe table on ``path`` whose header starts with ``first``."""
+    from tests.studies.evidence.registry import ROOT
+
+    lines = (ROOT / path).read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(f"| {first} |"))
+    rows = []
+    for line in lines[start + 2 :]:
+        if not line.startswith("|"):
+            break
+        rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+    return rows
+
+
+def _replicates(record: Any) -> pd.DataFrame:
+    return pd.read_csv(record.artifact("t-band-replicates.csv"), low_memory=False)
+
+
+def test_the_main_result_table_is_the_committed_reading() -> None:
+    """The Result table of band-t-reference.md: coverage, gain, declared value, df and floor."""
+    summary = pd.read_csv(study.STUDY.artifact("properties.csv")).set_index("cell")
+    readings = properties.reference_readings(study.DECLARATION, summary.reset_index())
+    readings = readings.set_index("label")
+    replicates = _replicates(study.STUDY).groupby("label")
+    rows = _page_table(
+        "docs/technical-reference/method-evidence/band-t-reference.md", "cell | `t` band"
+    )
+    assert [row[0].strip("`") for row in rows] == [cell.label for cell in study.CELLS]
+    for row in rows:
+        label = row[0].strip("`")
+        t_band = summary.loc[f"{label}__{joint.T_BAND}"]
+        control = summary.loc[f"{label}__{joint.REFERENCE_CONTROL}"]
+        assert row[1] == f"{t_band.coverage:.4f}", label
+        assert row[2] == f"{control.coverage:.4f}", label
+        low, high = readings.loc[label, ["gain_ci_lower", "gain_ci_upper"]]
+        assert row[3] == f"{low:.4f} to {high:.4f}", label
+        declared_value = study.REFERENCE_THRESHOLDS[label]
+        assert row[4] == ("none" if declared_value is None else f"{declared_value:.4f}"), label
+        assert row[5] == f"{replicates.get_group(label).min_df.median():.1f}", label
+        assert row[6] == f"{100 * replicates.get_group(label).floor_bound.mean():.1f}%", label
+        # Every gain interval lies above zero, as the page says, and none gates.
+        assert low > 0.0 and bool(control.passed), label
+
+
+def test_the_held_out_counts_are_the_committed_reading() -> None:
+    """The counts band-t-reference-held-out.md quotes from t-band-replicates.csv."""
+    replicates = _replicates(held_out.STUDY)
+    summary = pd.read_csv(held_out.STUDY.artifact("properties.csv")).set_index("cell")
+    assert len(replicates) == 5_600
+    assert int(replicates.constant_cells.notna().sum()) == 54
+    assert f"{100 * replicates.floor_bound.mean():.1f}" == "56.9"
+    assert replicates.min_df.median() == 5.0
+    coverage = summary.coverage
+    assert (
+        f"{coverage['strata_n1000__floor_2_diagnostic']:.4f}"
+        == f"{coverage['strata_n1000__floor_10_diagnostic']:.4f}"
+        == f"{coverage['strata_n1000__t_band']:.4f}"
+        == "0.9543"
+    )
+    assert bool(summary.passed.all())
+
+
+def test_the_main_page_says_the_gains_gate_nothing() -> None:
+    from tests.studies.evidence.registry import ROOT
+
+    text = (ROOT / study.STUDY.document).read_text(encoding="utf-8")
+    assert "**The paired gains gate nothing.**" in text

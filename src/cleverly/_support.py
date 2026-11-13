@@ -24,7 +24,7 @@ import json
 import os
 import sys
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -43,6 +43,7 @@ __all__ = [
     "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
+    "T_BAND_OPTION",
     "UNCLASSIFIED",
     "UNMEASURED_BAND_OPTION",
     "BandOption",
@@ -128,6 +129,11 @@ BandOption = tuple[str, str, str]
 #: normal reference.  It is the configuration every registered band cell measures since
 #: band-finite-sample.
 DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit", "normal")
+
+#: The default band with ``band_reference="t"``: each estimate's critical value read on its own
+#: Student t reference.  The study band-t-reference measures it on the rows of
+#: ``_support_rows.T_BAND_CELLS``.
+T_BAND_OPTION: Final[BandOption] = ("mammen", "logit", "t")
 
 #: What a band is built over, beyond one unclustered, unweighted fit: ``"clustered"`` draws its
 #: multipliers per cluster, ``"weighted"`` reads observation weights, and ``"repeated"`` takes
@@ -1097,7 +1103,9 @@ class SupportRow:
     shortfalls : tuple of tuple of str, default ()
         Pairs of a kind and a sentence. The sentence states the measured number of a red
         cell inside the configuration of the row. A fit that reads the kind from this row is
-        experimental, and the sentence is a reason of its label.
+        experimental, and the sentence is a reason of its label. A ``band`` shortfall states a
+        reading of the default band: a band built with another triple that the row lists in
+        ``band_options``, which its own cells measured, does not read it.
     kind_families : tuple of tuple, default ()
         Pairs of a kind and the target families that kind covers. A kind with no pair covers
         every family of the row. A fit that holds a family outside the pair reads the kind as
@@ -1487,8 +1495,10 @@ def band_support(
     A multiplier band also needs its ``(multiplier_kind, band_scale, band_reference)`` triple
     among the row's ``band_options``. An unlisted triple makes only the band experimental: the
     fit's classification, and so the support of each pointwise estimate, does not read the
-    multiplier. A ``band_reference="t"`` band of any ``shape`` but ``"plain"`` is experimental
-    on every row, because no registered cell measures one.
+    multiplier. A row's ``band`` shortfall states a reading of the default band, so a listed
+    triple other than the default does not read it. A ``band_reference="t"`` band of any
+    ``shape`` but ``"plain"`` is experimental on every row, because no registered cell measures
+    one.
 
     Parameters
     ----------
@@ -1523,8 +1533,21 @@ def band_support(
     >>> band_support(None, "influence_curve", [], options=("mammen", "logit", "normal")).label
     'experimental'
     """
-    kind_support = support_for(classification, status, None, kind=kind)
     row = None if classification is None else classification.row
+    if (
+        kind == "band"
+        and row is not None
+        and classification is not None
+        and options != DEFAULT_BAND_OPTION
+        and options in row.band_options
+    ):
+        # A band shortfall states a red reading of the default band; this triple has cells of
+        # its own on the row.
+        unbound = replace(
+            row, shortfalls=tuple(item for item in row.shortfalls if item[0] != "band")
+        )
+        classification = replace(classification, row=unbound)
+    kind_support = support_for(classification, status, None, kind=kind)
     option_reasons: list[str] = []
     if (
         kind == "band"
