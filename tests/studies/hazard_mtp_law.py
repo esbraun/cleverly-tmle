@@ -62,7 +62,7 @@ weighted data and returns the plug-in of each target.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -261,7 +261,7 @@ class Law:
         """:math:`r = g^d(f, a \\mid W) / g(f, a \\mid W)` of the policy."""
         if self.kind == "levels":
             g = self.level_probabilities(w1, w2)[0]
-            index = int(round(a))
+            index = round(a)
             if index == 0:
                 return 0.0
             mapped = g[index - 1] + (g[index] if index == LEVELS[-1] else 0.0)
@@ -272,13 +272,13 @@ class Law:
         """Every treatment value given ``W``, an exact list or a quadrature over the dose."""
         key = ("points", w1, w2)
         if key in self._cache:
-            return self._cache[key]  # type: ignore[no-any-return]
+            return self._cache[key]
         out: list[Point] = []
         if self.kind == "levels":
             g = self.level_probabilities(w1, w2)[0]
             out = [Point(0, float(a), float(g[i])) for i, a in enumerate(LEVELS)]
         else:
-            arms = ((0, 1.0),)
+            arms: tuple[tuple[int, float], ...] = ((0, 1.0),)
             if self.kind == "vector":
                 p = float(self.flagged(w1, w2))
                 arms = ((0, 1.0 - p), (1, p))
@@ -443,7 +443,15 @@ class Law:
     # ------------------------------------------------------------------ the bound
 
     def unit_curve(
-        self, horizon: int, natural: bool, f: int, a: float, w1: int, w2: int, time: float, event: int
+        self,
+        horizon: int,
+        natural: bool,
+        f: int,
+        a: float,
+        w1: int,
+        w2: int,
+        time: float,
+        event: int,
     ) -> float:
         """The uncentred curve :math:`D + \\psi` of one target at one outcome.
 
@@ -542,7 +550,9 @@ def dose_column(X: Any, kind: str) -> np.ndarray:
     if kind == "levels":
         block = matrix[:, 2:]
         if block.shape[1] != len(LEVELS) - 1:
-            raise ValueError(f"a levels design has {2 + len(LEVELS) - 1} columns, not {matrix.shape[1]}")
+            raise ValueError(
+                f"a levels design has {2 + len(LEVELS) - 1} columns, not {matrix.shape[1]}"
+            )
         return np.where(block.any(axis=1), np.argmax(block, axis=1) + 1.0, 0.0)
     return matrix[:, -1]
 
@@ -710,7 +720,9 @@ class GaussianDoseHazard(BaseEstimator):
             return np.asarray(self.arm_.predict_proba(design))
         width = design.shape[1] - 1
         if width != len(self.covariates):
-            raise ValueError(f"a dose design has {len(self.covariates) + 1} columns, not {width + 1}")
+            raise ValueError(
+                f"a dose design has {len(self.covariates) + 1} columns, not {width + 1}"
+            )
         index = np.rint(design[:, width]).astype(int)
         mean = self.intercept_ + (design[:, :width] @ self.coef_ if self.coef_.size else 0.0)
         edges = np.asarray(self.edges, dtype=float)
@@ -785,7 +797,9 @@ def wrong_hazard_limit(law: Law, target: Target) -> float:
         for w1, w2 in STRATA:
             for point in law.points(w1, w2):
                 f, a = (point.f, point.a) if natural else law.policy(point.f, point.a)
-                total += coefficient * MASS * point.mass * float(curve(float(f), float(a))[horizon - 1])
+                total += (
+                    coefficient * MASS * point.mass * float(curve(float(f), float(a))[horizon - 1])
+                )
     return total
 
 
@@ -816,7 +830,9 @@ def positivity(law: Law) -> dict[str, float]:
             ]
         for f, a in values:
             out["ratio_max"] = max(out["ratio_max"], law.ratio(f, a, w1, w2))
-            kept = float(np.prod([law.retained(k, f, a, w1, w2) for k in range(1, law.n_times + 1)]))
+            kept = float(
+                np.prod([law.retained(k, f, a, w1, w2) for k in range(1, law.n_times + 1)])
+            )
             out["retained_min"] = min(out["retained_min"], kept)
     return out
 

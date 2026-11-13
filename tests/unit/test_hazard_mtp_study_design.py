@@ -115,7 +115,9 @@ def _quadrature_truth(current: law.Law, horizon: int, natural: bool) -> float:
         for f, share in _arms(current, w1, w2):
             mean = _location(current, f, w1, w2)
 
-            def integrand(a: float, f: int = f, mean: float = mean, w1: int = w1, w2: int = w2) -> float:
+            def integrand(
+                a: float, f: int = f, mean: float = mean, w1: int = w1, w2: int = w2
+            ) -> float:
                 density = math.exp(-0.5 * ((a - mean) / current.scale) ** 2) / (
                     current.scale * math.sqrt(2.0 * math.pi)
                 )
@@ -137,9 +139,11 @@ def _quadrature_truth(current: law.Law, horizon: int, natural: bool) -> float:
 def _closed_ratio(current: law.Law, f: int, a: float, w1: int, w2: int) -> float:
     """The policy ratio in closed form: a level ratio, or the Gaussian shift's exponential."""
     if current.kind == "levels":
-        weights = np.exp(-((np.arange(6) - _location(current, 0, w1, w2)) ** 2) / (2 * current.scale**2))
+        weights = np.exp(
+            -((np.arange(6) - _location(current, 0, w1, w2)) ** 2) / (2 * current.scale**2)
+        )
         g = weights / weights.sum()
-        index = int(round(a))
+        index = round(a)
         if index == 0:
             return 0.0
         return float((g[index - 1] + (g[5] if index == 5 else 0.0)) / g[index])
@@ -200,7 +204,9 @@ class TestTheTruths:
                     g = current.level_probabilities(w1, w2)[0]
                     for level in range(6):
                         moved = level if natural else min(level + 1, 5)
-                        expected += law.MASS * g[level] * _backward(current, 0, moved, w1, w2, horizon)
+                        expected += (
+                            law.MASS * g[level] * _backward(current, 0, moved, w1, w2, horizon)
+                        )
                 assert current.truth(horizon, natural=natural) == pytest.approx(expected, abs=1e-14)
 
     @pytest.mark.parametrize("law_name", ["gaussian", "vector"])
@@ -219,7 +225,11 @@ class TestTheTruths:
 
     def test_the_declared_truths(self) -> None:
         np.testing.assert_allclose(
-            [properties.TRUTHS[f"{fit}_{arm}"] for fit in ("levels", "gaussian_density", "vector") for arm in ("contrast", "risk")],
+            [
+                properties.TRUTHS[f"{fit}_{arm}"]
+                for fit in ("levels", "gaussian_density", "vector")
+                for arm in ("contrast", "risk")
+            ],
             [-0.062287, 0.443993, -0.071498, 0.424736, -0.040366, 0.199694],
             atol=5e-6,
         )
@@ -237,7 +247,9 @@ class TestTheTruths:
         for w1, w2 in law.STRATA:
             g = current.level_probabilities(w1, w2)[0]
             for level in law.LEVELS:
-                kept = np.prod([current.retained(k, 0, level, w1, w2) for k in range(1, current.n_times + 1)])
+                kept = np.prod(
+                    [current.retained(k, 0, level, w1, w2) for k in range(1, current.n_times + 1)]
+                )
                 smallest = min(smallest, g[level] * kept)
         return float(smallest)
 
@@ -293,7 +305,9 @@ class TestTheEfficiencyBounds:
                         assert current.unit_curve(
                             horizon, natural, point.f, point.a, w1, w2, time, event
                         ) == pytest.approx(
-                            _hazard_form(current, horizon, natural, point.f, point.a, w1, w2, time, event),
+                            _hazard_form(
+                                current, horizon, natural, point.f, point.a, w1, w2, time, event
+                            ),
                             rel=1e-9,
                             abs=1e-11,
                         )
@@ -318,7 +332,9 @@ class TestTheEfficiencyBounds:
             for f, share in _arms(current, w1, w2):
                 mean = _location(current, f, w1, w2)
 
-                def integrand(a: float, f: int = f, mean: float = mean, w1: int = w1, w2: int = w2) -> float:
+                def integrand(
+                    a: float, f: int = f, mean: float = mean, w1: int = w1, w2: int = w2
+                ) -> float:
                     density = norm.pdf((a - mean) / current.scale) / current.scale
                     second = 0.0
                     for mass, time, event in current.outcomes(f, a, w1, w2):
@@ -330,13 +346,24 @@ class TestTheEfficiencyBounds:
                         second += mass * curve**2
                     return density * second
 
-                value, _ = quad(integrand, mean - 12 * current.scale, mean + 12 * current.scale, epsabs=1e-12, epsrel=1e-11, limit=200)
+                value, _ = quad(
+                    integrand,
+                    mean - 12 * current.scale,
+                    mean + 12 * current.scale,
+                    epsabs=1e-12,
+                    epsrel=1e-11,
+                    limit=200,
+                )
                 total += law.MASS * share * value
         assert math.sqrt(total) == pytest.approx(properties.EFFICIENCY_SD[label], rel=1e-8)
 
     def test_the_declared_bounds(self) -> None:
         np.testing.assert_allclose(
-            [properties.EFFICIENCY_SD[f"{fit}_{arm}"] for fit in ("levels", "gaussian_density", "vector") for arm in ("contrast", "risk")],
+            [
+                properties.EFFICIENCY_SD[f"{fit}_{arm}"]
+                for fit in ("levels", "gaussian_density", "vector")
+                for arm in ("contrast", "risk")
+            ],
             [0.32477, 0.62191, 0.35776, 0.63649, 0.29602, 0.50372],
             atol=5e-5,
         )
@@ -422,17 +449,37 @@ def _independent_wrong_limit(current: law.Law, aim: law.Target) -> float:
             for w1, w2 in law.STRATA:
                 mean = _location(current, 0, w1, w2)
 
-                def integrand(a: float, j: int, w1: int = w1, w2: int = w2, mean: float = mean) -> float:
+                def integrand(
+                    a: float, j: int, w1: int = w1, w2: int = w2, mean: float = mean
+                ) -> float:
                     entering = 1.0
                     for k in range(1, node):
-                        entering *= float(current.retained(k, 0, a, w1, w2)) * (1.0 - float(current.hazard(k, 0, a, w1, w2)))
+                        entering *= float(current.retained(k, 0, a, w1, w2)) * (
+                            1.0 - float(current.hazard(k, 0, a, w1, w2))
+                        )
                     entering *= float(current.retained(node, 0, a, w1, w2))
                     lam = float(current.hazard(node, 0, a, w1, w2))
                     p = 1.0 / (1.0 + math.exp(-(beta[0] + beta[1] * a)))
-                    return norm.pdf((a - mean) / current.scale) / current.scale * entering * (lam - p) * (1.0, a)[j]
+                    return (
+                        norm.pdf((a - mean) / current.scale)
+                        / current.scale
+                        * entering
+                        * (lam - p)
+                        * (1.0, a)[j]
+                    )
 
                 for j in range(2):
-                    out[j] += law.MASS * quad(integrand, mean - 12 * current.scale, mean + 12 * current.scale, args=(j,), epsabs=1e-13, limit=200)[0]
+                    out[j] += (
+                        law.MASS
+                        * quad(
+                            integrand,
+                            mean - 12 * current.scale,
+                            mean + 12 * current.scale,
+                            args=(j,),
+                            epsabs=1e-13,
+                            limit=200,
+                        )[0]
+                    )
             return out
 
         solved = root(score, np.zeros(2), tol=1e-13)
@@ -444,7 +491,9 @@ def _independent_wrong_limit(current: law.Law, aim: law.Target) -> float:
         for w1, w2 in law.STRATA:
             mean = _location(current, 0, w1, w2)
 
-            def plug(a: float, horizon: int = horizon, shift: float = shift, mean: float = mean) -> float:
+            def plug(
+                a: float, horizon: int = horizon, shift: float = shift, mean: float = mean
+            ) -> float:
                 survival, running = 1.0, 0.0
                 for node in range(horizon):
                     lam = 1.0 / (1.0 + math.exp(-(fitted[node][0] + fitted[node][1] * (a + shift))))
@@ -452,7 +501,17 @@ def _independent_wrong_limit(current: law.Law, aim: law.Target) -> float:
                     survival *= 1.0 - lam
                 return norm.pdf((a - mean) / current.scale) / current.scale * running
 
-            total += coefficient * law.MASS * quad(plug, mean - 12 * current.scale, mean + 12 * current.scale, epsabs=1e-13, limit=200)[0]
+            total += (
+                coefficient
+                * law.MASS
+                * quad(
+                    plug,
+                    mean - 12 * current.scale,
+                    mean + 12 * current.scale,
+                    epsabs=1e-13,
+                    limit=200,
+                )[0]
+            )
     return total
 
 
@@ -639,7 +698,9 @@ class TestTheSizes:
         for cell, replicates in POSITIVE_ARMS.items():
             probability = sizing.bias_equivalent_probability(MARGINS, 0.0, replicates)
             assert probability >= POSITIVE_PASS, (cell, probability)
-        assert _tolerated_bias(properties.DOUBLE_ROBUST_REPLICATES) == pytest.approx(0.1085, abs=1e-3)
+        assert _tolerated_bias(properties.DOUBLE_ROBUST_REPLICATES) == pytest.approx(
+            0.1085, abs=1e-3
+        )
         assert _tolerated_bias(properties.RATE_REPLICATES) == pytest.approx(0.0767, abs=1e-3)
 
     @pytest.mark.parametrize("fit_label", pilot.WRONG_LEARNER_FITS)
@@ -655,12 +716,18 @@ class TestTheSizes:
         rows = rows.loc[rows["estimand"] == properties.ESTIMAND[label]]
         error = rows["wrong_targeted"].to_numpy(dtype=float) - properties.TRUTHS[label]
         standardized = abs(error.mean()) / error.std(ddof=1) + 1.0 / np.sqrt(error.size)
-        cells = [cell for cell in POSITIVE_ARMS if cell.startswith(f"{label}__") and "mechanism_correct" in cell]
+        cells = [
+            cell
+            for cell in POSITIVE_ARMS
+            if cell.startswith(f"{label}__") and "mechanism_correct" in cell
+        ]
         if fit_label == "levels":
             cells.append(f"{CONTRAST}__targeted")
         assert cells
         for cell in cells:
-            probability = sizing.bias_equivalent_probability(MARGINS, standardized, POSITIVE_ARMS[cell])
+            probability = sizing.bias_equivalent_probability(
+                MARGINS, standardized, POSITIVE_ARMS[cell]
+            )
             assert probability >= POSITIVE_PASS, (cell, probability)
 
     def test_the_positive_arms_follow_the_calibration_pilot(self) -> None:
@@ -674,7 +741,9 @@ class TestTheSizes:
                 if cell.startswith(f"{cell_label}__") and cell.endswith(
                     ("__both_correct", "__outcome_correct", "__n_2000", "__n_8000")
                 ):
-                    probability = sizing.bias_equivalent_probability(MARGINS, standardized, replicates)
+                    probability = sizing.bias_equivalent_probability(
+                        MARGINS, standardized, replicates
+                    )
                     assert probability >= POSITIVE_PASS, (cell, probability)
 
     def test_the_primary_replicates_follow_the_shared_rule(self) -> None:
@@ -719,7 +788,9 @@ class TestTheSizes:
 # ---------------------------------------------------------------------------- pilot readings
 
 
-def _paired_ratios(rows: pd.DataFrame, fit_label: str, column: str = "iterated_estimate") -> dict[str, float]:
+def _paired_ratios(
+    rows: pd.DataFrame, fit_label: str, column: str = "iterated_estimate"
+) -> dict[str, float]:
     """The SD of hazard minus iterated-mean over the efficiency-bound SE, by cell label."""
     ratios = {}
     for label, name in properties.COEFFICIENTS[fit_label]:
@@ -760,7 +831,9 @@ class TestTheFitsDifferPilot:
         assert reading["monotone_passes"], reading
 
 
-@pytest.mark.skipif(_pilot("fits_differ_mechanism_correct").empty, reason="the pilot has not been committed")
+@pytest.mark.skipif(
+    _pilot("fits_differ_mechanism_correct").empty, reason="the pilot has not been committed"
+)
 def test_the_mechanism_correct_ratios_are_reported() -> None:
     rows = _pilot("fits_differ_mechanism_correct")
     assert rows["refusal"].fillna("").eq("").all()
@@ -771,13 +844,15 @@ def test_the_mechanism_correct_ratios_are_reported() -> None:
 def test_the_reading_is_declared_in_one_place() -> None:
     assert properties.PAIRED_DIFFERENCE_FLOOR == 0.05
     assert properties.NON_MONOTONE_FLOOR == 0.10
-    reading = properties.fits_differ_reading({"levels_contrast": 0.06, "levels_risk": 0.02}, 20, 200)
+    reading = properties.fits_differ_reading(
+        {"levels_contrast": 0.06, "levels_risk": 0.02}, 20, 200
+    )
     assert reading["paired_passes"] and reading["monotone_passes"]
     low, high = reading["share_interval"]
     assert low < 0.1 < high
-    assert not properties.fits_differ_reading({"levels_contrast": 0.04, "levels_risk": 0.2}, 20, 200)[
-        "paired_passes"
-    ]
+    assert not properties.fits_differ_reading(
+        {"levels_contrast": 0.04, "levels_risk": 0.2}, 20, 200
+    )["paired_passes"]
 
 
 # ---------------------------------------------------------------------------- cells and seeds

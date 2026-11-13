@@ -8795,8 +8795,7 @@ CELLS.update(
 _HAZARD_MTP_DIFFERENCE_CELLS = {
     "paired_difference": (
         "the hazard estimate minus the iterated-mean estimate of the same plans on the same draw",
-        "no verdict; the SD of the difference over the efficiency-bound standard error is "
-        "reported",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
     ),
     "hazard_fit": (
         "the hazard fit of the plans, against the exact value",
@@ -8810,8 +8809,7 @@ _HAZARD_MTP_DIFFERENCE_CELLS = {
         "the hazard estimate minus the iterated-mean estimate of the same plans on the same "
         "draw, with both outcome regressions omitting W and the treatment and censoring models "
         "correct",
-        "no verdict; the SD of the difference over the efficiency-bound standard error is "
-        "reported",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
     ),
 }
 STUDY_ARM_CELLS.update(

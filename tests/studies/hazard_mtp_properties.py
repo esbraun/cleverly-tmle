@@ -308,7 +308,11 @@ def fits_differ_reading(
     """
     tail = (1.0 - level) / 2.0
     low = float(beta.ppf(tail, decreasing, draws - decreasing + 1)) if decreasing else 0.0
-    high = float(beta.ppf(1.0 - tail, decreasing + 1, draws - decreasing)) if decreasing < draws else 1.0
+    high = (
+        float(beta.ppf(1.0 - tail, decreasing + 1, draws - decreasing))
+        if decreasing < draws
+        else 1.0
+    )
     largest = max(paired_ratios.values())
     contrasts = [value for label, value in paired_ratios.items() if label.endswith("_contrast")]
     share = decreasing / draws
@@ -618,9 +622,7 @@ def fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
     return fit_drawn(payload, _draw((payload,)))
 
 
-def _paired_row(
-    cell: str, hazard: Any, other: float, common_row: dict[str, Any]
-) -> dict[str, Any]:
+def _paired_row(cell: str, hazard: Any, other: float, common_row: dict[str, Any]) -> dict[str, Any]:
     low, high = hazard.ci
     covered = int(low <= other <= high)
     return {
