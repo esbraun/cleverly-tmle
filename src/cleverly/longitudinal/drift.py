@@ -74,6 +74,7 @@ from .estimator import (
     _Reported,
 )
 from .hazard import HazardFit, HazardState, InitialHazards, fit_hazards, hazard_inputs, level_label
+from .msm import RegimenMSM
 from .regimen import DynamicRegimen, Plan, resolve_regimens
 from .separable import split_separable
 from .sequential import Mechanism, NodeBound, RegimenFit
@@ -1765,6 +1766,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[Any, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit the inherited nuisances, then run the drift correction per arm and horizon.
 
@@ -1794,6 +1796,8 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             Always ``None``: the constructor refuses node bounds.
         separable : tuple
             Always empty: the design refusal refuses a separable regimen.
+        msm : RegimenMSM or None, default None
+            Always ``None``: the constructor refuses ``msm=``.
 
         Returns
         -------
@@ -1814,6 +1818,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
                 replay_recipe=replay_recipe,
                 node_bounds=node_bounds,
                 separable=separable,
+                msm=msm,
             )
         outcome_learner, pseudo_learner, treatment_learner, censoring_learner, competing = learners
         mechanism = self._fit_mechanism(

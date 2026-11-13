@@ -91,6 +91,7 @@ from .hazard import (
     solve_per_horizon,
     walk_loss,
 )
+from .msm import RegimenMSM
 from .regimen import DynamicRegimen, Plan, resolve_regimens
 from .separable import split_separable
 from .sequential import Mechanism, NodeBound, RegimenFit
@@ -1730,6 +1731,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[Any, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit :math:`\\hat Q_2` once, select each arm's mechanisms at each horizon, and report.
 
@@ -1760,6 +1762,8 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             Always ``None``: the constructor refuses node bounds.
         separable : tuple
             Always empty: the design refusal refuses a separable regimen.
+        msm : RegimenMSM or None, default None
+            Always ``None``: the constructor refuses ``msm=``.
 
         Returns
         -------

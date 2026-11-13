@@ -255,6 +255,7 @@ from .hazard import (
     project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
+    target_hazard_msm,
     target_regimens,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
@@ -1586,6 +1587,8 @@ class _HazardBlock(NamedTuple):
     plans: tuple[Plan, ...]
     #: What :meth:`_SequentialEstimator._parametric` answered.
     parametric: bool
+    #: One projection per cause of a working-model fit, empty without one.
+    msm_fits: tuple[MSMRegimenFit, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -3514,6 +3517,7 @@ def _run_hazard(
     step_search: bool = True,
     iterate: str = "last",
     separable: Sequence[SeparablePlan] = (),
+    msm: RegimenMSM | None = None,
 ) -> dict[str, RegimenFit]:
     """Target the initial hazards and file one fit per regimen, cause and horizon.
 
@@ -3562,11 +3566,117 @@ def _run_hazard(
         The separable interventions.  When there is one, every regimen is targeted by
         :func:`~cleverly.longitudinal.separable.target_separable`, on initial hazards
         fitted in the declared order.
+    msm : RegimenMSM or None, default None
+        The evaluated working model.  With one, the walk targets its coefficient scores
+        (:func:`~cleverly.longitudinal.hazard.target_hazard_msm`).
 
     Returns
     -------
     dict of str to RegimenFit
         The fits keyed by :func:`_fit_key`.
+    """
+    return _run_hazard_projections(
+        data,
+        plans,
+        levels,
+        mechanism,
+        initial,
+        horizons=horizons,
+        g_bounds=g_bounds,
+        alpha=alpha,
+        algorithm=algorithm,
+        max_iter=max_iter,
+        tol=tol,
+        step_size=step_size,
+        node_bounds=node_bounds,
+        stopping=stopping,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
+        separable=separable,
+        msm=msm,
+    )[0]
+
+
+def _run_hazard_projections(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    levels: Sequence[Plan],
+    mechanism: Mechanism,
+    initial: InitialHazards,
+    *,
+    horizons: Sequence[int],
+    g_bounds: tuple[float, float],
+    alpha: float,
+    algorithm: HazardAlgorithm,
+    max_iter: int,
+    tol: float,
+    step_size: float,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
+    separable: Sequence[SeparablePlan] = (),
+    msm: RegimenMSM | None = None,
+) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
+    """Target the initial hazards, and file the fits and any working-model projections.
+
+    The one driver :meth:`LTMLE.fit` and :func:`_refit_bound` share on a hazard fit.
+    :func:`_run_hazard` takes the same arguments and returns the fits alone.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        A survival panel of a held design.
+    plans : sequence of Plan
+        The regimens' plans.
+    levels : sequence of Plan
+        One static plan per treatment level, from
+        :func:`~cleverly.longitudinal.hazard.level_plans`.
+    mechanism : Mechanism
+        The mechanism, evaluated at every regimen and every level.
+    initial : InitialHazards
+        The initial hazards.
+    horizons : sequence of int
+        The reported horizons.
+    g_bounds : tuple of float
+        Truncation applied to each cumulative mechanism probability.
+    alpha : float
+        The probability bound of every hazard.
+    algorithm : {"per_horizon", "one_step"}
+        The targeting algorithm.
+    max_iter : int
+        Outer iterations per horizon of a per-horizon fit.
+    tol : float
+        Relative-score tolerance.
+    step_size : float
+        The first step of a one-step walk.
+    node_bounds : dict or None
+        The resolved hazard-scale bounds by cause and one-based node, ``None`` when no node
+        is bounded.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The stopping rule of the targeting.  A declared rule reads the data's clusters as
+        its units, with a span of one, since a hazard lies on the ``[0, 1]`` scale.
+    step_bound : float or None
+        The longest per-horizon step in ``epsilon``.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate the targeting reports.
+    separable : sequence of SeparablePlan
+        The separable interventions.  When there is one, every regimen is targeted by
+        :func:`~cleverly.longitudinal.separable.target_separable`, on initial hazards
+        fitted in the declared order.
+    msm : RegimenMSM or None, default None
+        The evaluated working model.  With one, the walk targets its coefficient scores
+        (:func:`~cleverly.longitudinal.hazard.target_hazard_msm`).
+
+    Returns
+    -------
+    tuple
+        The fits keyed by :func:`_fit_key`, and one projection per cause of a working-model
+        fit, empty without one.
     """
     pairs = [mechanism.cumulative_with_unbounded(data, level, g_bounds) for level in levels]
     rows = np.arange(data.n)
@@ -3589,7 +3699,30 @@ def _run_hazard(
         return {
             _fit_key(label, cause, horizon, True): fit
             for (label, cause, horizon), fit in targeted.items()
-        }
+        }, ()
+    node_scale = hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,))
+    stop = None if stopping == "relative" else StopContext(data.cluster, 1.0)
+    if msm is not None:
+        cells, msm_fits = target_hazard_msm(
+            data,
+            plans,
+            initial,
+            [pair[1] for pair in pairs],
+            (unbounded, bounded),
+            msm,
+            horizons=horizons,
+            alpha=alpha,
+            tol=tol,
+            step_size=step_size,
+            node_bounds=node_scale,
+            stopping=stopping,
+            stop=stop,
+            iterate=iterate,
+        )
+        return {
+            _fit_key(label, cause, horizon, True): fit
+            for (label, cause, horizon), fit in cells.items()
+        }, msm_fits
     fits = target_regimens(
         data,
         plans,
@@ -3602,16 +3735,16 @@ def _run_hazard(
         max_iter=max_iter,
         tol=tol,
         step_size=step_size,
-        node_bounds=hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,)),
+        node_bounds=node_scale,
         stopping=stopping,
-        stop=None if stopping == "relative" else StopContext(data.cluster, 1.0),
+        stop=stop,
         step_bound=step_bound,
         step_search=step_search,
         iterate=iterate,
     )
     return {
         _fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()
-    }
+    }, ()
 
 
 def _project_fits(
@@ -5379,6 +5512,7 @@ class _SequentialEstimator:
         replay_recipe: _LongitudinalReplayRecipe,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None,
         separable: tuple[SeparablePlan, ...],
+        msm: RegimenMSM | None = None,
     ) -> _HazardBlock:
         """Fit the mechanism and the initial hazards of one draw, and target the hazards.
 
@@ -5410,12 +5544,14 @@ class _SequentialEstimator:
             The resolved hazard-scale node bounds.
         separable : tuple of SeparablePlan
             The separable interventions.
+        msm : RegimenMSM or None, default None
+            The evaluated working model, ``None`` without one.
 
         Returns
         -------
         _HazardBlock
-            The mechanism, the fits, the initial hazards, the recipe, the plans and the
-            parametric flag.
+            The mechanism, the fits, the initial hazards, the recipe, the plans, the
+            parametric flag and any working-model projections.
         """
         outcome_learner, pseudo_learner, treatment_learner, censoring_learner, competing = learners
         mechanism = self._fit_mechanism(
@@ -5468,7 +5604,7 @@ class _SequentialEstimator:
                 separable,
             ),
         )
-        fits = _run_hazard(
+        fits, msm_fits = _run_hazard_projections(
             prepared,
             plans,
             levels,
@@ -5487,8 +5623,9 @@ class _SequentialEstimator:
             step_search=targeting["step_search"],
             iterate=targeting["iterate"],
             separable=separable,
+            msm=msm,
         )
-        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric)
+        return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric, msm_fits)
 
     def _draw_status(
         self,
@@ -5638,10 +5775,11 @@ class _SequentialEstimator:
                 replay_recipe=replay_recipe,
                 node_bounds=node_bounds,
                 separable=separable,
+                msm=model,
             )
             mechanism, fits, initial = block.mechanism, block.fits, block.initial
             replay_recipe, plans, parametric = block.replay_recipe, block.plans, block.parametric
-            msm_fits = ()
+            msm_fits = block.msm_fits
         else:
             mechanism = self._fit_mechanism(
                 prepared,
@@ -8956,7 +9094,7 @@ def _refit_bound(
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     if recipe.hazard is not None and draw.initial_hazards is not None:
-        fits = _run_hazard(
+        fits, msm_fits = _run_hazard_projections(
             result.data,
             recipe.plans,
             recipe.hazard.levels,
@@ -8975,8 +9113,8 @@ def _refit_bound(
             step_search=recipe.step_search,
             iterate=recipe.iterate,
             separable=recipe.hazard.separable,
+            msm=result.msm,
         )
-        msm_fits = ()
     else:
         if recipe.outcome_learner is None or recipe.pseudo_learner is None:
             _refuse_replay(
