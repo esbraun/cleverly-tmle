@@ -21,6 +21,18 @@ no audit: ``learned-rule-arms`` left this list when its conservative coverage ce
 logit and the study was declared for a rerun.  Write or refresh an audit file with::
 
     python -m tests.studies.evidence.interval_audit canonical-stratified-tmle
+
+The screen (``tests/canonical/interval-audit-screen.csv``) holds one row per registered study.
+It recomputes, from the committed rows, every group that could be a bounded mean (a superset),
+counts the groups whose coverage moves under the shipped interval, and names the groups whose
+exact coverage interval changes side of a coverage gate.  Each such flip is audited here or
+explained in :data:`SCREEN_REASONS`, and the fast tier recomputes every row, so a new study or
+a new cell cannot pass unscreened.  The screen also counts each study's
+``simultaneous_coverage/*__pointwise_joint_control`` cells: they are not gated, and their
+pointwise reading moves to the logit scale for a bounded-mean family on the next run.  Refresh
+it with::
+
+    python -m tests.studies.evidence.interval_audit --screen
 """
 
 from __future__ import annotations
@@ -37,7 +49,7 @@ from scipy import stats
 from scipy.special import expit, logit
 
 from tests.studies.evidence.manifest import read_rows, write_rows
-from tests.studies.evidence.registry import StudyRecord, registered
+from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
 #: The audit file's name inside a study's artefact directory.
 AUDIT_FILE = "interval-audit.parquet"
@@ -287,48 +299,83 @@ def coverage(frame: pd.DataFrame, column: str) -> pd.Series:
 # ------------------------------------------------------------------ the audited studies
 
 
-def _stratified_scan() -> list[Withheld]:
-    """Constant arm cells of ``canonical-stratified-tmle``, in its truth and property samples."""
+#: The cell kinds of ``canonical-stratified-tmle`` whose rows carry the package interval.  The
+#: derived calibration controls, the joint band cells and the hand-built ``marginal_fluctuation``
+#: control form their own intervals, and the study's role metadata does not separate a
+#: package-built control (``both_wrong``) from a hand-built one, so the kinds are declared.
+STRATIFIED_PACKAGE_KINDS = frozenset(
+    {
+        "correctly_specified",
+        "both_correct",
+        "outcome_correct",
+        "treatment_correct",
+        "both_wrong",
+        "stratified",
+    }
+)
+
+
+def _stratified_cells(frame: pd.DataFrame) -> Iterator[tuple[int, int]]:
+    """The ``(stratum, arm)`` cells of one stratified sample that hold one outcome value."""
     from cleverly.inference.influence import constant_outcome_cells
+
+    for stratum in (0, 1, 2):
+        rows = (frame["V"] == stratum).to_numpy()
+        for arm in constant_outcome_cells(frame["Y"].to_numpy(), frame["A"].to_numpy(), rows):
+            yield stratum, int(arm)
+
+
+def stratified_truth_withheld(scenario: str, replicate: int) -> list[Withheld]:
+    """The truth rows one replicate of ``canonical-stratified-tmle`` withholds."""
+    from tests.studies import canonical_stratified_tmle as primary
+
+    frame, _ = primary.draw_scenario(scenario, primary.STUDY.n, replicate)
+    return [
+        ("truth", scenario, name, replicate)
+        for stratum, arm in _stratified_cells(frame)
+        for name in (f"ey[{arm}][V={stratum}]", f"ate[V={stratum}]")
+    ]
+
+
+def stratified_property_withheld(key: Any) -> list[Withheld]:
+    """The property rows one payload ``key`` of ``canonical-stratified-tmle`` withholds.
+
+    A row is withheld when its label reads a constant cell's stratum and arm (a mean reads its
+    own arm, a contrast both), its kind is in :data:`STRATIFIED_PACKAGE_KINDS`, and the study
+    declares the cell.
+    """
     from tests.studies import canonical_stratified_tmle as primary
     from tests.studies import stratified_tmle_properties as properties
 
-    def cells(frame: pd.DataFrame) -> Iterator[tuple[int, int]]:
-        for stratum in (0, 1, 2):
-            rows = (frame["V"] == stratum).to_numpy()
-            for arm in constant_outcome_cells(frame["Y"].to_numpy(), frame["A"].to_numpy(), rows):
-                yield stratum, int(arm)
-
+    declared = {
+        f"{family}/{cell}"
+        for family, names in primary.STUDY.property_cells.items()
+        for cell in names
+    }
+    _, _, replicate, *_ = key[0]
     out: list[Withheld] = []
+    for stratum, arm in _stratified_cells(properties._draw(key)):
+        for name in properties._cells_of(key):
+            prop, cell = name.split("/", 1)
+            label, kind = cell.split("__", 1)
+            reads = label.startswith(f"v{stratum}_") and label != f"v{stratum}_ey{1 - arm}"
+            if reads and kind in STRATIFIED_PACKAGE_KINDS and name in declared:
+                out.append(("property", prop, cell, replicate))
+    return out
+
+
+def _stratified_scan() -> list[Withheld]:
+    """Constant arm cells of ``canonical-stratified-tmle``, in its truth and property samples."""
+    from tests.studies import canonical_stratified_tmle as primary
+    from tests.studies import stratified_tmle_properties as properties
+
     record = primary.STUDY
+    out: list[Withheld] = []
     for scenario in record.scenarios:
         for replicate in range(record.replicates):
-            frame, _ = primary.draw_scenario(scenario, record.n, replicate)
-            for stratum, arm in cells(frame):
-                for name in (f"ey[{arm}][V={stratum}]", f"ate[V={stratum}]"):
-                    out.append(("truth", scenario, name, replicate))
-    declared = {
-        f"{family}/{cell}" for family, names in record.property_cells.items() for cell in names
-    }
+            out += stratified_truth_withheld(scenario, replicate)
     for key in properties._payloads():
-        _, _, replicate, *_ = key[0]
-        for stratum, arm in cells(properties._draw(key)):
-            for name in properties._cells_of(key):
-                prop, cell = name.split("/", 1)
-                label = cell.split("__", 1)[0]
-                reads = label.startswith(f"v{stratum}_") and label != f"v{stratum}_ey{1 - arm}"
-                kind = cell.split("__", 1)[1]
-                # The derived controls build their own intervals and the band is the band's.
-                package = kind in {
-                    "correctly_specified",
-                    "both_correct",
-                    "outcome_correct",
-                    "treatment_correct",
-                    "both_wrong",
-                    "stratified",
-                }
-                if reads and package and name in declared:
-                    out.append(("property", prop, cell, replicate))
+        out += stratified_property_withheld(key)
     return out
 
 
@@ -360,13 +407,19 @@ def _composite_audit() -> Audit:
 def _pricing_audit() -> Audit:
     # No scan: a longitudinal level whose last-node regression reads a constant outcome takes
     # ``constant_node_plugin``, which the committed rows already record.  The range check
-    # reads the committed estimate.
+    # reads the committed estimate.  The package cells of ``interval_calibration`` are levels
+    # of the binary outcome too; the ``revenue`` cell's outcome is continuous.
     record = record_for("mtp-pricing")
     return Audit(
         truth={
             scenario: tuple(name for name in names if name.startswith("ey_regimen["))
             for scenario, names in record.scenarios.items()
-        }
+        },
+        cells=tuple(
+            f"interval_calibration/{cell}"
+            for cell in record.property_cells["interval_calibration"]
+            if cell.endswith("__correctly_specified") and not cell.startswith("revenue_")
+        ),
     )
 
 
@@ -376,6 +429,239 @@ AUDITS: dict[str, Callable[[], Audit]] = {
     "composite-missing-drtmle": _composite_audit,
     "mtp-pricing": _pricing_audit,
 }
+
+
+# ------------------------------------------------------------------ the screen
+
+#: The screen of every registered study, one row each, beside the audits.
+SCREEN_FILE = ROOT / "tests" / "canonical" / "interval-audit-screen.csv"
+
+#: The columns of the screen, in order.
+SCREEN_COLUMNS = (
+    "study",
+    "disposition",
+    "candidate_groups",
+    "moved_groups",
+    "max_coverage_change",
+    "flips",
+    "pointwise_joint_controls",
+    "reason",
+)
+
+#: Studies whose committed rows are declared to carry the shipped interval already, so the screen
+#: does not recompute them: a rerun replaces their rows, and recomputing the first run's rows would
+#: describe a record the rerun withdraws.
+RERUN: dict[str, str] = {
+    "learned-rule-arms": (
+        "declared rerun under the shipped interval (commit 0473cca): its positive rows read the "
+        "package's interval, and the red-cell ledger reads its cells from the rerun's tables"
+    ),
+}
+
+#: Why a study outside :data:`AUDITS` holds no verdict the shipped interval can move, for each
+#: study whose screen row records a flip.  The screen treats every positive row group with
+#: estimates and truths in ``[0, 1]`` as a bounded mean, a superset, so a flip names a group to
+#: explain rather than a moved verdict.
+SCREEN_REASONS: dict[str, str] = {
+    "adaptive-iptw": (
+        "AdaptiveIPTW attaches no bounds, so every interval stays on the identity scale; the "
+        "flagged cells are ate, par and paf differences and fractions or IPTW means"
+    ),
+    "canonical-ctmle-selector": "power/alternative reads an ate (a difference) and gates rejection",
+    "canonical-multi-arm-ctmle-selector": (
+        "the flagged cells read ate[medium vs high], a difference, whose interval is unchanged"
+    ),
+    "canonical-multi-arm-drtmle": (
+        "root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, whose interval is "
+        "unchanged"
+    ),
+    "canonical-multi-arm-tmle": (
+        "power/alternative reads ate[medium vs high], a difference, and gates rejection"
+    ),
+    "canonical-stratified-incremental-msm": (
+        "logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
+    ),
+    "ctmle-derivative": "double_robustness/outcome_correct reads ate, a difference",
+    "ctmle-oat-per-arm": "every flagged cell reads ate, a difference, whose interval is unchanged",
+    "ctmle-oat-per-arm-strata-missing": (
+        "the flagged cells read ate and par (differences) and paf (a fraction), whose intervals "
+        "are unchanged"
+    ),
+    "ep-assessment": (
+        "the flagged cells are assessment statistics of a CATE score (a calibration slope, a sign "
+        "agreement), not package intervals of a mean"
+    ),
+    "fold-targeted-cvtmle": "crossfit_overfitting/fold_targeted_cvtmle reads ate, a difference",
+    "longitudinal-msm": "the flagged cell is a working-model coefficient, whose interval is unchanged",
+    "longitudinal-repeated-sdr": (
+        "the flagged cells are bounded means, but the double_robustness and necessity rules gate "
+        "bias and never coverage (the study module states it), so no verdict reads the interval"
+    ),
+    "score-assessment": (
+        "the flagged cells are a calibration slope and a score test's power, not package "
+        "intervals of a mean"
+    ),
+    "targeting-curves": (
+        "the flagged cells are band and type I rows of a targeting curve with truth 0, not "
+        "package intervals of a mean"
+    ),
+    "weighted-ltmle": (
+        "weight_necessity/static__weighted is a bounded mean, but the necessity rule gates the "
+        "paired displacement and never coverage"
+    ),
+    "weighted-ltmle-crossfit": (
+        "weight_necessity/static__weighted is a bounded mean, but the necessity rule gates the "
+        "paired displacement and never coverage"
+    ),
+}
+
+
+def bounded_heads() -> frozenset[str]:
+    """The parameter heads of a bounded level: the package's mean targets and longitudinal levels.
+
+    The point-treatment heads are the built-in targets declared ``bounded="mean"``; the
+    longitudinal heads are every name ``_level_head`` gives.  A truth row whose estimand starts
+    with one of them is a screen candidate.
+    """
+    from itertools import product
+
+    from cleverly.longitudinal.estimator import _level_head
+    from cleverly.targets.builtin import BUILTIN_TARGETS
+
+    heads = {target.name for target in BUILTIN_TARGETS if target.bounded == "mean"}
+    for survival, competing, complement in product((False, True), repeat=3):
+        try:
+            heads.add(_level_head(survival=survival, competing=competing, complement=complement))
+        except Exception:  # a combination with no level, such as a complement of a mean
+            continue
+    return frozenset(heads)
+
+
+def _exact_interval(count: int, total: int, level: float) -> tuple[float, float]:
+    tail = (1.0 - level) / 2.0
+    low = 0.0 if count == 0 else float(stats.beta.ppf(tail, count, total - count + 1))
+    high = 1.0 if count == total else float(stats.beta.ppf(1.0 - tail, count + 1, total - count))
+    return low, high
+
+
+def _screen_groups(record: StudyRecord, heads: frozenset[str]) -> Iterator[tuple[str, Any]]:
+    path = record.artifacts / "replicates.parquet"
+    if path.exists():
+        rows = read_rows(path)
+        rows = rows.loc[rows["implementation"] == record.implementation]
+        for (scenario, estimand), group in rows.groupby(["scenario", "estimand"], sort=True):
+            if str(estimand).split("[", 1)[0] in heads:
+                yield f"{scenario}/{estimand}", group
+    path = record.artifacts / "property-replicates.parquet"
+    if path.exists():
+        rows = read_rows(path)
+        rows = rows.loc[rows["role"] == "positive"]
+        for (prop, cell), group in rows.groupby(["property", "cell"], sort=True):
+            yield f"{prop}/{cell}", group
+
+
+def _pointwise_joint_controls(record: StudyRecord) -> int:
+    path = record.artifacts / "property-replicates.parquet"
+    if not path.exists():
+        return 0
+    cells = read_rows(path)["cell"].drop_duplicates()
+    return int(cells.str.endswith("__pointwise_joint_control").sum())
+
+
+def screen_row(record: StudyRecord, heads: frozenset[str] | None = None) -> dict[str, Any]:
+    """One study's screen row, recomputed from its committed rows.
+
+    A candidate is a package truth-row group whose estimand head is a bounded level
+    (:func:`bounded_heads`), or a positive property cell, whose estimates and truths all lie in
+    ``[0, 1]``.  The screen reads each candidate under the shipped logit interval with the
+    committed estimate and standard error, as :func:`shipped` does, and counts the candidates
+    whose coverage moves.  A flip is a candidate whose exact coverage interval, at the study's
+    confidence level, changes side of the coverage floor, or for an ``interval_calibration``
+    cell of the calibration band.  It is a proxy for a moved verdict: every audited flip is
+    audited, and every other flip needs a reason in :data:`SCREEN_REASONS`.
+    """
+    slug = record.slug
+    if slug in RERUN:
+        return {
+            "study": slug,
+            "disposition": "rerun",
+            "candidate_groups": 0,
+            "moved_groups": 0,
+            "max_coverage_change": 0.0,
+            "flips": "",
+            "pointwise_joint_controls": _pointwise_joint_controls(record),
+            "reason": RERUN[slug],
+        }
+    heads = bounded_heads() if heads is None else heads
+    margins = record.margins
+    candidates = moved = 0
+    largest = 0.0
+    flips: list[str] = []
+    for key, group in _screen_groups(record, heads):
+        estimate = group["estimate"].to_numpy(dtype=float)
+        truth = group["truth"].to_numpy(dtype=float)
+        se = group["std_error"].to_numpy(dtype=float)
+        finite = np.isfinite(estimate) & np.isfinite(truth) & np.isfinite(se)
+        if not finite.any():
+            continue
+        estimate, truth, se = estimate[finite], truth[finite], se[finite]
+        committed = group["covered"].to_numpy(dtype=int)[finite]
+        unit = (estimate >= 0.0) & (estimate <= 1.0) & (truth >= 0.0) & (truth <= 1.0)
+        if not (unit & (se > 0.0)).all():
+            continue
+        candidates += 1
+        inside = (estimate > 0.0) & (estimate < 1.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            low, high = logit_interval(np.where(inside, estimate, 0.5), se, alpha=margins.alpha)
+        covered = (inside & (low <= truth) & (truth <= high)).astype(int)
+        if (covered == committed).all():
+            continue
+        moved += 1
+        total = len(covered)
+        largest = max(largest, abs(float(covered.mean()) - float(committed.mean())))
+        before = _exact_interval(int(committed.sum()), total, margins.confidence_level)
+        after = _exact_interval(int(covered.sum()), total, margins.confidence_level)
+        flip = (before[0] >= margins.coverage_floor) != (after[0] >= margins.coverage_floor)
+        if key.startswith("interval_calibration/"):
+            band = margins.calibration_coverage
+            flip |= (band[0] <= before[0] and before[1] <= band[1]) != (
+                band[0] <= after[0] and after[1] <= band[1]
+            )
+        if flip:
+            flips.append(key)
+    if slug in AUDITS:
+        disposition, reason = "audited", AUDIT_FILE
+    elif flips:
+        disposition, reason = "declared", SCREEN_REASONS.get(slug, "")
+    else:
+        disposition, reason = "neutral", ""
+    return {
+        "study": slug,
+        "disposition": disposition,
+        "candidate_groups": candidates,
+        "moved_groups": moved,
+        "max_coverage_change": round(largest, 6),
+        "flips": ";".join(flips),
+        "pointwise_joint_controls": _pointwise_joint_controls(record),
+        "reason": reason,
+    }
+
+
+def write_screen() -> Path:
+    """Recompute the screen of every registered study and write it; its path."""
+    heads = bounded_heads()
+    frame = pd.DataFrame(
+        [screen_row(record, heads) for record in sorted(registered(), key=lambda r: r.slug)],
+        columns=list(SCREEN_COLUMNS),
+    )
+    frame.to_csv(SCREEN_FILE, index=False, lineterminator="\n")
+    return SCREEN_FILE
+
+
+def read_screen() -> pd.DataFrame:
+    """The committed screen, with empty text cells as ``""``."""
+    frame = pd.read_csv(SCREEN_FILE, keep_default_na=False)
+    return frame
 
 
 def record_for(slug: str) -> StudyRecord:
@@ -398,9 +684,13 @@ def write(slug: str) -> Path:
 def main(argv: list[str] | None = None) -> None:
     """Write the audit file of each named study."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("studies", nargs="+", choices=sorted(AUDITS))
-    for slug in parser.parse_args(argv).studies:
+    parser.add_argument("studies", nargs="*", choices=sorted(AUDITS))
+    parser.add_argument("--screen", action="store_true", help="rewrite the screen of every study")
+    arguments = parser.parse_args(argv)
+    for slug in arguments.studies:
         print(write(slug))
+    if arguments.screen:
+        print(write_screen())
 
 
 if __name__ == "__main__":

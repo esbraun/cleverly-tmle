@@ -4,17 +4,26 @@
 the shipped logit interval.  Each audit file stores the keys, the trigger and the shipped
 verdicts; the committed estimates, standard errors and truths are joined back from the study's
 row files, so an audit record that drifts from its row fails here.  The numbers the roadmap and
-the study pages quote are rebuilt from the same records.
+the study pages quote are rebuilt from the same records.  The package's own ``ci`` and
+``wald_test`` are checked against the audit's rule on a sample of every audit, so the audit
+cannot certify an interval the package no longer ships, and the screen of every registered study
+is recomputed row by row.
 """
 
 from __future__ import annotations
+
+import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
 from scipy import stats
 
+from cleverly._inference_status import OUT_OF_RANGE_STATUS
+from cleverly.inference import make_estimate
 from tests.studies.evidence import interval_audit as audit
+from tests.studies.evidence.registry import registered
 
 SHIPPED = ["trigger", "scale", "covered_shipped", "rejected_shipped"]
 
@@ -155,3 +164,150 @@ def test_the_quoted_pricing_numbers() -> None:
         rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
         assert _cp_lower(rows["covered_shipped"]) == pytest.approx(lower, abs=5e-5)
         assert _cp_lower(rows["covered_shipped"]) >= 0.90 > _cp_lower(rows["covered_committed"])
+
+
+# ------------------------------------------------------------------ the rule against the package
+
+
+def _package_estimate(estimate: float, std_error: float, alpha: float) -> Any:
+    """The package's estimate of a bounded unclustered mean with this estimate and SE."""
+    curve = np.tile([1.0, -1.0], 200)
+    unit = make_estimate("ey", 0.5, curve, n=400, scale="level")
+    scaled = curve * (std_error / unit.std_error) if std_error > 0.0 else np.zeros(400)
+    return make_estimate(
+        "ey", estimate, scaled, n=400, scale="level", alpha=alpha, bounds=(0.0, 1.0)
+    )
+
+
+def _sample(frame: pd.DataFrame, size: int = 150) -> pd.DataFrame:
+    """A deterministic sample of a study's audit records, every withheld record included."""
+    rows = frame.loc[frame["trigger"] == ""]
+    picked = rows.iloc[np.linspace(0, len(rows) - 1, min(size, len(rows))).astype(int)]
+    return pd.concat([picked, frame.loc[frame["trigger"] == audit.OUT_OF_RANGE]])
+
+
+def test_the_audit_rule_is_the_package_interval(committed: tuple[str, pd.DataFrame]) -> None:
+    """``ci``, coverage and ``wald_test`` of the package agree with the audit on its records.
+
+    The audit recomputes its verdicts with :func:`~interval_audit.logit_interval`.  If the
+    package's interval of a bounded mean changed, this is where the two would part.
+    """
+    slug, frame = committed
+    alpha = audit.record_for(slug).margins.alpha
+    for row in _sample(frame).itertuples():
+        estimate = _package_estimate(float(row.estimate), float(row.std_error), alpha)
+        if row.trigger == audit.OUT_OF_RANGE:
+            assert estimate.inference == OUT_OF_RANGE_STATUS
+            continue
+        assert estimate.inference == "influence_curve"
+        assert estimate.interval_scale == "range_logit"
+        low, high = estimate.ci
+        expected = audit.logit_interval([row.estimate], [row.std_error], alpha=alpha)
+        assert (low, high) == pytest.approx((expected[0][0], expected[1][0]), abs=1e-12)
+        assert int(low <= row.truth <= high) == row.covered_shipped
+        assert estimate.wald_test(0.0).pvalue < alpha
+        assert bool(estimate.wald_test(row.truth).pvalue < alpha) == bool(
+            audit.logit_rejects([row.estimate], [row.std_error], row.truth, alpha=alpha)[0]
+        )
+
+
+@pytest.mark.parametrize(
+    ("estimate", "std_error"),
+    [(1e-13, 0.01), (1.0 - 1e-12, 0.01), (0.3, 0.0), (0.999, 0.004), (0.002, 0.003)],
+)
+def test_the_audit_rule_is_the_package_interval_at_the_edges(
+    estimate: float, std_error: float
+) -> None:
+    package = _package_estimate(estimate, std_error, 0.05)
+    assert package.inference == "influence_curve"
+    low, high = package.ci
+    expected = audit.logit_interval([estimate], [std_error])
+    assert (low, high) == pytest.approx((expected[0][0], expected[1][0]), abs=1e-12)
+    if std_error == 0.0:
+        # A zero SE shows the point as its interval and computes no test; no committed row
+        # has one.
+        assert (low, high) == (estimate, estimate)
+        assert math.isnan(package.wald_test(0.25).pvalue)
+        return
+    for null in (0.0, 0.25, 0.5):
+        assert bool(package.wald_test(null).pvalue < 0.05) == bool(
+            audit.logit_rejects([estimate], [std_error], null)[0]
+        )
+
+
+# ------------------------------------------------------------------ the stratified scan
+
+
+def test_the_stratified_scan_reproduces_the_committed_triggers() -> None:
+    """Redraw a flagged sample and its neighbours without fitting; the triggers come back."""
+    from tests.studies import stratified_tmle_properties as properties
+
+    frame = audit.read(audit.record_for("canonical-stratified-tmle"))
+    flagged = {
+        (cell, int(replicate))
+        for cell, replicate in zip(
+            frame.loc[frame["trigger"] == audit.CONSTANT_ARM_CELL, "cell"],
+            frame.loc[frame["trigger"] == audit.CONSTANT_ARM_CELL, "replicate"],
+            strict=True,
+        )
+    }
+    keys = [
+        key
+        for key in properties._payloads()
+        if (key[0][0], key[0][2])
+        in {("stratum_targeting_necessity", r) for r in (828, 829, 830)}
+        | {("interval_calibration", r) for r in (0, 1)}
+        | {("double_robustness", 0)}
+    ]
+    assert any(key[0][2] == 829 for key in keys)
+    found = {
+        (cell, replicate)
+        for key in keys
+        for _, _, cell, replicate in audit.stratified_property_withheld(key)
+    }
+    assert found == {("v2_ate__stratified", 829)}
+    assert found <= flagged
+    assert audit.stratified_truth_withheld("stratified_binary", 0) == []
+
+
+# ------------------------------------------------------------------ the screen
+
+
+@pytest.fixture(scope="module")
+def screen() -> pd.DataFrame:
+    return audit.read_screen()
+
+
+def test_the_screen_lists_every_registered_study_once(screen: pd.DataFrame) -> None:
+    assert list(screen.columns) == list(audit.SCREEN_COLUMNS)
+    assert sorted(screen["study"]) == sorted(record.slug for record in registered())
+    assert screen["study"].is_unique
+
+
+@pytest.mark.parametrize("slug", sorted(record.slug for record in registered()))
+def test_each_screen_row_recomputes_from_the_committed_rows(
+    screen: pd.DataFrame, slug: str
+) -> None:
+    """A new cell or a regenerated study changes its row; refresh with ``--screen``."""
+    committed_row = screen.loc[screen["study"] == slug].iloc[0].to_dict()
+    again = audit.screen_row(audit.record_for(slug))
+    assert committed_row["max_coverage_change"] == pytest.approx(
+        again.pop("max_coverage_change"), abs=1e-6
+    )
+    committed_row.pop("max_coverage_change")
+    assert committed_row == again
+
+
+def test_every_flip_is_audited_or_explained(screen: pd.DataFrame) -> None:
+    flipped = screen.loc[screen["flips"] != ""]
+    for row in flipped.itertuples():
+        if row.study in audit.AUDITS:
+            declared = audit.AUDITS[row.study]()
+            rows = {f"{s}/{e}" for s, names in declared.truth.items() for e in names}
+            assert set(row.flips.split(";")) <= rows | set(declared.cells), row.study
+        else:
+            assert row.disposition == "declared" and row.reason, row.study
+    explained = set(flipped["study"]) - set(audit.AUDITS)
+    assert set(audit.SCREEN_REASONS) == explained
+    assert set(screen.loc[screen["disposition"] == "audited", "study"]) == set(audit.AUDITS)
+    assert set(screen.loc[screen["disposition"] == "rerun", "study"]) == set(audit.RERUN)
