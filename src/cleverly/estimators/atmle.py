@@ -1898,7 +1898,7 @@ def fit_adaptive_tmle(
             int(seeds[index]),
         ).assignment
         dictionary, effect, bias = _select(
-            data, rows, values, inner, controls_only, basis, force_arm, random_state
+            data, rows, values, inner, controls_only, basis, random_state, force_arm
         )
         units.append(
             _unit(
@@ -1991,8 +1991,8 @@ def _select(
     inner: IntArray,
     controls_only: bool,
     basis: Any,
-    force_arm: bool,
     random_state: int,
+    force_arm: bool,
 ) -> tuple[WorkingDictionary, Selection, Selection]:
     """Fit the dictionary and select both working models on the selection rows."""
     a, s = data.a[rows], data.s[rows]
