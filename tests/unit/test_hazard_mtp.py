@@ -658,14 +658,17 @@ def test_a_held_level_cell_holds_every_unit_at_that_level(targeting: str) -> Non
 def test_a_held_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> None:
     """No death at node 1 at any dose: every slot copy there is held, and the walk converges.
 
-    Without the hold the clipped logit leaves a death score the walk cannot solve.
+    Without the hold the clipped logit leaves a death score the walk cannot solve: on this
+    law its relative score settles near ``2.8e-4`` by step 1,000 and stays there, where the
+    held walk converges in under 200 steps.
     """
     law = GridLaw(causes=2, empty=lambda node, w, f, a: node == 1)
     with captured("_target") as calls:
         result = fit(law, {"up": policy("continuous", "up")}, "continuous")
     for state in _final_states(calls):
         assert np.all(state.hazards[:, 0, :, 1] == 0.0)
-    assert result.fits["up, death @ t=2"].hazard.converged
+    record = result.fits["up, death @ t=2"].hazard
+    assert record.converged and record.n_iter < 200
     for cause, code in (("relapse", 1), ("death", 2)):
         truth = law.truth(UP, 2, code)
         assert risk(result, "up", 2, cause) == pytest.approx(truth, abs=EXACT)
@@ -676,13 +679,18 @@ def test_a_held_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> N
         empty, full, excluded = original(*args, **kwargs)
         return np.zeros_like(empty), full, excluded
 
+    walk = hazard_module.walk_curve
+
+    def capped(*args: Any, **kwargs: Any) -> Any:
+        return walk(*args, **{**kwargs, "max_steps": 1_500})
+
     monkeypatch.setattr(hazard_module, "_held_cells", unheld)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        mutated = fit(law, {"up": policy("continuous", "up")}, "continuous")
+    monkeypatch.setattr(hazard_module, "walk_curve", capped)
+    mutated = fit(law, {"up": policy("continuous", "up")}, "continuous")
     record = mutated.fits["up, death @ t=2"].hazard
-    gap = abs(risk(mutated, "up", 2, "death") - law.truth(UP, 2, 2))
-    assert not record.converged or gap > EXACT
+    assert not record.converged
+    assert record.n_iter == 1_500
+    assert record.relative_score > 1e-4
 
 
 def test_a_held_mixed_cell_holds_the_slots_of_its_categorical_values() -> None:
@@ -746,6 +754,9 @@ def test_each_policy_walk_reports_a_monotone_curve(reading: str) -> None:
             n_folds=1,
             survival_model="hazard",
             targeting="one_step",
+            step_size=STEP,
+            # Monotonicity holds at every step of the walk, so a loose tolerance is enough.
+            tol=1e-4,
             outcome_learner=Wrong(),
             treatment_learner=CellProbabilities(),
             censoring_learner=CellMeans(),
