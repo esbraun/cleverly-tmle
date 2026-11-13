@@ -144,10 +144,10 @@ __all__ = [
     "clipped_shares",
     "fit_hazards",
     "hazard_bounds",
+    "hazard_declared_mechanism_refusal",
     "hazard_first_node_mtp_refusal",
     "hazard_inputs",
     "hazard_later_mtp_refusal",
-    "hazard_later_tilt_refusal",
     "hazard_msm_mtp_refusal",
     "hazard_mtp_replay_refusal",
     "hazard_node_kind_refusal",
@@ -1799,7 +1799,8 @@ PATH_STATE_BYTES = 290.0
 #: at a time; one float per value is kept as the floor.
 PATH_DESIGN_BYTES = 8.0
 
-#: The traced-peak limit of a multi-node hazard fit, 2 GB, above which H17 refuses the fit.
+#: The traced-peak limit of a multi-node hazard fit, 2 GiB, above which H17 refuses a fit
+#: whose regimens draw from a known policy.
 PATH_PEAK_LIMIT = 2.0 * 1024.0**3
 
 
@@ -1870,14 +1871,15 @@ def hazard_path_cap_refusal(
     Refusal
         An ``api_redirection``.
     """
+    at = "1 node" if nodes == 1 else f"{nodes} nodes"
     return Refusal(
         RefusalReason.API_REDIRECTION,
-        f"regimen {label!r} draws its treatment from a known policy at {nodes} nodes, which "
+        f"regimen {label!r} draws its treatment from a known policy at {at}, which "
         f"gives {paths} treatment paths with positive probability. The hazard fit holds the "
         f"hazards of every path for every unit and cause, and {n} units, {n_times} nodes, "
         f"{n_slots} paths, {n_causes} causes and {n_columns} design columns give a predicted "
-        f"peak of {peak / 1024.0**3:.1f} GB, above the limit of "
-        f"{PATH_PEAK_LIMIT / 1024.0**3:.0f} GB.",
+        f"traced peak of {peak / 1024.0**3:.1f} GiB, above the limit of "
+        f"{PATH_PEAK_LIMIT / 1024.0**3:.0f} GiB.",
         "Use survival_model='iterated_mean', which needs no path enumeration.",
     )
 
@@ -2004,7 +2006,7 @@ def _enumerate_paths(
     """Every regimen's ``(n, T)`` treatment paths, their ``(n,)`` masses and owners.
 
     Each regimen's paths are built from the regimen on every row (:func:`path_slots`), with
-    the cap (H17) checked after every node.  The fourth entry counts, per regimen, the nodes
+    the cap (H17) checked after every node at which a regimen draws from a policy.  The fourth entry counts, per regimen, the nodes
     at which it draws from a known policy.
     """
     from .regimen import DynamicRegimen, Regimen, counterfactual_policy_density
@@ -2027,8 +2029,8 @@ def _enumerate_paths(
             if isinstance(regimen, DynamicRegimen) and regimen.is_policy(time):
                 drawn += 1
             elif isinstance(regimen, DynamicRegimen) and regimen.is_tilt(time):
-                # refuse_hazard_design refuses a tilt after the first node (H26); at the first
-                # node the attached density of the known mechanism holds every row.
+                # A tilt needs a declared mechanism, which refuse_multinode_design admits at
+                # the first node only (H26); there its attached density holds every row.
                 drawn += 1
                 density = np.asarray(plan.policy_at(time), dtype=float)
             elif isinstance(regimen, DynamicRegimen) and regimen.is_rule(time):
@@ -2066,6 +2068,11 @@ def _enumerate_paths(
                     extended[:, time - 1] = float(code)
                     grown.append((extended, branch))
             current = grown
+            if column is not None:
+                # A static arm or a rule adds one path per regimen, as the held engine adds
+                # one level per arm, and that engine fits any number of rows uncapped.  The
+                # cap guards the growth that only a draw from a policy causes.
+                continue
             total = len(paths) + len(current)
             peak = path_peak(n, n_times, total, n_causes, n_columns)
             if peak > PATH_PEAK_LIMIT:
@@ -4057,37 +4064,46 @@ def hazard_later_mtp_refusal(label: str, time: int) -> Refusal:
     )
 
 
-def hazard_later_tilt_refusal(label: str, time: int) -> Refusal:
-    """The refusal of a known-mechanism odds tilt after the first node (H26).
+def hazard_declared_mechanism_refusal(factor: str, time: int, name: str) -> Refusal:
+    """The refusal of a declared mechanism factor that depends on the treatment history (H26).
 
     Parameters
     ----------
-    label : str
-        The regimen's label.
+    factor : {"treatment", "censoring"}
+        Which factor is declared.
     time : int
         The node, counted from one.
+    name : str
+        The treatment or censoring column of that node.
 
     Returns
     -------
     Refusal
         An ``api_redirection``.
     """
+    keyword = "treatment_probabilities=" if factor == "treatment" else "censoring_probabilities="
+    what = "treatment probabilities" if factor == "treatment" else "retention probabilities"
     return Refusal(
         RefusalReason.API_REDIRECTION,
-        f"regimen {label!r} tilts the declared treatment mechanism at node {time}. The hazard "
-        "plug-in on a design with a treatment at several nodes needs that density at every "
-        "counterfactual treatment history, and the declared mechanism gives it only at the "
-        "observed history.",
-        "Use survival_model='iterated_mean', which reads the tilt at the observed history.",
+        f"{keyword} declares the {what} of {name!r} at node {time}, one value per row at the "
+        "observed treatment history. survival_model='hazard' on a design with a treatment at "
+        "several nodes weights the hazards of every treatment path a regimen follows by the "
+        "mechanism along that path's own treatment history, which a declared value does not "
+        "give. Only the treatment probabilities of the first node, which follow no earlier "
+        "treatment, can be declared on this fit.",
+        "Leave this factor to be estimated by its learner, or use "
+        "survival_model='iterated_mean', which reads declared factors at the observed history.",
     )
 
 
 def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSpec]) -> None:
     """Refuse what the hazard fit of a design with several treatment nodes does not build.
 
-    Checked before any learner, in the order H23, H22, then per regimen H21, H15 and H26, so
+    Checked before any learner, in the order H23, H22, H26, then per regimen H21 and H15, so
     a continuous or mixed later node gets the node-kind refusal even though it can hold only
-    a modified treatment policy.
+    a modified treatment policy.  H26 refuses a declared treatment factor after the first
+    node and a declared retention factor at any node: each is given at the observed history
+    only, and the walk weights every slot by the mechanism along the slot's own history.
 
     Parameters
     ----------
@@ -4111,10 +4127,24 @@ def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSp
                 hazard_node_kind_refusal(time, data.decision_name(time), what)
             )
     known = data.known_mechanisms
+    if known is not None:
+        for time in range(2, data.n_times + 1):
+            if known.treatment_at(time) is not None:
+                raise CapabilityError.from_refusal(
+                    hazard_declared_mechanism_refusal(
+                        "treatment", time, data.decision_name(time)
+                    )
+                )
+        for time in range(1, data.n_times + 1):
+            if known.censoring_at(time) is not None:
+                raise CapabilityError.from_refusal(
+                    hazard_declared_mechanism_refusal(
+                        "censoring", time, data.censoring_names[time - 1]
+                    )
+                )
     for regimen in regimens:
         label = getattr(regimen, "label", "")
         is_mtp = getattr(regimen, "is_mtp", None)
-        is_tilt = getattr(regimen, "is_tilt", None)
         if is_mtp is not None and is_mtp(1):
             raise CapabilityError.from_refusal(
                 hazard_first_node_mtp_refusal(label, data.n_decisions)
@@ -4122,14 +4152,6 @@ def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSp
         for time in range(2, data.n_times + 1):
             if is_mtp is not None and is_mtp(time):
                 raise CapabilityError.from_refusal(hazard_later_mtp_refusal(label, time))
-            # A tilt of an estimated mechanism meets the targeted fit's own tilt refusal.
-            if (
-                is_tilt is not None
-                and is_tilt(time)
-                and known is not None
-                and known.treatment_at(time) is not None
-            ):
-                raise CapabilityError.from_refusal(hazard_later_tilt_refusal(label, time))
 
 
 def refuse_hazard_design(

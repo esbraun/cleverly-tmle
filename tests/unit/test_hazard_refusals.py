@@ -519,6 +519,7 @@ def test_h23_a_markov_order_on_several_nodes_is_refused() -> None:
 
 
 def test_h26_a_known_tilt_after_the_first_node_is_refused() -> None:
+    """A tilt after node 1 needs a declared mechanism there, which H26 refuses first."""
     from cleverly.interventions import Incremental
     from cleverly.longitudinal import DynamicRegimen
 
@@ -527,15 +528,35 @@ def test_h26_a_known_tilt_after_the_first_node_is_refused() -> None:
         frame[f"p2_{level}"] = 1.0 / 3.0
     known = {"A2": {level: f"p2_{level}" for level in range(3)}}
     message = (
-        "regimen 'tilt' tilts the declared treatment mechanism at node 2. The hazard plug-in on "
-        "a design with a treatment at several nodes needs that density at every counterfactual "
-        "treatment history, and the declared mechanism gives it only at the observed history. "
-        "Use survival_model='iterated_mean', which reads the tilt at the observed history."
+        "treatment_probabilities= declares the treatment probabilities of 'A2' at node 2, one "
+        "value per row at the observed treatment history. survival_model='hazard' on a design "
+        "with a treatment at several nodes weights the hazards of every treatment path a "
+        "regimen follows by the mechanism along that path's own treatment history, which a "
+        "declared value does not give. Only the treatment probabilities of the first node, "
+        "which follow no earlier treatment, can be declared on this fit. Leave this factor to "
+        "be estimated by its learner, or use survival_model='iterated_mean', which reads "
+        "declared factors at the observed history."
     )
     tilt = DynamicRegimen("tilt", (1, Incremental({0: 1.0, 1: 2.0, 2: 1.0}), 1))
+    for regimens in ({"tilt": tilt}, {"always": (1, 1, 1)}):
+        with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+            _multinode(regimens).fit(
+                frame, **LAW.fit_columns(held=False), treatment_probabilities=known
+            )
+        _assert_redirection(raised.value)
+
+
+def test_h26_declared_retention_at_the_first_node_is_refused() -> None:
+    frame = LAW.frame()
+    columns = LAW.fit_columns(held=False)
+    first = columns["censoring"][0]
+    retention = {first: np.full(len(frame), 0.9)}
+    message = (
+        f"censoring_probabilities= declares the retention probabilities of {first!r} at node 1"
+    )
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        _multinode({"tilt": tilt}).fit(
-            frame, **LAW.fit_columns(held=False), treatment_probabilities=known
+        _multinode({"always": (1, 1, 1)}).fit(
+            frame, **columns, censoring_probabilities=retention
         )
     _assert_redirection(raised.value)
 

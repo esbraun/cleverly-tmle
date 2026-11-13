@@ -356,8 +356,13 @@ is measured after baseline. A plan can fix the treatment at each time point, fol
 reads the baseline covariates, or draw the treatment with known probabilities that may depend on
 the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
 follow. A plan that draws at many time points has many sequences, and a fit whose predicted
-memory use passes 2 GB is refused before any model is fitted. No registered study measures
-this fit yet, so its results are labelled `experimental`.
+memory use passes 2 GiB is refused before any model is fitted.
+
+If a trial design fixes the
+treatment probabilities, you can pass them for the first time point only; the fit estimates the
+probabilities of later treatment and of dropout, because it needs them along sequences that
+nobody followed. No registered study measures this fit yet, so its results are labelled
+`experimental`.
 [A treatment at several nodes on the hazard path](../technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
 gives the exact estimand and its checks.
 

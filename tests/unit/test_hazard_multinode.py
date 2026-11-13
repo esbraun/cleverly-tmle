@@ -881,14 +881,18 @@ def test_mutation_targeting_the_cells_misses_with_a_modifier_only(
     np.testing.assert_allclose(control, _exact_beta(TWO, False), rtol=0.0, atol=EXACT)
 
 
+class _Reached(AssertionError):
+    """Raised by :class:`_Untouched` when a fit reaches a learner."""
+
+
 class _Untouched:
-    """A learner that fails the test if the fit reaches it."""
+    """A learner that raises :class:`_Reached` if the fit reaches it."""
 
     def fit(self, *args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("H17 must refuse before any learner")
+        raise _Reached("the fit reached a learner")
 
     def predict_proba(self, *args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("H17 must refuse before any learner")
+        raise _Reached("the fit reached a learner")
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         return {}
@@ -901,38 +905,50 @@ def _coin(node: int) -> Stochastic:
     return Stochastic(density, f"coin {node}", density_kind="known")
 
 
+def _random_panel(n: int, n_times: int) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """A binary treatment that switches with probability 0.1 at each node, a rare event,
+    and no censoring."""
+    rng = np.random.default_rng(0)
+    data: dict[str, np.ndarray] = {"W": rng.normal(size=n)}
+    alive = np.ones(n, dtype=bool)
+    arm = rng.integers(0, 2, n)
+    for k in range(1, n_times + 1):
+        arm = np.where(rng.random(n) < 0.1, 1 - arm, arm)
+        data[f"A{k}"] = np.where(alive, arm, np.nan)
+        data[f"C{k}"] = np.where(alive, 1.0, np.nan)
+        event = rng.random(n) < 0.02
+        data[f"Y{k}"] = np.where(alive, event, np.nan)
+        alive &= ~event
+    nodes = range(1, n_times + 1)
+    columns = {
+        "treatment": [f"A{k}" for k in nodes],
+        "outcome": [f"Y{k}" for k in nodes],
+        "censoring": [f"C{k}" for k in nodes],
+        "baseline": ["W"],
+    }
+    return pd.DataFrame(data), columns
+
+
+def _untouched() -> dict[str, _Untouched]:
+    return {
+        name: _Untouched() for name in ("outcome_learner", "treatment_learner", "censoring_learner")
+    }
+
+
 def test_h17_a_policy_at_many_nodes_is_refused_before_any_learner() -> None:
     """A fair coin at every node gives ``2**k`` paths after ``k`` nodes, until the cap."""
     n, n_times = 2_000, 10
-    rng = np.random.default_rng(0)
-    frame = pd.DataFrame({"W": rng.normal(size=n)})
-    alive = np.ones(n, dtype=bool)
-    for k in range(1, n_times + 1):
-        frame[f"A{k}"] = np.where(alive, rng.integers(0, 2, n), np.nan)
-        frame[f"C{k}"] = np.where(alive, 1.0, np.nan)
-        event = rng.random(n) < 0.05
-        frame[f"Y{k}"] = np.where(alive, event, np.nan)
-        alive &= ~event
-    nodes = range(1, n_times + 1)
-    coin = DynamicRegimen("coin", tuple(_coin(k) for k in nodes))
-    learners = {
-        name: _Untouched() for name in ("outcome_learner", "treatment_learner", "censoring_learner")
-    }
-    estimator = LTMLE({"coin": coin}, survival_model="hazard", n_folds=1, **learners)
+    frame, columns = _random_panel(n, n_times)
+    coin = DynamicRegimen("coin", tuple(_coin(k) for k in range(1, n_times + 1)))
+    estimator = LTMLE({"coin": coin}, survival_model="hazard", n_folds=1, **_untouched())
     with pytest.raises(CapabilityError) as raised:
-        estimator.fit(
-            frame,
-            treatment=[f"A{k}" for k in nodes],
-            outcome=[f"Y{k}" for k in nodes],
-            censoring=[f"C{k}" for k in nodes],
-            baseline=["W"],
-        )
+        estimator.fit(frame, **columns)
     refusal = raised.value.refusal
     assert refusal.reason is RefusalReason.API_REDIRECTION
     found = re.search(
-        r"at (\d+) nodes, which gives (\d+) treatment paths .* (\d+) units, (\d+) nodes, "
-        r"(\d+) paths, (\d+) causes and (\d+) design columns give a predicted peak of "
-        r"([\d.]+) GB, above the limit of 2 GB\.",
+        r"at (\d+) nodes?, which gives (\d+) treatment paths .* (\d+) units, (\d+) nodes, "
+        r"(\d+) paths, (\d+) causes and (\d+) design columns give a predicted traced peak "
+        r"of ([\d.]+) GiB, above the limit of 2 GiB\.",
         str(raised.value),
     )
     assert found is not None, str(raised.value)
@@ -963,3 +979,117 @@ def test_h17_the_predicted_peak_covers_each_measured_fit(
     """The prediction stays above each recorded peak and within twice it."""
     predicted = hazard_module.path_peak(n, n_times, paths, causes, columns) / 1e6
     assert peak <= predicted <= 2.0 * peak
+
+
+# --------------------------------------------------------------- declared mechanisms (H26)
+
+
+def _declared(law: PathLaw) -> tuple[np.ndarray, np.ndarray]:
+    """The true ``P(A_k = 1 | past)`` and ``P(C_k = 1 | past)`` of every row at its own history.
+
+    These are what ``treatment_probabilities=`` and ``censoring_probabilities=`` can express:
+    one value per row, at the observed history.  Off the risk set the value is never read.
+    """
+    frame = law.frame()
+    treat = np.full((len(frame), law.n_times), 0.5)
+    retain = np.ones((len(frame), law.n_times))
+    for i, row in enumerate(frame.itertuples(index=False)):
+        values = row._asdict()
+        w, previous = int(values["W"]), 0
+        for k in range(1, law.n_times + 1):
+            a = values[f"A{k}"]
+            if np.isnan(a):
+                break
+            treat[i, k - 1] = law.treat(k, w, previous)
+            retain[i, k - 1] = _retained(k, w, int(a), previous)
+            previous = int(a)
+    return treat, retain
+
+
+@pytest.mark.parametrize("factor", ["treatment", "censoring"])
+def test_h26_true_declared_probabilities_after_the_first_node_are_refused(factor: str) -> None:
+    """The exact witness of the review: the true mechanism, declared, with a wrong hazard.
+
+    A declared factor is the probability at the observed history, so it cannot weight a path
+    whose history differs, and before H26 the fit moved the copies of one hazard apart and
+    missed the truth by 0.047 (treatment) and 0.006 (retention) while reporting convergence.
+    """
+    treat, retain = _declared(LAW)
+    if factor == "treatment":
+        declared = {"treatment_probabilities": treat}
+        message = "treatment_probabilities= declares the treatment probabilities of 'A2' at node 2"
+    else:
+        declared = {"censoring_probabilities": retain}
+        message = "censoring_probabilities= declares the retention probabilities of 'C1' at node 1"
+    learners = {
+        name: _Untouched() for name in ("outcome_learner", "treatment_learner", "censoring_learner")
+    }
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+        fit(LAW, ("always", "never"), columns=declared, **learners)
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert "survival_model='iterated_mean'" in str(raised.value)
+
+
+@pytest.mark.parametrize("targeting", ["one_step", "iterative"])
+def test_declared_first_node_probabilities_give_the_truth(targeting: str) -> None:
+    """Declared ``g_1`` is read at each slot's own first arm; later factors are estimated."""
+    treat, _ = _declared(LAW)
+    first = {"A1": {0.0: 1.0 - treat[:, 0], 1.0: treat[:, 0]}}
+    labels = SETS[0]
+    result = fit(
+        LAW,
+        labels,
+        targeting=targeting,
+        columns={"treatment_probabilities": first},
+    )
+    assert miss(result, LAW, labels) < EXACT
+
+
+def test_mutation_the_mechanism_read_at_the_observed_history_misses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read every slot's later treatment factor at the unit's observed history, as a declared
+    factor would be: the walk still converges, but the copies drift and the estimate misses."""
+    from cleverly.longitudinal import estimator as estimator_module
+
+    original = estimator_module.fit_mechanism
+
+    def observed(data: Any, plans: Any, **kwargs: Any) -> Any:
+        mechanism = original(data, plans, **kwargs)
+        rows = np.arange(data.n)
+        for time in range(2, data.n_times + 1):
+            matrix = np.asarray(mechanism.treatment_observed[time - 1])
+            for plan in plans:
+                codes = np.nan_to_num(plan.arm(time), nan=0.0).astype(np.int64)
+                mechanism.treatment[time - 1][plan.label] = matrix[rows, codes]
+        return mechanism
+
+    monkeypatch.setattr(estimator_module, "fit_mechanism", observed)
+    assert miss(fit(LAW, ("always", "never")), LAW, ("always", "never")) > MISSED
+
+
+def test_h17_static_arms_are_not_capped_at_any_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Static arms whose predicted traced peak passes the limit still reach the learners.
+
+    Each static arm or rule adds one path, as each arm adds one level on the held engine,
+    which has no cap; only a draw from a policy multiplies the paths.  The bytes per state
+    value are raised so that a small panel stands for a large one; the control is a policy
+    that draws at one node only, which the same setting refuses.
+    """
+    n, n_times = 2_000, 6
+    monkeypatch.setattr(hazard_module, "PATH_STATE_BYTES", 1e6)
+    assert hazard_module.path_peak(n, n_times, 1, 1, 1) > hazard_module.PATH_PEAK_LIMIT
+    arms: dict[str, Any] = {
+        "always": (1,) * n_times,
+        "never": (0,) * n_times,
+        "late": (0, 0, 0, 1, 1, 1),
+        "early": (1, 1, 1, 0, 0, 0),
+    }
+    frame, columns = _random_panel(n, n_times)
+    with pytest.raises(_Reached):
+        LTMLE(arms, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
+    once = DynamicRegimen("once", (_coin(1),) + (1,) * (n_times - 1))
+    with pytest.raises(CapabilityError, match="draws its treatment from a known policy at 1 node, "):
+        LTMLE({**arms, "once": once}, survival_model="hazard", n_folds=1, **_untouched()).fit(
+            frame, **columns
+        )
