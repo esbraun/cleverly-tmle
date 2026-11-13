@@ -224,21 +224,25 @@ def test_the_screen_reads_the_other_candidate_as_a_separate_fit() -> None:
 
 
 def test_the_coverage_floor_factor_is_the_largest_declared_one_with_power() -> None:
+    """Chosen at the counts it was fixed at; rule S4 keeps it while it has power."""
     assert properties.chosen_floor_factor() == properties.COVERAGE_FLOOR_FACTOR
-    powers = properties.floor_control_power(properties.COVERAGE_FLOOR_FACTOR)
-    assert powers["power"].min() >= properties.CONTROL_POWER
+    for counts in (properties.FLOOR_FACTOR_COUNTS, properties.REPLICATES):
+        powers = properties.floor_control_power(properties.COVERAGE_FLOOR_FACTOR, counts)
+        assert powers["power"].min() >= properties.CONTROL_POWER
     assert set(powers["set"]) == {
         label
         for label in (*properties.OPTION_SETS, *properties.CALIBRATION_SETS)
         if label not in properties.REPORTING_SETS and "tau2" not in label
     }
+    assert set(properties.FLOOR_FACTOR_COUNTS) == set(powers["set"])
 
 
 def test_the_next_larger_factor_lacks_power() -> None:
     """The control of the choice: one step up (0.60) misses 0.95 on some probed row."""
     index = properties.FLOOR_FACTORS.index(properties.COVERAGE_FLOOR_FACTOR)
     larger = properties.FLOOR_FACTORS[index - 1]
-    assert properties.floor_control_power(larger)["power"].min() < properties.CONTROL_POWER
+    powers = properties.floor_control_power(larger, properties.FLOOR_FACTOR_COUNTS)
+    assert powers["power"].min() < properties.CONTROL_POWER
 
 
 @pytest.mark.parametrize("label", sorted(properties.WALD_CONTROL_SETS))
@@ -252,7 +256,7 @@ def test_the_wald_control_fails_on_the_committed_draws(label: str) -> None:
         assert power >= properties.CONTROL_POWER, (label, q, power)
 
 
-# ------------------------------------------------------------------------ the pilot
+# ------------------------------------------------------------------------ the pilot and sizing
 
 
 @functools.cache
@@ -260,31 +264,157 @@ def sizing() -> tuple[dict[str, int], int, pd.DataFrame]:
     return properties.sized_replicates(properties.committed_pilot())
 
 
-def test_the_pilot_ran_every_declared_set() -> None:
+def test_the_pilot_ran_every_declared_set_and_round_two() -> None:
     pilot = properties.committed_pilot()
-    counts = pilot.groupby("set")["replicate"].nunique()
+    counts = pilot.groupby("set")["replicate"].agg(["nunique", "max"])
     expected = {label for _, label, _, _ in properties.PILOT_SETS}
     assert set(counts.index) == expected
-    assert (counts == properties.PILOT_DRAWS).all()
+    for label, row in counts.iterrows():
+        draws = properties.pilot_draws(str(label))
+        assert row["nunique"] == draws and row["max"] == draws - 1, label
+
+
+def test_round_two_extends_the_rows_rule_s3_flags() -> None:
+    """S3 on the round-1 pilot: a plug-in pass probability below 0.90 at ``R_target``."""
+    assert properties.round_two_sets(properties.committed_pilot()) == properties.ROUND_TWO
+
+
+def test_rule_s3_flags_a_row_moved_off_target() -> None:
+    """Mutation control: a twin's round-1 ratio pushed to 1.05 is flagged."""
+    pilot = properties.round_one(properties.committed_pilot()).copy()
+    rows = pilot["set"] == "up_oracle_tau5_twin"
+    pilot.loc[rows, "std_error"] *= 1.05 / 1.0075
+    assert "up_oracle_tau5_twin" in properties.round_two_sets(pilot)
+
+
+def test_no_round_two_row_is_confirmed_outside_its_passing_region() -> None:
+    """S3: a departure the extended pilot confirms stops the declaration for a diagnosis."""
+    _, _, table = sizing()
+    extended = table.loc[table["set"].isin(properties.ROUND_TWO)]
+    assert set(extended["set"]) == set(properties.ROUND_TWO)
+    for row in extended.itertuples():
+        assert row.draws == properties.ROUND_TWO[row.set], row.cell
+        assert properties.in_region(row.kind, row.se_ratio, row.coverage, row.standardized_bias), (
+            row.cell,
+            row.se_ratio,
+            row.coverage,
+            row.standardized_bias,
+        )
+
+
+def test_the_gated_rows_and_their_per_row_level() -> None:
+    _, _, table = sizing()
+    assert len(table) == 33
+    assert table["level"].iloc[0] == pytest.approx(0.95 ** (1 / 33))
+    assert table["level"].iloc[0] == pytest.approx(0.9985, abs=1e-4)
+    kinds = table.groupby("kind").size().to_dict()
+    assert kinds == {"band": 5, "clause": 14, "primary": 14}
+
+
+def test_the_configuration_constant_floors_at_c_fit() -> None:
+    _, _, table = sizing()
+    assert (table["c"] >= properties.tools.C_FIT - 1e-12).all()
+    c = table.groupby("configuration")["c"].nunique()
+    assert (c == 1).all()
+    assert table.loc[table["configuration"] == "pricing_tau5", "c"].iloc[0] == pytest.approx(
+        1.35, abs=0.01
+    )
+
+
+def test_r_target_is_the_least_count_at_the_per_row_level() -> None:
+    """S1: at ``R_target`` the at-target probability reaches the level; one step below does not."""
+    _, _, table = sizing()
+    for row in table.itertuples():
+        assert properties.at_target(row.kind, row.r_target, row.c) >= row.level, row.cell
+        floor = properties.PRIMARY_FLOOR if row.kind == "primary" else properties.R_STEP
+        if row.r_target > floor:
+            below = row.r_target - properties.R_STEP
+            assert properties.at_target(row.kind, below, row.c) < row.level, row.cell
+
+
+def test_the_plugin_raise_follows_rule_s2() -> None:
+    _, _, table = sizing()
+    for row in table.itertuples():
+        point = (row.kind, row.se_ratio, row.coverage, row.standardized_bias)
+        if not row.margin:
+            assert row.r_plugin == row.r_target, row.cell
+            continue
+        assert row.r_target <= row.r_plugin <= max(properties.S2_CAP, row.r_target), row.cell
+        reached = properties.plugin_pass(*point, row.r_plugin, row.c) >= properties.S2_LEVEL
+        assert reached or row.r_plugin == properties.S2_CAP, row.cell
+        if row.r_plugin > row.r_target:
+            below = row.r_plugin - properties.R_STEP
+            assert properties.plugin_pass(*point, below, row.c) < properties.S2_LEVEL, row.cell
 
 
 def test_the_replication_counts_are_the_sizing_rule() -> None:
     replicates, primary, _ = sizing()
     assert primary == study.PRIMARY_REPLICATES
+    assert primary >= properties.PRIMARY_FLOOR
     for label, count in replicates.items():
         assert properties.REPLICATES[label] == count, label
 
 
-def test_the_family_wise_pass_probability_reaches_the_target() -> None:
-    _, _, table = sizing()
-    assert properties.family_wise(table) >= properties.FAMILY_TARGET
+def test_the_replication_counts_of_the_reporting_sets() -> None:
+    assert (
+        properties.REPLICATES["up_learned_classifier_tau5_twin"]
+        == (properties.REPLICATES["up_oracle_tau5_twin"])
+    )
+    for label in properties.REPORTING_SETS:
+        assert properties.REPLICATES[label] == 1_000
+    assert properties.REPLICATES[properties.SUPERLEARNER_CELL] == 600
+    for twin in study.LARGE_TWINS:
+        assert properties.REPLICATES[twin] == study.TAIL_OPTION_REPLICATES
+
+
+def test_the_at_target_product_reaches_the_target() -> None:
+    """The gate: every gated row at its target reads a false red with probability <= 0.05."""
+    replicates, primary, table = sizing()
+    product = properties.at_target_product(table, replicates, primary)
+    assert product >= properties.FAMILY_TARGET
+    assert product == pytest.approx(properties.PUBLISHED["at_target"], abs=5e-4)
+    targets = table.groupby("set")["r_target"].max().to_dict()
+    at_r_target = properties.at_target_product(
+        table, targets, int(table.loc[table["kind"] == "primary", "r_target"].max())
+    )
+    assert at_r_target >= properties.FAMILY_TARGET
+    assert at_r_target == pytest.approx(properties.PUBLISHED["at_r_target"], abs=5e-4)
+
+
+def test_the_published_descriptions() -> None:
+    """The plug-in and predictive products gate nothing; their published values are these."""
+    replicates, primary, table = sizing()
+    plugin = properties.plugin_product(table, replicates, primary)
+    predictive = properties.family_wise(
+        properties.pass_table(properties.committed_pilot(), properties.REPLICATES, primary)
+    )
+    assert plugin == pytest.approx(properties.PUBLISHED["plug_in"], rel=0.05, abs=5e-4)
+    assert predictive == pytest.approx(properties.PUBLISHED["predictive"], rel=0.05, abs=5e-4)
 
 
 def test_every_control_has_power() -> None:
-    _, _, table = sizing()
+    """S4: each control fails as required with probability >= 0.95, predictive over its pilot."""
+    table = properties.pass_table(
+        properties.committed_pilot(), properties.REPLICATES, study.PRIMARY_REPLICATES
+    )
     controls = table.loc[table["role"] == "control"]
+    assert len(controls) > 0
     weak = controls.loc[controls["probability"] < properties.CONTROL_POWER]
     assert weak.empty, weak.to_string()
+
+
+def test_the_twin_floor_factor_is_the_largest_declared_one_with_power() -> None:
+    pilot = properties.committed_pilot()
+    primary = study.PRIMARY_REPLICATES
+    assert properties.chosen_twin_floor_factor(pilot, primary) == study.CONTROL_SE_FACTOR
+    index = properties.FLOOR_FACTORS.index(study.CONTROL_SE_FACTOR)
+    larger = properties.FLOOR_FACTORS[index - 1]
+    assert properties.twin_floor_power(larger, pilot, primary) < properties.CONTROL_POWER
+
+
+def test_the_two_families_declare_their_own_floor_factor() -> None:
+    assert np.isclose(study.CONTROL_SE_FACTOR, 0.65)
+    assert np.isclose(properties.COVERAGE_FLOOR_FACTOR, 0.55)
 
 
 def test_the_rules_reproduce_the_verdicts_on_the_pilot() -> None:

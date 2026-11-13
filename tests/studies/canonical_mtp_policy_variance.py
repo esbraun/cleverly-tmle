@@ -75,6 +75,16 @@ VARIANCE_LEARNER` already holds.
   0.90 to 0.95 (the fix5_heavy_ratios probe 4), with its trigger for a follow-up fix; ``pricing_learned_*`` option
   coverage 0.99 or more with SE ratio near 1.4 (probe 5); the twins' option rows
   ``conservative`` or calibrated, with coverage at least the Wald rows'.
+* The expected readings of the two rows the round-1 pilot put outside their passing regions,
+  which a paired-arm diagnosis on 3,000 fresh ``diagnostic`` draws read as draw noise (``LTMLE``
+  and ``SDR`` agree to 0.0017 in the estimate on the same draws; every 99% SE-ratio interval
+  contains 1 and every coverage interval 0.95): the ``pricing_ltmle_tau2`` option rows read
+  ``calibrated``, the ``ey`` row possibly ``conservative``; the ``pricing_ltmle_tau3_tail``
+  Wald twin passes.  Round 2 of the pilot (the sizing rule of
+  :mod:`tests.studies.mtp_policy_variance_properties`) re-read both on the pilot stream, inside
+  their passing regions: the ``tau2`` option SE ratio 0.997 (``ate``) and 1.006 (``ey``) with
+  coverage 0.946 and 0.953 on 2,000 draws, and the ``tau3`` Wald twin's coverage 0.944 and
+  0.940 with SE ratio 0.997 and 0.996 on 3,000 draws.
 * No replicate count, law, learner, margin or seed moves after a verdict is seen.  No rerun buys
   a pass.
 """
@@ -118,12 +128,13 @@ SLUG = "mtp-policy-variance"
 SEED = 20265005
 RESAMPLING_SEED = 2026500501
 FAILURE_BOUND = 0.01
-#: The primary (coverage-twin) replications: at least 1,471 of 1,600 covered.
-PRIMARY_REPLICATES = 1_600
+#: The primary (coverage-twin) replications (rules S1 and S2): at least 1,653 of 1,800 covered.
+PRIMARY_REPLICATES = 1_800
 #: The SE screen of a truth or coverage twin: the union-model band.
 TWIN_SE_SCREEN = (0.1, 10.0)
-#: The SE factor of every coverage-floor control.
-CONTROL_SE_FACTOR = 0.70
+#: The SE factor of the twins' coverage-floor control: the largest of the declared factors with
+#: power at least 0.95 on every twin row (rev 4.1's rule, rule S4).
+CONTROL_SE_FACTOR = 0.65
 #: The coverage a coverage-floor control's 99% upper bound must fall below.
 CONTROL_COVERAGE_CEILING = 0.90
 #: The property draws on which the large twins' option rows are read.

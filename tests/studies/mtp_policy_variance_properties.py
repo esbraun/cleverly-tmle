@@ -41,18 +41,44 @@ is ``red: too wide``; otherwise the row is ``conservative`` when ``hi > 1.07`` a
 **The coverage-floor factor** :data:`COVERAGE_FLOOR_FACTOR` is the largest of
 :data:`FLOOR_FACTORS` whose control fails as required with probability at least 0.95 on every
 gated option row, read from the committed probe-5 draws of
-``tests/diagnostics/fix5_heavy_ratios`` (:func:`floor_control_power`), fixed before any gated
-run.
+``tests/diagnostics/fix5_heavy_ratios`` (:func:`floor_control_power`) at the counts of
+:data:`FLOOR_FACTOR_COUNTS`, fixed before any gated run.  It keeps its power at the declared
+counts.  The twins' coverage-floor control has its own factor,
+:data:`~tests.studies.canonical_mtp_policy_variance.CONTROL_SE_FACTOR`, chosen by the same rule
+on their pilot rows.
 
-Replication counts, pilots and pass probabilities are checked by
-``tests/unit/test_mtp_policy_variance_design.py`` from the committed pilot
-(:data:`PILOT_ROWS`).
+**The sizing rule**, declared before any gated run and computed by
+``tests/unit/test_mtp_policy_variance_design.py`` from the committed pilot (:data:`PILOT_ROWS`).
+The gated positive rows are the 33 option rows, Wald calibration twins and truth or coverage
+twins (:func:`sizing_table`); the controls are outside them.
+
+* **S1, at target.** Each gated row's ``R_target`` is the least multiple of 400 (for a primary
+  row, the least of 1,000, 1,400, ...) at which it passes with probability at least
+  ``0.95^(1/33)`` = 0.9985 at its target: SE ratio 1, coverage 0.95, bias 0.  The SD of the
+  SE-ratio estimate is ``c rho / sqrt(2 R)``, with ``c`` the largest pilot value among the rows
+  of the row's law and n, floored at ``C_FIT``.  The gate is the product of these at-target
+  probabilities at the declared counts, at least 0.95 (:func:`at_target_product`).
+* **S2, plug-in raise.** Where a row's pilot point lies inside its passing region with margin
+  (:func:`in_margin`), R rises to the least count with plug-in pass probability at least 0.99
+  at that point, up to 8,000.  A row outside the margin keeps ``R_target``.  A fit set takes
+  the largest count of its rows, and the primary scenarios one count for all.
+* **S3, round 2.** A row whose plug-in probability at ``R_target`` on the 400-draw round-1 pilot
+  is below 0.90 is flagged, and its pilot is extended on the ``diagnostic`` stream to 2,000
+  draws (SE-ratio rows) or 3,000 (coverage rows): :data:`ROUND_TWO`.  S2 reads the extended
+  pilot.  A row the extended pilot puts outside its passing region (:func:`in_region`) stops
+  the declaration for a paired-arm diagnosis.
+* **S4, controls.** Each control fails as required with probability at least 0.95, predictive
+  over its pilot (Jeffreys on coverage, normal on the SE ratio: :func:`pass_table`).
+
+The plug-in product at the pilot points and the predictive product of :func:`pass_table` are
+published as descriptions and gate nothing (:data:`PUBLISHED`).
 """
 
 from __future__ import annotations
 
 import argparse
 import functools
+import re
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -212,19 +238,25 @@ TWIN_NOISE_SD: dict[str, float] = {
 SUPERLEARNER = Config("boundaries", "sdr", 2, "p4", outcome="correct", pseudo="default")
 SUPERLEARNER_CELL = "p4_sdr__superlearner"
 
-#: The replications of each fit set (the design test checks each against the pilot).
+#: The replications of each fit set: rules S1 and S2 on the committed pilot for the gated sets
+#: (the design test recomputes each), the declared counts for the reporting ones.
 REPLICATES: dict[str, int] = {
-    "pricing_ltmle_tau5": 2_600,
-    "pricing_sdr_tau5": 2_600,
-    "pricing_ltmle_tau2": 4_400,
-    "pricing_sdr_tau2": 4_400,
-    "boundaries_ltmle_p4": 1_000,
-    "boundaries_sdr_p4": 1_000,
+    "pricing_ltmle_tau5": 6_000,
+    "pricing_sdr_tau5": 6_000,
+    "pricing_ltmle_tau2": 3_600,
+    "pricing_sdr_tau2": 3_600,
+    "boundaries_ltmle_p4": 3_600,
+    "boundaries_sdr_p4": 3_600,
     "pricing_learned_ltmle_tau5": 1_000,
     "pricing_learned_sdr_tau5": 1_000,
-    "p4_ltmle": 2_800,
-    "p4_sdr": 2_800,
-    **dict.fromkeys(TWIN_SETS, 3_600),
+    "p4_ltmle": 3_600,
+    "p4_sdr": 3_600,
+    "p4_twin": 4_800,
+    "p4_sdr_twin": 4_800,
+    "p5_twin": 4_000,
+    "p5_sdr_twin": 4_000,
+    "up_oracle_tau5_twin": 4_000,
+    "up_learned_classifier_tau5_twin": 4_000,
     SUPERLEARNER_CELL: 600,
     **dict.fromkeys(study.LARGE_TWINS, study.TAIL_OPTION_REPLICATES),
 }
@@ -822,10 +854,23 @@ def floor_control_power(factor: float, replicates: Mapping[str, int] = REPLICATE
     return pd.DataFrame(out)
 
 
-def chosen_floor_factor() -> float | None:
+#: The counts at which :data:`COVERAGE_FLOOR_FACTOR` was chosen, before the sizing rule raised
+#: them.  Rule S4 changes a declared factor only where it lacks power at the declared counts, so
+#: the factor is not re-chosen at :data:`REPLICATES` (where 0.60 would also reach the power).
+FLOOR_FACTOR_COUNTS: dict[str, int] = {
+    "pricing_ltmle_tau5": 2_600,
+    "pricing_sdr_tau5": 2_600,
+    "p4_ltmle": 2_800,
+    "p4_sdr": 2_800,
+    "boundaries_ltmle_p4": 1_000,
+    "boundaries_sdr_p4": 1_000,
+}
+
+
+def chosen_floor_factor(replicates: Mapping[str, int] = FLOOR_FACTOR_COUNTS) -> float | None:
     """The largest declared factor whose control reaches :data:`CONTROL_POWER` on every row."""
     for factor in FLOOR_FACTORS:
-        if floor_control_power(factor)["power"].min() >= CONTROL_POWER:
+        if floor_control_power(factor, replicates)["power"].min() >= CONTROL_POWER:
             return factor
     return None
 
@@ -1209,57 +1254,252 @@ def main(argv: list[str] | None = None) -> None:
     print(f"wrote {len(rows)} rows to {args.output}", flush=True)
 
 
-if __name__ == "__main__":
-    main()
-
-
 # ---------------------------------------------------------------------------- the sizing rule
+#
+# Rules S1 to S4 (the module docstring of :mod:`tests.studies.canonical_mtp_policy_variance`).
+# A gated positive row is one of three kinds: ``band`` (a Wald calibration twin: the 99%
+# SE-ratio interval inside [0.93, 1.07] and the 99% coverage interval inside [0.92, 0.98]),
+# ``clause`` (an option row: the SE-ratio clause, the coverage floor and the bias interval) and
+# ``primary`` (a truth or coverage twin: the coverage floor and the bias interval).  The SD of
+# a row's SE-ratio estimate at ``R`` replications is ``c rho / sqrt(2 R)``, with ``c`` the
+# largest pilot value in the row's configuration, floored at ``C_FIT``.
 
-#: The planned replication counts the sizing rule starts from.
-PLANNED_REPLICATES: dict[str, int] = {
-    **dict(REPLICATES),
-    "pricing_ltmle_tau5": 2_600,
-    "pricing_sdr_tau5": 2_600,
-    "pricing_ltmle_tau2": 4_400,
-    "pricing_sdr_tau2": 4_400,
-    "boundaries_ltmle_p4": 1_000,
-    "boundaries_sdr_p4": 1_000,
-    "p4_ltmle": 2_800,
-    "p4_sdr": 2_800,
-    **dict.fromkeys(GATED_TWINS, 3_600),
+#: The published products at the declared counts: ``at_target`` is the gate (at least
+#: :data:`FAMILY_TARGET`), ``at_r_target`` the same at every row's ``R_target``; ``plug_in``
+#: (at the pilot points) and ``predictive`` (:func:`pass_table`) are descriptions.
+PUBLISHED: dict[str, float] = {
+    "at_target": 0.9786,
+    "at_r_target": 0.9733,
+    "plug_in": 0.9723,
+    "predictive": 0.1328,
 }
-PLANNED_PRIMARY = 1_600
+#: Rule S2's plug-in level and cap, and rule S3's flag level.
+S2_LEVEL = 0.99
+S2_CAP = 8_000
+S3_LEVEL = 0.90
+#: The guide's floor for primaries; primary counts step by :data:`R_STEP` from it.
+PRIMARY_FLOOR = 1_000
 R_STEP = 400
 R_CAP = 40_000
+#: The round-2 draws of a flagged row read by the SE-ratio rule, and by a coverage clause.
+ROUND_TWO_RATIO = 2_000
+ROUND_TWO_COVERAGE = 3_000
+
+
+def row_kind(family: str) -> str:
+    """A gated positive row's kind: ``band``, ``clause`` or ``primary``."""
+    if family == "interval_calibration":
+        return "band"
+    if family == "primary":
+        return "primary"
+    return "clause"
+
+
+def configuration(label: str) -> str:
+    """One law and n: the fit set's name with its estimator removed."""
+    return re.sub(r"_(ltmle|sdr)(?=_|$)", "", label)
+
+
+@functools.cache
+def _min_covered(replicates: int, floor: float) -> int:
+    return min_covered(replicates, floor)
+
+
+@functools.cache
+def _max_covered(replicates: int, ceiling: float) -> int:
+    return max_covered(replicates, ceiling)
+
+
+def plugin_pass(kind: str, ratio: float, coverage: float, bias: float, r: int, c: float) -> float:
+    """A gated row's pass probability at ``r`` replications when its truth is the given point."""
+    margins = STUDY.margins
+    floor = float(binom.sf(_min_covered(r, margins.coverage_floor) - 1, r, coverage))
+    half = 2.576 / np.sqrt(r)
+    edge = margins.standardized_bias - half
+    bias_p = float(
+        max(norm.cdf((edge - bias) * np.sqrt(r)) - norm.cdf((-edge - bias) * np.sqrt(r)), 0.0)
+    )
+    s = c * ratio / np.sqrt(2 * r)
+    if kind == "band":
+        low, high = margins.calibration_se_ratio
+        band = float(
+            max(
+                norm.cdf((high - 2.576 * s - ratio) / s) - norm.cdf((low + 2.576 * s - ratio) / s),
+                0.0,
+            )
+        )
+        cov_low, cov_high = margins.calibration_coverage
+        inside = float(
+            binom.sf(_min_covered(r, cov_low) - 1, r, coverage)
+            - binom.sf(_max_covered(r, cov_high), r, coverage)
+        )
+        return band * inside
+    if kind == "clause":
+        clause = float(
+            norm.cdf((CLAUSE_CEILING + 2.576 * s - ratio) / s)
+            - norm.cdf((CLAUSE_FLOOR + 2.576 * s - ratio) / s)
+        )
+        return clause * floor * bias_p
+    return floor * bias_p
+
+
+def at_target(kind: str, r: int, c: float) -> float:
+    """Rule S1: a row's pass probability at its target (SE ratio 1, coverage 0.95, bias 0)."""
+    return plugin_pass(kind, 1.0, 0.95, 0.0, r, c)
+
+
+def in_margin(kind: str, ratio: float, coverage: float) -> bool:
+    """Rule S2: the pilot point lies inside the row's passing region with margin."""
+    if kind == "band":
+        return abs(ratio - 1.0) <= 0.05 and 0.93 <= coverage <= 0.97
+    if kind == "clause":
+        return 0.95 <= ratio <= 1.20 and coverage >= 0.93
+    return coverage >= 0.93
+
+
+def in_region(kind: str, ratio: float, coverage: float, bias: float) -> bool:
+    """The pilot point lies inside the row's passing region (rule S3's confirmation)."""
+    margins = STUDY.margins
+    bias_ok = abs(bias) <= margins.standardized_bias
+    if kind == "band":
+        low, high = margins.calibration_se_ratio
+        cov_low, cov_high = margins.calibration_coverage
+        return low <= ratio <= high and cov_low <= coverage <= cov_high
+    if kind == "clause":
+        return (
+            CLAUSE_FLOOR <= ratio <= CLAUSE_CEILING
+            and coverage >= margins.coverage_floor
+            and bias_ok
+        )
+    return coverage >= margins.coverage_floor and bias_ok
+
+
+def _counts(start: int, stop: int) -> range:
+    return range(start, stop + 1, R_STEP)
+
+
+def sizing_table(pilot: pd.DataFrame) -> pd.DataFrame:
+    """Every gated positive row under rules S1 to S3, read from ``pilot``.
+
+    Columns: the row's kind, configuration constant ``c``, pilot point, ``r_target`` (S1),
+    the plug-in pass probability there, ``flagged`` (S3), ``margin`` (S2's condition) and
+    ``r_plugin`` (S2: the least count from ``r_target`` with plug-in probability at least
+    :data:`S2_LEVEL`, :data:`S2_CAP` when none up to the cap reaches it, ``r_target`` when the
+    point is outside the margin).
+    """
+    cells = pilot_cells(pilot)
+    rows = cells.loc[cells["role"] == "positive"].copy()
+    level = FAMILY_TARGET ** (1.0 / len(rows))
+    rows["kind"] = rows["property"].map(row_kind)
+    rows["configuration"] = rows["set"].map(configuration)
+    rows["coverage"] = rows["covered"] / rows["draws"]
+    own_c = rows["se_ratio_sd"] * np.sqrt(2 * rows["draws"]) / rows["se_ratio"]
+    c_of = own_c.groupby(rows["configuration"]).max().clip(lower=tools.C_FIT)
+    rows["c"] = rows["configuration"].map(c_of)
+    targets, plugins, raised = [], [], []
+    for row in rows.itertuples():
+        start = PRIMARY_FLOOR if row.kind == "primary" else R_STEP
+        r_target = next(r for r in _counts(start, R_CAP) if at_target(row.kind, r, row.c) >= level)
+        point = (row.kind, float(row.se_ratio), float(row.coverage), float(row.standardized_bias))
+        targets.append(r_target)
+        plugins.append(plugin_pass(*point, r_target, row.c))
+        if in_margin(row.kind, float(row.se_ratio), float(row.coverage)):
+            raised.append(
+                next(
+                    (
+                        r
+                        for r in _counts(r_target, max(S2_CAP, r_target))
+                        if plugin_pass(*point, r, row.c) >= S2_LEVEL
+                    ),
+                    max(S2_CAP, r_target),
+                )
+            )
+        else:
+            raised.append(r_target)
+    rows["r_target"] = targets
+    rows["plugin_at_target"] = plugins
+    rows["flagged"] = rows["plugin_at_target"] < S3_LEVEL
+    rows["margin"] = [
+        in_margin(k, float(x), float(v))
+        for k, x, v in zip(rows["kind"], rows["se_ratio"], rows["coverage"], strict=True)
+    ]
+    rows["r_plugin"] = raised
+    rows["level"] = level
+    return rows.reset_index(drop=True)
+
+
+def round_one(pilot: pd.DataFrame) -> pd.DataFrame:
+    """The round-1 pilot: every set's first :data:`PILOT_DRAWS` draws."""
+    return pilot.loc[pilot["replicate"] < PILOT_DRAWS]
+
+
+def round_two_sets(pilot: pd.DataFrame) -> dict[str, int]:
+    """Rule S3 on the round-1 pilot: each flagged set and its round-2 draws."""
+    table = sizing_table(round_one(pilot))
+    flagged = table.loc[table["flagged"]]
+    out: dict[str, int] = {}
+    for row in flagged.itertuples():
+        draws = ROUND_TWO_COVERAGE if row.kind == "primary" else ROUND_TWO_RATIO
+        out[str(row.set)] = max(out.get(str(row.set), 0), draws)
+    return out
 
 
 def sized_replicates(pilot: pd.DataFrame) -> tuple[dict[str, int], int, pd.DataFrame]:
-    """The declared sizing rule on the pilot: raise the weakest gated row by 400 until the
-    family-wise pass probability reaches :data:`FAMILY_TARGET`.
+    """Rules S1 and S2 on the pilot: each gated fit set's count and the primary count.
 
-    Returns the fit sets' counts, the primary count and the final pass table.  When even
-    :data:`R_CAP` everywhere misses the target, the pilot limits the rule: the planned counts and
-    their table come back, and the target test fails on them.
+    A set's count is the largest of its rows' S2 counts; the primary count, one for the record,
+    is the largest over every primary row.  The reporting sets keep their declared counts, and
+    the reporting calibration twin takes the oracle twin's.
     """
-    replicates = dict(PLANNED_REPLICATES)
-    primary = PLANNED_PRIMARY
-    cells = pilot_cells(pilot)
-    capped = pass_table(pilot, dict.fromkeys(replicates, R_CAP), R_CAP, cells)
-    if family_wise(capped) < FAMILY_TARGET:
-        # No replication count reaches the target: the pilot, not R, limits it.
-        return replicates, primary, pass_table(pilot, replicates, primary, cells)
-    while True:
-        table = pass_table(pilot, replicates, primary, cells)
-        if family_wise(table) >= FAMILY_TARGET:
-            return replicates, primary, table
-        positives = table.loc[table["role"] == "positive"].sort_values("probability")
-        weakest = positives.iloc[0]
-        if weakest["property"] == "primary":
-            if primary >= R_CAP:
-                return replicates, primary, table
-            primary += R_STEP
-        else:
-            label = str(weakest["cell"]).split("__")[0]
-            if replicates[label] >= R_CAP:
-                return replicates, primary, table
-            replicates[label] += R_STEP
+    table = sizing_table(pilot)
+    per_set = table.groupby("set")["r_plugin"].max().astype(int)
+    primary = int(table.loc[table["kind"] == "primary", "r_plugin"].max())
+    replicates = {label: int(per_set[label]) for label in per_set.index if label not in study.TWINS}
+    replicates["up_learned_classifier_tau5_twin"] = replicates["up_oracle_tau5_twin"]
+    return replicates, primary, table
+
+
+def at_target_product(table: pd.DataFrame, replicates: Mapping[str, int], primary: int) -> float:
+    """The gate: the product over the gated positive rows of their at-target pass probabilities."""
+    out = 1.0
+    for row in table.itertuples():
+        r = primary if row.kind == "primary" else replicates[str(row.set)]
+        out *= at_target(str(row.kind), r, float(row.c))
+    return out
+
+
+def plugin_product(table: pd.DataFrame, replicates: Mapping[str, int], primary: int) -> float:
+    """A description: the product of the plug-in pass probabilities at the pilot points."""
+    out = 1.0
+    for row in table.itertuples():
+        r = primary if row.kind == "primary" else replicates[str(row.set)]
+        out *= plugin_pass(
+            str(row.kind),
+            float(row.se_ratio),
+            float(row.coverage),
+            float(row.standardized_bias),
+            r,
+            float(row.c),
+        )
+    return out
+
+
+def twin_floor_power(factor: float, pilot: pd.DataFrame, primary: int) -> float:
+    """The weakest twin coverage-floor control's power at ``factor`` (Jeffreys predictive)."""
+    rows = pilot.loc[pilot["property"] == "primary"]
+    return min(
+        jeffreys_below(_covered_at(group, factor), len(group), primary, FLOOR_CONTROL_CEILING)
+        for _, group in rows.groupby("cell")
+    )
+
+
+def chosen_twin_floor_factor(pilot: pd.DataFrame, primary: int) -> float | None:
+    """Rev 4.1's rule on the twins: the largest declared factor with power on every twin row."""
+    for factor in FLOOR_FACTORS:
+        if twin_floor_power(factor, pilot, primary) >= CONTROL_POWER:
+            return factor
+    return None
+
+
+if __name__ == "__main__":
+    main()
