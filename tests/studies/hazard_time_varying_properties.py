@@ -277,7 +277,7 @@ def largest_excess(result: Any, law_name: str) -> tuple[float, float]:
                 result[study.risk_name(law_name, label, t, j)] for j in range(1, current.causes + 1)
             ]
             excess = sum(float(risk.psi) for risk in risks) - 1.0
-            curve = sum(np.asarray(risk.influence_curve) for risk in risks)
+            curve = np.sum([np.asarray(risk.influence_curve) for risk in risks], axis=0)
             error = float(np.std(curve) / np.sqrt(curve.size))
             if best is None or excess > best[0]:
                 best = (excess, error)

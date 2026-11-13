@@ -129,7 +129,9 @@ def _estimate_rows(label: str, replicate: int, fit_label: str, result: Any) -> l
     law_name = study.FITS[fit_label][0]
     truth = study.truths(law_name)
     initials = study.initial_estimates(result, law_name)
-    steps = sum(int(regimen_fit.hazard.n_iter) for regimen_fit in result.fits.values())
+    # ``result.fits`` keys each reported name, and the names of one regimen share its record.
+    records = {id(regimen_fit.hazard): regimen_fit.hazard for regimen_fit in result.fits.values()}
+    steps = sum(int(record.n_iter) for record in records.values())
     rows = []
     for name, reference in truth.items():
         estimate = result[name]
