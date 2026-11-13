@@ -299,7 +299,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one categorical treatment at baseline, held over every time point, and no covariate after baseline |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, and no covariate after baseline. The treatment can be categories, or a dose under a plan that changes each person's dose |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
@@ -348,9 +348,20 @@ states each claim and its condition.
 :::
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points, a covariate after baseline, a
-continuous treatment, and a modified treatment policy. Each message points to the default model,
-which fits those designs.
+The hazard model refuses a treatment at several time points and a covariate after baseline.
+Each message points to the default model, which fits those designs.
+
+A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
+model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.
+Each such plan gets its own correction of the hazards, so with `targeting="one_step"` its curve
+never dips. No registered study measures this fit yet, so its results are labelled
+`experimental`.
+
+A few settings cannot be combined with such a plan, and
+[the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
+list them.
+[A modified treatment policy on the hazard path](../technical-reference/longitudinal-tmle.md#a-modified-treatment-policy-on-the-hazard-path)
+gives the exact estimand and its checks.
 [Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
 gives the contract, both algorithms, and the evidence.
 
