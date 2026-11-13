@@ -996,3 +996,37 @@ def test_a_nan_estimate_takes_no_range_status_and_shows_no_interval() -> None:
     assert estimate.inference == "influence_curve"
     assert all(math.isnan(limit) for limit in estimate.ci)
     assert math.isnan(estimate.wald_test(0.5).pvalue)
+
+
+def test_a_working_model_or_projection_coefficient_reads_every_arm(
+    constant_arm_frame: pd.DataFrame,
+) -> None:
+    import warnings
+
+    from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+    from cleverly.bases import Linear, Modifiers
+    from cleverly.msm import MSM
+
+    msm = _logistic_fit(constant_arm_frame, msm=MSM.linear(modifiers=("W",), interaction=False))
+    assert set(_statuses(msm).values()) == {CONSTANT_ARM_CELL_STATUS}
+    healthy = constant_arm_frame.copy()
+    treated = healthy["A"] == 1.0
+    healthy.loc[treated, "Y"] = np.random.default_rng(2).binomial(1, 0.7, int(treated.sum()))
+    shown = _logistic_fit(healthy, msm=MSM.linear(modifiers=("W",), interaction=False))
+    assert set(_statuses(shown).values()) == {"influence_curve"}
+    study = CausalStudy(
+        constant_arm_frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)),
+    )
+    contrast = ConditionalContrast(
+        Modifiers(["W"], domains={"W": (-4.0, 4.0)}), scale="difference", model=Linear(["W"])
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        projection = study.identify(contrast).estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            random_state=0,
+        )
+    assert set(_statuses(projection).values()) == {CONSTANT_ARM_CELL_STATUS}

@@ -6239,6 +6239,7 @@ class TMLE:
                 np.asarray(treatment),
                 keep,
                 targeted.levels,
+                discrete=data.treatment_kind == "discrete",
                 regimes=regimes,
                 incremental=incremental,
                 policies=policies,
@@ -6261,7 +6262,9 @@ class TMLE:
                         # records no family.
                         changes["outcome_family"] = data.family
                     recorded = context.reads.get(estimate.name)
-                    if checks_cells and (bounds is not None or recorded is not None):
+                    # A working-model or projection coefficient reads the arms its model spans.
+                    coefficient = msm is not None or contrast is not None
+                    if checks_cells and (bounds is not None or recorded is not None or coefficient):
                         assert cell_rows is not None
                         constant = False
                         inherited = False
@@ -6729,6 +6732,7 @@ def _arms_read_by_code(
     keep: BoolArray,
     levels: Sequence[float],
     *,
+    discrete: bool,
     regimes: RegimeSet | None,
     incremental: IPSISet | None,
     policies: PolicySet | None,
@@ -6747,7 +6751,8 @@ def _arms_read_by_code(
     treatment every arm where its ratio is nonzero. The natural course, an IPSI tilt with
     one factor on every level or a policy that moves no row, reads no arm: its curve is
     :math:`Y - \psi` exactly, which reads each observed outcome as the empirical mean
-    ``ey_obs`` does.
+    ``ey_obs`` does. A working-model or projection coefficient of a discrete treatment counts
+    as reading every arm, the span of its model.
 
     Parameters
     ----------
@@ -6759,6 +6764,8 @@ def _arms_read_by_code(
         ``(m,)`` booleans, the rows of positive weight with an observed outcome.
     levels : sequence of float
         The arm codes, ascending, that index the arm columns of a regime or tilt density.
+    discrete : bool
+        Whether the treatment is a single discrete column.
     regimes : RegimeSet or None
         The regimes or learned rule of a regime fit, on the same rows.
     incremental : IPSISet or None
@@ -6773,12 +6780,15 @@ def _arms_read_by_code(
     Returns
     -------
     dict of float to frozenset of float, or None
-        The arms each code reads. ``None`` when the codes are not counterfactual means of a
-        discrete treatment: working-model and projection coefficients, a policy on a
-        continuous or vector treatment, and any fit whose treatment is not one column.
+        The arms each code reads. ``None`` when the treatment has no arms: a continuous or
+        vector treatment, a policy on one, and any fit whose treatment is not one column.
     """
-    if contrast is not None or msm is not None or treatment.ndim != 1:
+    if treatment.ndim != 1:
         return None
+    if contrast is not None or msm is not None:
+        if not discrete:
+            return None
+        return {float(code): frozenset(float(level) for level in levels) for code in codes}
     if policies is not None:
         if not policies.is_discrete:
             return None
