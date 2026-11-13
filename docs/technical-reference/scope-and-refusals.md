@@ -549,26 +549,34 @@ data. A refused replay carries the reason code `invalid_declaration`. `cleverly`
 no name for the omission code literals. Compare an omission code against the spelling in the
 table. The fitted-bound equality check is different: it can only run when the curve is invoked.
 
-Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter it
-exposes is an explicit integer. The check reads that learner, each nested learner, and each member
-of a Super Learner library. It reads the declared parameter and not the fitted behavior, so a
-declared `random_state=None` is refused even where the fit is deterministic.
+Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter of
+the learner as the fit resolved it holds an explicit integer. A fit with an integer `random_state`
+first gives that seed to every `random_state` of the learner that is `None`, at any depth, and a
+Super Learner with an integer `random_state` gives its own seed to every library member with no
+seed of its own. The check reads the resolved learner, each nested learner, and each member of a
+Super Learner library, and it reads a member's `None` under such a Super Learner as that seed. It
+reads the declared parameter and not the fitted behavior, so a `None` that no seed reaches is
+refused even where the fit is deterministic.
 
 | the learner you pass | what replay does |
 | --- | --- |
 | `LinearRegression()` | accepts it, because the class declares no `random_state` |
 | `LogisticRegression(random_state=0)` | accepts it, because the declared state is an explicit integer |
-| `LogisticRegression()` | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `LogisticRegression()`, fit with an integer `random_state` | accepts it, because the fit gives the learner its seed |
+| `LogisticRegression()`, fit with `random_state=None` | refuses it as `longitudinal_replay_random_state_unseeded` |
+| `SuperLearner(library=[LogisticRegression()], random_state=None)`, fit with `random_state=None` | refuses it as `longitudinal_replay_random_state_unseeded` |
 | `LogisticRegression(random_state=rng)`, for a generator `rng` | refuses it as `longitudinal_replay_random_state_non_integer` |
 
 `tests/unit/test_longitudinal_truncation_refit.py` checks an unseeded learner, a non-integer state,
-an unseeded member of a nested Super Learner library, and a seeded stochastic learner that replays
-exactly.
+a library member that inherits an integer seed and replays exactly, the same member under an
+ensemble no seed reaches, and a seeded stochastic learner that replays exactly.
+`tests/unit/test_refusal_paths.py` checks that a forest with no seed of its own is refused under a
+fit with `random_state=None` and replays exactly under an integer `random_state`.
 
 | omission code | refusal code | replay boundary |
 | --- | --- | --- |
 | `longitudinal_replay_learner_unclonable` | `invalid_declaration` | an outcome or pseudo-outcome learner cannot be cloned |
-| `longitudinal_replay_random_state_unseeded` | `invalid_declaration` | a replayed learner or nested learner declares an unspecified random state |
+| `longitudinal_replay_random_state_unseeded` | `invalid_declaration` | a replayed learner or nested learner has a random state of `None` that no seed reaches |
 | `longitudinal_replay_random_state_non_integer` | `invalid_declaration` | a replayed learner or nested learner declares a non-integer random state |
 | `longitudinal_replay_fitted_bound_mismatch` | `invalid_declaration` | invocation-time preflight found that a full replay at the fitted bound differs from the stored fitted artifacts |
 

@@ -27,6 +27,17 @@ pilot reproduced those 400 and added 800:
 python -m tests.canonical.adaptive_tmle_trial.pilot --study selective --replicates 1200 --jobs 16 > pilot-selective.json
 ```
 
+## Replaying the committed run
+
+The committed run predates two result-determining changes, so a replay at the current code does
+not reproduce its rows bit for bit. It took the lasso candidate from `default_library(task)` with
+no seed, so for a binary target the SAGA solver drew its sample order from numpy's global
+generator, and no two runs agreed: an A/B replay of 20 replicates moved every row, by a median of
+2e-5 and at most 0.007 in the estimate. `SuperLearner(random_state=...)` now gives that candidate
+the ensemble's seed. The run also predates `meta_learner="auto"` picking `cc_ls` for the
+regression outcome ensemble, where the run used NNLS. A replay therefore agrees with these rows
+only to within those two changes, until the study is rerun.
+
 ## Declaration history
 
 - 2026-11-09, fresh declaration after the selective study's red `s6_cv` cell (SE ratio 1.160,
