@@ -279,7 +279,9 @@ outcome_model = SuperLearner(
 ```
 
 The estimator clones each candidate before fitting. The objects supplied by the caller therefore
-remain unfitted and can be reused in another method configuration.
+remain unfitted and can be reused in another method configuration. A randomized candidate built without
+a seed of its own, such as a forest with no `random_state`, takes the ensemble's `random_state` on
+that clone, so a seeded ensemble fits the same way on every run.
 
 The ensemble scores each candidate on rows it was not trained on, then chooses weights that are
 non-negative and add up to one. For a mean regression it picks the weights with the smallest

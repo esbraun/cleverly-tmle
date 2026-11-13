@@ -2130,6 +2130,29 @@ def _gap_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _band_t_reference_cases() -> tuple[RowCase, ...]:
+    """The cases of ``band-t-reference`` (Fix-2): each cell's fit, for each row it licenses.
+
+    Each cell refits its source shape with the default band and reads the ``t`` band from the
+    same estimates, so the cell's fit classifies as its source fit does.
+    """
+    from tests.studies.band_t_reference import CELLS
+
+    return tuple(
+        _observed(
+            row,
+            "band-t-reference",
+            cell.label,
+            "band_t_reference_properties.py:221",
+            "band_t_reference_properties",
+            lambda study, cell=cell: study.shape(cell.source).draw(min(cell.n, 2_000), 0)[0],
+            lambda study, frame, cell=cell: study.shape(cell.source).fit(frame),
+        )
+        for cell in CELLS
+        for row in cell.rows
+    )
+
+
 def _plugin_limit_cases() -> tuple[RowCase, ...]:
     """The cases of ``omitted-variable-bound-plugin-se`` (X26): each scenario runs the study's fit."""
     where = "omitted_variable_bound_plugin.py:612"
@@ -3261,6 +3284,7 @@ CASES: tuple[RowCase, ...] = (
     *_c_cases(),
     *_gap_cases(),
     *_plugin_limit_cases(),
+    *_band_t_reference_cases(),
     *_long_cases(),
     *_vector_cases(),
     *_categorical_incremental_cases(),

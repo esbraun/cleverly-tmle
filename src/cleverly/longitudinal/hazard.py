@@ -78,7 +78,6 @@ from dataclasses import dataclass, field, replace
 from typing import Literal
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 from scipy.special import expit, xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
@@ -99,7 +98,7 @@ from ..fluctuation._score import (
     relative_score,
     rule_ratio_at,
 )
-from ..fluctuation.iterative import _STEP_SEARCH_XATOL, TargetingFailure
+from ..fluctuation.iterative import TargetingFailure, _line_step
 from ..learners.crossfit import Folds
 from ..msm import ProjectionFit, solve_projection
 from .data import LongitudinalData
@@ -1358,6 +1357,47 @@ def walk_loss(state: HazardState, inputs: HazardInputs, *, last_node: int | None
     float
         The loss.
     """
+    counted, base = _walk_weights(inputs, last_node=last_node)
+    return -float(np.sum(np.where(counted, base * _walk_terms(state, inputs), 0.0)))
+
+
+def _walk_weights(
+    inputs: HazardInputs, *, last_node: int | None = None
+) -> tuple[BoolArray, FloatArray]:
+    """``(n, T)`` the person-nodes the walk loss counts, and the weight of each.
+
+    A person-node counts when the unit is at risk there with a nonzero weight, and, under
+    ``last_node``, when the node is at most ``last_node``.  The weight is not zeroed outside
+    the mask: a term there can be infinite (a unit not at risk at a full cell), and
+    ``0 * inf`` warns.  Every reader takes ``np.where(counted, base * x, 0.0)``.
+
+    Parameters
+    ----------
+    inputs : HazardInputs
+        The targeting inputs.
+    last_node : int or None, default=None
+        The last node counted, counted from one.  ``None`` counts every node.
+
+    Returns
+    -------
+    counted : BoolArray
+        The counted person-nodes.
+    base : FloatArray
+        The weight of each person-node.
+    """
+    base = np.broadcast_to(inputs.weights[:, None], inputs.at_risk.shape)
+    counted = inputs.at_risk & (base != 0.0)
+    if last_node is not None:
+        counted = counted & (np.arange(inputs.n_times) < last_node)[None, :]
+    return counted, base
+
+
+def _walk_terms(state: HazardState, inputs: HazardInputs) -> FloatArray:
+    """``(n, T)`` the log-likelihood term of each person-node at its observed level.
+
+    The multinomial term at an unbounded node and the quasi-binomial term of
+    :func:`_quasi_terms` at a bounded one, before the weights and the risk set.
+    """
     rows, levels = inputs.rows, inputs.observed
     hazards = state.hazards[rows, :, levels]
     none = 1.0 - hazards.sum(axis=-1)
@@ -1369,10 +1409,155 @@ def walk_loss(state: HazardState, inputs: HazardInputs, *, last_node: int | None
         terms[:, bounds.bounded] = _quasi_terms(
             inputs.events, state.logits[rows, :, levels], bounds
         )
-    counted = inputs.at_risk & (inputs.weights != 0.0)[:, None]
-    if last_node is not None:
-        counted = counted & (np.arange(inputs.n_times) < last_node)[None, :]
-    return -float(np.sum(np.where(counted, inputs.weights[:, None] * terms, 0.0)))
+    return np.asarray(terms, dtype=float)
+
+
+def _clip_tangent(
+    logits: FloatArray,
+    move: FloatArray,
+    bounds: tuple[float, float],
+    bounded: BoolArray | None = None,
+) -> FloatArray:
+    """The right derivative in ``t`` of ``clip_logits(logits + t * move)`` at ``t = 0``.
+
+    ``logits`` are the logits before the clip, finite or :math:`-\\infty`.  Per unit and node:
+    the top cause is the largest logit, ties broken toward the largest ``move``, which stays
+    largest for ``t`` just above 0.  The ratio-keeping shift is active when the top lies above
+    ``high``, or at ``high`` and moving up, except at a node of ``bounded``.  Under the shift
+    each cause moves at its own rate less the top's, so the top stays at ``high``.  A cause at
+    or past a bound and moving outward is held (0), as is a logit at :math:`-\\infty`.
+
+    The derivative is one-sided from the right because the step moves to ``t > 0``.  Clipped
+    logits start exactly on a bound, and the left derivative would count a logit at ``high``
+    moving up as moving, although the clip holds it.
+
+    Parameters
+    ----------
+    logits : FloatArray
+        ``(n, T, ..., J)`` logits, the node on the second axis.
+    move : FloatArray
+        The move, the same shape.
+    bounds : tuple of float
+        The clip interval.
+    bounded : BoolArray or None, default=None
+        ``(T,)`` the bounded nodes.
+
+    Returns
+    -------
+    FloatArray
+        The tangent, the same shape.
+    """
+    z = np.asarray(logits, dtype=float)
+    m = np.asarray(move, dtype=float)
+    low, high = bounds
+    finite = np.isfinite(z)
+    top = np.max(z, axis=-1)
+    ties = np.where(finite & (z == top[..., None]), m, -np.inf)
+    leader = np.take_along_axis(m, np.argmax(ties, axis=-1)[..., None], axis=-1)[..., 0]
+    over = np.isfinite(top) & ((top > high) | ((top == high) & (leader > 0.0)))
+    if bounded is not None:
+        node = np.asarray(bounded, dtype=bool).reshape((1, -1) + (1,) * (z.ndim - 3))
+        over = over & ~node
+    with np.errstate(invalid="ignore"):
+        shifted = np.where(over[..., None], (z - top[..., None]) + high, z)
+    rate = np.where(over[..., None], m - leader[..., None], m)
+    free = (shifted > low) & (shifted < high)
+    rising = (shifted == low) & (rate > 0.0)
+    falling = (shifted == high) & (rate < 0.0)
+    tangent = np.where(free | rising | falling, rate, 0.0)
+    return np.asarray(np.where(finite, tangent, 0.0), dtype=float)
+
+
+@dataclass(frozen=True)
+class _WalkLine:
+    """The walk loss along one move, and its exact slope in the length.
+
+    Parameters
+    ----------
+    state : HazardState
+        The hazards at length 0.
+    inputs : HazardInputs
+        The targeting inputs.
+    move : FloatArray
+        ``(n, T, L, J)`` the logit move of unit length.
+    logits : FloatArray
+        ``(n, T, J)`` the state's logits at the observed level.
+    step : FloatArray
+        ``(n, T, J)`` the move at the observed level.
+    counted : BoolArray
+        ``(n, T)`` the counted person-nodes of :func:`_walk_weights`.
+    base : FloatArray
+        ``(n, T)`` their weights.
+    total : float
+        The sum of the observation weights, which divides the loss.
+    bounded : BoolArray or None
+        ``(T,)`` the bounded nodes, ``None`` when no node is bounded.
+    """
+
+    state: HazardState
+    inputs: HazardInputs
+    move: FloatArray
+    logits: FloatArray
+    step: FloatArray
+    counted: BoolArray
+    base: FloatArray
+    total: float
+    bounded: BoolArray | None
+
+    @classmethod
+    def along(cls, state: HazardState, inputs: HazardInputs, move: FloatArray) -> _WalkLine:
+        """The line from ``state`` along ``move``."""
+        rows, levels = inputs.rows, inputs.observed
+        counted, base = _walk_weights(inputs)
+        node_bounds = state.node_bounds
+        bounded = node_bounds.bounded if node_bounds is not None and node_bounds.active else None
+        return cls(
+            state,
+            inputs,
+            move,
+            np.asarray(state.logits[rows, :, levels], dtype=float),
+            np.asarray(move[rows, :, levels], dtype=float),
+            counted,
+            base,
+            float(np.sum(inputs.weights)),
+            bounded,
+        )
+
+    def loss(self, t: float) -> float:
+        """The walk loss at length ``t``, divided by the total weight."""
+        return walk_loss(self.state.moved(t * self.move, self.inputs.bounds), self.inputs) / (
+            self.total
+        )
+
+    def slope(self, t: float) -> float:
+        """The right derivative of :meth:`loss` at length ``t``.
+
+        It is :math:`-\\sum W G \\tau / \\sum w`.  :math:`G` is the derivative of a
+        person-node's term in its clipped logit: :math:`dN_j - \\lambda_j` at an unbounded
+        node, full cells included, and :math:`(dN_j - l_j) / s_j - \\operatorname{expit}
+        (\\theta_j)` at a bounded one.  :math:`\\tau` is :func:`_clip_tangent` of the
+        moved logits.
+        """
+        inputs = self.inputs
+        rows, levels = inputs.rows, inputs.observed
+        moved = self.state.moved(t * self.move, inputs.bounds)
+        logits = np.where(np.isneginf(self.logits), -np.inf, self.logits + t * self.step)
+        tangent = _clip_tangent(logits, self.step, inputs.bounds, self.bounded)
+        grad = inputs.events - moved.hazards[rows, :, levels]
+        node_bounds = self.state.node_bounds
+        if self.bounded is not None and node_bounds is not None:
+            k = self.bounded
+            outcome = (inputs.events[:, k] - node_bounds.lower[k][None]) / node_bounds.scale[k][
+                None
+            ]
+            grad[:, k] = outcome - expit(moved.logits[rows, :, levels][:, k])
+        summand = self.base[..., None] * grad * tangent
+        return -float(np.sum(np.where(self.counted[..., None], summand, 0.0))) / self.total
+
+    def mass(self) -> float:
+        """The absolute mass of the loss at length 0, which scales the descent check."""
+        terms = _walk_terms(self.state, self.inputs)
+        return float(np.sum(np.abs(np.where(self.counted, self.base * terms, 0.0)))) / self.total
 
 
 def _clever_observed(state: HazardState, inputs: HazardInputs, horizon: int) -> FloatArray:
@@ -1751,10 +1936,18 @@ def _bounded_hazard_step(
     With :math:`d = s / \lVert s \rVert_2` and :math:`s` the raw score of every target at
     the horizon, the step is :math:`t^* d` in :math:`\epsilon`.  Under ``step_search`` the
     length minimises :func:`walk_loss` along :math:`d` with :math:`h` held fixed, over
-    :math:`t \in [0, \delta]`, by bounded Brent search with the ``xatol`` of the point fit.
-    The derivative of the loss along :math:`d` at zero is :math:`-n \lVert s \rVert`, so the
-    minimiser lies in :math:`(0, \delta]`.  Without the search the length is :math:`\delta`.
-    ``None`` comes back when the score is zero or the length is zero, so nothing moves.
+    :math:`t \in [0, \delta]`.  :func:`~cleverly.fluctuation.iterative._line_step` finds it
+    as the root of the exact slope of :class:`_WalkLine`, to machine precision.  The slope is
+    the right derivative at the kinks of the clip, because the step moves forward.
+
+    With no logit held at a bound against the move, the slope at zero is
+    :math:`-\lVert s \rVert` (weights have mean one).  A logit held at a bound drops out of
+    the slope but not out of the score, so the slope at zero can be larger, and even
+    non-negative: the length is then 0.  The clip can also make the line loss non-unimodal,
+    so the step is checked for descent, :math:`L(t^*) \le L(0) + 64\,\epsilon\,A` with
+    :math:`A` the absolute mass of the loss, and halves until it passes.  Without the search
+    the length is :math:`\delta`.  ``None`` comes back when the score is zero or the length
+    is zero, so nothing moves.
     """
     current = score.reshape(-1)
     norm = float(np.linalg.norm(current))
@@ -1764,15 +1957,8 @@ def _bounded_hazard_step(
     bounds = inputs.bounds
     length = float(step_bound)
     if step_search:
-        total = float(np.sum(inputs.weights))
-
-        def loss(t: float) -> float:
-            return walk_loss(state.moved(t * move, bounds), inputs) / total
-
-        found = minimize_scalar(
-            loss, bounds=(0.0, length), method="bounded", options={"xatol": _STEP_SEARCH_XATOL}
-        )
-        length = float(found.x)
+        line = _WalkLine.along(state, inputs, move)
+        length = _line_step(line.slope, length, loss=line.loss, mass=line.mass())
     if length <= 0.0:
         return None
     return state.moved(length * move, bounds)

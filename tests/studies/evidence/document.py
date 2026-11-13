@@ -553,7 +553,17 @@ def measured(row: Any) -> str:
     if family == "simultaneous_coverage":
         # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
         # is read from.  The bias and SE columns hold a max-t statistic and a critical value.
-        return f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        measured = f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        # A reference control also reports the paired gain of its t band over it, which gates
+        # nothing (band-t-reference).
+        if str(row.role) == "reference_control" and pd.notna(
+            getattr(row, "coverage_gain_ci_lower", None)
+        ):
+            measured += (
+                ", paired gain of the t band "
+                f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+            )
+        return measured
     if family == property_verdicts.FOLD_POLICY_FAMILY:
         measured = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
         # Absent on the reference arm, which is differenced against itself.

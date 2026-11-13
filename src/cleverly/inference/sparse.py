@@ -58,6 +58,7 @@ from ..exceptions import SparseInfluenceWarning
 from ..utils.frames import emit_frame
 from .bootstrap import bca_acceleration, bca_bias_correction, cluster_sums
 from .delta import reference_quantile
+from .influence import kish_count
 
 __all__ = [
     "SPARSE_INFLUENCE_THRESHOLD",
@@ -307,7 +308,7 @@ def influence_row(
     return InfluenceRow(
         name=name,
         n=n,
-        kish=n / kurtosis,
+        kish=kish_count(values),
         skewness=skewness,
         kurtosis=kurtosis,
         variance_rel_sd=math.sqrt(max(kurtosis - 1.0, 0.0) / n),

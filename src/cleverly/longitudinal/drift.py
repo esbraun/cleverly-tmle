@@ -56,7 +56,12 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, LongitudinalError
-from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
+from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
+    DEFAULT_BAND_SCALE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+)
 from ..learners.crossfit import Folds
 from ..utils.bounds import bound
 from ._kernel import SmoothFit, smooth
@@ -1495,6 +1500,8 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         The multiplier distribution of a band.
     band_scale : {"logit", "identity"}, default="logit"
         The scale of a band.
+    band_reference : {"normal", "t"}, default="normal"
+        The reference of a band.
 
     See Also
     --------
@@ -1567,6 +1574,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         repeats: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Any = "auto",
@@ -1626,6 +1634,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             n_multiplier=n_multiplier,
             multiplier_kind=multiplier_kind,
             band_scale=band_scale,
+            band_reference=band_reference,
             max_iter=max_iter,
             tol=tol,
             random_state=random_state,

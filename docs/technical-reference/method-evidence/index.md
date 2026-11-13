@@ -118,6 +118,7 @@ separable-effects
 survival-ctmle
 survival-dr-tmle
 hazard-msm
+continuous-time-survival
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
@@ -172,5 +173,7 @@ refuter-calibration-longitudinal
 refuter-calibration-point
 refuter-calibration-band
 default-simultaneous-bands
+band-t-reference
+band-t-reference-held-out
 full-refit-bootstrap-and-derived-contrasts
 ```

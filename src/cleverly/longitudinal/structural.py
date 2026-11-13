@@ -52,6 +52,7 @@ from .._support import (
     Classification,
     Support,
     SupportKey,
+    band_shape,
     band_support,
     classify_structural_fit,
     combine_support,
@@ -84,10 +85,14 @@ from ..inference.influence import (
     satterthwaite_df,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     SimultaneousBands,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     out_of_range,
     simultaneous_bands,
 )
@@ -236,6 +241,23 @@ def _invalid(condition: str, *, alternative: str | None = None) -> CapabilityErr
 
 
 # ------------------------------------------------------------------- blip feature layout
+
+
+def band_family(kinds: Mapping[str, str]) -> list[str]:
+    """The names a structural fit's band covers: its levels and contrasts, or its blips.
+
+    Parameters
+    ----------
+    kinds : mapping of str to str
+        Each reported name's kind.
+
+    Returns
+    -------
+    list of str
+        The band's family, in report order.
+    """
+    family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
+    return family or [name for name, kind in kinds.items() if kind == "blip"]
 
 
 @dataclass(frozen=True)
@@ -1282,6 +1304,9 @@ class StructuralNestedMean:
     band_scale : str, default="logit"
         The scale of the band of a bounded estimate
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : str, default="normal"
+        ``"t"`` bands each estimate on its own Student t reference
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None, default=None
         The seed of the folds, the default learners and the bands.
     run_id : str or None, default=None
@@ -1357,6 +1382,7 @@ class StructuralNestedMean:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -1409,6 +1435,8 @@ class StructuralNestedMean:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
+        check_band_reference(band_reference)
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -1860,10 +1888,10 @@ class StructuralNestedMean:
         The band takes the support of :func:`~cleverly._support.band_support`: ``supported``
         only when a row licenses a ``band`` and every estimate is supported on that row.
         """
-        family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
-        if not family:
-            family = [name for name, kind in kinds.items() if kind == "blip"]
-        chosen = {name: estimates[name] for name in family if estimates[name].supplies_inference}
+        family = band_family(kinds)
+        if constant_arm_members({name: estimates[name] for name in family}):
+            return None
+        chosen = {name: estimates[name] for name in family if band_member(estimates[name])}
         if not self.simultaneous or len(chosen) < 2 or has_t_reference(chosen):
             return None
         # A logit band needs every bounded estimate strictly inside its range.
@@ -1877,6 +1905,7 @@ class StructuralNestedMean:
             random_state=self.random_state,
             cluster=data.cluster,
             band_scale=self.band_scale,  # type: ignore[arg-type]
+            band_reference=self.band_reference,  # type: ignore[arg-type]
         )
         return replace(
             bands,
@@ -1884,8 +1913,9 @@ class StructuralNestedMean:
                 classification,
                 status,
                 (estimate.support for estimate in chosen.values()),
-                options=(self.multiplier_kind, self.band_scale),
+                options=(self.multiplier_kind, self.band_scale, self.band_reference),
                 draws=int(self.n_multiplier),
+                shape=band_shape(weighted=data.is_weighted, cluster=data.cluster),
             ),
         )
 

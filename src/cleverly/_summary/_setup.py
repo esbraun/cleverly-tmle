@@ -102,6 +102,23 @@ def _is_longitudinal(data: Any) -> bool:
     return hasattr(data, "n_times") and not hasattr(data, "covariate_names")
 
 
+def _is_continuous(data: Any) -> bool:
+    """A time-to-event container whose follow-up time is not binned (X91 part G)."""
+    from ..survival.data import ContinuousSurvivalData
+
+    return isinstance(data, ContinuousSurvivalData)
+
+
+def _continuous_header(design: Any, data: Any) -> tuple[list[tuple[str, str]], int]:
+    left: list[tuple[str, str]] = [
+        (vocabulary.DESIGN, vocabulary.CONTINUOUS_DESIGN),
+        (vocabulary.OUTCOME, vocabulary.EVENT_OUTCOME.format(event=design.event, time=design.time)),
+        (vocabulary.TREATMENT, data.names[2]),
+        (vocabulary.BASELINE, listed(data.baseline_names)),
+    ]
+    return [*left, (vocabulary.ROWS, count_text(data.n))], len(left)
+
+
 def _longitudinal_outcome(data: Any) -> str:
     events = tuple(getattr(data, "event_names", ()) or ())
     if events:
@@ -327,7 +344,9 @@ def study_roles(study: CausalStudy) -> list[tuple[str, tuple[str, ...]]]:
 
 def study_header(study: CausalStudy) -> tuple[list[tuple[str, str]], int]:
     """The header facts of a study summary and how many go in the left column."""
-    if _is_longitudinal(study.data):
+    if _is_continuous(study.data):
+        header, split = _continuous_header(study.design, study.data)
+    elif _is_longitudinal(study.data):
         header, split = _longitudinal_header(study.design, study.data)
     else:
         header, split = _point_header(study.design, study.data)
@@ -362,7 +381,8 @@ def study_summary(study: CausalStudy, detail: Detail) -> Summary:
     )
     notes = warning_notes(getattr(study.data, "validation_warnings", ()))
     sections = [_protocol_section(study.protocol)] if detail == "full" else []
-    arms = None if _is_longitudinal(study.data) else arm_table(study.data)
+    skip = _is_longitudinal(study.data) or _is_continuous(study.data)
+    arms = None if skip else arm_table(study.data)
     return Summary.build(
         title=vocabulary.STUDY_TITLE,
         header=header,
@@ -687,6 +707,21 @@ def _question_header(effect: IdentifiedEffect) -> tuple[list[tuple[str, str]], i
     study = effect._study
     data = getattr(study, "data", None)
     left: list[tuple[str, str]] = [(vocabulary.QUESTION, question_text(effect))]
+    if data is not None and _is_continuous(data):
+        design: Any = study.design  # type: ignore[union-attr]
+        left.append(
+            (
+                vocabulary.OUTCOME,
+                vocabulary.EVENT_OUTCOME.format(event=design.event, time=design.time),
+            )
+        )
+        left.append((vocabulary.TREATMENT, data.names[2]))
+        left.append((vocabulary.BASELINE, listed(data.baseline_names)))
+        facts = [
+            (vocabulary.ROWS, count_text(data.n)),
+            (vocabulary.ANSWERED_BY, vocabulary.ANSWERED_BY_WORDS[True]),
+        ]
+        return [*left, *facts], len(left)
     if data is not None and not _is_longitudinal(data):
         left.append((vocabulary.OUTCOME, outcome_fact(data)))
         left.append((vocabulary.TREATMENT, treatment_fact(data)))
@@ -771,7 +806,9 @@ def question_summary(effect: IdentifiedEffect, detail: Detail) -> Summary:
     for code in dict.fromkeys(method_codes):
         notes.append(note(code, _as_treated_text(code, effect)))
     if any(checkable == "partly" for _, _, checkable, _ in rows):
-        notes.append(note("checkable", texts["checkable"]))
+        continuous = _is_continuous(getattr(effect._study, "data", None))
+        text = vocabulary.CONTINUOUS_CHECKABLE if continuous else texts["checkable"]
+        notes.append(note("checkable", text))
     identification = effect.identification
     if identification.model_restrictions:
         notes.append(note("model_restriction", texts["model_restriction"]))
