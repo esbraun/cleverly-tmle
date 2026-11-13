@@ -22,6 +22,27 @@ in-sample ``LTMLE``, whose interval floor is 20): cross-fitted ``TMLE``,
 fold-evaluated ``TMLE``, in-sample ``TMLE``, cross-fitted ``DRTMLE`` and in-sample ``LTMLE``.
 They cross 10, 20 and 30 clusters with equal clusters of 10 rows (``clustered_dgp``) and
 with the informative law. ``tests.studies.clustered_few_cluster_properties`` states the cells.
+
+**Fix-4 (regeneration).** Three changes since the committed run.
+
+* The fold-evaluated fit at informative sizes left the grid (12 cells: three counts by four
+  arms). ``TMLE(cv_evaluation=True)`` now refuses clusters whose sizes differ and redirects to
+  the stacked report, which estimates the same ATE: the equal fold average of ratios over two to
+  six clusters per fold carried about five times the pooled ratio bias (0.61, 0.43 and 0.32 SD
+  measured), and ``tests/unit/test_fold_evaluated_ratio_bias.py`` rebuilds that from the law.
+* The fold-evaluated fit reports t with ``J - V`` degrees of freedom at every cluster count.
+  At these counts that equals the shipped ``min(J - 2, J - V)``, so no retained cell moves.
+* The ``iid_t_control`` verdict reads two clauses: the paired ratio of the mean IID SE to the
+  mean cluster SE below 0.80, and the paired ``t_reference`` arm's SE-ratio upper bound at most
+  1.20. The IID SE over the empirical SD, which the old verdict read, moved with any noise in
+  the SE and not with the clustering alone.
+
+The committed ``DRTMLE`` rows do not reproduce under the shipped code, while the stacked
+``TMLE`` rows do bit for bit: the run was made at cleverly 0.1.2 and the ``foldwise`` reduced
+regressions changed by 0.1.5. Ordinary replicates move as well as the tail draws, the ``pooled``
+path of ``canonical-drtmle`` at 0.1.2 still reproduces, and no other ``foldwise`` artifact
+predates 0.1.5. So this study is regenerated with the same seeds, and every retained non-DR-TMLE
+cell is expected to reproduce.
 """
 
 from __future__ import annotations
@@ -96,7 +117,7 @@ ARMS = (
     ("normal_reference", "diagnostic"),
 )
 #: The reported arm of the fold-evaluated fit that keeps t with J - 2 degrees of freedom,
-#: beside the min(J - 2, J - V) the fit reports, so the run measures what the fold rule buys.
+#: beside the J - V the fit reports, so the run measures what the fold rule buys.
 FOLD_ARM = ("t_j_minus_2_reference", "diagnostic")
 FAMILY = "few_cluster_reference"
 #: The validation folds of every cross-fitted fit; each grid count holds 2 clusters per fold.
@@ -109,9 +130,9 @@ def arms(fit: str) -> tuple[tuple[str, str], ...]:
 
 
 def expected_reference_df(fit: str, clusters: int) -> int:
-    """The df a fit must report: J - 2, or min(J - 2, J - V) for the fold-evaluated fit."""
+    """The df a fit must report: J - 2, or J - V for the fold-evaluated fit."""
     if fit == "tmle_cv_evaluation":
-        return min(clusters - 2, clusters - N_FOLDS)
+        return clusters - N_FOLDS
     return clusters - 2
 
 
@@ -128,18 +149,31 @@ def cell_name(fit: str, sizes: str, clusters: int, arm: str) -> str:
 LTMLE_MINIMUM_CLUSTERS = 20
 
 
-def fits_at(clusters: int) -> tuple[str, ...]:
-    """The fits of the grid at ``clusters``: every fit, less LTMLE below 20 clusters."""
+#: The fit and size law the package refuses: ``cv_evaluation=True`` on clusters of unequal size
+#: (Fix-4), whose cells left the grid.
+REFUSED = ("tmle_cv_evaluation", "unequal_informative")
+
+
+def fits_at(clusters: int, sizes: str) -> tuple[str, ...]:
+    """The fits of the grid at ``clusters`` and ``sizes``.
+
+    Every fit, less LTMLE below 20 clusters and less the fold-evaluated fit at informative
+    sizes, which the package refuses (:data:`REFUSED`).
+    """
     return tuple(
-        fit for fit in FITS if fit != "ltmle_in_sample" or clusters >= LTMLE_MINIMUM_CLUSTERS
+        fit
+        for fit in FITS
+        if (fit != "ltmle_in_sample" or clusters >= LTMLE_MINIMUM_CLUSTERS)
+        and (fit, sizes) != REFUSED
     )
 
 
 PUBLISHED_CELLS = tuple(
     cell_name(fit, sizes, clusters, arm)
     for clusters in CLUSTER_COUNTS
-    for fit in fits_at(clusters)
+    for fit in FITS
     for sizes in SIZE_LAWS
+    if fit in fits_at(clusters, sizes)
     for arm, _ in arms(fit)
 )
 

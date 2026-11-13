@@ -592,8 +592,9 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         ),
         "t_reference": (
             "A row based on fewer than {threshold} clusters with positive weight mass, in "
-            "the fit or in its stratum, takes its interval and p-value from a t distribution "
-            "with the degrees of freedom in the df column, which widens them; a row marked "
+            "the fit or in its stratum, or averaged over cross-fitting folds, takes its "
+            "interval and p-value from a t distribution with the degrees of freedom in the df "
+            "column, which widens them; a row marked "
             "normal uses the normal distribution. The full summary gives the rule and its "
             "sources."
         ),

@@ -109,6 +109,10 @@ def plain_support_reason(reason: str) -> str:
         return vocabulary.SUPPORT_KNOWN_FACTORS
 
     def axis_words(axis: str) -> str:
+        options = re.fullmatch(r"options \(([^)]*)\)", axis)
+        if options is not None:
+            # Keep the differing settings by name, so the reader can find the keyword to change.
+            return f"{vocabulary.SUPPORT_AXES['options']} ({options[1]})"
         named = re.fullmatch(r"qualifiers \(([^)]*)\)", axis)
         if named is None:
             return vocabulary.SUPPORT_AXES.get(axis, axis)

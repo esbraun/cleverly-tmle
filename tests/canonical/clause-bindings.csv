@@ -423,16 +423,17 @@ clustered-cross-fitted-ltmle,clustered_inference,coverage in calibration band,sh
 clustered-cross-fitted-ltmle,clustered_inference,se ratio in calibration band,affine
 clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage below nominal,se_low
 clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage in calibration band,se_low
-clustered-few-cluster-tmle,few_cluster_reference,bias equivalent,none
+clustered-few-cluster-tmle,few_cluster_reference,bias equivalent,bias
 clustered-few-cluster-tmle,few_cluster_reference,coverage floor,se_low
-clustered-few-cluster-tmle,few_cluster_reference,iid se ratio under its ceiling,none
+clustered-few-cluster-tmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
+clustered-few-cluster-tmle,few_cluster_reference,paired positive se ratio at most the sanity ceiling,se_high
 clustered-tmle,clustered_inference,control se ratio under its ceiling,se_high
 clustered-tmle,clustered_inference,coverage gain,coverage/0.94
 clustered-tmle,clustered_inference,coverage in calibration band,bias
 clustered-tmle,clustered_inference,se ratio in calibration band,se/0.05
 clustered-unequal-cvtmle,clustered_inference,control se ratio under its ceiling,se_high
 clustered-unequal-cvtmle,clustered_inference,coverage gain,coverage/0.94
-clustered-unequal-cvtmle,clustered_inference,coverage in calibration band,none
+clustered-unequal-cvtmle,clustered_inference,coverage in calibration band,bias
 clustered-unequal-cvtmle,clustered_inference,se ratio in calibration band,se/0.05
 clustered-unequal-cvtmle,estimand_weighting,coverage floor,se_low
 clustered-unequal-cvtmle,estimand_weighting,coverage under the control ceiling,pair_collapse
@@ -641,7 +642,8 @@ ep-cate,oracle_comparison,oracle comparison bound,contract
 ep-crr,oracle_comparison,oracle comparison bound,bias
 few-cluster-cross-fitted-ltmle,few_cluster_reference,bias equivalent,bias
 few-cluster-cross-fitted-ltmle,few_cluster_reference,coverage floor,se_low
-few-cluster-cross-fitted-ltmle,few_cluster_reference,iid se ratio under its ceiling,se_high
+few-cluster-cross-fitted-ltmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
+few-cluster-cross-fitted-ltmle,few_cluster_reference,paired positive se ratio at most the sanity ceiling,se_high
 fold-evaluated-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
 fold-evaluated-cvtmle,crossfit_overfitting,coverage gain,shift/3
 fold-evaluated-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
@@ -1480,6 +1482,18 @@ shift-policies,targeting_necessity,bias equivalent,bias
 shift-policies,targeting_necessity,least displacement over labels,control_concentrated
 shift-policies,type_i_error,coverage floor,coverage/0.5
 shift-policies,type_i_error,rejection ceiling,rejection/0.1
+small-sample-wald,corrected_coverage,coverage lower leg,se_low
+small-sample-wald,corrected_coverage,"coverage upper leg, shown only",se_high
+small-sample-wald,corrected_coverage,paired gain,affine
+small-sample-wald,diagnosis_bounded,coverage lower leg,se_low
+small-sample-wald,diagnosis_bounded,"coverage upper leg, shown only",se_high
+small-sample-wald,diagnosis_continuous,coverage lower leg,none
+small-sample-wald,diagnosis_continuous,"coverage upper leg, shown only",se_high
+small-sample-wald,diagnosis_continuous,paired gain,se/1.05
+small-sample-wald,heldout_coverage,coverage lower leg,none
+small-sample-wald,heldout_coverage,"coverage upper leg, shown only",se_high
+small-sample-wald,non_h1,non-H1 control upper end,se_high
+small-sample-wald,non_h1,non-H1 lower end,se_low
 stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
 stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,coverage gain,shift/3
 stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low

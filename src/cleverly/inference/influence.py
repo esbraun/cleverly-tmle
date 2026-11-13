@@ -83,6 +83,7 @@ from ..msm import link_for, solve_projection
 from ..utils.bounds import OutcomeScaler, bound
 from .cluster import (
     cluster_reference_df,
+    fold_evaluated_reference_df,
     influence_variance,
     stacked_second_moment_variance,
 )
@@ -572,11 +573,11 @@ class ClusterReference:
 
     An estimate named in :attr:`fold_evaluated` carries the fold-evaluated variance of
     :func:`~cleverly.inference.cross_validated_variance`. That variance centres the cluster
-    totals inside each of the :attr:`validation_folds` folds. Its reference policy uses
-    :math:`J - V`, the pooled within-group count. Below
-    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters such an estimate takes
-    :math:`\min(J - 2, J - V)`. The registered studies measure this policy. The count is
-    not an exact degrees-of-freedom result for heterogeneous cluster variances.
+    totals inside each of the :attr:`validation_folds` folds, so such an estimate takes
+    :math:`J - V`, the pooled within-group count, at every cluster count
+    (:func:`~cleverly.inference.cluster.fold_evaluated_reference_df`). Every other estimate
+    takes :func:`~cleverly.inference.cluster.cluster_reference_df`. The count is exact under
+    the normal one-way model with equal folds, and not for heterogeneous cluster variances.
 
     Parameters
     ----------
@@ -614,7 +615,7 @@ class ClusterReference:
         Returns
         -------
         ClusterReference
-            A copy that applies :math:`\min(J - 2, J - V)` to ``names``.
+            A copy that applies :math:`J - V` to ``names`` at every cluster count.
         """
         return replace(
             self, fold_evaluated=frozenset(names), validation_folds=int(validation_folds)
@@ -631,20 +632,21 @@ class ClusterReference:
         Returns
         -------
         int or None
-            :func:`~cleverly.inference.cluster.cluster_reference_df` over the rows the
-            estimate reads.
+            :func:`~cleverly.inference.cluster.fold_evaluated_reference_df` for a
+            fold-evaluated estimate, and
+            :func:`~cleverly.inference.cluster.cluster_reference_df` otherwise, over the rows
+            the estimate reads.
         """
         code = self.stratum_of.get(name)
-        if code is None:
-            df = cluster_reference_df(self.cluster, self.weights)
-        else:
+        rows = None
+        if code is not None:
             assert self.strata is not None
-            df = cluster_reference_df(self.cluster, self.weights, rows=self.strata == code)
-        if df is None or name not in self.fold_evaluated:
-            return df
-        # ``df`` is J - 2, so J - V is ``df + 2 - V``. The one-cluster-fold refusal keeps
-        # V at most J / 2, so the value stays positive.
-        return min(df, df + 2 - self.validation_folds)
+            rows = self.strata == code
+        if name in self.fold_evaluated:
+            return fold_evaluated_reference_df(
+                self.cluster, self.validation_folds, self.weights, rows=rows
+            )
+        return cluster_reference_df(self.cluster, self.weights, rows=rows)
 
 
 def stamp_inference(
@@ -976,7 +978,8 @@ class ParameterEstimate:
         Degrees of freedom of the Student t reference of :attr:`ci`, :attr:`pvalue` and
         :attr:`plugin_interval`, or ``None`` for the normal reference. A clustered fit
         with fewer than 40 clusters with positive weight mass sets it to the cluster
-        count minus 2, per estimate.
+        count minus 2, per estimate. A clustered fold-evaluated estimate takes the cluster
+        count minus the number of validation folds, at every cluster count.
     support : Support
         What the package states about the evidence behind this estimate: the label
         ``"supported"`` or ``"experimental"``, the reason, the evidence and the support row.

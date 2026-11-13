@@ -362,7 +362,13 @@ class TestTheRunForm:
         }
 
     def test_the_declared_stack_is_the_stack_of_every_committed_run(self) -> None:
-        """The declared stack records what ran; each study's manifest says what that was."""
+        """The declared stack records what ran; each study's manifest says what that was.
+
+        The stack is a record, not a gate: a declared run on another stack writes its manifest
+        with the declared stack and each difference in ``generated_with.declared_stack``. So a
+        manifest may differ from :data:`DECLARED_STACK` only when it records exactly the
+        declared stack and exactly those differences. An unrecorded difference fails.
+        """
         for module in (
             gated,
             boundary,
@@ -380,11 +386,15 @@ class TestTheRunForm:
             regimen,
         ):
             path = module.STUDY.artifact("manifest.json")
-            subject = json.loads(path.read_text(encoding="utf-8"))["generated_with"]["subject"]
-            assert not manifest.stack_differences(
-                {k: v for k, v in learned_rule_run.DECLARED_STACK.items() if k in subject},
-                subject,
-            ), module.STUDY.slug
+            generated = json.loads(path.read_text(encoding="utf-8"))["generated_with"]
+            subject = generated["subject"]
+            declared = {k: v for k, v in learned_rule_run.DECLARED_STACK.items() if k in subject}
+            differences = manifest.stack_differences(declared, subject)
+            if differences:
+                recorded = generated.get("declared_stack")
+                assert recorded is not None, (module.STUDY.slug, differences)
+                assert recorded["versions"] == learned_rule_run.DECLARED_STACK, module.STUDY.slug
+                assert recorded["differences"] == differences, module.STUDY.slug
 
     def test_the_harness_check_flag_is_refused_on_a_declared_run(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

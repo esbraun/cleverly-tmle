@@ -279,7 +279,9 @@ class TestTheFewClusterThreshold:
     def test_the_longitudinal_floor_is_the_smallest_measured_ltmle_count(self) -> None:
         from tests.studies.clustered_few_cluster_tmle import fits_at
 
-        measured = [count for count in (10, 20, 30) if "ltmle_in_sample" in fits_at(count)]
+        measured = [
+            count for count in (10, 20, 30) if "ltmle_in_sample" in fits_at(count, "equal10")
+        ]
         assert _inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS == min(measured) == 20
 
     def test_the_reason_states_the_floor_and_the_threshold_it_applies(self) -> None:

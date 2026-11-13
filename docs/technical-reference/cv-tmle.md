@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Below 40 clusters the interval uses a $t$ reference, and below 10 the fit withholds it, as [clusters](inference.md#clusters) states |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Below 40 clusters the interval uses a $t$ reference, a fold-evaluated report uses one at every count, and below 3 clusters the fit withholds it, as [clusters](inference.md#clusters) states. `cv_evaluation=True` refuses clusters of unequal mass ([clusters of unequal mass](#clusters-of-unequal-mass)) |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -71,30 +71,19 @@ is centered at its own plug-in, so its plug-in part sums to zero inside the fold
 of squares over $J_v$ cluster totals keeps only $(J_v-1)/J_v$ of that part's variance. The centered
 rule restores the share. Rows keep the uncentered rule, because there the loss is $1/n_v$.
 
-The centered rule estimates one mean per fold, so its variance has $J-V$ degrees of freedom. Below
-40 clusters a fold-evaluated estimate therefore takes a $t$ reference with $\min(J-2, J-V)$
-degrees of freedom ([few clusters](inference.md#few-clusters)).
+The centered rule estimates one mean per fold, so its variance has $J-V$ degrees of freedom. A
+fold-evaluated estimate therefore takes a $t$ reference with $J-V$ degrees of freedom at every
+cluster count, 40 or more included ([few clusters](inference.md#few-clusters)). With $V$ fixed,
+$t_{J-V}$ tends to the normal as $J$ grows, so the rule needs no cutoff.
 
 A fold-evaluated fit with `id=` therefore needs at least 2 clusters in every validation fold, and
 so does a fit with `targeting_scheme="fold"`, which builds each fold's estimate with a clustered
 variance. `TMLE` raises `CapabilityError` before any learner when a realized or supplied fold
 holds 1.
 `tests/unit/test_fold_evaluated_cluster_variance.py` checks the rule, the refusal, and the
-calibration at 40 clusters in 10 folds.
-
-Use the stacked report, the default, when cluster sizes depend on the outcome. There the
-`cv_evaluation=True` point has a bias of about $V$ times the stacked bias at few clusters per
-fold. Each fold estimate is a ratio of two cluster sums over the clusters of its fold. The report
-takes the equal $1/V$ average of those ratios, so each ratio bias is of order $V/J$.
-
-| clusters, folds | `cv_evaluation=True` bias | stacked bias | source |
-| --- | --- | --- | --- |
-| 10, 20 and 30 in 5 folds | 0.61, 0.43 and 0.32 empirical SDs | 0.14, 0.10 and 0.06 | [few-cluster study](method-evidence/clustered-few-cluster-tmle.md#readings-of-the-red-cells) |
-| 200 in 5 folds | 0.13 | 0.02 | [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md) |
-
-The fit keeps the interval. At 10 clusters its coverage lower endpoint is 0.894.
-`tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the measured bias from the law, with no
-fit. At equal sizes the bias vanishes.
+calibration at 40 clusters in 10 folds. A clustered fit without a learned rule also needs every
+cluster to carry the same denominator mass for each requested estimand; otherwise it refuses
+([clusters of unequal mass](#clusters-of-unequal-mass)).
 
 **Fold evaluation with baseline strata** averages each stratum's fold plug-ins: with
 `strata=`, stratum $s$ reports $\hat\psi_s = V^{-1}\sum_v \psi_{s,v}$. Here $\psi_{s,v}$ is the plug-in of the targeted
@@ -466,6 +455,7 @@ Each row gives the shipped remedy in the message's own words.
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
 | `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." Under fold targeting the second remedy reads "one pooled fluctuation (targeting_scheme="pooled")". A learned-rule fit reads the same remedies, because its stacked report runs. The message names the setting, the cluster count, the fold count and the fold. Each fold's variance compares cluster totals inside the fold |
+| `cv_evaluation=True` with `id=` and no learned rule, when the clusters differ in a requested estimand's denominator mass | `CapabilityError` with code `api_redirection` before any learner | "Use the default, cv_evaluation=False (CrossFitting(fold_evaluation=False) on a method). It estimates the same effect from all folds at once, avoids this bias, and its interval still accounts for the clustering." When only `att` or `atc` triggers and the total masses are equal, it adds "Or leave out att: estimands=("ate", "ey1", "ey0") can use cv_evaluation=True with these clusters.", naming `att and atc` when both differ. The message names the estimand, the range of the mass and the cluster count ([clusters of unequal mass](#clusters-of-unequal-mass)) |
 | `cv_evaluation=True` with `strata=` and a target outside the arm and regime means and their contrasts and the learned-rule value, a missing outcome, an intermediate variable, or `id=` | `CapabilityError` before any learner | for a target, "Request the arm or regime means and their contrasts (estimands=('ate', 'ey') on the arm axis), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." For the others, "Use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata). A cross-fitted missing treatment meets the composite refusal of X53 first, and a ratio or an MSM coefficient meets the `cv_evaluation=True` refusal of X61 first |
 | `cv_evaluation=True` with `strata=` and a drawn split whose validation fold holds no row of a stratum, or no row of an arm inside a stratum | `DataError` before the first learner | "Either use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False)), declare fewer baseline strata, or collect more observations at the rare level." A learned-rule fit reads the same remedy, because its stacked report runs. The message names the fold, the stratum and the arm |
 | `learned_rule=` with `strata=` and `id=` | `CapabilityError` before any learner | "Fit the clustered learned-rule value without strata=, or the stratified learned-rule value without id=." The message names [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
@@ -556,7 +546,9 @@ covers equal sizes. No source read here proves this package's TMLE under cluster
 
 A fold-evaluated fit, `cv_evaluation=True`, needs 2 clusters in every validation fold. Its
 variance takes the centered variance of the cluster totals inside each fold
-([the algorithm as implemented](#the-algorithm-as-implemented)).
+([the algorithm as implemented](#the-algorithm-as-implemented)), and its intervals take $t_{J-V}$
+at every cluster count. Without a learned rule it also needs clusters of equal denominator mass
+([clusters of unequal mass](#clusters-of-unequal-mass)).
 
 Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
 what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
@@ -568,13 +560,104 @@ what each source recommends. $J$ is the cluster count, which Nugent et al. write
 | Wang et al. (2024) | Remark 3, Section 4.2, after Theorem 4 | parsimonious parametric nuisance models at about 20 clusters, and machine learning at about 100 |
 
 The package follows Nugent et al. From 10 to 39 positive-mass clusters, in the fit or in the
-stratum an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom. Below 10 such
+stratum an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom, and a
+fold-evaluated estimate uses $J-V$ at every count. Below 10 such
 clusters the fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted, because no
 registered study measures an interval there. An in-sample `LTMLE` fit
 with `id=` follows the same rules. The registered few-cluster evidence uses parametric nuisance
 learners only. [Clusters](inference.md#clusters) gives the rules, and
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurements at 4 to 9 clusters, and
 [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) keeps fits below 4.
+
+### Clusters of unequal mass
+
+`cv_evaluation=True` (`CrossFitting(fold_evaluation=True)` on a method) refuses a clustered fit
+without a learned rule, before any learner, when the clusters differ in the denominator mass of a
+requested estimand. Write $A_{vj}$ for the weighted sum of cluster $j$'s targeted contribution in
+fold $v$ and $M_{vj}$ for its denominator mass, so that the fold plug-in is
+$\hat\psi_v = A_v/M_v$ with $A_v=\sum_j A_{vj}$ and $M_v=\sum_j M_{vj}$.
+
+| requested estimand | denominator mass $M_j$ of cluster $j$ |
+| --- | --- |
+| the arm means, `ate`, `ey_obs`, `par`, `paf`, and the regime, `ipsi`, policy and `rr_tilt` levels and contrasts | the total weight $\sum_i w_{ij}$, the row count when unweighted |
+| `att`, and `att[a]` on more than two arms | the mass of each non-reference arm, $\sum_i w_{ij}1\{A_{ij}=a\}$ |
+| `atc` | the reference arm's mass |
+
+The trigger reads $M_j$ over the clusters with positive total weight, the clusters $J$ counts, and
+a cluster with no row in the arm counts with mass 0. It refuses when the range exceeds
+`WEIGHT_MASS_RTOL` ($10^{-9}$) times the largest mass
+(`unequal_positive_cluster_mass` in `cleverly.inference.cluster`). Row counts do not enter on a
+weighted fit, so equal weight mass from unequal row counts passes. A cluster-randomized trial of
+equal sizes has treated masses $\{0, m\}$, so its `att` refuses.
+
+The message names the first requested estimand in report order whose mass differs, and the
+range and the cluster count it read, in plain words. A weighted range is printed on the scale of
+the weights as supplied, not the stored mean-one weights. The message says that equal fold
+weights "can bias the estimate", because the bias needs outcomes related to the mass (below). The refusal has code `api_redirection`, and its alternative reads "Use the
+default, cv_evaluation=False (CrossFitting(fold_evaluation=False) on a method). It estimates the
+same effect from all folds at once, avoids this bias, and its interval still accounts for the
+clustering." When only `att` or `atc` triggers and the total masses are equal, the message adds
+an explicit request that can keep `cv_evaluation=True`, naming every arm estimand whose mass
+differs ("Or leave out att and atc: ..."): `estimands=("ate", "ey1", "ey0")` on two
+arms, `estimands=("ate", "ey")` on more.
+`estimands="all"` drops such an `att` or `atc` instead of refusing, as it drops the other
+estimands a fit cannot report. A sweep that changes the weights or the estimands meets the same
+refusal. `tests/unit/test_fold_evaluated_cluster_refusal.py` pins the messages and holds a
+witness, an equal-mass twin and a mutation control for each branch of the mass.
+
+The partition is fixed before any outcome is read, so $M_v$ is random exactly when the $M_j$
+differ. A second-order expansion of the ratio then gives
+
+$$
+E\Bigl[\frac{A_v}{M_v}\Bigr] - \psi_0 \approx
+\frac{\psi_0\,\mathrm{Var}(M_v) - \mathrm{Cov}(A_v, M_v)}{E[M_v]^2} = O(V/J),
+$$
+
+so the equal average $V^{-1}\sum_v \hat\psi_v$ carries about $V$ times the $O(1/J)$ bias of
+the pooled ratio $\sum_v A_v/\sum_v M_v$. Relative to the standard error the bias shrinks only as
+$V/\sqrt{J}$. The $t_{J-V}$ reference corrects the variance and not this bias. The bias vanishes to
+first order when the cluster effect is unrelated to the mass ($A_{vj}=\theta_j M_{vj}$ with
+$\theta_j$ independent of $M_{vj}$). The fit refuses in that case too: from 2 to 40 clusters per
+fold no test of that independence has power, and the stacked report is never worse, with the same
+influence curve, an $O(1/J)$ bias in every case, and a reference with at least as many degrees of
+freedom. On the informative size law of the few-cluster study, before the refusal, the
+fold-evaluated point read biases of 0.61, 0.43 and 0.32 empirical SDs at 10, 20 and 30 clusters in
+5 folds, against 0.14, 0.10 and 0.06 for the stacked point, and 0.13 against 0.02 at 200 clusters
+in the unequal-size study. `tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the
+few-cluster biases from the law with no fit, finds none at equal sizes, and shows the same factor
+for the ATT through an unequal treated count.
+
+Any fold aggregation $\sum_v c_v\hat\psi_v$ with $c_v = M_v/M$, $M=\sum_v M_v$, equals
+$\sum_v A_v/M$, the plug-in over all validation rows. Under the stacked fluctuation, which uses the
+unnormalised weights, that is exactly the stacked point. So the only fold aggregation without the
+ratio bias is the stacked report, and the refusal redirects there: it estimates the same
+parameter, with one pooled fluctuation and the cluster-sum variance. The same weights at the
+fold-normalised fluctuation give the `pooled` plug-in that `result.cv_targeting` reports, which
+leaves $\sum_v (W_v/W - 1/V)\,P_{n,v}D_v$ of its score unsolved. That term is $o_P(J^{-1/2})$,
+but the point is neither the original construction nor a TMLE of its own aggregate. The identity
+is algebra on the same predictions, so it names the redirect and is not evidence of the bias;
+`tests/unit/test_fold_evaluated_cluster_refusal.py` checks it on a frame where the fold plug-ins
+differ.
+
+The mechanism applies to any random fold denominator, rows included: an unclustered weighted fit,
+or an unclustered `att` or `atc`, divides each fold by a sum over $n/V$ independent rows. The
+package refuses clusters only, by decision. There each fold holds few independent units, and
+$V/\sqrt{J}$ is large: about 0.6 SD at 10 clusters and 0.13 SD at 200, both in 5 folds, on the
+study law. Unclustered fits keep the equal average and its $O(V/\sqrt{n})$ ratio term.
+
+A learned-rule fit keeps the equal average too, although each of its fold estimates carries the
+same ratio term at unequal masses. Its target, $V^{-1}\sum_v \Psi_{d_{nv}}(P_0)$, weights the
+values of $V$ different fold rules equally, and the pooled ratio would weight them by fold mass,
+a different target, so no fold aggregation avoids the term. The known-regime value
+(`ey_known_regime`) is reported on the same folds, so that its contrast with the learned rule
+(`ate_learned_rule`) differences two estimates of one fold set. All three keep the
+`unequal_clusters` qualifier and the experimental label at unequal sizes. A regime fit without
+`learned_rule=` and with `cv_evaluation=False` estimates the known-regime value without the
+term.
+
+The `fold_evaluated` diagnostic of
+`result.cv_targeting` on a fold-targeted fit with `cv_evaluation=False` also keeps the equal
+average and takes $t_{J-V}$; that fit's headline is the pooled value.
 
 ### The Super Learner inner split
 

@@ -472,6 +472,18 @@ def measured(row: Any) -> str:
             )
         return measured
     if family == "clustered_inference":
+        if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
+            # A reported arm is paired with no control, so it has no coverage gain, and its
+            # summary carries no SE-ratio interval: the arm reuses its positive's point and SE.
+            se_ratio = (
+                _interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)
+                if pd.notna(row.se_ratio_ci_lower)
+                else render(float(row.se_ratio))
+            )
+            return (
+                f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+                f"SE ratio {se_ratio}"
+            )
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
@@ -486,6 +498,16 @@ def measured(row: Any) -> str:
             f"SE ratio {render(float(row.se_ratio))}"
         )
     if family == "few_cluster_reference":
+        if str(row.role) == "control" and pd.notna(getattr(row, "paired_se_ratio_ci_upper", None)):
+            # The verdict reads the paired ratio and the positive arm's SE-ratio endpoint, not
+            # the control's own IID SE over the empirical SD. A table summarised before the
+            # two-clause rule has no paired columns and prints the row's own reading below.
+            return (
+                "paired IID/cluster SE ratio "
+                f"{_interval(row.paired_se_ratio_ci_lower, row.paired_se_ratio_ci_upper)}, "
+                "paired positive SE-ratio upper endpoint "
+                f"{render(float(row.paired_positive_se_ratio_ci_upper))}"
+            )
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
