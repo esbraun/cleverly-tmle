@@ -493,8 +493,9 @@ A band reads `supported` only when the fit's support row lists the band kind and
 cell measured the band for that row. `BAND_CELLS` in
 [`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
 names each row's cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a positive
-`*__simultaneous_band` row of a study the row cites. The band must also use a multiplier kind and
-band scale that the row's cells measured. Any other choice makes the band `experimental` and
+`*__simultaneous_band` row of a study the row cites. `T_BAND_CELLS` does the same for the $t$
+reference. The band must also use a multiplier kind, band scale and reference that the row's
+cells measured. Any other choice makes the band `experimental` and
 leaves the pointwise intervals as they are, because pointwise inference never reads the
 multiplier.
 
@@ -503,15 +504,19 @@ Every committed band cell of a fit's multiplier band measures the default band. 
 The band-finite-sample rerun re-measured each cell the change moved on its committed fits
 (`tests/canonical/band-rerun-plan.json` lists them, and
 `tests/canonical/band-rerun-decision.json` records each reading). Every cell that `BAND_CELLS` maps
-to a row passes, so each row that lists the band kind lists `multiplier_kind="mammen"` with
-`band_scale="logit"`. Five cells that were red before the rerun passed and left their red-cell
+to a row passes, so each row it names lists `multiplier_kind="mammen"` with
+`band_scale="logit"` and the normal reference. Five cells that were red before the rerun passed and left their red-cell
 ledgers under the declaration's rule that a red cell turns green when its rerun reading passes.
 That reading re-reads the same replicates under the new band, paired, rather than replicating
 them independently; the cells were selected on the same data; and no family-wise control spans
-the 81 per-cell 99% tests. A red cell also binds a row whose band another cell licenses: the
+the 81 per-cell 99% tests.
+
+A red cell also binds a row whose band another cell licenses: the
 `categorical_ltmle` cell of `default-simultaneous-bands` measures the default band of row
-`G08.in_sample` at joint coverage 0.9191 to 0.9458, so that row's band reads `experimental` with
-the reading as its reason.
+`G08.in_sample` at joint coverage 0.9191 to 0.9458, so that row's default band reads
+`experimental` with the reading as its reason. Rows `T30` and `T13` carry the red
+`cde_z0` and `strata` readings the same way. The reading binds the default band only:
+[the t reference](#the-t-reference) has cells of its own on those rows.
 
 Row `D09` licenses its band at 1,000 draws, the count `multi-arm-mar-drtmle` pins by design, and
 every other row needs at least 10,000. `composite-missing-drtmle` pins 1,000 draws too, but its
@@ -638,7 +643,11 @@ $\nu_1$. `kish_count()` computes $K_j$, and `SimultaneousBands.reference_df` and
 
 $K_j$ is $n/\hat\kappa_j$, with $\hat\kappa_j$ the sample kurtosis of the curve: a few large
 terms give a small count. It is the realised-term degrees of freedom of
-[Fay and Graubard (2001, Appendix B)](../references.md#multiple-testing), a Satterthwaite count shrunk by a factor of 2 to 3. No source derives it for an
+[Fay and Graubard (2001, Appendix B)](../references.md#multiple-testing), a Satterthwaite count shrunk by a factor of 2 to 3.
+Reading each estimate on its own $t$ reference at the multiplier's tail is the
+comparison-specific construction of
+[Pallmann, Ritz and Hothorn (2018, section 2.4)](../references.md#multiple-testing), whose df
+are residual df of Gaussian models. No source derives it for an
 influence-curve estimator, so the finite-sample claim rests on the study, cell by cell. To first
 order $c_j/\hat c - 1 = (\hat c^2 + 1)/(4\nu_j)$, and since $K_j \to \infty$ under a fixed law
 with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 bounds
@@ -649,9 +658,38 @@ The claim is joint coverage only. A passing cell can combine an over-covered spa
 with slightly short ones. On a clustered, weighted or repeated fit (`median_bands` maps the
 median $\hat c$ with each combined curve's count) the band is built and reads `experimental`
 on every row, because no cell measures it there. `SurvivalCTMLE` refuses a non-default
-reference. The `band-t-reference` study is declared: its cells measure the $t$ band
-beside the default band on the same fits, and until its run no row licenses the option, so a
-$t$ band reads `experimental` everywhere.
+reference.
+
+The [`band-t-reference` study](method-evidence/band-t-reference.md) measured the $t$ band on
+eleven plain fit shapes, beside the default band of the same fits, at 5,600 replications per
+cell. Every $t$ band kept its 99% joint-coverage interval inside $[0.92, 0.98]$ and every
+pointwise control fell below 0.95, so the study licenses
+`("mammen", "logit", "t")` on the rows below. `T_BAND_CELLS` in
+[`_support_rows.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/_support_rows.py)
+maps each row to its cells, and `tests/unit/test_band_cell_mapping.py` ties every entry to a
+passing `*__t_band` cell whose controls passed. A licence covers the whole key of its row, at
+10,000 or more draws. On every other row the $t$ band reads `experimental`.
+
+| row | configuration | $t$ band joint coverage | default band on the row |
+| --- | --- | --- | --- |
+| `G08.in_sample` | in-sample categorical LTMLE | 0.9461 ($n = 2000$), 0.9496 ($n = 8000$) | `experimental`: its cell is red |
+| `G08.cross_fitted` | cross-fitted categorical LTMLE | 0.9502 | `experimental`: unlisted |
+| `G23.cross_fitted` | cross-fitted sequentially doubly robust fit | 0.9482 | `supported` |
+| `T01.binary` | ordinary in-sample TMLE, binary outcome | 0.9496 | `experimental`: unlisted |
+| `T13` | in-sample TMLE with baseline strata | 0.9545 ($n = 2000$), 0.9516 ($n = 8000$) | `experimental`: its cell is red |
+| `T14` | cross-fitted TMLE with baseline strata | 0.9620 | `supported` |
+| `T18` | in-sample point-treatment MSM | 0.9509 | `experimental`: unlisted |
+| `T30` | controlled direct effect with missing outcomes | 0.9543 ($n = 2000$), 0.9441 ($n = 8000$) | `experimental`: its cell is red |
+
+The paired gain of each $t$ band over the default band of the same fits is reported on the
+study page with its 99% interval and gates nothing. On the three rows whose default band is
+red, the default band of the same fits covers 0.9371 (`G08.in_sample`), 0.9382 (`T30`) and
+0.9450 (`T13`). The default band stays the default. A row's red default-band reading binds only
+the default band, so on those three rows `band_reference="t"` gives a `supported` band and the
+default band reads `experimental` with the reading as its reason. The held-out
+[`band-t-reference-held-out` study](method-evidence/band-t-reference-held-out.md) reads the
+strata law at $n = 1000$, where the floor binds on most fits, at joint coverage 0.9543. It
+licenses no row.
 
 A band is built over every estimate that supplies inference, with two status rules. An estimate
 whose status is `"out_of_range_plugin"` stays in the family at its plug-in standard error. An

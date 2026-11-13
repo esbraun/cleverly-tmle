@@ -384,7 +384,7 @@ lists each refusal and its order.
 | folds | package-generated, `stratify_by="none"`, `n_folds` of at least 2, `repeats=1`, and `split_plan=None` |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`, with `targeting_scheme="pooled"` and `fold_evaluation=False` |
 | rows | unweighted iid rows, with no clusters and no baseline strata |
-| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind`, both band scales and a custom `n_multiplier`. The registered study measures only the default band (Mammen multiplier, logit scale, 10,000 draws), so a band with another kind or scale, or fewer draws, reads `experimental` while the pointwise intervals keep their label |
+| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind`, both band scales, both band references and a custom `n_multiplier`. The registered study measures only the default band (Mammen multiplier, logit scale, normal reference, 10,000 draws), so a band with another kind, scale or reference, or fewer draws, reads `experimental` while the pointwise intervals keep their label |
 
 `CrossFitting` defaults to `stratify_by="none"`, so this contract's fold policy needs no setting.
 The default estimand list of a two-arm fit includes `att` and `atc`, so a two-arm fit must name its
@@ -429,7 +429,9 @@ variance is $\operatorname{var}(D_a)/n$ with the $n-1$ denominator. `covariance(
 curves. The default multipliers are Mammen's, and `multiplier_kind="rademacher"` or `"normal"` also
 fits. The band takes the max-t quantile of those draws, scaled by the pointwise standard errors,
 and by default builds the limits of a probability on its logit scale
-([the band scale](inference.md#the-band-scale)).
+([the band scale](inference.md#the-band-scale)). `band_reference="t"` reads each estimate's
+slice on its own Student $t$ reference; [the t reference](inference.md#the-t-reference) lists
+the rows a registered study licenses it on.
 
 The band rests on two results. The first is the joint expansion of Zheng and van der Laan
 (2011), Theorem 2. The second is a conditional multiplier central limit theorem for a fixed number

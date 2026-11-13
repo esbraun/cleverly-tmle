@@ -2332,6 +2332,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Estimators*](https://doi.org/10.1111/j.0006-341X.2001.01198.x), DOI
   10.1111/j.0006-341X.2001.01198.x. Appendix B's realised-term degrees of freedom is the Kish
   count of `band_reference="t"` ([the t reference](technical-reference/inference.md#the-t-reference)).
+  No source derives it for an influence-curve estimator; the
+  [`band-t-reference` study](technical-reference/method-evidence/band-t-reference.md) is the
+  finite-sample evidence for the band.
+- Pallmann, Ritz & Hothorn (2018), [*Simultaneous small-sample inference for linear combinations
+  of generalized linear model parameters*](https://doi.org/10.1002/sim.7610), *Statistics in
+  Medicine* 37(9):1562–1576. Section 2.4 reads each comparison on its own t reference, with
+  comparison-specific critical values, under a normal copula of the max-$t$ statistic. That is
+  the per-estimate mapping of `band_reference="t"`. Their df are residual df of Gaussian models,
+  not a Kish count.
 
 ## Calibration of prediction models
 
