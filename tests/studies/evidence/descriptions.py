@@ -9012,3 +9012,43 @@ STUDY_ARM_CELLS.update(
         ),
     }
 )
+_HAZARD_TIME_VARYING_ROBUSTNESS = {
+    "mechanism_correct": (
+        "node hazards and continuations that omit the time-varying covariate, with correct "
+        "treatment and censoring models; it witnesses the hazard fluctuation, whose weights "
+        "read the covariate"
+    ),
+    "continuation_wrong": (
+        "correct node hazards and censoring model with continuations that omit the "
+        "time-varying covariate; it witnesses the covariate term of the walk alone"
+    ),
+    "outcome_correct": (
+        "correct node hazards and continuations with a censoring model that omits the "
+        "time-varying covariate"
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "double_robustness", f"{fit}_contrast", base): (
+            words,
+            "bias interval inside the equivalence margin, with the reported standard error on "
+            "the scale of the empirical spread",
+        )
+        for fit, base in (
+            ("one_cause", "mechanism_correct"),
+            ("one_cause", "continuation_wrong"),
+            ("one_cause", "outcome_correct"),
+            ("competing", "mechanism_correct"),
+            ("three_arm", "mechanism_correct"),
+        )
+        for words in (_HAZARD_TIME_VARYING_ROBUSTNESS[base],)
+    }
+)
+STUDY_ARM_CELLS[
+    (_HAZARD_TIME_VARYING_SLUG, "double_robustness", "one_cause_contrast", "both_wrong")
+] = (
+    "every outcome and censoring learner omits the time-varying covariate; it reads the same "
+    "bias as the untargeted necessity control",
+    "bias interval must fall entirely outside the margin, with the reported standard error "
+    "still on the scale of the empirical spread",
+)

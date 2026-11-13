@@ -85,9 +85,18 @@ bound, and the design test reads it from the committed pilot.
 | censoring | logistic regression on $W_1$, $W_2$, $A$ and $L_k$ at each visit | the same without $L_k$ |
 
 In the `double_robustness` family the wrong outcome side is the hazard and the continuation
-without $L$, and the wrong mechanism is the censoring model without $L_k$. Plan X70 lists no
-cross-fitted cell for this study. The `crossfit` fit label is a calibration cell added so that
-the cross-fitted held row has evidence of its own.
+without $L$, and the wrong mechanism is the censoring model without $L_k$. A fifth
+configuration, `continuation_wrong`, keeps the hazard and the censoring model correct and drops
+$L$ from the continuation alone. Plan X70 lists no cross-fitted cell for this study. The
+`crossfit` fit label is a calibration cell added so that the cross-fitted held row has evidence
+of its own.
+
+A cell whose events are absent from a draw is held by the shipped fit: when no unit of one
+treatment level at a visit has an event of a cause, every estimate that reads that node hazard
+reports the plug-in without an interval. The study turns such a fit into a lost replicate on
+every path, charged to the cell's failure bound of 0.01. The rarest cell is level 2 at visit 1
+on `three_arm`, with mass 0.0065 per unit, and the design test puts the expected count of held
+fits over the whole study and its pilot at 0.05.
 
 No maintained package targets discrete-time hazards with covariates after baseline. R `ltmle`
 and `lmtp` estimate the same estimand by the iterated-mean algorithm, which the in-package
@@ -117,39 +126,65 @@ these fit labels, so 2,400 is provisional until they are committed.
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
 | `interval_calibration` | the contrast and the regimen's risk of each fit label, with the shrunken-SE and noise controls on the `one_cause` contrast | 4,000 at n = 2,000 (provisional) | an SE ratio or coverage interval outside its band, or an efficiency ratio outside its band |
-| `simultaneous_coverage` | the band over every estimate of the `one_cause` and `competing` fits, and its pointwise control | as calibration | joint coverage outside the calibration band |
-| `double_robustness` | the `one_cause` contrast with both, one or neither side correct | 1,200 at n = 2,000; the `mechanism_correct` arm as the wrong-learner pilot sets | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
-| `targeting_necessity` | the `one_cause` contrast from the wrong hazard and continuation with the correct mechanism, targeted and as the untargeted backward plug-in | as the wrong-learner pilot sets, at least 1,200 at n = 2,000 | the targeted bias outside the margin, or the plug-in inside it |
+| `simultaneous_coverage` | the band over every estimate of the `one_cause` and `competing` fits, node-1 risks included, and its pointwise control | the calibration fits | joint coverage outside the calibration band |
+| `double_robustness` | the `one_cause` contrast with both sides correct, the outcome side correct, the mechanism correct, the continuation alone wrong, and both wrong; the `competing` and `three_arm` contrasts with the mechanism correct | 1,200 at n = 2,000; each arm with a wrong learner as its own pilot sets | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
+| `targeting_necessity` | the `one_cause` contrast of the `mechanism_correct` robustness fits, targeted and as the untargeted backward plug-in of the same draws | those fits' count | the targeted bias outside the margin, or the plug-in inside it |
 | `root_n_and_efficiency`, `root_n_rate` | the `one_cause` contrast and risk at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
-| `power` | the `one_cause` contrast against zero | 800 at n = 2,000 | a rejection lower bound below the minimum power |
+| `power` | the `one_cause` contrast against zero, on the `one_cause` calibration fits | the calibration count | a rejection lower bound below the minimum power |
 | every family | `nonconverged_fits`: the fits that stopped short of `tol` with a final relative score at or below $10^{-6}$, beside each cell's count of unexpected warnings | as the cell | a non-converged fit above $10^{-6}$ is a lost replicate under the 0.01 failure bound; more than 1% non-converged fits makes the cell a defect suspect |
+| every family | `smallest_kish`, `largest_relative_sd` and `largest_edgeworth_loss`: the influence-curve measures of each row's fit over its estimates | as the cell | nothing: recorded beside the verdicts |
 | `iterated_mean_difference` | on `one_cause` and `competing`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of the iterated-mean curve. On `competing`, each fit's largest sum of the two cumulative incidences minus one. On the `one_cause` `mechanism_correct` draws, the same paired difference with every regression omitting $L$ | 800 at n = 2,000, and the robustness draws | nothing: the family is reported with no verdict |
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
 over the eight arms, read at the committed calibration pilot of 8,000 draws per fit label. At a
 calibrated pilot it gives 4,000. The design test checks that the shrunken-SE and noise controls
-leave their bands at the declared count, and that the power cell has power.
+leave their bands at the declared count, and that the power cell has power on the calibration
+fits. The necessity cells read the `mechanism_correct` robustness fits and the power cell the
+calibration fits, so neither adds a fit set.
 
-The wrong learners' untargeted backward plug-in contrast has an exact limit 4.2 efficiency
-standard errors from the truth at n = 2,000, computed from the law by an independent logistic
-fit on the at-risk cells; the estimator's plug-in on the exact sample matches it to $10^{-8}$.
-With dropout that does not read $L_k$ the same limit lies within one standard error of the
-truth, so the gap comes from the informative dropout. With both sides wrong the exact limit lies
-4.2 efficiency standard errors from the truth, so the `both_wrong` control can fail; if it does
-not clear the margin, the control has failed and the study is a defect suspect. Each positive
-configuration returns the truth on the exact sample.
+The bands read the node-1 risks, whose influence curves have Kish counts of 20 to 24 and a
+predicted Wald coverage loss of about 0.009 each. Their losses do not average out of a maximum,
+so the `one_cause` and `competing` calibration pilots fit the band, as the declared fits do. A
+rule fixed before the pilot is read then requires the declared band cell to pass with
+probability at least 0.90 at the pilot's joint coverage plus and minus one standard error. If it
+does not, the declaration stops for a diagnosis, and the band is not widened.
 
-The arms with the wrong outcome side and the correct mechanism carry a finite-sample bias of
-their own, so their size comes from the wrong-learner pilot of 800 draws at n = 2,000, pooled
-with the 200 `mechanism_correct` paired draws, which fit the same estimator. Each arm takes
-1,200 replicates, or the smallest multiple of 400 that passes with probability 0.99 at the
-pilot's standardized bias plus one standard error, whichever is larger. The rule was fixed
-before any pilot was read, has no cap, and stops the study above 4,000.
+| arm | untargeted plug-in, efficiency SEs at n = 2,000 | what it witnesses |
+| --- | --- | --- |
+| `one_cause` `mechanism_correct` | +4.23 | the hazard fluctuation, whose weights read $L_k$ |
+| `one_cause` `continuation_wrong` | +1.37 | the covariate term of the walk alone |
+| `competing` `mechanism_correct` | +3.20 | the two-cause soft-label panel |
+| `three_arm` `mechanism_correct` | +3.63 | the policy ratio times the retention that reads $L_k$ |
+| `one_cause` `both_wrong` (control) | +4.23; targeted +4.22 | must miss |
+
+Each figure is the exact-sample limit, and every positive arm's targeted fit returns the truth
+on the exact sample to $10^{-7}$. With a hazard that omits $L$, every fitted continuation is a
+function of $(W, A)$, so the covariate term is zero before targeting and the `mechanism_correct`
+arms cannot see it. With the hazard correct, the hazard term is zero, so the
+`continuation_wrong` arm reaches the truth only through the covariate term. The
+`one_cause` plug-in limit is also computed from the law by an independent logistic fit on the
+at-risk cells, and with dropout that does not read $L_k$ it lies within one standard error of
+the truth, so the gap comes from the informative dropout. The `both_wrong` control and the
+untargeted necessity arm read one bias: with every factor a function of $(W, A)$, which the
+initial fit nearly saturates, the walk barely moves. They are valid controls, but not two
+independent witnesses. If either does not clear the margin, the control has failed and the
+study is a defect suspect.
+
+The arms with a wrong learner carry a finite-sample bias of their own, so each arm's size comes
+from its own pilot of 800 draws at n = 2,000; the `one_cause` `mechanism_correct` reading pools
+the 200 `mechanism_correct` paired draws, which fit the same estimator. Each arm takes 1,200
+replicates, or the smallest multiple of 400 that passes with probability 0.99 at the pilot's
+standardized bias plus one standard error, whichever is larger. The rule was fixed before any
+pilot was read, has no cap, and stops the study above 4,000. The `outcome_correct` arm walks
+with censoring weights that omit $L_k$, and its own bias is not piloted: the `both_correct`
+reading is its proxy, and at 1,200 replicates it tolerates a standardized bias of 0.108.
 
 With correctly specified learners the hazard fit and the iterated-mean fit are both efficient,
 so they differ by $o_P(n^{-1/2})$. The study reports their agreement, the share of decreasing
 iterated-mean curves with its interval, and on `competing` how far each fit's incidences sum
-above one, with no floor: X70 reports the agreement of the two fits instead of requiring a gap
+above one. The decrease and coherence rows record zero as a reference, not a truth: their true
+values are negative, and the hazard fit's sum is at most one by construction. So only each
+reading's share above zero and its largest value are reported, with no floor: X70 reports the agreement of the two fits instead of requiring a gap
 (the owner's decision of 2026-11-13).
 
 ## Limitations
@@ -157,9 +192,13 @@ above one, with no floor: X70 reports the agreement of the two fits instead of r
 | limit | what it means for use |
 | --- | --- |
 | one baseline decision | treatment at several visits beside $L_k$ is part (b2) of plan X70 |
-| a binary covariate and finite $W$ | the evidence covers correct or misspecified logistic and cell-mean learners on Markov laws. A flexible learner or a continuous $L_k$ is outside it; the unit tests cover a continuous $L_k$ |
-| held cells | no cell is empty at n = 2,000, so no fit holds a cell out. Held cells rest on `tests/unit/test_hazard_time_varying.py` |
-| support rows | the support key has no axis for covariates after baseline, so the declared held rows cannot be registered until the key gains one |
+| one scalar binary $L_k$ on Markov laws and finite $W$ | the evidence covers correct or misspecified logistic and cell-mean learners. A flexible learner, or a continuous, multivariate or non-Markov $L_k$, is outside it; the unit tests cover a continuous $L_k$ |
+| `targeting="one_step"` only | the per-horizon algorithm is refused on this design (H28) |
+| static regimens and one modified treatment policy at visit 1 | plan X70 puts a rule and a known policy on a held design in scope; they rest on `tests/unit/test_hazard_time_varying.py` |
+| no observation weights, clusters or `node_bounds=` | each is supported by the fit and covered by the unit tests only |
+| the cross-fitted stitch | with parametric learners an in-fold and an out-of-fold stitch have the same limit, so the `crossfit` cells cannot see the stitch; it rests on the unit tests |
+| held cells | a held cell costs a replicate; the design test expects 0.05 held fits over the study and its pilot. The held-cell estimate itself rests on `tests/unit/test_hazard_time_varying.py` |
+| support rows | the support key has no axis for covariates after baseline, so `G31` and `G32` cover these fits today and the declared `G63.held` rows cannot be registered until the key gains a `later_covariates` option, set only on the hazard path. The option and the removal of the X70 condition land in one change. The rows on `one_cause` and `competing` license the band |
 | no comparator | no external implementation targets these hazards with covariates after baseline |
 
 ## Reproduction
