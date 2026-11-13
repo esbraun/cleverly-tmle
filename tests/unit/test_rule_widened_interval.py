@@ -17,6 +17,8 @@ interval ``psi +/- (z se + |r_n|)`` covers whenever ``|Z| <= z``.  The tests bel
 * that every derived estimate inherits the widening, with its own curve's mean;
 * the ``sample_size`` threshold in the outcome's units, where the residual exceeds an SE;
 * that a simultaneous band widens each component by its own residual;
+* that the widening adds to a fractional Student t half-width, and that `ci` does not yet
+  read the small-sample reference of `small-sample-wald`;
 * deliberate mutations of the source that each of these must catch.
 """
 
@@ -204,6 +206,45 @@ class TestTheWidenedInterval:
         assert estimate.wald_test().statistic == pytest.approx(
             estimate.psi / estimate.std_error, rel=1e-12
         )
+
+
+class TestTheSmallSampleReference:
+    """The widening composes with the small-sample reference of ``small-sample-wald``.
+
+    Fix-3 PR 1 adds a fractional Student t reference to the delta-method helpers and
+    :attr:`ParameterEstimate.effective_df`, but :attr:`ParameterEstimate.ci` still reads
+    :attr:`ParameterEstimate.reference_df`. The half-width a widened interval would take under
+    that reference is checked at the helper, and the estimate is checked to keep its normal
+    half-width until the reference reaches ``ci``. The PR that makes ``ci`` read the
+    small-sample reference replaces the second check with ``crit(effective_df) * se + |r_n|``.
+    """
+
+    @pytest.mark.parametrize("df", [5.0, 17.5])
+    def test_a_fractional_t_reference_adds_the_margin_to_its_half_width(self, df: float) -> None:
+        estimate = ruled()["ate"]
+        margin = estimate.residual_margin
+        assert margin > 0.0
+        center, se = estimate.inference_value, estimate.std_error
+        low, high = wald_ci(center, se, estimate.alpha, df=df, margin=margin)
+        expected = float(stats.t.ppf(1.0 - estimate.alpha / 2.0, df)) * se + margin
+        assert center - low == pytest.approx(expected, rel=0.0, abs=EXACT)
+        assert high - center == pytest.approx(expected, rel=0.0, abs=EXACT)
+        # The test that inverts it reaches alpha exactly at the widened interval's end.
+        _, pvalue = wald_statistic(high, center, se, df=df, margin=margin)
+        assert pvalue == pytest.approx(estimate.alpha, abs=1e-12)
+
+    def test_an_infinite_df_is_the_normal_widened_interval(self) -> None:
+        estimate = ruled()["ate"]
+        args = (estimate.inference_value, estimate.std_error, estimate.alpha)
+        margin = estimate.residual_margin
+        assert wald_ci(*args, df=float("inf"), margin=margin) == wald_ci(*args, margin=margin)
+
+    def test_a_gaussian_widened_estimate_keeps_the_normal_half_width(self) -> None:
+        estimate = replace(ruled()["ate"], outcome_family="gaussian")
+        assert estimate.rule_widened
+        assert estimate.effective_df is not None
+        assert estimate.reference_df is None
+        assert_widened(estimate)
 
 
 class TestAnUndefinedStatistic:
