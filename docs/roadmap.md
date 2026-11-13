@@ -1501,7 +1501,7 @@ condition.
 
 | part | option | what a study measures |
 | --- | --- | --- |
-| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | interval coverage at the residual the rule leaves, beside the coverage bound the summary prints |
+| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Declared as `option-stopping-point` and `option-stopping-ltmle`, not yet run |
 | (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm |
 | (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
 | (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment |
