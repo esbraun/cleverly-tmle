@@ -1803,3 +1803,9 @@ tests.studies.option_markov_order_properties,order_necessity,bias discriminated,
 tests.studies.option_ratio_trim_properties,trim_necessity,bias discriminated,pair_collapse
 tests.studies.option_ratio_trim_properties,trim_necessity,bias equivalent,bias
 tests.studies.option_ratio_trim_properties,trim_point,bias equivalent,bias
+tests.studies.option_patience_properties,greedy_late_confounder,paired difference equivalent,bias
+tests.studies.option_patience_properties,late_confounder_stop,share floor,shift/3
+tests.studies.option_patience_properties,ordered_late_confounder,bias discriminated,control_diffuse
+tests.studies.option_patience_properties,ordered_whole_path,bias equivalent,bias
+tests.studies.option_patience_properties,patience_bias,bias equivalent,bias
+tests.studies.option_patience_properties,patience_witness,share floor,shift/3

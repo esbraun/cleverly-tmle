@@ -1503,7 +1503,7 @@ condition.
 | --- | --- | --- |
 | (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | the coverage of the interval widened by the residual the rule leaves, beside the plain interval. Declared as `option-stopping-point` and `option-stopping-ltmle`, not yet run |
 | (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm. Declared as `option-outcome-by-arm`, not yet run |
-| (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
+| (c) | `patience=` on the cross-validated C-TMLE path | bias when the counter stops the greedy path early, beside the whole path. Declared as `option-patience`, not yet run. A pre-ordered strategy with `patience=` stays experimental permanently: the counter can stop before a needed candidate at every sample size |
 | (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment. Declared as `option-treatment-adjustment`, not yet run |
 | (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias at a trim that binds on a law with weak support, beside the untrimmed fit. The trimmed fit reports no interval, so the study reads the point only. Declared as `option-ratio-trim`, not yet run |
 | (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does. Declared as `option-markov-order`, not yet run |

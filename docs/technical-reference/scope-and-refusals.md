@@ -346,7 +346,7 @@ a truth value or `None`. Each key value and the reason are checked in
 | `stopping=` | `"scaled_var"` and `"sample_size"`, on a point fit and on `LTMLE` | `"relative"` | X76 |
 | `iterate=`, `step_bound=` | never on their own | under `stopping="relative"` the walk stops only at the solution of the score equation, to `tol` | none |
 | `outcome_by_arm=` | `True` | `False` | X76 |
-| `patience=` | any value | `None` | X76 |
+| `patience=` | any value. On `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` the label is permanent: the order is fixed before any risk is read, so the counter can stop before a candidate the outcome regression needs, at every sample size | `None` | X76 on `"greedy"`; none on a pre-ordered strategy |
 | `treatment_adjustment=` | a declared subset | the whole adjustment set | X76 |
 
 The longitudinal support rows read the fitting options of `_x33_options` in

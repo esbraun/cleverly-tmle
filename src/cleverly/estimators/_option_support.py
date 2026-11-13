@@ -13,7 +13,9 @@ option                    default             why the evidence of the default do
                                               the widened interval
 ``outcome_by_arm=``       ``False``           another outcome regression; on the
                                               effect-modification axis the default is ``True``
-``patience=``             ``None``            another collaborative selection
+``patience=``             ``None``            another collaborative selection; on a pre-ordered
+                                              path it can stop before a needed candidate at
+                                              every sample size (permanent)
 ``treatment_adjustment=`` the adjustment set  another treatment mechanism, under a restriction
 ========================  ==================  =====================================================
 
@@ -37,7 +39,12 @@ from typing import Any
 
 from .._refusal import Refusal, RefusalReason
 
-__all__ = ["OPTION_STUDIES_ROADMAP", "point_option_conditions", "stopping_conditions"]
+__all__ = [
+    "OPTION_STUDIES_ROADMAP",
+    "patience_conditions",
+    "point_option_conditions",
+    "stopping_conditions",
+]
 
 #: The roadmap item that tracks the registered studies of these options.
 OPTION_STUDIES_ROADMAP = "X76"
@@ -70,6 +77,56 @@ def stopping_conditions(stopping: str) -> list[Refusal]:
                 "studies do."
             ),
             roadmap=OPTION_STUDIES_ROADMAP,
+        )
+    ]
+
+
+def patience_conditions(estimator: Any) -> list[Refusal]:
+    """The condition of ``patience=`` on a C-TMLE path, or none for the whole path.
+
+    On a pre-ordered path (``"ordered"``, ``"discrete"``, ``"lasso"``, ``"learners"``) the
+    order is fixed before any risk is read, so a candidate the outcome regression needs can sit
+    after ``patience`` candidates that only add noise.  The counter then stops before it with a
+    probability that does not shrink with the sample size, and the estimate keeps a bias no
+    study can rule out.  That condition is permanent, so it names no roadmap item.  The greedy
+    path adds the candidate that lowers the risk most at each step; its condition names the
+    study that measures it.
+
+    Parameters
+    ----------
+    estimator : CTMLE
+        The estimator, as constructed.  It is read and never modified.
+
+    Returns
+    -------
+    list of Refusal
+        One condition when ``patience`` is set, else none.
+    """
+    patience = getattr(estimator, "patience", None)
+    if patience is None:
+        return []
+    if str(getattr(estimator, "strategy", "greedy")) == "greedy":
+        return [
+            Refusal(
+                RefusalReason.INFERENCE_GAP,
+                f"The setting patience={patience} can stop the cross-validated path before "
+                "its best candidate, and no registered study covers that selection.",
+                alternative="patience=None scores the whole path, as the registered studies do.",
+                roadmap=OPTION_STUDIES_ROADMAP,
+            )
+        ]
+    return [
+        Refusal(
+            RefusalReason.INFERENCE_GAP,
+            f"The setting patience={patience} stops a pre-ordered candidate path after "
+            f"{patience} candidates whose cross-validated risk is not a new minimum. A "
+            "candidate the outcome regression needs that is ordered after them is never "
+            "scored, so the estimate can stay biased at every sample size.",
+            alternative=(
+                "patience=None scores the whole path. On strategy='greedy' each step adds the "
+                "candidate that lowers the risk most."
+            ),
+            roadmap=None,
         )
     ]
 
@@ -119,17 +176,7 @@ def point_option_conditions(estimator: Any, data: Any) -> list[Refusal]:
                 roadmap=OPTION_STUDIES_ROADMAP,
             )
         )
-    patience = getattr(estimator, "patience", None)
-    if patience is not None:
-        conditions.append(
-            Refusal(
-                RefusalReason.INFERENCE_GAP,
-                f"The setting patience={patience} can stop the cross-validated path before "
-                "its best candidate, and no registered study covers that selection.",
-                alternative="patience=None scores the whole path, as the registered studies do.",
-                roadmap=OPTION_STUDIES_ROADMAP,
-            )
-        )
+    conditions += patience_conditions(estimator)
     if getattr(data, "treatment_covariate_names", None) is not None:
         conditions.append(
             Refusal(
