@@ -1,0 +1,112 @@
+{
+  "schema_version": 2,
+  "study": "Asymmetric Wald intervals",
+  "slug": "asymmetric-wald",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-asymmetric-wald",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "cd4ac53c225ae8208efd9b8b1bb63a2f5d4a67d4",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 2026111301,
+    "resampling_seed": 2026111302,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-asymmetric-wald": 0.01
+    },
+    "scenarios": {
+      "boundary_v2": [
+        "ate[V=2]"
+      ]
+    },
+    "rule": "bounded difference of two bounded means of one fit: correlated MOVER on the arms' range-logit normal intervals, correlation implied by the three variances; bounded mean: range-logit normal (PR 2); continuous-outcome target: skew-widened t, the hull of the t interval at max(satterthwaite_df, 5) and its Cornish-Fisher correction with the curve's acceleration",
+    "withheld": "the shipped PR 2 status of the estimate or of either arm it reads",
+    "reading": "coverage legs on the first 2000 replicates; tail clause (99% CP lower bound of each one-sided miss rate at most 0.04), width clause (threshold 1.08), witnesses and paired gains on all 4000",
+    "width_bootstrap": "fits resampled with replacement, paired widths together; B = Margins.bootstrap_replicates; seed stream_seed(STUDY, 'width_ratio', cell); percentile, upper bound the 0.995 quantile (R6-1)",
+    "groups": {
+      "d1": "d1, n=3000, R=4000, family binomial",
+      "d2": "d2, n=2000, R=4000, family binomial",
+      "c1": "c1, n=2500, R=4000, family gaussian",
+      "c2": "c2, n=2000, R=4000, family gaussian",
+      "c3": "c3, n=2500, R=4000, family gaussian",
+      "ho_sparse_treat": "h1, n=2000, R=4000, family binomial",
+      "ho_hurdle": "h2, n=2000, R=4000, family gaussian",
+      "lognormal06": "lognormal06, n=2000, R=4000, family gaussian",
+      "student": "student, n=2000, R=4000, family gaussian",
+      "lognormal": "lognormal, n=2000, R=4000, family gaussian",
+      "boundary_2000": "boundary, n=2000, R=4000, family binomial",
+      "boundary_1000": "boundary, n=1000, R=4000, family binomial",
+      "rare": "rare, n=2000, R=4000, family binomial",
+      "identity_msm": "l1_beta, n=2000, R=4000, family gaussian"
+    },
+    "primary": "boundary_v2: canonical_stratified_tmle.fit_cleverly at n=2000, MOVER's interval of ate[V=2] in the shared columns (a withheld one as the point), the shipped interval in primary-shipped.csv",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/asymmetric_wald.py": "4fd6b730a5d80101b1edb0318444c34f8d380b55146ecc4db603061badfaad3c",
+    "tests/studies/asymmetric_wald_properties.py": "4156f63306bd4dbea76b26d078990fe2a2dfa5c4266aa58380c0dc11e5aa3040",
+    "tests/studies/asymmetric_wald_laws.py": "7b51a6e0414c5177daddaada795727681161fbb587f2f8a7c179e337b4dfbcf3",
+    "tests/studies/small_sample_laws.py": "cbfef8514e1557b682c677a7cdc607a7ea220b2e175f3f576b2f5cf4e4953352",
+    "tests/studies/canonical_stratified_msm_identity.py": "efe128109763d1b06df655a7c3e442a4545537092cfbea990625a8c757e033ef",
+    "tests/studies/canonical_stratified_tmle.py": "03eb6078535c1a2838390a402ded0cc0a222485ae14fce48724f94b2a8c8d7d6",
+    "tests/studies/stratified_alternating_law.py": "06dd359ac9b20bbbedad07080baeca51b5d35f4940a9e3bb750e54c86620f276",
+    "tests/studies/stratified_incremental_msm_properties.py": "628403ef4caf95d465f20c8d44e510a405eaa95ab66db9a8478aa6bba42482d6",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/canonical_stratified_incremental_msm.py": "c53a6365f91e03ab6876c36624e6034390a0510288f4eac0c5a186bf96b98f04",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/discrete_law.py": "cecd125d7cc80652937d83edbd29f792cd05468baf634cc7b2855fd17db778f2"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "e4ef57efa172614709f9861f65de078de964f7ea6be49de6adc589262db0db93",
+    "summary.csv": "2c2ff6c32bf748234a3ad6c9c05ebfaf9abe95dbe9b18f5efa21dd3ba1c5063d",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "a0dec4563b9f0ac3868ca6415400736049693b51c288a4fbb7aa2293136fb705",
+    "property-replicates.parquet": "4df468a6f18618f3f135c5da3c082a0c4989e6c97f3a2aa91d8576534b1fa4cb",
+    "properties.csv": "440ed36abcf0d9a5c3e5642d4635f2cf005117f5f92d6b4c8bbf7b5be4a57bca",
+    "primary-shipped.csv": "2398a12918e26e5a03968198d96f81cdbc3159383c45c4c914bce9241c42a1a1",
+    "falsifiers.csv": "990e492c8d1eb2979f48841defce50227aed69b7d109c146b768f872d4229f65",
+    "property-failures.csv": "212b8a80631be8af7b154f65f83acce2d8d42b773c326264107db475d1d72d25",
+    "property-failure-accounting.csv": "9d2db79f9fc9ad99887c3ec8b95a290fd894850b0fb1463bc61f027d596a9033",
+    "property-failure-witnesses.parquet": "c0fbb9fb5278d8ff4ef398b7b1b5ea356f24672b5aeb6e1b5845e2f261d1539e"
+  }
+}

@@ -1,0 +1,12 @@
+property,cell,role,requested,failed,rate,bound,allowed,leg,complete_case,worst_case,imputation,leg_passed,gate_passed,reason
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,failure bound,5.0,40.0,,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,"coverage lower leg, first 2,000",0.01543230389222483,0.01385733111172971,support: j=0 covered,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,"coverage upper leg, first 2,000, shown only",0.018779755408146137,0.018779755408146137,support: lost fits absent,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,"tail clause, below",0.010670140749374044,0.009582986019693995,support: j=5 below,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,"tail clause, above",0.03031744635481068,0.029286780061369158,support: j=5 above,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,paired gain,0.43179333583259694,0.3330083425169156,support: c+5,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,informative-failure witness,8.47576462598045,0.7006257822277847,replicate 1078: largest absolute standardized value,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,informative-failure witness,6.834057533052403,0.2097622027534418,replicate 1421: largest absolute standardized value,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,informative-failure witness,8.238214459459096,0.644055068836045,replicate 1814: largest absolute standardized value,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,informative-failure witness,14.63244319312792,0.9979974968710889,replicate 2042: largest absolute standardized value,True,True,within bound
+owner_coverage,ho_hurdle_ey1,positive,4000,5,0.00125,0.01,40,informative-failure witness,7.800105024355453,0.5216520650813516,replicate 2383: largest absolute standardized value,True,True,within bound
