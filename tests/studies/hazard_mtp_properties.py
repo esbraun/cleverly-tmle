@@ -16,10 +16,15 @@ family                          cells, replications and size
 ``interval_calibration``        the contrast and the risk of each of the five fit labels,
                                 with the shrunken-SE and noise controls on
                                 ``levels_contrast`` and ``gaussian_density_contrast``; the
-                                calibration count of fits per fit label at n = 2,000
+                                calibration count of fits per fit label at n = 2,000.  Beside
+                                them, reported with no verdict, the ``untruncated_density``
+                                rows: the density route on the untruncated Gaussian law,
+                                whose tail bins are wider than the shift; 800 at n = 2,000
 ``double_robustness``           ``levels_contrast`` in four nuisance configurations, and the
-                                contrast of each Gaussian ratio route with the wrong hazard
-                                learner and the correct mechanism; 1,200 at n = 2,000
+                                contrast of each continuous fit label (both Gaussian ratio
+                                routes, the cross-fitted variant and the mixed node) with
+                                the wrong hazard learner and the correct mechanism; 1,200 at
+                                n = 2,000
 ``targeting_necessity``         ``levels_contrast``: the targeted contrast and the contrast
                                 of the initial hazards of the same fit, with the wrong hazard
                                 learner and the correct mechanism; 1,200 at n = 2,000
@@ -49,12 +54,13 @@ mechanism is the prior share for the levels, a Gaussian density with no covariat
 density route, a classifier on the dose alone on the classifier route, and the prior share for
 the censoring.
 
-**The fits-differ reading** (plan X70 section 5 and rev 2.4) lives in one place,
-:func:`fits_differ_reading`, with its floors as the named constants
-:data:`PAIRED_DIFFERENCE_FLOOR` and :data:`NON_MONOTONE_FLOOR`.  Both fits are efficient when
-their nuisance fits are correct, so on the gated laws they differ by :math:`o_P(n^{-1/2})`; the
-design test reads the committed pilot against these floors, and a decision on the reading is
-pending with the project owner.  Each ``paired_difference`` row records the hazard estimate
+**The fits-differ reading** (plan X70 section 5 and rev 2.4) is reported, not gated.
+:func:`fits_differ_reading` states the paired ratios and the decreasing share with its interval
+beside the plan's floors, the named constants :data:`PAIRED_DIFFERENCE_FLOOR` and
+:data:`NON_MONOTONE_FLOOR`, which appear only in that text.  Both fits are efficient when their
+nuisance fits are correct, so on the gated laws they differ by :math:`o_P(n^{-1/2})`.  A
+decision on the requirement is pending with the project owner; if the owner keeps it, the
+family is redesigned.  Each ``paired_difference`` row records the hazard estimate
 minus the iterated-mean estimate of the same draw (``isotonic_difference`` the same against the
 isotonic iterated-mean fit); its summary adds ``paired_sd_over_bound``, the SD of that
 difference over the efficiency-bound standard error.  The ``iterated_curve_decrease`` row
@@ -67,7 +73,6 @@ harness refuses a cell that lost more than its bound.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from typing import Any
 
@@ -128,19 +133,37 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: The declared floor on the targeted arm's displacement from the plug-in, in the targeted
 #: arm's empirical standard deviations.
 TARGETING_DISPLACEMENT = 0.25
-#: The fits-differ floors of plan X70 section 5, read by :func:`fits_differ_reading` alone.
-#: The paired-difference floor is the SD of hazard minus iterated-mean over the efficiency-bound
-#: standard error, on the largest estimate's ratio and on the gated contrast.  The non-monotone
-#: floor is the share of draws whose iterated-mean curve (without isotonic) decreases.  A
-#: decision on this reading is pending with the project owner.
+#: The fits-differ floors of plan X70 section 5, quoted in the text of
+#: :func:`fits_differ_reading` and read by no verdict.  The paired-difference floor is the SD of
+#: hazard minus iterated-mean over the efficiency-bound standard error.  The non-monotone floor
+#: is the share of draws whose iterated-mean curve (without isotonic) decreases.  A decision on
+#: the requirement is pending with the project owner.
 PAIRED_DIFFERENCE_FLOOR = 0.05
 NON_MONOTONE_FLOOR = 0.10
+#: The influence-curve gap of a gated fit label: the SD of its influence curve minus the exact
+#: per-unit efficient influence function, over the efficiency bound.  A gated fit label must
+#: keep the median over :data:`IC_GAP_DRAWS` draws at the small size, and the one draw at the
+#: large size, within :data:`IC_GAP_BOUND`, and its large-size gap at most :data:`IC_GAP_FALL`
+#: times its small-size median: the gap falls toward zero as n grows
+#: (``tests/unit/test_hazard_mtp_study_design.py``, ``TestTheInfluenceCurveGap``).  Read on the
+#: design test's own seed stream, never a declared one.
+IC_GAP_SIZES = (2_000, 20_000)
+IC_GAP_DRAWS = 5
+IC_GAP_BOUND = {2_000: 0.30, 20_000: 0.10}
+IC_GAP_FALL = 0.5
 CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
 DIFFERENCE_FAMILY = "iterated_mean_difference"
 MECHANISM_DIFFERENCE = "mechanism_correct_difference"
 CONTRAST = study.CONTRAST_LABEL
-FITS = study.FITS
+FITS = study.ALL_FITS
 ARMS = ("contrast", "risk")
+REPORTED_REPLICATES = study.REPORTED_REPLICATES
+REPORTED_FITS = tuple(study.REPORTED_FITS)
+REPORTED_ARM = "reported"
+#: The per-row record of each fit, and the summary columns that count it
+#: (:func:`convergence_reading`).  No verdict reads them.
+CONVERGENCE_COLUMNS = ("converged", "unexpected_warnings")
+CONVERGENCE_SUMMARY = ("nonconverged_fits", "unexpected_warning_fits")
 
 
 def _labels(fit_label: str) -> tuple[tuple[str, str], ...]:
@@ -231,7 +254,9 @@ def iterated_fit(
     Each visit's regression is the unpenalised quasibinomial regression on the design an
     iterated-mean fit hands its learners (``W1``, ``W2`` and the dose block), or on the dose
     block alone when ``regression_correct`` is false (:class:`NoWQuasiBinomial`).  The mechanism
-    learners are the hazard fit's correct ones.
+    learners are the hazard fit's correct ones.  Its warnings are filtered as the hazard fit's
+    are (:func:`~tests.studies.canonical_hazard_mtp.recorded`); a caller that records them wraps
+    the call in that function again.
     """
     law_name, ratio, folds = FITS[label]
     regression = QuasiBinomialGLM if regression_correct else NoWQuasiBinomial
@@ -240,9 +265,8 @@ def iterated_fit(
     settings: dict[str, Any] = {"ratio": ratio}
     if ratio == "density" and law.LAWS[law_name].continuous:
         settings["density_bins"] = study.oracle_bins(len(frame))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return LTMLE(
+    return study.recorded(
+        lambda: LTMLE(
             study.regimens(law_name),
             reference=study.NATURAL,
             n_folds=folds,
@@ -258,6 +282,7 @@ def iterated_fit(
             **settings,
             **mechanism,
         ).fit(law.LAWS[law_name].container(frame))
+    )[0]
 
 
 def largest_decrease(result: Any, n_times: int) -> tuple[float, float]:
@@ -297,14 +322,15 @@ def plug_in(result: Any, name: str) -> float:
 def fits_differ_reading(
     paired_ratios: dict[str, float], decreasing: int, draws: int, level: float = 0.99
 ) -> dict[str, Any]:
-    """The one place the fits-differ floors are read (plan X70 section 5, rev 2.4).
+    """The reported fits-differ reading (plan X70 section 5, rev 2.4); it asserts nothing.
 
     ``paired_ratios`` maps each cell label to its paired-difference SD over the efficiency-bound
     standard error; ``decreasing`` counts the draws whose iterated-mean curve without isotonic
-    decreases somewhere, out of ``draws``.  The reading passes when the largest ratio and the
-    gated contrast's ratio reach :data:`PAIRED_DIFFERENCE_FLOOR` and the decreasing share
-    reaches :data:`NON_MONOTONE_FLOOR`.  The share's Clopper-Pearson interval at ``level`` is
-    reported beside it.
+    decreases somewhere, out of ``draws``.  The reading returns the ratios, the largest of them
+    and the smallest contrast ratio, the decreasing share with its Clopper-Pearson interval at
+    ``level``, and ``text``, the sentence that states them beside the plan's floors
+    :data:`PAIRED_DIFFERENCE_FLOOR` and :data:`NON_MONOTONE_FLOOR`.  The floors appear in that
+    sentence and nowhere else: no verdict reads them while the owner's decision is pending.
     """
     tail = (1.0 - level) / 2.0
     low = float(beta.ppf(tail, decreasing, draws - decreasing + 1)) if decreasing else 0.0
@@ -315,16 +341,22 @@ def fits_differ_reading(
     )
     largest = max(paired_ratios.values())
     contrasts = [value for label, value in paired_ratios.items() if label.endswith("_contrast")]
+    contrast = min(contrasts) if contrasts else float("nan")
     share = decreasing / draws
+    ratios = ", ".join(f"{label} {value:.3f}" for label, value in sorted(paired_ratios.items()))
+    text = (
+        f"Paired-difference SD over the efficiency SE: {ratios} (plan X70 section 5 names a "
+        f"floor of {PAIRED_DIFFERENCE_FLOOR:g}). Decreasing iterated-mean curves: {decreasing} "
+        f"of {draws}, {share:.3f} with {level:.0%} interval [{low:.3f}, {high:.3f}] (the plan "
+        f"names a floor of {NON_MONOTONE_FLOOR:g}). Reported, not gated."
+    )
     return {
+        "ratios": dict(paired_ratios),
         "largest_ratio": largest,
-        "contrast_ratio": min(contrasts) if contrasts else float("nan"),
+        "contrast_ratio": contrast,
         "share": share,
         "share_interval": (low, high),
-        "paired_passes": largest >= PAIRED_DIFFERENCE_FLOOR
-        and bool(contrasts)
-        and min(contrasts) >= PAIRED_DIFFERENCE_FLOOR,
-        "monotone_passes": share >= NON_MONOTONE_FLOOR,
+        "text": text,
     }
 
 
@@ -335,6 +367,10 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
     *(
         ("interval_calibration", fit, "both_correct", CALIBRATION_N, CALIBRATION_REPLICATES, fit)
         for fit in CALIBRATION_FITS
+    ),
+    *(
+        ("interval_calibration", fit, "both_correct", CALIBRATION_N, REPORTED_REPLICATES, fit)
+        for fit in REPORTED_FITS
     ),
     *(
         ("double_robustness", c, c, DOUBLE_ROBUST_N, DOUBLE_ROBUST_REPLICATES, "levels")
@@ -448,6 +484,19 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     CALIBRATION_REPLICATES,
                     fit,
                 )
+    for fit in REPORTED_FITS:
+        dgp = DeclaredEstimates(fit)
+        for label, name in COEFFICIENTS[fit]:
+            add(
+                "interval_calibration",
+                f"{label}__{REPORTED_ARM}",
+                DIAGNOSTIC_ROLE,
+                dgp,
+                name,
+                CALIBRATION_N,
+                REPORTED_REPLICATES,
+                fit,
+            )
     levels = DeclaredEstimates("levels")
     for configuration in CONFIGURATIONS:
         add(
@@ -574,6 +623,8 @@ def _draw(key: _Key) -> pd.DataFrame:
 def cells_of(key: _Key) -> list[str]:
     """The ``family/cell`` names the fit set's rows and derived controls fill."""
     family, _, configuration, _, n, _, label = key[0]
+    if family == "interval_calibration" and label in REPORTED_FITS:
+        return [f"{family}/{cell_label}__{REPORTED_ARM}" for cell_label, _ in COEFFICIENTS[label]]
     if family == "interval_calibration":
         names: list[str] = []
         for cell_label, _ in COEFFICIENTS[label]:
@@ -639,12 +690,40 @@ def _paired_row(cell: str, hazard: Any, other: float, common_row: dict[str, Any]
     }
 
 
+class FitRecords:
+    """The :class:`~tests.studies.canonical_hazard_mtp.FitRecord` of every fit one key runs."""
+
+    def __init__(self) -> None:
+        self.records: list[study.FitRecord] = []
+
+    def hazard(self, label: str, frame: pd.DataFrame, **settings: Any) -> Any:
+        result, record = study.fit_recorded(label, frame, **settings)
+        self.records.append(record)
+        return result
+
+    def iterated(self, label: str, frame: pd.DataFrame, **settings: Any) -> Any:
+        """An iterated-mean fit: its warnings are recorded, its convergence is not the subject's."""
+        result, record = study.recorded(lambda: iterated_fit(label, frame, **settings))
+        self.records.append(study.FitRecord(True, record.unexpected_warnings))
+        return result
+
+    def columns(self) -> dict[str, int]:
+        return {
+            "converged": int(all(record.converged for record in self.records)),
+            "unexpected_warnings": sum(len(r.unexpected_warnings) for r in self.records),
+        }
+
+
 def _difference_rows(
-    frame: pd.DataFrame, common_row: dict[str, Any], shared: dict[str, Any], label: str
+    frame: pd.DataFrame,
+    common_row: dict[str, Any],
+    shared: dict[str, Any],
+    label: str,
+    records: FitRecords,
 ) -> list[dict[str, Any]]:
-    hazard = fit_label(label, frame)
-    iterated = iterated_fit(label, frame)
-    isotonic = iterated_fit(label, frame, isotonic=True)
+    hazard = records.hazard(label, frame)
+    iterated = records.iterated(label, frame)
+    isotonic = records.iterated(label, frame, isotonic=True)
     rows: list[dict[str, Any]] = []
     for cell_label, name in COEFFICIENTS[label]:
         for arm, result in (("hazard_fit", hazard), ("iterated_fit", iterated)):
@@ -695,7 +774,7 @@ def _difference_rows(
 
 
 def mechanism_difference_rows(
-    frame: pd.DataFrame, hazard: Any, common_row: dict[str, Any], label: str
+    frame: pd.DataFrame, hazard: Any, common_row: dict[str, Any], label: str, records: FitRecords
 ) -> list[dict[str, Any]]:
     """The paired difference of the two consistent, misspecified-regression fits of one draw.
 
@@ -703,7 +782,7 @@ def mechanism_difference_rows(
     mechanism).  The iterated-mean fit of the same plans uses :class:`NoWQuasiBinomial`
     regressions and the same correct mechanism.
     """
-    iterated = iterated_fit(label, frame, regression_correct=False)
+    iterated = records.iterated(label, frame, regression_correct=False)
     return [
         _paired_row(
             f"{cell_label}__{MECHANISM_DIFFERENCE}",
@@ -716,7 +795,19 @@ def mechanism_difference_rows(
 
 
 def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
-    """The replicate rows of one fit of one fit set on its drawn sample."""
+    """The replicate rows of one fit of one fit set on its drawn sample.
+
+    Every row carries :data:`CONVERGENCE_COLUMNS` of the fits the key ran: ``converged``, 1
+    when every hazard walk met its tolerance, and ``unexpected_warnings``, the count of
+    warnings outside the expected classes.  A nonconverged fit keeps its rows.
+    """
+    records = FitRecords()
+    rows = _fit_drawn(payload, frame, records)
+    columns = records.columns()
+    return [{**row, **columns} for row in rows]
+
+
+def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> list[dict[str, Any]]:
     family, _, configuration, replicate, n, requested, label = payload
     common_row = {"replicate": replicate, "n": n, "requested_replicates": requested}
     shared: dict[str, Any] = {"replicate": replicate, "n": n, "requested": requested}
@@ -733,11 +824,17 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
         )
 
     if family == DIFFERENCE_FAMILY:
-        return _difference_rows(frame, common_row, shared, label)
+        return _difference_rows(frame, common_row, shared, label, records)
+    if family == "interval_calibration" and label in REPORTED_FITS:
+        result = records.hazard(label, frame)
+        return [
+            row(cell_label, f"{cell_label}__{REPORTED_ARM}", DIAGNOSTIC_ROLE, result[name])
+            for cell_label, name in COEFFICIENTS[label]
+        ]
     if family == "interval_calibration":
         joint = f"{label}_curve"
         banded = joint in JOINT_LABELS
-        result = fit_label(label, frame, simultaneous=banded)
+        result = records.hazard(label, frame, simultaneous=banded)
         rows = [
             row(cell_label, f"{cell_label}__correctly_specified", "positive", result[name])
             for cell_label, name in COEFFICIENTS[label]
@@ -757,7 +854,7 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 )
             )
         return rows
-    result = fit_label(label, frame, configuration=configuration)
+    result = records.hazard(label, frame, configuration=configuration)
     if family == "root_n_and_efficiency":
         role = "control" if n == min(RATE_SIZES) else "positive"
         return [
@@ -779,7 +876,7 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
         role = "control" if configuration == "both_wrong" else "positive"
         rows = [row(CONTRAST, f"{CONTRAST}__{configuration}", role, estimate)]
         if configuration == "mechanism_correct":
-            rows += mechanism_difference_rows(frame, result, common_row, label)
+            rows += mechanism_difference_rows(frame, result, common_row, label, records)
         return rows
     if family == "targeting_necessity":
         return [
@@ -850,7 +947,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
         ],
         ignore_index=True,
     )
-    return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
+    return rows.reindex(columns=[*REPLICATE_COLUMNS, *CONVERGENCE_COLUMNS]).sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
 
@@ -899,19 +996,59 @@ def difference_readings(summary: pd.DataFrame) -> None:
         summary.loc[index, "property_passed"] = True
 
 
+def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Count, per cell, the fits that did not converge and those that raised other warnings.
+
+    ``nonconverged_fits`` counts the rows whose fit set ``converged`` to 0, and
+    ``unexpected_warning_fits`` the rows whose fits raised a warning outside the expected
+    classes.  The columns are reported and decide no verdict.  A derived control's rows carry
+    no record and leave both empty.
+    """
+    for index in summary.index:
+        group = rows.loc[
+            (rows["property"] == summary.loc[index, "property"])
+            & (rows["cell"] == summary.loc[index, "cell"])
+        ]
+        kept = group.loc[group["converged"].notna()] if "converged" in group else group.iloc[:0]
+        if kept.empty:
+            continue
+        summary.loc[index, "nonconverged_fits"] = float((kept["converged"] == 0).sum())
+        summary.loc[index, "unexpected_warning_fits"] = float(
+            (kept["unexpected_warnings"] > 0).sum()
+        )
+
+
+def reported_calibration(summary: pd.DataFrame) -> pd.Series:
+    """The reported, ungated ``interval_calibration`` rows (:data:`REPORTED_FITS`)."""
+    return (summary["property"] == "interval_calibration") & summary["cell"].astype(
+        str
+    ).str.endswith(f"__{REPORTED_ARM}")
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared verdicts, the study's declared rules, and the reported difference rows."""
+    """The shared verdicts, the study's declared rules, and the reported rows.
+
+    The reported calibration rows of :data:`REPORTED_FITS` keep every interval the summary
+    computes and state no verdict: their ``diagnostic`` role says so, and ``passed`` reads true
+    as on every reported row.
+    """
     summary, rates = apply_shared_verdicts(
         rows,
         STUDY,
-        extra_columns=("targeting_displacement", "paired_sd_over_bound"),
+        extra_columns=("targeting_displacement", "paired_sd_over_bound", *CONVERGENCE_SUMMARY),
         rate_labels=study.LADDER_LABELS,
         efficiency_bounds=EFFICIENCY_SD,
     )
-    calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
+    reported = reported_calibration(summary)
+    gated = summary.loc[~reported].copy()
+    calibration_verdicts(gated, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
+    summary.loc[gated.index, "passed"] = gated["passed"]
+    summary.loc[reported, "passed"] = True
+    summary.loc[reported, "property_passed"] = True
     necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     difference_readings(summary)
+    convergence_reading(summary, rows)
     return finish(summary, rates)
 
 

@@ -9,8 +9,10 @@ modified treatment policy on the hazard path").
 
 **The laws** are those of :mod:`tests.studies.hazard_mtp_law`: ``levels`` (a dose on ``0..5``
 read as six levels, the policy "one level up, the top stays", five visits), ``gaussian`` (a
-Gaussian dose read as a continuous node, the additive shift :math:`\\delta = 1`, five visits) and
-``vector`` (a binary arm beside a Gaussian dose, a joint policy that shifts the dose, one visit).
+Gaussian dose read as a continuous node, the additive shift :math:`\\delta = 1`, five visits),
+``truncated`` (the same dose truncated to ``[0, 5.5]``, the shift capped at 5.5: a unit whose
+shifted dose would pass the cap keeps its own) and ``vector`` (a binary arm beside a Gaussian
+dose, a joint policy that shifts the dose, one visit).
 The reference regimen of every law is the natural course, the identity policy, which takes a
 walk of its own.  Plan X70 section 5 names the shared ``dose`` scenario of
 :mod:`tests.studies.point_survival_common` for ``levels``.  Its drop-out is linear on the
@@ -19,14 +21,27 @@ hazard learner's plug-in contrast about one efficiency SE from the truth.  The s
 its dose mechanism family and replace the drop-out by a logistic one and the hazard by one with
 larger ``W`` and dose coefficients.
 
-**Fit labels** (:data:`FITS`).  ``levels``; ``gaussian_density`` (the binned density route with a
-fitted Gaussian location density, :class:`~tests.studies.hazard_mtp_law.GaussianDoseHazard`, at
+**Fit labels** (:data:`FITS`).  ``levels``; ``gaussian_density`` (the binned density route on
+``truncated``, with a fitted truncated-normal location density,
+:class:`~tests.studies.hazard_mtp_law.GaussianDoseHazard`, at
 :func:`~tests.studies.oracle_density_bins.oracle_bins` bins); ``gaussian_classifier`` (the
-classifier route, a logistic classifier on ``(W1, W2, A)``); ``gaussian_crossfit`` (the classifier
-route at five folds, the cross-fitted variant: the density learner reads the whole sample, so the
-cross-fitted variant uses the route whose every learner is fitted on its training fold); and
-``vector`` (a mixed node, the density route).  A vector held over several visits cannot be
-declared in the data container (plan X70 rev 2.5), so ``vector`` has one visit.
+classifier route on ``gaussian``, a logistic classifier on ``(W1, W2, A)``); ``gaussian_crossfit``
+(the same classifier at five folds, the cross-fitted variant); and ``vector`` (a mixed node, the
+classifier route).  The cross-fitted variant exercises the cross-fitting of the shifted-dose
+predictions (``cross_fit_predictions(..., predict_designs=)``), which does not depend on the
+ratio route, so one route covers it; the study's density learner reads the sample it is handed
+through its constructor, so the classifier carries the cross-fitted cell.  A vector held over
+several visits cannot be declared in the data container (plan X70 rev 2.5), so ``vector`` has
+one visit.
+
+**Why the density route is gated on the truncated law.**  On the untruncated Gaussian law the
+policy ratio grows exponentially in the dose, and the top quantile bins at ``oracle_bins(n)``
+are wider than the shift, so a dose and its pre-image share a bin and the binned ratio reads one
+where the true ratio is 5 to 8.  The influence curve of that fit then stays away from the
+efficient influence function as n grows (``tests/unit/test_hazard_mtp_study_design.py``,
+``TestTheInfluenceCurveGap``).  The reported fit label ``untruncated_density``
+(:data:`REPORTED_FITS`) keeps that fit as an ungated row, so the shipped route's tail binning is
+disclosed and not hidden.
 
 **Truths and bounds** are exact sums over the dose levels, or Gauss-Hermite quadratures over a
 Gaussian dose that reach ``1e-10``, computed by code that never calls the estimator.  The design
@@ -45,6 +60,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -80,11 +96,19 @@ NATURAL = "natural"
 #: Fit label -> ``(law, ratio route, folds)``.
 FITS: dict[str, tuple[str, str, int]] = {
     "levels": ("levels", "density", 1),
-    "gaussian_density": ("gaussian", "density", 1),
+    "gaussian_density": ("truncated", "density", 1),
     "gaussian_classifier": ("gaussian", "classifier", 1),
     "gaussian_crossfit": ("gaussian", "classifier", 5),
-    "vector": ("vector", "density", 1),
+    "vector": ("vector", "classifier", 1),
 }
+#: The reported, ungated fit label: the density route on the untruncated Gaussian law, whose
+#: quantile tail bins are wider than the shift.
+REPORTED_FITS: dict[str, tuple[str, str, int]] = {
+    "untruncated_density": ("gaussian", "density", 1),
+}
+ALL_FITS = {**FITS, **REPORTED_FITS}
+#: The replicates of the reported, ungated rows.
+REPORTED_REPLICATES = 800
 #: The primary scenarios: every fit label but the cross-fitted variant, which calibration reads.
 SCENARIOS = ("levels", "gaussian_density", "gaussian_classifier", "vector")
 
@@ -106,7 +130,7 @@ def regimens(law_name: str) -> dict[str, Any]:
         }
     if current.kind == "gaussian":
         return {
-            SHIFT: Shift(current.shift, cap=None),
+            SHIFT: Shift(current.shift, cap=current.cap),
             NATURAL: ModifiedPolicy("natural", pieces=(Piece(-_INF, _INF),), policy_kind="known"),
         }
     return {
@@ -148,7 +172,7 @@ def truths(law_name: str) -> dict[str, float]:
 
 
 def law_of(fit_label: str) -> law.Law:
-    return law.LAWS[FITS[fit_label][0]]
+    return law.LAWS[ALL_FITS[fit_label][0]]
 
 
 ESTIMANDS = {scenario: estimand_names(FITS[scenario][0]) for scenario in SCENARIOS}
@@ -169,8 +193,16 @@ CALIBRATION_LABELS = tuple(
 CONTROLLED_LABELS = ("levels_contrast", "gaussian_density_contrast")
 #: The contrast every robustness, necessity and power cell reads.
 CONTRAST_LABEL = "levels_contrast"
-#: The ratio-route robustness cells: the wrong hazard learner and the correct mechanism.
-ROUTE_DR_LABELS = ("gaussian_density_contrast", "gaussian_classifier_contrast")
+#: The ratio-route robustness cells: the wrong hazard learner and the correct mechanism, on each
+#: continuous fit label, so the weighted loss is read on the mixed node and under cross-fitting.
+ROUTE_DR_LABELS = (
+    "gaussian_density_contrast",
+    "gaussian_classifier_contrast",
+    "gaussian_crossfit_contrast",
+    "vector_contrast",
+)
+#: The reported, ungated cells: the calibration of the density route on the untruncated law.
+REPORTED_LABELS = tuple(f"{fit}_{arm}" for fit in REPORTED_FITS for arm in ("contrast", "risk"))
 #: The joint labels: the band over every estimate of one fit.
 JOINT_LABELS = ("levels_curve", "gaussian_density_curve")
 RATE_SIZES = (1_000, 2_000, 8_000)
@@ -180,14 +212,17 @@ DIFFERENCE_FITS = ("levels", "gaussian_density")
 DIFFERENCE_ARMS = ("paired_difference", "hazard_fit", "iterated_fit", "isotonic_difference")
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
-    "interval_calibration": tuple(
-        cell
-        for label in CALIBRATION_LABELS
-        for cell in (
-            _cells(label, "correctly_specified", "shrunken_se_control", "noise_control")
-            if label in CONTROLLED_LABELS
-            else _cells(label, "correctly_specified")
-        )
+    "interval_calibration": (
+        *(
+            cell
+            for label in CALIBRATION_LABELS
+            for cell in (
+                _cells(label, "correctly_specified", "shrunken_se_control", "noise_control")
+                if label in CONTROLLED_LABELS
+                else _cells(label, "correctly_specified")
+            )
+        ),
+        *(cell for label in REPORTED_LABELS for cell in _cells(label, "reported")),
     ),
     "double_robustness": (
         *_cells(
@@ -266,11 +301,15 @@ CONFIGURATION = {
     "tol": TOL,
     "fits": {label: list(spec) for label, spec in FITS.items()},
     "outcome_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
-    "treatment_learner": "multinomial logistic on W1, W2 (levels); a least-squares Gaussian "
-    "location density read through the binned hazards (density route); logistic classifier on "
-    "W1, W2, (F,) A (classifier route)",
+    "treatment_learner": "multinomial logistic on W1, W2 (levels); a truncated-normal location "
+    "density by maximum likelihood, read through the binned hazards (density route, truncated "
+    "law; least squares on the reported untruncated row); logistic classifier on W1, W2, (F,) A "
+    "(classifier route)",
     "censoring_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
-    "regimens": {"shift": "one level up (levels); A + 1 (gaussian, vector)", "natural": "identity"},
+    "regimens": {
+        "shift": "one level up (levels); A + 1 (gaussian, vector); A + 1 capped at 5.5 (truncated)",
+        "natural": "identity",
+    },
 }
 
 
@@ -285,7 +324,7 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
     from sklearn.dummy import DummyClassifier
 
     current = law_of(fit_label)
-    _, ratio, _ = FITS[fit_label]
+    _, ratio, _ = ALL_FITS[fit_label]
     hazard_correct = configuration in {"both_correct", "outcome_correct"}
     mechanism_correct = configuration in {"both_correct", "mechanism_correct"}
     out: dict[str, Any] = {
@@ -312,8 +351,60 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
             covariates,
             frame,
             marginal=not mechanism_correct,
+            bounds=current.bounds,
         )
     return out
+
+
+#: The warning classes a fit of this study is expected to raise, filtered by name, with why.
+#: Every other warning a fit raises is counted in its rows (``unexpected_warnings``).
+EXPECTED_WARNINGS: dict[str, str] = {
+    "SparseInfluenceWarning": "the uncapped Gaussian shift's ratio is heavy in the top dose ranks, "
+    "so a few rows carry the influence curve's variance; calibration reads that variance",
+}
+#: The support warning of a shift, filtered by its category and message: the uncapped shift
+#: moves the largest observed dose past the observed range by construction.
+SUPPORT_WARNING = r"policy .* (has cap=|assigns )"
+
+
+@dataclass(frozen=True)
+class FitRecord:
+    """What a fit's warnings and walks say about it, recorded beside its rows.
+
+    Parameters
+    ----------
+    converged : bool
+        Whether every hazard walk of the fit met its tolerance.
+    unexpected_warnings : tuple of str
+        The class names of the warnings outside :data:`EXPECTED_WARNINGS` and the support
+        warning, one entry per warning.
+    """
+
+    converged: bool
+    unexpected_warnings: tuple[str, ...]
+
+    def columns(self) -> dict[str, int]:
+        """The per-row columns: ``converged`` (0 or 1) and the ``unexpected_warnings`` count."""
+        return {
+            "converged": int(self.converged),
+            "unexpected_warnings": len(self.unexpected_warnings),
+        }
+
+
+def recorded(call: Any) -> tuple[Any, FitRecord]:
+    """Run ``call()``, filtering the expected warnings by name and recording every other one."""
+    from cleverly.exceptions import PositivityWarning
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", message=SUPPORT_WARNING, category=PositivityWarning)
+        result = call()
+    unexpected = tuple(
+        item.category.__name__ for item in caught if item.category.__name__ not in EXPECTED_WARNINGS
+    )
+    walks = [getattr(regimen_fit, "hazard", None) for regimen_fit in result.fits.values()]
+    converged = all(bool(getattr(walk, "converged", True)) for walk in walks if walk is not None)
+    return result, FitRecord(converged, unexpected)
 
 
 def fit(
@@ -324,14 +415,23 @@ def fit(
     simultaneous: bool = False,
 ) -> Any:
     """The subject's fit of one fit label's sample."""
-    law_name, ratio, folds = FITS[fit_label]
+    return fit_recorded(fit_label, frame, configuration=configuration, simultaneous=simultaneous)[0]
+
+
+def fit_recorded(
+    fit_label: str,
+    frame: pd.DataFrame,
+    *,
+    configuration: str = "both_correct",
+    simultaneous: bool = False,
+) -> tuple[Any, FitRecord]:
+    """The subject's fit of one fit label's sample, with its :class:`FitRecord`."""
+    law_name, ratio, folds = ALL_FITS[fit_label]
     settings: dict[str, Any] = {"ratio": ratio}
     if ratio == "density" and law.LAWS[law_name].continuous:
         settings["density_bins"] = oracle_bins(len(frame))
-    with warnings.catch_warnings():
-        # An uncapped shift of a Gaussian dose warns that its support is not declared.
-        warnings.simplefilter("ignore")
-        return LTMLE(
+    return recorded(
+        lambda: LTMLE(
             regimens(law_name),
             reference=NATURAL,
             n_folds=folds,
@@ -343,6 +443,7 @@ def fit(
             **settings,
             **learners(fit_label, frame, configuration),
         ).fit(law.LAWS[law_name].container(frame))
+    )
 
 
 def initial_estimates(result: Any, names: Sequence[str]) -> dict[str, float]:

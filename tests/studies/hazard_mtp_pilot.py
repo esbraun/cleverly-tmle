@@ -20,9 +20,9 @@ label                              what it measures
                                    iterated-mean fit with regressions that omit ``W``, both with
                                    the correct mechanism
 ``wrong_learner_<fit>``            the wrong hazard learner and the correct mechanism on
-                                   ``levels``, ``gaussian_density`` and ``gaussian_classifier``
-                                   at n = 2,000, 200 draws each: the fit's plug-in and targeted
-                                   estimates
+                                   ``levels``, ``gaussian_density``, ``gaussian_classifier``,
+                                   ``gaussian_crossfit`` and ``vector`` at n = 2,000, 200 draws
+                                   each: the fit's plug-in and targeted estimates
 ``calibration_<fit>``              the calibration fits of one fit label of
                                    :data:`~tests.studies.canonical_hazard_mtp.FITS`, n = 2,000,
                                    8,000 draws each
@@ -41,12 +41,15 @@ the isotonic fit's ``isotonic_estimate``; its ``largest_decrease`` row holds the
 of the iterated-mean risk curve between visits as ``estimate`` and that difference's standard
 error as ``std_error``.  A ``wrong_learner`` row holds the plug-in and targeted estimates
 (``wrong_plug_in``, ``wrong_targeted``).  A calibration row reads every estimate of the fit.
+Every row records its key's fits: ``converged`` (1 when every hazard walk met its tolerance)
+and ``unexpected_warnings`` (the count of warnings outside the expected classes of
+:data:`~tests.studies.canonical_hazard_mtp.EXPECTED_WARNINGS`); no warning is suppressed
+wholesale.
 """
 
 from __future__ import annotations
 
 import argparse
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +67,14 @@ FITS_DIFFER_DRAWS = 200
 MECHANISM_DIFFER_DRAWS = 200
 WRONG_LEARNER_DRAWS = 200
 CALIBRATION_DRAWS = 8_000
-WRONG_LEARNER_FITS = ("levels", "gaussian_density", "gaussian_classifier")
+#: Every fit label with a positive arm that fits the wrong hazard learner.
+WRONG_LEARNER_FITS = (
+    "levels",
+    "gaussian_density",
+    "gaussian_classifier",
+    "gaussian_crossfit",
+    "vector",
+)
 
 #: ``label -> (fit label, draws)``.
 PILOTS: dict[str, tuple[str, int]] = {
@@ -88,6 +98,8 @@ COLUMNS = (
     "isotonic_estimate",
     "wrong_plug_in",
     "wrong_targeted",
+    "converged",
+    "unexpected_warnings",
     "refusal",
 )
 
@@ -135,11 +147,13 @@ def _paired_rows(
     return rows
 
 
-def _fits_differ(label: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
+def _fits_differ(
+    label: str, replicate: int, frame: pd.DataFrame, records: Any
+) -> list[dict[str, Any]]:
     fit, _ = PILOTS[label]
-    hazard = properties.fit_label(fit, frame)
-    iterated = properties.iterated_fit(fit, frame)
-    isotonic = properties.iterated_fit(fit, frame, isotonic=True)
+    hazard = records.hazard(fit, frame)
+    iterated = records.iterated(fit, frame)
+    isotonic = records.iterated(fit, frame, isotonic=True)
     rows = _paired_rows(label, replicate, fit, hazard, iterated, isotonic)
     drop, error = properties.largest_decrease(iterated, study.law_of(fit).n_times)
     rows.append(
@@ -150,15 +164,19 @@ def _fits_differ(label: str, replicate: int, frame: pd.DataFrame) -> list[dict[s
     return rows
 
 
-def _mechanism_differ(label: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
-    hazard = properties.fit_label("levels", frame, configuration="mechanism_correct")
-    iterated = properties.iterated_fit("levels", frame, regression_correct=False)
+def _mechanism_differ(
+    label: str, replicate: int, frame: pd.DataFrame, records: Any
+) -> list[dict[str, Any]]:
+    hazard = records.hazard("levels", frame, configuration="mechanism_correct")
+    iterated = records.iterated("levels", frame, regression_correct=False)
     return _paired_rows(label, replicate, "levels", hazard, iterated)
 
 
-def _wrong_learner(label: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
+def _wrong_learner(
+    label: str, replicate: int, frame: pd.DataFrame, records: Any
+) -> list[dict[str, Any]]:
     fit, _ = PILOTS[label]
-    wrong = properties.fit_label(fit, frame, configuration="mechanism_correct")
+    wrong = records.hazard(fit, frame, configuration="mechanism_correct")
     rows = _estimate_rows(label, replicate, fit, wrong)
     for row in rows:
         name = str(row["estimand"])
@@ -171,19 +189,20 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
     label, replicate = job
     fit_label, _ = PILOTS[label]
     frame = properties.draw(fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate))
+    records = properties.FitRecords()
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if label == "fits_differ_mechanism_correct":
-                return _mechanism_differ(label, replicate, frame)
-            if label.startswith("fits_differ_"):
-                return _fits_differ(label, replicate, frame)
-            if label.startswith("wrong_learner_"):
-                return _wrong_learner(label, replicate, frame)
-            result = properties.fit_label(fit_label, frame)
-            return _estimate_rows(label, replicate, fit_label, result)
+        if label == "fits_differ_mechanism_correct":
+            rows = _mechanism_differ(label, replicate, frame, records)
+        elif label.startswith("fits_differ_"):
+            rows = _fits_differ(label, replicate, frame, records)
+        elif label.startswith("wrong_learner_"):
+            rows = _wrong_learner(label, replicate, frame, records)
+        else:
+            rows = _estimate_rows(label, replicate, fit_label, records.hazard(fit_label, frame))
     except Exception as error:  # a refusal is a pilot finding, recorded with its class
         return [_row(label, replicate, refusal=type(error).__name__)]
+    columns = records.columns()
+    return [{**row, **columns} for row in rows]
 
 
 def run(
