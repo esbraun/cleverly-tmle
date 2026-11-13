@@ -621,6 +621,13 @@ class RatioLogistic(_Logistic):
     """
 
 
+class DoseOnlyRatio(_Logistic):
+    """The wrong classifier of the ratio route: logistic on the dose alone, no ``W``."""
+
+    def _features(self, X: Any) -> np.ndarray:
+        return np.asarray(X, dtype=float)[:, -1:]
+
+
 class GaussianDoseHazard(BaseEstimator):
     """A Gaussian location density of the dose, fitted, read through the binned hazards.
 
