@@ -381,6 +381,10 @@ def captured(name: str) -> Iterator[list[tuple[tuple[Any, ...], Any]]]:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(hazard_module, name, spy)
+        from cleverly.longitudinal import estimator as estimator_module
+
+        if hasattr(estimator_module, name):
+            patch.setattr(estimator_module, name, spy)
         yield calls
 
 
@@ -718,3 +722,78 @@ def test_a_treatment_that_never_changes_reduces_to_the_held_fit() -> None:
     for label in ("always", "never"):
         for t in (1, 2, 3):
             assert risk(multi, label, t) == pytest.approx(risk(held, label, t), abs=1e-10)
+
+
+# ---------------------------------------------------------------------------- settings
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"iterate": "best"},
+        {"node_bounds": {2: (0.0, 0.6)}},
+        {"targeting": "iterative", "step_bound": 0.5, "tol": 1e-9, "max_iter": 500},
+        {"stopping": "scaled_var"},
+    ],
+    ids=["best iterate", "node bounds", "step bound", "declared rule"],
+)
+def test_the_settings_of_the_walk_carry_over(settings: dict[str, Any]) -> None:
+    labels = SETS[0]
+    result = fit(LAW, labels, **settings)
+    record = result.fits["always @ t=3"].hazard
+    assert record.converged
+    if "stopping" in settings:
+        # The declared rule stops at its threshold, short of the exact solve.
+        assert record.rule_ratio is not None and record.rule_ratio <= 1.0
+        return
+    assert miss(result, LAW, labels) < EXACT
+    if "iterate" in settings:
+        assert record.best_iterate is not None
+    if "node_bounds" in settings:
+        assert record.share_clipped and record.share_clipped[0][0] == 2
+
+
+def test_clusters_sum_the_curve_within_a_cluster() -> None:
+    labels = ("policy",)
+    frame = LAW.frame()
+    frame["cl"] = np.arange(len(frame)) // 2
+    plain = fit(LAW, labels)
+    clustered = fit(LAW, labels, frame=frame, columns={"id": "cl"})
+    name = "risk_regimen[policy @ t=3]"
+    assert clustered.estimates[name].psi == pytest.approx(plain.estimates[name].psi, abs=1e-12)
+    curve = plain.influence_curves[name]
+    sums = np.bincount(frame["cl"].to_numpy(), weights=curve)
+    n = len(frame)
+    expected = np.sqrt(np.sum(sums**2) / n**2 * (len(sums) / (len(sums) - 1)))
+    assert np.sqrt(clustered.estimates[name].variance) == pytest.approx(expected, rel=1e-6)
+
+
+def test_the_path_hazards_are_cross_fitted() -> None:
+    """Each held-out row's path hazard is the training folds' fit at the path's design."""
+    with captured("fit_hazards") as calls:
+        result = fit(LAW, ("policy",), n_folds=3, random_state=0)
+    assert result.fits["policy @ t=3"].hazard.converged
+    ((args, initial),) = calls
+    data, slots = args[0], args[1]
+    at_risk, events = hazard_module.event_indicators(data)
+    assignment = result.folds.assignment
+    design = data.history_design(2, include_current=True)
+    expected = np.empty((data.n, len(slots)))
+    for fold in np.unique(assignment):
+        train = at_risk[:, 1] & (assignment != fold)
+        learner = WrongHazard().fit(design[train], events[train, 1, 0], data.weights[train])
+        held = assignment == fold
+        for u, plan in enumerate(slots):
+            at = data.history_design(2, treatment=plan.values, include_current=True)
+            expected[held, u] = learner.predict(at[held])
+    np.testing.assert_allclose(initial.hazards[:, 1, :, 0], expected, rtol=0.0, atol=1e-12)
+
+
+def test_a_replay_at_the_fitted_bound_is_bit_identical() -> None:
+    from cleverly.longitudinal.estimator import _fitted_replay_matches, _refit_bound
+
+    result = fit(LAW, SETS[0])
+    replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
+    assert _fitted_replay_matches(result, result.repeats[0], replay)
+    frame = result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
+    assert len(frame) > 0
