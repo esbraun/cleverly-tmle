@@ -41,8 +41,7 @@ is ``red: too wide``; otherwise the row is ``conservative`` when ``hi > 1.07`` a
 **The coverage-floor factor** :data:`COVERAGE_FLOOR_FACTOR` is the largest of
 :data:`FLOOR_FACTORS` whose control fails as required with probability at least 0.95 on every
 gated option row, read from the committed probe-5 draws of
-``tests/diagnostics/fix5_heavy_ratios`` (:func:`floor_control_power`) at the counts of
-:data:`FLOOR_FACTOR_COUNTS`, fixed before any gated run.  It keeps its power at the declared
+``tests/diagnostics/fix5_heavy_ratios`` (:func:`floor_control_power`) at the declared
 counts.  The twins' coverage-floor control has its own factor,
 :data:`~tests.studies.canonical_mtp_policy_variance.CONTROL_SE_FACTOR`, chosen by the same rule
 on their pilot rows.
@@ -144,7 +143,7 @@ FLOOR_CONTROL_CEILING = study.CONTROL_COVERAGE_CEILING
 FLOOR_FACTORS: tuple[float, ...] = (0.70, 0.65, 0.60, 0.55, 0.50)
 #: The declared factor: the largest of :data:`FLOOR_FACTORS` whose control fails as required
 #: with probability at least 0.95 on every gated option row (:func:`chosen_floor_factor`).
-COVERAGE_FLOOR_FACTOR = 0.55
+COVERAGE_FLOOR_FACTOR = 0.60
 SHRUNKEN_SE_FACTOR = 0.70
 INFLATED_SE_FACTOR = 1.40
 #: The power every control must reach, and the family-wise target of the gated rows.
@@ -854,20 +853,7 @@ def floor_control_power(factor: float, replicates: Mapping[str, int] = REPLICATE
     return pd.DataFrame(out)
 
 
-#: The counts at which :data:`COVERAGE_FLOOR_FACTOR` was chosen, before the sizing rule raised
-#: them.  Rule S4 changes a declared factor only where it lacks power at the declared counts, so
-#: the factor is not re-chosen at :data:`REPLICATES` (where 0.60 would also reach the power).
-FLOOR_FACTOR_COUNTS: dict[str, int] = {
-    "pricing_ltmle_tau5": 2_600,
-    "pricing_sdr_tau5": 2_600,
-    "p4_ltmle": 2_800,
-    "p4_sdr": 2_800,
-    "boundaries_ltmle_p4": 1_000,
-    "boundaries_sdr_p4": 1_000,
-}
-
-
-def chosen_floor_factor(replicates: Mapping[str, int] = FLOOR_FACTOR_COUNTS) -> float | None:
+def chosen_floor_factor(replicates: Mapping[str, int] = REPLICATES) -> float | None:
     """The largest declared factor whose control reaches :data:`CONTROL_POWER` on every row."""
     for factor in FLOOR_FACTORS:
         if floor_control_power(factor, replicates)["power"].min() >= CONTROL_POWER:

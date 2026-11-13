@@ -224,25 +224,22 @@ def test_the_screen_reads_the_other_candidate_as_a_separate_fit() -> None:
 
 
 def test_the_coverage_floor_factor_is_the_largest_declared_one_with_power() -> None:
-    """Chosen at the counts it was fixed at; rule S4 keeps it while it has power."""
+    """Rev 4.1's rule at the declared counts: the largest factor with power on every row."""
     assert properties.chosen_floor_factor() == properties.COVERAGE_FLOOR_FACTOR
-    for counts in (properties.FLOOR_FACTOR_COUNTS, properties.REPLICATES):
-        powers = properties.floor_control_power(properties.COVERAGE_FLOOR_FACTOR, counts)
-        assert powers["power"].min() >= properties.CONTROL_POWER
+    powers = properties.floor_control_power(properties.COVERAGE_FLOOR_FACTOR)
+    assert powers["power"].min() >= properties.CONTROL_POWER
     assert set(powers["set"]) == {
         label
         for label in (*properties.OPTION_SETS, *properties.CALIBRATION_SETS)
         if label not in properties.REPORTING_SETS and "tau2" not in label
     }
-    assert set(properties.FLOOR_FACTOR_COUNTS) == set(powers["set"])
 
 
 def test_the_next_larger_factor_lacks_power() -> None:
-    """The control of the choice: one step up (0.60) misses 0.95 on some probed row."""
+    """The control of the choice: one step up misses 0.95 on some probed row."""
     index = properties.FLOOR_FACTORS.index(properties.COVERAGE_FLOOR_FACTOR)
     larger = properties.FLOOR_FACTORS[index - 1]
-    powers = properties.floor_control_power(larger, properties.FLOOR_FACTOR_COUNTS)
-    assert powers["power"].min() < properties.CONTROL_POWER
+    assert properties.floor_control_power(larger)["power"].min() < properties.CONTROL_POWER
 
 
 @pytest.mark.parametrize("label", sorted(properties.WALD_CONTROL_SETS))
@@ -414,7 +411,7 @@ def test_the_twin_floor_factor_is_the_largest_declared_one_with_power() -> None:
 
 def test_the_two_families_declare_their_own_floor_factor() -> None:
     assert np.isclose(study.CONTROL_SE_FACTOR, 0.65)
-    assert np.isclose(properties.COVERAGE_FLOOR_FACTOR, 0.55)
+    assert np.isclose(properties.COVERAGE_FLOOR_FACTOR, 0.60)
 
 
 def test_the_rules_reproduce_the_verdicts_on_the_pilot() -> None:
