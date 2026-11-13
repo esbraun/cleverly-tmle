@@ -226,7 +226,8 @@ def assert_shows_interval(result: Any, status: str, reference_df: int | None) ->
 
     Every estimate of a level or a difference answers ``ci`` with
     ``psi +- q * plugin_std_error``, where ``q`` is the normal quantile for ``reference_df``
-    ``None`` and the Student quantile otherwise. The label is experimental, and the frame
+    ``None`` and the Student quantile otherwise, or with the logit, MOVER or skew-widened
+    interval its ``interval_scale`` names, from the same plug-in standard error. The label is experimental, and the frame
     carries the inferential columns and the status.
     """
     from scipy import stats
@@ -254,6 +255,33 @@ def assert_shows_interval(result: Any, status: str, reference_df: int | None) ->
             half = quantile * estimate.plugin_std_error / (psi * (1.0 - psi))
             assert low == pytest.approx(1.0 / (1.0 + np.exp(-(center - half))), rel=1e-9)
             assert high == pytest.approx(1.0 / (1.0 + np.exp(-(center + half))), rel=1e-9)
+        elif estimate.interval_scale == "mover":
+            # A bounded difference: correlated MOVER on its two arms' logit intervals.
+            from cleverly.inference import implied_correlation, mover_ci
+
+            minuend, subtrahend = estimate.components
+            expected = mover_ci(
+                minuend.psi,
+                minuend.ci,
+                subtrahend.psi,
+                subtrahend.ci,
+                correlation=implied_correlation(
+                    estimate.variance, minuend.variance, subtrahend.variance
+                ),
+            )
+            assert (low, high) == pytest.approx(expected, rel=1e-9)
+        elif estimate.interval_scale == "skew_t":
+            # A continuous outcome: the skew-widened t at the capped moment df.
+            from cleverly.inference import skew_widened_ci
+
+            expected = skew_widened_ci(
+                estimate.psi,
+                estimate.plugin_std_error,
+                estimate.alpha,
+                df=estimate.effective_df,
+                acceleration=estimate.acceleration,
+            )
+            assert (low, high) == pytest.approx(expected, rel=1e-9)
         else:
             assert low == pytest.approx(
                 estimate.psi - quantile * estimate.plugin_std_error, rel=1e-9

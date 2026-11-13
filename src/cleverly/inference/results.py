@@ -36,6 +36,7 @@ from .influence import (
     median_estimates,
     minimum_reference_df,
     spread_name,
+    with_components,
     with_precedent_status,
 )
 
@@ -289,7 +290,37 @@ def smooth_contrast(
         outcome_family=shared_family([estimates[key] for key in chosen]),
         rule_widened=any(estimates[key].rule_widened for key in chosen),
     )
-    return estimate if transform is None else replace(estimate, transform=transform)
+    if transform is not None:
+        return replace(estimate, transform=transform)
+    return _difference_of_means(estimate, [estimates[key] for key in chosen])
+
+
+def _difference_of_means(
+    estimate: ParameterEstimate, inputs: Sequence[ParameterEstimate]
+) -> ParameterEstimate:
+    """A contrast that is the difference of two bounded means of one fit, with its components.
+
+    Such a contrast lies in ``(-1, 1)`` and gets those bounds and the two means as
+    :attr:`~cleverly.inference.ParameterEstimate.components`, so its interval is correlated
+    MOVER on the means' logit intervals. :func:`~cleverly.inference.with_components` checks
+    that the contrast is the difference of the two in its estimate and its curve. Any other
+    contrast, and every clustered one, is returned unchanged.
+    """
+    if (
+        estimate.scale != "difference"
+        or estimate.n_clusters < estimate.n
+        or estimate.reference_df is not None
+        or len(inputs) != 2
+        or any(part.bounds != (0.0, 1.0) or part.scale != "level" for part in inputs)
+    ):
+        return estimate
+    bounded = replace(estimate, bounds=(-1.0, 1.0))
+    first, second = inputs
+    for minuend, subtrahend in ((first, second), (second, first)):
+        recorded = with_components(bounded, minuend, subtrahend)
+        if recorded.components is not None:
+            return recorded
+    return estimate
 
 
 def check_transform_scale(scale: Scale, transform: Transform | None) -> None:

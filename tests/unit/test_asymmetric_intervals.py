@@ -10,9 +10,9 @@ checked on its rows and its ``None`` cases.  Each component that vanishes at a s
 uncorrelated truth (the acceleration term, the correlation term) has a nonzero witness and a
 mutation control here (CLAUDE.md, Scientific changes).
 
-The shipped default does not read these functions yet (plan section 7, items 7 and 8): the flip
-of :attr:`~cleverly.inference.ParameterEstimate.ci` follows study 2's run, and its tests (T30 to
-T33) land with it.
+Study 2 (``asymmetric-wald``) passed, so :attr:`~cleverly.inference.ParameterEstimate.ci` reads
+these functions (plan section 7, item 8): the flip's own witnesses are in
+``tests/unit/test_asymmetric_default.py`` (T30 to T33).
 """
 
 from __future__ import annotations
@@ -188,12 +188,20 @@ def test_a_clustered_or_zero_variance_estimate_has_no_acceleration() -> None:
     assert flat.acceleration is None
 
 
-def test_the_acceleration_does_not_move_the_shipped_interval() -> None:
+def test_the_shipped_interval_of_a_continuous_target_is_the_skew_widened_t() -> None:
     curve = _skewed_curve()
     estimate = make_estimate(
         "ey1", 1.0, curve, n=curve.size, rule_widened=False, outcome_family="gaussian"
     )
-    assert estimate.ci == wald_ci(1.0, estimate.std_error, 0.05)
+    assert estimate.acceleration is not None and estimate.effective_df is not None
+    assert estimate.ci == skew_widened_ci(
+        1.0,
+        estimate.std_error,
+        0.05,
+        df=estimate.effective_df,
+        acceleration=estimate.acceleration,
+    )
+    assert estimate.ci != wald_ci(1.0, estimate.std_error, 0.05)
 
 
 # --------------------------------------------------------------- T27, T28 skew-widened t
@@ -462,5 +470,6 @@ def test_the_shipped_arm_intervals_make_mover_asymmetric(l1_fit: Any) -> None:
     low, high = mover_ci(one.psi, one.ci, zero.psi, zero.ci, correlation=r)
     assert low < diff.psi < high
     assert abs((diff.psi - low) - (high - diff.psi)) > 1e-4
-    # The difference's shipped interval stays the identity normal one (plan 7 item 8).
-    assert diff.ci == pytest.approx(wald_ci(diff.psi, diff.std_error), rel=EXACT)
+    # The difference's shipped interval is this MOVER interval (plan 7 item 8).
+    assert diff.interval_scale == "mover"
+    assert diff.ci == pytest.approx((low, high), rel=EXACT)

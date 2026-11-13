@@ -390,6 +390,8 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "t_reference": "note",
         "spread_scale": "note",
         "interval_scale": "note",
+        "skew_widened": "note",
+        "mover": "note",
         "repeated_splits": "note",
         "simultaneous_bands": "note",
         "bootstrap_diagnostic": "note",
@@ -606,6 +608,24 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "The interval of {names} is built on the log-odds scale and turned back, so it "
             "stays inside the possible range of a proportion and need not be centred on the "
             "estimate."
+        ),
+        "skew_widened": (
+            "The interval of {names} is built from a t distribution with the degrees of freedom "
+            "in the df column, which widens it when a few rows carry most of the uncertainty, "
+            "and it is widened further on the side where a skewed outcome makes misses more "
+            "likely, so it need not be centred on the estimate. The p-value is the level at "
+            "which the interval would just reach the null value."
+        ),
+        "skew_widened_large_df": (
+            "The interval of {names} is widened on the side where a skewed outcome makes misses "
+            "more likely, so it need not be centred on the estimate. Its t distribution has 250 "
+            "or more degrees of freedom, so it is close to the normal one. The p-value is the "
+            "level at which the interval would just reach the null value."
+        ),
+        "mover": (
+            "The interval of {names}, a difference of two proportions, is built from the two "
+            "proportions' log-odds intervals, so it need not be centred on the estimate. The "
+            "p-value is the level at which the interval would just reach the null value."
         ),
         "spread_scale_transform": (
             "The std. error of {names} is on the transformed scale, where the interval is "

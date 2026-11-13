@@ -191,6 +191,7 @@ from ..inference.influence import (
     ArmMean,
     ClusterReference,
     CorrectionParts,
+    OutcomeFamily,
     ParameterEstimate,
     bounded_status,
     constant_outcome_cells,
@@ -203,6 +204,8 @@ from ..inference.influence import (
     parameter_bounds,
     reduced_correction_parts,
     stamp_inference,
+    unscale,
+    with_components,
 )
 from ..inference.multiplier import (
     DEFAULT_BAND_REFERENCE,
@@ -6343,6 +6346,8 @@ class TMLE:
                 # subsample; anything else failing is a bug and must not be swallowed.
                 if not (drop_undefined and target.undefined_when):
                     raise
+        if data.family == "binomial":
+            out = _with_arm_components(out, context, data.family)
         sink = READS_SINK.get()
         if sink is not None:
             sink.update(context.reads)
@@ -6454,10 +6459,12 @@ class TMLE:
                 cell_rows=index,
             )
             label = data.stratum_label(code)
-            for estimate in estimates.values():
-                name = stratum_alias(estimate.name, label)
+
+            def embedded(
+                estimate: ParameterEstimate, name: str, index: IntArray = index
+            ) -> ParameterEstimate:
                 curve = embed_stratum_curve(estimate.influence_curve, index, data.n)
-                out[name] = make_estimate(
+                return make_estimate(
                     name,
                     estimate.psi,
                     curve,
@@ -6473,6 +6480,17 @@ class TMLE:
                     # The embedded curve's mean is the stratum's own residual.
                     rule_widened=estimate.rule_widened,
                 )
+
+            for estimate in estimates.values():
+                name = stratum_alias(estimate.name, label)
+                out[name] = embedded(estimate, name)
+                if estimate.components is not None:
+                    # The embedding is linear, so the embedded difference is still the
+                    # difference of its embedded arms.
+                    minuend, subtrahend = (
+                        embedded(arm, stratum_alias(arm.name, label)) for arm in estimate.components
+                    )
+                    out[name] = with_components(out[name], minuend, subtrahend)
                 codes[name] = code
         return out, codes
 
@@ -6806,6 +6824,57 @@ def _second_moment_over_n_squared(curve: FloatArray) -> float:
     """
     values = np.asarray(curve, dtype=float)
     return float(np.sum(np.square(values)) / values.size**2)
+
+
+def _with_arm_components(
+    estimates: dict[str, ParameterEstimate], context: TargetContext, family: str
+) -> dict[str, ParameterEstimate]:
+    """Record each bounded difference's two arm means, so its interval reads them.
+
+    A difference of two arm means of one fit (bounds ``(-1, 1)``, reading two codes of
+    :attr:`~cleverly.targets.TargetContext.means`) gets the two means as
+    :attr:`~cleverly.inference.ParameterEstimate.components`, built from the same counterfactual
+    means and curves on the same rows, clusters and covariance rule, with bounds ``(0, 1)``.
+    :func:`~cleverly.inference.with_components` records them only when the difference is the
+    difference of the two in its estimate and its curve, so a contrast of another form (an
+    ``att``, say) keeps its identity interval. A withheld difference keeps its status; the
+    arms carry none, because the difference already inherits theirs.
+    """
+    out = dict(estimates)
+    means: dict[float, ArmMean] | None = None
+    for name, estimate in estimates.items():
+        read = context.reads.get(name)
+        if estimate.bounds != (-1.0, 1.0) or read is None or len(read) != 2:
+            continue
+        if means is None:
+            means = context.means
+        if not all(code in means for code in read):
+            continue
+        arms: dict[float, ParameterEstimate] = {}
+        for code in read:
+            psi, curve = unscale(
+                means[code].psi, means[code].influence_curve, context.scaler, "level"
+            )
+            arms[code] = make_estimate(
+                f"{name}[arm {code:g}]",
+                psi,
+                curve,
+                n=context.n,
+                cluster=context.cluster,
+                scale="level",
+                alpha=context.alpha_sig,
+                covariance_rule=context.covariance_rule,
+                rule_widened=context.rule_widened,
+                bounds=(0.0, 1.0),
+                outcome_family=cast("OutcomeFamily", family),
+            )
+        first, second = sorted(read)
+        for minuend, subtrahend in ((first, second), (second, first)):
+            recorded = with_components(estimate, arms[minuend], arms[subtrahend])
+            if recorded.components is not None:
+                out[name] = recorded
+                break
+    return out
 
 
 def _arms_read_by_code(

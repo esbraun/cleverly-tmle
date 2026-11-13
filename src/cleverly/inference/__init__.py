@@ -41,6 +41,7 @@ from .influence import (
     regime_means,
     satterthwaite_df,
     unscale,
+    with_components,
 )
 from .multiplier import SimultaneousBands, multiplier_critical_value, simultaneous_bands
 
@@ -85,4 +86,5 @@ __all__ = [
     "unscale",
     "wald_ci",
     "wald_statistic",
+    "with_components",
 ]

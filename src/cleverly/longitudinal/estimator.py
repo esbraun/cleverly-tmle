@@ -150,6 +150,7 @@ from ..inference.influence import (
     median_estimates,
     parameter_bounds,
     spread_name,
+    with_components,
     with_precedent_status,
 )
 from ..inference.multiplier import (
@@ -4239,6 +4240,9 @@ def _estimates(
             outcome_family=family_of(data),
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
+        # A bounded contrast is the difference of the two levels in its estimate and its
+        # curve, so its interval reads them (correlated MOVER on their logit intervals).
+        estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
@@ -9194,13 +9198,29 @@ def _refit_bound(
         )
     return _BoundReplay(
         estimates={
-            name: replace(reported.estimates[name], support=result.estimates[name].support)
+            name: _with_support_of(reported.estimates[name], result.estimates[name])
             for name in result.estimates
         },
         fits=fits,
         msm_fits=msm_fits,
         contributors={name: reported.contributors[name] for name in result.estimates},
     )
+
+
+def _with_support_of(replayed: ParameterEstimate, fitted: ParameterEstimate) -> ParameterEstimate:
+    """``replayed`` under ``fitted``'s support record, and its components under theirs.
+
+    A replay is built outside the classified fit, so its estimates and the levels a contrast
+    records as :attr:`~ParameterEstimate.components` carry no classification until they take
+    the fitted estimate's.
+    """
+    components = replayed.components
+    if components is not None and fitted.components is not None:
+        components = (
+            replace(components[0], support=fitted.components[0].support),
+            replace(components[1], support=fitted.components[1].support),
+        )
+    return replace(replayed, support=fitted.support, components=components)
 
 
 def _exact_replay_equal(left: Any, right: Any) -> bool:
@@ -9253,11 +9273,17 @@ def _fitted_replay_matches(
 
     # A replay never reruns the bootstrap, so the summaries are stripped on both sides.
     # ``_exact_replay_equal`` recurses into every dataclass field and would otherwise
-    # refuse every bootstrapped fit.  The draw's own estimates of the reported names: on a
-    # one-draw fit they are the reported estimates.
+    # refuse every bootstrapped fit.  A contrast's ``components`` are its two levels, which
+    # are compared as reported estimates themselves, and the fit stamps their support after
+    # the recursion, so they are stripped too.  The draw's own estimates of the reported
+    # names: on a one-draw fit they are the reported estimates.
     reported = result.estimates if result.n_repeats == 1 else draw.estimates
-    fitted = {name: replace(reported[name], bootstrap=None) for name in result.estimates}
-    replayed = {name: replace(e, bootstrap=None) for name, e in replay.estimates.items()}
+    fitted = {
+        name: replace(reported[name], bootstrap=None, components=None) for name in result.estimates
+    }
+    replayed = {
+        name: replace(e, bootstrap=None, components=None) for name, e in replay.estimates.items()
+    }
     return (
         _exact_replay_equal(fitted, replayed)
         and _exact_replay_equal(draw.fits, replay.fits)

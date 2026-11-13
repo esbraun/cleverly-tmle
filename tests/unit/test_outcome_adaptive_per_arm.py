@@ -57,6 +57,7 @@ from cleverly.estimators import targeting as targeting_module
 from cleverly.estimators.ctmle import per_arm_parametric_support
 from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import Submodel, mean_submodel
+from cleverly.inference import implied_correlation, mover_ci
 from cleverly.learners import ParametricMechanism, ParametricOutcome
 from cleverly.learners.crossfit import SplitPlan, random_partition
 from cleverly.targets import builtin
@@ -309,7 +310,30 @@ def _assert_matches(result: Any, hand: dict[float, tuple[float, np.ndarray]]) ->
         se = np.sqrt(np.var(hand[arm][1] - hand[reference][1], ddof=1) / n)
         assert estimate.psi == pytest.approx(psi, abs=1e-8)
         assert estimate.plugin_std_error == pytest.approx(se, abs=1e-8)
-        assert estimate.plugin_interval == pytest.approx((psi - Z * se, psi + Z * se), abs=1e-8)
+        if estimate.interval_scale == "mover":
+            # A bounded difference reads correlated MOVER on the two means' logit intervals,
+            # each rebuilt here from the longhand mean and curve.
+            means = [(hand[a][0], _sd(hand[a][1], n)) for a in (arm, reference)]
+            limits = [_logit_limits(p, s) for p, s in means]
+            expected = mover_ci(
+                means[0][0],
+                limits[0],
+                means[1][0],
+                limits[1],
+                correlation=implied_correlation(se**2, means[0][1] ** 2, means[1][1] ** 2),
+            )
+            assert estimate.plugin_interval == pytest.approx(expected, abs=1e-8)
+        else:
+            assert estimate.plugin_interval == pytest.approx((psi - Z * se, psi + Z * se), abs=1e-8)
+
+
+def _sd(curve: np.ndarray, n: int) -> float:
+    return float(np.sqrt(np.var(curve, ddof=1) / n))
+
+
+def _logit_limits(p: float, se: float) -> tuple[float, float]:
+    half = Z * se / (p * (1.0 - p))
+    return float(expit(logit(p) - half)), float(expit(logit(p) + half))
 
 
 def check_longhand(which: str) -> None:

@@ -33,6 +33,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
 import numpy as np
 from scipy import stats
@@ -262,6 +263,33 @@ def reference_quantile(alpha: float, df: float | None = None) -> float:
     if _normal_reference(df):
         return float(stats.norm.ppf(1.0 - alpha / 2.0))
     return float(stats.t.ppf(1.0 - alpha / 2.0, df))
+
+
+def reference_quantiles(alphas: Any, df: float | None = None) -> Any:
+    """The two-sided critical values at many levels at once, in the tail form.
+
+    :func:`reference_quantile` for each entry of ``alphas``, computed as the upper
+    ``alpha / 2`` tail so that levels down to ``1e-300`` keep their precision. An asymmetric
+    interval reads it on its inversion grid, and its test reads it at the p-value to report
+    the statistic.
+
+    Parameters
+    ----------
+    alphas : array-like
+        Two-sided significance levels in ``(0, 1]``.
+    df : float or None, default=None
+        Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
+        ``math.inf`` takes the normal reference.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``1 - alpha / 2`` quantiles, 0 at ``alpha = 1``.
+    """
+    values = np.asarray(alphas, dtype=float) / 2.0
+    if _normal_reference(df):
+        return stats.norm.isf(values)
+    return stats.t.isf(values, df)
 
 
 def one_sided_quantile(level: float, df: float | None = None) -> float:

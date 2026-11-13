@@ -521,14 +521,18 @@ class TestLongitudinalRatios:
 class TestWaldTest:
     @pytest.mark.parametrize("null", [0.0, 0.1, -0.3])
     def test_a_level_and_a_difference(self, binary_fit: Any, null: float) -> None:
-        # The difference is tested on the identity scale.
+        # The difference's interval is correlated MOVER on its arms' logit intervals, and its
+        # test inverts that interval: the p-value is below alpha exactly when the null lies
+        # outside the level 1 - alpha interval, and the statistic is Phi^-1(1 - p/2), signed.
         estimate = binary_fit["ate"]
         test = estimate.wald_test(null=null)
-        z = (estimate.psi - null) / estimate.std_error
-        assert test.statistic == pytest.approx(z, abs=1e-12)
-        assert test.pvalue == pytest.approx(2 * stats.norm.sf(abs(z)), abs=1e-12)
+        assert test.interval_scale == "mover"
         assert test.null == null and test.null_inference_value == null
-        assert test.interval_scale == "identity"
+        assert test.statistic == pytest.approx(
+            np.sign(estimate.psi - null) * stats.norm.isf(test.pvalue / 2), abs=1e-9
+        )
+        low, high = estimate.ci
+        assert (test.pvalue < 0.05) == (not low <= null <= high)
         # The level of a binary outcome is tested on the logit scale, where a null on or below
         # 0 maps to minus infinity and has p-value 0.
         level = binary_fit["ey1"]

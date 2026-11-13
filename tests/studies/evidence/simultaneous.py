@@ -146,8 +146,9 @@ def pointwise_scale(estimate: Any) -> str:
     """The scale an estimate's pointwise interval is built on.
 
     Its :attr:`~cleverly.inference.ParameterEstimate.interval_scale`: its own transform's name,
-    ``"log"`` for a ratio, ``"range_logit"`` for a bounded unclustered mean, and ``"identity"``
-    otherwise, as ``SimultaneousBands.scales`` names them.
+    ``"log"`` for a ratio, ``"range_logit"`` for a bounded unclustered mean, ``"mover"`` for a
+    bounded difference of two such means, ``"skew_t"`` for an unclustered estimate of a
+    continuous outcome, and ``"identity"`` otherwise.
     """
     return str(estimate.interval_scale)
 
@@ -159,7 +160,9 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
     explicit transform's name reads the standard error the estimate carries on that scale.
     ``"logit"`` and ``"range_logit"`` read the logit of the estimate's position in its
     ``bounds``, with the standard error carried there by the delta method, which is how the
-    package builds that band.  A zero standard error gives 0 at the truth and infinity
+    package builds that band.  ``"mover"`` and ``"skew_t"``, the asymmetric pointwise
+    intervals, read ``|Phi^-1(1 - p/2)|`` of the test of the truth, which inverts the interval.
+    A zero standard error gives 0 at the truth and infinity
     elsewhere: the band of such an estimate is the point.
 
     Raises
@@ -183,6 +186,10 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
         center, target, spread = psi, float(truth), se
     elif scale == "log":
         center, target, spread = float(estimate.inference_value), math.log(truth), se
+    elif scale in {"mover", "skew_t"}:
+        # An asymmetric interval has no single spread; its test inverts it, so the
+        # statistic Phi^-1(1 - p/2) is at most z exactly when the interval holds the truth.
+        return abs(float(estimate.wald_test(float(truth)).statistic))
     elif scale in {"logit", "range_logit"}:
         if estimate.bounds is None:
             raise ValueError(f"{estimate.name} has no bounds to read on the {scale} scale")

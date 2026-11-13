@@ -89,8 +89,12 @@ from .cluster import (
 )
 from .delta import (
     Transform,
+    implied_correlation,
     log_odds_ratio_influence,
     log_ratio_influence,
+    mover_ci,
+    reference_quantiles,
+    skew_widened_ci,
     wald_ci,
     wald_statistic,
 )
@@ -141,6 +145,7 @@ __all__ = [
     "supplies_inference",
     "support_column",
     "support_notes",
+    "with_components",
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
@@ -516,7 +521,10 @@ class WaldTest:
         The scale the test and the estimate's interval are computed on, as
         :attr:`ParameterEstimate.interval_scale` gives it. On ``"range_logit"`` the null is
         mapped through the logit, and a null on or outside the open range has an infinite
-        statistic and p-value 0.
+        statistic and p-value 0. On ``"mover"`` and ``"skew_t"`` the interval is asymmetric,
+        so the p-value inverts it: it is the largest ``alpha`` at which the null still lies inside
+        the level ``1 - alpha`` interval, and the statistic is ``Phi^-1(1 - p/2)`` with the
+        sign of the estimate minus the null.
     """
 
     name: str
@@ -989,6 +997,28 @@ def constant_outcome_cells(
     return frozenset(arms)
 
 
+#: The levels :meth:`ParameterEstimate._inverted_test` reads before it bisects: fine near
+#: the levels a report reads, down to ``1e-15`` in the tail, where the critical values of
+#: :func:`~cleverly.inference.reference_quantile` stop being finite.
+_INVERSION_GRID = np.unique(
+    np.concatenate(
+        (
+            np.logspace(-15.0, -4.0, 100),
+            np.logspace(-4.0, -1.0, 200),
+            np.linspace(0.1, 1.0 - 1e-9, 1000),
+        )
+    )
+)
+
+
+def _range_logit_limits(psi: float, std_error: float, alpha: float) -> tuple[float, float]:
+    """The logit-scale normal interval of a mean in ``(0, 1)``, mapped back."""
+    scale = Transform.range_logit(0.0, 1.0)
+    slope = scale.slope(psi)
+    low, high = wald_ci(float(scale.forward(psi)), std_error * slope, alpha)
+    return (float(scale.inverse(low)), float(scale.inverse(high)))
+
+
 @dataclass(frozen=True)
 class ParameterEstimate:
     """A point estimate with everything needed to do inference on it.
@@ -1068,7 +1098,17 @@ class ParameterEstimate:
         The family of the outcome the estimate is a functional of, when its builder records
         it: ``"binomial"`` for a binary outcome and ``"gaussian"`` for a continuous one.
         ``None`` when the builder does not record it. A contrast keeps the family its inputs
-        share. It decides :attr:`effective_df`.
+        share. It decides :attr:`effective_df`, and on an unclustered estimate of a
+        ``"gaussian"`` outcome :attr:`ci` is the skew-widened t interval
+        (:func:`~cleverly.inference.skew_widened_ci`).
+    components : tuple of ParameterEstimate or None
+        The two bounded means ``(minuend, subtrahend)`` of one fit that a bounded difference
+        is the difference of, when its builder records them, and ``None`` otherwise. A
+        difference with components forms :attr:`ci` by correlated MOVER on the two means'
+        logit-scale intervals (:func:`~cleverly.inference.mover_ci`), with the correlation
+        implied by the three variances (:func:`~cleverly.inference.implied_correlation`).
+        A builder records them only where the difference's influence curve is the difference
+        of the two means' curves, which makes that correlation exact.
 
     Attributes
     ----------
@@ -1081,7 +1121,7 @@ class ParameterEstimate:
     acceleration : float or None
         The :func:`curve_acceleration` of :attr:`influence_curve` over the same rows and with
         the same centring as :attr:`small_sample_df`, and ``None`` in the same cases. Computed
-        when the estimate is built. :attr:`ci` does not read it.
+        when the estimate is built. The skew-widened interval reads it.
     effective_df : float or None
     interval_scale : str
     std_error : float
@@ -1166,6 +1206,9 @@ class ParameterEstimate:
     bounds: tuple[float, float] | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
+    components: tuple[ParameterEstimate, ParameterEstimate] | None = field(
+        default=None, compare=False, repr=False
+    )
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
     acceleration: float | None = field(init=False, compare=False, repr=False)
 
@@ -1211,8 +1254,8 @@ class ParameterEstimate:
         :attr:`reference_df` on a clustered estimate. On an unclustered one,
         ``max(small_sample_df, 5)`` when :attr:`outcome_family` is ``"gaussian"``, and
         ``None``, the normal reference, otherwise: for a binary outcome and for an estimate
-        whose family is not recorded alike. :attr:`ci` reads :attr:`reference_df`, not this
-        value.
+        whose family is not recorded alike. The skew-widened interval of an unclustered
+        estimate of a continuous outcome reads it (:attr:`interval_scale` ``"skew_t"``).
         """
         if self.n_clusters < self.n:
             return self.reference_df
@@ -1226,12 +1269,19 @@ class ParameterEstimate:
 
         The transform's name for a transformed estimate, ``"log"`` for a ratio,
         ``"range_logit"`` for an unclustered mean of a binary outcome (:attr:`bounds`
-        ``(0, 1)`` on the ``"level"`` scale) and ``"identity"`` otherwise.
+        ``(0, 1)`` on the ``"level"`` scale), ``"mover"`` for a bounded difference whose
+        :attr:`components` the interval reads, ``"skew_t"`` for an unclustered estimate of a
+        continuous outcome (:attr:`outcome_family` ``"gaussian"``) on a scale other than a
+        ratio, and ``"identity"`` otherwise.
         """
         if self.transform is not None:
             return self.transform.name
         if self._range_scale() is not None:
             return "range_logit"
+        if self._mover_arms() is not None:
+            return "mover"
+        if self._skew_reference() is not None:
+            return "skew_t"
         return "log" if self.scale == "ratio" else "identity"
 
     def _range_scale(self) -> Transform | None:
@@ -1252,6 +1302,177 @@ class ParameterEstimate:
         ):
             return None
         return Transform.range_logit(*self.bounds)
+
+    def _mover_arms(self) -> tuple[ParameterEstimate, ParameterEstimate] | None:
+        """The two bounded means MOVER reads, or ``None`` when the interval is not MOVER's.
+
+        A bounded unclustered difference (:attr:`bounds` ``(-1, 1)``, the ``"difference"``
+        scale, no transform and no t reference) with :attr:`components` whose two means each
+        take the range-logit interval, lie inside ``(0, 1)``, show their interval, and differ
+        by :attr:`psi` (to ``1e-9``). Anything else, including a copy whose components no
+        longer match it, keeps the identity interval.
+        """
+        parts = self.components
+        if (
+            parts is None
+            or self.transform is not None
+            or self.scale != "difference"
+            or self.bounds != (-1.0, 1.0)
+            or self.n_clusters < self.n
+            or self.reference_df is not None
+            or outside_bounds(self.psi, self.bounds)
+        ):
+            return None
+        minuend, subtrahend = parts
+        for arm in parts:
+            if (
+                arm._range_scale() is None
+                or outside_bounds(arm.psi, arm.bounds)
+                or arm.inference in UNREPORTED_INTERVAL_STATUSES
+                or not (np.isfinite(arm.variance) and arm.variance > 0.0)
+            ):
+                return None
+        if not abs(self.psi - (minuend.psi - subtrahend.psi)) <= 1e-9:
+            return None
+        return minuend, subtrahend
+
+    def _skew_reference(self) -> tuple[float, float] | None:
+        """``(df, acceleration)`` of the skew-widened interval, or ``None`` when it does not apply.
+
+        An unclustered estimate of a continuous outcome with no transform, no t reference and
+        a scale other than a ratio, whose :attr:`effective_df` and :attr:`acceleration` are
+        known.
+        """
+        if (
+            self.transform is not None
+            or self.scale == "ratio"
+            or self.outcome_family != "gaussian"
+            or self.n_clusters < self.n
+            or self.reference_df is not None
+            or self.acceleration is None
+            or not np.isfinite(self.acceleration)
+        ):
+            return None
+        df = self.effective_df
+        if df is None:
+            return None
+        return float(df), float(self.acceleration)
+
+    def _mover_interval(
+        self, arms: tuple[ParameterEstimate, ParameterEstimate], alpha: float, margin: float
+    ) -> tuple[float, float]:
+        """Correlated MOVER at level ``1 - alpha``, each side widened by ``margin``."""
+        minuend, subtrahend = arms
+        limits = [_range_logit_limits(arm.psi, arm._plugin_std_error(), alpha) for arm in arms]
+        correlation = implied_correlation(
+            float(self.variance), float(minuend.variance), float(subtrahend.variance)
+        )
+        if not np.isfinite(correlation):
+            return (float("nan"), float("nan"))
+        low, high = mover_ci(
+            float(minuend.psi), limits[0], float(subtrahend.psi), limits[1], correlation=correlation
+        )
+        return (low - margin, high + margin)
+
+    def _asymmetric_interval(self, alpha: float, margin: float) -> tuple[float, float] | None:
+        """The MOVER or skew-widened interval at ``alpha``, or ``None`` when neither applies."""
+        arms = self._mover_arms()
+        if arms is not None:
+            return self._mover_interval(arms, alpha, margin)
+        reference = self._skew_reference()
+        if reference is not None:
+            df, acceleration = reference
+            return skew_widened_ci(
+                float(self.psi),
+                self._plugin_std_error(),
+                alpha,
+                df=df,
+                acceleration=acceleration,
+                margin=margin,
+            )
+        return None
+
+    def _grid_limits(self, margin: float) -> tuple[FloatArray, FloatArray]:
+        """The asymmetric interval's limits at every level of the inversion grid, at once."""
+        alphas = _INVERSION_GRID
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            z = reference_quantiles(alphas)
+            arms = self._mover_arms()
+            if arms is not None:
+                halves = []
+                for arm in arms:
+                    centre = math.log(arm.psi / (1.0 - arm.psi))
+                    spread = arm._plugin_std_error() / (arm.psi * (1.0 - arm.psi))
+                    low, high = expit(centre - z * spread), expit(centre + z * spread)
+                    halves.append((arm.psi - low, high - arm.psi))
+                (down_1, up_1), (down_0, up_0) = halves
+                r = implied_correlation(
+                    float(self.variance), float(arms[0].variance), float(arms[1].variance)
+                )
+                lower = down_1**2 + up_0**2 - 2.0 * r * down_1 * up_0
+                upper = up_1**2 + down_0**2 - 2.0 * r * up_1 * down_0
+                return (
+                    self.psi - np.sqrt(np.maximum(lower, 0.0)) - margin,
+                    self.psi + np.sqrt(np.maximum(upper, 0.0)) + margin,
+                )
+            reference = self._skew_reference()
+            assert reference is not None
+            df, acceleration = reference
+            critical = z if not np.isfinite(df) else reference_quantiles(alphas, df)
+            shift = acceleration * (2.0 * z * z + 1.0)
+            se = self._plugin_std_error()
+            return (
+                self.psi - (se * np.maximum(critical, critical - shift) + margin),
+                self.psi + (se * np.maximum(critical, critical + shift) + margin),
+            )
+
+    def _inverted_test(self, null: float, margin: float) -> tuple[float, float]:
+        """The statistic and p-value that invert the asymmetric interval at ``null``.
+
+        The p-value is the largest ``alpha`` at which ``null`` still lies inside the level
+        ``1 - alpha`` interval: the last ``alpha`` of a grid at which it does, refined by
+        bisection to ``1e-12`` against the next one. Where the limits widen as ``alpha``
+        falls, which they do over the levels a report reads, it is at most ``alpha`` exactly
+        when the null lies outside the level ``1 - alpha`` interval. A null outside the
+        interval at every level of the grid gets ``1e-15``, the grid's floor. The statistic
+        is ``Phi^-1(1 - p/2)`` with the sign of the estimate minus the null.
+        """
+        if not np.isfinite(null):
+            pvalue = 0.0 if np.isfinite(self.psi) else float("nan")
+        else:
+
+            def outside(alpha: float) -> bool:
+                interval = self._asymmetric_interval(alpha, margin)
+                assert interval is not None
+                low, high = interval
+                return not (low <= null <= high)
+
+            if not np.isfinite(sum(self._asymmetric_interval(0.05, margin) or (np.nan,))):
+                return float("nan"), float("nan")
+            lows, highs = self._grid_limits(margin)
+            with np.errstate(invalid="ignore"):
+                inside = (lows <= null) & (null <= highs)
+            hits = np.flatnonzero(inside)
+            if hits.size == 0:
+                pvalue = float(_INVERSION_GRID[0])
+            elif hits[-1] == _INVERSION_GRID.size - 1:
+                pvalue = 1.0
+            else:
+                last = int(hits[-1])
+                low = float(_INVERSION_GRID[last])
+                high = float(_INVERSION_GRID[last + 1])
+                while high - low > 1e-12:
+                    middle = 0.5 * (low + high)
+                    if outside(middle):
+                        high = middle
+                    else:
+                        low = middle
+                pvalue = high
+        if not np.isfinite(pvalue):
+            return float("nan"), float("nan")
+        magnitude = float(reference_quantiles(pvalue))
+        sign = 1.0 if self.psi >= null else -1.0
+        return sign * magnitude, float(pvalue)
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -1297,12 +1518,21 @@ class ParameterEstimate:
         that the estimate lies inside its range runs first, so the map is never evaluated at
         or beyond a bound. An estimate on or outside its range that carries no withheld
         status, which only a hand-built estimate can, keeps the identity interval.
+
+        A bounded difference with usable :attr:`components` takes correlated MOVER on the two
+        means' logit-scale intervals, and an unclustered estimate of a continuous outcome
+        takes the skew-widened t at :attr:`effective_df` with :attr:`acceleration`
+        (:attr:`interval_scale` ``"mover"`` and ``"skew_t"``). On either, ``widen`` adds the
+        remaining score to each side's half-width.
         """
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             return (float("nan"), float("nan"))
         center = self.inference_value
         df = self.reference_df
         margin = self._residual_margin(widen)
+        asymmetric = self._asymmetric_interval(self.alpha, margin)
+        if asymmetric is not None:
+            return asymmetric
         scale = None if outside_bounds(self.psi, self.bounds) else self._range_scale()
         if scale is not None:
             slope = scale.slope(self.psi)
@@ -1385,12 +1615,17 @@ class ParameterEstimate:
         :class:`~cleverly.validation.CoverageStudy` measures, so a study that measures the
         diagnostic evaluates the refused property's arithmetic rather than a second rule.
         Under :attr:`rule_widened` the test inverts :attr:`ci`: it rejects exactly when the
-        null lies outside the widened interval.
+        null lies outside the widened interval. On the asymmetric intervals
+        (:attr:`interval_scale` ``"mover"`` and ``"skew_t"``) the p-value inverts the interval
+        itself, so it is at most ``alpha`` exactly when the null lies outside the level
+        ``1 - alpha`` interval.
         """
         reported, mapped = self._null_inference_value(null)
         scale = self._test_scale()
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             statistic, pvalue = float("nan"), float("nan")
+        elif self._mover_arms() is not None or self._skew_reference() is not None:
+            statistic, pvalue = self._inverted_test(mapped, self.residual_margin)
         elif scale is not None:
             slope = scale.slope(self.psi)
             statistic, pvalue = wald_statistic(
@@ -1895,6 +2130,85 @@ _SECOND_MOMENT_CLUSTER_REFUSAL = (
     "the raw second-moment covariance rule is defined for independent rows only, "
     "and this result declares clusters"
 )
+
+
+def with_components(
+    difference: ParameterEstimate,
+    minuend: ParameterEstimate,
+    subtrahend: ParameterEstimate,
+    *,
+    tolerance: float = 1e-9,
+) -> ParameterEstimate:
+    """Record the two bounded means a bounded difference is the difference of.
+
+    The components are recorded only when the difference is ``minuend - subtrahend`` in its
+    estimate and in its influence curve, to ``tolerance`` relative to the largest curve term,
+    on the same rows, clusters and covariance rule, and when the difference has
+    :attr:`~ParameterEstimate.bounds` ``(-1, 1)`` and both means ``(0, 1)``. That curve identity
+    makes the correlation that :func:`~cleverly.inference.implied_correlation` reads from the
+    three variances exact, which correlated MOVER needs. Otherwise ``difference`` is returned
+    unchanged and keeps the identity interval.
+
+    Parameters
+    ----------
+    difference : ParameterEstimate
+        The bounded difference.
+    minuend : ParameterEstimate
+        The mean the difference adds.
+    subtrahend : ParameterEstimate
+        The mean the difference subtracts.
+    tolerance : float, default=1e-9
+        The largest relative gap the two identities may show.
+
+    Returns
+    -------
+    ParameterEstimate
+        ``difference`` with :attr:`~ParameterEstimate.components` set, or unchanged.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dataclasses import replace
+    >>> from cleverly.inference import make_estimate, with_components
+    >>> one = replace(
+    ...     make_estimate("ey1", 0.6, np.array([0.4, -0.6, 0.4, -0.2]), n=4,
+    ...                   scale="level", rule_widened=False),
+    ...     bounds=(0.0, 1.0),
+    ... )
+    >>> zero = replace(
+    ...     make_estimate("ey0", 0.3, np.array([-0.3, 0.1, 0.5, -0.3]), n=4,
+    ...                   scale="level", rule_widened=False),
+    ...     bounds=(0.0, 1.0),
+    ... )
+    >>> ate = replace(
+    ...     make_estimate("ate", 0.3, one.influence_curve - zero.influence_curve, n=4,
+    ...                   rule_widened=False),
+    ...     bounds=(-1.0, 1.0),
+    ... )
+    >>> with_components(ate, one, zero).interval_scale
+    'mover'
+    """
+    if (
+        difference.bounds != (-1.0, 1.0)
+        or minuend.bounds != (0.0, 1.0)
+        or subtrahend.bounds != (0.0, 1.0)
+        or not (difference.n == minuend.n == subtrahend.n)
+        or not (difference.n_clusters == minuend.n_clusters == subtrahend.n_clusters)
+        or not (difference.covariance_rule == minuend.covariance_rule == subtrahend.covariance_rule)
+    ):
+        return difference
+    curve = np.asarray(difference.influence_curve, dtype=float).reshape(-1)
+    one = np.asarray(minuend.influence_curve, dtype=float).reshape(-1)
+    zero = np.asarray(subtrahend.influence_curve, dtype=float).reshape(-1)
+    if not (curve.shape == one.shape == zero.shape) or curve.size == 0:
+        return difference
+    scale = max(1.0, float(np.max(np.abs(one))), float(np.max(np.abs(zero))))
+    if not (
+        abs(difference.psi - (minuend.psi - subtrahend.psi)) <= tolerance
+        and float(np.max(np.abs(curve - (one - zero)))) <= tolerance * scale
+    ):
+        return difference
+    return replace(difference, components=(minuend, subtrahend))
 
 
 def make_estimate(

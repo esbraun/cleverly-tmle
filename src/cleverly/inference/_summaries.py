@@ -78,6 +78,31 @@ def reference_text(reference_df: int | None) -> str:
     return "normal" if reference_df is None else f"t, {reference_df} df"
 
 
+def estimate_reference_text(estimate: ParameterEstimate) -> str:
+    """The reference of one estimate's interval, in words.
+
+    ``t, 17.5 df, skew-widened`` for the skew-widened t, ``MOVER (range-logit arms)`` for a
+    difference built from its two proportions' intervals, and :func:`reference_text`
+    otherwise.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        The estimate.
+
+    Returns
+    -------
+    str
+        The words.
+    """
+    scale = estimate.interval_scale
+    if scale == "skew_t" and estimate.effective_df is not None:
+        return f"t, {float(estimate.effective_df):.1f} df, skew-widened"
+    if scale == "mover":
+        return "MOVER (range-logit arms)"
+    return reference_text(estimate.reference_df)
+
+
 def _scale_text(estimate: ParameterEstimate) -> str:
     if estimate.transform is not None:
         return f"transformed ({estimate.transform.name}); interval on that scale"
@@ -109,7 +134,7 @@ def estimate_summary(estimate: ParameterEstimate, detail: Detail) -> Summary:
     header: list[tuple[str, str]] = [
         (vocabulary.ESTIMAND, estimate.name),
         (vocabulary.SCALE, _scale_text(estimate)),
-        (vocabulary.REFERENCE, reference_text(estimate.reference_df)),
+        (vocabulary.REFERENCE, estimate_reference_text(estimate)),
         (vocabulary.ROWS, count_text(estimate.n)),
     ]
     if estimate.n_clusters != estimate.n:
@@ -222,7 +247,13 @@ def wald_summary(test: WaldTest, detail: Detail) -> Summary:
             if test.transform is not None
             else vocabulary.SCALE_WORDS.get(test.scale, test.scale),
         ),
-        (vocabulary.REFERENCE, reference_text(test.reference_df)),
+        (
+            vocabulary.REFERENCE,
+            {
+                "mover": "MOVER (range-logit arms), inverted",
+                "skew_t": "skew-widened t, inverted",
+            }.get(test.interval_scale, reference_text(test.reference_df)),
+        ),
     ]
     table = SummaryTable(
         ("", vocabulary.STATISTIC, vocabulary.P_VALUE),
@@ -244,10 +275,19 @@ def wald_summary(test: WaldTest, detail: Detail) -> Summary:
             if test.reference_df is None
             else f"a t distribution with {test.reference_df} degrees of freedom"
         )
-        lines = [
-            "The statistic is the estimate minus the null value, divided by the std. error, "
-            f"on the scale the interval is built on; the p-value is two-sided, from {reference}.",
-        ]
+        if test.interval_scale in ("mover", "skew_t"):
+            lines = [
+                "The interval is not symmetric about the estimate, so the p-value inverts it: "
+                "it is the largest significance level at which the interval still holds the null "
+                "value, and the statistic is the normal quantile of that p-value, signed as the "
+                "estimate minus the null value.",
+            ]
+        else:
+            lines = [
+                "The statistic is the estimate minus the null value, divided by the std. "
+                "error, on the scale the interval is built on; the p-value is two-sided, from "
+                f"{reference}.",
+            ]
         if on_scale is not None:
             lines.append(f"The null value on that scale: {test.null_inference_value:.4g}.")
         sections.append(SummarySection(vocabulary.SECTION_SETTINGS, tuple(lines)))
