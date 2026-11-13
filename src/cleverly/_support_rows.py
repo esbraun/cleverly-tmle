@@ -1862,6 +1862,32 @@ def _d_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit of ``G31.isotonic``: what the binding projection was measured to do (study
+#: ``isotonic-binding``, Fix-8 plan 3.8).
+ISOTONIC_BINDING_LIMIT: Final[str] = (
+    "On the isotonic-binding law (two nodes, a continuous baseline covariate, a strictly "
+    "increasing risk) the projection moved the never regimen's horizon-1 level on 0.354 of "
+    "draws, by at least 0.1 SE on 0.193 and by at most 0.564 SE, and the interval at the "
+    "projected level read coverage 0.942 (SE ratio 0.98). The projected and unprojected "
+    "intervals disagreed on 0.0064 of draws, so the projection changed coverage by at most that "
+    "(difference +0.0008, 99% interval -0.0027 to +0.0040). On the larger-move law (treatment "
+    "slope 2.0) the moves reached 0.994 SE and the coverage difference read -0.0033 (99% "
+    "interval -0.0081 to +0.0021), but there the unprojected interval itself under-covers "
+    "(coverage 0.938, SE ratio 0.95). The moves arise because the two horizons' node-1 "
+    "regressions use different learner classes; a flat truth and other learner pairings are "
+    "untested."
+)
+
+
+#: The limit of ``C01.greedy`` and ``C12.greedy``: the greedy point estimate on a law where
+#: both selected nuisances are wrong (study ``option-patience``, Fix-8 plan 2.3).
+GREEDY_LATE_CONFOUNDER_LIMIT: Final[str] = (
+    "On a law where the outcome regression omits a confounder and the selected treatment model "
+    "is misspecified given the selected set, the greedy point estimate keeps a bias (study "
+    "option-patience, greedy whole path on LC3: 0.42 SD at n = 2,000)."
+)
+
+
 def _c_rows() -> tuple[SupportRow, ...]:
     """C-TMLE (``C`` rows). Every path withholds the interval, so each row licenses the point."""
     rows: list[SupportRow] = []
@@ -1875,7 +1901,10 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 kinds=_POINT,
                 cells=[f"binary_{strategy}"],
                 # Roadmap: F18.
-                limits=["The selector plug-in interval is withheld."],
+                limits=[
+                    "The selector plug-in interval is withheld.",
+                    *([GREEDY_LATE_CONFOUNDER_LIMIT] if strategy == "greedy" else []),
+                ],
             )
         )
         rows.append(
@@ -3025,23 +3054,203 @@ def _projection_rows() -> tuple[SupportRow, ...]:
     return tuple(rows)
 
 
-# The point rows of the X76 option studies, one function per part, each empty until its study
-# passes: a declared stopping rule (T52), outcome_by_arm=True (T53), patience= on the greedy
-# path (C12) and treatment_adjustment= (T54).
+# The point rows of the X76 option studies, one function per part, each registered from its
+# committed run: a declared stopping rule (T52), outcome_by_arm=True (T53), patience= on the
+# greedy path (C12) and treatment_adjustment= (T54).
+#: The limit every ``T52`` and ``G55`` row states first: what the interval is under a rule.
+_RULE_INTERVAL_LIMIT = (
+    "Under a declared stopping rule the interval adds the remaining score to its half-width, "
+    "psi +/- (z se + |r_n|). The plain interval of the same fit has no level guarantee: where "
+    "the rule binds hard it covers 0.837 and the widened one 0.977 (study "
+    "option-stopping-point, cells residual_necessity, every threshold times 8). The bootstrap "
+    "is refused under a rule, and a step bound or iterate='best' under a rule is not covered."
+)
+
+
+def _rule_newton_limit(largest: str) -> str:
+    """The limit of a row whose cells read the Newton walk (plan 3.2, design review S2).
+
+    ``largest`` is the largest absolute residual of the row's cell over its draws, in SE units.
+    """
+    return (
+        f"On the Newton walk the rule leaves a residual of at most {largest} SE, and no draw "
+        "reaches 0.01 SE (cells residual_witness), so these cells measure an estimator "
+        "indistinguishable from the default: their coverage and SE ratio equal the relative "
+        "fit's on the same draws."
+    )
+
+
+#: The share of draws whose residual reaches 0.01 SE on each one-step cell of
+#: ``option-stopping-point`` (cells ``residual_witness``).
+_POINT_WITNESS_SHARE = {
+    ("binary", "scaled_var"): "0.854",
+    ("binary", "sample_size"): "0.303",
+    ("continuous", "scaled_var"): "0.999",
+    ("continuous", "sample_size"): "0.751",
+}
+
+_RULE_LABELS = {"scaled_var": "sv", "sample_size": "ss"}
+
+
 def _x76_stopping_point_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """A declared stopping rule on ordinary TMLE (``T52``, study ``option-stopping-point``).
+
+    One row per rule, walk and outcome over the in-sample ``T01`` key, with the rule in the
+    options and the default step bound and iterate, so a bound or ``iterate="best"`` under a
+    rule matches no row.
+    """
+    rows = []
+    for rule, label in _RULE_LABELS.items():
+        for targeting, walk in (("iterative", "newton"), ("one_step", "one_step")):
+            for outcome, axis in (("binary", BINARY), ("continuous", CONTINUOUS)):
+                if targeting == "iterative":
+                    walk_limit = _rule_newton_limit("1e-10" if outcome == "binary" else "0.0014")
+                else:
+                    share = _POINT_WITNESS_SHARE[(outcome, rule)]
+                    walk_limit = (
+                        f"On the one-step walk the rule binds: the residual reaches 0.01 SE "
+                        f"on a share {share} of draws (cell "
+                        f"residual_witness/{outcome}_{label}_one_step__witness)."
+                    )
+                rows.append(
+                    point_row(
+                        f"T52.{rule}.{walk}.{outcome}",
+                        ["option-stopping-point"],
+                        families=("P1",),
+                        outcome=axis,
+                        options={"stopping": rule, "targeting": targeting},
+                        cells=[f"interval_calibration/{outcome}_{label}_{walk}__widened"],
+                        limits=[
+                            _RULE_INTERVAL_LIMIT,
+                            walk_limit,
+                            "Measured in sample at n = 2,000 on the canonical-tmle binary and "
+                            "continuous laws, for the ATE and the arm means.",
+                        ],
+                    )
+                )
+    return tuple(rows)
+
+
+#: The limit of every ``T53`` row (study ``option-outcome-by-arm``).
+_BY_ARM_LIMIT = (
+    "The study option-outcome-by-arm measures the interval of a fit with one main-terms "
+    "regression per arm. No study cell would read differently if outcome_by_arm=True were "
+    "ignored, because under the study's correct treatment mechanism the pooled fit is also "
+    "unbiased (cells pooled_outcome). The evidence that each arm's regression reads only its "
+    "own arm is the exact-law witness in tests/unit/test_option_outcome_by_arm_witness.py."
+)
 
 
 def _x76_by_arm_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``outcome_by_arm=True`` on ordinary TMLE (``T53``, study ``option-outcome-by-arm``)."""
+    slug = ["option-outcome-by-arm"]
+    by_arm = {"outcome_by_arm": True}
+    families = ("P1", "P2")
+    return (
+        *rows_over(
+            point_row(
+                "T53.in_sample",
+                slug,
+                families=families,
+                options=by_arm,
+                cells=[
+                    "interval_calibration/in_sample_binary__correctly_specified",
+                    "interval_calibration/in_sample_continuous__correctly_specified",
+                    "double_robustness/treatment_correct",
+                ],
+                limits=[_BY_ARM_LIMIT],
+            ),
+            "outcome",
+            {"binary": BINARY, "continuous": CONTINUOUS},
+        ),
+        *rows_over(
+            point_row(
+                "T53.stacked",
+                slug,
+                families=families,
+                splitting=("stacked",),
+                options=by_arm,
+                cells=[
+                    "interval_calibration/stacked_binary__correctly_specified",
+                    "interval_calibration/stacked_bounded__correctly_specified",
+                ],
+                limits=[_BY_ARM_LIMIT],
+            ),
+            "outcome",
+            {"binary": BINARY, "bounded": BOUNDED},
+        ),
+    )
 
 
 def _x76_patience_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``patience=`` on the greedy C-TMLE path (``C12``, study ``option-patience``).
+
+    The key of ``C01.greedy`` with ``patience`` declared. A pre-ordered path with ``patience``
+    keeps its permanent condition (``_option_support.patience_conditions``) and matches no row.
+    """
+    return (
+        point_row(
+            "C12.greedy",
+            ["option-patience"],
+            families=("P1",),
+            engine=_ctmle("greedy"),
+            kinds=_POINT,
+            options={"patience": True},
+            cells=["patience_bias/lc1_greedy", "greedy_late_confounder/lc3_greedy"],
+            # Roadmap: F18.
+            limits=[
+                "The selector plug-in interval is withheld.",
+                "Measured at patience 1 on LC1 and patience 2 on LC3. The counter stopped the "
+                "greedy path early on 85% of LC1 draws, with the point estimate unbiased (cells "
+                "patience_witness and patience_bias), and on LC3 the patient estimate equals the "
+                "whole path's on 98% of draws (cell greedy_late_confounder).",
+                GREEDY_LATE_CONFOUNDER_LIMIT,
+            ],
+        ),
+    )
+
+
+#: The limit of both ``T54`` rows (study ``option-treatment-adjustment``).
+_ADJUSTMENT_LIMIT = (
+    "The interval holds under the declared restriction that treatment depends on the "
+    "adjustment covariates only through the subset. A regression of the treatment on the "
+    "left-out covariates can check it, for the dependence that regression represents. When "
+    "treatment also depends on a left-out covariate, the estimate keeps the term the "
+    "restriction hides: with an outcome regression that converges slower than root-n its "
+    "standardized bias grows with n, to 1.88 SD at n = 16,000 (study "
+    "option-treatment-adjustment, cell instrument_slow_outcome), and with a correct "
+    "parametric outcome regression the interval under-covers (cell instrument_parametric: "
+    "SE ratio 0.91, coverage 0.925). Measured on a binary outcome with logistic regressions."
+)
 
 
 def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``treatment_adjustment=`` on ordinary TMLE (``T54``, ``option-treatment-adjustment``)."""
+    slug = ["option-treatment-adjustment"]
+    declared = {"treatment_adjustment": True}
+    families = ("P1", "P2")
+    return (
+        point_row(
+            "T54.in_sample",
+            slug,
+            families=families,
+            options=declared,
+            cells=[
+                "interval_calibration/in_sample__correctly_specified",
+                "double_robustness/treatment_correct",
+            ],
+            limits=[_ADJUSTMENT_LIMIT],
+        ),
+        point_row(
+            "T54.stacked",
+            slug,
+            families=families,
+            splitting=("stacked",),
+            options=declared,
+            cells=["interval_calibration/stacked__correctly_specified"],
+            limits=[_ADJUSTMENT_LIMIT],
+        ),
+    )
 
 
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
@@ -3665,12 +3874,18 @@ def _long_rows() -> tuple[SupportRow, ...]:
         ),
         long_row(
             "G31.isotonic",
-            [curve],
+            [curve, "isotonic-binding"],
             outcome_kind="survival",
             treatment=("2", "2"),
             isotonic=True,
             kinds=_LONG_WALD,
-            cells=["isotonic_t2"],
+            cells=[
+                "isotonic_t2",
+                "interval_calibration/projected_t1__correctly_specified",
+                "binding_witness/never_t1",
+                "material_move/never_t1",
+            ],
+            limits=[ISOTONIC_BINDING_LIMIT],
         ),
         long_row(
             "G32.survival",
@@ -5005,7 +5220,7 @@ def _learned_regimen_rows() -> tuple[SupportRow, ...]:
                 "instrument resolves in-sample rule learning.",
                 "A continuous outcome with q_bounds=, declared node bounds, ratio_trim=, an "
                 "uncensored panel and a known mechanism are keyed apart and read experimental; a "
-                "stopping rule reads experimental through its fit condition. More than two "
+                "stopping rule is keyed apart and reads experimental. More than two "
                 "nodes, repeats above 1, n_folds=1, weights and clusters refuse. No comparator: "
                 "no maintained package fits a learned two-node regimen by cross-validated TMLE.",
             ],
@@ -5269,18 +5484,128 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
     )
 
 
-# The longitudinal rows of the X76 option studies, one function per part, each empty until its
-# study passes: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
+# The longitudinal rows of the X76 option studies, one function per part, each registered from
+# its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """A declared stopping rule on ``LTMLE`` (``G55``, study ``option-stopping-ltmle``).
+
+    ``G55.<rule>.end_of_study`` is the key of ``G01``, whose walk is the per-node Newton
+    fluctuation, so a one-step end-of-study walk under a rule matches no row (design review
+    S2). ``G55.<rule>.survival`` is the key of ``G31.survival``, the one-step hazard walk.
+    """
+    slug = ["option-stopping-ltmle"]
+    witness = {"scaled_var": "0.816", "sample_size": "0.248"}
+    rows = []
+    for rule, label in _RULE_LABELS.items():
+        rows.append(
+            long_row(
+                f"G55.{rule}.end_of_study",
+                slug,
+                stopping=rule,
+                kinds=_LONG_DERIVED,
+                cells=[f"interval_calibration/l3_{label}_newton__widened"],
+                limits=[
+                    _RULE_INTERVAL_LIMIT,
+                    _rule_newton_limit("1.3e-7"),
+                    "Measured in sample at n = 2,000 on the canonical-ltmle censored two-node "
+                    "law, for the ATE of the always and never regimens.",
+                ],
+            )
+        )
+        rows.append(
+            long_row(
+                f"G55.{rule}.survival",
+                slug,
+                outcome_kind="survival",
+                held=True,
+                treatment=("2",) * 5,
+                survival_model="hazard",
+                targeting="one_step",
+                stopping=rule,
+                kinds=_LONG_WALD,
+                cells=[f"interval_calibration/l4_{label}_one_step__widened"],
+                limits=[
+                    _RULE_INTERVAL_LIMIT,
+                    f"On the one-step hazard walk the rule binds: the residual reaches 0.01 SE "
+                    f"on a share {witness[rule]} of draws (cell "
+                    f"residual_witness/l4_{label}_one_step__witness). Where it binds hard the "
+                    "plain interval of the arm-1 risk covers 0.874 and the widened one 0.979 "
+                    "(cells residual_necessity).",
+                    "Measured at n = 2,000 on the point-survival-curve five-visit law, for the "
+                    "risk difference at visit 5. The simultaneous band under a rule is not "
+                    "measured.",
+                ],
+            )
+        )
+    return tuple(rows)
+
+
+#: The limit of every ``G56`` row (study ``option-ratio-trim``).
+_TRIM_LIMIT = (
+    "The trimmed point estimate is consistent when every iterated outcome regression is. "
+    "The trim removes the double robustness on the trimmed share: with an outcome regression "
+    "that ignores W the trimmed fit is biased by 1.90 SD for LTMLE and 2.43 SD for SDR, where "
+    "the untrimmed fit is not (study option-ratio-trim, cells trim_necessity). Measured only "
+    "with LinearRegression outcome and pseudo-outcome regressions on a law where they are "
+    "correct; any other outcome learner reads experimental, and pinning the class does not "
+    "make a linear regression correct. No interval is given (F30): the plug-in standard "
+    "error is a diagnostic, 0.55 to 0.58 of the spread of the trimmed estimate, with "
+    "coverage 0.72 to 0.73."
+)
 
 
 def _x76_trim_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """``ratio_trim=`` on ``LTMLE`` and ``SDR``: the point estimate (``G56``)."""
+    from sklearn.linear_model import LinearRegression
+
+    slug = ["option-ratio-trim"]
+    linear: dict[str, type] = {"outcome": LinearRegression, "pseudo": LinearRegression}
+    rows = []
+    for engine, label in (("tmle", "ltmle"), ("sdr", "sdr")):
+        for splitting, cell in (("in_sample", "in_sample"), ("cross_fitted", "stacked")):
+            rows.append(
+                long_row(
+                    f"G56.{label}.{splitting}",
+                    slug,
+                    engine=engine,
+                    splitting=(splitting,),
+                    ratio_trim=True,
+                    kinds=frozenset({"point"}),
+                    cells=[f"trim_point/{label}_{cell}"],
+                    limits=[_TRIM_LIMIT],
+                    learners=linear,
+                )
+            )
+    return tuple(rows)
 
 
 def _x76_markov_rows() -> tuple[SupportRow, ...]:
-    return ()
+    """A Markov-order window on ``LTMLE`` (``G57``, study ``option-markov-order``)."""
+    return (
+        long_row(
+            "G57",
+            ["option-markov-order"],
+            treatment=("2", "2", "2", "2"),
+            markov_order=True,
+            kinds=_LONG_WALD,
+            cells=[
+                "interval_calibration/order1_ey__correctly_specified",
+                "interval_calibration/order1_ate__correctly_specified",
+                "interval_calibration/order2_ate__correctly_specified",
+                "order_double_robustness/ey_never",
+            ],
+            limits=[
+                "The interval holds under the declared restriction: at every node the outcome "
+                "regression and the treatment and censoring mechanisms depend on the history "
+                "only through W and the last k + 1 nodes. The data can test it, and the fit "
+                "does not. When it fails for the outcome regression and the mechanisms, the "
+                "estimate is biased (study option-markov-order, cell order_necessity: 1.32 SD "
+                "at order 0). The interval is claimed valid, not efficient. Measured at orders "
+                "1 and 2 on four binary treatment nodes with censoring, in sample, with linear "
+                "outcome regressions and logistic mechanisms."
+            ],
+        ),
+    )
 
 
 #: A learned two-node regimen (``LearnedRegimen``, X11 (b)) keys the regimen kind ``learned``.

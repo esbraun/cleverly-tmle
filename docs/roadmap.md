@@ -49,7 +49,6 @@ item names.
 | 3 | heavy inverse weights | `X40-sdr-heavy-ratios`, `mtp-pricing-calibration` |
 | 4 | DR-TMLE bias when only one nuisance is correct | `RM18-one-sided-bias`, `X8-drtmle-one-sided-bias` |
 | 5 | study-design faults, re-declared at each study's next regeneration | `F1-power-design`, `RM18-ordinary-weighted`, `RM18-boundary`, `X82-short-study-sanity`, `adaptive-iptw-composite-l3` |
-| 6 | registered studies of shipped options | [X76](#x76-studies-of-the-targeting-and-fitting-options) |
 
 The `composite-high-arm`, `F4-calibration-draws`, `X8-logit-small-stratum` and
 `X8-identity-small-stratum` owners are not scheduled among the fixes, because the interval changes
@@ -132,7 +131,6 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) Small-sample evidence for clustered intervals and boundary nodes | 3 | [no new theory](technical-reference/hard-stop-review.md) | the shipped clustered intervals and `constant_node_plugin` status |
-| [X76](#x76-studies-of-the-targeting-and-fitting-options) Studies of the targeting and fitting options | fix | no new theory | the shipped `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` |
 | [X81](#x81-adaptiveiptw-follow-ups) AdaptiveIPTW follow-ups | 3 | natural extension for parts (b) to (d); no read source for part (a) | the shipped `AdaptiveIPTW` |
 | [X36](#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) Projected variance for AdaptiveIPTW with a declared parametric mechanism | 6 | natural extension; the base result is van der Laan (2012), WP302, Section 2.1 | the shipped `AdaptiveIPTW` |
 | [X55](#x55-bootstrap-extensions) Bootstrap extensions | 6 | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) |
@@ -1500,28 +1498,6 @@ method that fits `StructuralNestedMean`.
 | (b) | a `CausalStudy` method for the estimator, whose study report carries the structural label | a study test that the label reaches the study report |
 
 Acceptance: the study test of part (b).
-
-### X76. Studies of the targeting and fitting options
-
-These options run, and each fit that declares one carries the experimental label. No registered
-study measures a fit that uses them. `src/cleverly/estimators/_option_support.py` writes each
-condition.
-
-| part | option | what a study measures |
-| --- | --- | --- |
-| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | interval coverage at the residual the rule leaves, beside the coverage bound the summary prints |
-| (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm |
-| (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
-| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment |
-| (e) | `ratio_trim=` on `LTMLE` and `SDR` | bias and coverage at a trim that binds on a law with weak support, beside the untrimmed fit |
-| (f) | `markov_order=` | bias and coverage on a law whose history beyond the declared order does not affect later nodes, and a law where it does |
-| (g) | `isotonic=True` | bias and coverage on a law where the projection binds. The [point survival study](technical-reference/method-evidence/point-survival-curve.md) has one cell, and its projection does not bind |
-
-`iterate="best"` and `step_bound=` under `stopping="relative"` keep the support of the fit. That
-walk stops only at the solution of the score equation, to `tol`.
-
-Acceptance: a registered study per part, with its red cells reported, and a support row that
-names the option.
 
 ### X73. Pooled-over-time parametric g-formula models
 

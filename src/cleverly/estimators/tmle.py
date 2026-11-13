@@ -156,6 +156,7 @@ from ..exceptions import (
 from ..fluctuation._score import (
     StopContext,
     check_iterate,
+    check_rule_bootstrap,
     check_step_bound,
     check_stopping_rule,
     relative_score,
@@ -1459,6 +1460,7 @@ class TMLE:
             raise ValueError(f"nuisance_bound must lie in (0, 0.5); got {self.nuisance_bound}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
         declared = [
             name
             for name, value in (
@@ -6188,6 +6190,9 @@ class TMLE:
             observed=observed,
             scaler=scaler,
             n=n,
+            # A declared stopping rule leaves the score unsolved by design, so every
+            # estimate adds the remaining score to its interval's half-width.
+            rule_widened=self.stopping != "relative",
             cluster=cluster,
             alpha_sig=alpha_sig,
             arms=codes,
@@ -6390,6 +6395,8 @@ class TMLE:
                     inference=estimate.inference,
                     bounds=estimate.bounds,
                     outcome_family=estimate.outcome_family,
+                    # The embedded curve's mean is the stratum's own residual.
+                    rule_widened=estimate.rule_widened,
                 )
                 codes[name] = code
         return out, codes
@@ -6955,6 +6962,7 @@ def _average_over_folds(
             # rule. docs/technical-reference/inference.md states this contract.
             covariance_rule="centered",
             bounds=parts[0].bounds,
+            rule_widened=any(part.rule_widened for part in parts),
         )
 
     if dropped:

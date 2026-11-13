@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "study": "patience on the cross-validated C-TMLE path",
+  "slug": "option-patience",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "c4e89da7c53700e2732b21af1d3b75d398e202ef",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20267541,
+    "resampling_seed": 20267542,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "lc1": [
+        "ate"
+      ]
+    },
+    "construction": "in-sample selector C-TMLE with patience= and with the whole path",
+    "law_LC1": "the canonical-ctmle-selector binary law (W1, W2, W3), correct logistic GLMs",
+    "law_LC2": "the canonical-ctmle-sequences lasso and learners laws (W1 to W4)",
+    "law_LC3": "W1, Z1, Z2, Z3 ~ N(0, 1) iid; A ~ Bernoulli(expit(0.8 (Z1 + Z2 + Z3) + 0.6 W1)); Y ~ Bernoulli(expit(-0.3 + 0.5 A + W1))",
+    "learners": {
+      "LC1, LC2": "unpenalized logistic GLMs on every covariate (outcome) and on each candidate set (treatment); LC2 the sibling study's lasso grid and declared candidates, on a selection split drawn with each sample",
+      "LC3": "outcome: unpenalized logistic on (A, Z1, Z2, Z3), omitting W1; treatment: unpenalized logistic on each candidate set"
+    },
+    "patience": {
+      "LC1": 1,
+      "LC2": 2,
+      "LC3": 2
+    },
+    "lc3_ordering": [
+      "Z1",
+      "Z2",
+      "Z3",
+      "W1"
+    ],
+    "g_bounds": {
+      "LC1": [
+        0.025,
+        0.975
+      ],
+      "LC2": [
+        0.025,
+        0.975
+      ],
+      "LC3": [
+        0.01,
+        0.99
+      ]
+    },
+    "selection_folds": 5,
+    "selection_inner_folds": 2,
+    "penalty": false,
+    "max_iter": 100,
+    "tol": 1e-10,
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_patience.py": "6ece612db9389e1d39ec81f5ab83a669f64d9eb5ab908c25cc0a591689e01302",
+    "tests/studies/option_patience_properties.py": "a709020842a6622b7a2d4ef27a65f284e85e6da7ee2fdebbf3190ac1bf6deb49",
+    "tests/studies/_option_patience_laws.py": "742af017667a97838cd44620b33c224bb4410fcc61655ace973dca76b1e52499",
+    "tests/studies/canonical_ctmle_selector.py": "c18e143da9e3154845fe334b92939f23a1004d862298023160a0c2af0f4ee9ac",
+    "tests/studies/canonical_ctmle_sequences.py": "a6926abeb8f3de63a9215dcd92109cc51ac4d002b3fc47a4166e533dc7a82a75",
+    "tests/studies/canonical_cvtmle.py": "1967aa13254ebc671e7ec655dfcb9040a69e931de85c525d4723cc9a80b10330",
+    "tests/studies/canonical_tmle.py": "2e357e185549ac6f83c31b4f981df9350981af3c7026ba5e01a7d3bcedd6a791",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "src/cleverly/estimators/ctmle.py": "d3f09e87abe88197cecb51204c07044fce334a574409ae8ecd313fde64765aaa",
+    "src/cleverly/estimators/tmle.py": "2fc1efe148024cb00c7a487bfb083da9765e821062a52d31f8c6fe525c13dbf2",
+    "src/cleverly/fluctuation/iterative.py": "4820e69a1b5321ff8e5f6035dad6b13b9bf7d0c9c95191a73418a9eb6318d543",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "699729778d89fa8c191f9de65a4b1c28f3acd03c6e25c1490ecd70f068b55c4b",
+    "summary.csv": "3f2749c1aa23786a874ee635689a67b91c3afa4eef368c8c773ce6b810c39219",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "5539332914ee81361658acfab574e93176e185bc9bb59098903a64dc443d5d61",
+    "property-replicates.parquet": "04bdcd4d602bba9c2b91cb37919545576babc366cbcec31da7e1bea7ad71f5ec",
+    "properties.csv": "fb8fcfca90913ac29a454c0b12d4e0b2188e6fbab2cf0c70c6f118f27d6c8981"
+  }
+}

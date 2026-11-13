@@ -33,8 +33,10 @@ def _fit(truth_shift: float) -> tuple[_Result, dict[str, float], float]:
     curves = rng.standard_normal((N, 2)) @ np.array([[1.0, 0.3], [0.0, 1.0]])
     curves -= curves.mean(axis=0)
     estimates = {
-        "ate": make_estimate("ate", 0.1, curves[:, 0], n=N),
-        "rr": make_estimate("rr", 1.0, curves[:, 1] * 8.0, n=N, scale="ratio", log_psi=0.0),
+        "ate": make_estimate("ate", 0.1, curves[:, 0], n=N, rule_widened=False),
+        "rr": make_estimate(
+            "rr", 1.0, curves[:, 1] * 8.0, n=N, scale="ratio", log_psi=0.0, rule_widened=False
+        ),
     }
     bands = simultaneous_bands(estimates, random_state=0)
     critical = float(bands.critical_value)

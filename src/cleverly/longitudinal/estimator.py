@@ -104,7 +104,6 @@ from .._typing import (
 )
 from .._warnings import FitWarning, records_fit
 from .._warnings import warn as _warn
-from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -121,6 +120,7 @@ from ..exceptions import (
 from ..fluctuation._score import (
     StopContext,
     check_iterate,
+    check_rule_bootstrap,
     check_step_bound,
     check_stopping_rule,
 )
@@ -4142,6 +4142,7 @@ def _estimates(
             support=_support_of(classification, status, reference_df),
             bounds=bounds,
             outcome_family=family_of(data),
+            rule_widened=_rule_widened(fit),
         )
         level_of[id(fit)] = estimates[name]
     for fit in fits.values():
@@ -4183,6 +4184,7 @@ def _estimates(
             support=_support_of(classification, status, reference_df),
             bounds=bounds,
             outcome_family=family_of(data),
+            rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -4196,6 +4198,21 @@ def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> Parame
         inference=reported.inference,
         reference_df=draw.reference_df if supplies_inference(reported.inference) else None,
         support=reported.support,
+    )
+
+
+def _rule_widened(fit: RegimenFit) -> bool:
+    """Whether a regimen's fit ran under a declared stopping rule.
+
+    The hazard model or any node's fluctuation that declares a rule other than
+    ``"relative"`` stops before its score is solved, so the estimate's interval adds the
+    remaining score (:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).
+    """
+    if fit.hazard is not None and fit.hazard.stopping != "relative":
+        return True
+    return any(
+        step.fluctuation is not None and step.fluctuation.stopping != "relative"
+        for step in fit.steps
     )
 
 
@@ -4338,6 +4355,7 @@ def _msm_estimates(
                 reference_df=reference_df,
                 support=_support_of(classification, inference, reference_df),
                 outcome_family=family_of(data),
+                rule_widened=any(_rule_widened(fit) for fit in msm_fit.fits),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -4469,6 +4487,7 @@ class _SequentialEstimator:
             raise ValueError(f"n_folds must be at least 1; got {self.n_folds}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
         if (
             isinstance(self.repeats, bool)
             or not isinstance(self.repeats, (int, np.integer))
@@ -5201,7 +5220,6 @@ class _SequentialEstimator:
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
-                conditions=stopping_conditions(getattr(self, "stopping", "relative")),
                 tuned_cap=tuned_folds is not None,
                 # Every plan of one fit shares its first cause (``resolve_separable``).
                 separable_first=separable[0].first + 1 if separable else None,

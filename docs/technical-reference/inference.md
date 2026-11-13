@@ -216,12 +216,16 @@ status. A shown status returns the plug-in interval and the estimate carries the
 
 A `TMLE` or `DRTMLE` fit with `treatment_adjustment=` keeps `"influence_curve"`. The interval is
 claimed only under the declared restriction, and every fit on the design prints it. A declared
-`stopping=` rule keeps the status too. It leaves a score residual that the summary reports in
-standard errors, with the coverage a Wald interval keeps at that residual.
+`stopping=` rule keeps the status too. It leaves a score residual $r_n$, and the interval adds
+$\lvert r_n\rvert$ to its half-width on the scale it is built on, so it keeps its level whatever
+the residual's dependence on the error. The p-value inverts that interval.
+"The interval under a declared rule" in [stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
+gives the derivation.
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
-that claim no coverage. On a non-inferential status they return a diagnostic.
+that claim no coverage, the widening of a declared stopping rule included. On a non-inferential
+status they return a diagnostic.
 
 One table in `cleverly._inference_status`, `STATUS_RECORDS`, holds the texts of each
 non-inferential status. The refusal, the `summary()` paragraph, the assessment note, and the

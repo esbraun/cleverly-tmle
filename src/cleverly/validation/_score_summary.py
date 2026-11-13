@@ -24,7 +24,6 @@ from .._summary import (
     short_repr,
     vocabulary,
 )
-from ..fluctuation._score import wald_coverage_bound
 from ..inference.influence import spread_name
 from ..utils.text import format_negligible, format_within
 
@@ -279,16 +278,6 @@ def _score_reading(check: ScoreCheck) -> str:
     return " ".join(sentences)
 
 
-def _coverage_floor(residual: float, alpha: float) -> float:
-    """The coverage a Wald interval keeps at ``residual``, as the estimate summary states it.
-
-    A remainder below the smallest one printed is read at that ceiling, and the bound is
-    rounded down, because it is a lower bound.
-    """
-    shown = max(residual, _SMALLEST_REMAINDER)
-    return math.floor(wald_coverage_bound(shown, alpha) * 10000) / 10000
-
-
 def _stopping_note(check: ScoreCheck) -> Note | None:
     """The estimate summary's ``stopping_rule`` note, from the same remainders."""
     if not check.declared:
@@ -303,8 +292,6 @@ def _stopping_note(check: ScoreCheck) -> Note | None:
         vocabulary.NOTE_TEXTS["stopping_rule"].format(
             b=f"less than {_SMALLEST_REMAINDER:g}" if b < _SMALLEST_REMAINDER else f"{b:.3g}",
             name=worst.name,
-            level=f"{(1.0 - check.alpha_sig) * 100:g}%",
-            bound=f"{_coverage_floor(b, check.alpha_sig) * 100:.2f}%",
         ),
     )
 
@@ -442,12 +429,17 @@ def _score_details(check: ScoreCheck) -> SummarySection:
                 if math.isfinite(row.rule_bound_se)
                 else ""
             )
-            # A lower bound, so rounded down.
-            coverage = math.floor(row.coverage_bound * 10000) / 10000
+            floor = ""
+            if math.isfinite(row.coverage_floor):
+                # A lower bound, so rounded down.
+                shown = math.floor(row.coverage_floor * 10000) / 10000
+                floor = (
+                    f". Under that bound an interval of the form estimate +/- z x SE, without "
+                    f"the remainder, keeps at least {shown:.4f} coverage in large samples"
+                )
             lines.append(
                 f"{name}: the remaining error is worth {row.residual_se:.3g} standard errors, "
-                f"and an interval of the form estimate +/- z x SE keeps at least "
-                f"{coverage:.4f} coverage{bound}."
+                f"which the reported interval adds to its half-width{bound}{floor}."
             )
     if not lines:
         lines.append(

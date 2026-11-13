@@ -819,8 +819,6 @@ def _rule_misses(result: LongitudinalResult) -> list[str]:
 
 def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
     """The notes on how well the fit solved its estimating equations."""
-    from ..fluctuation._score import wald_coverage_bound
-
     notes: list[Note] = []
     rule = result._declared_rule()
     draw = " in at least one split" if result.n_repeats > 1 else ""
@@ -834,9 +832,6 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
         }
         if remainders:
             name, b = max(remainders.items(), key=lambda item: item[1])
-            alpha = float(result.config.alpha_sig)
-            shown = max(b, _SMALLEST_REMAINDER)
-            bound = np.floor(wald_coverage_bound(shown, alpha) * 10000) / 100
             notes.append(
                 note(
                     "stopping_rule",
@@ -845,8 +840,6 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
                         if b < _SMALLEST_REMAINDER
                         else f"{b:.3g}",
                         name=name,
-                        level=f"{(1.0 - alpha) * 100:g}%",
-                        bound=f"{bound:.2f}%",
                     ),
                 )
             )

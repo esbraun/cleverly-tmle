@@ -1539,6 +1539,55 @@ ARMS.update(
     }
 )
 
+#: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
+#: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
+#: which this module cannot import; :data:`STUDY_ARMS` gives each study's own words.
+ARMS.update(
+    {
+        "in_sample": "the in-sample fit",
+        "stacked": "the stacked cross-fitted fit",
+        "in_sample_binary": "the in-sample fit on a binary outcome",
+        "in_sample_continuous": "the in-sample fit on a continuous outcome",
+        "stacked_binary": "the stacked cross-fitted fit on a binary outcome",
+        "stacked_bounded": "the stacked cross-fitted fit on a bounded outcome",
+        "order1_ey": "the order-1 window, the mean under always",
+        "order1_ate": "the order-1 window, always against never",
+        "order2_ate": "the order-2 window, always against never",
+    }
+)
+#: The calibration label of ``isotonic-binding`` (X76 part (g)), mirrored from its properties
+#: module; :data:`STUDY_ARMS` gives the study's own words.
+ARMS["projected_t1"] = "the never regimen's horizon-1 interval at the projected level"
+
+#: The fit labels of the stopping-rule studies (``option-stopping-point``,
+#: ``option-stopping-ltmle``): law, rule and walk.  :data:`STUDY_ARMS` gives each study's words.
+ARMS.update(
+    {
+        f"{law}_{rule}_{walk}": f"law {law}, stopping rule {rule}, {walk} walk"
+        for law in ("binary", "continuous", "l3", "l4")
+        for rule in ("sv", "ss", "rel")
+        for walk in ("newton", "one_step")
+    }
+)
+ARMS.update(
+    {
+        "binary_ss_newton_step_bound": "the binary law, sample_size, Newton walk, step bound",
+        "ln_ey1": "law LN, the mean under treatment",
+        "ln_ey1_k1": "law LN, the mean under treatment, threshold times 1",
+        "ln_ey1_rel": "law LN, the mean under treatment, the relative rule",
+        **{
+            f"l2_{rule}_one_step_{target}": f"law L2, stopping rule {rule}, one-step, {target}"
+            for rule in ("sv", "ss")
+            for target in ("ate", "ey1")
+        },
+        "l4_mc_risk": "law L4, mechanism-correct learners, the arm-1 risk",
+        "l4_mc_k1_risk": "law L4, mechanism-correct learners, the arm-1 risk, threshold times 1",
+        "l4_mc_contrast": "law L4, mechanism-correct learners, the risk difference",
+        "l4_sv_one_step_risk": "law L4, scaled_var, one-step, the arm-1 risk",
+        "l4_ss_one_step_risk": "law L4, sample_size, one-step, the arm-1 risk",
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -8849,6 +8898,769 @@ STUDY_ESTIMANDS.update(
         (_ATMLE_SELECTIVE_SLUG, "psi"): (
             "the trial effect over the pooled covariate distribution, which the interval covers "
             "when the working model approximates the external bias"
+        ),
+    }
+)
+
+
+#: ``option-treatment-adjustment`` (X76 part (d)): point TMLE with the treatment mechanism fitted
+#: on the declared subset ``(W1, W2)`` of the adjustment set ``(W1, W2, Z)``.  The laws, settings
+#: and cells are those of ``tests/studies/_option_adjustment_laws.py`` and its properties module.
+_ADJUSTMENT_SLUG = "option-treatment-adjustment"
+_ADJUSTMENT_N = "n = 2,000"
+STUDY_SCENARIOS[(_ADJUSTMENT_SLUG, "LDA")] = (
+    "three standard-normal covariates W1, W2, Z; treatment depends on W1 and W2 only and the "
+    "outcome on all three (law LDA); logistic GLMs for the outcome on (A, W1, W2, Z) and for "
+    "the treatment on the declared subset (W1, W2), in sample, n = 2,000"
+)
+STUDY_ARMS.update(
+    {
+        (_ADJUSTMENT_SLUG, "in_sample"): (
+            f"law LDA, the ATE, in sample, {_ADJUSTMENT_N}: the treatment mechanism fitted on the "
+            "declared subset (W1, W2), which holds"
+        ),
+        (_ADJUSTMENT_SLUG, "stacked"): (
+            f"law LDA, the ATE, stacked over the default folds, {_ADJUSTMENT_N}: the treatment "
+            "mechanism fitted on the declared subset (W1, W2), which holds"
+        ),
+    }
+)
+_LDB = (
+    "law LDB (treatment also depends on the left-out covariate Z, so the declared restriction "
+    "fails), the ATE"
+)
+PROPERTIES.update(
+    {
+        "instrument_slow_outcome": (
+            "when the declared restriction fails and the outcome regression converges slower "
+            "than root-n, the term the restriction hides grows against the standard error"
+        ),
+        "instrument_slow_outcome_ladder": (
+            "the standardized bias of the slow-outcome fit at the smaller sizes, reported"
+        ),
+        "instrument_slow_outcome_rate": (
+            "the rate at which the slow-outcome fit's absolute bias shrinks with n, reported"
+        ),
+        "instrument_reference": (
+            "the same slow outcome regression with the treatment mechanism on the whole "
+            "adjustment set, reported beside the declared fit"
+        ),
+        "instrument_parametric": (
+            "the declared fit with a correct parametric outcome regression when the restriction "
+            "fails, reported"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("instrument_slow_outcome", "n16000"): (
+            f"{_LDB}, n = 16,000: the outcome GLM plus the constructed logit error n^(-1/4) Z and "
+            "the treatment mechanism on the declared subset",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        **{
+            ("instrument_slow_outcome_ladder", f"n{n}"): (
+                f"{_LDB}, n = {n:,}: the outcome GLM plus the constructed logit error n^(-1/4) Z "
+                "and the treatment mechanism on the declared subset",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for n in (1000, 4000)
+        },
+        ("instrument_slow_outcome_rate", "bias_slope"): (
+            f"{_LDB}: the slope of the log absolute bias on log n over n = 1,000, 4,000 and "
+            "16,000 for the slow-outcome fit",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        **{
+            ("instrument_reference", f"n{n}"): (
+                f"{_LDB}, n = {n:,}: the same slow outcome regression with the treatment "
+                "mechanism on (W1, W2, Z), without the declaration, on the slow-outcome cell's "
+                "draws",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for n in (1000, 4000, 16000)
+        },
+        ("instrument_parametric", "n2000"): (
+            f"{_LDB}, n = 2,000: the correct outcome GLM and the treatment mechanism on the "
+            "declared subset",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: ``option-outcome-by-arm`` (X76 part (b)): point TMLE with one outcome regression per arm.  The
+#: laws, settings and cells are those of ``tests/studies/_option_by_arm_law.py`` and its
+#: properties module.
+_BY_ARM_SLUG = "option-outcome-by-arm"
+_BY_ARM_LAWS = {
+    "in_sample_binary": "law LB (binary outcome), in sample",
+    "in_sample_continuous": "law LB-c (normal outcome), in sample",
+    "stacked_binary": "law LB (binary outcome), stacked over five folds",
+    "stacked_bounded": "law LB-b (Beta outcome in (0, 1)), stacked over five folds",
+}
+STUDY_SCENARIOS[(_BY_ARM_SLUG, "LB")] = (
+    "two standard-normal covariates, a binary outcome whose regression differs by arm (law LB); "
+    "one main-terms logistic GLM per arm and a logistic treatment GLM, in sample, n = 2,000"
+)
+STUDY_ARMS.update(
+    {
+        (_BY_ARM_SLUG, label): (
+            f"{words}, the ATE, n = 2,000: one main-terms regression per arm, each correct"
+        )
+        for label, words in _BY_ARM_LAWS.items()
+    }
+)
+PROPERTIES["pooled_outcome"] = (
+    "the same fit with one pooled main-terms outcome regression on (A, W), reported beside the "
+    "per-arm fit"
+)
+CELLS.update(
+    {
+        ("pooled_outcome", label): (
+            f"{words}, the ATE, n = 2,000: one pooled main-terms regression on (A, W1, W2), "
+            "which misses the arm-by-covariate interaction, beside the correct treatment GLM, "
+            "on the calibration cell's draws",
+            _DIAGNOSTIC_REQUIRED,
+        )
+        for label, words in _BY_ARM_LAWS.items()
+    }
+)
+
+
+#: ``option-ratio-trim`` (X76 part (e)): ``LTMLE`` and ``SDR`` with ``ratio_trim=``.  The law and
+#: settings are those of ``tests/studies/_option_trim_law.py`` and its properties module.
+_TRIM_SLUG = "option-ratio-trim"
+_TRIM_LAW = (
+    "law LE (W uniform, two binary treatment nodes with weak support for always-treat at small "
+    "W, censoring at both nodes), the mean under always, n = 2,000"
+)
+STUDY_SCENARIOS[(_TRIM_SLUG, "LE")] = (
+    f"{_TRIM_LAW}: in-sample LTMLE with ratio_trim=0.95, linear outcome regressions and "
+    "logistic mechanisms; the point estimate only"
+)
+_TRIM_ESTIMATORS = {"ltmle": "LTMLE", "sdr": "SDR"}
+PROPERTIES.update(
+    {
+        "trim_point": (
+            "the trimmed point estimate stays unbiased when every outcome regression is correct"
+        ),
+        "trim_necessity": (
+            "the trim removes double robustness on the trimmed share: with a wrong outcome "
+            "regression the trimmed fit is biased where the untrimmed fit is not"
+        ),
+        "trim_reported": (
+            "the fits trimmed at 0.99, the untrimmed fits and the trimmed share, reported"
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("trim_point", f"{est}_{fold}"): (
+                f"{_TRIM_LAW}: {name} with ratio_trim=0.95, linear outcome regressions (correct "
+                f"on this law), {words}",
+                "bias interval inside the equivalence margin",
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+            for fold, words in (("in_sample", "in sample"), ("stacked", "five-fold cross-fitted"))
+        },
+        **{
+            ("trim_necessity", f"{est}_trimmed"): (
+                f"{_TRIM_LAW}: {name} with ratio_trim=0.95 and an outcome regression that ignores "
+                "W, in sample",
+                "the 99% interval of the standardized bias must lie wholly beyond the margin",
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+        },
+        **{
+            ("trim_necessity", f"{est}_untrimmed"): (
+                f"{_TRIM_LAW}: {name} untrimmed with the same outcome regression that ignores W, "
+                "in sample",
+                "bias interval inside the equivalence margin",
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+        },
+        **{
+            ("trim_reported", f"{est}_{q}_{label}"): (
+                f"{_TRIM_LAW}: {name} {trim}, {regression}, in sample",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for est, name in _TRIM_ESTIMATORS.items()
+            for q, regression in (
+                ("right", "linear outcome regressions"),
+                ("wrong", "an outcome regression that ignores W"),
+            )
+            for label, trim in (("trim99", "with ratio_trim=0.99"), ("untrimmed", "untrimmed"))
+            if (q, label) != ("wrong", "untrimmed")
+        },
+        ("trim_reported", "trimmed_share"): (
+            f"{_TRIM_LAW}: the share of per-node ratios the 0.95 trim caps in the in-sample LTMLE "
+            "fit, read against its population value",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: ``option-markov-order`` (X76 part (f)): ``LTMLE`` on ``LongitudinalData.with_markov_order(k)``.
+#: The laws, settings and cells are those of ``tests/studies/_option_markov_law.py`` and its
+#: properties module.
+_MARKOV_SLUG = "option-markov-order"
+_LF1 = (
+    "law LF1 (four binary treatment nodes with censoring; treatment reads L_{t-1}, the outcome "
+    "reads L_3, so order 1 is the smallest correct window)"
+)
+_LF2 = (
+    "law LF2 (four binary treatment nodes with censoring; treatment reads only A_{t-1}, the "
+    "outcome reads L_3)"
+)
+STUDY_SCENARIOS[(_MARKOV_SLUG, "LF1")] = (
+    f"{_LF1}; in-sample LTMLE on the order-1 window with linear outcome regressions and "
+    "logistic mechanisms, n = 2,000"
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_MARKOV_SLUG, "ey_regimen[always]"): "mean outcome under treatment at all four nodes",
+        (_MARKOV_SLUG, "ey_regimen[never]"): "mean outcome under treatment at none of the nodes",
+        (_MARKOV_SLUG, "ate_regimen[always vs never]"): (
+            "difference in mean outcome between treatment at all four nodes and at none"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_MARKOV_SLUG, "order1_ey"): f"{_LF1}, the mean under always, order 1, n = 2,000",
+        (_MARKOV_SLUG, "order1_ate"): f"{_LF1}, always against never, order 1, n = 2,000",
+        (_MARKOV_SLUG, "order2_ate"): f"{_LF1}, always against never, order 2, n = 2,000",
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_MARKOV_SLUG, "interval_calibration", label, "correctly_specified"): (
+            "every outcome regression and mechanism reads the window and is correctly "
+            "specified on it",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for label in ("order1_ey", "order1_ate", "order2_ate")
+    }
+)
+PROPERTIES.update(
+    {
+        "order_necessity": (
+            "a window too short for both the outcome regression and the mechanisms leaves a bias"
+        ),
+        "order_double_robustness": (
+            "a window too short for the outcome regression alone is rescued by correct "
+            "mechanisms, and not by mechanisms that read no history"
+        ),
+        "markov_reported": "the full-history fit and the order-0 fits, reported",
+    }
+)
+CELLS.update(
+    {
+        ("order_necessity", "ate"): (
+            f"{_LF1}, always against never, n = 2,000: order 0, which drops L_{{t-1}} from the "
+            "treatment mechanism and L_3 from the outcome window",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        ("order_double_robustness", "ey_never"): (
+            f"{_LF2}, the mean under never, n = 2,000: order 0, the outcome window wrong and "
+            "every mechanism correct",
+            "bias interval inside the equivalence margin",
+        ),
+        ("order_double_robustness", "ey_never_blind_mechanisms"): (
+            f"{_LF2}, the mean under never, n = 2,000: order 0 with intercept-only treatment and "
+            "censoring mechanisms, so no fit removes the outcome error",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        ("markov_reported", "full_history_ey"): (
+            f"{_LF1}, the mean under always, n = 2,000: the full-history fit on the calibration "
+            "draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "full_history_ate"): (
+            f"{_LF1}, always against never, n = 2,000: the full-history fit on the calibration "
+            "draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "order0_ey"): (
+            f"{_LF1}, the mean under always, n = 2,000: the order-0 fit of the necessity cell",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "lf2_order0_ey"): (
+            f"{_LF2}, the mean under always, n = 2,000: the order-0 fit with correct mechanisms",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("markov_reported", "lf2_order0_ate"): (
+            f"{_LF2}, always against never, n = 2,000: the order-0 fit with correct mechanisms",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+    }
+)
+
+
+#: The stopping-rule studies (X76 part (a)): ``option-stopping-point`` and
+#: ``option-stopping-ltmle``.  The laws, fits and cells are those of
+#: ``tests/studies/_option_stopping_laws.py`` and the two properties modules.
+_STOP_POINT = "option-stopping-point"
+_STOP_LTMLE = "option-stopping-ltmle"
+_RULE_WORDS = {"sv": "stopping='scaled_var'", "ss": "stopping='sample_size'"}
+_WALK_WORDS = {"newton": "the Newton walk", "one_step": "the one-step walk"}
+_STOP_LAWS = {
+    (_STOP_POINT, "binary"): (
+        "the canonical-tmle binary law, logistic outcome and treatment GLMs, in sample, "
+        "n = 2,000, the ATE"
+    ),
+    (_STOP_POINT, "continuous"): (
+        "the canonical-tmle continuous law, a linear outcome and a logistic treatment GLM, in "
+        "sample, n = 2,000, the ATE"
+    ),
+    (_STOP_LTMLE, "l3"): (
+        "law L3 (the canonical-ltmle censored two-node law with its learners), always against "
+        "never, n = 2,000"
+    ),
+    (_STOP_LTMLE, "l4"): (
+        "law L4 (the point-survival-curve five-visit survival law, one-step hazard walk, with "
+        "its learners), the risk difference at visit 5, n = 2,000"
+    ),
+}
+STUDY_SCENARIOS.update(
+    {
+        (_STOP_POINT, "binary"): (
+            f"{_STOP_LAWS[_STOP_POINT, 'binary']} and the mean under treatment; "
+            "stopping='scaled_var' on the one-step walk, the widened interval"
+        ),
+        (_STOP_POINT, "continuous"): (
+            f"{_STOP_LAWS[_STOP_POINT, 'continuous']} and the mean under treatment; "
+            "stopping='scaled_var' on the one-step walk, the widened interval"
+        ),
+        (_STOP_LTMLE, "L3"): (
+            f"{_STOP_LAWS[_STOP_LTMLE, 'l3']}; the per-node Newton walk under "
+            "stopping='scaled_var', the widened interval"
+        ),
+        (_STOP_LTMLE, "L4"): (
+            f"{_STOP_LAWS[_STOP_LTMLE, 'l4']} and the arm-1 risk; stopping='scaled_var', the "
+            "widened interval"
+        ),
+    }
+)
+
+
+def _stop_fits() -> dict[tuple[str, str], str]:
+    fits: dict[tuple[str, str], str] = {}
+    for (slug, law), words in _STOP_LAWS.items():
+        walks = (
+            ("newton", "one_step")
+            if slug == _STOP_POINT
+            else (("newton",) if law == "l3" else ("one_step",))
+        )
+        for rule in ("sv", "ss"):
+            for walk in walks:
+                fits[slug, f"{law}_{rule}_{walk}"] = (
+                    f"{words}: {_RULE_WORDS[rule]} on {_WALK_WORDS[walk]}"
+                )
+        walk = "one_step" if law == "l4" else "newton"
+        fits[slug, f"{law}_rel_{walk}"] = f"{words}: stopping='relative' on {_WALK_WORDS[walk]}"
+    return fits
+
+
+_STOP_FITS = _stop_fits()
+_LN = (
+    "law LN (the outcome regression omits the confounding term V, so the initial score has a "
+    "fixed sign), the mean under treatment, n = 2,000"
+)
+_L4_MC = "law L4 with intercept-only hazard learners and correct mechanisms, n = 2,000"
+_STOP_EXTRA = {
+    (_STOP_POINT, "binary_ss_newton_step_bound"): (
+        f"{_STOP_LAWS[_STOP_POINT, 'binary']}: stopping='sample_size' on the Newton walk with "
+        "step_bound=0.05, the tmle3 pairing"
+    ),
+    (_STOP_POINT, "ln_ey1"): f"{_LN}: one-step stopping='scaled_var', every threshold times 8",
+    (_STOP_POINT, "ln_ey1_k1"): f"{_LN}: one-step stopping='scaled_var' at the declared thresholds",
+    (_STOP_POINT, "ln_ey1_rel"): f"{_LN}: one-step stopping='relative'",
+    **{
+        (_STOP_POINT, f"l2_{rule}_one_step_{target}"): (
+            f"law L2 (Y = 4 W1 + 0.5 W2 + 0.1 A + noise, correct linear and logistic GLMs), "
+            f"{'the ATE' if target == 'ate' else 'the mean under treatment'}, n = 2,000: "
+            f"{_RULE_WORDS[rule]} on the one-step walk"
+        )
+        for rule in ("sv", "ss")
+        for target in ("ate", "ey1")
+    },
+    (_STOP_LTMLE, "l4_mc_risk"): (
+        f"{_L4_MC}, the arm-1 risk at visit 5: stopping='scaled_var', every threshold times 8"
+    ),
+    (_STOP_LTMLE, "l4_mc_k1_risk"): (
+        f"{_L4_MC}, the arm-1 risk at visit 5: stopping='scaled_var' at the declared thresholds"
+    ),
+    (_STOP_LTMLE, "l4_mc_contrast"): (
+        f"{_L4_MC}, the risk difference at visit 5: stopping='scaled_var', every threshold times 8"
+    ),
+    **{
+        (_STOP_LTMLE, f"l4_{rule}_one_step_risk"): (
+            f"law L4, the arm-1 risk at visit 5, n = 2,000: {_RULE_WORDS[rule]} on the one-step "
+            "hazard walk"
+        )
+        for rule in ("sv", "ss")
+    },
+}
+STUDY_ARMS.update(_STOP_FITS)
+STUDY_ARMS.update(_STOP_EXTRA)
+PROPERTIES.update(
+    {
+        "residual_witness": (
+            "the rule leaves a score residual: the share of draws whose residual reaches 0.01 "
+            "standard errors"
+        ),
+        "residual_necessity": (
+            "where the rule leaves a large residual, the plain interval under-covers and the "
+            "widened interval covers"
+        ),
+        "plain_interval": (
+            "the plain Wald interval of each calibration fit, without the residual, reported"
+        ),
+        "relative_reference": "the fit under stopping='relative' on the same draws, reported",
+        "necessity_reference": (
+            "the necessity law's fits at the declared thresholds, under the relative rule or on "
+            "another estimand, reported"
+        ),
+        "contrast_residual": (
+            "the plain and widened intervals of a one-step fit whose residual is not negligible, "
+            "reported"
+        ),
+        "step_bound": "a rule fit with a step bound, which the support key keeps experimental, reported",
+    }
+)
+_WIDENED_REQUIRED = "SE ratio and coverage intervals both inside their calibration bands"
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (slug, "interval_calibration", arm, "widened"): (
+                "the interval adds the remaining score to its half-width",
+                _WIDENED_REQUIRED,
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" not in arm
+        },
+        **{
+            (slug, "residual_witness", arm, "witness"): (
+                "the share of draws whose absolute residual is at least 0.01 standard errors",
+                (
+                    "the lower limit of the share's exact 99% interval at least 0.5"
+                    if arm in {"binary_sv_one_step", "continuous_sv_one_step", "l4_sv_one_step"}
+                    else _DIAGNOSTIC_REQUIRED
+                ),
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" not in arm
+        },
+        **{
+            (slug, "plain_interval", arm, "plain"): (
+                "the plain Wald interval of the same fits, without the residual",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" not in arm
+        },
+        **{
+            (slug, "relative_reference", arm, "widened"): (
+                "the default rule, whose residual is below tol",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for (slug, arm) in _STOP_FITS
+            if "_rel_" in arm
+        },
+        (_STOP_POINT, "step_bound", "binary_ss_newton_step_bound", "widened"): (
+            "the widened interval",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        (_STOP_POINT, "residual_necessity", "ln_ey1", "plain"): (
+            "the plain interval, without the residual",
+            "the upper limit of the coverage's exact 99% interval below 0.92",
+        ),
+        (_STOP_POINT, "residual_necessity", "ln_ey1", "widened"): (
+            "the widened interval of the same fits",
+            "the lower limit of the coverage's exact 99% interval at least 0.90",
+        ),
+        (_STOP_LTMLE, "residual_necessity", "l4_mc_risk", "plain"): (
+            "the plain interval, without the residual",
+            "the upper limit of the coverage's exact 99% interval below 0.92",
+        ),
+        (_STOP_LTMLE, "residual_necessity", "l4_mc_risk", "widened"): (
+            "the widened interval of the same fits",
+            "the lower limit of the coverage's exact 99% interval at least 0.90",
+        ),
+        **{
+            (_STOP_POINT, "necessity_reference", arm, kind): (
+                f"the {kind} interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for arm, kinds in (("ln_ey1_k1", ("plain", "widened")), ("ln_ey1_rel", ("widened",)))
+            for kind in kinds
+        },
+        **{
+            (_STOP_LTMLE, "necessity_reference", arm, kind): (
+                f"the {kind} interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for arm in ("l4_mc_contrast", "l4_mc_k1_risk")
+            for kind in ("plain", "widened")
+        },
+        **{
+            (_STOP_POINT, "contrast_residual", f"l2_{rule}_one_step_{target}", kind): (
+                f"the {kind} interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for rule in ("sv", "ss")
+            for target in ("ate", "ey1")
+            for kind in ("plain", "widened")
+        },
+        **{
+            (_STOP_LTMLE, "reported_calibration", f"l4_{rule}_one_step_risk", "widened"): (
+                "the widened interval",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for rule in ("sv", "ss")
+        },
+    }
+)
+
+
+#: ``option-patience`` (X76 part (c)): ``CTMLE(patience=p)``.  The laws, fits and cells are
+#: those of ``tests/studies/_option_patience_laws.py`` and its properties module.
+_PATIENCE_SLUG = "option-patience"
+_LC1 = "law LC1 (the canonical-ctmle-selector binary law, three covariates), the ATE, n = 2,000"
+_LC2 = {
+    "lc2_lasso": "law LC2 (the canonical-ctmle-sequences lasso law), the ATE, n = 2,000",
+    "lc2_learners": "law LC2 (the canonical-ctmle-sequences learners law), the ATE, n = 2,000",
+}
+_LC3 = (
+    "law LC3 (confounder W1 omitted by the outcome regression, three instruments), the ATE, "
+    "n = 2,000"
+)
+_PATIENCE_STRATEGY = {
+    "greedy": "the greedy path",
+    "ordered": "the ordered path",
+    "discrete": "the discrete path",
+    "lasso": "the lasso path",
+    "learners": "the learners path",
+}
+_PATIENCE_LAW = {"lc1": _LC1, "lc3": _LC3, **_LC2}
+
+
+def _patience_fit(name: str) -> str:
+    """The words for one declared fit, ``<stream>_<strategy>_<patience|whole>`` or LC2's."""
+    stream, _, kind = name.rpartition("_")
+    if stream in _LC2:
+        law, strategy = _LC2[stream], stream.removeprefix("lc2_")
+    else:
+        prefix, _, strategy = stream.partition("_")
+        law = _PATIENCE_LAW[prefix]
+    patience = {"lc1": 1}.get(stream.partition("_")[0], 2)
+    setting = f"with patience={patience}" if kind == "patience" else "scoring the whole path"
+    return f"{law}: {_PATIENCE_STRATEGY[strategy]} {setting}, in sample"
+
+
+def _patience_stream(cell: str) -> tuple[str, str]:
+    """The law words and strategy of a stop or displacement cell, ``<stream>_<strategy>``."""
+    if cell in _LC2:
+        return _LC2[cell], cell.removeprefix("lc2_")
+    prefix, _, strategy = cell.partition("_")
+    return _PATIENCE_LAW[prefix], strategy
+
+
+STUDY_SCENARIOS[(_PATIENCE_SLUG, "lc1")] = (
+    f"{_LC1}: the greedy path with patience=1, in sample; the point estimate only"
+)
+_PAIRED_REQUIRED = (
+    "the 99% interval of the mean paired difference inside 0.25 SD of the whole-path estimates"
+)
+_SHARE_REQUIRED = "the lower limit of the share's exact 99% interval at least 0.3"
+PROPERTIES.update(
+    {
+        "patience_bias": (
+            "the greedy path with patience stays unbiased where the counter stops it early"
+        ),
+        "patience_witness": "the counter stops the greedy path before its end",
+        "ordered_late_confounder": (
+            "a pre-ordered path with patience can stop before the confounder the outcome "
+            "regression omits, and stays biased"
+        ),
+        "late_confounder_stop": (
+            "the ordered fits with patience leave out the confounder the outcome regression omits"
+        ),
+        "ordered_whole_path": "the whole ordered path on the same draws keeps the confounder",
+        "greedy_late_confounder": (
+            "on the late-confounder law the greedy path with patience returns the whole path's "
+            "estimate"
+        ),
+        "reported_estimate": "every other declared fit's point estimate, reported",
+        "reported_stop": "the share of draws on which the counter stops each path early, reported",
+        "reported_displacement": (
+            "the fit with patience minus its whole path on the same draw, reported"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("patience_bias", "lc1_greedy"): (
+            _patience_fit("lc1_greedy_patience"),
+            "bias interval inside the equivalence margin",
+        ),
+        ("patience_witness", "lc1_greedy"): (
+            f"{_patience_fit('lc1_greedy_patience')}: the share of draws the counter stopped "
+            "before the path's end",
+            _SHARE_REQUIRED,
+        ),
+        ("ordered_late_confounder", "lc3_ordered"): (
+            f"{_patience_fit('lc3_ordered_patience')}, the instruments ordered first",
+            "the 99% interval of the standardized bias must lie wholly beyond the margin",
+        ),
+        ("late_confounder_stop", "lc3_ordered"): (
+            f"{_patience_fit('lc3_ordered_patience')}, the instruments ordered first: the share "
+            "of draws whose selected treatment model leaves out W1",
+            _SHARE_REQUIRED,
+        ),
+        ("ordered_whole_path", "lc3_ordered"): (
+            f"{_patience_fit('lc3_ordered_whole')}, on the draws of the ordered fit with patience",
+            "bias interval inside the equivalence margin",
+        ),
+        ("greedy_late_confounder", "lc3_greedy"): (
+            f"{_LC3}: the greedy path with patience=2 minus the greedy whole path on the same draw",
+            _PAIRED_REQUIRED,
+        ),
+        **{
+            ("reported_estimate", name): (_patience_fit(name), _DIAGNOSTIC_REQUIRED)
+            for name in (
+                "lc1_discrete_patience",
+                "lc1_discrete_whole",
+                "lc1_greedy_whole",
+                "lc1_ordered_patience",
+                "lc1_ordered_whole",
+                "lc2_lasso_patience",
+                "lc2_lasso_whole",
+                "lc2_learners_patience",
+                "lc2_learners_whole",
+                "lc3_greedy_patience",
+                "lc3_greedy_whole",
+            )
+        },
+        **{
+            ("reported_stop", cell): (
+                f"{_patience_stream(cell)[0]}: {_PATIENCE_STRATEGY[_patience_stream(cell)[1]]} "
+                "with patience, the share of draws the counter stopped before the path's end",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for cell in ("lc1_discrete", "lc1_ordered", "lc2_lasso", "lc2_learners", "lc3_greedy")
+        },
+        **{
+            ("reported_displacement", cell): (
+                f"{_patience_stream(cell)[0]}: {_PATIENCE_STRATEGY[_patience_stream(cell)[1]]} "
+                "with patience minus its whole path on the same draw",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for cell in ("lc1_discrete", "lc1_greedy", "lc1_ordered", "lc2_lasso", "lc2_learners")
+        },
+    }
+)
+
+
+#: ``isotonic-binding`` (X76 part (g)): ``LTMLE(isotonic=True)`` on law ``LG2``.  The law, fit and
+#: cells are those of ``tests/studies/_isotonic_binding_law.py`` and its properties module.
+_ISOTONIC_SLUG = "isotonic-binding"
+_LG2 = (
+    "law LG2 (two nodes, a continuous baseline covariate, a strictly increasing risk), "
+    "in-sample LTMLE with isotonic=True, n = 2,000"
+)
+_LG2_GS2 = "law LG2 with treatment slope 2.0 (larger moves), in-sample LTMLE with isotonic=True"
+_NEVER_T1 = "the risk by visit 1 under never treated"
+_SHARE_FLOOR_REQUIRED = "the lower limit of the share's exact 99% interval at least {floor}"
+STUDY_SCENARIOS[(_ISOTONIC_SLUG, "LG2")] = (
+    f"{_LG2}; logistic outcome and mechanism learners, a linear pseudo-outcome learner"
+)
+STUDY_ARMS[(_ISOTONIC_SLUG, "projected_t1")] = f"{_LG2}: {_NEVER_T1}"
+STUDY_ARM_CELLS[(_ISOTONIC_SLUG, "interval_calibration", "projected_t1", "correctly_specified")] = (
+    "the interval centred at the projected level with the fit's unprojected SE",
+    "SE ratio and coverage intervals both inside their calibration bands",
+)
+PROPERTIES.update(
+    {
+        "material_move": "the isotonic projection moves a level by at least 0.1 SE",
+        "reported_levels": (
+            "the unprojected and horizon-2 levels and the always regimen, reported"
+        ),
+        "reported_large_move": "the never horizon-1 level on the larger-move law, reported",
+    }
+)
+CELLS.update(
+    {
+        ("binding_witness", "never_t1"): (
+            f"{_LG2}: the share of draws on which the projection moves {_NEVER_T1} by more "
+            "than 1e-6 SE",
+            _SHARE_FLOOR_REQUIRED.format(floor="0.25"),
+        ),
+        ("material_move", "never_t1"): (
+            f"{_LG2}: the share of draws on which the projection moves {_NEVER_T1} by at "
+            "least 0.1 SE",
+            _SHARE_FLOOR_REQUIRED.format(floor="0.10"),
+        ),
+        ("reported_levels", "unprojected_t1"): (
+            f"{_LG2}: {_NEVER_T1}, the interval at the unprojected level on the same draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "projected_t2"): (
+            f"{_LG2}: the risk by visit 2 under never treated, at the projected level, on the "
+            "draws that report an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "unprojected_t2"): (
+            f"{_LG2}: the risk by visit 2 under never treated, at the unprojected level, on the "
+            "draws that report an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "se_present_t2"): (
+            f"{_LG2}: the share of draws on which the never horizon-2 level reports an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_projected_t1"): (
+            f"{_LG2}: the risk by visit 1 under always treated, at the projected level",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_binding_t1"): (
+            f"{_LG2}: the share of draws on which the projection moves the always horizon-1 "
+            "level by more than 1e-6 SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_projected_t2"): (
+            f"{_LG2}: the risk by visit 2 under always treated, at the projected level, on the "
+            "draws that report an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "always_se_present_t2"): (
+            f"{_LG2}: the share of draws on which the always horizon-2 level reports an SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_levels", "stalled_fits"): (
+            f"{_LG2}: the share of replications with a logistic fit stopped at max_iter",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "projected_t1"): (
+            f"{_LG2_GS2}: {_NEVER_T1}, at the projected level",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "unprojected_t1"): (
+            f"{_LG2_GS2}: {_NEVER_T1}, at the unprojected level on the same draws",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "binding_t1"): (
+            f"{_LG2_GS2}: the share of draws on which the projection moves {_NEVER_T1} by "
+            "more than 1e-6 SE",
+            _DIAGNOSTIC_REQUIRED,
+        ),
+        ("reported_large_move", "stalled_fits"): (
+            f"{_LG2_GS2}: the share of replications with a logistic fit stopped at max_iter",
+            _DIAGNOSTIC_REQUIRED,
         ),
     }
 )

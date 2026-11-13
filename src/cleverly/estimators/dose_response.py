@@ -851,5 +851,7 @@ class DoseResponseTMLE:
                 alpha=self.alpha,
                 inference="low_dose_support_plugin" if below else "influence_curve",
                 support=_pair_support(configured, below),
+                # Each pair's fluctuation solves its score or the fit refuses (above).
+                rule_widened=False,
             )
         return estimates, tuple(supports), scores

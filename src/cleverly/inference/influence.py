@@ -1005,6 +1005,16 @@ class ParameterEstimate:
         simultaneous band with ``band_scale="logit"`` is built on the logit of the
         estimate's position in this range. ``None`` for every other parameter, including any
         parameter of a continuous outcome.
+    rule_widened : bool
+        Whether :attr:`ci` and :attr:`pvalue` add the remaining score to the half-width.
+        ``True`` for an estimate of a fit under a declared stopping rule
+        (``stopping="scaled_var"`` or ``"sample_size"``), and for every estimate derived
+        from one. Such a fit stops adjusting before the score equation is solved, so the
+        mean of the influence curve, :attr:`score`, is left in the error. The interval is
+        then ``inference_value +/- (critical * std_error + |score|)`` on the inference
+        scale, which keeps its level whatever the residual's dependence on the error.
+        :attr:`plugin_interval` is widened with it. The plain Wald interval of such an
+        estimate is ``dataclasses.replace(estimate, rule_widened=False).ci``.
     outcome_family : {"binomial", "gaussian"} or None
         The family of the outcome the estimate is a functional of, when its builder records
         it: ``"binomial"`` for a binary outcome and ``"gaussian"`` for a continuous one.
@@ -1028,6 +1038,7 @@ class ParameterEstimate:
     plugin_interval : tuple of float
     pvalue : float
     supplies_inference : bool
+    residual_margin : float
 
     See Also
     --------
@@ -1070,9 +1081,11 @@ class ParameterEstimate:
     >>> import numpy as np
     >>> from cleverly.inference import make_estimate
     >>> curve = np.array([3.0, -1.0, -1.0, -1.0])
-    >>> make_estimate("ey1", 0.5, curve, n=4).effective_df is None
+    >>> make_estimate("ey1", 0.5, curve, n=4, rule_widened=False).effective_df is None
     True
-    >>> make_estimate("ey1", 0.5, curve, n=4, outcome_family="gaussian").effective_df
+    >>> make_estimate(
+    ...     "ey1", 0.5, curve, n=4, rule_widened=False, outcome_family="gaussian"
+    ... ).effective_df
     6.0
 
     Test the estimate against a declared null value:
@@ -1098,6 +1111,7 @@ class ParameterEstimate:
     reference_df: int | None = None
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
+    rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
 
@@ -1175,36 +1189,60 @@ class ParameterEstimate:
             return float("nan")
         return float(np.sqrt(self.variance))
 
-    def _wald_interval(self) -> tuple[float, float]:
+    def _residual_margin(self, widen: bool) -> float:
+        """What a declared stopping rule adds to the half-width, on the inference scale.
+
+        ``abs(score)`` when ``widen``, else zero. The one place the widening is computed,
+        so a change to the half-width (a reference distribution, a bounded scale) composes
+        with it rather than replacing it.
+        """
+        return abs(self.score) if widen else 0.0
+
+    @property
+    def residual_margin(self) -> float:
+        """What :attr:`ci` adds to its half-width, on the inference scale.
+
+        ``abs(score)`` under :attr:`rule_widened`, else ``0.0``. A simultaneous band of a
+        widened estimate adds the same amount to each component's half-width.
+        """
+        return self._residual_margin(self.rule_widened)
+
+    def _wald_interval(self, *, widen: bool) -> tuple[float, float]:
         """The Wald interval of the plug-in curve, under any inference status.
 
         One body for :attr:`ci` and :attr:`plugin_interval`, for the same reason
-        :meth:`_plugin_std_error` has one.
+        :meth:`_plugin_std_error` has one. ``widen`` adds the remaining score to the
+        half-width on the inference scale, before any map back to the reported scale.
 
         Under a status of :data:`~cleverly._inference_status.UNREPORTED_INTERVAL_STATUSES` it
         is ``(nan, nan)``. On a bounded unclustered mean (:meth:`_range_scale`) it is the
-        interval on the logit scale, mapped back, with the normal reference; the check that the
-        estimate lies inside its range runs first, so the map is never evaluated at or beyond a
-        bound. An estimate on or outside its range that carries no withheld status, which only a
-        hand-built estimate can, keeps the identity interval.
+        interval on the logit scale, mapped back, with the normal reference; the remaining
+        score enters that scale as ``abs(score) * f'(psi)``, the delta-method image of the
+        level-scale margin under the same slope that carries the standard error. The check
+        that the estimate lies inside its range runs first, so the map is never evaluated at
+        or beyond a bound. An estimate on or outside its range that carries no withheld
+        status, which only a hand-built estimate can, keeps the identity interval.
         """
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             return (float("nan"), float("nan"))
         center = self.inference_value
         df = self.reference_df
+        margin = self._residual_margin(widen)
         scale = None if outside_bounds(self.psi, self.bounds) else self._range_scale()
         if scale is not None:
+            slope = scale.slope(self.psi)
             low, high = wald_ci(
                 float(scale.forward(self.psi)),
-                self._plugin_std_error() * scale.slope(self.psi),
+                self._plugin_std_error() * slope,
                 self.alpha,
                 df=None,
+                margin=margin * slope,
             )
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             return (float(scale.inverse(low)), float(scale.inverse(high)))
         if self.transform is not None:
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -1213,9 +1251,9 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             return (float(np.exp(low)), float(np.exp(high)))
-        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
+        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the scale the test is computed on."""
@@ -1271,21 +1309,29 @@ class ParameterEstimate:
         One body for :meth:`wald_test`, :attr:`pvalue` and the rejection rate
         :class:`~cleverly.validation.CoverageStudy` measures, so a study that measures the
         diagnostic evaluates the refused property's arithmetic rather than a second rule.
+        Under :attr:`rule_widened` the test inverts :attr:`ci`: it rejects exactly when the
+        null lies outside the widened interval.
         """
         reported, mapped = self._null_inference_value(null)
         scale = self._test_scale()
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             statistic, pvalue = float("nan"), float("nan")
         elif scale is not None:
+            slope = scale.slope(self.psi)
             statistic, pvalue = wald_statistic(
                 float(scale.forward(self.psi)),
                 mapped,
-                self._plugin_std_error() * scale.slope(self.psi),
+                self._plugin_std_error() * slope,
                 df=None,
+                margin=self.residual_margin * slope,
             )
         else:
             statistic, pvalue = wald_statistic(
-                self.inference_value, mapped, self._plugin_std_error(), df=self.reference_df
+                self.inference_value,
+                mapped,
+                self._plugin_std_error(),
+                df=self.reference_df,
+                margin=self.residual_margin,
             )
         return WaldTest(
             name=self.name,
@@ -1346,7 +1392,7 @@ class ParameterEstimate:
         dict of str to float
             The columns, in the order ``to_dict`` publishes them.
         """
-        low, high = self._wald_interval()
+        low, high = self._wald_interval(widen=self.rule_widened)
         columns = {
             spread_name("std_err", self.inference): self._plugin_std_error(),
             spread_name("ci_lower", self.inference): low,
@@ -1407,7 +1453,7 @@ class ParameterEstimate:
             :attr:`plugin_interval` for the retained diagnostic.
         """
         refuse_inference(self.inference, operation=".ci")
-        return self._wald_interval()
+        return self._wald_interval(widen=self.rule_widened)
 
     @property
     def plugin_interval(self) -> tuple[float, float]:
@@ -1420,8 +1466,11 @@ class ParameterEstimate:
         unestablished, for the reason the
         :doc:`inference reference </technical-reference/inference>` gives. The
         registered selector studies measure it and report it as a diagnostic.
+
+        Under :attr:`rule_widened` it adds the remaining score to its half-width, as
+        :attr:`ci` does.
         """
-        return self._wald_interval()
+        return self._wald_interval(widen=self.rule_widened)
 
     @property
     def pvalue(self) -> float:
@@ -1470,7 +1519,9 @@ class ParameterEstimate:
         --------
         >>> import numpy as np
         >>> from cleverly.inference import make_estimate
-        >>> estimate = make_estimate("ey1", 0.4, np.array([0.1, -0.1, 0.2, -0.2]), n=4)
+        >>> estimate = make_estimate(
+        ...     "ey1", 0.4, np.array([0.1, -0.1, 0.2, -0.2]), n=4, rule_widened=False
+        ... )
         >>> test = estimate.wald_test(null=0.4)
         >>> test.statistic, test.pvalue
         (0.0, 1.0)
@@ -1521,8 +1572,11 @@ class ParameterEstimate:
         summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
         on the transform's scale. ``interval_scale`` names the scale the interval is formed on
         (:attr:`interval_scale`). An estimate with a Student t reference adds ``reference_df``,
-        and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
-        :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
+        and its bootstrap columns take the diagnostic names. An estimate under a declared
+        stopping rule adds ``rule_widened`` (``True``) and ``residual_margin``, so a consumer
+        can tell that ``ci_lower`` and ``ci_upper`` include the margin. ``std_err`` is present
+        exactly when :attr:`supplies_inference` is ``True``, so a programmatic consumer has a
+        total test.
 
         Returns
         -------
@@ -1541,6 +1595,9 @@ class ParameterEstimate:
         row.update(self.spread_columns())
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
+        if self.rule_widened:
+            row["rule_widened"] = True
+            row["residual_margin"] = self.residual_margin
         row["scale"] = self.scale
         row["interval_scale"] = self.interval_scale
         if self.log_psi is not None:
@@ -1771,6 +1828,7 @@ def make_estimate(
     influence_curve: FloatArray,
     *,
     n: int,
+    rule_widened: bool,
     cluster: IntArray | None = None,
     scale: Scale = "difference",
     alpha: float = 0.05,
@@ -1798,6 +1856,11 @@ def make_estimate(
         Per-observation influence curve on the inference scale.
     n : int
         Number of observations behind the estimate.
+    rule_widened : bool
+        Whether the interval adds the remaining score to its half-width
+        (:attr:`ParameterEstimate.rule_widened`). A fit passes whether it ran under a
+        declared stopping rule. An estimate built from other estimates passes ``True``
+        when any input is widened. It has no default, so every caller states it.
     cluster : ndarray or None, default=None
         ``(n,)`` cluster codes, or ``None`` for independent rows.
     scale : {"level", "difference", "ratio", "fraction"}, default="difference"
@@ -1834,7 +1897,7 @@ def make_estimate(
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
-        ``support``, ``bounds`` and ``outcome_family``.
+        ``support``, ``bounds``, ``rule_widened`` and ``outcome_family``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -1864,6 +1927,7 @@ def make_estimate(
         reference_df=reference_df if supplies_inference(inference) else None,
         support=support,
         bounds=bounds,
+        rule_widened=rule_widened,
         outcome_family=outcome_family,
     )
 
@@ -2151,6 +2215,7 @@ def median_estimates(
             support=parts[0].support,
             bounds=parts[0].bounds,
             outcome_family=parts[0].outcome_family,
+            rule_widened=any(part.rule_widened for part in parts),
         )
     return out
 
@@ -3383,6 +3448,7 @@ def ratio_estimates(
     ic_zero: FloatArray,
     *,
     n: int,
+    rule_widened: bool,
     cluster: IntArray | None = None,
     alpha: float = 0.05,
     which: tuple[str, ...] = ("rr", "or"),
@@ -3390,7 +3456,10 @@ def ratio_estimates(
     """Risk ratio and odds ratio, with inference on the log scale.
 
     Only meaningful for a binary outcome, where the counterfactual means are risks
-    in ``(0, 1)``; the caller is responsible for not asking otherwise.
+    in ``(0, 1)``; the caller is responsible for not asking otherwise. ``rule_widened``
+    is ``True`` when either arm's curve comes from a fit under a declared stopping rule:
+    the log-scale curve is the chain rule of the arm curves, so its mean is the log-scale
+    residual the interval adds.
     """
     out: dict[str, ParameterEstimate] = {}
     if "rr" in which:
@@ -3404,6 +3473,7 @@ def ratio_estimates(
             scale="ratio",
             alpha=alpha,
             log_psi=log_psi,
+            rule_widened=rule_widened,
         )
     if "or" in which:
         log_psi, ic = log_odds_ratio_influence(psi_one, ic_one, psi_zero, ic_zero)
@@ -3416,6 +3486,7 @@ def ratio_estimates(
             scale="ratio",
             alpha=alpha,
             log_psi=log_psi,
+            rule_widened=rule_widened,
         )
     return out
 

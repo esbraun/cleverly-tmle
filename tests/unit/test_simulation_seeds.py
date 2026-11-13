@@ -70,7 +70,9 @@ def test_a_plan_refuses_more_distinct_draws_than_the_seed_space() -> None:
 class _Estimator:
     def fit(self, frame: SimpleNamespace, **kwargs: object) -> _Estimator:
         self.estimates = {
-            "ate": make_estimate("ate", frame.seed / 2**32, np.array([-1.0, 1.0]), n=2)
+            "ate": make_estimate(
+                "ate", frame.seed / 2**32, np.array([-1.0, 1.0]), n=2, rule_widened=False
+            )
         }
         return self
 
@@ -196,7 +198,12 @@ def _flaky(bad: set[int], error: type[Exception], alphas: dict[int, float] | Non
             alpha = (alphas or {}).get(frame.seed, 0.05)
             self.estimates = {
                 "ate": make_estimate(
-                    "ate", frame.seed / 2**32, np.array([-1.0, 1.0]), n=2, alpha=alpha
+                    "ate",
+                    frame.seed / 2**32,
+                    np.array([-1.0, 1.0]),
+                    n=2,
+                    alpha=alpha,
+                    rule_widened=False,
                 )
             }
             return self

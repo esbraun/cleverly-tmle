@@ -318,9 +318,18 @@ def normal_cdf(value: float) -> float:
 
 
 def wald_ci(
-    estimate: float, std_error: float, alpha: float = 0.05, *, df: float | None = None
+    estimate: float,
+    std_error: float,
+    alpha: float = 0.05,
+    *,
+    df: float | None = None,
+    margin: float = 0.0,
 ) -> tuple[float, float]:
-    """Wald confidence interval at level ``1 - alpha``.
+    """Wald confidence interval at level ``1 - alpha``, optionally widened by a margin.
+
+    The half-width is ``critical * std_error + margin``. A fit under a declared stopping
+    rule passes the absolute score it leaves as ``margin``
+    (:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).
 
     Parameters
     ----------
@@ -333,6 +342,8 @@ def wald_ci(
     df : float or None, default=None
         Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
         ``math.inf`` takes the normal reference.
+    margin : float, default=0.0
+        A non-negative amount added to the half-width, on the same scale.
 
     Returns
     -------
@@ -349,13 +360,24 @@ def wald_ci(
     critical = reference_quantile(alpha, df)
     if not np.isfinite(std_error) or std_error < 0:
         return (float("nan"), float("nan"))
-    return (estimate - critical * std_error, estimate + critical * std_error)
+    half = critical * std_error + margin
+    return (estimate - half, estimate + half)
 
 
 def wald_statistic(
-    value: float, null: float, std_error: float, *, df: float | None = None
+    value: float,
+    null: float,
+    std_error: float,
+    *,
+    df: float | None = None,
+    margin: float = 0.0,
 ) -> tuple[float, float]:
     """The Wald statistic and its two-sided p-value.
+
+    With a positive ``margin`` the p-value is that of the test which inverts
+    :func:`wald_ci` at the same margin: the distance to the null is first reduced by
+    ``margin``, so the p-value is at most ``alpha`` exactly when the null lies outside the
+    widened interval. The statistic itself stays ``(value - null) / std_error``.
 
     Parameters
     ----------
@@ -368,19 +390,23 @@ def wald_statistic(
     df : float or None, default=None
         Degrees of freedom of a Student t reference, which may be fractional. ``None`` or
         ``math.inf`` takes the normal reference.
+    margin : float, default=0.0
+        The non-negative half-width margin of the interval the test inverts.
 
     Returns
     -------
     statistic : float
         ``(value - null) / std_error``, ``nan`` when the standard error is not positive.
     pvalue : float
-        ``2 * Phi(-|statistic|)``, or ``2 * F_t(-|statistic|; df)``.
+        ``2 * Phi(-d)``, or ``2 * F_t(-d; df)``, with
+        ``d = max(0, |statistic| - margin / std_error)``; ``nan`` when the statistic is ``nan``.
     """
     normal = _normal_reference(df)
     if not np.isfinite(std_error) or std_error <= 0:
         return float("nan"), float("nan")
     z = (value - null) / std_error
-    tail = stats.norm.sf(abs(z)) if normal else stats.t.sf(abs(z), df)
+    distance = float(np.maximum(0.0, abs(z) - margin / std_error))
+    tail = stats.norm.sf(distance) if normal else stats.t.sf(distance, df)
     return float(z), float(2.0 * tail)
 
 

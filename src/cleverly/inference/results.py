@@ -287,6 +287,7 @@ def smooth_contrast(
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
         support=combine_support((estimates[key].support for key in chosen), kind="derived"),
         outcome_family=shared_family([estimates[key] for key in chosen]),
+        rule_widened=any(estimates[key].rule_widened for key in chosen),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -378,6 +379,7 @@ def transform_estimate(
         reference_df=estimate.reference_df,
         support=estimate.support,
         outcome_family=estimate.outcome_family,
+        rule_widened=estimate.rule_widened,
     )
     return replace(mapped, transform=transform)
 
@@ -915,6 +917,7 @@ def ratio_contrast(
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
         support=combine_support((estimates[key].support for key in chosen), kind="derived"),
         outcome_family=shared_family([estimates[key] for key in chosen]),
+        rule_widened=any(estimates[key].rule_widened for key in chosen),
     )
 
 

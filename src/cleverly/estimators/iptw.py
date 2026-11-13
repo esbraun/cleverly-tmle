@@ -1758,6 +1758,8 @@ class AdaptiveIPTW(TMLE):
             observed=observed,
             scaler=nuisance.scaler,
             n=n,
+            # AdaptiveIPTW refuses a declared stopping rule (``_OUTCOME_KEYWORDS``).
+            rule_widened=False,
             cluster=cluster,
             alpha_sig=level,
             arms=codes,
@@ -1842,6 +1844,7 @@ class AdaptiveIPTW(TMLE):
                         log_psi=estimate.log_psi,
                         covariance_rule=estimate.covariance_rule,
                         outcome_family=estimate.outcome_family,
+                        rule_widened=estimate.rule_widened,
                     )
                     stratum_of[name] = code
         return estimates, stratum_of
@@ -1866,7 +1869,13 @@ class AdaptiveIPTW(TMLE):
             for owner, (psi, curve) in _owner_values(solved, form, weights, None).items():
                 name = NATURAL_COURSE_KEY if owner is None else labels[owner]
                 estimate = make_estimate(
-                    name, psi, curve, n=data.n, cluster=data.cluster, outcome_family=family_of(data)
+                    name,
+                    psi,
+                    curve,
+                    n=data.n,
+                    cluster=data.cluster,
+                    outcome_family=family_of(data),
+                    rule_widened=False,
                 )
                 out[name] = (psi, float(estimate.plugin_std_error))
             return out

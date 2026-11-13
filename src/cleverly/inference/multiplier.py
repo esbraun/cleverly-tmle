@@ -912,13 +912,16 @@ def _band_endpoints(
 
     Returns the bands and the scale each was built on.  A bounded estimate under
     ``band_scale="logit"`` reads its standard error on the range-logit scale by the delta
-    method; a zero standard error gives the point band.
+    method; a zero standard error gives the point band.  An estimate of a fit under a
+    declared stopping rule adds its
+    :attr:`~cleverly.inference.ParameterEstimate.residual_margin` to the half-width on its
+    inference scale, which the range-logit map carries by the same slope.
     """
     bands: dict[str, tuple[float, float]] = {}
     scales: dict[str, str] = {}
     for name, estimate in items:
         std_error = _band_std_error(estimate)
-        half_width = critical * std_error
+        half_width = critical * std_error + estimate.residual_margin
         transform = estimate.transform
         ranged = _range_transform(estimate, band_scale)
         if ranged is not None:

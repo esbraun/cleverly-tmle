@@ -224,6 +224,7 @@ class TestTheMedianRule:
             n=len(ic),
             scale=scale,  # type: ignore[arg-type]
             log_psi=log_psi,
+            rule_widened=False,
         )
 
     def test_one_repeat_returns_its_input_untouched(self) -> None:

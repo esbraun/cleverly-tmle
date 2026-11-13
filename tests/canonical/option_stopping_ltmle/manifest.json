@@ -1,0 +1,110 @@
+{
+  "schema_version": 2,
+  "study": "stopping rules on LTMLE",
+  "slug": "option-stopping-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "51c8758a2bf9021ce223e19bb005106a07227011",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2800,
+    "n": 2000,
+    "seed": 20267631,
+    "resampling_seed": 20267632,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "L3": [
+        "ate_regimen[always vs never]"
+      ],
+      "L4": [
+        "ate_regimen[arm1 vs arm0 @ t=5]",
+        "risk_regimen[arm1 @ t=5]"
+      ]
+    },
+    "construction": "LTMLE under a declared stopping rule, widened interval, in sample",
+    "laws": "L3 (canonical-ltmle censored two-node), L4 (point-survival-curve survival, hazard)",
+    "rules": [
+      "scaled_var",
+      "sample_size"
+    ],
+    "l3_walk": "Newton per node, canonical-ltmle learners",
+    "l4_walk": "one-step hazard walk, step size 0.001",
+    "max_iter": 100,
+    "one_step_max_iter": 200,
+    "tol": 1e-10,
+    "necessity_threshold_scale": 8.0,
+    "necessity_learners": "point-survival-curve mechanism_correct",
+    "witness_floor_se": 0.01,
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_stopping_ltmle.py": "c9f2697e33e8754c647bb6b54b36300a33d904596d20cb26750fae9df3c4b476",
+    "tests/studies/option_stopping_ltmle_properties.py": "c8f67738243cd9522fe1b5998fabddf48a0d65912c919075764dea10e5243195",
+    "tests/studies/_option_stopping_cells.py": "34cd917b16998e648bbc1b13792449b4a7452f7c3855ecbf71bf3fe6dc46b593",
+    "tests/studies/_option_stopping_laws.py": "7c900673ee3eddccfbc117c6b899b645a80671443c74cbd838903465699f50b6",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/canonical_point_survival_curve.py": "04f72c8819965573555322502c325f6bd373cddb7d135211458e4a3d5c8228a5",
+    "tests/studies/canonical_point_survival_hazard.py": "0370b0482d3f428ab76080d9a6b312426644bcf81c155da1274407ee011e75ee",
+    "tests/studies/point_survival_hazard_properties.py": "23f8c30356ffabaa6f832fe64970240af82f9ba513a07e943f74174a748dbfc9",
+    "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "src/cleverly/fluctuation/_score.py": "0c68af9db8d0b39b2e649c6cacf3cc09a3e402aaf8e15ceed082d6c8e5e568f6",
+    "src/cleverly/longitudinal/hazard.py": "d265f66e017559e95acb7cc17a931611cdcc69b8e156c0cada08d795b03449dd",
+    "src/cleverly/longitudinal/sequential.py": "f592d02ebcf1170dea4e0cb89c67ef6fcccbe7c84da87d88ed3b38b29640b645",
+    "src/cleverly/inference/influence.py": "1f09c77a106447fbd43627f095777dc48270cb3995bf2028d59be42b207ed9e2",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "3429d7c7a3cbc6c155291bf455609e2cfa16ef84d29b27ff03575dde7c259e27",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "61cb2df1a6bdfc00d2c4c851fbaff9f1e1c4113f41a248361134ed63f1ec2ef6",
+    "summary.csv": "6ebfec16d7d3e9f8718af06485f310ad6990c0028d018f032ed0509a4fa23e66",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "f018a933f78b2afd399400f2c07881de168d56a34c86875432e71ba120242ca5",
+    "property-replicates.parquet": "0bb4d17bfe4d1f27e85f41f90f8f8c930d023462f14f9c1049911103f390d222",
+    "properties.csv": "6ec4436eba03bba47b5df35d653be5abf1bd2f0569f1ec3837a07290719eb42e"
+  }
+}

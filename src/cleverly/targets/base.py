@@ -422,6 +422,10 @@ class TargetContext:
     observed: BoolArray
     scaler: OutcomeScaler
     n: int
+    #: Whether the fit ran under a declared stopping rule, so that every estimate this
+    #: context finishes adds its remaining score to the interval's half-width
+    #: (:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).
+    rule_widened: bool
     cluster: IntArray | None = None
     alpha_sig: float = 0.05
     #: Arm codes, ascending, and the labels to report them under.  ``arm_labels`` maps a
@@ -689,6 +693,7 @@ class TargetContext:
             alpha=self.alpha_sig,
             log_psi=log_psi,
             covariance_rule=self.covariance_rule,
+            rule_widened=self.rule_widened,
         )
 
     def _record_reads(self, name: str, reads: Iterable[float] | None) -> None:
@@ -724,4 +729,5 @@ class TargetContext:
             scale=scale,
             alpha=self.alpha_sig,
             covariance_rule=self.covariance_rule,
+            rule_widened=self.rule_widened,
         )
