@@ -181,8 +181,9 @@ withholds the interval: report the point estimate and the reason the status give
 
 In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
 on a scale that keeps it inside the possible range, so the interval need not be centred on the
-estimate. When a treatment group in a subgroup shows only one outcome value, or an estimate sits
-exactly at 0 or 100 percent, it reports no interval for that estimate or for the effects that use it
+estimate. When a treatment group shows only one outcome value, in the data or in a subgroup, or an
+estimate sits exactly at 0 or 100 percent, it reports no interval for that estimate or for the
+effects and ratios that use it
 ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
 
 Save structured results when an audit trail matters:

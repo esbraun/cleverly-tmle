@@ -2490,11 +2490,16 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
     ),
     "T13": (
-        "F3-normal-reference: bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850",
         (
-            "F3-normal-reference: coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, "
-            "empirical efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to"
-            " 0.9931"
+            "F3-normal-reference: coverage 0.950 under the shipped logit interval on the "
+            "committed estimates and standard errors (interval-audit.parquet); the identity "
+            "interval read bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850"
+        ),
+        (
+            "F3-normal-reference: coverage 0.9496 under the shipped logit interval on the "
+            "committed estimates and standard errors (interval-audit.parquet); the identity "
+            "interval read coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, empirical "
+            "efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to 0.9931"
         ),
     ),
     "T17": (

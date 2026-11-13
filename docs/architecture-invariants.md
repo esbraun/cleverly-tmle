@@ -225,13 +225,24 @@ when its own fit has such a node, and a contrast when its fit or its reference f
 status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 
 `bounded_status` sets the two bounded-mean statuses. `make_estimate` applies it to every estimate
-with `bounds`, so an estimate on or outside its bounds takes `out_of_range_plugin`. TMLE's
-`_estimates_for` passes `constant_cell=True` when an arm that an arm-axis target reads holds one
-outcome value among the rows the estimate reads (`constant_outcome_cells`), and the longitudinal
-`_estimates` applies it to each level and contrast. A fold-evaluated estimate takes the status of
-the pooled estimate of the same name (`_carry_cell_status`). The constant cell takes precedence over
-the range, either one over a status that shows its interval, and neither over a status that already
-withholds. Contrasts and ratios inherit them through `inference_status`.
+with `bounds`, so an estimate on or outside its bounds takes `out_of_range_plugin`.
+
+On a binary outcome, TMLE's `_estimates_for` passes `constant_cell=True` to every target with
+`bounds` or with recorded reads (`TargetContext.reads`), ratios and coefficients included, when an
+arm it reads holds one outcome value among the rows the estimate reads (`constant_outcome_cells`).
+The arms a code reads come from `_arms_read_by_code`: its own arm on the arm axis, and on a
+regime, learned-rule, IPSI or policy axis of a discrete treatment every arm whose residual term the
+code weights on a kept row. The natural course reads no arm, a working-model or projection
+coefficient of a discrete treatment reads every arm, and a policy of a continuous treatment has no
+arm cells. A target with recorded reads also passes `reads_out_of_range=True` when a mean it reads
+lies on or outside `(0, 1)`.
+
+The longitudinal `_estimates` applies the range check to each level and contrast; its
+constant-outcome status is `constant_node_plugin` above. A fold-evaluated estimate takes the
+constant cell, and an inherited range status, from the pooled estimate of the same name
+(`_carry_cell_status`). The constant cell takes precedence over the range, either one over a status
+that shows its interval, and neither over a status that already withholds. Contrasts built later
+inherit them through `inference_status`.
 
 | path | status it sets |
 | --- | --- |

@@ -164,6 +164,16 @@ def test_the_quoted_pricing_numbers() -> None:
         rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
         assert _cp_lower(rows["covered_shipped"]) == pytest.approx(lower, abs=5e-5)
         assert _cp_lower(rows["covered_shipped"]) >= 0.90 > _cp_lower(rows["covered_committed"])
+    # The binary-outcome calibration cells: the largest move, quoted on the study page.
+    cells = frame.loc[frame["source"] == "property"]
+    moves = (
+        audit.coverage(cells, "covered_shipped") - audit.coverage(cells, "covered_committed")
+    ).abs()
+    assert len(moves) == 11
+    key = "interval_calibration/up_learned_density_tau5__correctly_specified"
+    assert moves.idxmax() == key
+    assert audit.coverage(cells, "covered_committed")[key] == pytest.approx(0.9610)
+    assert audit.coverage(cells, "covered_shipped")[key] == pytest.approx(0.9655)
 
 
 # ------------------------------------------------------------------ the rule against the package

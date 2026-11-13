@@ -28,6 +28,13 @@ with the composite DR-TMLE. `out$tmle` is one logistic fluctuation along $C_a / 
 a binary outcome is the fit the composite TMLE reaches. It pairs with the composite TMLE under
 `tmle_ate` and `tmle_ate_mid`.
 
+The committed rows record the identity interval. The package now forms the interval of an
+unclustered mean of a yes/no outcome on the logit scale
+([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
+standard errors, the package rows of `ey0`, `ey1` and the three-arm means change no verdict, and
+`ey[high]` covers 0.926, with a 99% interval that ends at 0.8992, still below the floor
+(`tests/canonical/drtmle_composite/interval-audit.parquet`).
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
