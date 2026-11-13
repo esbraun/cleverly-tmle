@@ -1927,7 +1927,10 @@ SAME_DRAW_FAMILIES = {
     # rule leaves a residual of at least 0.01 SE, on the fits whose widened interval the
     # calibration cell measures, so it shows that those cells measure a binding rule.  On L4 the
     # necessity pair refits the same draws with intercept-only hazards and every threshold
-    # times 8, so that the rule binds hard on data the calibration cells also read.
+    # times 8.  It shares those draws for convenience, not need: its claim does not read the
+    # calibration fits, and no claim reads the two verdicts jointly.  The committed run drew it
+    # on the calibration stream, so the exception admits it; the next regeneration gives
+    # ``residual_necessity`` its own seed stream and drops it from this set.
     "option-stopping-point": (frozenset({"interval_calibration", "residual_witness"}),),
     "option-stopping-ltmle": (
         frozenset({"interval_calibration", "residual_witness"}),

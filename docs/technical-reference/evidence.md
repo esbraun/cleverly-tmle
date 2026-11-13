@@ -418,7 +418,8 @@ binary theorem.
 The options `step_bound=`, `step_search=` and `iterate=` have no registered study.
 `patience=` has the registered study
 [patience on the cross-validated C-TMLE path](method-evidence/option-patience.md), which backs
-row `C12.greedy` and shows why a pre-ordered path stays experimental. `treatment_adjustment=` has the registered study
+row `C12.greedy` and shows why a pre-ordered path stays experimental. `treatment_adjustment=`
+has the registered study
 [treatment-mechanism covariates on point TMLE](method-evidence/option-treatment-adjustment.md),
 and `outcome_by_arm=` the registered study
 [per-arm outcome regressions on point TMLE](method-evidence/option-outcome-by-arm.md). The

@@ -1753,8 +1753,11 @@ learner reads `experimental`.
 
 In the committed run the trimmed fits' biases are within 0.005 SD
 and the controls read 1.92 (LTMLE) and 2.47 (SDR) SDs. The untrimmed fits with correct
-regressions cover 0.884 (LTMLE) and 0.898 (SDR) on this law, with SE ratios 0.910 and 0.921;
-no cell can tell whether that is a finite-sample effect of the large weights.
+regressions cover 0.884 (LTMLE) and 0.898 (SDR) on this law, with SE ratios 0.910 and 0.921.
+No registered cell measures a larger n. A separate diagnosis outside the study found the
+shortfall to be a finite-sample effect of the heavy weight tail: coverage rose to 0.946 at
+$n = 16{,}000$, and $n$ times the mean squared standard error converged to the exact efficient
+variance (6.23 against 6.25 for LTMLE).
 
 On the 4,000-draw pilot the plug-in SE of a correctly specified trimmed fit was 0.57 of the
 spread of its estimates, so the diagnostic is not a standard error. At $q = 0.99$ the W-blind

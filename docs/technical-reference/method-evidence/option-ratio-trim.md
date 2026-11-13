@@ -92,13 +92,18 @@ It is a diagnostic, not a standard error, which is why the interval is withheld.
 0.39 and 0.49 SD against exact limits of 0.0184 and 0.0250. A smaller trimmed share leaves a
 smaller remainder, below what 1,600 replicates resolve as a control.
 
-**The default untrimmed fit under-covers on this law.** With correct outcome regressions the
-untrimmed LTMLE covers 0.884 and the untrimmed SDR 0.898, with SE ratios 0.910 and 0.921 and
-no bias. The pilot read 0.894 and 0.903 on 4,000 draws of a different seed, so the shortfall is
-confirmed on 5,600 disjoint draws. On this law, whose cumulative ratio is heavy-tailed, the
-influence-curve standard error understates the spread of the untrimmed fit. No cell here can say
-whether that is a finite-sample effect: that needs a larger-n run or a canonical `ltmle`
-comparison on this law. The reading turns no cell red, and it is not evidence about the trimmed fit.
+**The default untrimmed fit under-covers on this law at n = 2,000.** With correct outcome
+regressions the untrimmed LTMLE covers 0.884 and the untrimmed SDR 0.898, with SE ratios 0.910
+and 0.921 and no bias. The pilot read 0.894 and 0.903 on 4,000 draws of a different seed, so the
+shortfall is confirmed on 5,600 disjoint draws. On this law the cumulative ratio is
+heavy-tailed: about 0.2% of units carry most of the influence-curve variance, so a sample of
+2,000 often holds too few of them and the influence-curve standard error understates the spread.
+The reading turns no cell red, and it is not evidence about the trimmed fit.
+
+No registered cell measures a larger n. A separate diagnosis outside this study, with the same
+law, learners and settings on 2,000 draws per size, found the shortfall to be finite-sample.
+Coverage rose to 0.946 for both estimators at n = 16,000, and $n$ times the mean squared
+standard error reached 6.23 (LTMLE) and 6.26 (SDR) against the exact efficient variance 6.25.
 
 ## Sizing
 

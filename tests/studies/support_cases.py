@@ -169,7 +169,6 @@ def capture(run: Callable[[], Any]) -> Observed:
 
     def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
         settings.pop("source", None)
-        settings.pop("conditions", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
 
     def at_structural(estimator: Any, data: Any, **settings: Any) -> None:

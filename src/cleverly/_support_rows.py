@@ -3237,10 +3237,10 @@ def _x76_patience_rows() -> tuple[SupportRow, ...]:
             # Roadmap: F18.
             limits=[
                 "The selector plug-in interval is withheld.",
-                "The counter stopped the greedy path early on 85% of LC1 draws, with the point "
-                "estimate unbiased (cells patience_witness and patience_bias), and on LC3 the "
-                "patient estimate equals the whole path's on 98% of draws (cell "
-                "greedy_late_confounder).",
+                "Measured at patience 1 on LC1 and patience 2 on LC3. The counter stopped the "
+                "greedy path early on 85% of LC1 draws, with the point estimate unbiased (cells "
+                "patience_witness and patience_bias), and on LC3 the patient estimate equals the "
+                "whole path's on 98% of draws (cell greedy_late_confounder).",
                 GREEDY_LATE_CONFOUNDER_LIMIT,
             ],
         ),

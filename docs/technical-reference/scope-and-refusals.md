@@ -359,7 +359,8 @@ The longitudinal support rows read the fitting options of `_x33_options` in
 `LTMLE`. The rows `G55` of the
 [LTMLE stopping-rule study](method-evidence/option-stopping-ltmle.md) cover a declared stopping
 rule on the end-of-study Newton walk and on the held survival hazard walk, each with two static
-regimens. Any other longitudinal fit with a stopping rule carries the experimental label. The rows `G45.mean_model` and `G45.hazard_model` of the
+regimens. Any other longitudinal fit with a stopping rule carries the experimental label. The
+rows `G45.mean_model` and `G45.hazard_model` of the
 [node-bounds study](method-evidence/survival-node-bounds.md) cover `node_bounds=` together with
 `hazard_pooling="pooled"` on a held survival design with two arms, fitted in sample. Any other
 fit with `node_bounds=` or pooled censoring carries the experimental label.
