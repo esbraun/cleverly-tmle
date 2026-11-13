@@ -146,6 +146,9 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     calibration_efficiency_ratio=False,
     publication_policy="reporting",
+    # The claim is points only (F18): the primary's interval columns are the plug-in
+    # diagnostic of a selector path, published and not gated.
+    point_only_scenarios=frozenset({PRIMARY_SCENARIO}),
 )
 
 CONFIGURATION = {

@@ -103,6 +103,7 @@ class TestTheDeclaration:
             1_600,
         )
         assert study.WITNESS_SHARE == 0.3
+        assert study.STUDY.point_only_scenarios == frozenset({study.PRIMARY_SCENARIO})
         assert (law.LC2_PATIENCE, law.LC3_PATIENCE) == (2, 2)
         assert law.LC3_ORDERING == ("Z1", "Z2", "Z3", "W1")
         assert law.LC1_G_BOUNDS == law.LC2_G_BOUNDS == (0.025, 0.975)
@@ -212,12 +213,26 @@ class TestTheWholePathLimit:
         assert law.lc3_truncation_bound((1e-12, 1.0 - 1e-12)) < 1e-12
 
     def test_the_bound_is_below_the_pilot_ceiling(self, summary: pd.DataFrame) -> None:
-        """The bound over the 99% lower limit of the whole-path SD is far below 0.12 SD."""
+        """The limit bound, plus the finite-sample W1-exclusion term, sizes the cell.
+
+        The limit bound holds as n grows.  At n = 2,000 the whole path still drops ``W1`` on a
+        share of draws, so the sized bias adds that share times its conditional bias, both at
+        their 99% upper limits.  That sum sits just above the 0.12 ceiling, which gates the pilot
+        reading (0.023 SD, exclusions included) in ``test_each_bias_positive_reads_below_the_ceiling``;
+        here the cell must still pass at the adverse limits.
+        """
         row = reading(summary, "lc3_ordered_whole")
-        bound = law.lc3_truncation_bound() / sd_lower(float(row["sd"]), int(row["draws"]))
-        assert bound < 0.03
-        assert bound < PILOT_BIAS_CEILING
-        assert sizing.bias_equivalent_probability(MARGINS, bound, study.REPLICATES) > 0.9997
+        draws = int(row["draws"])
+        unit = sd_lower(float(row["sd"]), draws)
+        limit = law.lc3_truncation_bound() / unit
+        assert limit < 0.03
+        excluded = round(float(row["exclude_share"]) * draws)
+        share = float(beta.ppf(1.0 - tail(), excluded + 1, draws - excluded))
+        half = norm.ppf(1.0 - tail()) * float(row["conditional_bias_sd"]) / np.sqrt(excluded)
+        conditional = (abs(float(row["conditional_bias"])) + half) / float(row["sd"])
+        sized = limit + share * conditional
+        assert sized == pytest.approx(0.124, abs=0.002)
+        assert sizing.bias_equivalent_probability(MARGINS, sized, study.REPLICATES) > POSITIVE_PASS
 
     def test_the_default_bounds_would_leave_more(self, summary: pd.DataFrame) -> None:
         """The sample-size default at n = 2,000 truncates more, which is why LC3 declares one."""
@@ -342,6 +357,5 @@ class TestTheRedCellReading:
         """
         from tests.studies.mtp_study_tools import gating_findings
 
-        # No truth row gates: the primary's interval columns are the plug-in diagnostic of a
-        # selector path (F18), and its bias is the gated ``patience_bias`` cell's estimator.
-        assert gating_findings(study.STUDY, GATED) == []
+        # The primary is point-only (F18), so its bias leg is the only truth leg that gates.
+        assert gating_findings(study.STUDY, GATED, truth_implementations=("cleverly",)) == []

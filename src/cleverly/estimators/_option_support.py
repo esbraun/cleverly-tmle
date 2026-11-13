@@ -123,8 +123,7 @@ def patience_conditions(estimator: Any) -> list[Refusal]:
             "candidate the outcome regression needs that is ordered after them is never "
             "scored, so the estimate can stay biased at every sample size.",
             alternative=(
-                "patience=None scores the whole path. On strategy='greedy' each step adds the "
-                "candidate that lowers the risk most."
+                "patience=None scores the whole path, so a candidate ordered late is still scored."
             ),
             roadmap=None,
         )

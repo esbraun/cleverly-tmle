@@ -89,7 +89,12 @@ PAIRED_FAMILY = "greedy_late_confounder"
 #: The families that state no verdict.
 REPORTED_FAMILIES = ("reported_estimate", "reported_stop", "reported_displacement")
 #: The summary columns this study adds.
-EXTRA_COLUMNS = ("paired_over_whole_sd", "conditional_bias", "conditional_bias_over_sd")
+EXTRA_COLUMNS = (
+    "paired_over_whole_sd",
+    "identical_share",
+    "conditional_bias",
+    "conditional_bias_over_sd",
+)
 
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
@@ -454,13 +459,18 @@ def _locate(summary: pd.DataFrame, family: str, cell: str) -> Any:
 
 
 def paired_columns(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Publish each paired cell's mean difference in SDs of its whole-path estimates."""
+    """Publish each paired cell's mean difference in SDs of its whole-path estimates.
+
+    Beside it, ungated, the share of replicates whose difference is exactly zero: the patient fit
+    reported the whole path's estimate.
+    """
     for key, (family, cell) in WHOLE_CELLS.items():
         paired_family, paired_cell = key.split("/", 1)
         whole_sd = float(_cell_rows(rows, family, cell)["estimate"].std(ddof=1))
         index = _locate(summary, paired_family, paired_cell)
         difference = _cell_rows(rows, paired_family, paired_cell)["estimate"]
         summary.loc[index, "paired_over_whole_sd"] = float(difference.mean()) / whole_sd
+        summary.loc[index, "identical_share"] = float((difference == 0.0).mean())
 
 
 def paired_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:

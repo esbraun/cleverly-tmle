@@ -28,17 +28,18 @@ finite-sample red.  The design test applies the reading mechanically to the comm
   bias means the conditional bias moved, which ``late_confounder_stop`` publishes, and is
   diagnosed as a defect suspect of the counter or of the ordered path.
 * A red ``ordered_whole_path/lc3_ordered`` is a defect suspect in the ordered path or a design
-  bug of the law; its limit bias is at most 0.024 SD (the truncation bound at the declared
-  ``g_bounds``), so it is never narrated as a finite-sample effect.
+  bug of the law; its limit bias is at most 0.024 SD (the truncation limit bound at the
+  declared ``g_bounds``), and the W1 exclusions at n = 2,000 bring the sized bias to at most
+  0.124 SD, so it is never narrated as a finite-sample effect.
 * A red ``greedy_late_confounder/lc3_greedy`` (the mean paired difference outside 0.25 SD of
   the greedy whole path) is a defect suspect in the greedy path with patience, read as the
   first bullet.
 * Every ``reported_*`` row is published and turns no cell red.  The greedy whole-path bias on
   LC3 (``reported_estimate/lc3_greedy_whole``) is quoted in the limit of ``C01.greedy`` and
   ``C12.greedy`` at registration, whatever its value.
-* The primary rows (``lc1``, the ``patience_bias`` estimator on its own draws) are published
-  and gate nothing: their interval columns are the plug-in diagnostic of a selector path, which
-  makes no coverage claim (F18).
+* The primary (``lc1``, the ``patience_bias`` estimator on its own draws) is declared
+  point-only: its bias row gates as a positive, and its interval columns are the plug-in
+  diagnostic of a selector path, published with no coverage or SE-ratio verdict (F18).
 * No replicate count, law, learner, margin or seed moves after a verdict is seen.  No re-run
   buys a pass.
 
@@ -62,7 +63,10 @@ and discrimination power 1.0 to six places at 1,600.  The two shares' lower limi
 is at most 0.024 SD at the declared ``g_bounds`` of (0.01, 0.99): the bound
 ``E|1 - g0/g_t| + E|1 - (1 - g0)/(1 - g_t)|`` over the 99% lower limit of the pilot SD.  The
 sample-size default bounds (0.0147 at n = 2,000) would leave a bound of 0.056 SD, which is why
-LC3 declares its own (plan 5.0, the Part C note); the bound is below 0.12, so R stays 1,600.
+LC3 declares its own (plan 5.0, the Part C note).  That is a limit bound: at n = 2,000 the whole
+path drops W1 on 1.65% of pilot draws, and that share times its conditional bias at their 99%
+upper limits (0.0253 and 3.96 SD) adds 0.100 SD.  At 0.124 SD the cell passes with probability
+0.993 at R 1,600, and the pilot reading of 0.023 SD already includes the exclusions.
 
 Budget.  A smoke of the property phase fitted one draw of every stream in about 6 seconds on one
 core of the 4-vCPU cloud machine, so 1,600 draws and the primary are about 3 CPU-hours of fits

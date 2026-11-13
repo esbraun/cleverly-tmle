@@ -40,8 +40,10 @@ whatever path led to ``Q*``.  Both factors of each term are bounded, ``|Q* - Q0|
 binary outcome, so :func:`lc3_truncation_bound` bounds the whole-path limit bias by
 ``E|1 - g0/g_t| + E|1 - (1 - g0)/(1 - g_t)|``, a one-dimensional integral over the
 treatment index ``0.8 (Z1 + Z2 + Z3) + 0.6 W1 ~ N(0, 2.28)``.  Without truncation the limit
-error is exactly zero (double robustness).  The design test reads the bound in units of the
-whole-path SD at n = 2,000.
+error is exactly zero (double robustness).  This is a limit bound: it holds as n grows, once
+the whole path keeps ``W1``.  At n = 2,000 the whole path still drops ``W1`` on a small share of
+draws, so the design test sizes the cell at the limit bound plus that share times its
+conditional bias, both at their 99% upper limits, in units of the whole-path SD.
 
 Every fit is in sample with five unstratified selection folds and two inner folds,
 ``penalty=False``, ``max_iter=100``, ``tol=1e-10`` and the ATE as the selection estimand.
@@ -57,6 +59,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.special import expit
+from scipy.stats import norm
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -159,7 +162,7 @@ def lc3_draw(n: int, seed: int) -> pd.DataFrame:
 
 
 def lc3_truncation_bound(bounds: tuple[float, float] = LC3_G_BOUNDS, nodes: int = 150) -> float:
-    """The bound on the whole-path limit bias of LC3 that truncation at ``bounds`` leaves.
+    """The limit bound on the whole-path bias of LC3 that truncation at ``bounds`` leaves.
 
     ``E|1 - g0/g_t| + E|1 - (1 - g0)/(1 - g_t)|`` over the treatment index, which bounds the
     limit error of any targeted fit with a binary outcome that solves the ATE score equation at
@@ -185,11 +188,10 @@ def lc3_truncation_bound(bounds: tuple[float, float] = LC3_G_BOUNDS, nodes: int 
     )
 
 
-def lc3_truncated_share(bounds: tuple[float, float] = LC3_G_BOUNDS, nodes: int = 150) -> float:
-    """The share of the LC3 population whose correct mechanism lies outside ``bounds``."""
-    x, w = _hermite(nodes)
-    g = expit(lc3_index_sd() * x)
-    return float(np.sum(w * ((g < bounds[0]) | (g > bounds[1]))))
+def lc3_truncated_share(bounds: tuple[float, float] = LC3_G_BOUNDS) -> float:
+    """The exact share of the LC3 population whose correct mechanism lies outside ``bounds``."""
+    lower, upper = (float(np.log(b / (1.0 - b))) / lc3_index_sd() for b in bounds)
+    return float(norm.cdf(lower) + norm.sf(upper))
 
 
 # ---------------------------------------------------------------------------- learners
