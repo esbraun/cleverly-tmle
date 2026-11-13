@@ -32,6 +32,13 @@ numbers. The `estimate` is the effect on the scale of the outcome. The `std. err
 much the estimate would move from sample to sample. The `95% CI` is the interval built from it,
 and the `p-value` tests whether the effect is zero. A row with no interval says why in a note.
 
+In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
+on a scale that keeps it inside the possible range, so the interval need not be centred on the
+estimate. When a treatment group shows only one outcome value, in the data or in a subgroup, or an
+estimate sits exactly at 0 or 100 percent, it reports no interval for that estimate or for the
+effects and ratios that use it
+([small-sample scale](../technical-reference/inference.md#small-sample-scale)).
+
 Numbered notes follow the table, and they appear only when something changes how to read a number.
 A note can say that an estimate is experimental because no validation study covers that kind of
 fit, that the models were fitted and evaluated on the same rows, or that the cap on extreme weights

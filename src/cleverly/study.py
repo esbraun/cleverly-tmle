@@ -3028,8 +3028,10 @@ def _narrow_bands(
     already return ``None`` there rather than a one-parameter band.
 
     A parameter that supplies no inference on its own, such as a constant-node risk of a
-    longitudinal fit, stays out of the family, as the engine's band leaves it out.  The band is
-    a joint statement over the retained parameters that supply inference.
+    longitudinal fit, stays out of the family, as the engine's band leaves it out.  An estimate
+    on or outside its range stays in, as in the engine's band
+    (:func:`~cleverly.inference.multiplier.band_member`).  The band is a joint statement over
+    the retained members.
 
     A longitudinal fit with ``repeats > 1`` takes the engine's own repeat rule,
     :func:`~cleverly.inference.multiplier.median_bands`: the median of the draws' critical

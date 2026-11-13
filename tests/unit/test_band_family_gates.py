@@ -1,7 +1,8 @@
 """The band-family rule at each fit's own gate (Fix-2 plan 2.5), with stand-in statuses.
 
-No builder sets ``"constant_arm_cell_plugin"`` or ``"out_of_range_plugin"`` yet (Fix-3 adds
-them), so each test points the two multiplier constants at statuses that exist and stamps one
+The builder of a bounded mean sets ``"constant_arm_cell_plugin"`` and ``"out_of_range_plugin"``
+only on boundary data, and the longitudinal and structural fits reach these gates without them, so
+each test points the two multiplier constants at statuses that every fit can stamp and stamps one
 reported estimate with them as the fit builds its report.  Each fit's gate must then refuse the
 whole band over a constant-cell member, and name it in ``summary()``, and keep an out-of-range
 member in the band at its plug-in standard error.  Two mutation controls guard each rule: a gate

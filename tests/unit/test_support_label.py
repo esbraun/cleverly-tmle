@@ -437,7 +437,11 @@ class TestAWithheldStatusWinsOverAShownOne:
         monkeypatch.setattr(results_module, "precedent_status", single_tier)
         assert adaptive_weighted_fit().inference_status == "estimated_weight_plugin"
         result = constant_node_fit(15)
-        assert result["risk_regimen[control @ t=1]"].inference == "few_cluster_plugin"
+        # The mutant drops the constant-node status. The level then sits on its bound 0, so
+        # the range check stamps the bounded status over the shown cluster status.
+        level = result["risk_regimen[control @ t=1]"]
+        assert level.psi == 0.0
+        assert level.inference == "out_of_range_plugin"
         contrast = result.contrast(
             lambda psi: psi[0] - psi[1],
             ["risk_regimen[control @ t=1]", "risk_regimen[control @ t=3]"],

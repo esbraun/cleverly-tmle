@@ -64,6 +64,15 @@ and 0.968 at n = 4,000. The influence-curve variance runs short at the smaller s
 therefore moved to n = 5,000, and the property cells kept their declared sizes.
 `tests/studies/canonical_mtp_pricing.py` records the declaration.
 
+The committed rows record the identity interval. The package now forms the interval of an
+unclustered mean of a yes/no outcome on the logit scale
+([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
+standard errors, the five-node `price_down` level rows of `cleverly` cover 0.933 under `LTMLE`
+and 0.935 under `SDR`, with 99% intervals from 0.9100 and 0.9123, above the floor. The other
+level rows and the eleven binary-outcome `interval_calibration` cells change no verdict. The
+largest move in a cell is 0.9610 to 0.9655 in `up_learned_density_tau5`, which is already red
+as conservative (`tests/canonical/mtp_pricing/interval-audit.parquet`).
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->

@@ -36,6 +36,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import special
 from scipy.stats import norm
 
 from tests import discrete_law_survival as mnode
@@ -148,15 +149,26 @@ def identity_holds(terms: law.ScoreIdentity) -> bool:
 
 
 def centred(result: Any, regimen: str = "never", horizon: int = 1) -> bool:
-    """The interval sits at the reported level with the plug-in SE, and the level moved."""
+    """The interval sits at the reported level with the plug-in SE, and the level moved.
+
+    A risk is a bounded binary mean, so its interval is formed on the logit scale: centred at
+    ``logit(psi)`` with half-width ``z se / (psi (1 - psi))``.
+    """
     estimate = result.estimates[law.name(regimen, horizon)]
     level = law.levels(result)[(regimen, horizon)]
     low, high = estimate.ci
     critical = float(norm.ppf(0.975))
+    psi = float(estimate.psi)
+    half = critical * level.std_error
+    center = psi
+    if estimate.interval_scale == "range_logit":
+        low, high = float(special.logit(low)), float(special.logit(high))
+        center = float(special.logit(psi))
+        half = half / (psi * (1.0 - psi))
     return bool(
-        abs((low + high) / 2.0 - estimate.psi) < 1e-12
-        and abs((high - low) / 2.0 - critical * level.std_error) < 1e-12
-        and abs(estimate.psi - level.unprojected) > 1e-12
+        abs((low + high) / 2.0 - center) < 1e-12
+        and abs((high - low) / 2.0 - half) < 1e-12
+        and abs(psi - level.unprojected) > 1e-12
     )
 
 

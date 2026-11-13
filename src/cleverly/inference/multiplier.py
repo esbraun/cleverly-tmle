@@ -196,7 +196,12 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
-from .._inference_status import FEW_CLUSTER_THRESHOLD, NO_CONSTANT_ARM_BANDS
+from .._inference_status import (
+    CONSTANT_ARM_CELL_STATUS,
+    FEW_CLUSTER_THRESHOLD,
+    NO_CONSTANT_ARM_BANDS,
+    OUT_OF_RANGE_STATUS,
+)
 from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
@@ -228,16 +233,6 @@ KNOWN_REGIME_BAND_REFUSAL = Refusal(
     ),
     roadmap="X11",
 )
-
-#: The inference status of an estimate that reads a treatment arm whose observed outcomes in
-#: its stratum take a single value.  No builder sets it yet; a band refuses a family that holds
-#: one (:func:`constant_arm_members`).
-CONSTANT_ARM_CELL_STATUS: str = "constant_arm_cell_plugin"
-
-#: The inference status of a bounded estimate on or outside its range.  No builder sets it yet.
-#: Such an estimate stays a band member (:func:`band_member`): the logit band refuses it through
-#: :func:`out_of_range` as before, and the identity band is built over it.
-OUT_OF_RANGE_STATUS: str = "out_of_range_plugin"
 
 
 def constant_arm_band_refusal(names: Sequence[str]) -> Refusal:
@@ -889,8 +884,7 @@ def constant_arm_members(
     Such an estimate reads a treatment arm whose observed outcomes in its stratum take a single
     value, so its standard error leaves that arm's variance out and no band covers it.  A band
     over a family that holds one is refused rather than built over the others, because that
-    band would be a statement about a family the data chose.  No builder sets the status yet,
-    so the tuple is empty on every current fit.
+    band would be a statement about a family the data chose.
 
     Parameters
     ----------

@@ -98,7 +98,7 @@ from ..fluctuation._score import (
     relative_score,
     rule_ratio_at,
 )
-from ..fluctuation.iterative import TargetingFailure, _line_step
+from ..fluctuation.iterative import TargetingFailure, _line_step, _Visited
 from ..learners.crossfit import Folds
 from ..msm import ProjectionFit, solve_projection
 from .data import LongitudinalData
@@ -1628,7 +1628,9 @@ def solve_per_horizon(
     Under a declared ``stopping`` rule the loop stops when the largest score over its
     threshold is at most one (:func:`~cleverly.fluctuation._score.rule_ratio_at`), and the
     inner fallback fit tightens its tolerance to ``min(tol, 1e-12)``.  Under ``step_bound``
-    every step is the constrained step of :func:`_bounded_hazard_step`.  Under
+    every step is the constrained step of :func:`_bounded_hazard_step`, and under its search the
+    loop also stops when the logits return to a state it has visited, since the step is a
+    function of the state and the loop would repeat the cycle.  Under
     ``iterate="best"`` the fit reports the iterate ``k >= 1`` with the smallest raw score
     2-norm, the first of tied iterates, and judges ``converged``, ``failure`` and the rule
     ratio there.
@@ -1684,6 +1686,7 @@ def solve_per_horizon(
         thresholds, ratio = _rule_state(state, inputs, horizons, score, stop, stopping)
     best = BestIterate() if iterate == "best" else None
     inner_tol = min(tol, 1e-12) if declared else tol * 1e-2
+    visited = _Visited(state.logits) if step_bound is not None and step_search else None
 
     def met() -> bool:
         # ``not > tol`` rather than ``<= tol``: a NaN relative score stops the default rule,
@@ -1717,6 +1720,9 @@ def solve_per_horizon(
             thresholds, ratio = _rule_state(state, inputs, horizons, score, stop, stopping)
         if best is not None:
             best.offer(iterations, iterate_norm(score), (state, score, scale, thresholds, ratio))
+        if visited is not None and not met() and visited.seen(state.logits):
+            # The searched step is a function of the state: a revisit would repeat its cycle.
+            break
     reported: int | None = None
     if best is not None:
         reported = iterations

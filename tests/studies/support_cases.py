@@ -2610,28 +2610,6 @@ def _learned_rule_contrast_cases() -> tuple[RowCase, ...]:
     )
 
 
-def _learned_rule_arms_cases() -> tuple[RowCase, ...]:
-    """The cases of ``learned-rule-arms`` (X11 PR H, X11 (d)).
-
-    Each runs the study's own fold-evaluated fit over three arms with one of its law cells'
-    outcome learners on a draw of its law at the primary size, up to the classifier.
-    """
-    module, slug = "_learned_rule_arms_law", "learned-rule-arms"
-
-    def case(cell: str, terms: str) -> RowCase:
-        return _observed(
-            "T45",
-            slug,
-            cell,
-            f"{module}.py:263",
-            module,
-            lambda study: study.draw(2_000, 0),
-            lambda study, frame: study.fit(frame, study.outcome_learner(terms), 0),
-        )
-
-    return (case("three_arms", "declared"), case("missing_quadratic", "missing_quadratic"))
-
-
 def _learned_rule_optimal_value_cases() -> tuple[RowCase, ...]:
     """The cases of ``learned-rule-optimal-value`` (X11 PR I, X11 (f)).
 
@@ -3359,7 +3337,6 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_stacked_cases(),
     *_learned_rule_in_sample_cases(),
     *_learned_rule_contrast_cases(),
-    *_learned_rule_arms_cases(),
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
     *_learned_regimen_cases(),

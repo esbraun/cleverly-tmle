@@ -120,7 +120,9 @@ held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row th
 residual in standard errors and cannot fail. The interval of every estimate of such a fit adds the
 residual to its half-width (`ParameterEstimate.rule_widened`), and an estimate derived from one
 inherits the flag. `cleverly.inference.influence.ParameterEstimate._residual_margin` is the one
-place the margin is computed, so a change to the half-width composes there. The default rule keeps
+place the margin is computed, so a change to the half-width composes there. The interval of a
+bounded binary mean, built on the logit scale, carries the margin by the slope that carries its
+standard error. The default rule keeps
 its rows, its bar and its interval. *Reconsider when* a stopping rule gets a derivation that bounds
 the residual of a contrast, so that the estimand rows can carry that bound as a bar.
 
@@ -247,11 +249,36 @@ alone would make `truncation_curve()` refuse.
 
 A parameter status sits beside the fit status. `PARAMETER_STATUSES` in
 `src/cleverly/_inference_status.py` names the statuses that one parameter takes, and today it
-holds `constant_node_plugin` only. `_estimates` stamps it through `_parameter_status`, in the fit
+holds `constant_node_plugin`, `constant_arm_cell_plugin` and `out_of_range_plugin`. The last two
+are set by `bounded_status` in `cleverly.inference.influence` and described after the table.
+`_estimates` stamps `constant_node_plugin` through `_parameter_status`, in the fit
 and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
 the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
 when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
 status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
+
+`bounded_status` sets the two bounded-mean statuses. `make_estimate` applies it to every estimate
+with `bounds`, so an estimate on or outside its bounds takes `out_of_range_plugin`.
+
+On a binary outcome, TMLE's `_estimates_for` passes `constant_cell=True` to every target with
+`bounds` or with recorded reads (`TargetContext.reads`), ratios and coefficients included, when an
+arm it reads holds one outcome value among the rows the estimate reads (`constant_outcome_cells`).
+The arms a code reads come from `_arms_read_by_code`: its own arm on the arm axis, and on a
+regime, learned-rule, IPSI or policy axis of a discrete treatment every arm whose residual term the
+code weights on a kept row. The natural course reads no arm, a working-model or projection
+coefficient of a discrete treatment reads every arm, and a policy of a continuous treatment has no
+arm cells. A coefficient records its own code as its reads. `_coefficients_on_constant_cells`
+adds the arm-by-modifier cells of a model saturated over them: a coefficient takes the status when
+its row of the inverse cell design weights a constant cell. A model with more cells than terms,
+such as one with a continuous modifier, takes the whole-rows check alone (F41). A target with recorded reads also passes `reads_out_of_range=True` when a mean it reads
+lies on or outside `(0, 1)`.
+
+The longitudinal `_estimates` applies the range check to each level and contrast; its
+constant-outcome status is `constant_node_plugin` above. A fold-evaluated estimate takes the
+constant cell, and an inherited range status, from the pooled estimate of the same name
+(`_carry_cell_status`). The constant cell takes precedence over the range, either one over a status
+that shows its interval, and neither over a status that already withholds. Contrasts built later
+inherit them through `inference_status`.
 
 | path | status it sets |
 | --- | --- |
@@ -262,7 +289,7 @@ status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 | a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
 | a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
-| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Two status rules: an estimate at `"out_of_range_plugin"` stays in the family at its plug-in standard error (`band_member`), and one at `"constant_arm_cell_plugin"` refuses the whole band (`constant_arm_members`, an `inference_gap` refusal that the fit's summary names). Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
+| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Two status rules: a member under `constant_arm_cell_plugin` refuses the whole band (`constant_arm_members`, an `inference_gap` refusal of `simultaneous_bands()`; the fit skips its default band and `summary()` names the reason), and a member under `out_of_range_plugin` stays in the family at its plug-in standard error and keeps the band it had before the status, as `band_member` decides: the logit band refuses it and the identity band covers it. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
 
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
@@ -707,7 +734,8 @@ outcome design at node $t$ reads `W` and a window of the last nodes. The `histor
 `policy_frame` that a rule or a policy reads keep the full history. So a window never changes a
 resolved plan. A rule node in the window adds its assigned arm to the outcome design, because the
 window does not determine that arm. The outcome and mechanism designs read the arms of the same
-nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
+nodes, from $t-k-1$, or from node 1 on a held design, whose decision is the arm of every node.
+`LongitudinalData.window_arm_start` is the one home of that start. `tests/unit/test_longitudinal_markov_order.py` pins both
 frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
 check there.
 

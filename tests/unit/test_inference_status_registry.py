@@ -51,6 +51,8 @@ PRECEDENCE = (
     "low_dose_support_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "constant_arm_cell_plugin",
+    "out_of_range_plugin",
     "working_model_projection",
 )
 
@@ -121,7 +123,12 @@ class TestEachRecordIsComplete:
     def test_the_reason_withholds_all_three_accessors(self, status: str) -> None:
         reason = STATUS_RECORDS[status].reason
         assert "no confidence interval, no p-value and no standard error" in reason
-        assert "plugin_std_error and plugin_interval" in reason
+        if status in _inference_status.UNREPORTED_INTERVAL_STATUSES:
+            # The plug-in interval is withheld too, so only the standard error remains.
+            assert "under plugin_std_error." in reason
+            assert "plugin_interval" not in reason
+        else:
+            assert "plugin_std_error and plugin_interval" in reason
 
     @pytest.mark.parametrize("status", SHOWN)
     def test_a_shown_reason_states_the_shortfall_and_withholds_nothing(self, status: str) -> None:

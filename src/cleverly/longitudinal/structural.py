@@ -80,6 +80,7 @@ from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    family_of,
     has_t_reference,
     make_estimate,
     satterthwaite_df,
@@ -1835,6 +1836,7 @@ class StructuralNestedMean:
                 inference=status,
                 reference_df=df,
                 support=support,
+                outcome_family=family_of(data),
                 # The blip estimating equations are solved exactly; no stopping rule.
                 rule_widened=False,
             )
