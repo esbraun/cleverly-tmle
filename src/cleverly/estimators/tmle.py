@@ -5989,6 +5989,9 @@ class TMLE:
             observed=observed,
             scaler=scaler,
             n=n,
+            # A declared stopping rule leaves the score unsolved by design, so every
+            # estimate adds the remaining score to its interval's half-width.
+            rule_widened=self.stopping != "relative",
             cluster=cluster,
             alpha_sig=alpha_sig,
             arms=codes,
@@ -6120,6 +6123,8 @@ class TMLE:
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
                     bounds=estimate.bounds,
+                    # The embedded curve's mean is the stratum's own residual.
+                    rule_widened=estimate.rule_widened,
                 )
                 codes[name] = code
         return out, codes
@@ -6526,6 +6531,7 @@ def _average_over_folds(
             # rule. docs/technical-reference/inference.md states this contract.
             covariance_rule="centered",
             bounds=parts[0].bounds,
+            rule_widened=any(part.rule_widened for part in parts),
         )
 
     if dropped:

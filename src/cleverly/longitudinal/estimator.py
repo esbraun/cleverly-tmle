@@ -4134,6 +4134,7 @@ def _estimates(
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
             bounds=parameter_bounds("mean", data.family),
+            rule_widened=_rule_widened(fit),
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -4159,6 +4160,7 @@ def _estimates(
             reference_df=reference_df,
             support=_support_of(classification, status, reference_df),
             bounds=parameter_bounds("difference", data.family),
+            rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -4172,6 +4174,21 @@ def _as_reported(draw: ParameterEstimate, reported: ParameterEstimate) -> Parame
         inference=reported.inference,
         reference_df=draw.reference_df if supplies_inference(reported.inference) else None,
         support=reported.support,
+    )
+
+
+def _rule_widened(fit: RegimenFit) -> bool:
+    """Whether a regimen's fit ran under a declared stopping rule.
+
+    The hazard model or any node's fluctuation that declares a rule other than
+    ``"relative"`` stops before its score is solved, so the estimate's interval adds the
+    remaining score (:attr:`~cleverly.inference.ParameterEstimate.rule_widened`).
+    """
+    if fit.hazard is not None and fit.hazard.stopping != "relative":
+        return True
+    return any(
+        step.fluctuation is not None and step.fluctuation.stopping != "relative"
+        for step in fit.steps
     )
 
 
@@ -4313,6 +4330,7 @@ def _msm_estimates(
                 inference=inference,
                 reference_df=reference_df,
                 support=_support_of(classification, inference, reference_df),
+                rule_widened=any(_rule_widened(fit) for fit in msm_fit.fits),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 

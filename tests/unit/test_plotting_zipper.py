@@ -47,7 +47,7 @@ class _Estimator:
         shift = 0.25 * (frame.seed % 5 - 2)
         return _Result(
             {
-                "rd": make_estimate("rd", 0.1 + shift, curve, n=N_ROWS),
+                "rd": make_estimate("rd", 0.1 + shift, curve, n=N_ROWS, rule_widened=False),
                 "rr": make_estimate(
                     "rr",
                     float(np.exp(0.2 + shift)),
@@ -55,8 +55,11 @@ class _Estimator:
                     n=N_ROWS,
                     scale="ratio",
                     log_psi=0.2 + shift,
+                    rule_widened=False,
                 ),
-                "few": make_estimate("few", 0.1 + shift, curve, n=N_ROWS, reference_df=6),
+                "few": make_estimate(
+                    "few", 0.1 + shift, curve, n=N_ROWS, reference_df=6, rule_widened=False
+                ),
             }
         )
 
@@ -278,6 +281,7 @@ class TestTheHonestyRules:
                         curve - curve.mean(),
                         n=N_ROWS,
                         inference="working_mechanism_plugin",
+                        rule_widened=False,
                     )
                 }
                 return result

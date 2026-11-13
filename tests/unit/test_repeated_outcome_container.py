@@ -507,7 +507,7 @@ def _continuous() -> tuple[Any, Any]:
 
 def _level(name: str, psi: float, n: int) -> Any:
     rng = np.random.default_rng(0)
-    return make_estimate(name, psi, rng.normal(size=n), n=n, scale="level")
+    return make_estimate(name, psi, rng.normal(size=n), n=n, scale="level", rule_widened=False)
 
 
 def _warned(

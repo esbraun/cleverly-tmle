@@ -7,10 +7,13 @@ set to ``"scaled_var"`` or ``"sample_size"``:
   passes although its score is above the default bar, and a fit that missed its rule fails
   although its score is below the default bar;
 * an estimand row is a ``"diagnostic"`` that cannot fail.  It carries ``residual_se``, the mean
-  of the influence curve in standard errors, ``coverage_bound``, the coverage a Wald interval
-  keeps at that residual, and, under ``scaled_var``, ``rule_bound_se``, the residual the rule
-  implies before the fit is read;
+  of the influence curve in standard errors, and, under ``scaled_var``, ``rule_bound_se``, the
+  residual the rule implies before the fit is read.  Where that is an a priori cap (one score
+  column, rule met) it also carries ``coverage_floor``, the plain interval's asymptotic floor
+  ``2 Phi(z - c) - 1``; no number computed from the realized residual bounds coverage, so
+  every other row carries ``nan`` there (Fix-8 plan section 2.1);
 * ``summary()`` prints one pinned line, and a second pinned line when the rule was not met.
+  Neither states a coverage number: the interval adds the residual to its half-width.
 
 Every number below is recomputed by hand with ``numpy``, ``pandas`` or ``scipy``.  The plan
 fixes the two lines of text, so the tests compare against the literal text and not against the
@@ -40,8 +43,8 @@ from cleverly.fluctuation._score import (
     RULE_FAILURE_LINE,
     residual_line,
     residual_se,
+    rule_coverage_floor,
     rule_failure_line,
-    wald_coverage_bound,
 )
 from cleverly.longitudinal import LTMLE
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_check, score_threshold
@@ -98,16 +101,22 @@ def hand_residual(estimate: Any) -> float:
 
 
 def hand_coverage(residual: float, alpha: float) -> float:
-    """``Phi(z - b) - Phi(-z - b)`` with ``scipy``."""
+    """``Phi(z - b) - Phi(-z - b)`` with ``scipy``: the deleted formula, kept as a control."""
     z = norm.ppf(1.0 - alpha / 2.0)
     return float(norm.cdf(z - residual) - norm.cdf(-z - residual))
+
+
+def hand_floor(cap: float, alpha: float) -> float:
+    """``2 Phi(z - c) - 1`` with ``scipy``, floored at zero."""
+    z = norm.ppf(1.0 - alpha / 2.0)
+    return max(0.0, float(2.0 * norm.cdf(z - abs(cap)) - 1.0))
 
 
 def rule_note(result: Any) -> str:
     """The note a point summary prints under a declared rule, computed by hand.
 
     The remainder is ``|P_n IC|`` over the standard error each interval uses, the largest over
-    the estimates that report one; the coverage is rounded down to two decimals of a percent.
+    the estimates that report one. The note states no coverage number.
     """
     residuals = {
         name: abs(float(estimate.score)) / float(estimate.std_error)
@@ -117,14 +126,9 @@ def rule_note(result: Any) -> str:
     if not residuals:
         return vocabulary.NOTE_TEXTS["stopping_rule_plain"]
     worst = max(residuals, key=lambda name: residuals[name])
-    alpha = float(result.estimates[worst].alpha)
     b = residuals[worst]
-    coverage = math.floor(hand_coverage(max(b, 0.001), alpha) * 10000) / 100
     return vocabulary.NOTE_TEXTS["stopping_rule"].format(
-        b="less than 0.001" if b < 0.001 else f"{b:.3g}",
-        name=worst,
-        level=f"{(1.0 - alpha) * 100:g}%",
-        bound=f"{coverage:.2f}%",
+        b="less than 0.001" if b < 0.001 else f"{b:.3g}", name=worst
     )
 
 
@@ -143,9 +147,13 @@ class TestThePinnedText:
     def test_the_residual_line_is_the_text_of_the_plan(self) -> None:
         assert RESIDUAL_LINE == (
             "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, "
-            "on {name}. At that residual a {level:.0%} Wald interval keeps at least "
-            "{bound:.4f} coverage."
+            "on {name}. Each interval adds its own residual to its half-width."
         )
+
+    def test_the_note_states_the_widening_and_no_coverage_number(self) -> None:
+        text = vocabulary.NOTE_TEXTS["stopping_rule"]
+        assert "adds its own remainder to its half-width" in text
+        assert "cover" not in text and "{bound}" not in text and "{level}" not in text
 
     def test_the_failure_line_is_the_text_of_the_plan(self) -> None:
         assert RULE_FAILURE_LINE == "the targeting did not meet the {rule} stopping rule; {detail}"
@@ -155,18 +163,48 @@ class TestThePinnedText:
             "mean is 2 times its threshold"
         )
 
-    @pytest.mark.parametrize("residual", [0.0, 0.1, 0.5, 1.009, 3.0])
+    @pytest.mark.parametrize("cap", [0.0, 0.1, 0.1316, 0.5, 1.009, 3.0])
     @pytest.mark.parametrize("alpha", [0.05, 0.1])
-    def test_the_coverage_bound_is_the_normal_formula(self, residual: float, alpha: float) -> None:
-        assert wald_coverage_bound(residual, alpha) == pytest.approx(
-            hand_coverage(residual, alpha), abs=1e-12
-        )
-        assert wald_coverage_bound(-residual, alpha) == wald_coverage_bound(residual, alpha)
+    def test_the_floor_is_the_sharp_dependence_free_formula(self, cap: float, alpha: float) -> None:
+        assert rule_coverage_floor(cap, alpha) == pytest.approx(hand_floor(cap, alpha), abs=1e-12)
+        assert rule_coverage_floor(-cap, alpha) == rule_coverage_floor(cap, alpha)
 
-    def test_the_coverage_bound_at_the_values_the_plan_quotes(self) -> None:
-        assert f"{wald_coverage_bound(0.1, 0.05):.4f}" == "0.9489"
-        assert f"{wald_coverage_bound(1.009, 0.05):.4f}" == "0.8277"
-        assert np.isnan(wald_coverage_bound(float("nan"), 0.05))
+    def test_the_floor_at_the_values_the_plan_quotes(self) -> None:
+        # Fix-8 plan section 2.1: 0.9325 at c = 0.1316 (n = 2,000), 0.9187 at c = 0.217.
+        assert rule_coverage_floor(0.1316, 0.05) == pytest.approx(0.9325, abs=1e-4)
+        assert rule_coverage_floor(0.217, 0.05) == pytest.approx(0.9187, abs=1e-4)
+        assert rule_coverage_floor(0.0, 0.05) == pytest.approx(0.95, abs=1e-12)
+        assert rule_coverage_floor(3.0, 0.05) == 0.0
+        assert np.isnan(rule_coverage_floor(float("nan"), 0.05))
+
+    @pytest.mark.parametrize(
+        ("units", "floor"),
+        [(50, 0.9117), (100, 0.9186), (500, 0.9280), (1_000, 0.9305), (2_000, 0.9325)],
+    )
+    def test_the_documented_floor_table(self, units: int, floor: float) -> None:
+        # docs/technical-reference/point-treatment-tmle.md, "The interval under a declared rule".
+        cap = 1.0 / min(np.log(units), 10.0)
+        assert rule_coverage_floor(cap, 0.05) == pytest.approx(floor, abs=5e-5)
+        assert hand_floor(cap, 0.05) == pytest.approx(floor, abs=5e-5)
+
+    def test_the_documented_floor_at_the_capped_log(self) -> None:
+        assert rule_coverage_floor(0.1, 0.05) == pytest.approx(0.9371, abs=5e-5)
+
+    def test_the_floor_is_not_the_deleted_realized_residual_formula(self) -> None:
+        # Witness for the mutation that restores Phi(z - b) - Phi(-z - b): at the same c the
+        # two differ by more than 1e-3 (0.9325 against 0.9480).
+        assert hand_coverage(0.1316, 0.05) == pytest.approx(0.9480, abs=1e-4)
+        assert abs(rule_coverage_floor(0.1316, 0.05) - hand_coverage(0.1316, 0.05)) > 1e-3
+
+    def test_the_floor_is_attained_by_the_extreme_dependence(self) -> None:
+        # B = -c sign(Z): the plain interval covers exactly when |Z| <= z - c.
+        z = norm.ppf(0.975)
+        cap = 0.1316
+        draws = np.linspace(-6.0, 6.0, 200_001)
+        density = norm.pdf(draws)
+        covered = np.abs(draws + cap * np.sign(draws)) <= z
+        attained = float(np.sum(density * covered) * (draws[1] - draws[0]))
+        assert attained == pytest.approx(rule_coverage_floor(cap, 0.05), abs=1e-4)
 
     def test_a_residual_line_names_the_worst_estimand_at_the_fit_level(self) -> None:
         estimates = one_step("scaled_var").estimates
@@ -174,16 +212,16 @@ class TestThePinnedText:
         worst = max(residuals, key=lambda name: residuals[name])
         expected = (
             f"stopping rule scaled_var: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
-            f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
+            f"standard errors, on {worst}. Each interval adds its own residual to its "
+            "half-width."
         )
-        assert residual_line(estimates, "scaled_var", 0.05) == expected
+        assert residual_line(estimates, "scaled_var") == expected
 
     def test_a_residual_line_is_empty_without_a_finite_residual(self) -> None:
         flat = SimpleNamespace(plugin_std_error=0.0, score=1.0)
         assert np.isnan(residual_se(flat))  # type: ignore[arg-type]
         assert np.isnan(residual_se(SimpleNamespace(plugin_std_error=float("nan"), score=1.0)))  # type: ignore[arg-type]
-        assert residual_line({}, "scaled_var", 0.05) == ""
+        assert residual_line({}, "scaled_var") == ""
 
 
 # ------------------------------------------------------------------------------ the verdict
@@ -295,7 +333,7 @@ class TestTheVerdictReadsTheRule:
         assert all(r.stopping == "relative" for r in check.rows)
         assert all(np.isnan(r.residual_se) for r in check.rows)
         columns = list(check.to_frame().columns)
-        assert not {"stopping", "residual_se", "coverage_bound", "rule_bound_se"} & set(columns)
+        assert not {"stopping", "residual_se", "coverage_floor", "rule_bound_se"} & set(columns)
         assert "stopping rule" not in result.summary()
 
 
@@ -315,11 +353,57 @@ class TestTheEstimandRows:
             assert row.passed and row.converged
             assert row.residual_se == pytest.approx(hand, rel=1e-12)
             assert row.residual_se == pytest.approx(abs(estimate.score) / estimate.std_error)
-            assert row.coverage_bound == pytest.approx(hand_coverage(hand, 0.05), abs=1e-12)
-            assert 0.0 < row.coverage_bound < 0.95
         assert max(r.residual_se for r in rows.values()) > 1e-3
 
-    def test_the_coverage_bound_uses_the_level_of_the_fit(self) -> None:
+    @pytest.mark.parametrize("name", ["ey1", "ey0", "att", "atc"])
+    def test_a_single_column_row_of_a_met_scaled_var_fit_reports_the_floor(self, name: str) -> None:
+        result = one_step("scaled_var")
+        assert all(f.rule_ratio <= 1.0 for f in result.fluctuations.values())
+        row = next(r for r in score_check(result).rows if r.name == name and r.kind == "diagnostic")
+        assert row.coverage_floor == pytest.approx(hand_floor(row.rule_bound_se, 0.05), abs=1e-12)
+        assert 0.90 < row.coverage_floor < 0.95
+
+    def test_a_contrast_reports_no_floor(self) -> None:
+        # The ATE's cap sums two arm thresholds over its own SE, a data-dependent number, so no
+        # floor is printed although rule_bound_se is finite (the witness).
+        row = next(
+            r
+            for r in score_check(one_step("scaled_var")).rows
+            if r.name == "ate" and r.kind == "diagnostic"
+        )
+        assert np.isfinite(row.rule_bound_se)
+        assert np.isnan(row.coverage_floor)
+
+    def test_sample_size_reports_no_floor(self) -> None:
+        rows = score_check(one_step("sample_size")).rows
+        assert all(np.isnan(r.coverage_floor) for r in rows)
+
+    def test_a_walk_that_missed_its_rule_reports_no_floor(self) -> None:
+        result = one_step("scaled_var")
+        missed = with_fluctuation(result, "mean", rule_ratio=1.75, converged=False)
+        rows = {r.name: r for r in score_check(missed).rows if r.kind == "diagnostic"}
+        assert np.isfinite(rows["ey1"].rule_bound_se)
+        assert np.isnan(rows["ey1"].coverage_floor)
+        # The other group still met its rule, so its single-column row keeps the floor.
+        assert np.isfinite(rows["att"].coverage_floor)
+
+    def test_the_mutation_that_prints_a_floor_for_a_contrast_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = one_step("scaled_var")
+        mutate(
+            monkeypatch,
+            score_module,
+            score_module,
+            "_rule_floor",
+            [("or len(weights) != 1\n", "")],
+        )
+        row = next(
+            r for r in score_check(result).rows if r.name == "ate" and r.kind == "diagnostic"
+        )
+        assert np.isfinite(row.coverage_floor)
+
+    def test_the_floor_uses_the_level_of_the_fit(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)
         estimator = TMLE(
             **linear_in_sample(
@@ -328,13 +412,14 @@ class TestTheEstimandRows:
         )
         result = estimator.fit(frame, outcome="Y", treatment="A").single()
         check = score_check(result)
-        for row in (r for r in check.rows if r.kind == "diagnostic"):
-            assert row.coverage_bound == pytest.approx(
-                hand_coverage(row.residual_se, 0.1), abs=1e-12
+        floors = [r for r in check.rows if r.kind == "diagnostic" and np.isfinite(r.coverage_floor)]
+        assert floors
+        for row in floors:
+            assert row.coverage_floor == pytest.approx(
+                hand_floor(row.rule_bound_se, 0.1), abs=1e-12
             )
         note = result.summary().note("stopping_rule").text
         assert note == rule_note(result)
-        assert "a 90% interval" in note
 
     def test_an_estimand_row_cannot_fail_under_a_rule(self) -> None:
         result = one_step("scaled_var")
@@ -348,7 +433,6 @@ class TestTheEstimandRows:
             r for r in score_check(broken).rows if r.name == "ey1" and r.kind == "diagnostic"
         )
         assert row.passed and row.residual_se > 4.0
-        assert row.coverage_bound < 0.1
         assert score_check(broken).passed
 
     def test_the_relative_rule_keeps_the_estimand_bar_and_kind(self) -> None:
@@ -554,7 +638,7 @@ class TestTheFrame:
         assert list(frame.columns[-4:]) == [
             "stopping",
             "residual_se",
-            "coverage_bound",
+            "coverage_floor",
             "rule_bound_se",
         ]
         fluctuation = frame[frame["kind"] == "fluctuation"]
@@ -568,7 +652,7 @@ class TestTheFrame:
         result = TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
         columns = list(score_check(result).to_frame().columns)
         assert "stopping" not in columns and "residual_se" not in columns
-        assert "rule_bound_se" not in columns and "coverage_bound" not in columns
+        assert "rule_bound_se" not in columns and "coverage_floor" not in columns
 
 
 # ------------------------------------------------------------------------------ the summary
@@ -582,8 +666,8 @@ class TestThePointSummary:
         worst = max(residuals, key=lambda name: residuals[name])
         expected = (
             f"stopping rule {rule}: the largest score residual is {residuals[worst]:.3g} "
-            f"standard errors, on {worst}. At that residual a 95% Wald interval keeps at least "
-            f"{hand_coverage(residuals[worst], 0.05):.4f} coverage."
+            f"standard errors, on {worst}. Each interval adds its own residual to its "
+            "half-width."
         )
         # The check keeps the pinned line; the summary states the same remainder in words.
         assert score_check(result).rule_line() == expected
@@ -605,9 +689,17 @@ class TestThePointSummary:
         )
         assert any(
             line.startswith(f"{worst.name}: the remaining error is worth {worst.residual_se:.3g}")
-            and f"{worst.coverage_bound:.4f} coverage" in line
+            and "adds to its half-width" in line
             for line in details
         )
+        floored = next(row for row in check.rows if row.name == "ey1" and row.kind == "diagnostic")
+        shown = math.floor(floored.coverage_floor * 10000) / 10000
+        assert any(
+            line.startswith("ey1: ") and f"keeps at least {shown:.4f} coverage" in line
+            for line in details
+        )
+        ate = next(line for line in details if line.startswith("ate: the remaining"))
+        assert "coverage" not in ate
 
     def test_the_default_summary_has_no_rule_line(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=1)
@@ -632,7 +724,7 @@ class TestEveryPointGroupReports:
         for row in check.rows:
             if row.kind == "diagnostic":
                 assert row.passed and np.isfinite(row.residual_se)
-                assert 0.0 <= row.coverage_bound <= 1.0
+                assert np.isnan(row.coverage_floor) or 0.0 <= row.coverage_floor <= 1.0
             if row.kind == "fluctuation":
                 # An outcome equation reads the rule.  A mechanism equation of the same fit keeps the default bar, which the rule does
                 # not govern.
@@ -816,7 +908,7 @@ class TestTheLongitudinalSummary:
         assert text == rule_note(result)
         # The remainder of the note is the one the stored influence curve gives by hand.
         shown = "less than 0.001" if residuals[worst] < 0.001 else f"{residuals[worst]:.3g}"
-        assert f"{shown} standard errors of bias (on {worst})" in text
+        assert f"{shown} standard errors (on {worst})" in text
         assert "score_unsolved" not in summary.note_codes
 
     def test_a_working_model_prints_the_line_on_its_regimen_parameters(self) -> None:
@@ -828,7 +920,7 @@ class TestTheLongitudinalSummary:
         text = result.summary().note("stopping_rule").text
         assert text == rule_note(result)
         shown = "less than 0.001" if residuals[worst] < 0.001 else f"{residuals[worst]:.3g}"
-        assert f"{shown} standard errors of bias (on {worst})" in text
+        assert f"{shown} standard errors (on {worst})" in text
 
     def test_a_fit_that_missed_its_rule_prints_the_failure_line(self) -> None:
         frame, _ = make_longitudinal(n=300, seed=12)

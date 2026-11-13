@@ -87,11 +87,13 @@ it judges, through `rule_ratio_at`. It must not read the ratio the solver stored
 `tests/unit/test_stopping_rule_engines.py` recomputes the ratio by hand at every round.
 
 `score_check` reads the declared rule. Under a rule other than `"relative"`, a fluctuation row is
-held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row that cannot fail.
-The diagnostic row reports the residual in standard errors and the coverage a Wald interval keeps
-at it. The default rule keeps its rows and its bar. *Reconsider when* a stopping rule gets a
-derivation that bounds the residual of a contrast. Then the estimand rows can carry that bound as a
-bar.
+held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row that reports the
+residual in standard errors and cannot fail. The interval of every estimate of such a fit adds the
+residual to its half-width (`ParameterEstimate.rule_widened`), and an estimate derived from one
+inherits the flag. `cleverly.inference.influence.ParameterEstimate._residual_margin` is the one
+place the margin is computed, so a change to the half-width composes there. The default rule keeps
+its rows, its bar and its interval. *Reconsider when* a stopping rule gets a derivation that bounds
+the residual of a contrast, so that the estimand rows can carry that bound as a bar.
 
 ### Comparator fixtures ship pending
 

@@ -567,6 +567,8 @@ def targeted_tilt_estimates(
                 covariance_rule=reported.covariance_rule,
                 inference=reported.inference,
                 reference_df=reported.reference_df,
+                # The tilted refit solves its own score to tolerance (``solve_tilt``).
+                rule_widened=False,
             )
 
         out: dict[str, ParameterEstimate] = {}

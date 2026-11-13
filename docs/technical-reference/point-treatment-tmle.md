@@ -697,25 +697,57 @@ $\sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}_{\text{contrast}}$ can be
 The witness is the law $W \sim N(0,1)$, $A \sim \text{Bern}(0.5)$, $Y = W + A + 0.1\varepsilon$.
 `TestTheRuleBound` in `tests/unit/test_stopping_rule_report.py` fits it with seed 3 and
 $n = 2{,}000$. The ratio is 9.95, so the `ate` row has a `rule_bound_se` of 1.31 against
-$\sqrt{2}\,c = 0.19$. The same file pins `wald_coverage_bound(1.009, 0.05)` at 0.8277. At the
-ratio 9.95 and $c = 0.1$, the residual is $b = 0.995$ standard errors and the bound is about 0.831.
-Marginal structural model columns are contrasts in this sense.
+$\sqrt{2}\,c = 0.19$. Marginal structural model columns are contrasts in this sense.
 
-The coverage bound is $\Phi(z - b) - \Phi(-z - b)$ at a residual of $b$ standard errors.
-`wald_coverage_bound` computes it. The table gives the 95% bound for one arm-mean column at the
-residual $c$.
+#### The interval under a declared rule
 
-| $n_u$ | $c$ | 95% interval, one arm-mean column |
+The estimate's error is $\widehat{\mathrm{se}}\,(Z - B)$, where $Z$ is asymptotically standard
+normal and $B = r_n / \widehat{\mathrm{se}}$ is the residual the rule left, in standard errors.
+The walk decides when to stop from the same data, so $B$ can depend on $Z$, and no bound on the
+plain interval's coverage holds for every such dependence. The reported interval therefore adds
+the residual to its half-width:
+
+$$
+\hat\psi \pm \bigl(z\,\widehat{\mathrm{se}} + \lvert r_n\rvert\bigr),
+$$
+
+on the scale the interval is built on: the logit or log scale for a transformed estimate, the
+log scale for a ratio. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
+fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
+curve's mean: a contrast, a ratio, a transform, a stratum, a fold average and a simultaneous
+band, where each component adds its own residual. The p-value inverts the widened interval,
+$p = 2\Phi\bigl(-\max(0, \lvert T\rvert - \lvert r_n\rvert / \widehat{\mathrm{se}})\bigr)$, and
+the statistic $T$ stays the plain Wald statistic. `plugin_interval` is the widened interval
+too. Under the default rule `rule_widened` is `False` and the interval is unchanged.
+`tests/unit/test_rule_widened_interval.py` checks the arithmetic on each scale, a nonzero
+residual on a one-step walk, the inheritance, and mutations that drop the margin or add it on
+the reported scale.
+
+The widened interval is conservative when the residual is small. A one-step `scaled_var` walk
+leaves a residual of at most $c$ standard errors on an arm mean, so the half-width grows by at
+most $c/z$ of itself, about 7 per cent at $n_u = 2{,}000$.
+
+A cap $c$ fixed before the data are read gives a floor for the plain interval
+$\hat\psi \pm z\,\widehat{\mathrm{se}}$. If $\lvert B\rvert \le c$ on every draw, that interval
+covers whenever $\lvert Z\rvert \le z - c$, so its asymptotic coverage is at least
+$2\Phi(z - c) - 1$. The floor is sharp: $B = -c\,\operatorname{sign}(Z)$ attains it.
+`cleverly.fluctuation._score.rule_coverage_floor` computes it. Only an arm-mean column with unit
+weights under `scaled_var` has such a cap, $c = 1/\min(\log n_u, 10)$. A residual measured on the
+fit is not a cap, because it was chosen by the data. The table gives the 95% floor at that cap.
+
+| $n_u$ | $c$ | floor of the plain 95% interval, one arm-mean column |
 | ---: | ---: | ---: |
-| 50 | 0.256 | 0.9425 |
-| 100 | 0.217 | 0.9446 |
-| 500 | 0.161 | 0.9470 |
-| 1,000 | 0.145 | 0.9476 |
-| 22,026 and above | 0.100 | 0.9489 |
+| 50 | 0.256 | 0.9117 |
+| 100 | 0.217 | 0.9186 |
+| 500 | 0.161 | 0.9280 |
+| 1,000 | 0.145 | 0.9305 |
+| 2,000 | 0.132 | 0.9325 |
+| 22,026 and above | 0.100 | 0.9371 |
 
-`tests/unit/test_stopping_rule_report.py` checks the table against `scipy.stats.norm`. The bound
-is conditional on the residual being the only error. It does not replace the interval's own
-conditions.
+`tests/unit/test_stopping_rule_report.py` checks the table against `scipy.stats.norm`, and checks
+that the extreme dependence attains the floor. The floor is conditional on the residual being the
+only error. It does not replace the interval's own conditions.
 
 `sample_size` leaves a residual of at most $1/(n_u\, \mathrm{se})$ standard errors. That is
 $o(n^{-1/2})$, and it depends on the outcome's units. For a rare binary outcome or a narrow
@@ -726,13 +758,13 @@ value on every fit.
 
 | output | content |
 | --- | --- |
-| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors of bias (on {name}). If the standard error is right, a {level} interval with that bias still covers the truth at least {bound} of the time." It names the estimand with the largest residual and rounds the bound down to 0.01 percentage points. A residual below 0.001 prints as "less than 0.001" |
+| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors (on {name}). Each interval adds its own remainder to its half-width." It names the estimand with the largest residual. A residual below 0.001 prints as "less than 0.001" |
 | `res.summary()`, rule missed | the warning "The fit did not meet its declared stopping rule for {names}, so the {spread} may be off by more than the rule allows. result.diagnostics.score_equations() gives the numbers." |
-| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
+| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. Each interval adds its own residual to its half-width." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
 | `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one. The rule also judges the `(strata)` row of a stratified working model and the `(reduced)` row of a `DRTMLE` fit, because the rule stops those outcome solves too. A `(mechanism)` row keeps the default bar |
 | `score_check()`, `DRTMLE` correction rows | under a declared rule, a `D*_Q` or `D*_Y` row is a `"diagnostic"`, because it restates the outcome columns that the `(reduced)` row judges. A `D*_g`, `D*_A` or `D*_M` row and every identity row keep their bars |
-| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se`, `coverage_bound` and, under `scaled_var`, `rule_bound_se` |
-| `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_bound` and `rule_bound_se`, only under a declared rule |
+| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se` and, under `scaled_var`, `rule_bound_se`. A single-column row (an arm mean, `att`, `atc` or a stratum's arm mean) of a fit that met `scaled_var` also carries `coverage_floor`, the floor of the plain interval at its cap. Every other row carries `nan` there |
+| `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_floor` and `rule_bound_se`, only under a declared rule |
 
 The residual in standard errors is $\lvert P_n IC\rvert / \mathrm{se}$ on the scale of the
 estimate. The bound before the fit is read is

@@ -243,6 +243,7 @@ class TestTheDenominatorAndTheHook:
             arm_labels={0.0: 0.0, 1.0: 1.0},
             reference=0.0,
             natural_course=natural_course,
+            rule_widened=False,
         )
 
     def test_a_zero_natural_course_risk_refuses_paf(self) -> None:

@@ -8,8 +8,8 @@ not reach a fit that leaves them:
 ========================  ==================  =====================================================
 option                    default             why the evidence of the default does not cover it
 ========================  ==================  =====================================================
-``stopping=``             ``"relative"``      the rule leaves a score residual by design, and the
-                                              interval coverage depends on it
+``stopping=``             ``"relative"``      the rule leaves a score residual by design, which
+                                              the interval adds to its half-width
 ``outcome_by_arm=``       ``False``           another outcome regression; on the
                                               effect-modification axis the default is ``True``
 ``patience=``             ``None``            another collaborative selection
@@ -61,11 +61,12 @@ def stopping_conditions(stopping: str) -> list[Refusal]:
         Refusal(
             RefusalReason.INFERENCE_GAP,
             f"The declared rule stopping={stopping!r} stops adjusting the outcome predictions "
-            "before the estimating equation is solved, and no simulation study measures the "
-            "interval coverage at the remainder it leaves.",
+            "before the estimating equation is solved. The interval adds the remainder it "
+            "leaves to its half-width, and no registered simulation study measures that "
+            "interval yet.",
             alternative=(
                 "stopping='relative' solves the score equation to tol, as the registered "
-                "studies do. The summary states the coverage bound at the residual."
+                "studies do."
             ),
             roadmap=OPTION_STUDIES_ROADMAP,
         )

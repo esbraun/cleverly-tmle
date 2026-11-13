@@ -643,9 +643,8 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         ),
         "stopping_rule": (
             "Under the declared stopping rule the estimating equation is solved up to a "
-            "remainder worth {b} standard errors of bias (on {name}). If the standard error "
-            "is right, a {level} interval with that bias still covers the truth at least "
-            "{bound} of the time."
+            "remainder worth {b} standard errors (on {name}). Each interval adds its own "
+            "remainder to its half-width."
         ),
         "bootstrap_experimental": (
             "No validation study covers the bootstrap interval of {names} for this kind of "

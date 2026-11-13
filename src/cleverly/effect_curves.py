@@ -1586,6 +1586,8 @@ def score_assessment(
             inference=inference,  # type: ignore[arg-type]
             reference_df=reference_df,
             support=support,
+            # The score assessment solves its own projection; no stopping rule applies.
+            rule_widened=False,
         )
 
     def built(
