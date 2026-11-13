@@ -278,6 +278,55 @@ class TestDefaultMultiArmDRTMLE:
         assert classify(estimator, data, estimands).row.id == "D02"  # type: ignore[union-attr]
 
 
+class TestDefaultStratifiedDRTMLE:
+    """Fix-6 D6: the default cross-fitted stratified ``DRTMLE`` reads row ``D13``.
+
+    As for ``D12``: a real fit of the default lands on ``D13``, and ``D13``'s key is the key of
+    ``stratified-drtmle-foldwise``'s own fit.
+    """
+
+    @staticmethod
+    def estimator(**settings: Any) -> Any:
+        from sklearn.linear_model import LinearRegression, LogisticRegression
+
+        from cleverly.estimators import DRTMLE
+
+        return DRTMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
+            cross_fit=True,
+            estimands=("ey", "ate"),
+            random_state=0,
+            **settings,
+        )
+
+    def test_a_default_cross_fitted_stratified_fit_reads_d13(self) -> None:
+        data = frame(600, strata=True, seed=1)
+        result = (
+            self.estimator()
+            .fit(data, outcome="Y", treatment="A", covariates=["W1", "W2", "V"], strata=["V"])
+            .single()
+        )
+        supports = {estimate.support for estimate in result.estimates.values()}
+        assert {support.row for support in supports} == {"D13"}
+        assert {support.label for support in supports} == {"supported"}
+
+    def test_d13_is_keyed_on_the_stratified_foldwise_study_fit(self) -> None:
+        from tests.studies.support_cases import case_key
+
+        (case,) = [c for c in CASES if c.slug == "stratified-drtmle-foldwise"]
+        assert case_key(case) == ROWS["D13"].key
+
+    def test_control_the_pooled_option_reads_d03(self) -> None:
+        estimator, data, estimands = _build(
+            self.estimator(reduced_crossfit="pooled"), frame(240, strata=True), ("ey", "ate")
+        )
+        assert classify(estimator, data, estimands).row.id == "D03"  # type: ignore[union-attr]
+
+
 class TestExpansion:
     def test_rows_over_makes_one_row_per_value(self) -> None:
         base = ROWS["T05.binary"]

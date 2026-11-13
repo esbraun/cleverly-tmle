@@ -66,6 +66,9 @@ LIMIT_OWNERS = frozenset(
         # Fix-6 (D2): the standing record of the pooled reduced regressions; the foldwise
         # default passes on the cells' own draws (drtmle-foldwise-n1500).
         "RM18-one-sided-bias",
+        # Fix-6 (D4): the standing record of the pooled reduced regressions; the foldwise
+        # default's bias contracts at second order (stratified-drtmle-foldwise).
+        "X8-drtmle-one-sided-bias",
         "X8-identity-small-stratum",
         "X8-drtmle-small-stratum",
         "X16-plugin-variance",
@@ -83,7 +86,6 @@ LIMIT_OWNERS = frozenset(
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
 FLAGGED_EXPERIMENTAL = {
     "X8-logit-small-stratum": "the logit slope at a small stratum reads an SE ratio of 0.78 to 0.94",
-    "X8-drtmle-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
     "F28": "the informative-size t cells read a bias of 0.11 to 0.13 and an SE ratio of 0.83",
     "F27": "the boundary truth rows read a coverage of 0.894 and an SE ratio of 0.82",
     "mtp-pricing-calibration": (
@@ -270,9 +272,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/marginal_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0136 to 0.0185, margin 0.0067, SE ratio 0.9902",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -280,9 +282,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/v0_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0094 to 0.0162, margin 0.0093, SE ratio 0.9505",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -290,9 +292,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/v1_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0123 to 0.0214, margin 0.0124, SE ratio 0.9364",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -300,9 +302,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/v2_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0179 to 0.0286, margin 0.0147, SE ratio 1.0627",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -312,6 +314,16 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         ("wald",),
         LIMIT,
         "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to 1.0653",
+        "",
+    ),
+    (
+        "stratified-drtmle-foldwise",
+        "truth",
+        "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+        "D13",
+        ("wald",),
+        LIMIT,
+        "X8-drtmle-small-stratum: bias 0.0013 to 0.0056, coverage 0.9073, SE ratio 0.8820",
         "",
     ),
     (

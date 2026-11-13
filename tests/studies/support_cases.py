@@ -1029,6 +1029,28 @@ def _d_cases() -> tuple[RowCase, ...]:
         )
     )
     add(
+        _seeded(
+            "D13",
+            "stratified-drtmle-foldwise",
+            "stratified_both_correct",
+            "stratified_drtmle_foldwise.py:374",
+            "stratified_drtmle_foldwise",
+            "stratified_both_correct",
+            600,
+        )
+    )
+    add(
+        _observed(
+            "D13",
+            "drtmle-foldwise",
+            "double_robustness/marginal_ate__stratified",
+            "drtmle_foldwise_properties.py:724",
+            "drtmle_foldwise_properties",
+            lambda module: module.stratified.draw_from_seed(module.stratified.SCENARIO, 600, 0)[0],
+            lambda module, frame: module.stratified_fit(frame),
+        )
+    )
+    add(
         _case(
             "D02",
             "canonical-multi-arm-drtmle",

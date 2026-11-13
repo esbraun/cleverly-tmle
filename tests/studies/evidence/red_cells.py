@@ -483,7 +483,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The treatment-correct cells of the stratified DR-TMLE study, read by
     # ``tests/diagnostics/x8_drtmle_treatment_correct``: the one-sided bias of RM18 at stratum
-    # size, shared by the shipped unstratified fit and by R drtmle.
+    # size, shared by the shipped unstratified fit and by R drtmle. The standing record of
+    # ``reduced_crossfit="pooled"``: the four cells keep their verdicts. A finite-sample limit
+    # of the default (Fix-6 D4): in ``stratified-drtmle-foldwise`` the bias of the marginal ATE
+    # and of ``v1`` contracts at second order, the both-wrong controls fail to contract, and no
+    # rung's SE-ratio row is red.
     "X8-drtmle-one-sided-bias": _keys(
         "canonical-stratified-drtmle",
         "property",
@@ -499,6 +503,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-stratified-drtmle/stratified_both_correct/ey[1][V=2]",
             "drtmle-r-stratified/stratified_both_correct/ey[1][V=2]",
+        ),
+        # Fix-6 S1, declared before the run: the fold-wise default's row is red too, with an
+        # SE ratio whose interval excludes 1, so it is a defect suspect held here until Fix-3's
+        # small-stratum correction re-reads it.
+        *_keys(
+            "stratified-drtmle-foldwise",
+            "truth",
+            "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
         ),
         *_keys(
             "canonical-stratified-drtmle",

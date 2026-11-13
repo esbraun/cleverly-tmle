@@ -1753,9 +1753,10 @@ def _d_rows() -> tuple[SupportRow, ...]:
             limits=[
                 "Two truth cells and the small-stratum cell are red.",
                 LEAK,
-                "Foldwise reduced regressions do not remove the stratified treatment_correct "
-                "bias: a 200-draw pilot at n = 2,000 read foldwise marginal 0.29, v1 0.30, "
-                "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
+                "The red treatment_correct cells fit the pooled reduced regressions. Under the "
+                "foldwise default the marginal ATE bias reads 0.40, 0.27 and 0.20 SD at n = "
+                "2,000, 4,000 and 8,000 and contracts at second order (log-bias slope -1.07, "
+                "99% interval -1.22 to -0.93; stratified-drtmle-foldwise); row D13 covers it.",
             ],
         ),
         point_row(
@@ -1923,6 +1924,34 @@ def _d_rows() -> tuple[SupportRow, ...]:
             ],
         ),
     ]
+    rows.append(
+        # Fix-6: the default cross-fitted stratified fit, foldwise reduced regressions on the
+        # canonical-stratified-drtmle law, and the X83 stratified outcome_correct cells.
+        point_row(
+            "D13",
+            ["stratified-drtmle-foldwise", "drtmle-foldwise"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            options={"reduced_crossfit": "foldwise"},
+            cells=[
+                "stratified_both_correct",
+                "stratified_contraction",
+                "double_robustness/marginal_ate__stratified",
+                "double_robustness/v0_ate__stratified",
+                "double_robustness/v1_ate__stratified",
+                "double_robustness/v2_ate__stratified",
+            ],
+            limits=[
+                "The smallest-stratum truth cell ey[1][V=2] is red (X8-drtmle-small-stratum).",
+                "The treatment_correct bias is a finite-sample limit: the marginal ATE reads "
+                "0.40, 0.27 and 0.20 SD at n = 2,000, 4,000 and 8,000, and the marginal and v1 "
+                "slopes of log bias on log n are consistent with second order "
+                "(stratified-drtmle-foldwise; X8-drtmle-one-sided-bias).",
+            ],
+        )
+    )
     return _merged(
         rows,
         {
@@ -2478,6 +2507,10 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "D03": (
         "X8-drtmle-small-stratum: bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388",
+        "X8-drtmle-one-sided-bias: bias 0.0136 to 0.0185, margin 0.0067, SE ratio 0.9902",
+        "X8-drtmle-one-sided-bias: bias 0.0094 to 0.0162, margin 0.0093, SE ratio 0.9505",
+        "X8-drtmle-one-sided-bias: bias 0.0123 to 0.0214, margin 0.0124, SE ratio 0.9364",
+        "X8-drtmle-one-sided-bias: bias 0.0179 to 0.0286, margin 0.0147, SE ratio 1.0627",
         (
             "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, "
             "empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to"
@@ -2491,6 +2524,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             " 1.0008"
         ),
     ),
+    "D13": ("X8-drtmle-small-stratum: bias 0.0013 to 0.0056, coverage 0.9073, SE ratio 0.8820",),
     "D10.outcome": (
         "composite-high-arm: bias -0.0054 to 0.0013, coverage 0.9225, SE ratio 0.9342",
     ),

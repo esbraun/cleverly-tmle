@@ -122,7 +122,6 @@ class TestDefaults:
         """Fix-6 D2: the owner is the standing record of the pooled option, not a flag."""
         assert "RM18-one-sided-bias" in sd.LIMIT_OWNERS
         assert "RM18-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
-        assert "X8-drtmle-one-sided-bias" in sd.FLAGGED_EXPERIMENTAL
         (entry,) = self.draft(
             positive(
                 "study-b",
@@ -152,6 +151,32 @@ class TestDefaults:
         assert {entry.row for entry in lines.values()} == {"D01", "D02"}
         assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
 
+    def test_the_x8_one_sided_bias_owner_states_a_finite_sample_limit(self) -> None:
+        """Fix-6 D4: the default's stratified bias contracts at second order."""
+        assert "X8-drtmle-one-sided-bias" in sd.LIMIT_OWNERS
+        assert "X8-drtmle-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
+        lines = {
+            key.key: entry
+            for key, entry in sd.DISPOSITIONS.items()
+            if entry.limit.startswith("X8-drtmle-one-sided-bias:")
+        }
+        assert set(lines) == {
+            f"double_robustness/{label}_ate__treatment_correct"
+            for label in ("marginal", "v0", "v1", "v2")
+        }
+        assert {entry.row for entry in lines.values()} == {"D03"}
+        assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
+
+    def test_the_foldwise_small_stratum_row_is_a_stated_limit_of_d13(self) -> None:
+        key = RedKey(
+            "stratified-drtmle-foldwise",
+            "truth",
+            "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+        )
+        entry = sd.DISPOSITIONS[key]
+        assert (entry.row, entry.kinds) == ("D13", ("wald",))
+        assert entry.limit.startswith("X8-drtmle-small-stratum:")
+
     def test_the_x20_crossfit_cell_is_experimental_and_the_clustered_cell_is_flagged(self) -> None:
         crossfit, clustered = self.draft(
             positive(
@@ -174,7 +199,7 @@ class TestDefaults:
 
     @pytest.mark.parametrize(
         "owner",
-        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "F28", "F27"],
+        ["X8-logit-small-stratum", "F28", "F27"],
     )
     def test_the_flagged_experimental_owners_are_flagged(self, owner: str) -> None:
         (entry,) = self.draft(
