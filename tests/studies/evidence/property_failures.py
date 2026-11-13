@@ -3395,7 +3395,8 @@ def composed_perturbations() -> tuple[str, ...]:
     tuple of str
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
         followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role,
-        then the ``bias`` kind followed by each role's coverage share.
+        then the ``bias`` kind followed by each role's coverage share, then the ``affine`` map
+        twice followed by an SE scale.
     """
     return _composed()
 
@@ -3425,6 +3426,11 @@ def _composed() -> tuple[str, ...]:
         # A bias clause in conjunction with a coverage floor that already fails decides alone
         # only when the floor is repaired: the named bias shift, then one role's coverage.
         *(f"bias+coverage_role/{role}/{p:g}" for p in COVERAGE_TARGETS for role in roles),
+        # A one-sided tail clause on a skewed cell fails with its light-side misses only once
+        # the cell's errors contract and move toward that side, which a uniform shift or SE
+        # scale cannot do without failing a coverage leg first: each cell's seeded affine map
+        # twice, then a slightly narrower SE (asymmetric-wald's owner tail clause, above).
+        *(f"affine+affine+se/{f:g}" for f in (0.95, 0.9)),
     )
 
 

@@ -9,6 +9,15 @@ adaptive-iptw,simultaneous_coverage,joint coverage in calibration band,se_low
 adaptive-iptw,targeting_necessity,bias discriminated,pair_collapse
 adaptive-iptw,targeting_necessity,bias equivalent,none
 adaptive-iptw,targeting_necessity,least displacement over labels,control_concentrated
+asymmetric-wald,heldout_coverage,"coverage lower leg, first 2,000",se_low
+asymmetric-wald,heldout_coverage,"coverage upper leg, first 2,000, shown only",se_high
+asymmetric-wald,heldout_coverage,"tail clause, above",se/0.8
+asymmetric-wald,heldout_coverage,"tail clause, below",se/0.8
+asymmetric-wald,owner_coverage,"coverage lower leg, first 2,000",coverage/0.94
+asymmetric-wald,owner_coverage,"coverage upper leg, first 2,000, shown only",coverage/0.96
+asymmetric-wald,owner_coverage,paired gain,se/1.05
+asymmetric-wald,owner_coverage,"tail clause, above",affine+affine+se/0.95
+asymmetric-wald,owner_coverage,"tail clause, below",se/0.8
 band-t-reference,simultaneous_coverage,joint coverage below nominal,se_low
 band-t-reference,simultaneous_coverage,joint coverage in calibration band,se_low
 band-t-reference-held-out,simultaneous_coverage,joint coverage below nominal,se_high
