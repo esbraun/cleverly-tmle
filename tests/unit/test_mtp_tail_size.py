@@ -14,14 +14,23 @@ classifier route with a spy, and its ratio against the closed form.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Collection
+from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
 
 from tests.studies import canonical_mtp_boundaries as study
+from tests.studies import canonical_mtp_pricing as pricing
 from tests.studies import mtp_boundaries_common as law
+from tests.studies import mtp_boundaries_properties as boundaries_properties
+from tests.studies import mtp_pricing_common as law_p
+from tests.studies import mtp_pricing_properties as pricing_properties
 from tests.studies import mtp_tail_size_common as tail
 from tests.studies.longitudinal_sdr_properties import WALD_GATED_STEP, WALD_REGIME_FACTOR
 
@@ -191,3 +200,237 @@ def test_a_residual_at_the_policy_dose_moves_the_exact_form(plan: str) -> None:
     shipped = tail.diagonal_variance(plan)
     mutated = tail.diagonal_variance(plan, shift="policy_residual")
     assert mutated / shipped - 1.0 > POLICY_RESIDUAL_FLOOR[plan]
+
+
+# --------------------------------------------- the tail-size rule in the source studies
+#
+# Every Wald-verdicted cell of mtp-boundaries and mtp-pricing (each primary truth row, whose
+# ``lmtp`` row follows its ``cleverly`` row, and each calibration positive) sits in exactly
+# one of its study's ``BELOW_TAIL_SIZE``, ``WALD_GATED_CELLS`` and ``TAIL_SIZE_NOT_COMPUTED``.
+# A cell's tail size is the larger of its quantity's efficient influence function's and its
+# fit's own curve's, read from the committed diagnostic files.  The necessity and
+# double-robustness positives read bias and displacement only, and no control is a validity
+# claim, so neither enters.
+
+DIAGNOSTIC = Path(__file__).resolve().parents[1] / "diagnostics" / "fix5_heavy_ratios"
+
+
+@dataclass(frozen=True)
+class TailCell:
+    """One Wald-verdicted cell with its n and its tail size.
+
+    Parameters
+    ----------
+    name : str
+        ``scenario/estimand`` for a truth row, ``interval_calibration/<cell>`` otherwise.
+    n : int
+        Its declared size.
+    n_kappa : int
+        Its tail size, or a lower bound of it when ``exact`` is false.
+    exact : bool
+        False when only the efficient influence function's tail size is computed: the fit's
+        own curve reads a learned ratio whose limit has no closed form.
+    """
+
+    name: str
+    n: int
+    n_kappa: int
+    exact: bool = True
+
+
+def _bernoulli_tail(p: float) -> int:
+    """The tail size of ``Y - p`` for a binary ``Y``: the natural plan's influence function."""
+    return tail.tail_size((1.0 - 3.0 * p * (1.0 - p)) / (p * (1.0 - p)))
+
+
+@cache
+def _law_b_eif() -> dict[tuple[str, str], int]:
+    frame = pd.read_csv(DIAGNOSTIC / "quadrature.csv")
+    frame = frame[frame.order == 40]
+    out = {(r.plan, r.quantity): int(r.n_kappa) for r in frame.itertuples()}
+    for label_law in ("B", "B_atom"):
+        out[f"natural/{label_law}", "ey"] = _bernoulli_tail(law.truth("natural", label_law))
+    return out
+
+
+@cache
+def _law_b_own() -> dict[tuple[str, str, str, str], int]:
+    frame = pd.read_csv(DIAGNOSTIC / "law_b_own_moments.csv")
+    frame = frame[frame.order == 40]
+    return {
+        (r.law, r.learners, r.estimator, r.quantity): int(r.n_kappa) for r in frame.itertuples()
+    }
+
+
+def _boundaries_eif(label: str, quantity: str, label_law: str) -> int:
+    if label == law.REFERENCE:
+        return _law_b_eif()[f"natural/{label_law}", "ey"]
+    return _law_b_eif()[label, quantity]
+
+
+def boundaries_cells() -> list[TailCell]:
+    """Every Wald cell of mtp-boundaries with its tail size."""
+    own = _law_b_own()
+    cells = []
+    for scenario, (label_law, estimator, labels) in study.SCENARIOS.items():
+        for label in labels:
+            for quantity in ("ey", "ate"):
+                if quantity == "ate" and label == law.REFERENCE:
+                    continue
+                name = (
+                    f"ey_regimen[{label}]"
+                    if quantity == "ey"
+                    else f"ate_regimen[{label} vs {law.REFERENCE}]"
+                )
+                n_kappa = max(
+                    _boundaries_eif(label, quantity, label_law),
+                    own[label_law, "primary", estimator, f"{quantity}[{label}]"],
+                )
+                cells.append(TailCell(f"{scenario}/{name}", study.PRIMARY_N, n_kappa))
+    sizes = {
+        f"{cell.property}/{cell.cell}": cell.n
+        for cell in boundaries_properties.declared_cells()
+        if cell.property == "interval_calibration" and cell.role == "positive"
+    }
+    for label, (plan, estimator) in boundaries_properties.CELLS.items():
+        name = f"interval_calibration/{label}__correctly_specified"
+        n_kappa = max(
+            _law_b_eif()[plan, "ate"], own[law.LAW_OF[plan], "correct", estimator, f"ate[{plan}]"]
+        )
+        cells.append(TailCell(name, sizes[name], n_kappa))
+    return cells
+
+
+@cache
+def _law_p() -> dict[tuple[int, str, str, str], int]:
+    frame = pd.read_csv(DIAGNOSTIC / "law_p_moments.csv")
+    return {
+        (int(r.tau), r.learners, r.estimator, r.quantity): int(r.n_kappa)
+        for r in frame.itertuples()
+    }
+
+
+def pricing_cells() -> list[TailCell]:
+    """Every Wald cell of mtp-pricing with its tail size.
+
+    The property learners' ``LTMLE`` own curve, with the exact ratio and a correctly specified
+    outcome model, stands in for the efficient influence function (law P has no closed form).
+    """
+    own = _law_p()
+    cells = []
+    for scenario, (tau, estimator) in pricing.SCENARIOS.items():
+        for label in law_p.LABELS:
+            for quantity in ("ey", "ate"):
+                if quantity == "ate" and label == law_p.REFERENCE:
+                    continue
+                name = (
+                    f"ey_regimen[{label}]"
+                    if quantity == "ey"
+                    else f"ate_regimen[{label} vs {law_p.REFERENCE}]"
+                )
+                key = f"{quantity}[{label}]"
+                n_kappa = max(
+                    own[tau, "property", "ltmle", key], own[tau, "primary", estimator, key]
+                )
+                cells.append(TailCell(f"{scenario}/{name}", pricing.PRIMARY_N, n_kappa))
+    sizes = {
+        f"{cell.property}/{cell.cell}": cell.n
+        for cell in pricing_properties.declared_cells()
+        if cell.property == "interval_calibration" and cell.role == "positive"
+    }
+    for label, (tau, route, estimator, folds, revenue) in pricing_properties.CELLS.items():
+        name = f"interval_calibration/{label}__correctly_specified"
+        learners = "revenue" if revenue else "property"
+        eif = own[tau, learners, "ltmle", f"ey[{pricing_properties.PLAN}]"]
+        exact = (route, estimator, folds) == ("oracle", "ltmle", 1)
+        cells.append(TailCell(name, sizes[name], eif, exact))
+    return cells
+
+
+def tail_size_problems(
+    cells: list[TailCell],
+    below: Collection[str],
+    gated: Collection[str],
+    not_computed: Collection[str],
+) -> list[str]:
+    """What breaks check 1 of the tail-size rule; empty when the declaration holds.
+
+    The three classes partition the Wald cells.  A cell with a computed tail size is gated
+    exactly when its n is at least ``WALD_REGIME_FACTOR`` times it.  A cell with only a lower
+    bound is below when its n is under twice the bound, and not computed otherwise.  The gated
+    twins of check 2 belong to mtp-policy-variance, which declares them.
+    """
+    problems: list[str] = []
+    names = {cell.name for cell in cells}
+    classes = (set(below), set(gated), set(not_computed))
+    if sum(len(group) for group in classes) != len(set().union(*classes)):
+        problems.append("check 1: a cell sits in two classes")
+    if set().union(*classes) != names:
+        missing = sorted(names - set().union(*classes))
+        extra = sorted(set().union(*classes) - names)
+        problems.append(f"check 1: the classes miss {missing} and hold {extra}")
+    for cell in cells:
+        need = WALD_REGIME_FACTOR * cell.n_kappa
+        if cell.n < need:
+            expected = below
+        elif cell.exact:
+            expected = gated
+        else:
+            expected = not_computed
+        if cell.name not in expected:
+            problems.append(f"check 1: {cell.name} has n {cell.n} against {need}, misclassified")
+    return problems
+
+
+STUDIES = {
+    "boundaries": (boundaries_cells, study, boundaries_properties),
+    "pricing": (pricing_cells, pricing, pricing_properties),
+}
+
+
+def _declared(name: str) -> tuple[list[TailCell], set[str], set[str], set[str]]:
+    cells, truth_module, property_module = STUDIES[name]
+    below = set(truth_module.BELOW_TAIL_SIZE) | set(property_module.BELOW_TAIL_SIZE)
+    gated = set(truth_module.WALD_GATED_CELLS) | set(property_module.WALD_GATED_CELLS)
+    missing = set(truth_module.TAIL_SIZE_NOT_COMPUTED) | set(property_module.TAIL_SIZE_NOT_COMPUTED)
+    return cells(), below, gated, missing
+
+
+@pytest.mark.parametrize("name", sorted(STUDIES))
+def test_each_wald_cell_gates_only_at_twice_its_tail_size(name: str) -> None:
+    assert tail_size_problems(*_declared(name)) == []
+
+
+@pytest.mark.parametrize("name", sorted(STUDIES))
+def test_each_module_holds_its_own_cells(name: str) -> None:
+    """The truth rows' classes live in the study module, the calibration cells' in its properties."""
+    _, truth_module, property_module = STUDIES[name]
+    for module, own in ((truth_module, False), (property_module, True)):
+        for group in (
+            module.BELOW_TAIL_SIZE,
+            module.WALD_GATED_CELLS,
+            module.TAIL_SIZE_NOT_COMPUTED,
+        ):
+            assert all(key.startswith("interval_calibration/") == own for key in group)
+
+
+def test_gating_a_below_cell_fails() -> None:
+    cells, below, gated, missing = _declared("boundaries")
+    key = "boundaries_ltmle/ate_regimen[p4 vs natural]"
+    problems = tail_size_problems(cells, below - {key}, gated | {key}, missing)
+    assert any(problem.startswith(f"check 1: {key} has n 5000") for problem in problems)
+
+
+def test_an_undeclared_cell_fails() -> None:
+    cells, below, gated, missing = _declared("pricing")
+    extra = TailCell("pricing_ltmle_tau7/ey_regimen[price_up]", 5_000, 10)
+    problems = tail_size_problems([*cells, extra], below, gated, missing)
+    assert any("pricing_ltmle_tau7" in problem for problem in problems)
+
+
+def test_a_learned_ratio_cell_is_not_gated_on_its_proxy() -> None:
+    """Without the own curve a gated reading on the proxy alone fails."""
+    cells, below, gated, missing = _declared("pricing")
+    key = next(iter(missing))
+    problems = tail_size_problems(cells, below, gated | {key}, missing - {key})
+    assert any(problem.startswith(f"check 1: {key}") for problem in problems)

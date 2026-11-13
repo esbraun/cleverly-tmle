@@ -71,6 +71,13 @@ The study's property loop runs through
 draws each sample outside the fit and checkpoints each key
 (:func:`~tests.studies.mtp_study_tools.property_checkpoint`), so a run stopped by a container
 restart resumes.  The pilots keep :func:`~tests.studies.mtp_study_tools.run_in_parts`.
+
+**The tail-size rule** (bookkeeping, as :mod:`tests.studies.canonical_mtp_boundaries` states
+it).  :data:`BELOW_TAIL_SIZE`, :data:`WALD_GATED_CELLS` and :data:`TAIL_SIZE_NOT_COMPUTED`
+classify the calibration positives, the only cells here whose verdict reads a Wald interval:
+the necessity positives read bias and displacement, and no control is a validity claim.  A
+positive's tail size is the larger of its contrast's efficient influence function's and the
+calibration learners' own curve's.  :data:`GATING_CELLS` and the committed verdicts do not move.
 """
 
 from __future__ import annotations
@@ -195,6 +202,22 @@ GATING_CELLS: tuple[str, ...] = tuple(
     if not (family == "interval_calibration" and cell.split("__")[0] in REPORTING_LABELS)
 )
 GATING_TRUTH: tuple[str, ...] = (study.STUDY.implementation,)
+#: The calibration positives whose n is below twice their tail size (the rule of
+#: :mod:`tests.studies.canonical_mtp_boundaries`): ``p4`` and ``p4_sdr`` (``n_kappa`` 52,158 at
+#: n = 4,000) and ``p5`` and ``p5_sdr`` (3,120 at n = 2,000).  Bookkeeping only:
+#: :data:`GATING_CELLS` and the committed verdicts do not move.
+BELOW_TAIL_SIZE = frozenset(
+    f"interval_calibration/{label}__correctly_specified"
+    for label in ("p4", "p5", "p4_sdr", "p5_sdr")
+)
+#: The calibration positives whose n is at least twice their tail size.
+WALD_GATED_CELLS = frozenset(
+    f"interval_calibration/{label}__correctly_specified"
+    for label in CELLS
+    if f"interval_calibration/{label}__correctly_specified" not in BELOW_TAIL_SIZE
+)
+#: The calibration positives with no computed tail size: every one has one.
+TAIL_SIZE_NOT_COMPUTED: dict[str, str] = {}
 #: The efficiency bound of each calibration label, which sizes the noise control only
 #: (:func:`~tests.studies.mtp_boundaries_common.contrast_sd`, pinned).
 EFFICIENCY_SD: dict[str, float] = {

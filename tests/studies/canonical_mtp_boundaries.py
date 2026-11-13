@@ -75,6 +75,18 @@ owner row ``mtp-boundaries-pairing``.  Nothing that makes a cell easier to pass 
 verdict: no margin, no extra replications, no weaker law, no relabelling, no oracle
 substitution.  A replication that raises is never redrawn.
 
+**The tail-size rule** (the X39 rule, as bookkeeping).  A Wald clause would gate only where
+the cell's n is at least ``WALD_REGIME_FACTOR`` (2) times ``n_kappa = ceil((kappa - 1) /
+0.25^2)``, with ``kappa`` the larger of the kurtosis of the quantity's efficient
+influence function and of the fit's own curve with its nuisances at their limits.  Both come
+from ``tests/diagnostics/fix5_heavy_ratios/`` (``quadrature.csv``, ``law_b_own_moments.csv``).
+:data:`BELOW_TAIL_SIZE`, :data:`WALD_GATED_CELLS` and :data:`TAIL_SIZE_NOT_COMPUTED` classify
+the primary truth rows, and
+:mod:`tests.studies.mtp_boundaries_properties` the calibration positives.  The ``p4`` rows
+(``n_kappa`` 44,224 and 52,158) and the ``p5`` contrast (3,120) are below it at n = 5,000;
+``tests/unit/test_mtp_tail_size.py`` derives the classification.  The classification moves no
+verdict and no owner: the committed rows keep the reading above.
+
 **Budget.**  :data:`~tests.studies.mtp_boundaries_properties.BUDGET` states the per-fit
 seconds the one-replicate smoke measured and the CPU-hours they imply.
 """
@@ -158,6 +170,29 @@ def truth_of(scenario: str) -> dict[str, float]:
         if label != REFERENCE:
             out[f"ate_regimen[{label} vs {REFERENCE}]"] = value - means[REFERENCE]
     return out
+
+
+#: The primary truth rows whose n is below twice their tail size, as ``scenario/estimand``
+#: (each ``lmtp`` row follows its ``cleverly`` row).  Bookkeeping only: no verdict moves.
+BELOW_TAIL_SIZE = frozenset(
+    {
+        *(
+            f"{scenario}/{name}"
+            for scenario in (BOUNDARIES_LTMLE, BOUNDARIES_SDR)
+            for name in ("ey_regimen[p4]", f"ate_regimen[p4 vs {REFERENCE}]")
+        ),
+        *(f"{scenario}/ate_regimen[p5 vs {REFERENCE}]" for scenario in (ATOM_LTMLE, ATOM_SDR)),
+    }
+)
+#: The primary truth rows whose n is at least twice their tail size.
+WALD_GATED_CELLS = frozenset(
+    f"{scenario}/{name}"
+    for scenario, names_of in ESTIMANDS.items()
+    for name in names_of
+    if f"{scenario}/{name}" not in BELOW_TAIL_SIZE
+)
+#: The primary truth rows with no computed tail size: every one has one.
+TAIL_SIZE_NOT_COMPUTED: dict[str, str] = {}
 
 
 #: Every published property cell (:mod:`tests.studies.mtp_boundaries_properties`).

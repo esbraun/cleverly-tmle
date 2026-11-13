@@ -59,7 +59,22 @@ cells keep their settings and their committed rows.
 **Red-cell reading, declared before any run.**  As ``mtp-boundaries``
 (:mod:`tests.studies.canonical_mtp_boundaries`), with the owner rows
 ``mtp-pricing-calibration`` and ``mtp-pricing-pairing``.  Publication policy is
-``reporting``, and that reading is the merge gate.
+``reporting``, and that reading is the merge gate.  The five-node ``price_down`` rows keep the
+owner ``mtp-pricing-calibration``; :data:`BELOW_TAIL_SIZE` records that their n is below the
+tail size, and moves neither the owner nor a verdict.
+
+**The tail-size rule** (the X39 rule, as bookkeeping; as
+:mod:`tests.studies.canonical_mtp_boundaries` states it).  Law P has no closed-form efficient
+influence function, so the property learners' ``LTMLE`` own curve with the exact ratio stands
+in for it, and a row's tail size is the larger of that and its own fit's.  Each is read on
+:math:`10^8` draws with the nuisance limits of a :math:`10^7`-row fit, at the 99%
+chunk-bootstrap upper bound of the kurtosis (``tests/diagnostics/fix5_heavy_ratios/``,
+``law_p_moments.csv``).  :data:`BELOW_TAIL_SIZE`, :data:`WALD_GATED_CELLS` and
+:data:`TAIL_SIZE_NOT_COMPUTED` classify the primary truth rows, and
+:mod:`tests.studies.mtp_pricing_properties` the calibration positives.  Below the rule at
+n = 5,000: ``price_down`` at five nodes (``n_kappa`` 36,123 to 36,629) and at three (2,641 to
+2,662).  The five-node ``price_up`` contrast is gated by a narrow margin (2,464, so twice it is
+4,928).  ``tests/unit/test_mtp_tail_size.py`` derives the classification.
 """
 
 from __future__ import annotations
@@ -126,6 +141,25 @@ def names(labels: tuple[str, ...] = LABELS) -> tuple[str, ...]:
 
 
 ESTIMANDS: dict[str, tuple[str, ...]] = dict.fromkeys(SCENARIOS, names())
+
+#: The primary truth rows whose n is below twice their tail size, as ``scenario/estimand``
+#: (each ``lmtp`` row follows its ``cleverly`` row): the ``price_down`` rows at three and five
+#: nodes.  Bookkeeping only: no verdict and no owner moves.
+BELOW_TAIL_SIZE = frozenset(
+    f"pricing_{estimator}_tau{tau}/{name}"
+    for tau in (3, 5)
+    for estimator in ("ltmle", "sdr")
+    for name in ("ey_regimen[price_down]", f"ate_regimen[price_down vs {REFERENCE}]")
+)
+#: The primary truth rows whose n is at least twice their tail size.
+WALD_GATED_CELLS = frozenset(
+    f"{scenario}/{name}"
+    for scenario, names_of in ESTIMANDS.items()
+    for name in names_of
+    if f"{scenario}/{name}" not in BELOW_TAIL_SIZE
+)
+#: The primary truth rows with no computed tail size: every one has one.
+TAIL_SIZE_NOT_COMPUTED: dict[str, str] = {}
 
 
 def truth_of(tau: int, labels: tuple[str, ...] = LABELS, revenue: bool = False) -> dict[str, float]:
