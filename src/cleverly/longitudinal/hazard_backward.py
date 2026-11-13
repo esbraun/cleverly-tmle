@@ -82,7 +82,7 @@ from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import Refusal, RefusalReason
 from ..fluctuation._score import relative_score
 from ..learners.crossfit import Folds
-from .data import LongitudinalData
+from .data import LongitudinalData, RegimenMasks
 from .hazard import (
     HazardBounds,
     HazardFit,
@@ -577,9 +577,7 @@ def node_panel(
         rho = _soft_at_risk(p)
         alive = following[index][:, None] & (rho > 0.0)
         at_risk[:, 1:] = alive
-        events[:, 1:] = np.where(
-            alive[..., None], p / np.where(alive, rho, 1.0)[..., None], 0.0
-        )
+        events[:, 1:] = np.where(alive[..., None], p / np.where(alive, rho, 1.0)[..., None], 0.0)
         inverse[:, 1:] = np.where(alive, h[:, None] * rho, 0.0)
     weights = np.asarray(data.weights, dtype=float)[index]
     loss_weight = weights[:, None] * inverse
@@ -595,7 +593,11 @@ def node_panel(
         scale[0] = node_bounds.scale[k - 1]
         panel_bounds = HazardBounds(bounded, lower, scale)
     empty, full, excluded = soft_held_cells(
-        at_risk, events, loss_weight, cells[np.arange(index.size), observed], slots.n_keys,
+        at_risk,
+        events,
+        loss_weight,
+        cells[np.arange(index.size), observed],
+        slots.n_keys,
         panel_bounds,
     )
     inputs = HazardInputs(
@@ -616,9 +618,7 @@ def node_panel(
     held_empty, held_full = inputs.held_cells()
     initial = HazardState.from_hazards(hazards, inputs.bounds, held_empty, held_full, panel_bounds)
     reported = tuple(t for t in horizons if t >= k)
-    return NodePanel(
-        k, index, inputs, initial, tuple(t - k + 1 for t in reported), reported
-    )
+    return NodePanel(k, index, inputs, initial, tuple(t - k + 1 for t in reported), reported)
 
 
 def pseudo_distribution(state: HazardState, q: FloatArray, rows: IntArray, n: int) -> FloatArray:
@@ -845,7 +845,7 @@ def _walked(
             warn=warn,
             iterate=iterate,
         )
-    levels, curves = influence(panel.initial, panel.inputs, panel.horizons)
+    levels, _ = influence(panel.initial, panel.inputs, panel.horizons)
     score, scale = scores(panel.initial, panel.inputs, panel.horizons)
     relative = relative_score(score.reshape(-1), scale.reshape(-1))
     return panel.initial, HazardFit(
@@ -1003,7 +1003,10 @@ def _assemble(
     head, state = panels[0], states[0]
     levels = state.levels(head.inputs.q, head.inputs.weights)[0][:, [t - 1 for t in horizons]]
     plug = np.stack(
-        [state.mixture(head.inputs.q[0], j)[:, [t - 1 for t in horizons]].T for j in range(n_causes)]
+        [
+            state.mixture(head.inputs.q[0], j)[:, [t - 1 for t in horizons]].T
+            for j in range(n_causes)
+        ]
     )  # (J, H, n_1)
     curves[:, :, head.rows] += plug - levels[:, :, None]
     curves = curves * weights
@@ -1072,7 +1075,12 @@ def fold_hazards(
         train[test] = False
         per_fold.append(
             fit_hazards(
-                data, levels, learner=learner, folds=single, n_jobs=n_jobs, slots=slots,
+                data,
+                levels,
+                learner=learner,
+                folds=single,
+                n_jobs=n_jobs,
+                slots=slots,
                 fit_rows=train,
             )
         )
@@ -1241,6 +1249,7 @@ def target_time_varying(
             pseudo: FloatArray,
             train: BoolArray | None = None,
             split: Folds = folds,
+            masks: RegimenMasks = masks,
         ) -> FloatArray:
             rows = masks.at_risk(k + 1) if train is None else masks.at_risk(k + 1) & train
             return fit_continuation(
@@ -1263,7 +1272,12 @@ def target_time_varying(
                 slots=entry,
             )
 
-            def source(k: int, node: NodeSlots, pseudo: FloatArray) -> FloatArray:
+            def source(
+                k: int,
+                node: NodeSlots,
+                pseudo: FloatArray,
+                stitched: dict[int, FloatArray] = stitched,
+            ) -> FloatArray:
                 return stitched[k]
 
         fit = backward_pass(
@@ -1302,14 +1316,20 @@ def _stitched_continuations(
     node_bounds: HazardBounds | None,
     slots: MTPSlots | None,
 ) -> dict[int, FloatArray]:
-    """Each node's continuation, stitched from the folds' untargeted passes on their training rows."""
+    """Each node's continuation, stitched from the folds' untargeted passes on training rows."""
     single = Folds.single(data.n)
     stitched: dict[int, FloatArray] = {}
     for fold, (_, test) in enumerate(folds):
         train = np.ones(data.n, dtype=bool)
         train[test] = False
 
-        def in_fold(k: int, node: NodeSlots, pseudo: FloatArray, train: BoolArray = train) -> FloatArray:
+        def in_fold(
+            k: int,
+            node: NodeSlots,
+            pseudo: FloatArray,
+            train: BoolArray = train,
+            test: IntArray = test,
+        ) -> FloatArray:
             nu = fitted(k, node, pseudo, train, single)
             if k not in stitched:
                 stitched[k] = np.zeros_like(nu)
@@ -1358,8 +1378,7 @@ def _regimen_fits(
             constant = tuple(
                 panel.node
                 for panel in fit.panels
-                if panel.node <= t
-                and panel.inputs.constant_nodes(0, t - panel.node + 1)
+                if panel.node <= t and panel.inputs.constant_nodes(0, t - panel.node + 1)
             )
             out[(plan.label, cause, t)] = RegimenFit(
                 regimen=plan.regimen,
@@ -1380,4 +1399,3 @@ def _regimen_fits(
                 node_ratio=ratio,
             )
     return out
-

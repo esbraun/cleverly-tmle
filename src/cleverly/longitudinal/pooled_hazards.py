@@ -82,8 +82,8 @@ def refuse_pooled_designs(data: LongitudinalData, mtp: Sequence[str] = ()) -> No
     ------
     CapabilityError
         When the design has a treatment decision at more than one node, or covariates
-        measured at a node after the first, so its node designs have different columns, or when ``mtp`` names a
-        regimen.
+        measured at a node after the first, so its node designs have different columns, or
+        when ``mtp`` names a regimen.
     """
     reasons = []
     if not data.treatment_held and data.n_times > 1:

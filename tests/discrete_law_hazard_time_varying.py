@@ -171,9 +171,7 @@ class HeldLaw:
         if self.last_only and node < self.n_times:
             return (0.0,) * self.causes
         reads = _flag(l) if self.l_moves_hazard else 0.0
-        total = float(
-            expit(-1.6 + 0.2 * node - 0.6 * a + 0.5 * w1 + 1.1 * reads + 0.4 * a * reads)
-        )
+        total = float(expit(-1.6 + 0.2 * node - 0.6 * a + 0.5 * w1 + 1.1 * reads + 0.4 * a * reads))
         if self.flat is not None and node == self.flat:
             total *= 1e-3
         if self.causes == 1:
@@ -197,7 +195,7 @@ class HeldLaw:
         if node > self.n_times:
             out.append((prefix, mass))
             return
-        w1, w2, a = prefix[:3]
+        w1, _, a = prefix[:3]
         if node > 1:
             p = self.p_l(w1, a, l)
             for value, share in ((1, p), (-1, 1.0 - p)):
@@ -238,7 +236,9 @@ class HeldLaw:
         """The law as data: one row per support point, its probability in ``wt``."""
 
         def column(getter: Callable[[tuple[Any, ...]], Any]) -> np.ndarray:
-            return np.array([np.nan if getter(p) is None else float(getter(p)) for p in self.support])
+            return np.array(
+                [np.nan if getter(p) is None else float(getter(p)) for p in self.support]
+            )
 
         out: dict[str, np.ndarray] = {
             "W1": column(lambda p: p[0]),
@@ -265,9 +265,7 @@ class HeldLaw:
             "treatment": "A",
             "baseline": ["W1"] if l1 else ["W1", "W2"],
             "censoring": [f"C{k}" for k in nodes],
-            "time_varying": [
-                (["W2"] if l1 else []) if k == 1 else [f"L{k}"] for k in nodes
-            ],
+            "time_varying": [(["W2"] if l1 else []) if k == 1 else [f"L{k}"] for k in nodes],
             "weights": "wt",
         }
         if self.causes == 2:

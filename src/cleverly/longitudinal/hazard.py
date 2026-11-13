@@ -3375,9 +3375,9 @@ def refuse_hazard_design(
         raise CapabilityError(
             "survival_model='hazard' on a design with a treatment at several nodes models the "
             "event and censoring hazards given the treatment history and the baseline "
-            f"covariates. This fit declares covariates measured after baseline ({', '.join(blocks)}), "
-            "and hazard targeting with such covariates on a design with a treatment at several "
-            "nodes is not built.",
+            "covariates. This fit declares covariates measured after baseline "
+            f"({', '.join(blocks)}), and hazard targeting with such covariates on a design with "
+            "a treatment at several nodes is not built.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             roadmap=HAZARD_ROADMAP,
             alternative=(

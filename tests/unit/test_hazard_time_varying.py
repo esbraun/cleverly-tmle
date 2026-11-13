@@ -93,7 +93,10 @@ def fit(
             treatment_learner=settings.pop("treatment_learner", CellProbabilities()),
             censoring_learner=CellMeans(),
             **settings,
-        ).fit(law.frame() if frame is None else frame, **(law.columns() if columns is None else columns))
+        ).fit(
+            law.frame() if frame is None else frame,
+            **(law.columns() if columns is None else columns),
+        )
 
 
 def estimate(result: Any, label: str, t: int, cause: str | None = None) -> float:
@@ -307,9 +310,7 @@ def mutated_panel(change: Callable[[Any], HazardInputs]) -> Iterator[None]:
         inputs = change(panel)
         empty, full = inputs.held_cells()
         hazards = panel.initial.hazards
-        initial = HazardState.from_hazards(
-            hazards, inputs.bounds, empty, full, inputs.node_bounds
-        )
+        initial = HazardState.from_hazards(hazards, inputs.bounds, empty, full, inputs.node_bounds)
         return replace(panel, inputs=inputs, initial=initial)
 
     with pytest.MonkeyPatch.context() as patch:
@@ -446,7 +447,9 @@ def test_a_one_level_up_policy_on_three_arms_is_exact(ratio: str) -> None:
 
 def _tilt_columns(law: HeldLaw, frame: pd.DataFrame) -> dict[str, Any]:
     columns = law.columns()
-    frame["p1"] = [law.g(1, int(w1), int(w2)) for w1, w2 in zip(frame["W1"], frame["W2"], strict=True)]
+    frame["p1"] = [
+        law.g(1, int(w1), int(w2)) for w1, w2 in zip(frame["W1"], frame["W2"], strict=True)
+    ]
     frame["p0"] = 1.0 - frame["p1"]
     columns["treatment_probabilities"] = {"A": {0: "p0", 1: "p1"}}
     return columns
@@ -552,11 +555,14 @@ def test_mutation_no_continuation_term() -> None:
     control's frozen walk at node 2 needs about 1e5 steps to reach ``tol``.
     """
     law = HeldLaw(n_times=3)
-    with mutated_panel(lambda panel: _drop(panel, slice(1, None))), frozen_direction(
-        slice(1, None)
+    with (
+        mutated_panel(lambda panel: _drop(panel, slice(1, None))),
+        frozen_direction(slice(1, None)),
     ):
         assert _detect(law, STATIC, STATIC_DENSITIES, hazard=Logistic()) > MISSED
-        control = _detect(law, STATIC, STATIC_DENSITIES, hazard=Logistic(), continuation=CellMeans())
+        control = _detect(
+            law, STATIC, STATIC_DENSITIES, hazard=Logistic(), continuation=CellMeans()
+        )
         assert control < EXACT
 
 
@@ -616,7 +622,9 @@ def _hard_at_risk(panel: Any) -> HazardInputs:
     inputs = panel.inputs
     h = inputs.inverse[:, 0, 0]
     rho = np.divide(
-        inputs.inverse[:, 1:, 0], h[:, None], out=np.zeros_like(inputs.inverse[:, 1:, 0]),
+        inputs.inverse[:, 1:, 0],
+        h[:, None],
+        out=np.zeros_like(inputs.inverse[:, 1:, 0]),
         where=h[:, None] > 0,
     )
     alive = np.array(inputs.at_risk, copy=True)
@@ -741,7 +749,11 @@ def test_the_curve_is_coherent() -> None:
             total = state.incidence.sum(axis=-1) + state.survival
             np.testing.assert_allclose(total, 1.0, rtol=0.0, atol=1e-12)
     reference = fit(
-        law, STATIC, frame=frame, survival_model="iterated_mean", targeting="iterative",
+        law,
+        STATIC,
+        frame=frame,
+        survival_model="iterated_mean",
+        targeting="iterative",
         **learners,
     )
     drops = [
@@ -764,7 +776,11 @@ def test_the_weight_is_the_iterated_mean_clever_covariate() -> None:
     regimens = {**REGIMENS, "tilt": Incremental(2.0)}
     hazard = fit(law, regimens, frame=frame, columns=columns)
     reference = fit(
-        law, regimens, frame=frame, columns=columns, survival_model="iterated_mean",
+        law,
+        regimens,
+        frame=frame,
+        columns=columns,
+        survival_model="iterated_mean",
         targeting="iterative",
     )
     for label in regimens:
@@ -847,7 +863,10 @@ def test_the_companions_still_refuse_covariates_after_baseline(l1_only: bool) ->
     separable = Separable(arms={"relapse": 1, "death": 0}, first="relapse")
     with pytest.raises(CapabilityError, match="after baseline"):
         LTMLE(
-            {NEVER: 0, "sep": separable}, survival_model="hazard", targeting="one_step", **_fit_settings()
+            {NEVER: 0, "sep": separable},
+            survival_model="hazard",
+            targeting="one_step",
+            **_fit_settings(),
         ).fit(frame, **columns)
 
 
@@ -888,8 +907,14 @@ def test_cross_fitting_covers_the_truth_and_solves_every_node() -> None:
     law = HeldLaw(causes=1)
     frame = _draw(law, 20_000, 3)
     result = fit(
-        law, STATIC, frame=frame, n_folds=5, hazard=wrong_hazard(), continuation=CellMeans(),
-        g_bounds=(0.01, 1.0), random_state=0,
+        law,
+        STATIC,
+        frame=frame,
+        n_folds=5,
+        hazard=wrong_hazard(),
+        continuation=CellMeans(),
+        g_bounds=(0.01, 1.0),
+        random_state=0,
     )
     for label, level in STATIC.items():
         for t in range(1, law.n_times + 1):
@@ -1069,9 +1094,9 @@ def test_h29_a_working_model_is_refused() -> None:
         "survival_model='iterated_mean'."
     )
     with pytest.raises(CapabilityError, match=_escape(message)) as raised:
-        LTMLE(
-            STATIC, survival_model="hazard", targeting="one_step", msm=_msm(), **_refuse()
-        ).fit(law.frame(), **law.columns())
+        LTMLE(STATIC, survival_model="hazard", targeting="one_step", msm=_msm(), **_refuse()).fit(
+            law.frame(), **law.columns()
+        )
     assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
     assert raised.value.refusal.roadmap is None
 
@@ -1124,7 +1149,10 @@ def test_the_pooled_trigger_reads_blocks_after_the_first_node() -> None:
     law = HeldLaw()
     with pytest.raises(CapabilityError, match="hazard_pooling='pooled' fits one regression"):
         LTMLE(
-            STATIC, survival_model="hazard", targeting="one_step", hazard_pooling="pooled",
+            STATIC,
+            survival_model="hazard",
+            targeting="one_step",
+            hazard_pooling="pooled",
             **_refuse(),
         ).fit(law.frame(), **law.columns())
 
