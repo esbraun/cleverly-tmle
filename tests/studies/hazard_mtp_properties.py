@@ -110,6 +110,10 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 
 STUDY = study.STUDY
 DOUBLE_ROBUST_REPLICATES = 1_200
+#: The replicates of a route robustness arm whose 800-draw wrong-learner pilot reading needs more
+#: than :data:`DOUBLE_ROBUST_REPLICATES` under the rule of plan X70 rev 2.7 (the design test
+#: recomputes it): ``gaussian_crossfit`` reads bias/SD -0.076 + 0.035.
+ROUTE_REPLICATES: dict[str, int] = {"gaussian_crossfit": 1_600}
 DOUBLE_ROBUST_N = 2_000
 NECESSITY_REPLICATES = 1_200
 NECESSITY_N = 2_000
@@ -382,7 +386,7 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
             f"{FIT_OF[label]}_mechanism_correct",
             "mechanism_correct",
             DOUBLE_ROBUST_N,
-            DOUBLE_ROBUST_REPLICATES,
+            ROUTE_REPLICATES.get(FIT_OF[label], DOUBLE_ROBUST_REPLICATES),
             FIT_OF[label],
         )
         for label in study.ROUTE_DR_LABELS
@@ -517,7 +521,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             DeclaredEstimates(FIT_OF[label]),
             ESTIMAND[label],
             DOUBLE_ROBUST_N,
-            DOUBLE_ROBUST_REPLICATES,
+            ROUTE_REPLICATES.get(FIT_OF[label], DOUBLE_ROBUST_REPLICATES),
             f"{FIT_OF[label]}_mechanism_correct",
         )
     # The reported paired difference reads the levels ``mechanism_correct`` draws.

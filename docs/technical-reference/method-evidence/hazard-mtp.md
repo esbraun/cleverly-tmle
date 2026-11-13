@@ -137,7 +137,7 @@ calibration pilots of these fit labels.
 | `interval_calibration` | the contrast and the policy's risk of each gated fit label, with the shrunken-SE and noise controls on the `levels` and `gaussian_density` contrasts | 4,400 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
 | `interval_calibration`, reported | the contrast and the policy's risk of `untruncated_density` | 800 at n = 2,000 | nothing: the rows are reported with no verdict |
 | `simultaneous_coverage` | the band over every estimate of the `levels` and `gaussian_density` fits, and its pointwise control | 4,400 at n = 2,000 | joint coverage outside the calibration band |
-| `double_robustness` | the `levels` contrast with both, one or neither nuisance correct; the contrast of `gaussian_density`, `gaussian_classifier`, `gaussian_crossfit` and `vector` with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000 | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
+| `double_robustness` | the `levels` contrast with both, one or neither nuisance correct; the contrast of `gaussian_density`, `gaussian_classifier`, `gaussian_crossfit` and `vector` with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000; 1,600 for `gaussian_crossfit` | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
 | `targeting_necessity` | the `levels` contrast from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000 | the targeted bias outside the margin, or a displacement below 0.25 |
 | `root_n_and_efficiency`, `root_n_rate` | the `levels` contrast and risk at n = 1,000, 2,000 and 8,000; the n = 1,000 rung is a rate rung that carries no claim | 800 at each n | the shared root-n rules at n = 2,000 and 8,000, and the rate across all three |
 | `power` | the `levels` contrast against zero | 800 at n = 2,000 | a rejection lower bound below the minimum power |
@@ -146,8 +146,7 @@ calibration pilots of these fit labels.
 
 The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
 over the ten gated arms, read at the committed calibration pilot of 8,000 draws per fit label.
-At 4,400 replicates the shrunken-SE
-control leaves the SE-ratio band and the noise control leaves the efficiency band with
+At 4,400 replicates the shrunken-SE control leaves the SE-ratio band and the noise control leaves the efficiency band with
 probability above 0.999.
 
 The wrong hazard learner's plug-in contrast has an exact limit 3.5 efficiency standard errors
@@ -158,6 +157,17 @@ control can fail; if it does not clear the margin, the control has failed and th
 defect suspect. The power cell's exact-law power at n = 2,000 is above 0.99. At bias zero every
 positive bias arm passes with probability above 0.99. That stays true while the true bias is
 below 0.108 standard deviations at 1,200 replicates and below 0.077 at 800.
+
+The arms with the wrong hazard learner and the correct mechanism carry a finite-sample bias of
+their own, so their size comes from the committed wrong-learner pilot of 800 draws per fit label
+at n = 2,000. Each arm takes 1,200 replicates, or the smallest multiple of 400 that passes with
+probability 0.99 at the pilot's standardized bias plus one standard error, whichever is larger.
+That rule was fixed before the pilot was read. On `levels` the reading pools the 200
+`mechanism_correct` paired draws, which fit the same estimator: bias 0.036 standard deviations
+over 1,000 draws. The density route reads 0.028, the classifier route -0.027, the cross-fitted
+classifier route -0.076 and `vector` -0.004, so `gaussian_crossfit` takes 1,600 replicates and
+the others 1,200. At n = 8,000 the density route reads -0.022 ± 0.050 over 400 draws, no larger
+than at n = 2,000, as a finite-sample remainder and not a binning bias predicts.
 
 With correctly specified parametric learners the hazard fit and the iterated-mean fit are both
 efficient, so on the gated laws they differ by $o_P(n^{-1/2})$. A 200-draw scratch run before the
