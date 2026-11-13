@@ -66,11 +66,10 @@ the fit's influence curves; ``rejected`` marks a draw whose curve decreases some
 row's rejection rate is the share of such draws.  The curve is read from an iterated-mean fit of
 the same draw with no working model.
 
-The pilot readings that justify the diagnostic (plan X70 rev 2.3) are declared here and read by
-the design test from the committed pilot: the paired-difference ratio must reach
-:data:`PAIRED_DIFFERENCE_FLOOR` on the largest of the four coefficients, each ratio reported,
-because a coefficient whose information comes from well-overlapped strata need not separate two
-efficient fits.  The share of decreasing iterated-mean curves is reported with its 99%
+The pilot readings of the diagnostic are read by the design test from the committed pilot and
+reported with no floor: the two fits are efficient, so they differ by o_P(n^-1/2), and X70
+reports their agreement instead of requiring a gap (the owner's decision of 2026-11-13).  The
+share of decreasing iterated-mean curves is reported with its 99%
 Clopper-Pearson interval and carries no floor.
 
 The failure rule is the registry's: a replication that raises is never redrawn, and the shared
@@ -138,9 +137,6 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: The declared floor on the targeted arm's displacement from the plug-in, in the targeted
 #: arm's empirical standard deviations.
 TARGETING_DISPLACEMENT = 0.25
-#: The fits-differ floor of the pilot: the largest coefficient's SD of the paired difference
-#: (hazard minus iterated-mean) over its efficiency-bound standard error (plan X70 rev 2.3).
-PAIRED_DIFFERENCE_FLOOR = 0.05
 CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
 DIFFERENCE_FAMILY = "iterated_mean_difference"
 DECREASE_CELL = "overlap_logit__iterated_curve_decrease"

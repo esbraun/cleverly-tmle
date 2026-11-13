@@ -830,7 +830,9 @@ states it.
 Acceptance:
 
 - exact-law witnesses for each new clever covariate, with a mutation control that drops it;
-- a registered study for each part, on a law where the per-horizon and the hazard fits differ.
+- a registered study for each part. Each study also reports how far the hazard fit and the
+  iterated-mean fit differ on its laws. Both fits are efficient, so with correct nuisance fits they
+  differ by an amount that shrinks faster than $1/\sqrt{n}$, and the study reports that agreement rather than requiring a gap.
 
 ### X7. Two-phase and outcome-dependent sampling
 

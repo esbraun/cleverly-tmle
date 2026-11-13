@@ -640,10 +640,10 @@ def _side_by_side() -> dict[str, dict[str, float]]:
 class TestTheFitsDifferPilot:
     """The ``iterated_mean_difference`` readings of plan X70 rev 2.4, on the ``overlap`` law.
 
-    The paired-difference floor (0.05) is read on the largest coefficient ratio and on the
-    gated coefficient ``a_W1`` (design review d), and every ratio is reported: a coefficient whose information comes from well-overlapped strata need
-    not separate the fits.  Each fit's coverage and SE ratio are reported side by side and are
-    not gated.  The share of decreasing iterated-mean curves is reported with its 99%
+    Every coefficient's paired-difference ratio is reported with no floor (the owner's decision of
+    2026-11-13: two efficient fits differ by o_P(n^-1/2), so X70 reports their agreement instead
+    of requiring a gap).  Each fit's coverage and SE ratio are reported side by side and are not
+    gated.  The share of decreasing iterated-mean curves is reported with its 99%
     Clopper-Pearson interval and carries no floor.
     """
 
@@ -659,11 +659,9 @@ class TestTheFitsDifferPilot:
         assert FITS_DIFFER["refusal"].fillna("").eq("").all()
         assert FITS_DIFFER["replicate"].nunique() == pilot.FITS_DIFFER_DRAWS
 
-    def test_the_two_fits_differ_enough(self) -> None:
+    def test_the_paired_ratios_are_reported(self) -> None:
         ratios = _paired_ratios()
-        assert max(ratios.values()) >= properties.PAIRED_DIFFERENCE_FLOOR, ratios
-        gated = f"{properties.DIFFERENCE_FIT}_a_W1"
-        assert ratios[gated] >= properties.PAIRED_DIFFERENCE_FLOOR, ratios
+        assert all(np.isfinite(value) and value > 0.0 for value in ratios.values()), ratios
 
     def test_both_fits_report_coverage_and_se_ratio(self) -> None:
         for label, reading in _side_by_side().items():

@@ -38,8 +38,8 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
 * The ``iterated_mean_difference`` rows read the ``overlap`` law, state no verdict and cannot be
   red.  Their summary reports each coefficient's paired-difference ratio, each fit's coverage and
   SE ratio side by side, and the share of decreasing iterated-mean curves with its 99% interval.
-  The pilot floor of 0.05 on the largest ratio (plan X70 rev 2.4) is checked by the design test
-  before the run, together with the same floor on ``a_W1``; the share carries no floor.  On that
+  No reading carries a floor: X70 reports the agreement of the two fits instead of requiring a
+  gap (the owner's decision of 2026-11-13).  On that
   law the two efficient fits differ by about 3 to 8% of an efficiency SE: both are efficient, so
   where both nuisance fits are correct they cannot differ by more than o_P(n^-1/2).  The
   ``mechanism_correct_difference`` rows read the ``survival`` law's ``mechanism_correct`` draws,
