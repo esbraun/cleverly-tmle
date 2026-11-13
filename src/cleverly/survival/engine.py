@@ -134,7 +134,8 @@ class ContinuousSurvivalRecord:
     n_folds : int
         The number of cross-fitting folds, ``1`` for a full-sample fit.
     grid_size : int
-        The number of distinct observed times up to the last target.
+        The number of distinct observed times up to the last target time or restricted
+        horizon.
     """
 
     hazards: tuple[HazardSelection, ...]

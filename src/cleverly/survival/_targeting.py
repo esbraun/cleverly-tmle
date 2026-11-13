@@ -5,7 +5,7 @@ estimation for targeting cause-specific absolute risks and survival curves.  *Bi
 111(1), 129-145 (read as arXiv:2107.01537v2).
 
 Every array is indexed on the sorted distinct observed times :math:`u_1 < \dots < u_M` up to the
-last target time.  Hazards are jumps there, held for both arms of every unit,
+last time a target reads.  Hazards are jumps there, held for both arms of every unit,
 ``dlam[a, l, i, m]`` :math:`= d\Lambda_l(u_m \mid a, L_i)`, so the update tilts the hazard
 *function* of each arm for every unit (design section 4.2).  The cause incidences are the
 Aalen-Johansen sums :math:`F_j(t) = \sum_{u \le t} S(u^-)\, d\Lambda_j(u)`, with :math:`S` the

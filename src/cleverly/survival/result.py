@@ -982,7 +982,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
                 f"{what} reads a restricted mean the fit targeted, and {_t(tau)} is not one of "
                 f"restricted_horizons={self.restricted_horizons}. The risks at the target "
                 "times do not solve the score of their integral: between them the score "
-                f"equation held at about {OFF_GRID_SHARE:.0%} of random times in the "
+                f"equation held at only about {OFF_GRID_SHARE:.0%} of random times in the "
                 "registered study.",
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=(
