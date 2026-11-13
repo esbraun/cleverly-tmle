@@ -465,6 +465,7 @@ estimates a familywise critical value.
 | `n_multiplier=` | the number of draws: 10,000 by default on every engine |
 | `multiplier_kind=` | the multiplier distribution: `mammen` (the default), `rademacher`, or `normal` |
 | `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `logit` (the default) or `identity` |
+| `band_reference=` | the reference each estimate's band slice is read on: `normal` (the default) or `t`, a Student $t$ per estimate ([The t reference](#the-t-reference)) |
 
 The default band (Mammen multiplier, logit scale, 10,000 draws) is the same for `simultaneous_bands()`,
 `median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
@@ -601,6 +602,62 @@ and
 [`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py).
 Benjamini and Hochberg (1995) is the reference for the FDR-adjusted reporting; see
 [multiple testing](../references.md#multiple-testing).
+
+### The t reference
+
+`band_reference="t"` keeps the multiplier critical value $\hat c$ and reads estimate $j$ on its
+own Student $t$ reference:
+
+$$
+c_j = F^{-1}_{t,\nu_j}\bigl(\Phi(\hat c)\bigr), \qquad
+\nu_j = \max(K_j, 5), \qquad
+K_j = \frac{\bigl(\sum_i d_{ij}^2\bigr)^2}{\sum_i d_{ij}^4},
+$$
+
+where $d_{ij}$ is the centred influence curve of estimate $j$, or its centred cluster sums on a
+clustered fit. The slice of estimate $j$ is the default band's slice at $c_j$ in place of
+$\hat c$, on the same scale and with the same standard error, so $c_j \ge \hat c$ and the $t$
+band contains the default band. A zero curve has $\nu_j = \infty$ and $c_j = \hat c$. The
+statistic $u = \max_j \Phi^{-1}(F_{t,\nu_j}(|T_j|))$ is inside $\hat c$ exactly when every
+$|T_j|$ is inside its $c_j$. With one estimate the band is the two-sided $t$ interval at
+$\nu_1$. `kish_count()` computes $K_j$, and `SimultaneousBands.reference_df` and
+`critical_values` report $\nu_j$ and $c_j$.
+
+$K_j$ is $n/\hat\kappa_j$, with $\hat\kappa_j$ the sample kurtosis of the curve: a few large
+terms give a small count. It is the realised-term degrees of freedom of
+[Fay and Graubard (2001, Appendix B)](../references.md#multiple-testing), a Satterthwaite count shrunk by a factor of 2 to 3. No source derives it for an
+influence-curve estimator, so the finite-sample claim rests on the study, cell by cell. To first
+order $c_j/\hat c - 1 = (\hat c^2 + 1)/(4\nu_j)$, and since $K_j \to \infty$ under a fixed law
+with finite fourth curve moment, the $t$ band has the default band's limit. The floor 5 keeps a
+coordinate whose count is a few terms from an unbounded width.
+
+The claim is joint coverage only. A passing cell can combine an over-covered sparse coordinate
+with slightly short ones. On a clustered, weighted or repeated fit (`median_bands` maps the
+median $\hat c$ with each combined curve's count) the band is built and reads `experimental`
+on every row, because no cell measures it there. `SurvivalCTMLE` refuses a non-default
+reference. The `band-t-reference` study is declared: its cells measure the $t$ band
+beside the default band on the same fits, and until its run no row licenses the option, so a
+$t$ band reads `experimental` everywhere.
+
+A band is built over every estimate that supplies inference, and over one exception. An estimate
+whose status is `"out_of_range_plugin"` stays in the family at its plug-in standard error. An
+estimate whose status is `"constant_arm_cell_plugin"` (a treatment arm whose observed outcomes in
+its stratum take one value) refuses the whole band under the band status `"constant_arm_cell"`:
+no band covers such an estimate, and a band over the remaining members would describe a family
+the data chose. No builder on this branch sets either status yet.
+
+**[derivation]** Under the default band an unbounded target's slice can be narrower than a
+small-df pointwise $t$ interval; under the $t$ band it is not, when $\hat c \ge 1.96$:
+
+| target | pointwise interval | default band | $t$ band |
+| --- | --- | --- | --- |
+| bounded binary-outcome mean or difference, `band_scale="logit"` | range-logit, $z = 1.96$ | contains it when $\hat c \ge 1.96$ | contains it when $\hat c \ge 1.96$ |
+| unbounded | $t_{0.975,\max(\nu,5)}$ with $\nu = 2K/(1 - K/m)$ | can be narrower where $\nu$ is small | contains it, since $\max(K,5) \le \max(\nu,5)$ |
+| bounded, `band_scale="identity"` | range-logit | not nested | not nested |
+
+The first and second rows describe the pointwise rule a separate change ships; on this branch
+every pointwise interval of a binary outcome keeps the identity scale. $\hat c \ge 1.96$ is not
+guaranteed for a multiplier quantile. The smallest $\hat c$ on the committed red-cell fits is 2.25.
 
 ### Evidence for the default band
 

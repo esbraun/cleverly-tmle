@@ -2328,6 +2328,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Maxima of Sums of High-Dimensional Random Vectors*](https://doi.org/10.1214/13-AOS1161),
   DOI 10.1214/13-AOS1161. First-order validity of the multiplier critical value of a max-$t$
   band.
+- Fay & Graubard (2001), [*Small-Sample Adjustments for Wald-Type Tests Using Sandwich
+  Estimators*](https://doi.org/10.1111/j.0006-341X.2001.01198.x), DOI
+  10.1111/j.0006-341X.2001.01198.x. Appendix B's realised-term degrees of freedom is the Kish
+  count of `band_reference="t"` ([the t reference](technical-reference/inference.md#the-t-reference)).
 
 ## Calibration of prediction models
 
