@@ -33,13 +33,19 @@ the ship rule's benefit clause and the share floor, and are no merge gate.
 holds every target of every fit with all its standard errors: the ship rule of plan 5.1 with its
 controls, the width-matched readings for (a2), and the three support floors.
 
-**Size and seeds.** :data:`PRIMARY_REPLICATES` is the plan's 3,600 per cell, where the ship rule's
-power is stated (plan 5.1; the at-target branch of ``guide/studies.md`` for the first-quartile
-calibration rows).  The pilot (:mod:`tests.studies.continuous_survival_variance_pilot`, 500 draws
-per cell on its own stream) reads V7's coefficient rule and witness and each first-quartile row's
-plug-in pass probability, which can extend the pilot and raise a cell's count up to
-:data:`REPLICATE_CAP`.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study;
-replicate ``r`` of a cell draws from ``replicate_seed(STUDY, cell, r)``.
+**Size and seeds.**  The pilot (:mod:`tests.studies.continuous_survival_variance_pilot`, 1,000
+draws per cell on its own stream) sets :data:`PRIMARY_REPLICATES`: the larger of the shared
+primary rule (:func:`~tests.studies.repeated_sizing.primary_replicates`, on the 60 gated rows'
+covered counts and per-cell biases) and the at-target count of the 30 first-quartile calibration
+rows (family pass at least 0.95 at SE ratio 1, coverage 0.95).  Until the pilot is committed the
+count is :data:`PENDING_REPLICATES` and ``regenerate.py`` refuses a declared run; the design test
+recomputes the count from the committed pilot.  A count above :data:`REPLICATE_CAP` stops the
+declaration (no truncation).  The pilot also reads V7's coefficient rule and witness
+(:data:`V7_GATED`), each cell's failure share, and each first-quartile row's plug-in pass
+probability, which extends a cell's pilot to :data:`EXTENSION_REPLICATES` draws and, if the
+departure is confirmed, asks for a committed diagnosis before the declaration.  :data:`SEED` and
+:data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a cell draws from
+``replicate_seed(STUDY, cell, r)``.
 """
 
 from __future__ import annotations
@@ -65,12 +71,24 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-#: The plan's count per cell (5.1, "if S"): the ship rule's power is stated at 3,600.
-PRIMARY_REPLICATES = 3_600
-#: The cap per cell when the pilot's plug-in reading asks for more (plan 5.1).
+#: The placeholder count until the committed pilot sets it; ``regenerate.py`` refuses a declared
+#: run while the record holds it.
+PENDING_REPLICATES = 0
+#: The count per cell: the larger of the shared primary rule on the committed pilot and the
+#: at-target calibration count of the first-quartile rows (``pilot.primary_count``), checked by
+#: the design test.  Pending until the pilot is committed.
+PRIMARY_REPLICATES = PENDING_REPLICATES
+#: The plan's cap per cell (5.1).  A pilot whose rule asks for more stops the declaration: the
+#: run is not truncated to the cap, and the reading goes back to the plan.
 REPLICATE_CAP = 7_200
-#: The pilot's draws per cell (plan 5.1, budget).
-PILOT_REPLICATES = 500
+#: The pilot's draws per cell.  The plan's 500 leaves the shared rule's clause (c) at the mercy of
+#: the pilot's coverage noise across 60 rows: on calibrated synthetic pilots it set 6,400 to
+#: 20,800 at 500 draws and 6,000 every time at 1,000 (design review F1; the deviation is recorded).
+PILOT_REPLICATES = 1_000
+#: The pilot's declared extension of a cell whose first-quartile plug-in check is below 0.90
+#: (``guide/studies.md``): enough draws to tell an SE ratio of 1.035 from 1 (SD of the pilot's
+#: ratio about 0.016 at 2,000 draws, against 0.032 at 500).
+EXTENSION_REPLICATES = 2_000
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
@@ -81,13 +99,24 @@ LEARNER_FOLDS = registered.LEARNER_FOLDS
 
 SUBJECT = "cleverly-continuous-survival-switched"
 
-#: ``cell -> (law, n, cross-fitted)``.
-CELLS: dict[str, tuple[str, int, bool]] = {
+#: ``cell -> (law, n, cross-fitted)``: every cell the pilot draws.
+ALL_CELLS: dict[str, tuple[str, int, bool]] = {
     "v1_rare_cause2": ("rare_cause2", PRIMARY_N, True),
     "v2_heavy_weights": ("heavy_weights", PRIMARY_N, True),
     "v3_half_n": ("base", 500, True),
     "v4_in_sample": ("base", PRIMARY_N, False),
     "v7_quadratic": ("quadratic", PRIMARY_N, True),
+}
+#: Whether V7 is gated.  It is gated only while the pilot's non-null witness holds (the
+#: plug-in's standardized bias of a cause-1 risk at the median above 0.2 SD; plan 5.1).  If the
+#: witness fails, V7 is *reported*: it leaves the record, so the declared run neither fits nor
+#: gates it, and it feeds neither clause of the ship rule nor any floor (plan 5.1's "V7
+#: included" holds only while V7 is gated); its pilot readings are its report.  ``regenerate.py``
+#: refuses a declaration that disagrees with the committed witness.
+V7_GATED = True
+#: The cells of the record.
+CELLS: dict[str, tuple[str, int, bool]] = {
+    cell: spec for cell, spec in ALL_CELLS.items() if V7_GATED or cell != "v7_quadratic"
 }
 ESTIMANDS: dict[str, tuple[str, ...]] = {
     cell: laws.gated(law) for cell, (law, _, _) in CELLS.items()
@@ -178,7 +207,7 @@ CONFIGURATION = {
 
 def law_of(scenario: str) -> laws.Law:
     """The law a cell draws from."""
-    return laws.LAWS[CELLS[scenario][0]]
+    return laws.LAWS[ALL_CELLS[scenario][0]]
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -195,7 +224,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 def engine(scenario: str) -> ContinuousSurvivalTMLE:
     """The default fit of a cell: its law's times, cross-fitted unless the cell is in sample."""
-    _, _, cross_fit = CELLS[scenario]
+    _, _, cross_fit = ALL_CELLS[scenario]
     return ContinuousSurvivalTMLE(
         law_of(scenario).times,
         arms=base.ARMS,

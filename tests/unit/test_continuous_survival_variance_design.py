@@ -25,18 +25,21 @@ PILOT = pilot.read()
 
 
 def test_the_declaration_is_the_plans() -> None:
-    assert study.PRIMARY_REPLICATES == study.STUDY.replicates == 3_600
+    assert study.STUDY.replicates == study.PRIMARY_REPLICATES
     assert study.REPLICATE_CAP == 7_200
-    assert study.PILOT_REPLICATES == 500
+    assert study.PILOT_REPLICATES == 1_000
+    assert study.EXTENSION_REPLICATES == 2_000
     assert study.MARGINS.standardized_bias == 0.2
     assert study.STUDY.reference is None
-    assert study.CELLS == {
+    assert study.ALL_CELLS == {
         "v1_rare_cause2": ("rare_cause2", 1_000, True),
         "v2_heavy_weights": ("heavy_weights", 1_000, True),
         "v3_half_n": ("base", 500, True),
         "v4_in_sample": ("base", 1_000, False),
         "v7_quadratic": ("quadratic", 1_000, True),
     }
+    assert ("v7_quadratic" in study.CELLS) == study.V7_GATED
+    assert set(study.CELLS) <= set(study.ALL_CELLS)
     assert study.STUDY.sizes(study.PRIMARY_N)["v3_half_n"] == 500
     assert laws.QUADRATIC == 0.3 and laws.RARE_INTERCEPT == -2.6
     assert laws.HEAVY_OMEGA == (2.0, -1.0, 1.5)
@@ -97,16 +100,28 @@ def test_the_rare_cause_times_are_its_event_time_quartiles() -> None:
 
 
 def test_the_at_target_count_carries_the_plans_row_pass() -> None:
-    row = float(
-        sizing.calibration_pass(study.MARGINS, study.PRIMARY_REPLICATES, np.array([1.0]), 0.95)[0]
-    )
+    # 3,600 is the at-target count of the 30 first-quartile rows (the family passes with 0.977);
+    # one row passes with the plan's 0.99923 and the shrunk-SE control fails with certainty.
+    assert pilot.at_target_count() == 3_600
+    row = float(sizing.calibration_pass(study.MARGINS, 3_600, np.array([1.0]), 0.95)[0])
     assert row == pytest.approx(0.99923, abs=2e-4)
+    assert row**30 == pytest.approx(0.977, abs=1e-3)
+    assert row**30 >= sizing.FAMILY_WISE_PASS
     assert (
-        sizing.calibration_control_probability(
-            study.MARGINS, study.PRIMARY_REPLICATES, readings.SHRUNKEN_SE_FACTOR
-        )
+        sizing.calibration_control_probability(study.MARGINS, 3_600, readings.SHRUNKEN_SE_FACTOR)
         > 0.999
     )
+
+
+def test_the_count_is_the_shared_rule_on_the_committed_pilot() -> None:
+    # Before the pilot is committed the record holds the placeholder, which regenerate.py
+    # refuses; once it is committed the count must be the rule's and at most the cap.
+    if PILOT.empty:
+        assert study.PRIMARY_REPLICATES == study.PENDING_REPLICATES
+        return
+    count = pilot.primary_count(PILOT)
+    assert count == study.PRIMARY_REPLICATES <= study.REPLICATE_CAP
+    assert count >= pilot.at_target_count()
 
 
 def test_the_floor_constants_are_pending_until_the_run() -> None:
@@ -114,9 +129,31 @@ def test_the_floor_constants_are_pending_until_the_run() -> None:
     if not committed:
         assert survival_result.MEASURED_REL_SD is None
         assert survival_result.MEASURED_REL_SD_EARLY is None
+        assert survival_result.MEASURED_EVENT_SHARE[0] == 0.4
+        assert survival_result.MEASURED_N == 1_000
         return
     values = readings.floor_values(pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE)))
     assert values["r_prim"] == survival_result.MEASURED_REL_SD
+    assert values["share_floor"] == survival_result.MEASURED_EVENT_SHARE[0]
+    assert values["r_cal"] == survival_result.MEASURED_REL_SD_EARLY
+    assert values["measured_n"] == survival_result.MEASURED_N
+
+
+def test_the_default_variance_is_the_ship_rules() -> None:
+    # The engine default and the measured default are "switched" iff the committed ship rule
+    # ships S.  Before the run the branch holds "switched", and PR A does not merge until the
+    # rule passes (regenerate.py, merge condition).
+    import inspect
+
+    from cleverly.survival import ContinuousSurvivalTMLE
+
+    default = inspect.signature(ContinuousSurvivalTMLE).parameters["variance"].default
+    assert default == survival_result.MEASURED_DEFAULTS["variance"]
+    if not study.STUDY.artifacts.joinpath(study.SHIP_FILE).exists():
+        assert default == "switched"
+        return
+    rule = pd.read_csv(study.STUDY.artifact(study.SHIP_FILE))
+    assert (default == "switched") == readings.ships(rule)
 
 
 # ---------------------------------------------------------------------- the readings
@@ -226,6 +263,12 @@ def test_the_readings_run_on_rows_like_the_studys() -> None:
     assert bool(rule.loc["s", "benefit_pass"])
     assert not bool(rule.loc["s_never", "benefit_pass"])
     assert bool(rule.loc["s_shrunk", "instrument_ok"])
+    assert {"s_shrunk_primary", "ic_sparse_calibration"} <= set(rule.index)
+    # The synthetic IC is 30% low at every early row, so no cell's sparsest row passes.
+    assert int(rule.loc["ic_sparse_calibration", "harm_rows"]) == 0
+    assert candidates[["gain_low", "gain_high"]].notna().all().all()
+    pv = candidates.loc[candidates["candidate"].isin(readings.PV_CANDIDATES)]
+    assert (pv["matched_low"] <= pv["matched_high"]).all()
     table = readings.floors(candidates)
     assert set(table["rule"]) == {"primary", "calibration"}
     assert set(table["default"]) == {readings.floor_values(table)["default"]}
@@ -264,10 +307,105 @@ def test_the_committed_readings_follow_from_the_committed_rows() -> None:
     )
     floors = pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE))
     pd.testing.assert_frame_equal(readings.floors(candidates), floors, check_dtype=False)
+    # Every instrument check holds; otherwise the run is void (regenerate.py).
+    assert readings.instruments_ok(rule), rule.loc[~rule["instrument_ok"].astype(bool)]
     long = pd.read_csv(study.STUDY.artifact(study.VARIANCE_ROWS_FILE))
+    # The point columns of the candidate readings follow from the variance rows.
+    for (scenario, estimand), group in long.groupby(["scenario", "estimand"]):
+        errors = readings.candidate_errors(group)
+        estimate = group["estimate"].to_numpy()
+        truth = float(group["truth"].iloc[0])
+        level = group["level"].to_numpy(dtype=bool)
+        chosen = candidates.loc[
+            (candidates["scenario"] == scenario) & (candidates["estimand"] == estimand)
+        ].set_index("candidate")
+        spread = float(np.std(estimate, ddof=1))
+        for name, se in errors.items():
+            interval = readings.shipped_interval(estimate, se, level)
+            coverage = float(np.mean((interval[:, 0] <= truth) & (truth <= interval[:, 1])))
+            assert chosen.loc[name, "coverage"] == pytest.approx(coverage, abs=1e-12)
+            assert chosen.loc[name, "se_ratio"] == pytest.approx(se.mean() / spread, rel=1e-9)
+            k_row = se.mean() / errors["ic"].mean()
+            assert chosen.loc[name, "k_row"] == pytest.approx(k_row, rel=1e-9)
     published = pd.read_parquet(study.STUDY.artifact("replicates.parquet"))
     keys = ["scenario", "replicate", "estimand"]
     joined = published.merge(long, on=keys, suffixes=("", "_long"))
     assert len(joined) == len(published)
     assert np.allclose(joined["estimate"], joined["estimate_long"])
     assert np.allclose(joined["std_error"], joined["std_error_long"])
+
+
+def _pilot_rows(
+    *, early_ratio: float = 1.0, failures: int = 0, plug_in_bias: float = 1.0
+) -> pd.DataFrame:
+    """Pilot rows like the driver's: calibrated and unbiased, with chosen departures."""
+    rng = np.random.default_rng(5)
+    records = []
+    for cell, (law, n, _) in study.ALL_CELLS.items():
+        truth = laws.truth(law)
+        early = set(laws.first_quartile(law))
+        coefficient = laws.LAWS[law].quadratic
+        # Each target's errors standardized to mean 0 and SD exactly 0.01, so the pilot's SE
+        # ratio is exactly 1 where the SE is 0.01 and no plug-in check fires by noise.
+        noise = rng.normal(size=(study.PILOT_REPLICATES, len(truth)))
+        noise = (noise - noise.mean(axis=0)) / noise.std(axis=0, ddof=1)
+        for replicate in range(study.PILOT_REPLICATES):
+            head = {"label": cell, "replicate": replicate, "n": n, "quadratic": coefficient}
+            if replicate < failures:
+                records.append({**head, "refusal": "DataError"})
+                continue
+            for column, (name, value) in enumerate(truth.items()):
+                sd = 0.01
+                error = sd * noise[replicate, column]
+                se = sd * (early_ratio if name in early else 1.0)
+                records.append(
+                    {
+                        **head,
+                        "estimand": name,
+                        "early": name in early,
+                        "truth": value,
+                        "estimate": value + error,
+                        "std_error": se,
+                        "ic_std_error": se,
+                        "pv_std_error": se,
+                        "variance_rel_sd": 0.1,
+                        "initial_estimate": value + error + plug_in_bias * sd,
+                        "refusal": "",
+                        "seconds": 1.0,
+                    }
+                )
+    return pd.DataFrame(records)
+
+
+def test_the_pilot_readings_run_on_rows_like_the_drivers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.canonical.continuous_survival_variance import regenerate
+
+    rows = _pilot_rows()
+    count = pilot.primary_count(rows)
+    # Clause (a) at the 0.2 margin binds: 6,000 at 60 calibrated rows of 1,000 draws.
+    assert count == 6_000
+    assert pilot.v7_halving(rows) is False
+    assert pilot.v7_witness(rows) > pilot.WITNESS_BIAS
+    assert set(pilot.failure_shares(rows).values()) == {0.0}
+    assert pilot.extension_cells(rows, count) == ()
+    monkeypatch.setattr(pilot, "read", lambda: rows)
+    assert regenerate.pilot_refusals() == [
+        f"the pilot sets {count} primary replicates and the record declares "
+        f"{study.PRIMARY_REPLICATES}"
+    ]
+    monkeypatch.setattr(study, "PRIMARY_REPLICATES", count)
+    assert regenerate.pilot_refusals() == []
+    # Each departure is refused by name.
+    departures = {
+        "extend its pilot to 2000 draws": _pilot_rows(early_ratio=1.06),
+        "lost 0.020 of its pilot fits": _pilot_rows(failures=20),
+        "set V7_GATED = False": _pilot_rows(plug_in_bias=0.0),
+    }
+    for message, frame in departures.items():
+        monkeypatch.setattr(pilot, "read", lambda frame=frame: frame)
+        assert any(message in reason for reason in regenerate.pilot_refusals()), message
+    # A V7 pilot drawn at another coefficient is not read as this law's.
+    stale = rows.assign(quadratic=np.where(rows["label"] == "v7_quadratic", 0.15, 0.0))
+    assert pilot.v7_witness(stale) is None and pilot.v7_halving(stale) is None

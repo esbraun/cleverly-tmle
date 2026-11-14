@@ -22,10 +22,17 @@ IC's does not; and (2) *benefit*: at one first-quartile row at least, the paired
 interval of :math:`|\mathrm{cov}_{IC} - 0.95| - |\mathrm{cov}_S - 0.95|` lies above 0.  Stated
 power at 3,600 per cell: clause 1 passes with 0.997 or more when every true S row is inside the
 band, fires with 0.04 at a true SE ratio of 1.08, 0.40 at 1.10 and 0.89 at 1.12; clause 2 passes
-with 1.000.  Controls on the same fits: ``s_pv115`` fires clause 1 with 0.908 in one base cell
-(reported), ``s_pv130`` fires it with 1.000 and ``s_never`` fails clause 2 with certainty (each an
-instrument check: otherwise the run is void), and ``s_shrunk`` fails the calibration rule at every
-gated row (power 1.000).
+with 1.000 (powers at 3,600; a larger count only raises them).  Controls on the same fits:
+``s_pv115`` is reported (the plan's 0.908 for clause 1 is for its base-law cell, which none of
+these cells is), ``s_pv130`` fires clause 1 with 1.000 and ``s_never`` fails clause 2 with
+certainty, and ``s_shrunk`` fails the calibration rule at every gated row (power 1.000); each of
+these three is an instrument check, and the run is void if one fails (:func:`instruments_ok`).
+Reported beside them: ``s_shrunk_primary``, the gated rows the primary rule turns red at 0.85
+times the SE (about 0.96 per row, so the merge gate alone does not catch a 15% shortfall
+everywhere), and ``ic_sparse_calibration``, the cells whose sparsest first-quartile IC row passes
+the calibration rule.  Each candidate row carries the paired 99% interval of its coverage minus
+the IC's (``gain_low``, ``gain_high``) and, for a PV candidate, of its coverage minus the
+width-matched IC's, with :math:`k_{\mathrm{row}}` recomputed on each resample.
 
 **Floors** (:func:`floors`, :func:`floor_values`).  Read from the default's rows: S's if the rule
 ships S, the IC's otherwise.  ``r_prim`` is the largest median ``variance_rel_sd`` rung over the
@@ -94,6 +101,18 @@ def shipped_interval(psi: np.ndarray, se: np.ndarray, level: np.ndarray) -> np.n
         out[inside, 0] = expit(logit(p) - half)
         out[inside, 1] = expit(logit(p) + half)
     return out
+
+
+def _covered_draws(psi: np.ndarray, se: np.ndarray, truth: float, level: bool) -> np.ndarray:
+    """``(B, R)`` whether the shipped interval at ``se`` covers ``truth``, for resampled rows."""
+    low, high = psi - Z * se, psi + Z * se
+    if level:
+        inside = (psi > 0.0) & (psi < 1.0)
+        p = np.where(inside, psi, 0.5)
+        half = Z * se / (p * (1.0 - p))
+        low = np.where(inside, expit(logit(p) - half), low)
+        high = np.where(inside, expit(logit(p) + half), high)
+    return (low <= truth) & (truth <= high)
 
 
 def long_rows(rows: pd.DataFrame) -> pd.DataFrame:
@@ -182,10 +201,23 @@ def candidate_readings(long: pd.DataFrame, *, replicates: int = BOOTSTRAP) -> pd
             statistics[f"benefit_{name}"] = lambda d, k=name: (
                 np.abs(d["cov_ic"].mean(axis=1) - 0.95) - np.abs(d[f"cov_{k}"].mean(axis=1) - 0.95)
             )
-        for name in PV_CANDIDATES:
-            statistics[f"matched_{name}"] = lambda d, k=name: (
-                d[f"cov_{k}"].mean(axis=1) - d[f"cov_ic_k_{k}"].mean(axis=1)
+            statistics[f"gain_{name}"] = lambda d, k=name: (
+                d[f"cov_{k}"].mean(axis=1) - d["cov_ic"].mean(axis=1)
             )
+        is_level = bool(level[0])
+        for name in PV_CANDIDATES:
+            # k is recomputed on each resample, so the matched interval carries its noise.
+            def matched(
+                d: Mapping[str, np.ndarray],
+                k: str = name,
+                truth: float = truth,
+                is_level: bool = is_level,
+            ) -> np.ndarray:
+                ratio = d[f"se_{k}"].mean(axis=1) / d["se_ic"].mean(axis=1)
+                hits = _covered_draws(d["estimate"], d["se_ic"] * ratio[:, None], truth, is_level)
+                return d[f"cov_{k}"].mean(axis=1) - hits.mean(axis=1)
+
+            statistics[f"matched_{name}"] = matched
         draws = bootstrap(
             arrays,
             statistics,
@@ -205,6 +237,7 @@ def candidate_readings(long: pd.DataFrame, *, replicates: int = BOOTSTRAP) -> pd
             coverage = clopper_pearson(hits, len(estimate), confidence_level=level_)
             ratio = percentile_interval(draws[f"ratio_{name}"], confidence_level=level_)
             benefit = percentile_interval(draws[f"benefit_{name}"], confidence_level=level_)
+            gain = percentile_interval(draws[f"gain_{name}"], confidence_level=level_)
             record = {
                 "scenario": scenario,
                 "estimand": estimand,
@@ -225,6 +258,8 @@ def candidate_readings(long: pd.DataFrame, *, replicates: int = BOOTSTRAP) -> pd
                 "coverage_high": coverage.high,
                 "k_row": float(errors[name].mean() / errors["ic"].mean()),
                 "coverage_gain": float(covered[name].mean() - covered["ic"].mean()),
+                "gain_low": gain.low,
+                "gain_high": gain.high,
                 "benefit": float(
                     abs(covered["ic"].mean() - 0.95) - abs(covered[name].mean() - 0.95)
                 ),
@@ -284,7 +319,7 @@ def ship_rule(candidates: pd.DataFrame) -> pd.DataFrame:
     records = []
     expected = {
         "s": "declared rule: ships iff both clauses pass",
-        "s_pv115": "reported: clause 1 fires with 0.908 in one base cell",
+        "s_pv115": "reported; the plan's 0.908 is for the base cell",
         "s_pv130": "instrument: clause 1 must fire",
         "s_never": "instrument: clause 2 must fail",
     }
@@ -315,25 +350,69 @@ def ship_rule(candidates: pd.DataFrame) -> pd.DataFrame:
                 "instrument_ok": instrument,
             }
         )
-    shrunk = candidates.loc[
-        (candidates["candidate"] == "s_shrunk") & ~candidates["first_quartile"].astype(bool)
-    ]
+    gated = ~candidates["first_quartile"].astype(bool)
+    shrunk = candidates.loc[(candidates["candidate"] == "s_shrunk") & gated]
     red = ~calibration_pass(shrunk)
     records.append(
-        {
-            "candidate": "s_shrunk",
-            "expectation": "instrument: every gated row fails the calibration rule",
-            "harm_rows": int(red.sum()),
-            "harm_where": "",
-            "harm_pass": False,
-            "benefit_rows": 0,
-            "benefit_where": "",
-            "benefit_pass": False,
-            "ships": False,
-            "instrument_ok": bool(red.all()),
-        }
+        _reading(
+            "s_shrunk",
+            "instrument: fails the calibration rule at every gated row",
+            int(red.sum()),
+            bool(red.all()),
+        )
+    )
+    # Reported: the merge gate's own sensitivity to a 15% shortfall (power about 0.96 per row).
+    red_primary = ~primary_pass(shrunk)
+    records.append(
+        _reading(
+            "s_shrunk_primary",
+            "reported: gated rows the primary rule turns red at 0.85 times the SE",
+            int(red_primary.sum()),
+            True,
+        )
+    )
+    # Reported: whether the IC fails the calibration rule at each cell's sparsest early row.
+    early_ic = candidates.loc[
+        (candidates["candidate"] == "ic") & candidates["first_quartile"].astype(bool)
+    ]
+    sparsest = early_ic.loc[early_ic.groupby("scenario")["median_rel_sd"].idxmax()]
+    passing = sparsest.loc[calibration_pass(sparsest)]
+    records.append(
+        _reading(
+            "ic_sparse_calibration",
+            "reported: cells whose sparsest first-quartile IC row passes the calibration rule "
+            "do not exercise the sparse-cell failure",
+            len(passing),
+            True,
+            where=";".join(
+                f"{c}/{e}" for c, e in zip(passing["scenario"], passing["estimand"], strict=True)
+            ),
+        )
     )
     return pd.DataFrame.from_records(records)
+
+
+def _reading(
+    candidate: str, expectation: str, rows: int, instrument: bool, *, where: str = ""
+) -> dict[str, Any]:
+    """A ship-rule row that reads a control or a count and decides nothing."""
+    return {
+        "candidate": candidate,
+        "expectation": expectation,
+        "harm_rows": rows,
+        "harm_where": where,
+        "harm_pass": False,
+        "benefit_rows": 0,
+        "benefit_where": "",
+        "benefit_pass": False,
+        "ships": False,
+        "instrument_ok": instrument,
+    }
+
+
+def instruments_ok(rule: pd.DataFrame) -> bool:
+    """Whether every instrument check holds; otherwise the run is void."""
+    return bool(rule["instrument_ok"].astype(bool).all())
 
 
 def ships(rule: pd.DataFrame) -> bool:

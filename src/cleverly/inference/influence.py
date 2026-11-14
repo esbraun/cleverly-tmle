@@ -1969,8 +1969,7 @@ def make_estimate(
     if predictable_variance is not None:
         if covariance_rule != "switched":
             raise ValueError(
-                "a predictable variance needs covariance_rule='switched'; got "
-                f"{covariance_rule!r}"
+                f"a predictable variance needs covariance_rule='switched'; got {covariance_rule!r}"
             )
         if cluster is not None:
             raise ValueError("the switched variance is defined for independent rows only")

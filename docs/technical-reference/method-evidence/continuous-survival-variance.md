@@ -55,9 +55,17 @@ empty.
 The twelve targets at the median and upper quartile of each cell are gated by the primary rule:
 coverage above 0.90 and below 0.99, the SE ratio inside (0.8, 1.2) and the bias within 0.2 SD.
 The six first-quartile targets of each fit are read under the calibration rule (SE ratio inside
-(0.93, 1.07), coverage inside (0.92, 0.98), both at 99%) and are no gate. Each cell runs 3,600
-replicates. At an SE ratio of 1 and coverage 0.95 a calibration row then passes with probability
-0.9992; the pilot can extend a cell up to 7,200.
+(0.93, 1.07), coverage inside (0.92, 0.98), both at 99%) and are no gate.
+
+A pilot of 1,000 draws per cell on its own stream sets the count before the run: the larger of
+the shared primary rule on the gated rows and 3,600, the count at which the 30 first-quartile
+rows pass the calibration rule together with probability 0.977 at an SE ratio of 1. The design
+value is about 6,000 per cell, where a row whose true bias is 0.15 SD passes the bias gate with
+probability 0.90. The cap is 7,200; a pilot that asks for more stops the declaration, and the run
+is never cut to the cap. The pilot also decides the V7 coefficient (0.3, or 0.15 if the
+influence-curve interval covers a cause-1 target at the median or upper quartile below 0.93) and
+whether V7 is gated: if the untargeted plug-in of no cause-1 risk at the median is biased by more
+than 0.2 SD, V7 leaves the record and feeds neither the ship rule nor the floors.
 
 ## Agreement with the canonical implementation
 
@@ -76,13 +84,19 @@ rows and committed as `ship-rule.csv`, `candidate-readings.csv` and `floors.csv`
 | --- | --- | --- |
 | harm | at no row does the switched SE ratio's interval lie wholly above 1.07, or its coverage interval wholly above 0.98, while the influence curve's does not | with benefit, whether the switched variance stays the default |
 | benefit | at one first-quartile row at least, the paired 99% bootstrap interval of $\lvert\mathrm{cov}_{IC} - 0.95\rvert - \lvert\mathrm{cov}_S - 0.95\rvert$ lies above 0 | as above |
-| controls | the predictable variation times 1.3 must fire the harm clause; a switch that never fires must fail the benefit clause; the standard error times 0.85 must fail every gated row | the run is void if one does not behave so |
-| width-matched readings | each candidate's coverage against the influence-curve interval widened to the same mean width in its row | nothing; the evidence of roadmap item X6 (a2) |
+| controls | the predictable variation times 1.3 must fire the harm clause; a switch that never fires must fail the benefit clause; the standard error times 0.85 must fail the calibration rule at every gated row | the run is void if one does not behave so |
+| reported controls | the gated rows the primary rule turns red at 0.85 times the standard error (about 0.96 per row), and the cells whose sparsest first-quartile influence-curve row passes the calibration rule | nothing; the first is the merge gate's own sensitivity, the second says whether a cell exercises the sparse-cell failure |
+| paired readings | each candidate's coverage minus the influence curve's, and minus the influence-curve interval widened to the candidate's mean width in its row, each with its paired 99% bootstrap interval | nothing; the evidence of roadmap item X6 (a2) |
 | floors | the largest `variance_rel_sd` rung at which every gated row passes; the event-share floor (0.40, or 0.25 if every first-quartile row passes); the size floor (1,000, or 500 if every `v3_half_n` row passes) | which risks and risk differences read `supported` |
 
 At 3,600 replicates the harm clause passes with probability 0.997 or more when every true switched
 row is inside the band, and fires with probability 0.89 at a true SE ratio of 1.12. The benefit
-clause passes with probability 1.000 (X6 plan, section 5.1).
+clause passes with probability 1.000 (X6 plan, section 5.1). The declared count is at least 3,600,
+so these powers are lower bounds for the harm clause's detection and the benefit clause.
+
+If the rule fails, the switched variance does not ship: the default returns to the
+influence-curve variance, the floors read the influence curve's rows, and the record's rows on the
+switched interval are reported, not gated.
 
 ## Limitations
 
