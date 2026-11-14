@@ -15,7 +15,8 @@ between the fit and the truth.
   preflight.
 - W5: the collapse of a vector's last dose onto an atom integrates a multi-bin segment.
 - W6: the remainder with a wrong outcome regression.
-- W7, W10: the longitudinal fits read the point fit's density; occupancy travels with edges.
+- W7, W10: the longitudinal fits read the point fit's density; occupancy travels with the
+  edges at the sequential, mixed-dose and vector routes.
 - W8: the flat-bin share.
 - W9a to W9c, W9e, W9f: a covariate-dependent declared support, and on a vector node the
   support of its last dose read on each design's chain-rule frame.
@@ -1188,6 +1189,87 @@ def test_w10_a_training_fold_reads_the_occupancy_of_every_row_at_risk() -> None:
     np.testing.assert_array_equal(fold.density_at(a)[held], whole.density_at(a)[held])
     np.testing.assert_array_equal(fold.density_at(far)[held], whole.density_at(far)[held])
     assert np.all(whole.density_at(far)[held] > 0.0)
+
+
+def test_w10_a_mixed_dose_fit_on_a_subset_reads_the_occupancy_of_its_edge_rows() -> None:
+    """The point mixed-dose route: edges and occupancy come from ``edge_rows``, the fit from
+    the rows of ``fit_mask``, so a far dose outside the fit keeps its one-row bin."""
+    frame = law.draw("G", 400, 5)
+    frame.loc[0, "A"] = 14.0
+    w1, w2, a, _ = law.columns(frame)
+    at_atom = (np.random.default_rng(4).random(a.size) < 0.2) & (np.arange(a.size) > 0)
+    dose = np.where(at_atom, 0.0, a)
+    edges = tuple(bin_edges(a[~at_atom], default_density_bins(int((~at_atom).sum()))))
+    rows = np.arange(a.size) % 4 != 0
+    assert not np.array_equal(
+        bin_occupancy(a[rows & ~at_atom], np.asarray(edges)),
+        bin_occupancy(a[~at_atom], np.asarray(edges)),
+    )
+
+    def fit(mask: np.ndarray | None) -> MixedDensity:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mixed, _ = fit_mixed_density(
+                _AtomOrHazard(edges, "G"),
+                np.column_stack([w1, w2]),
+                dose,
+                np.ones(a.size),
+                Folds.single(a.size),
+                atoms=(0.0,),
+                fit_mask=mask,
+                edge_rows=np.ones(a.size, dtype=bool),
+            )
+        return mixed
+
+    fold, whole = fit(rows).continuous, fit(None).continuous
+    assert fold is not None and whole is not None
+    np.testing.assert_array_equal(fold.edges, whole.edges)
+    np.testing.assert_array_equal(fold.occupied, whole.occupied)
+    held = ~rows
+    far = np.full(a.size, 13.9)
+    np.testing.assert_array_equal(fold.density_at(far)[held], whole.density_at(far)[held])
+    assert np.all(whole.density_at(far)[held] > 0.0)
+
+
+def _vector_mechanism(frame: pd.DataFrame, rows: np.ndarray | None) -> Any:
+    data = LongitudinalData.from_frame(
+        frame.rename(columns={"W2": "F"}),
+        outcome="Y",
+        treatment=[["F", "A"]],
+        baseline=["W1"],
+        time_varying=[[]],
+        continuous_treatment={"A": None},
+    )
+    policy = JointPolicy("up", components={"A": Shift(1.0, cap=None)}, policy_kind="known")
+    spec = {"up": DynamicRegimen("up", (policy,), rule_kind="known")}
+    plans = resolve_plans(resolve_regimens(spec, data.n_times), data)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return fit_mechanism(
+            data,
+            plans,
+            treatment_learner=LogisticRegression(max_iter=1000),
+            censoring_learner=LogisticRegression(),
+            folds=Folds.single(len(frame)),
+            ratio="density",
+            fit_rows=rows,
+        )
+
+
+def test_w10_a_vector_node_fit_on_a_subset_reads_the_occupancy_of_every_row_at_risk() -> None:
+    """The joint density route with ``fit_rows``: the dose's occupancy is every row's."""
+    frame = law.draw("G", 400, 5)
+    frame.loc[0, "A"] = 14.0
+    rows = np.arange(len(frame)) % 4 != 0
+    restricted = _vector_mechanism(frame, rows)
+    everyone = _vector_mechanism(frame, None)
+    ((key, fold),) = restricted.densities.items()
+    whole = everyone.densities[key]
+    np.testing.assert_array_equal(fold.edges, whole.edges)
+    # The premise: the fold's own rows leave the far dose's one-row bin empty.
+    a = frame["A"].to_numpy()
+    assert not np.array_equal(bin_occupancy(a[rows], whole.edges), whole.occupied)
+    np.testing.assert_array_equal(fold.occupied, whole.occupied)
 
 
 # ------------------------------------------------------------------ W12
