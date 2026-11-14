@@ -393,6 +393,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/fluctuation/mechanism.py", "has no mechanism covariate"): _MALFORMED,
     ("src/cleverly/inference/cluster.py", "Only a fit whose status shows an interval"): (_INTERNAL),
     ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
+    (
+        "src/cleverly/inference/influence.py",
+        "the boundary-node supplement adds to the centred",
+    ): "make_estimate invariant: only the boundary-node LTMLE path attaches a node supplement, "
+    "under the centred rule, and contrasts and transforms carry it forward with that rule, so "
+    "only a direct call with a malformed covariance_rule reaches it",
     ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
     ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,
