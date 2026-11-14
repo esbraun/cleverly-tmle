@@ -59,6 +59,7 @@ ep-cate,neutral,2,0,0.0,,,0,
 ep-crr,neutral,0,0,0.0,,,0,
 evalue-limit-coverage,neutral,2,2,0.012,,,0,
 few-cluster-cross-fitted-ltmle,neutral,7,7,0.007,,,0,
+few-cluster-fold-variance,declared,14,14,0.09125,fold_variance_calibration/cluster_covariate__v2_j4__known_propensity;fold_variance_calibration/cluster_covariate__v2_j8__known_propensity;fold_variance_calibration/cluster_covariate__v2_j8__t_reference;fold_variance_calibration/cluster_covariate__v5_j10__known_propensity;fold_variance_calibration/cluster_covariate__v5_j10__t_reference,fold_variance_calibration/cluster_covariate__v2_j4__known_propensity;fold_variance_calibration/cluster_covariate__v2_j4__t_reference;fold_variance_calibration/cluster_covariate__v2_j8__known_propensity;fold_variance_calibration/cluster_covariate__v2_j8__t_reference;fold_variance_calibration/cluster_covariate__v5_j10__known_propensity;fold_variance_calibration/cluster_covariate__v5_j10__t_reference,0,"the flagged rows are the cluster_covariate cells (ey1, a bounded mean): every fit is clustered (id=), and a clustered mean keeps the identity interval on its t reference; the range-logit scale applies to an unclustered mean only (ParameterEstimate.interval_scale)"
 fold-evaluated-cvtmle,neutral,13,13,0.01,,power/alternative,0,
 fold-evaluated-strata,neutral,73,69,0.011591,,,0,
 fold-targeted-cvtmle,neutral,9,9,0.0275,,crossfit_overfitting/fold_targeted_cvtmle;double_robustness/outcome_correct;power/alternative,0,

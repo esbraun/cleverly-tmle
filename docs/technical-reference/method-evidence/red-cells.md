@@ -158,7 +158,8 @@ The test fails on four states.
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
-| total | 211 | 43 studies |
+| [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
+| total | 214 | 44 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -253,6 +254,9 @@ same text as the "measured" column of its study page.
 | [long-horizon sequentially doubly robust estimation](long-horizon-sequentially-doubly-robust-estimation.md) | truth | `cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]` | cleverly-long-horizon-sdr | its truth legs; a reporting row, with n below the tail size | bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) |
 | [the boundary-node supplement of LTMLE](boundary-node-ltmle.md) | truth | `cleverly/interior_n200/ate_regimen[always vs never @ t=4]` | cleverly | its truth gate | bias -0.0037 to 0.0133, coverage 0.9470, SE ratio 1.1713 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) |
 | [the boundary-node supplement of LTMLE](boundary-node-ltmle.md) | truth | `cleverly/interior_n200/risk_regimen[always @ t=4]` | cleverly | its truth gate | bias -0.000905 to 0.0124, coverage 0.9270, SE ratio 1.2605 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) |
+| [the centred fold cluster variance at few clusters per fold](few-cluster-fold-variance.md) | property | `fold_variance_calibration/cluster_covariate__v2_j4__t_reference` | positive | its own rule | shown coverage 0.9184 to 0.9336, all-draw coverage 0.9183 to 0.9335, variance ratio 15.6717, 10.9240 to 21.5934 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) |
+| [the centred fold cluster variance at few clusters per fold](few-cluster-fold-variance.md) | property | `fold_variance_calibration/equal10__v2_j4__known_propensity` | positive | its own rule | shown coverage 0.9405 to 0.9539, all-draw coverage 0.8863 to 0.9040, variance ratio 1.2936, 1.2308 to 1.3596 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) |
+| [the centred fold cluster variance at few clusters per fold](few-cluster-fold-variance.md) | property | `fold_variance_calibration/equal10__v2_j4__t_reference` | positive | its own rule | shown coverage 0.9437 to 0.9567, all-draw coverage 0.8892 to 0.9068, variance ratio 10.7635, 8.9540 to 12.9456 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) |
 | [point-treatment survival](point-treatment-survival.md) | property | `interval_calibration/weighted_t5__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to 1.0015 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted point-treatment survival](cross-fitted-point-treatment-survival.md) | property | `interval_calibration/three_arm_t3__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to 1.0764 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ate__flexible` | positive | its own rule | bias 0.0204 to 0.0254, margin 0.0048 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |

@@ -11287,3 +11287,58 @@ STUDY_ARM_CELLS.update(
         },
     }
 )
+
+
+#: ``few-cluster-fold-variance`` (X54 part (e)): the centred fold cluster variance of a
+#: fold-evaluated ``TMLE`` with ``id=``, on t with J - V degrees of freedom, at 2 to 24 training
+#: clusters. The cells and arms are those of ``tests/studies/few_cluster_fold_variance.py``.
+_FCFV_SLUG = "few-cluster-fold-variance"
+STUDY_SCENARIOS[(_FCFV_SLUG, "equal10__v5_j20")] = (
+    "20 clusters of 10 rows with a cluster latent in the outcome and an informative "
+    "propensity, a fold-evaluated TMLE with five grouped folds and unpenalized logistic "
+    "learners, the shipped report"
+)
+PROPERTIES["fold_variance_calibration"] = (
+    "the fold-evaluated cluster variance covers at its nominal rate, keeps the mean squared SE "
+    "near the spread of the estimates, and its controls see a variance that is too small and "
+    "a cluster effect"
+)
+_FCFV_LAWS = {
+    "equal10": "equal clusters of 10 rows, cluster latent in the outcome, the ATE",
+    "cluster_covariate": "a cluster-level covariate in the outcome, the arm-1 mean",
+}
+_FCFV_ARMS = {
+    "t_reference": "the shipped interval, propensity estimated",
+    "known_propensity": "the shipped interval, propensity declared known",
+    "deflated_control": "the estimated-propensity variance times 0.64",
+    "known_deflated_control": "the known-propensity variance times 0.64",
+    "iid_t_control": "the paired variance with no clustering, against the cluster SE",
+    "pooled_centered": "the fold curves re-centred at the pooled point",
+    "t_j_minus_2_reference": "the shipped variance on t with J - 2 degrees of freedom",
+    "normal_reference": "the shipped variance on the normal reference",
+}
+_FCFV_POSITIVE = (
+    "the exact 99% interval of shown coverage inside [0.92, 0.98], the exact 99% lower end of "
+    "all-draw coverage at least 0.90, and the 99% bootstrap lower end of the variance ratio at "
+    "least 0.8649"
+)
+_FCFV_REQUIRED = {
+    "t_reference": _FCFV_POSITIVE,
+    "known_propensity": _FCFV_POSITIVE,
+    "deflated_control": "the positive rule must fail",
+    "known_deflated_control": "the positive rule must fail",
+    "iid_t_control": (
+        "the exact 99% upper end of the median paired IID/cluster SE ratio below 0.95"
+    ),
+}
+for _fcfv_law, _fcfv_law_words in _FCFV_LAWS.items():
+    for _fcfv_v, _fcfv_j in ((2, 4), (2, 8), (2, 12), (5, 10), (5, 20), (5, 30)):
+        _fcfv_training = _fcfv_j - _fcfv_j // _fcfv_v
+        for _fcfv_arm, _fcfv_arm_words in _FCFV_ARMS.items():
+            CELLS[
+                ("fold_variance_calibration", f"{_fcfv_law}__v{_fcfv_v}_j{_fcfv_j}__{_fcfv_arm}")
+            ] = (
+                f"{_fcfv_law_words}, V = {_fcfv_v} and J = {_fcfv_j} ({_fcfv_training} training "
+                f"clusters): {_fcfv_arm_words}",
+                _FCFV_REQUIRED.get(_fcfv_arm, _DIAGNOSTIC_REQUIRED),
+            )

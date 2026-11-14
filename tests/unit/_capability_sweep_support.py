@@ -1633,6 +1633,35 @@ def fit_per_arm_constant_fold() -> Any:
     return result
 
 
+def _pooled_constant_fold(**options: Any) -> Any:
+    """A cross-fitted pooled fit whose events all sit in fold 1, so fold 1's complement has none.
+
+    The plain TMLE's pooled outcome regression predicts 0 in that fold (the constant-target
+    rule, X54 part (e)) where the preflight used to refuse the draw.
+    """
+    frame, folds = _constant_outcome_frame(400, 17)
+    frame.loc[folds != 0, "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(
+            outcome_learner=LogisticRegression(max_iter=1000), cross_fit=True, n_folds=3, **options
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result.nuisance.outcome_constant_folds == (1,)
+    assert np.all(result.nuisance.outcome.observed[folds == 0] == 0.0)
+    return result
+
+
+def fit_pooled_constant_fold() -> Any:
+    """The stacked form of :func:`_pooled_constant_fold`."""
+    return _pooled_constant_fold()
+
+
+def fit_cv_evaluation_constant_fold() -> Any:
+    """The fold-evaluated form of :func:`_pooled_constant_fold` (``rr`` and ``or`` refuse there)."""
+    return _pooled_constant_fold(cv_evaluation=True, estimands=("ate", "ey1", "ey0"))
+
+
 def fit_per_arm_constant_arm() -> Any:
     """An in-sample per-arm fit whose arm 1 holds ``Y = 0`` only: its estimates withhold."""
     frame, _ = make_binary_outcome(n=400, seed=17)
@@ -2116,6 +2145,10 @@ KINDS: dict[str, Kind] = {
     "drtmle_companion": _kind(fit_drtmle_companion, "marginal_bounds", *_LIVE, "corrections"),
     # The constant-target rule (X54): a per-arm training fold of one outcome value predicts it.
     "per_arm+constant_fold": _kind(fit_per_arm_constant_fold, *_ARM, "marginal_bounds"),
+    # The same rule on a plain TMLE's pooled outcome regression, stacked and fold-evaluated,
+    # where the training-support preflight refused the draw before X54 part (e).
+    "constant_fold": _kind(fit_pooled_constant_fold, *_ARM, "marginal_bounds"),
+    "cv_evaluation+constant_fold": _kind(fit_cv_evaluation_constant_fold, *_ARM, "marginal_bounds"),
     # An in-sample per-arm fit of a constant arm: the estimates that read it withhold their
     # interval, so the E-value and the marginal bounds of the default ATE refuse with the
     # constant-cell reason and the plug-in bound rows answer.

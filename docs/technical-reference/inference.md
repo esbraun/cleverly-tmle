@@ -470,6 +470,25 @@ $V=5$, with 2 clusters per fold: over 1,500 draws, $t_{J-2}$ covered 0.935 and $
 0.955. The registered few-cluster study and the covariate pair of the unequal-size study, at 40
 clusters in 10 folds on $t_{30}$, measure the rule at equal cluster sizes.
 
+The training complement of a validation fold is every cluster outside it, the clusters that fit
+that fold's outcome and treatment models. The registered
+[few-cluster fold variance study](method-evidence/few-cluster-fold-variance.md) measures the
+centred fold variance on $t_{J-V}$ at 2, 4, 6, 8, 16 and 24 training clusters. A cell passes when
+the exact 99% interval of shown coverage lies inside [0.92, 0.98], the exact 99% lower end of
+all-draw coverage is at least 0.90, and the 99% lower end of the variance ratio is at least
+0.8649. With the propensity estimated or declared known, every cell passes from 4 training
+clusters. The conditions are equal cluster sizes, equal folds of 2 to 6 clusters at $V = 2$ and 5,
+unpenalized logistic learners and two binary-outcome laws. At 2 training clusters, the all-draw
+coverage falls below 0.90 or the shown coverage leaves the band.
+
+A validation fold of 2 clusters passes when its complement is large, so the limit is the training
+complement and not the validation fold. `MINIMUM_FOLD_TRAINING_CLUSTERS` holds the floor per
+treatment mechanism (4 estimated, 4 known), and a fold-evaluated `TMLE` whose smallest training
+complement holds fewer positive-mass clusters takes `"few_cluster_plugin"`. With the whole-fit
+floor of 10, that happens only when weights leave almost every positive-mass cluster in one
+validation fold. The whole-fit floor still labels a fit below 10 positive-mass clusters, so the
+passing cells below 10 clusters keep `"few_cluster_plugin"`.
+
 `cv_evaluation=True` refuses a clustered fit, before any learner, when the clusters differ in the
 denominator mass of a requested estimand: the total weight (the row count when unweighted) for
 the means and the ATE, the treated mass for `att` and the control mass for `atc`. Each fold point
@@ -493,8 +512,8 @@ $t$ reference has no degree of freedom left. The fit takes `"no_cluster_variance
 withholds its interval, and
 [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) holds those counts.
 
-The status is determined from prepared cluster labels, strata, and weights, without reading a fitted
-quantity. A fit has one status, so the stratum with the fewest clusters sets it for every
+The status is determined from prepared cluster labels, strata, and weights, and on a
+fold-evaluated fit from its folds, without reading a fitted quantity. A fit has one status, so the stratum with the fewest clusters sets it for every
 estimate. Each estimate keeps the degrees of freedom of the rows it reads. The rule applies to
 the in-sample and the cross-fitted `LTMLE` fit too, whose data hold no baseline strata.
 
@@ -512,6 +531,7 @@ interval.
 | `fewest_clusters` | the distinct cluster count with positive weight mass. On a fit with baseline strata, it also counts those clusters within each stratum and returns the smallest count |
 | `cluster_reference_df` | the positive-mass cluster count of the rows one estimate reads, as $J-2$, or `None` at 40 or more |
 | `fold_evaluated_reference_df` | the same count for a fold-evaluated estimate, as $J-V$ at every count |
+| `smallest_training_clusters` | the fewest positive-mass clusters in one training complement of a fold-evaluated fit, which the training floor reads |
 | `unequal_positive_cluster_mass` | the range of one estimand's denominator mass over the clusters with positive total mass, which the `cv_evaluation=True` refusal reads |
 | `cluster_sizes`, `cluster_weight_mass`, `unequal_cluster_sizes` | the row count and the weight mass of each cluster, for the summary facts only |
 
