@@ -1079,9 +1079,19 @@ What it claims: at a law whose node hazards lie in $(0, 1)$ and whose node risk 
 $n$, a flagged node has probability at most $(1 - h_{min})^{cn}$, and the supplemented interval
 differs from the ordinary one only on that event. At a true hazard of exactly 0 the node term is
 zero and the supplement only widens a correct interval. In finite samples at a law where the
-event is common, nothing here guarantees coverage. The study `boundary-node-ltmle` is declared to
-measure it and has not run, so a supplemented estimate carries the support label its fit already
-has.
+event is common, nothing here guarantees coverage.
+
+The study `boundary-node-ltmle` is declared to measure it and has not run, so a supplemented
+estimate carries the support label its fit already has. Its gates read only what the supplement
+changes: coverage on the draws where node 4 is flagged, bias, and a zero-hazard cell. On the
+iterated-mean path a paired control also requires that the interval without the supplement
+loses coverage on those draws. On the hazard path, which targets a held baseline treatment
+only, a node flagged often carries a small share of the variance, so no such control has power,
+and its cells can show that the bounded coefficient does not lose coverage but not that the
+supplement is needed. A draw with no flagged node keeps the ordinary interval at a node with one
+or two events, and the study publishes that coverage and declares a shortfall there as F31's
+rare-event limit, not as a failure of the supplement
+(`tests/canonical/boundary_node_ltmle/regenerate.py`).
 
 The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
 one fold draw, the default variance, and no isotonic projection, fold average, learned rule or

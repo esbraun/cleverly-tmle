@@ -68,6 +68,16 @@ ALPHA_GRID: Final[tuple[tuple[float, float, float, float], ...]] = tuple(
     for early, last in itertools.product(EARLY_HAZARDS, LAST_HAZARDS)
 )
 
+#: Law B: the follow probability of its one held decision, and its declared hazard grid at
+#: :math:`W = 0, A = 0`: nodes 1 to 3 share ``e``, node 4 takes ``l`` (plan rev 3.1).
+HELD_FOLLOW: Final[float] = 0.5
+HELD_EARLY_HAZARDS: Final[tuple[float, ...]] = (0.2, 0.3, 0.4, 0.5, 0.6)
+HELD_LAST_HAZARDS: Final[tuple[float, ...]] = (0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08)
+HELD_ALPHA_GRID: Final[tuple[tuple[float, float, float, float], ...]] = tuple(
+    (float(logit(early)),) * 3 + (float(logit(last)),)
+    for early, last in itertools.product(HELD_EARLY_HAZARDS, HELD_LAST_HAZARDS)
+)
+
 #: The three design constraints, at :data:`DESIGN_N`.
 DESIGN_N: Final[int] = 200
 MINIMUM_LAST_SHARE: Final[float] = 0.4
@@ -90,6 +100,7 @@ def _gamma(follow: float) -> float:
 
 
 GAMMA: Final[tuple[float, float, float]] = tuple(_gamma(p) for p in FOLLOW)  # type: ignore[assignment]
+GAMMA_HELD: Final[float] = _gamma(HELD_FOLLOW)
 
 
 @dataclass(frozen=True)
@@ -105,15 +116,26 @@ class Law:
         ``zero`` variant): ``always`` then has a true hazard of 0 at node 4.
     cluster_sd : float
         :math:`\\sigma_b`, 0 off the clustered cell.
+    held : bool
+        Law B: one decision before node 1, held over every node, with follow probability
+        :data:`HELD_FOLLOW`. Its cells fit the hazard path, which targets a held baseline
+        treatment only.
     """
 
     alpha: tuple[float, float, float, float]
     zero: bool = False
     cluster_sd: float = 0.0
+    held: bool = False
+
+    @property
+    def decisions(self) -> tuple[int, int, int, int]:
+        """The decision each node reads, one-based."""
+        return (1, 1, 1, 1) if self.held else DECISION_OF_NODE
 
     def mechanism(self, decision: int, w: np.ndarray) -> np.ndarray:
         """:math:`g_k(W) = P(A = 1 \\mid W)` at decision ``k`` (one-based)."""
-        return np.asarray(expit(GAMMA[decision - 1] + MECHANISM_SLOPE * w), dtype=float)
+        gamma = GAMMA_HELD if self.held else GAMMA[decision - 1]
+        return np.asarray(expit(gamma + MECHANISM_SLOPE * w), dtype=float)
 
     def hazard(
         self, node: int, w: np.ndarray, a: np.ndarray, b: np.ndarray | float = 0.0
@@ -134,6 +156,8 @@ class Law:
         Columns: ``W``, ``A1`` to ``A4``, ``Y1`` to ``Y4`` (missing after the event), and
         ``p1`` to ``p4``, the known :math:`P(A_t = 1 \\mid \\text{past})` (``p2`` is ``A1``).
         """
+        if self.held:
+            return self._draw_held(n, rng)
         w = rng.normal(size=n)
         if cluster_size is None:
             b = np.zeros(n)
@@ -155,6 +179,26 @@ class Law:
             frame["cluster"] = np.arange(n) // cluster_size
         return frame
 
+    def _draw_held(self, n: int, rng: np.random.Generator) -> pd.DataFrame:
+        """Law B: one row per unit, ``W``, ``A``, ``time`` (1 to 4), ``event`` and ``p0``, ``p1``.
+
+        No censoring: a unit with no event at node 4 is censored at time 4 by the end of follow-up.
+        """
+        w = rng.normal(size=n)
+        p1 = self.mechanism(1, w)
+        a = rng.binomial(1, p1)
+        time = np.full(n, float(NODES))
+        event = np.zeros(n, dtype=int)
+        at_risk = np.ones(n, dtype=bool)
+        for node in range(1, NODES + 1):
+            hit = at_risk & (rng.binomial(1, self.hazard(node, w, a)) == 1)
+            time[hit] = float(node)
+            event[hit] = 1
+            at_risk &= ~hit
+        return pd.DataFrame(
+            {"W": w, "A": a, "time": time, "event": event, "p0": 1.0 - p1, "p1": p1}
+        )
+
     # ---------------------------------------------------------------------- exact moments
 
     def _grid(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -173,10 +217,12 @@ class Law:
         follow = [
             self.mechanism(k, w) if regimen == 1 else 1.0 - self.mechanism(k, w) for k in (1, 2, 3)
         ]
+        if self.held:
+            follow = follow[:1]
         cumulative, survival, hazards = [], [], []
         before = np.ones_like(w)
         for node in range(1, NODES + 1):
-            k = DECISION_OF_NODE[node - 1]
+            k = self.decisions[node - 1]
             pi = np.prod([follow[j] for j in range(k)], axis=0)
             h = self.hazard(node, w, a, b)
             cumulative.append(pi)
@@ -214,14 +260,35 @@ class Law:
         p = paths["cumulative"][i] * paths["survival"][i]
         return float(paths["weight"] @ p), float(paths["weight"] @ (p * paths["hazard"][i]))
 
-    def flag_probability(self, node: int, regimen: int, n: int) -> float:
+    def flag_probability(
+        self, node: int, regimen: int, n: int, cluster_size: int | None = None
+    ) -> float:
         """The probability that node ``t``'s risk set is not empty and holds one value.
 
-        :math:`(1-q_1)^n + (1-q_0)^n - 2(1-p)^n`, for ``n`` independent rows.
+        :math:`(1-q_1)^n + (1-q_0)^n - 2(1-p)^n`, for ``n`` independent rows. With
+        ``cluster_size`` :math:`m`, the rows of a cluster are independent given its effect
+        :math:`b`, so each power becomes :math:`(E_b[(1-x(b))^m])^{n/m}`, with :math:`x(b)` the
+        per-row probability given :math:`b`.
         """
-        p, q1 = self.membership(node, regimen)
-        q0 = p - q1
-        return float((1.0 - q1) ** n + (1.0 - q0) ** n - 2.0 * (1.0 - p) ** n)
+        if cluster_size is None or self.cluster_sd == 0.0:
+            p, q1 = self.membership(node, regimen)
+            q0 = p - q1
+            return float((1.0 - q1) ** n + (1.0 - q0) ** n - 2.0 * (1.0 - p) ** n)
+        if n % cluster_size:
+            raise ValueError("n must be a whole number of clusters")
+        paths = self._paths(regimen)
+        i = node - 1
+        shape = (QUADRATURE, QUADRATURE // 2)
+        w_weight = _gauss_hermite(QUADRATURE)[1][:, None]
+        b_weight = _gauss_hermite(QUADRATURE // 2)[1]
+        member = (paths["cumulative"][i] * paths["survival"][i]).reshape(shape)
+        event = member * paths["hazard"][i].reshape(shape)
+
+        def none_of(x: np.ndarray) -> float:
+            per_b = np.sum(w_weight * x, axis=0)
+            return float(b_weight @ (1.0 - per_b) ** cluster_size) ** (n // cluster_size)
+
+        return none_of(event) + none_of(member - event) - 2.0 * none_of(member)
 
     def node_variances(self, regimen: int) -> tuple[np.ndarray, float]:
         """The variance of each node's term of the risk's efficient curve, and the baseline's.
@@ -250,14 +317,21 @@ class Law:
 
 
 def meets_constraints(law: Law, n: int = DESIGN_N) -> dict[str, bool]:
-    """The three design constraints of the interior law at ``n``."""
+    """The design constraints at ``n``: three for law A, (2) and (3) for law B.
+
+    Constraint (1), node 4's variance share, is infeasible under a held treatment, where a
+    node flagged with probability :math:`f` holds about :math:`-\\ln f` expected events and every
+    unflagged node more than two, so law B is chosen on (2) and (3) alone (plan rev 3.1).
+    """
     flag = law.flag_probability(NODES, 1, n)
     early = max(law.flag_probability(t, r, n) for t in (1, 2, 3) for r in (0, 1))
-    return {
-        "last_share": law.last_share() >= MINIMUM_LAST_SHARE,
+    out = {
         "last_flag": LAST_FLAG_RANGE[0] <= flag <= LAST_FLAG_RANGE[1],
         "early_flag": early <= MAXIMUM_EARLY_FLAG,
     }
+    if not law.held:
+        out = {"last_share": law.last_share() >= MINIMUM_LAST_SHARE, **out}
+    return out
 
 
 @cache
@@ -271,8 +345,26 @@ def chosen_alpha() -> tuple[float, float, float, float]:
     )
 
 
+@cache
+def chosen_held_alpha() -> tuple[float, float, float, float]:
+    """Law B's declared grid point, by the same rule on constraints (2) and (3)."""
+    feasible = [
+        alpha for alpha in HELD_ALPHA_GRID if all(meets_constraints(Law(alpha, held=True)).values())
+    ]
+    if not feasible:  # pragma: no cover - the design test pins a feasible grid
+        raise ValueError("no point of law B's declared grid meets the design constraints")
+    return min(
+        feasible,
+        key=lambda alpha: abs(Law(alpha, held=True).flag_probability(NODES, 1, DESIGN_N) - 0.5),
+    )
+
+
 def law_of(variant: str) -> Law:
-    """``interior``, ``clustered`` or ``zero``, at the chosen :math:`\\alpha`."""
+    """Law A's ``interior``, ``clustered`` or ``zero``; law B's ``held`` or ``held_zero``."""
+    if variant == "held":
+        return Law(chosen_held_alpha(), held=True)
+    if variant == "held_zero":
+        return Law(chosen_held_alpha(), held=True, zero=True)
     base = Law(chosen_alpha())
     if variant == "interior":
         return base

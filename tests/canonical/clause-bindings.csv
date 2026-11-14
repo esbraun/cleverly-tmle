@@ -1617,6 +1617,11 @@ targeting-curves,simultaneous_coverage,joint coverage below nominal,se_low
 targeting-curves,simultaneous_coverage,joint coverage in calibration band,se_low
 targeting-curves,type_i_error,coverage floor,coverage/0.5
 targeting-curves,type_i_error,rejection ceiling,rejection/0.1
+tests.studies.boundary_node_properties,boundary_node,bias,bias
+tests.studies.boundary_node_properties,boundary_node,firing floor,se_low
+tests.studies.boundary_node_properties,boundary_node,paired gain,coverage/0.99
+tests.studies.boundary_node_properties,boundary_node,plug-in loses coverage,shift/3
+tests.studies.boundary_node_properties,boundary_node,zero-cell coverage,coverage/0.925
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05

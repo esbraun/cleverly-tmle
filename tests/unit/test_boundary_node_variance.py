@@ -559,3 +559,101 @@ def test_the_survival_functionals_carry_the_supplement() -> None:
     assert ratio.psi < 1.0 < 1.0 / ratio.ci[1]
     rr = 1.0 / ratio.ci[1]
     assert evalue.limit == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)), rel=1e-9)
+
+
+def _without_supplement(result: Any, scale: float = 0.0) -> Any:
+    """``result`` with each supplemented variance replaced by curve + ``scale`` x node term."""
+    import dataclasses
+
+    estimates = {
+        key: value
+        if value.node is None
+        else dataclasses.replace(
+            value,
+            node=None,
+            variance=value.node.influence_variance + scale * value.node.node_variance,
+        )
+        for key, value in result.estimates.items()
+    }
+    return dataclasses.replace(result, estimates=estimates)
+
+
+def _score_table(result: Any) -> pd.DataFrame:
+    report = result.diagnostics.score_equations()
+    frame = report.to_frame() if hasattr(report, "to_frame") else pd.DataFrame(report.rows)
+    return frame.reset_index(drop=True)
+
+
+def test_the_score_audit_keeps_the_curve_scale() -> None:
+    """A supplemented fit's score audit equals the audit of the same fit without it.
+
+    The longitudinal audit bounds each node's relative score, which the supplement does not
+    enter. Mutation control: a copy whose variance carries 100 times the node term reads the
+    same table, so no standard error, supplemented or not, scales the audit.
+    """
+    data = _frame(quiet={1: (2,)})
+    result = _fit(data)
+    assert result["risk_regimen[treated @ t=2]"].node is not None
+    reported = _score_table(result)
+    assert len(reported) > 0
+    pd.testing.assert_frame_equal(reported, _score_table(_without_supplement(result)))
+    pd.testing.assert_frame_equal(reported, _score_table(_without_supplement(result, 100.0)))
+
+
+def _hazard_witness(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, np.ndarray, np.ndarray]:
+    """A hazard fit with node 2 of ``treated`` flagged, its loading, and the exact coefficient.
+
+    The exact coefficient of a residual of the cell is the clever weight times the derivative
+    of the risk from node 2 to horizon 3, given at risk at node 2, in the node's hazard. The
+    derivative is a central finite difference at the reported hazards, which a wrapper of
+    :func:`cleverly.longitudinal.hazard.influence` captures from the fit.
+    """
+    from cleverly.longitudinal import hazard as hazard_module
+
+    captured: list[Any] = []
+    shipped = hazard_module.influence
+
+    def capture(state: Any, inputs: Any, horizons: Any) -> Any:
+        levels, curves = shipped(state, inputs, horizons)
+        captured.append((state, inputs, levels))
+        return levels, curves
+
+    monkeypatch.setattr(hazard_module, "influence", capture)
+    data = _frame(quiet={1: (2,)})
+    result = _fit(data, hazard=True)
+    fit = result.fits["treated @ t=3"]
+    (cell,) = [cell for cell in fit.hazard_boundary if cell.time == 2]
+    rows = cell.rows
+    loading = np.abs(sequential_module.boundary_coefficient(fit, 2)) * rows
+    # The state of the report that horizon 3 reads: the one whose level is this fit's.
+    (state, inputs) = next(
+        (state, inputs)
+        for state, inputs, levels in captured
+        if np.any(np.isclose(levels, fit.psi_scaled, rtol=0.0, atol=1e-12))
+    )
+    level = int(np.unique(inputs.observed[rows])[0])
+    hazards = state.hazards[:, :, level, 0]  # (n, T): one cause
+
+    def risk(h2: np.ndarray) -> np.ndarray:
+        return 1.0 - (1.0 - h2) * (1.0 - hazards[:, 2])
+
+    step = 1e-6
+    derivative = (risk(hazards[:, 1] + step) - risk(hazards[:, 1] - step)) / (2.0 * step)
+    exact = np.abs(np.asarray(fit.obs_weights) * fit.hazard_clever[:, 1] * derivative) * rows
+    return result, loading, exact
+
+
+def test_the_hazard_loading_bounds_each_exact_coefficient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """|C_exact| <= the clever-weight loading on every row of the cell, strictly on some."""
+    _, loading, exact = _hazard_witness(monkeypatch)
+    assert loading.max() > 0.0
+    assert np.all(exact <= loading + 1e-9)
+    assert np.any(exact < loading - 1e-6)
+
+
+def test_half_the_clever_weight_violates_the_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation: a loading of half the clever weight falls below an exact coefficient."""
+    _, loading, exact = _hazard_witness(monkeypatch)
+    assert np.any(exact > 0.5 * loading + 1e-9)
