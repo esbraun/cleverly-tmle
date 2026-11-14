@@ -162,7 +162,6 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X92](#x92-plots-and-visualizations) Plots of a longitudinal fit, and targeting-curve options | 6 | no new theory | the shipped `cleverly.plotting` and targeting curves |
-| [X100](#x100-plots-for-survival-adaptive-and-longitudinal-fits) Plots for survival, adaptive and longitudinal fits | 3 | no new theory | the shipped `cleverly.plotting`; the continuous-time curve on X6 |
 | [X103](#x103-covariate-balance-over-time) Covariate balance over time | 3 | source read pending (Jackson 2016) | the shipped `covariate_balance` and longitudinal weights |
 
 ## Future investigations
@@ -1937,20 +1936,6 @@ that proof.
 
 Acceptance: structural tests that read the plot's artists, one honesty test with a mutation
 control per applicable rule, a docstring example and a render check.
-
-### X100. Plots for survival, adaptive and longitudinal fits
-
-The plots draw a longitudinal, time-to-event, structural nested mean and adaptive TMLE fit:
-`overlap` per arm or per time point, `learners` and `calibration` per time point and role, and
-the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit draws
-`overlap`, `weights` and `learners` from its record. It still refuses `curve`, and the refusal
-names this item: each arm's risk, or cumulative incidence by cause, with its interval and band at
-the target times only, since a risk between target times is not targeted; the restricted mean
-survival and time lost at the restricted horizons.
-
-Acceptance: the plot result matrix (`tests/unit/test_plotting_result_matrix.py`) draws each cell
-this item names, structural tests read each figure's artists against the fit's stored numbers, and
-each honesty rule has a mutation control.
 
 ### X103. Covariate balance over time
 
