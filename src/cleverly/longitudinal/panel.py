@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..data.known_mechanism import MechanismLaw
 from ..exceptions import DataError
 from ..utils.frames import as_frame, backend_of, column_array, frame_from_dict, is_dataframe
 
@@ -461,6 +462,7 @@ def from_long_panel(
     continuous_treatment: bool = False,
     treatment_probabilities: Mapping[Any, str] | None = None,
     censoring_probabilities: str | None = None,
+    mechanism_law: MechanismLaw | None = None,
 ) -> LongitudinalData:
     """The body of :meth:`LongitudinalData.from_long_panel`, which documents it."""
     if not is_dataframe(data):
@@ -738,6 +740,7 @@ def from_long_panel(
                 for t in nodes
             }
         ),
+        mechanism_law=mechanism_law,
     )
     layout = PanelLayout(
         unit=unit,

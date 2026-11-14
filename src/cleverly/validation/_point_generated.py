@@ -977,7 +977,13 @@ class PlasmodeLaw:
         if self.known is not None:
             from ..data.known_mechanism import KnownMechanism
 
-            sample = replace(sample, known_treatment=KnownMechanism(self.known[rows], "array"))
+            # The drawn treatment is independent of the resampled weights given W, so both
+            # readings hold on the plasmode law; the reading is carried so that each refit
+            # runs the configuration of the fit it validates.
+            law = None if data.known_treatment is None else data.known_treatment.law
+            sample = replace(
+                sample, known_treatment=KnownMechanism(self.known[rows], "array", law=law)
+            )
         if self.response is not None:
             observed = rng.random(rows.size) < self.response[rows, index]
             outcome = np.where(observed, outcome, np.nan)

@@ -24,6 +24,7 @@ from .._continuous_survival_family import refuse_continuous_survival
 from .._summary import short_repr
 from .._trial_family import refuse_augmented_trial
 from ..data.causal_data import arm_share
+from ..data.known_mechanism import divides_by_declaration
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..validation.simulation import ReplicationFailure
@@ -363,6 +364,10 @@ class SimulatedConfoundingResult:
         :math:`g_s(a \mid W) = (1 - s)\, g_0(a \mid W) + s\, g_0(1 - a \mid W)`.  Every
         cell that moves the treatment declares :math:`g_s`, and its refit divides by it.
         On a longitudinal fit the declaration covers the first node only.
+    tilt_estimated : bool
+        Whether the carried declaration is read in the sample beside weights
+        (``mechanism_law="sample"``), so each refit re-estimates the weight tilt of the
+        flipped declaration with the treatment learner instead of dividing by it.
     held_decision : bool
         Whether a longitudinal fit holds its baseline decision at every node.  Each cell
         then moves the first node, and the identity nodes repeat it.
@@ -416,6 +421,7 @@ class SimulatedConfoundingResult:
     population: Literal["baseline", "perturbed_treatment_group"] = "baseline"
     conditioning_arm: Any = None
     known_mechanism_carried: bool = False
+    tilt_estimated: bool = False
     treatment_components: tuple[str, ...] = ()
     component_kinds: tuple[str, ...] = ()
     arm_pair: tuple[Any, Any] | None = None
@@ -519,6 +525,14 @@ class SimulatedConfoundingResult:
                     "and the other arms unchanged",
                 )
                 if self.known_mechanism_carried
+                else ()
+            )
+            + (
+                (
+                    'treatment mechanism: declared in the sample (mechanism_law="sample"); '
+                    "each refit re-estimates the weight tilt of the declared mechanism",
+                )
+                if self.tilt_estimated
                 else ()
             )
             + (
@@ -1993,6 +2007,9 @@ def simulated_confounding(
                 and not isinstance(treatment_strength, tuple)
             ):
                 # A zero-strength axis keeps the treatment, and with it the declaration.
+                # The latent value is independent of the weights given (A, W), so the
+                # flip of the tilted mechanism is the tilt of the flipped one, and the
+                # declaration keeps its reading.
                 declared = result.data.known_treatment.values
                 replacement = replacement.with_known_mechanism(
                     flipped_mechanism(declared, treatment_strength)
@@ -2001,7 +2018,8 @@ def simulated_confounding(
                         declared,
                         treatment_strength,
                         (int(request.arm_codes[0]), int(request.arm_codes[1])),
-                    )
+                    ),
+                    mechanism_law=result.data.known_treatment.law,
                 )
             if request.bounded_outcome_law == "logit":
                 assert request.outcome_bounds is not None
@@ -2112,6 +2130,9 @@ def simulated_confounding(
         outcome_law=_outcome_law_text(request.bounded_outcome_law, result.data.family),
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
+        tilt_estimated=(
+            result.data.known_treatment is not None and not divides_by_declaration(result.data)
+        ),
         treatment_components=columns,
         component_kinds=tuple(
             "binary" if data.component_levels[data.component_names.index(name)] else "dose"

@@ -31,6 +31,7 @@ from ._pooled_targeting import PooledFit, arm_span_basis, solve_pooled, span_bas
 from ._support import Support
 from ._typing import FloatArray, IntArray
 from .bases import Modifiers
+from .data.known_mechanism import divides_by_declaration
 from .estimators.targeting import _STALL_FACTOR, _UNSOLVED, DEFAULT_MAX_OUTER
 from .exceptions import CapabilityError, DataError, RefusalReason
 from .fluctuation._score import StopContext, rule_ratio_at
@@ -1616,7 +1617,7 @@ def score_assessment(
     configuration: dict[str, Any] = {
         "scale": scale,
         "outcome": "binary" if getattr(data, "family", "") == "binomial" else "continuous",
-        "known_mechanism": getattr(data, "known_treatment", None) is not None,
+        "known_mechanism": divides_by_declaration(data),
         "weighted": bool(np.any(np.abs(raw - 1.0) > 1e-12)),
         "clustered": data.cluster is not None,
         "missing": bool(not np.all(np.asarray(data.observed, dtype=bool))),

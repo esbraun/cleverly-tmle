@@ -67,6 +67,7 @@ from .._support import Classification, Preflight
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
+from ..data.known_mechanism import KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL, divides_by_declaration
 from ..exceptions import (
     CapabilityError,
     ConvergenceWarning,
@@ -910,7 +911,7 @@ def refuse_untrainable_mechanism_pairs(
     treated = np.asarray(data.treatment)
     # (factor, class label, rows the class is counted over, per-row class value)
     needs: list[tuple[str, str, BoolArray, np.ndarray]] = []
-    if treatment and data.known_treatment is None:
+    if treatment and not divides_by_declaration(data):
         for arm in np.unique(treated[recorded]):
             needs.append(("treatment", f"arm {arm:g}", recorded, treated == arm))
     if data.has_missing_outcome:
@@ -1059,7 +1060,7 @@ class AdaptiveIPTW(TMLE):
     def _has_known_keys(self, data: CausalData) -> bool:
         """Whether every key's whole mechanism is known (H2)."""
         return (
-            data.known_treatment is not None
+            divides_by_declaration(data)
             and not data.has_missing_outcome
             and not data.has_missing_treatment
         )
@@ -1112,6 +1113,8 @@ class AdaptiveIPTW(TMLE):
             raise CapabilityError.from_refusal(R1)
         if data.has_intermediate:
             raise CapabilityError.from_refusal(R4)
+        if data.known_treatment is not None and not divides_by_declaration(data):
+            raise CapabilityError.from_refusal(KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL)
         if (
             self.interventions
             and self.cross_fit

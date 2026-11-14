@@ -16,6 +16,28 @@ mechanism by construction.  Every reader that rewrites the treatment (the placeb
 simulated confounding) drops the declaration, because a permuted or simulated treatment has a
 different mechanism.
 
+**Weights.**  A weighted fit estimates the effect in the weight-tilted law
+:math:`dP_w = w\,dP / E w` and divides by that law's treatment mechanism.  By Bayes' rule
+:math:`P_w(A = a \mid W) = g_0(a \mid W)\, m(a, W) / \sum_{a'} g_0(a' \mid W)\, m(a', W)`
+with :math:`m(a, W) = E[w \mid A = a, W]`, which equals :math:`g_0` when the weights read
+:math:`W` only.  So a declaration beside non-constant weights has two readings, which the data
+cannot tell apart, and the caller names one with ``mechanism_law=``:
+
+``"target"``
+    The declared probabilities are the mechanism of the tilted law: randomization before
+    sampling, as in a case-cohort subsample of a trial, or weights that read the covariates
+    only.  The fit divides by them, and the remainder is zero as above.
+``"sample"``
+    The declared probabilities hold in the rows as drawn, and the weights may read the
+    treatment.  The fit estimates the tilted mechanism as
+    :math:`\hat g_w \propto g_0\, \hat r` with :math:`\hat r(a \mid W) = P_v(A = a \mid W)`,
+    a classification of the treatment with weights :math:`v = w / g_0(A \mid W)`, since
+    :math:`P_v(A = a \mid W) = m(a, W) / \sum_{a'} m(a', W)`.  The fit is then an
+    estimated-mechanism fit, and its interval needs the outcome regression and that
+    classifier consistent at a product rate faster than :math:`n^{-1/2}`.
+
+Without weights, or with constant ones, the two readings coincide and the keyword is optional.
+
 :class:`KnownMechanism` is the point-treatment carrier.  :func:`known_mechanism` is its one
 parser, which reads four forms:
 
@@ -29,7 +51,14 @@ mapping level -> array      one ``(n,)`` column per arm, every arm named
 ==========================  ===============================================================
 
 The longitudinal carrier, :class:`KnownNodeMechanisms`, holds one matrix per treatment node
-and one retention vector per censoring node.  :func:`known_node_mechanisms` parses it.
+and one retention vector per censoring node.  :func:`known_node_mechanisms` parses it.  The two
+readings apply node by node: under ``"sample"`` a declared treatment node's factor is
+:math:`g_{0,t}\,\hat r_t / \sum_a g_{0,t}\,\hat r_t`, with :math:`\hat r_t` the treatment
+learner's classification of :math:`A_t` on the history, fitted on the rows at risk with weights
+:math:`w / g_{0,t}(A_t \mid H_t)`, and a declared retention node's factor is the same
+composition of the declared retention with the censoring learner's classification of
+:math:`C_t` given :math:`(H_t, A_t)`.  A declaration whose every value is 0 or 1 describes the
+same law under both readings, so it is exempt from the refusal and is divided by under either.
 """
 
 from __future__ import annotations
@@ -48,21 +77,41 @@ __all__ = [
     "CONTINUOUS_REFUSAL",
     "KNOWN_CTMLE_REFUSAL",
     "KNOWN_EVALUATION_REFUSAL",
+    "KNOWN_NODE_WEIGHTED_LAW_REFUSAL",
     "KNOWN_POLICY_CLASSIFIER_REFUSAL",
+    "KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL",
+    "KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL",
+    "KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL",
     "KNOWN_SCREEN_REFUSAL",
     "KNOWN_TREATMENT_DELTA_REFUSAL",
+    "KNOWN_WEIGHTED_LAW_REFUSAL",
     "KnownMechanism",
     "KnownNodeMechanisms",
     "KnownSource",
+    "MechanismLaw",
+    "check_mechanism_law",
+    "divided_censoring_at",
+    "divided_treatment_at",
+    "divides_by_declaration",
     "known_mechanism",
     "known_node_mechanisms",
     "moved_known_values_refusal",
     "probability_columns",
+    "refuse_ambiguous_node_declaration",
+    "refuse_ambiguous_weighted_declaration",
+    "tilted_censoring_at",
+    "tilted_treatment_at",
+    "tilts_node_declarations",
+    "unweighted_tilt_refusal",
 ]
 
 #: How a declaration was written.  Recorded because the column form is the one a companion
 #: frame or a study design can repeat by name, and the array forms cannot be repeated.
 KnownSource = Literal["array", "mapping", "columns"]
+
+#: How a declaration beside non-constant weights is read: the mechanism of the weight-tilted
+#: law (``"target"``) or of the rows as drawn (``"sample"``).  See the module docstring.
+MechanismLaw = Literal["target", "sample"]
 
 #: Tolerance of the row-sum check.  Loose enough for float error in a caller's complement,
 #: tight enough that a second mechanism cannot pass as this one.
@@ -122,6 +171,348 @@ KNOWN_EVALUATION_REFUSAL = Refusal(
 )
 
 
+#: The refusal of a declaration beside non-constant weights that names no reading.
+KNOWN_WEIGHTED_LAW_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "treatment_probabilities= with weights= needs mechanism_law=. A weighted fit estimates "
+    "the effect in the weight-tilted population and divides by that population's treatment "
+    "mechanism.",
+    alternative=(
+        'Pass mechanism_law="target" when the declared probabilities hold in the population '
+        "the weights restore: randomization before sampling, as in a case-cohort subsample of "
+        "a trial, or weights that read the covariates only, as survey and transport weights "
+        'do. Pass mechanism_law="sample" when they hold in the rows as drawn and the weights '
+        "may read the treatment; the fit then estimates the tilted mechanism with "
+        "treatment_learner and counts it as estimated."
+    ),
+)
+
+#: The longitudinal refusal of node declarations beside non-constant weights that name no
+#: reading.
+KNOWN_NODE_WEIGHTED_LAW_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "treatment_probabilities= or censoring_probabilities= with weights= needs mechanism_law=. "
+    "A weighted fit estimates the effect in the weight-tilted population and divides by that "
+    "population's treatment and retention probabilities at each node.",
+    alternative=(
+        'Pass mechanism_law="target" when the declared probabilities hold in the population '
+        "the weights restore: randomization before sampling, as in a subsample of a "
+        "sequentially randomized trial drawn by outcome, or weights that read the baseline "
+        'covariates only. Pass mechanism_law="sample" when they hold in the rows as drawn '
+        "and the weights may read the treatment or later data; the fit then estimates each "
+        "declared node's tilted probabilities with treatment_learner or censoring_learner and "
+        "counts them as estimated."
+    ),
+)
+
+#: What every refusal of a ``"sample"`` declaration in a fixed-mechanism construction offers.
+_SAMPLE_ALTERNATIVE = (
+    "Fit without treatment_probabilities=; the treatment learner, fitted by weighted loss, "
+    "estimates the same weight-tilted mechanism, and this estimator supports that fit."
+)
+
+
+def _sample_redirection(construction: str) -> Refusal:
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f'mechanism_law="sample" estimates the weight-tilted treatment mechanism, and '
+        f"{construction} treats a declared mechanism as fixed in every fold.",
+        alternative=_SAMPLE_ALTERNATIVE,
+    )
+
+
+#: The refusal of a guarded DR-TMLE on data whose declaration is read in the sample.
+KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL = _sample_redirection(
+    "DRTMLE with a non-empty guard= fits reduced regressions on the mechanism that"
+)
+#: The refusal of a DR-TMLE evaluation companion on data whose declaration is read in the
+#: sample.
+KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL = _sample_redirection(
+    "DRTMLE's evaluation= companion predicts the mechanism at an independent draw and"
+)
+#: The refusal of AdaptiveIPTW on data whose declaration is read in the sample.
+KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL = _sample_redirection(
+    "AdaptiveIPTW targets the propensity along a reduced regression that"
+)
+
+
+def unweighted_tilt_refusal(member: str) -> Refusal:
+    """The refusal of a tilt classifier that would be fitted without its weights.
+
+    Parameters
+    ----------
+    member : str
+        The part of the treatment learner whose ``fit`` takes no ``sample_weight``.
+
+    Returns
+    -------
+    Refusal
+        The record the fit raises.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f'mechanism_law="sample" estimates the weight-tilted mechanism by classifying the '
+        f"treatment with weights w / g0(A | W), and {member} takes no sample_weight. Fitted "
+        "without the weights, the classifier returns the declared mechanism itself, and the "
+        "fit would divide by its square.",
+        alternative=(
+            "Pass a treatment_learner whose fit takes sample_weight, such as "
+            "LogisticRegression(), and for a SuperLearner a library whose every member's fit "
+            "takes it."
+        ),
+    )
+
+
+def _tilts(weights: Any) -> bool:
+    """Whether ``weights`` tilt the law: they are present and not constant."""
+    if weights is None:
+        return False
+    values = np.asarray(weights, dtype=float)
+    return bool(values.size and np.ptp(values) > 0.0)
+
+
+def refuse_ambiguous_weighted_declaration(known: KnownMechanism | None, weights: Any) -> None:
+    """Refuse a point declaration beside non-constant weights that names no reading.
+
+    Constant weights tilt nothing, so both readings coincide there and nothing is refused.
+
+    Parameters
+    ----------
+    known : KnownMechanism or None
+        The declaration.
+    weights : array-like or None
+        The observation weights.
+
+    Raises
+    ------
+    DataError
+        With :data:`KNOWN_WEIGHTED_LAW_REFUSAL`.
+    """
+    if known is not None and known.law is None and _tilts(weights):
+        raise DataError.from_refusal(KNOWN_WEIGHTED_LAW_REFUSAL)
+
+
+def divides_by_declaration(data: Any) -> bool:
+    """Whether a fit on ``data`` divides by its declared treatment mechanism.
+
+    True when ``data`` declares a point-treatment mechanism and the declaration is not read
+    in the sample beside weights that tilt the law.  A ``"sample"`` declaration beside
+    non-constant weights is the one case where the fit estimates the tilted mechanism
+    instead, and every reader of inference, evidence and status treats that fit as an
+    estimated-mechanism fit.  A declaration without ``mechanism_law`` reads as
+    ``"target"``.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared data.  An object with no ``known_treatment`` declares nothing.
+
+    Returns
+    -------
+    bool
+        Whether the declared values are the mechanism the fit divides by.
+    """
+    known = getattr(data, "known_treatment", None)
+    if known is None:
+        return False
+    return not (known.law == "sample" and _tilts(getattr(data, "weights", None)))
+
+
+def estimates_declared_tilt(data: Any) -> bool:
+    """Whether a point fit on ``data`` estimates the weight-tilted mechanism of a declaration.
+
+    True exactly when ``data`` declares a treatment mechanism that the fit does not divide by:
+    a ``"sample"`` declaration beside weights that tilt the law.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared data.
+
+    Returns
+    -------
+    bool
+        Whether the fit's mechanism is the declaration times a weighted classification.
+    """
+    return getattr(data, "known_treatment", None) is not None and not divides_by_declaration(data)
+
+
+#: How close to 0 or 1 a declared node value must be for the declaration to read the same
+#: under both readings.
+_DEGENERATE_TOLERANCE = 1e-12
+
+
+def _degenerate(values: Any) -> bool:
+    """Whether every finite value of a node declaration lies within the tolerance of 0 or 1.
+
+    Such a declaration assigns each unit's arm, or its retention, with certainty, and the
+    weight tilt cannot move a certain event, so both readings name the same law.
+    """
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    return bool(np.all(np.minimum(np.abs(finite), np.abs(1.0 - finite)) <= _DEGENERATE_TOLERANCE))
+
+
+def _node_arrays(known: KnownNodeMechanisms) -> list[FloatArray]:
+    return [values for values in (*known.treatment, *known.censoring) if values is not None]
+
+
+def refuse_ambiguous_node_declaration(known: KnownNodeMechanisms | None, weights: Any) -> None:
+    """Refuse node declarations beside non-constant weights that name no reading.
+
+    Constant weights tilt nothing, and a declaration whose every value is 0 or 1 is the same
+    law under both readings, so neither is refused.  The exemption is per declaration: one
+    node with a value strictly inside ``(0, 1)`` needs the reading.
+
+    Parameters
+    ----------
+    known : KnownNodeMechanisms or None
+        The node declarations.
+    weights : array-like or None
+        The observation weights.
+
+    Raises
+    ------
+    DataError
+        With :data:`KNOWN_NODE_WEIGHTED_LAW_REFUSAL`.
+    """
+    if known is None or known.law is not None or not _tilts(weights):
+        return
+    if any(not _degenerate(values) for values in _node_arrays(known)):
+        raise DataError.from_refusal(KNOWN_NODE_WEIGHTED_LAW_REFUSAL)
+
+
+def _tilted(data: Any, values: FloatArray | None) -> bool:
+    """Whether a fit on ``data`` estimates the tilted factor of the node declaring ``values``."""
+    if values is None:
+        return False
+    known = data.known_mechanisms
+    return bool(
+        known.law == "sample" and _tilts(getattr(data, "weights", None)) and not _degenerate(values)
+    )
+
+
+def divided_treatment_at(data: Any, time: int) -> FloatArray | None:
+    """The declared treatment factor of node ``time`` that a fit divides by, or ``None``.
+
+    ``None`` when the node is not declared, and when its declaration is read in the sample
+    beside weights that tilt the law, where the fit estimates the tilted factor instead
+    (:func:`tilted_treatment_at`).  A held design's identity nodes are the caller's.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared panel.  An object with no ``known_mechanisms`` declares nothing.
+    time : int
+        The node, counted from one.
+
+    Returns
+    -------
+    FloatArray or None
+        The ``(n, K_t)`` declaration.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return None
+    values = known.treatment_at(time)
+    return None if _tilted(data, values) else values
+
+
+def divided_censoring_at(data: Any, time: int) -> FloatArray | None:
+    """The declared retention of node ``time`` that a fit divides by, or ``None``.
+
+    The retention counterpart of :func:`divided_treatment_at`.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared panel.
+    time : int
+        The node, counted from one.
+
+    Returns
+    -------
+    FloatArray or None
+        The ``(n,)`` declaration.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return None
+    values = known.censoring_at(time)
+    return None if _tilted(data, values) else values
+
+
+def tilted_treatment_at(data: Any, time: int) -> FloatArray | None:
+    """The declared treatment factor of node ``time`` that is read in the sample, or ``None``.
+
+    Under ``mechanism_law="sample"`` beside non-constant weights the declaration is the
+    node's mechanism in the rows as drawn, and the fit estimates the tilted factor from it.
+    A node whose every declared value is 0 or 1 is divided by under either reading and is
+    not tilted.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared panel.
+    time : int
+        The node, counted from one.
+
+    Returns
+    -------
+    FloatArray or None
+        The ``(n, K_t)`` declaration.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return None
+    values = known.treatment_at(time)
+    return values if _tilted(data, values) else None
+
+
+def tilted_censoring_at(data: Any, time: int) -> FloatArray | None:
+    """The declared retention of node ``time`` that is read in the sample, or ``None``.
+
+    The retention counterpart of :func:`tilted_treatment_at`.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared panel.
+    time : int
+        The node, counted from one.
+
+    Returns
+    -------
+    FloatArray or None
+        The ``(n,)`` declaration.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return None
+    values = known.censoring_at(time)
+    return values if _tilted(data, values) else None
+
+
+def tilts_node_declarations(data: Any) -> bool:
+    """Whether a fit on ``data`` estimates any declared node factor's tilt.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared panel.
+
+    Returns
+    -------
+    bool
+        Whether some declared treatment or retention node is read in the sample beside
+        weights that tilt the law.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return False
+    return any(_tilted(data, values) for values in _node_arrays(known))
+
+
 def moved_known_values_refusal(
     count: int, bounds: tuple[float, float], values: FloatArray
 ) -> Refusal:
@@ -166,6 +557,10 @@ class KnownMechanism:
     columns : tuple of tuple
         ``(level, column name)`` pairs when ``source`` is ``"columns"``, in level order, and
         empty otherwise.
+    law : {"target", "sample"} or None
+        How the values are read beside non-constant weights: the mechanism of the
+        weight-tilted law, or of the rows as drawn.  ``None`` is accepted only where the
+        readings coincide and reads as ``"target"``.  See the module docstring.
 
     Attributes
     ----------
@@ -176,6 +571,7 @@ class KnownMechanism:
     values: FloatArray
     source: KnownSource
     columns: tuple[tuple[Any, str], ...] = ()
+    law: MechanismLaw | None = None
 
     def __post_init__(self) -> None:
         values = np.asarray(self.values, dtype=float)
@@ -183,6 +579,7 @@ class KnownMechanism:
             raise ValueError(f"a known mechanism is (n, K); got shape {values.shape}")
         if self.source not in ("array", "mapping", "columns"):
             raise ValueError(f"source must be 'array', 'mapping' or 'columns'; got {self.source!r}")
+        check_mechanism_law(self.law)
 
     @property
     def n(self) -> int:
@@ -216,6 +613,23 @@ class KnownMechanism:
         if idx.dtype == bool:
             idx = np.flatnonzero(idx)
         return replace(self, values=np.asarray(self.values, dtype=float)[idx])
+
+
+def check_mechanism_law(law: Any) -> None:
+    """Refuse a ``mechanism_law=`` value that is not ``"target"``, ``"sample"`` or ``None``.
+
+    Parameters
+    ----------
+    law : Any
+        The value.
+
+    Raises
+    ------
+    DataError
+        If the value is another one.
+    """
+    if law is not None and law not in ("target", "sample"):
+        raise DataError(f"mechanism_law must be 'target', 'sample' or None; got {law!r}")
 
 
 def probability_columns(supplied: Any) -> tuple[tuple[Any, str], ...] | None:
@@ -257,6 +671,7 @@ def known_mechanism(
     levels: Sequence[Any],
     treatment_name: str,
     columns: tuple[tuple[Any, str], ...] = (),
+    law: MechanismLaw | None = None,
 ) -> KnownMechanism:
     """Parse a ``treatment_probabilities=`` declaration into a :class:`KnownMechanism`.
 
@@ -282,6 +697,8 @@ def known_mechanism(
         The treatment's name, for the messages.
     columns : tuple of tuple
         The ``(level, column)`` pairs of a column-name declaration, or ``()``.
+    law : {"target", "sample"} or None
+        The reading beside weights, recorded on the carrier.
 
     Returns
     -------
@@ -333,7 +750,7 @@ def known_mechanism(
     if not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=_ROW_SUM_TOLERANCE):
         raise DataError("each row of treatment_probabilities must sum to one")
     ordered = tuple(sorted(columns, key=lambda pair: _level_index(pair[0], levels)))
-    return KnownMechanism(values, source, ordered)
+    return KnownMechanism(values, source, ordered, law)
 
 
 def _level_index(label: Any, levels: list[Any]) -> int:
@@ -401,6 +818,9 @@ class KnownNodeMechanisms:
         By node, the ``(level, column)`` pairs of a column-name declaration, or ``()``.
     censoring_columns : tuple of str or None
         By censoring node, the column of a column-name declaration, or ``None``.
+    law : {"target", "sample"} or None
+        How the declarations are read beside non-constant weights, as
+        :attr:`KnownMechanism.law`.
 
     Attributes
     ----------
@@ -413,6 +833,10 @@ class KnownNodeMechanisms:
     source: KnownSource = "array"
     treatment_columns: tuple[tuple[tuple[Any, str], ...], ...] = ()
     censoring_columns: tuple[str | None, ...] = ()
+    law: MechanismLaw | None = None
+
+    def __post_init__(self) -> None:
+        check_mechanism_law(self.law)
 
     @property
     def declares_treatment(self) -> bool:
@@ -492,6 +916,7 @@ def known_node_mechanisms(
     censoring_names: Sequence[str],
     treatment_columns: Mapping[str, tuple[tuple[Any, str], ...]] | None = None,
     censoring_columns: Mapping[str, str] | None = None,
+    law: MechanismLaw | None = None,
 ) -> KnownNodeMechanisms | None:
     """Parse the longitudinal declarations, or return ``None`` when neither is given.
 
@@ -523,6 +948,8 @@ def known_node_mechanisms(
         By node column, the ``(level, column)`` pairs of a column-name declaration.
     censoring_columns : mapping or None
         By censoring column, the column of a column-name declaration.
+    law : {"target", "sample"} or None
+        The reading beside weights, recorded on the carrier.
 
     Returns
     -------
@@ -636,6 +1063,7 @@ def known_node_mechanisms(
         source=source,
         treatment_columns=tuple(by_node_columns) if treatment_columns else (),
         censoring_columns=tuple(censoring_by_node) if censoring_columns else (),
+        law=law,
     )
 
 

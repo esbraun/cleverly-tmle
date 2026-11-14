@@ -349,6 +349,34 @@ def known(rows: pd.DataFrame, **overrides: Any) -> Any:
     )
 
 
+def known_sample_frame() -> pd.DataFrame:
+    """The censored SMART sample with a weight that reads ``L0``, ``A1`` and ``C1``."""
+    frame = known_frame()
+    stayed = frame["C1"].to_numpy()
+    frame["w"] = (1.0 + frame["L0"]) * (1.0 + 2.0 * frame["A1"]) * (1.0 + stayed)
+    return frame
+
+
+def known_sample(rows: pd.DataFrame, **overrides: Any) -> Any:
+    """``LTMLE`` with the declared probabilities read in the weighted sample."""
+    from tests.unit import _known_mechanism_support as smart
+
+    columns = {**smart.SMART_COLUMNS, "censoring": ["C1", "C2"]}
+    settings = _parametric(overrides)
+    settings.update(
+        treatment_learner=smart.WeightedCellClassifier(),
+        censoring_learner=smart.WeightedCellClassifier(),
+    )
+    return LTMLE({"always": 1, "never": 0}, reference="never", **settings).fit(
+        rows,
+        weights="w",
+        treatment_probabilities=smart.SMART_TREATMENT,
+        censoring_probabilities=smart.SMART_CENSORING,
+        mechanism_law="sample",
+        **columns,
+    )
+
+
 def mtp_frame() -> pd.DataFrame:
     """A sample of the exact multivalued law of the modified-treatment-policy oracle."""
     from tests import discrete_law_longitudinal_mtp as exact
@@ -464,6 +492,7 @@ DESIGNS: dict[str, tuple[Callable[[], pd.DataFrame], Callable[..., Any]]] = {
     "weighted": (weighted_frame, weighted),
     "competing": (competing_frame, competing),
     "known": (known_frame, known),
+    "known_sample": (known_sample_frame, known_sample),
     "mtp": (mtp_frame, mtp),
     "settings": (settings_frame, settings),
     "time_to_event": (time_to_event_frame, time_to_event),

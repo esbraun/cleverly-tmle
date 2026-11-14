@@ -1606,6 +1606,7 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "continuous_treatment": _witness(EACH_DRAW, "mtp"),
     "treatment_probabilities": _witness(EACH_DRAW, "known"),
     "censoring_probabilities": _witness(EACH_DRAW, "known"),
+    "mechanism_law": _witness(EACH_DRAW, "known_sample"),
     "kwargs": _witness(EACH_DRAW, "ipsi"),
     "survival_model": _witness(
         "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"

@@ -71,6 +71,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import UNCLASSIFIED, Support, combine_support, record_refusal_site
 from .._trial_family import refuse_augmented_trial
 from ..assessment import AssessmentStatus
+from ..data.known_mechanism import divides_by_declaration
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..interventions.learned import LEARNED_RULE_EVALUE_REFUSAL
@@ -1079,7 +1080,7 @@ def _limit_reading(result: TMLEResult, selection: _EValueSelection) -> Resolutio
     if (
         not reading.licensed
         and result.fitted_method == "drtmle"
-        and result.data.known_treatment is None
+        and not divides_by_declaration(result.data)
     ):
         reading = replace(reading, sentence=f"{reading.sentence} {_LINEAR_REMAINDER_NOTE}")
     return reading

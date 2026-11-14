@@ -1902,6 +1902,13 @@ BIAS_GATED_PROPERTIES = frozenset(
         "ordered_late_confounder",
         "ordered_whole_path",
         "instrument_slow_outcome",
+        # Fix-16 (``known-mechanism-sample-weights``): the ``"sample"`` positives' bias inside
+        # the margin; the ``"target"`` reading and the both-wrong fit outside it.
+        "sample_bias",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "target_reading_control",
+        "both_misspecified",
     }
 )
 
@@ -2111,6 +2118,25 @@ SAME_DRAW_FAMILIES = {
                 "late_confounder_stop",
                 "ordered_late_confounder",
                 "ordered_whole_path",
+            }
+        ),
+    ),
+    # ``known-mechanism-sample-weights`` (Fix-16): every cell of a size reads one draw stream,
+    # the paired design of method-benchmarking.md, so each control's paired difference against
+    # its ``sample_misspecified`` partner is a difference on the same draws.  The study declared
+    # it (design review m4).
+    "known-mechanism-sample-weights": (
+        frozenset(
+            {"interval_calibration", "sample_bias", "sample_misspecified", "target_reading_control"}
+        ),
+        frozenset(
+            {
+                "both_misspecified",
+                "interval_calibration",
+                "sample_bias",
+                "sample_misspecified",
+                "target_reading_control",
+                "tilt_misspecified",
             }
         ),
     ),

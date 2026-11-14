@@ -46,7 +46,12 @@ the copy's own draw, so the identity holds exactly.
 (``treatment_probabilities=``), the draw reads the declared probabilities of the unit, no
 natural-treatment model is fitted, and the node has no score term.  The declaration is a function
 of the unit's observed past, so the draw is the declared law only when that law does not depend
-on a covariate that the simulation redraws.
+on a covariate that the simulation redraws.  A declaration read in the sample beside weights
+(``mechanism_law="sample"``) is the node's law in the rows as drawn, and the weighted fit draws
+from the tilted law :math:`g_0 \hat r / \sum_a g_0 \hat r`, with :math:`\hat r` the natural
+treatment model fitted on the rows at risk with weights :math:`w / g_0(A_t \mid H_t)`
+(:mod:`cleverly.data.known_mechanism`).  That model is a model of the book with its own block:
+its draw scores with the declaration's log odds as an offset, :math:`x (a - q)`.
 
 The estimate extrapolates every model along the simulated histories.  It exists without
 positivity, so the mechanism diagnostics of the fit stay the check on overlap.
@@ -63,6 +68,7 @@ from scipy.special import ndtri
 
 from .._summary import Detail, Summary, check_detail
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from ..data.known_mechanism import divided_treatment_at, tilted_treatment_at
 from ..data.validate import arm_indicators
 from ..exceptions import CapabilityError, DataError, RefusalReason
 from ..interventions.base import Stochastic, _as_array, check_regime_density
@@ -755,7 +761,13 @@ class FittedModel:
                 out[:, class_index, :] = raw[:, column, :]
         return out
 
-    def draw_score(self, x: FloatArray, drawn: FloatArray, tilt: float | None = None) -> FloatArray:
+    def draw_score(
+        self,
+        x: FloatArray,
+        drawn: FloatArray,
+        tilt: float | None = None,
+        offset: FloatArray | None = None,
+    ) -> FloatArray:
         """``(N, P)`` derivative of the log density of ``drawn`` in the parameters.
 
         Parameters
@@ -767,6 +779,11 @@ class FittedModel:
         tilt : float or None
             The odds multiplier of an odds tilt.  The draw is then from
             ``expit(eta + log(tilt))`` and the score is ``x (a - q)``.
+        offset : FloatArray or None
+            ``(N, K)`` log probabilities of a declaration read in the sample.  The draw is
+            then from the class law proportional to ``exp(eta + offset)``, the declaration
+            composed with the model, and the score is the model's score with that law in
+            place of its own.
 
         Returns
         -------
@@ -779,11 +796,44 @@ class FittedModel:
             beta = np.asarray(glm.score_contributions(x, drawn), dtype=float) / self.sigma2
             variance = (residual * residual - self.sigma2) / (2.0 * self.sigma2**2)
             return np.column_stack([beta, variance])
+        if offset is not None:
+            return self._offset_score(x, drawn, tilt, offset)
         if tilt is not None:
             eta = glm.linear_predictor(x) + np.log(tilt)
             tilted = 1.0 / (1.0 + np.exp(-eta))
             return np.asarray(glm.design(x) * (drawn - tilted)[:, None], dtype=float)
         return np.asarray(glm.score_contributions(x, drawn.astype(np.int64)), dtype=float)
+
+    def _offset_score(
+        self, x: FloatArray, drawn: FloatArray, tilt: float | None, offset: FloatArray
+    ) -> FloatArray:
+        """The score of a draw from the model's law composed with a declaration.
+
+        The composed law is a multinomial logit with the declaration's log probabilities as
+        an offset, so its score in the model's parameters has the model's form with the
+        composed probabilities.  An odds tilt adds ``log(tilt)`` to the last class.
+        """
+        glm = self.learner
+        design = np.asarray(glm.design(x), dtype=float)
+        present = list(self.present)
+        shift = np.asarray(offset, dtype=float)[:, present]
+        if glm.family_ == "binomial":
+            eta = glm.linear_predictor(x) + shift[:, 1] - shift[:, 0]
+            if tilt is not None:
+                eta = eta + np.log(tilt)
+            composed = 1.0 / (1.0 + np.exp(-eta))
+            indicator = (np.asarray(drawn) == present[1]).astype(float)
+            return np.asarray(design * (indicator - composed)[:, None], dtype=float)
+        logits = np.asarray(glm.linear_predictor(x), dtype=float) + shift
+        logits = logits - logits.max(axis=1, keepdims=True)
+        composed = np.exp(logits)
+        composed = composed / composed.sum(axis=1, keepdims=True)
+        indicator = np.asarray(drawn).reshape(-1, 1) == np.asarray(present).reshape(1, -1)
+        residual = (indicator.astype(float) - composed)[:, 1:]
+        return np.asarray(
+            (residual[:, :, None] * design[:, None, :]).reshape(design.shape[0], -1),
+            dtype=float,
+        )
 
     def projection(self, x: FloatArray, n: int) -> FloatArray:
         """``(n, P)`` scores times the inverse information over ``n``: the curve's model term.
@@ -1066,13 +1116,44 @@ def declared_natural(data: LongitudinalData, plans: Sequence[Plan]) -> dict[int,
         simulation draws the natural treatment of every unit at the node, and a unit that left
         the study before it has no declared value there.
     """
-    known = data.known_mechanisms
-    if known is None:
+    return _natural_declarations(data, plans, divided_treatment_at)
+
+
+def tilted_natural(data: LongitudinalData, plans: Sequence[Plan]) -> dict[int, FloatArray]:
+    """The declarations read in the sample at each node the estimate draws a natural treatment.
+
+    Under ``mechanism_law="sample"`` beside weights the node's natural law is the tilt of the
+    declaration that :func:`fit_models` estimates.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans.
+
+    Returns
+    -------
+    dict of int to FloatArray
+        By node, the ``(n, K)`` declared probabilities in arm-code order.
+
+    Raises
+    ------
+    CapabilityError
+        As :func:`declared_natural`.
+    """
+    return _natural_declarations(data, plans, tilted_treatment_at)
+
+
+def _natural_declarations(
+    data: LongitudinalData, plans: Sequence[Plan], read: Any
+) -> dict[int, FloatArray]:
+    if data.known_mechanisms is None:
         return {}
     weights = np.asarray(data.weights, dtype=float)
     out: dict[int, FloatArray] = {}
     for node, stacked in natural_nodes(data, plans).items():
-        declared = known.treatment_at(node)
+        declared = read(data, node)
         if declared is None or not stacked:
             continue
         matrix = np.asarray(declared, dtype=float)
@@ -1122,6 +1203,10 @@ class ModelBook:
     known : dict
         By node, the ``(n, K)`` declared natural-treatment law of a tilt or modified-treatment
         node whose mechanism the data declares.  Such a node has no model and no score term.
+    tilted : dict
+        By node, the ``(n, K)`` declaration read in the sample beside weights at a tilt or
+        modified-treatment node.  The node's model in :attr:`treatment` is then the tilt
+        classifier, and the natural law is the declaration composed with it.
     """
 
     data: LongitudinalData
@@ -1134,7 +1219,31 @@ class ModelBook:
     hazard: dict[int, FittedModel]
     treatment: dict[int, FittedModel]
     known: dict[int, FloatArray] = field(default_factory=dict)
+    tilted: dict[int, FloatArray] = field(default_factory=dict)
     _projection: dict[str, FloatArray] = field(default_factory=dict)
+
+    def natural_law(self, node: int, units: IntArray, x: FloatArray) -> FloatArray:
+        """``(N, K)`` natural-treatment law of a node at simulated histories ``x``.
+
+        The declaration of each path's unit at a divided node, the declaration composed with
+        the tilt classifier at a tilted node, and the natural-treatment model elsewhere.
+        """
+        if node in self.known:
+            return self.known[node][units]
+        probabilities = self.treatment[node].class_probabilities(x)
+        if node not in self.tilted:
+            return probabilities
+        declared = self.tilted[node][units]
+        product = declared * probabilities
+        total = product.sum(axis=1, keepdims=True)
+        return np.where(total > 0.0, product / np.where(total > 0.0, total, 1.0), declared)
+
+    def offset(self, node: int, units: IntArray) -> FloatArray | None:
+        """The log declaration a tilted node's draw scores against, ``None`` elsewhere."""
+        if node not in self.tilted:
+            return None
+        with np.errstate(divide="ignore"):
+            return np.log(self.tilted[node][units])
 
     @property
     def models(self) -> list[FittedModel]:
@@ -1275,6 +1384,7 @@ def fit_models(
     treatment: dict[int, FittedModel] = {}
     needs = natural_nodes(data, plans)
     known = declared_natural(data, plans)
+    tilted = tilted_natural(data, plans)
     for node, stacked in sorted(needs.items()):
         if node in known:
             continue
@@ -1289,6 +1399,16 @@ def fit_models(
         template = settings.treatment_learner if stacked else None
         if continuous and stacked and not (template is None or isinstance(template, GLM)):
             raise normal_learner_refusal("treatment_learner", data.treatment_names[node - 1])
+        node_weights = weights
+        if node in tilted:
+            # The tilt classifier: the natural-treatment model fitted with weights
+            # w / g0(A_t | H_t), rescaled to mean one on its rows, whose composition with
+            # the declaration is the tilted law (Bayes' rule).
+            codes = np.nan_to_num(observed, nan=0.0).astype(np.int64)
+            chance = np.nan_to_num(tilted[node], nan=1.0)[np.arange(data.n), codes]
+            fit = rows & (weights > 0.0)
+            node_weights = np.where(fit, weights / np.where(fit, chance, 1.0), 0.0)
+            node_weights = node_weights / float(np.mean(node_weights[fit]))
         treatment[node] = _fit_response(
             key=f"treatment:{node}",
             label=f"the natural-treatment model of {data.treatment_names[node - 1]!r}",
@@ -1297,13 +1417,23 @@ def fit_models(
             template=template,
             x=table[:, : layout.natural_prefix(node)],
             y=np.where(rows, observed, np.nan),
-            weights=weights,
+            weights=node_weights,
             rows=rows,
             n_classes=n_levels,
             stack=stacked,
         )
     return ModelBook(
-        data, variables, layout, table, scaler, covariate, outcome, hazard, treatment, known
+        data,
+        variables,
+        layout,
+        table,
+        scaler,
+        covariate,
+        outcome,
+        hazard,
+        treatment,
+        known,
+        tilted,
     )
 
 
@@ -1341,6 +1471,7 @@ class _Draw:
     model: FittedModel
     value: FloatArray
     tilt: float | None = None
+    offset: FloatArray | None = None
 
 
 @dataclass
@@ -1630,10 +1761,12 @@ class _Simulator:
         model = self.book.treatment[node]
         x = paths.table[:, : model.prefix]
         self._span(model, x)
-        natural = model.class_probabilities(x)[:, 1]
+        natural = self.book.natural_law(node, paths.units, x)[:, 1]
         tilted = delta * natural / (delta * natural + 1.0 - natural)
         drawn = (self._uniforms(paths, node, _COL_TREATMENT) < tilted).astype(float)
-        paths.draws.append(_Draw(model, drawn, tilt=delta))
+        paths.draws.append(
+            _Draw(model, drawn, tilt=delta, offset=self.book.offset(node, paths.units))
+        )
         return drawn
 
     def _modified(self, paths: _Paths, node: int, declared: Any, continuous: bool) -> FloatArray:
@@ -1653,8 +1786,8 @@ class _Simulator:
             if continuous:
                 natural = model.mean(x) + np.sqrt(model.sigma2) * ndtri(uniforms)
             else:
-                natural = _categorical(model.class_probabilities(x), uniforms)
-            paths.draws.append(_Draw(model, natural))
+                natural = _categorical(self.book.natural_law(node, paths.units, x), uniforms)
+            paths.draws.append(_Draw(model, natural, offset=self.book.offset(node, paths.units)))
         frame = lazy_frame(lambda: self._policy_frame(paths, node))
         branches = policy_branches(declared)
         probabilities = np.array([probability for probability, _ in branches])
@@ -1881,7 +2014,9 @@ def _simulate_plan(
             model = draw.model
             if not (model.stack and model.is_glm):
                 continue
-            score = model.draw_score(paths.table[:, : model.prefix], draw.value, draw.tilt)
+            score = model.draw_score(
+                paths.table[:, : model.prefix], draw.value, draw.tilt, draw.offset
+            )
             derivatives[model.key] += np.einsum("nc,np->cp", adjusted * path_weight[:, None], score)
     _refuse_aliased(plan, book, derivative)
     support = _support_rows(book, plan, estimate)

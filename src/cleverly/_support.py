@@ -36,6 +36,11 @@ from ._inference_status import (
     supplies_inference,
 )
 from ._refusal import Refusal
+from .data.known_mechanism import (
+    divides_by_declaration,
+    estimates_declared_tilt,
+    tilts_node_declarations,
+)
 
 __all__ = [
     "DEFAULT_BAND_OPTION",
@@ -328,12 +333,15 @@ class SupportKey:
         to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
         longitudinal one.
     qualifiers : frozenset of str
-        ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
+        ``strata``, ``known_mechanism``, ``tilted_mechanism`` (a declaration read in the
+        weighted sample, ``mechanism_law="sample"``, which the fit estimates as a tilt) and, on a
+        learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
         ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
         ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
-        holds the known factors.
+        holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
+        weighted sample.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
@@ -596,9 +604,7 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
     families = {
         "outcome_learner_family": learner_family(estimator.outcome_learner),
         "treatment_learner_family": (
-            "known"
-            if data.known_treatment is not None
-            else learner_family(estimator.treatment_learner)
+            "known" if divides_by_declaration(data) else learner_family(estimator.treatment_learner)
         ),
     }
     rule = estimator.learned_rule
@@ -779,8 +785,13 @@ def point_key(
     qualifiers = set()
     if data.has_strata:
         qualifiers.add("strata")
-    if data.known_treatment is not None:
+    if divides_by_declaration(data):
         qualifiers.add("known_mechanism")
+    if estimates_declared_tilt(data):
+        # ``mechanism_law="sample"`` beside tilting weights: the mechanism is the declaration
+        # times a weighted classification, a construction of its own, so only a row of a study
+        # of that route covers it, and its rows never cover an ordinary weighted fit.
+        qualifiers.add("tilted_mechanism")
     if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
         # Unequal sizes that depend on the outcome put a ratio bias in the fold-evaluated point,
         # so a learned-rule row never covers unequal sizes unless it declares them. Only the
@@ -988,9 +999,17 @@ def longitudinal_key(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),
         qualifiers=frozenset(
-            (*known_factors, f"separable_first_cause_{separable_first}")
-            if separable_first is not None
-            else known_factors
+            (
+                *known_factors,
+                *(
+                    (f"separable_first_cause_{separable_first}",)
+                    if separable_first is not None
+                    else ()
+                ),
+                # A declared node read in the weighted sample is an estimated factor of its own
+                # construction (``mechanism_law="sample"``), as on the point key.
+                *(("tilted_mechanism",) if tilts_node_declarations(data) else ()),
+            )
         ),
         options=(
             ("normalization", _option(estimator._normalization())),

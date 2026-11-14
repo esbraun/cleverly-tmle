@@ -55,7 +55,15 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 from .known_mechanism import CONTINUOUS_REFUSAL as KNOWN_CONTINUOUS_REFUSAL
-from .known_mechanism import KnownMechanism, known_mechanism, probability_columns
+from .known_mechanism import (
+    KnownMechanism,
+    MechanismLaw,
+    check_mechanism_law,
+    divides_by_declaration,
+    known_mechanism,
+    probability_columns,
+    refuse_ambiguous_weighted_declaration,
+)
 from .treatment_covariates import check_treatment_covariates, known_and_restricted
 from .validate import (
     MIN_OBSERVATIONS,
@@ -161,6 +169,10 @@ def _vector_refusal(treatment: str, reader: str) -> Refusal:
 #: The refusal of a second declaration of the treatment mechanism.
 DECLARED_TWICE = (
     "treatment_probabilities is declared twice: on the data and at fit. Declare it once."
+)
+_LAW_WITHOUT_DECLARATION = (
+    "mechanism_law= says how treatment_probabilities= is read beside weights, and this call "
+    "declares no treatment_probabilities. Drop mechanism_law=, or declare the probabilities."
 )
 _COLUMN_FORM_NEEDS_A_FRAME = (
     "treatment_probabilities names columns, and this call has no frame to read them from. "
@@ -357,6 +369,7 @@ class CausalData:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
         source: str | None = None,
@@ -432,10 +445,19 @@ class CausalData:
             "placebo": "p_placebo"}``.  Those columns are read here and are not covariates,
             so ``covariates=None`` does not adjust for them.  A mapping level to ``(n,)``
             array, an ``(n, K)`` array in the sorted level order, and an ``(n,)`` array of
-            ``P(A = levels[1] | W)`` at two arms are also read.  With ``weights=``, the
-            declaration is the mechanism of the weight-tilted law, which equals the design
-            mechanism when the weights depend on ``W`` only.  See
-            :mod:`cleverly.data.known_mechanism`.
+            ``P(A = levels[1] | W)`` at two arms are also read.  Beside non-constant
+            ``weights=`` it needs ``mechanism_law``.  See :mod:`cleverly.data.known_mechanism`.
+        mechanism_law : {"target", "sample"} or None
+            How ``treatment_probabilities`` is read beside non-constant ``weights=``, where it
+            is required.  A weighted fit estimates the effect in the weight-tilted population.
+            ``"target"`` says the declared probabilities hold in that population
+            (randomization before sampling, as in a case-cohort subsample of a trial, or
+            weights that read the covariates only), and the fit divides by them.
+            ``"sample"`` says they hold in the rows as drawn while the weights may read the
+            treatment; the fit then estimates the tilted mechanism from the declaration and a
+            weighted classification by ``treatment_learner``, and counts it as estimated.
+            Without weights, or with constant ones, the readings coincide and the value is
+            recorded only.  It needs ``treatment_probabilities``.
         treatment_covariates : Sequence[str] or None
             The adjustment columns that the treatment mechanism reads, a subset of
             ``covariates``.  ``None`` reads all of them.  The outcome regression and every
@@ -579,6 +601,7 @@ class CausalData:
                 else {level: column_array(frame, name) for level, name in probability_names}
             ),
             known_columns=probability_names or (),
+            mechanism_law=mechanism_law,
             treatment_covariates=treatment_covariates,
             component_names=components,
             continuous_components=tuple(str(name) for name in continuous_treatment),
@@ -621,16 +644,17 @@ class CausalData:
         strata_names: Sequence[str] | None = None,
         treatment_delta: Any = None,
         treatment_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
         See :meth:`from_frame` for ``weights_type``, ``weights_estimated``,
-        ``treatment_kind``, ``treatment_delta``, ``treatment_probabilities`` and
-        ``treatment_covariates`` and ``continuous_treatment``.  Here ``treatment_delta`` is the
-        0/1 array itself, in the role of R ``drtmle``'s ``DeltaA``, and
-        ``treatment_probabilities`` takes the array forms only, in the role of R ``tmle``'s
+        ``treatment_kind``, ``treatment_delta``, ``treatment_probabilities``,
+        ``mechanism_law``, ``treatment_covariates`` and ``continuous_treatment``.  Here
+        ``treatment_delta`` is the 0/1 array itself, in the role of R ``drtmle``'s ``DeltaA``,
+        and ``treatment_probabilities`` takes the array forms only, in the role of R ``tmle``'s
         ``g1W``.  A vector treatment is an ``(n, d)`` ``treatment`` with ``treatment_name`` a list
         of its ``d`` column names.
         """
@@ -682,6 +706,7 @@ class CausalData:
             treatment_delta=None if treatment_delta is None else np.asarray(treatment_delta),
             treatment_delta_name="DeltaA" if treatment_delta is not None else None,
             treatment_probabilities=treatment_probabilities,
+            mechanism_law=mechanism_law,
             treatment_covariates=treatment_covariates,
             component_names=components,
             continuous_components=tuple(str(name) for name in continuous_treatment),
@@ -718,10 +743,14 @@ class CausalData:
         treatment_delta_name: str | None = None,
         treatment_probabilities: Any = None,
         known_columns: tuple[tuple[Any, str], ...] = (),
+        mechanism_law: MechanismLaw | None = None,
         treatment_covariates: Sequence[str] | None = None,
         component_names: Sequence[str] = (),
         continuous_components: Sequence[str] = (),
     ) -> CausalData:
+        check_mechanism_law(mechanism_law)
+        if mechanism_law is not None and treatment_probabilities is None:
+            raise DataError(_LAW_WITHOUT_DECLARATION)
         n = len(outcome)
         if n < MIN_OBSERVATIONS:
             raise DataError(f"need at least {MIN_OBSERVATIONS} observations; got {n}")
@@ -849,8 +878,10 @@ class CausalData:
                 levels=levels,
                 treatment_name=treatment_name,
                 columns=known_columns,
+                law=mechanism_law,
             )
         )
+        refuse_ambiguous_weighted_declaration(known, obs_weights)
 
         kept = set(w_names)
         retained_encodings = tuple(
@@ -1634,7 +1665,9 @@ class CausalData:
             return {}
         return dict(self.treatment_support)
 
-    def with_known_mechanism(self, treatment_probabilities: Any) -> CausalData:
+    def with_known_mechanism(
+        self, treatment_probabilities: Any, *, mechanism_law: MechanismLaw | None = None
+    ) -> CausalData:
         """Return a copy that declares the treatment mechanism known.
 
         :meth:`cleverly.TMLE.fit` calls this when it receives ``treatment_probabilities=``
@@ -1645,6 +1678,9 @@ class CausalData:
         ----------
         treatment_probabilities : array-like or mapping
             The declaration, in one of the array forms that :meth:`from_frame` reads.
+        mechanism_law : {"target", "sample"} or None
+            How the declaration is read beside non-constant weights, where it is required.
+            See :meth:`from_frame`.
 
         Returns
         -------
@@ -1656,7 +1692,8 @@ class CausalData:
         ValueError
             If this data already declares a mechanism.
         DataError
-            If the declaration is malformed or names columns.
+            If the declaration is malformed or names columns, or names no
+            ``mechanism_law`` beside non-constant weights.
         """
         if self.known_treatment is not None:
             raise ValueError(DECLARED_TWICE)
@@ -1665,15 +1702,15 @@ class CausalData:
         self._refuse_vector("a known treatment mechanism (treatment_probabilities=)")
         if probability_columns(treatment_probabilities) is not None:
             raise DataError(_COLUMN_FORM_NEEDS_A_FRAME)
-        return replace(
-            self,
-            known_treatment=known_mechanism(
-                treatment_probabilities,
-                n=self.n,
-                levels=self.treatment_levels,
-                treatment_name=self.treatment_name,
-            ),
+        known = known_mechanism(
+            treatment_probabilities,
+            n=self.n,
+            levels=self.treatment_levels,
+            treatment_name=self.treatment_name,
+            law=mechanism_law,
         )
+        refuse_ambiguous_weighted_declaration(known, self.weights)
+        return replace(self, known_treatment=known)
 
     def with_treatment_covariates(self, names: Sequence[str]) -> CausalData:
         """Return a copy whose treatment mechanism reads only the named covariates.
@@ -2129,8 +2166,10 @@ class CausalData:
             parts.append(f"clusters={self.n_clusters}")
         if self.has_intermediate:
             parts.append("intermediate=yes")
-        if self.known_treatment is not None:
+        if divides_by_declaration(self):
             parts.append("treatment mechanism=known")
+        elif self.known_treatment is not None:
+            parts.append("treatment mechanism=declared in sample")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return short_repr("CausalData", [("", part) for part in parts])

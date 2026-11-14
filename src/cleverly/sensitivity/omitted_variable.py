@@ -3161,7 +3161,10 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
             "benchmark compares the treatment mechanism with and without the named "
             "covariates, and this fit's data declares the mechanism known, so dropping a "
             "covariate cannot change it. A known design mechanism leaves no omitted "
-            "confounder of the treatment to calibrate against.",
+            "confounder of the treatment to calibrate against. The same holds under "
+            'mechanism_law="sample", where the design randomized in the rows as drawn and a '
+            "refit without the covariates would still divide by the declared mechanism that "
+            "reads them.",
         )
     fitted = _benchmark_covariates(result.data)
     try:

@@ -159,6 +159,7 @@ def _enumeration_fit(*, cross_fit: bool, form: str, weights: np.ndarray | None =
     if weights is not None:
         frame["wt"] = weights
         options["weights"] = "wt"
+        options["mechanism_law"] = "target"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return (

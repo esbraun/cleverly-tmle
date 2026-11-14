@@ -1904,3 +1904,12 @@ mtp-policy-variance,interval_calibration,se ratio in calibration band,se/0.05
 mtp-policy-variance,policy_calibration,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage reaches nominal,coverage/0.925
+known-mechanism-sample-weights,both_misspecified,bias discriminated,affine
+known-mechanism-sample-weights,interval_calibration,coverage in calibration band,bias
+known-mechanism-sample-weights,interval_calibration,noise se ratio below band,se_high
+known-mechanism-sample-weights,interval_calibration,se ratio below band,se_high
+known-mechanism-sample-weights,interval_calibration,se ratio in calibration band,se/0.05
+known-mechanism-sample-weights,sample_bias,bias equivalent,bias
+known-mechanism-sample-weights,sample_misspecified,bias equivalent,bias
+known-mechanism-sample-weights,target_reading_control,bias discriminated,shift/0.7
+known-mechanism-sample-weights,tilt_misspecified,bias equivalent,bias

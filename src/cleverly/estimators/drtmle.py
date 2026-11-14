@@ -157,7 +157,12 @@ from sklearn.base import is_classifier
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Preflight
 from ..data.causal_data import CausalData
-from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
+from ..data.known_mechanism import (
+    KNOWN_EVALUATION_REFUSAL,
+    KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL,
+    KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL,
+    divides_by_declaration,
+)
 from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
@@ -1112,6 +1117,11 @@ class DRTMLE(TMLE):
                 if data.known_treatment is not None and data.known_treatment.columns
                 else None
             ),
+            mechanism_law=(
+                data.known_treatment.law
+                if data.known_treatment is not None and data.known_treatment.columns
+                else None
+            ),
             # The companion's mechanism reads the covariates the fit's mechanism read.
             treatment_covariates=data.treatment_covariate_names,
         )
@@ -1322,6 +1332,13 @@ class DRTMLE(TMLE):
                     "Use reduction='univariate' (the setting is replaced by that construction)."
                 ),
             )
+        # Under mechanism_law="sample" beside weights the mechanism is estimated, and the
+        # reduced regressions, fold slabs and companion slabs read a declared one as fixed.
+        if data.known_treatment is not None and not divides_by_declaration(data):
+            if self.guard:
+                raise CapabilityError.from_refusal(KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL)
+            if self.evaluation is not None:
+                raise CapabilityError.from_refusal(KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL)
         # The companion's mechanism must be its own declaration: no model is fitted to
         # predict it there.
         if (

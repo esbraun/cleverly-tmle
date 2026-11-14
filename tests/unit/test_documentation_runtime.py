@@ -167,6 +167,7 @@ frame = frame.assign(
     region=_rng.integers(0, 3, _n),
     dose=_rng.normal(2.0, 1.0, _n),
 )
+frame["analysis_weight"] = np.where(frame["A"] == 1, 1.0 + frame["W1"].abs(), 1.0)
 """
 
 _STUDY = (
