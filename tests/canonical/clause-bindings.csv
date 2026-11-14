@@ -1617,6 +1617,13 @@ targeting-curves,simultaneous_coverage,joint coverage below nominal,se_low
 targeting-curves,simultaneous_coverage,joint coverage in calibration band,se_low
 targeting-curves,type_i_error,coverage floor,coverage/0.5
 targeting-curves,type_i_error,rejection ceiling,rejection/0.1
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,bias equivalent,bias
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,must fail,pair_collapse
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,paired iid/cluster se ratio under its ceiling,none
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,paired non-inferiority,none
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,paired positive se ratio at most the sanity ceiling,mixed/5
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,shown coverage lower end,coverage/0.925
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,variance ratio lower end,se/0.05
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05

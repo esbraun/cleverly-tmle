@@ -43,3 +43,4 @@ longitudinal-repeated-ipsi,repeated_outcome_necessity,bias discriminated,implied
 learned-regimen-ltmle,conservative_coverage,bias equivalent,implied by: coverage at or above the calibration floor
 hazard-msm,root_n_and_efficiency,coverage resolves,"fixed at size: the n = 1,000 rate rung carries no claim at R = 800 because its Clopper-Pearson interval (width about 0.041) is narrower than the 0.05 gap between the coverage floor and nominal"
 hazard-mtp,root_n_and_efficiency,coverage resolves,"fixed at size: the n = 1,000 rate rung carries no claim at R = 800 because its Clopper-Pearson interval (width about 0.041) is narrower than the 0.05 gap between the coverage floor and nominal"
+tests.studies.few_cluster_adaptive_properties,adaptive_learners,coverage floor,implied by: shown coverage lower end
