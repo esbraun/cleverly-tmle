@@ -984,7 +984,9 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
         truncation = longitudinal_truncation_refusal(result)
         # A learned-regimen fit refuses every surface that runs the fit again (F27): the
-        # truncation call and a refutation's refit raise this record before any other.
+        # truncation call raises this record before any other, and the facade's refute
+        # call raises it from this row. The free refute() reaches it at the refit, after
+        # its request checks.
         from .longitudinal.learned import learned_regimen_refusal
 
         learned = learned_regimen_refusal(result, "the truncation curve")
@@ -5664,9 +5666,13 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        # A structural or adaptive TMLE fit declares every row refused, so an explicit
-        # estimand lifts none.
-        if not explicit_evalue or _family(self._result) in ("structural", AUGMENTED_TRIAL_FAMILY):
+        # A structural, adaptive TMLE or projection fit declares every row refused, so an
+        # explicit estimand lifts none.
+        if (
+            not explicit_evalue
+            or _family(self._result) in ("structural", AUGMENTED_TRIAL_FAMILY)
+            or _is_projection(self._result)
+        ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(
                 operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None

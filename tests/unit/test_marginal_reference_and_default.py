@@ -230,12 +230,14 @@ def test_a_learned_regimen_s_refit_rows_carry_their_call_s_refusal() -> None:
     with pytest.raises(CapabilityError) as raised:
         longitudinal_truncation_curve(fit, [0.05])
     assert raised.value.refusal == truncation.refusal
-    with pytest.raises(CapabilityError) as raised:
-        fit.diagnostics.refute()
-    assert raised.value.refusal.condition.endswith(refute.refusal.condition)
-    # The refit guard the refutation runs raises the same record past the facade.
-    from cleverly.longitudinal.learned import refuse_learned_regimen_result
+    # The free refutation reaches the refit, which raises the row's record.
+    from cleverly.validation import refute as free_refute
 
     with pytest.raises(CapabilityError) as raised:
-        refuse_learned_regimen_result(fit, "a refit")
+        free_refute(
+            fit,
+            estimand="ey_regimen[learned regimen]",
+            tests=("random_common_cause",),
+            random_state=0,
+        )
     assert raised.value.refusal == refute.refusal

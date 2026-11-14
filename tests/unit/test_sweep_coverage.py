@@ -80,14 +80,14 @@ UNSWEPT: Mapping[str, Exemption] = {
     **_exempt(
         "a fit result class with no assessment facade: it declares no assessment_family, no "
         "diagnostics or sensitivity facade and no assess(), so it has no capability row to ask",
-        "Fix-15",
+        "X104",
         ("result:DoseResponseResult", "result:VariableImportanceResult"),
     ),
     **_exempt(
         "the effect curve's assessment surface (CurveDiagnostics) has no sensitivity facade, no "
         "combined report (assess) and no per-request row resolution, so the sweep's instrument "
         "cannot ask it; tests/unit/test_curve_assessment.py checks its rows directly",
-        "Fix-15",
+        "X104",
         (
             "result:EffectCurveResult",
             "method:effect_modification/ep",
@@ -97,8 +97,8 @@ UNSWEPT: Mapping[str, Exemption] = {
     **_exempt(
         "the structural nested mean result has a sensitivity facade but no diagnostics facade "
         "(its diagnostics field is the fit-time StructuralDiagnostics report) and no assess(), "
-        "so the structural diagnostics rows have no call for the sweep to ask",
-        "Fix-15",
+        "so the sweep has no facade call to ask (the free refute() does run on it)",
+        "X104",
         (
             "result:StructuralNestedMeanResult",
             "method:structural/snmm",

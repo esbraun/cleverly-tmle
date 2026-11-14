@@ -99,6 +99,7 @@ __all__ = [
     "learned_plan",
     "learned_regimen_in",
     "learned_regimen_record",
+    "learned_regimen_refusal",
     "refuse_learned_regimen_data",
     "refuse_learned_regimen_result",
     "refuse_learned_regimen_settings",
