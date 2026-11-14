@@ -100,11 +100,13 @@ def test_the_primaries_pass_together_with_probability_090() -> None:
     assert single ** len(study.PRIMARY_CELLS) >= 0.90
 
 
-def test_the_l_budget_passes_at_the_plan_ratio() -> None:
-    """Design review S3: ``L`` at 7,200 passes a correct interval with SE ratio 0.97."""
+def test_each_arm_budget_passes_at_the_plan_ratio() -> None:
+    """Design reviews S3 and 2 S-b: ``L`` and ``S`` at 7,200 pass a cell at SE ratio 0.97."""
     margins = study.STUDY.margins
-    assert float(repeated_sizing.calibration_pass(margins, study.BUDGETED_R["L"], 0.97)) >= 0.99
-    assert float(repeated_sizing.calibration_pass(margins, study.BUDGETED_R["S"], 1.0)) >= 0.99
+    for curve in study.CURVES:
+        assert (
+            float(repeated_sizing.calibration_pass(margins, study.BUDGETED_R[curve], 0.97)) >= 0.99
+        )
 
 
 def test_each_stream_has_its_own_samples_and_folds_per_cell() -> None:
@@ -275,6 +277,26 @@ def test_the_declaration_names_every_file_a_run_writes() -> None:
         study.RUN_FILES
     )
     assert "tests/studies/learned_rule_ep_declared_properties.py" in study.STUDY.modules
+
+
+def test_the_two_arms_together_are_sized_to_the_family_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Design review 2 S-a: each arm at sqrt(0.95), so the two arms together reach 0.95."""
+    passes: list[float] = []
+    original = repeated_sizing.calibration_replicates
+
+    def spy(*args: Any, **kwargs: Any) -> int:
+        passes.append(kwargs.get("family_pass", repeated_sizing.FAMILY_WISE_PASS))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(repeated_sizing, "calibration_replicates", spy)
+    flat = pilot.summarize(synthetic_rows(replicates=200))
+    flat["se_ratio"] = 1.0
+    flat["replicates"] = pilot.REPLICATES
+    pilot.declared_replicates(flat)
+    assert len(passes) == len(study.CURVES)
+    assert math.prod(passes) >= repeated_sizing.FAMILY_WISE_PASS - 1e-12
 
 
 def test_the_pilot_rule_sizes_each_arm_and_the_budget_covers_it() -> None:

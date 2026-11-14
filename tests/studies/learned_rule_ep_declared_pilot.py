@@ -12,7 +12,8 @@ The committed output is :data:`PILOT_CSV`, one row per gated cell with its SE ra
 ratio's bootstrap standard error, the coverage and the standardized bias.  Every cell draws its
 own samples, so the cells' errors are independent and the label correlations are the identity.
 :func:`declared_replicates` returns X32a's ``R`` of each arm
-(:func:`tests.studies.repeated_sizing.calibration_replicates`), which the declaration commit
+(:func:`tests.studies.repeated_sizing.calibration_replicates`) at a family-wise pass of
+:data:`ARM_FAMILY_PASS` per arm, so the two arms together reach 0.95, which the declaration commit
 writes into :data:`tests.studies.learned_rule_ep_declared.BUDGETED_R` where it is larger.  The
 pilot is written by::
 
@@ -45,6 +46,10 @@ REPLICATES = study.PILOT_DRAWS
 
 #: Bootstrap resamples of each ratio's standard error.
 BOOTSTRAP = 400
+
+#: Each arm's family-wise pass: the two arms are sized separately, so each takes the square
+#: root of the study's 0.95, and the two together pass with probability at least 0.95.
+ARM_FAMILY_PASS = repeated_sizing.FAMILY_WISE_PASS ** (1 / len(study.CURVES))
 
 #: The committed summary.
 PILOT_CSV = Path(__file__).with_name("learned_rule_ep_declared_pilot.csv")
@@ -97,7 +102,7 @@ def independent(labels: Sequence[str]) -> np.ndarray:
 
 
 def declared_replicates(summary: pd.DataFrame) -> dict[str, int]:
-    """X32a's calibration ``R`` of each arm from the pilot."""
+    """X32a's calibration ``R`` of each arm from the pilot, at :data:`ARM_FAMILY_PASS`."""
     out = {}
     for arm, group in summary.groupby("arm"):
         out[str(arm).removeprefix("__")] = repeated_sizing.calibration_replicates(
@@ -105,6 +110,7 @@ def declared_replicates(summary: pd.DataFrame) -> dict[str, int]:
             dict(zip(group["cell"], group["se_ratio"], strict=True)),
             int(group["replicates"].min()),
             independent,
+            family_pass=ARM_FAMILY_PASS,
         )
     return out
 

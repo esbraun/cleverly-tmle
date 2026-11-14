@@ -82,10 +82,11 @@ CONTROL_REPLICATES = 500
 #: The diagnostic ``optimal__L`` cell's draws: it states no verdict, so it is sized as the
 #: shipped study's reporting cells are, not as a gated arm.
 DIAGNOSTIC_REPLICATES = 2_400
-#: The budgeted calibration ``R`` of each arm (plan 5.2; design review S3 raised ``L`` to the
-#: shipped sibling's assured count, 7,200).  The declaration commit replaces either by the
+#: The budgeted calibration ``R`` of each arm (plan 5.2): design review S3 raised ``L`` to the
+#: shipped sibling's assured count, 7,200, and design review 2 S-b raised ``S`` to match, where a
+#: cell at a true SE ratio of 0.97 passes with probability 0.991 rather than 0.928.  The declaration commit replaces either by the
 #: pilot's computed ``R`` when larger.
-BUDGETED_R = {"S": 4_800, "L": 7_200}
+BUDGETED_R = {"S": 7_200, "L": 7_200}
 PILOT_DRAWS = 1_400
 SHRUNKEN_SE_FACTOR = 0.70
 #: The harness refits each fold's rule through ``fit_fold_rule`` and compares it with the rule
