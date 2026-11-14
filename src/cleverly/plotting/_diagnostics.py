@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -225,12 +225,14 @@ def _model_words(name: str, role: str | None = None) -> str:
 def _probability_models(source: Any) -> tuple[list[Any], _Context]:
     """The reports to draw and what the source states about them."""
     weighted: bool | None = None
+    _refuse_unread(source, "calibration")
     if hasattr(source, "diagnostics") and hasattr(source.diagnostics, "nuisance_models"):
         weights = getattr(getattr(source, "data", None), "weights", None)
         if weights is not None:
             values = np.asarray(weights, dtype=float)
             weighted = bool(values.size and not np.allclose(values, values[0]))
         source = source.diagnostics.nuisance_models()
+        _refuse_unread(source, "calibration")
         if not hasattr(source, "models"):
             raise ValueError(
                 "calibration() draws the point-treatment nuisance reports; this result "
@@ -253,9 +255,14 @@ def _probability_models(source: Any) -> tuple[list[Any], _Context]:
         if getattr(model, "kind", None) == "probability" and len(model.calibration.get("n", ()))
     ]
     if not drawn:
+        mean_only = bool(models) and all(
+            getattr(model, "kind", None) == "conditional mean" for model in models
+        )
         raise CapabilityError(
             "no probability model with a calibration table to draw: a conditional-mean "
-            "(continuous outcome) model has no probability to calibrate",
+            "(continuous outcome) model has no probability to calibrate"
+            if mean_only
+            else "no nuisance model here reports a calibration table of predicted probabilities",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     return drawn, context
@@ -347,6 +354,10 @@ def _probability_text(models: list[Any], context: _Context) -> tuple[str, list[s
 def calibration(
     source: Any,
     *,
+    regimen: str | None = None,
+    horizon: int | None = None,
+    cause: str | None = None,
+    time_label: str = "Time point",
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -377,12 +388,28 @@ def calibration(
     collaborative working treatment model or a declared treatment law shows none either,
     because neither is an estimate of the treatment law.
 
+    A longitudinal fit, or its ``diagnostics.nuisance_models()``, draws one such panel per
+    probability model and time point: each treatment, censoring and hazard model, and the
+    outcome regressions of one regimen, horizon and cause.
+
     Bins are descriptive: no interval is drawn.
 
     Parameters
     ----------
-    source : CurveCalibration or NuisanceModelReport or NuisanceDiagnostics or TMLEResult
-        What to plot.
+    source : CurveCalibration or NuisanceModelReport or TMLEResult or LongitudinalResult
+        What to plot. A fit's ``NuisanceDiagnostics`` and a longitudinal fit's
+        ``diagnostics.nuisance_models()`` are accepted too.
+    regimen : str or None, default=None
+        On a longitudinal fit or its nuisance report, the regimen whose outcome regressions
+        are drawn; the first when omitted. The treatment and censoring models serve every
+        regimen and are always drawn.
+    horizon : int or None, default=None
+        The horizon of those outcome regressions on a fit with several; the largest when
+        omitted.
+    cause : str or None, default=None
+        Their cause under competing events; the first when omitted.
+    time_label : str, default="Time point"
+        Words for a time point on a longitudinal fit's panels.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -405,13 +432,21 @@ def calibration(
     Returns
     -------
     Figure
-        One panel per probability model, or one panel for a curve.
+        One panel per probability model (and time point, on a longitudinal fit), or one
+        panel for a curve.
 
     Raises
     ------
     ValueError
-        When the source holds no probability model with a calibration table, a curve
-        calibration has no finite bin, or ``ax`` is given for more than one panel.
+        When a curve calibration has no finite bin, or ``ax`` is given for more than one
+        panel.
+    CapabilityError
+        When the source holds no probability model with a calibration table (a
+        ``ValueError`` subclass, for a point and a longitudinal source alike), or is a
+        continuous-time survival or adaptive TMLE fit, or the latter's nuisance report,
+        which keep no calibration table.
+    DataError
+        When the regimen, horizon or cause is not in a longitudinal report.
 
     See Also
     --------
@@ -423,7 +458,9 @@ def calibration(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes say the bins are descriptive,
-    which predictions they use, and how the slope and intercept are computed.
+    which predictions they use, and how the slope and intercept are computed. On a
+    longitudinal fit they also say which cross-fitting draw and which regimen's outcome
+    regressions are drawn.
 
     Examples
     --------
@@ -456,6 +493,24 @@ def calibration(
     """
     if hasattr(source, "bins") and hasattr(source, "slope") and hasattr(source, "intercept"):
         return _curve(source, title or None, ax)
+    over_time = _longitudinal_report(source)
+    if over_time is not None:
+        if ax is not None:
+            raise ValueError(
+                "calibration() draws a longitudinal fit in several panels; ax= is not accepted"
+            )
+        from ._diagnostics_time import node_calibration
+
+        report, weighted = over_time
+        return node_calibration(
+            report,
+            regimen=regimen,
+            horizon=horizon,
+            cause=cause,
+            weighted=weighted,
+            time_label=time_label,
+        )
+    _selectors_unused(regimen, horizon, cause)
     models, context = _probability_models(source)
     count = len(models)
     if ax is not None and count > 1:
@@ -616,11 +671,9 @@ def _from_reports(models: Sequence[Any], role: str | None) -> Figure:
         if getattr(model, "learner_risks", None)
     ]
     if not libraries:
-        raise ValueError(
-            "no nuisance model here was fitted by a Super Learner, so there are no candidate "
-            "risks or weights to draw; pass a SuperLearner as a learner, or a "
-            "SuperLearnerDiagnostics (a fitted SuperLearner's diagnostics_)"
-        )
+        from ._diagnostics_time import NO_SUPER_LEARNER
+
+        raise ValueError(NO_SUPER_LEARNER)
     return _libraries(
         libraries,
         None,
@@ -725,6 +778,10 @@ def _ctmle(selection: Any, ax: Axes | None) -> Figure:
 def learners(
     source: Any,
     *,
+    regimen: str | None = None,
+    horizon: int | None = None,
+    cause: str | None = None,
+    time_label: str = "Time point",
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -748,13 +805,30 @@ def learners(
 
     A :class:`~cleverly.estimators.CTMLESelection` (or a collaborative result that holds
     one) draws the cross-validated risk along the candidate sequence with the chosen
-    candidate marked, which shows whether the choice was sharp.
+    candidate marked, which shows whether the choice was sharp. A survival collaborative
+    fit draws the same for each arm and horizon, along its path of moves.
+
+    A longitudinal fit, or its ``diagnostics.nuisance_models()``, draws one column of
+    panels per nuisance role that a Super Learner fitted: the ensemble weights stacked at
+    each time point above, each candidate's cross-validated risk below.
 
     Parameters
     ----------
-    source : SuperLearnerDiagnostics or CTMLESelection or NuisanceModelReport or TMLEResult
-        What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``. A fit's
-        ``NuisanceDiagnostics`` is accepted too.
+    source : SuperLearnerDiagnostics or CTMLESelection or TMLEResult or LongitudinalResult
+        What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``. A
+        ``NuisanceModelReport``, a fit's ``NuisanceDiagnostics`` and a longitudinal fit's
+        ``diagnostics.nuisance_models()`` are accepted too.
+    regimen : str or None, default=None
+        On a longitudinal fit or its nuisance report, the regimen whose outcome regressions
+        are drawn; the first when omitted. The treatment and censoring models serve every
+        regimen and are always drawn.
+    horizon : int or None, default=None
+        The horizon of those outcome regressions on a fit with several; the largest when
+        omitted.
+    cause : str or None, default=None
+        Their cause under competing events; the first when omitted.
+    time_label : str, default="Time point"
+        Words for a time point on a longitudinal fit's panels.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -777,15 +851,22 @@ def learners(
     Returns
     -------
     Figure
-        Two panels per Super Learner, one for a collaborative selection.
+        Two panels per Super Learner, one for a collaborative selection, one per arm and
+        horizon for a survival collaborative fit, two per role for a longitudinal fit.
 
     Raises
     ------
     ValueError
         When the source holds nothing to draw (no nuisance model was fitted by a Super
-        Learner), or ``ax`` is given for the two-panel plot.
+        Learner), or ``ax`` is given for a figure of several panels.
     TypeError
         When the source is none of the above.
+    CapabilityError
+        When the source is an adaptive TMLE fit or its nuisance report, which keep no
+        candidate risks or weights, or a continuous-time survival fit, whose library
+        selections this plot does not draw yet.
+    DataError
+        When the regimen, horizon or cause is not in a longitudinal report.
 
     See Also
     --------
@@ -797,7 +878,9 @@ def learners(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes say the risks are descriptive
-    and what the criterion adds to the loss.
+    and what the criterion adds to the loss. On a longitudinal fit they also say that the
+    weights are averaged over folds, which draw and which regimen's outcome regressions are
+    drawn.
 
     Examples
     --------
@@ -822,6 +905,26 @@ def learners(
     >>> plt.close(fig)
     """
     role = None
+    from ..longitudinal.estimator import LongitudinalResult
+
+    if isinstance(source, LongitudinalResult) and source.selection is not None:
+        if ax is not None:
+            raise ValueError("learners() draws one panel per arm and horizon; ax= is not accepted")
+        _selectors_unused(regimen, horizon, cause)
+        from ._diagnostics_time import selection_paths
+
+        return selection_paths(source.selection)
+    over_time = _longitudinal_report(source)
+    if over_time is not None:
+        if ax is not None:
+            raise ValueError("learners() draws two panels per role; ax= is not accepted")
+        from ._diagnostics_time import node_learners
+
+        return node_learners(
+            over_time[0], regimen=regimen, horizon=horizon, cause=cause, time_label=time_label
+        )
+    _selectors_unused(regimen, horizon, cause)
+    _refuse_unread(source, "learners")
     if hasattr(source, "ctmle_selection") or hasattr(source, "diagnostics"):
         selection = getattr(source, "ctmle_selection", None)
         if selection is not None and hasattr(selection, "cv_risk") and hasattr(selection, "path"):
@@ -831,6 +934,7 @@ def learners(
                 f"learners() cannot read the nuisance models of {type(source).__name__}"
             )
         source = source.diagnostics.nuisance_models()
+        _refuse_unread(source, "learners")
     if hasattr(source, "selected") and hasattr(source, "cv_risk") and hasattr(source, "path"):
         return _ctmle(source, ax)
     if ax is not None:
@@ -854,11 +958,81 @@ def learners(
         return _from_reports([source], role)
     raise TypeError(
         "learners() takes SuperLearnerDiagnostics, a CTMLESelection, a NuisanceModelReport, "
-        f"a fit's nuisance_models() or a fitted result; got {type(source).__name__}"
+        f"a point-treatment fit or its nuisance_models(); got {type(source).__name__}"
     )
 
 
+def _longitudinal_report(source: Any) -> tuple[Any, bool | None] | None:
+    """A longitudinal fit's nuisance report and whether its data are weighted, or ``None``."""
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..validation.longitudinal import LongitudinalNuisanceDiagnostics
+
+    if isinstance(source, LongitudinalNuisanceDiagnostics):
+        return source, None
+    if isinstance(source, LongitudinalResult):
+        values = np.asarray(source.data.weights, dtype=float)
+        weighted = bool(values.size and not np.allclose(values, values[0]))
+        return source.diagnostics.nuisance_models(), weighted
+    return None
+
+
+def _selectors_unused(regimen: str | None, horizon: int | None, cause: str | None) -> None:
+    named = [
+        f"{key}="
+        for key, value in (("regimen", regimen), ("horizon", horizon), ("cause", cause))
+        if value is not None
+    ]
+    if named:
+        raise ValueError(f"{', '.join(named)} selects in a longitudinal fit's nuisance report")
+
+
+def _refuse_unread(source: Any, plot: str) -> None:
+    """Refuse the fits and reports whose nuisance models this plot cannot or does not draw."""
+    from .._refusal import RefusalReason
+    from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
+    from ..exceptions import CapabilityError
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(source, ContinuousSurvivalResult):
+        if plot == "calibration":
+            raise CapabilityError(
+                "calibration() draws a nuisance report's calibration table; a continuous-time "
+                "survival fit keeps no nuisance report, only its library selections in "
+                "result.record.",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        raise CapabilityError(
+            f"{plot}() does not yet draw a continuous-time survival fit's hazard and "
+            "treatment library selections.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Read them in result.record.",
+            roadmap="X100",
+        )
+    if isinstance(source, (AdaptiveTMLEResult, AdaptiveTMLENuisanceReport)):
+        reads, held = (
+            ("learner library", "no candidate risks or ensemble weights")
+            if plot == "learners"
+            else ("calibration tables", "no calibration table of predicted probabilities")
+        )
+        raise CapabilityError(
+            f"{plot}() reads a nuisance report's {reads}; an adaptive TMLE fit's nuisance "
+            f"report keeps each role's learner name only, with {held}.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+
+
 # ---------------------------------------------------------------------------- repeats
+
+
+def _draw_values(draw: Any) -> Mapping[str, float]:
+    """Each estimate's value in one cross-fitting draw.
+
+    A point-treatment draw holds them as ``psi``; a longitudinal draw holds its whole
+    estimate mapping (``LongitudinalRepeat.estimates``).
+    """
+    if hasattr(draw, "psi"):
+        return dict(draw.psi)
+    return {str(key): float(value.psi) for key, value in draw.estimates.items()}
 
 
 def _estimate_of(result: Any, name: str | None) -> tuple[str, Any]:
@@ -907,7 +1081,7 @@ def repeats(
 
     Parameters
     ----------
-    result : TMLEResult
+    result : TMLEResult or LongitudinalResult
         A fit with at least two cross-fitting repeats.
     name : str or None, default=None
         The estimand to draw; the first one when omitted.
@@ -946,6 +1120,8 @@ def repeats(
     ValueError
         When the fit has one repeat, the estimand is unknown, or a repeat does not hold the
         estimand.
+    CapabilityError
+        When the result was not fitted with repeated cross-fitting splits.
 
     See Also
     --------
@@ -986,16 +1162,26 @@ def repeats(
     'Estimate across repeated splits'
     >>> plt.close(fig)
     """
+    if not hasattr(result, "repeats"):
+        from .._refusal import RefusalReason
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
+            "repeats() draws the estimate of each cross-fitting split of a fit run with "
+            f"repeats=; this {type(result).__name__} has no repeated splits.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     draws = tuple(result.repeats)
     if len(draws) < 2:
         raise ValueError(
             "this fit has one cross-fitting repeat, so there is no spread to show; fit with "
-            "repeats=3 or more"
+            "repeats=2 or more"
         )
     label, estimate = _estimate_of(result, name)
-    if any(label not in draw.psi for draw in draws):
+    per_draw = [_draw_values(draw) for draw in draws]
+    if any(label not in values for values in per_draw):
         raise ValueError(f"the repeats do not hold a per-repeat estimate of {label!r}")
-    values = np.asarray([float(draw.psi[label]) for draw in draws])
+    values = np.asarray([float(values[label]) for values in per_draw])
     shown = _core.estimate_interval(estimate, label)
     fig, axis = _core.figure_for(ax)
     rows = np.arange(1, len(values) + 1, dtype=float)
@@ -1263,8 +1449,12 @@ def bootstrap(
         if getattr(result, "bootstrap", None) is None:
             raise ValueError("this fit holds no bootstrap replicates; fit with n_bootstrap > 0")
         replicates = result.bootstrap
-    else:
+    elif hasattr(source, "draws"):
         replicates = source
+    else:
+        raise TypeError(
+            f"bootstrap() takes a fitted result or its BootstrapResult; got {type(source).__name__}"
+        )
     held = list(replicates.draws)
     if name is None:
         ordered = [alias for alias in (result.estimates if result else ()) if alias in held]
@@ -1555,7 +1745,7 @@ def influence(
     if result is not None:
         label, estimate = _estimate_of(result, name)
         if cluster is None:
-            cluster = getattr(result.data, "cluster", None)
+            cluster = getattr(getattr(result, "data", None), "cluster", None)
     elif hasattr(source, "influence_curve"):
         estimate, label = source, str(source.name)
     else:

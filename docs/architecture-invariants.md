@@ -734,7 +734,8 @@ outcome design at node $t$ reads `W` and a window of the last nodes. The `histor
 `policy_frame` that a rule or a policy reads keep the full history. So a window never changes a
 resolved plan. A rule node in the window adds its assigned arm to the outcome design, because the
 window does not determine that arm. The outcome and mechanism designs read the arms of the same
-nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
+nodes, from $t-k-1$, or from node 1 on a held design, whose decision is the arm of every node.
+`LongitudinalData.window_arm_start` is the one home of that start. `tests/unit/test_longitudinal_markov_order.py` pins both
 frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
 check there.
 
@@ -826,9 +827,10 @@ nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
 
-Hazard targeting (`survival_model="hazard"`) requires a held baseline decision over a categorical
-treatment and no covariate measured after baseline. It refuses any other design before any learner
-(H1 to H3, H7 and H11 of
+Hazard targeting (`survival_model="hazard"`) requires a held baseline decision and no covariate
+measured after baseline. A categorical treatment takes any regimen; a continuous treatment or a
+vector with a dose takes a modified treatment policy. It refuses any other design before any learner
+(H1 to H3 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
 The hazard model conditions on the baseline treatment and the baseline covariates only. A later
 treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard

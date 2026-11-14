@@ -626,6 +626,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
     from tests.studies.canonical_full_refit_bootstrap import STUDY as FULL_REFIT_BOOTSTRAP
     from tests.studies.canonical_hazard_msm import STUDY as HAZARD_MSM
+    from tests.studies.canonical_hazard_mtp import STUDY as HAZARD_MTP
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
@@ -673,6 +674,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
     from tests.studies.canonical_mtp_tuning import STUDY as MTP_TUNING
     from tests.studies.canonical_multi_arm_ctmle_oat import (
@@ -743,6 +745,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
     from tests.studies.drtmle_foldwise import STUDY as DRTMLE_FOLDWISE
+    from tests.studies.drtmle_foldwise_n1500 import STUDY as DRTMLE_FOLDWISE_N1500
     from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
     from tests.studies.eliminated_competing_events import STUDY as ELIMINATED_COMPETING_EVENTS
     from tests.studies.ep_assessment import STUDY as EP_ASSESSMENT
@@ -770,6 +773,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.marginal_bound_coverage import STUDY as MARGINAL_BOUND_LIMIT_COVERAGE
     from tests.studies.missingness_tilt_inference import STUDY as MISSINGNESS_TILT_INFERENCE
+    from tests.studies.multi_arm_drtmle_foldwise import STUDY as MULTI_ARM_DRTMLE_FOLDWISE
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
@@ -784,6 +788,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
     from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
     from tests.studies.small_sample_wald import STUDY as SMALL_SAMPLE_WALD
+    from tests.studies.stratified_drtmle_foldwise import STUDY as STRATIFIED_DRTMLE_FOLDWISE
     from tests.studies.survival_ctmle import STUDY as SURVIVAL_CTMLE
     from tests.studies.survival_dr_tmle import STUDY as SURVIVAL_DR_TMLE
     from tests.studies.targeting_curves import STUDY as TARGETING_CURVES
@@ -850,6 +855,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_CTMLE,
         SURVIVAL_DR_TMLE,
         HAZARD_MSM,
+        HAZARD_MTP,
         CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
@@ -875,6 +881,7 @@ def registered() -> tuple[StudyRecord, ...]:
         MTP_BOUNDARIES,
         MTP_PRICING,
         MTP_TUNING,
+        MTP_POLICY_VARIANCE,
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,
@@ -912,6 +919,9 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
         DRTMLE_FOLDWISE,
+        DRTMLE_FOLDWISE_N1500,
+        MULTI_ARM_DRTMLE_FOLDWISE,
+        STRATIFIED_DRTMLE_FOLDWISE,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,

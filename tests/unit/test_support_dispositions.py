@@ -118,6 +118,70 @@ class TestDefaults:
         assert entry.limit == "X13-finite-sample: coverage 0.931 to 0.944"
         assert entry.flag == ""
 
+    def test_the_rm18_one_sided_bias_owner_states_the_pooled_leak_as_a_limit(self) -> None:
+        """Fix-6 D2: the owner is the standing record of the pooled option, not a flag."""
+        assert "RM18-one-sided-bias" in sd.LIMIT_OWNERS
+        assert "RM18-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
+        (entry,) = self.draft(
+            positive(
+                "study-b",
+                "property",
+                "double_robustness/treatment_correct",
+                owner="RM18-one-sided-bias",
+                measured="bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
+            )
+        )
+        assert entry.disposition == "supported with a stated limit"
+        assert entry.limit == (
+            "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671"
+        )
+        assert entry.flag == ""
+
+    def test_the_committed_rm18_lines_are_stated_limits_of_d01_and_d02(self) -> None:
+        lines = {
+            (key.slug, key.key): entry
+            for key, entry in sd.DISPOSITIONS.items()
+            if entry.limit.startswith("RM18-one-sided-bias:")
+        }
+        assert set(lines) == {
+            ("canonical-drtmle", "double_robustness/outcome_correct"),
+            ("canonical-drtmle", "double_robustness/treatment_correct"),
+            ("canonical-multi-arm-drtmle", "double_robustness/treatment_correct"),
+        }
+        assert {entry.row for entry in lines.values()} == {"D01", "D02"}
+        assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
+
+    def test_the_x8_one_sided_bias_owner_states_a_finite_sample_limit(self) -> None:
+        """Fix-6 D4: the default's stratified bias contracts faster than n^-1/2."""
+        assert "X8-drtmle-one-sided-bias" in sd.LIMIT_OWNERS
+        assert "X8-drtmle-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
+        lines = {
+            key.key: entry
+            for key, entry in sd.DISPOSITIONS.items()
+            if entry.limit.startswith("X8-drtmle-one-sided-bias:")
+        }
+        assert set(lines) == {
+            f"double_robustness/{label}_ate__treatment_correct"
+            for label in ("marginal", "v0", "v1", "v2")
+        }
+        assert {entry.row for entry in lines.values()} == {"D03"}
+        assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
+
+    def test_the_foldwise_small_stratum_row_marks_d13_wald_experimental(self) -> None:
+        """S1: a defect suspect, so a Wald shortfall on D13 rather than a stated limit."""
+        from cleverly._support_rows import SHORTFALLS
+
+        key = RedKey(
+            "stratified-drtmle-foldwise",
+            "truth",
+            "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+        )
+        entry = sd.DISPOSITIONS[key]
+        assert (entry.row, entry.kinds) == ("D13", ("wald",))
+        assert (entry.disposition, entry.limit) == ("experimental", "")
+        assert key not in sd.NO_SHORTFALL
+        assert "defect suspect" in SHORTFALLS["D13", "wald"]
+
     def test_the_x20_crossfit_cell_is_experimental_and_the_clustered_cell_is_flagged(self) -> None:
         crossfit, clustered = self.draft(
             positive(
@@ -140,7 +204,7 @@ class TestDefaults:
 
     @pytest.mark.parametrize(
         "owner",
-        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "RM18-one-sided-bias", "F27"],
+        ["X8-logit-small-stratum", "F27"],
     )
     def test_the_flagged_experimental_owners_are_flagged(self, owner: str) -> None:
         (entry,) = self.draft(

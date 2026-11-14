@@ -93,6 +93,21 @@ holds one decision.
 gives the contract and its evidence.
 :::
 
+To check overlap, plot each person's predicted chance of treatment at baseline:
+
+```python
+from cleverly.plotting import notes, overlap
+
+fig = overlap(curve, censoring=True)
+print(notes(fig))
+```
+
+The top panel shows that chance for the treated above the axis and the untreated below. Where one
+group has people and the other has none, the comparison leans on the model there rather than on
+data. The fit limits the product of that chance and the chance of staying in follow-up, not the
+chance alone, so `censoring=True` adds that product for each plan up to the last horizon, with the
+limit as a dotted line and the share of people beyond it printed at its foot.
+
 [Readmission by day 30, 60 and 90](../examples/discharge-to-readmission.ipynb) works a full
 analysis with this design.
 
@@ -199,6 +214,12 @@ the time. So an estimate reads `supported` only at a time by which 40% to 85% of
 any cause have happened, not counting people who left follow-up. By time 0.5 about a fifth had,
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
+
+`exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
+each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
+the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests
+and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
+lists each with its reason.
 
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.
@@ -405,7 +426,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one categorical treatment at baseline, held over every time point, and no covariate after baseline |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, and no covariate after baseline. The treatment can be categories, or a dose under a plan that changes each person's dose |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
@@ -454,9 +475,22 @@ states each claim and its condition.
 :::
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points, a covariate after baseline, a
-continuous treatment, and a modified treatment policy. Each message points to the default model,
-which fits those designs.
+The hazard model refuses a treatment at several time points and a covariate after baseline.
+Each message points to the default model, which fits those designs.
+
+A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
+model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.
+Each such plan gets its own correction of the hazards, so with `targeting="one_step"` its curve
+never dips. The [hazard policy study](../technical-reference/method-evidence/hazard-mtp.md)
+measures such fits in sample and with cross-fitting. With `ratio="density"`, which bins the
+dose to compare the shifted and the observed dose, it covers only a dose with a fixed range,
+because on an unbounded dose the outer bins are wider than the shift.
+
+A few settings cannot be combined with such a plan, and
+[the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
+list them.
+[A modified treatment policy on the hazard path](../technical-reference/longitudinal-tmle.md#a-modified-treatment-policy-on-the-hazard-path)
+gives the exact estimand and its checks.
 [Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
 gives the contract, both algorithms, and the evidence.
 
@@ -491,7 +525,9 @@ Stitelman and van der Laan (2010) found the points unbiased when the event model
 a covariate that strongly predicts treatment but not the event, their typical error was 40% to
 65% of that of the ordinary hazard fit with every covariate in the treatment model. When the
 event model was wrong, some points were biased by up to about one standard deviation of the
-estimate. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
+estimate. `cleverly.plotting.learners(result)` draws each arm's sequence of added covariates with
+the one the search chose marked, and `cleverly.plotting.overlap(result)` draws each arm's chosen
+treatment model. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
 [Time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)
 gives the algorithm and what it refuses.
 

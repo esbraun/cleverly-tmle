@@ -100,6 +100,17 @@ weights raised to the positivity floor (`bounded_share`), the pairs below it at 
 (`last_time_floor_share`), the pairs held by the walk (`frozen_share`), and the random times at
 which the score equation also holds (`off_grid_share`).
 
+The record also stores the factors of the positivity condition, for overlap plots and the
+support diagnostic below. `p1` holds each row's $\hat\pi(1 \mid L_i)$, the probability of the
+treated arm, with shape `(n,)`. `retention_before` holds $\hat S_c(t_k^- \mid a, L_i)$, the
+probability of remaining uncensored just before each target time had the row received arm $a$,
+with shape `(2, n, n_target_times)` and the arms in the order of `arms`. Both are predicted out of
+fold when the fit is cross-fitted, in sample otherwise, and stored as fitted, before any bound.
+The weights bound the product $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ for both arms and
+never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` holds each row's
+received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
+arrays.
+
 ## Restricted means, ratios and the curve
 
 The restricted mean time lost to cause $j$ up to $\tau$ and the restricted mean survival time are
@@ -154,6 +165,42 @@ identity scale, as a risk difference does.
 the unmeasured confounder to affect the treatment and the event only, and not censoring given
 $(A, L)$. No coverage study registers its confidence-limit E-value, so the limit prints as
 descriptive.
+
+## Assessment
+
+`ContinuousSurvivalResult` declares a capability row for every assessment operation, so
+`result.assess()` reports each operation as run or refused and does not raise for a refused one.
+Each diagnostic that runs reads the record and the influence curves and refits nothing.
+
+| operation | status | what it reads, or why it refuses |
+| --- | --- | --- |
+| `diagnostics.support()` | runs, `completed`; `warning` when the floor raised more than 1% of the followed cells | the quantiles of $\hat\pi(1 \mid L)$ overall and by arm, its tail shares, the Kish ratio of $1 / \hat\pi(A \mid L)$ in each arm, the quantiles of $\hat S_c(t_k^- \mid A, L)$ at each target time, `bounded_share` (which grades the row on the point support report's 1% and 5% truncation tiers), `last_time_floor_share` and `frozen_share` |
+| `diagnostics.score_equations()` | runs, `passed` or `failed` | each target's $\lvert P_n D^* \rvert / \hat\sigma$ against the walk's cutoff, the steps and halvings; an explicit `tolerance` is refused, because the cutoff is the fit's own stopping rule |
+| `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
+| `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
+| `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
+| `diagnostics.refute()` | refused, [X101](../roadmap.md#x101-assessment-of-continuous-time-survival-fits) | each test refits the estimator on perturbed data, and the result keeps neither its estimator nor its data |
+| `diagnostics.truncation_curve()` | refused, X101 | each point reruns the walk at another floor, and the result keeps no initial hazard jumps |
+| `sensitivity.simulated_confounding()` | refused, X101 | the replay refits on simulated data, as `refute` does |
+| `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
+| `sensitivity.marginal_bounds()` | refused, F16 | the point-treatment bound tilts the outcome regression of an arm mean, and no tilt of the cause-specific hazards is derived |
+| `sensitivity.missingness()`, `tipping_gamma()` | refused, F16 | the tilt perturbs a missing-at-random outcome, and no tilt of independent censoring in continuous time is derived |
+| `sensitivity.evalue(estimand=(numerator, denominator))` | runs, `passed`; deferred without an estimand | the E-value of `result.ratio(numerator, denominator)`, the two arms' risks at one cause and target time, as [above](#restricted-means-ratios-and-the-curve) |
+
+Each refusal is a `CapabilityError` carrying the record its row declares. The free functions of
+`cleverly.sensitivity` and `cleverly.validation` raise the same record before they read any
+point-treatment attribute. `tests/unit/test_continuous_survival_assessment.py` checks every row and
+every refusal, and that `influence()` reads each estimate's influence curve. The capability sweep
+(`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
+agrees.
+
+The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
+support row, and a censoring model that depends on the arm. Under that model each arm's stored
+censoring survival matches the model's prediction under that arm, recomputed as the product over the
+observed times strictly before each target, and the two arms differ. One target sits on an observed
+censoring time, so a lookup that includes that time's own jump fails. Under cross-fitting, a patched
+treatment fit whose value encodes its training rows shows that each row stores the probability from
+the model its own fold did not train.
 
 ## What is refused
 

@@ -1,4 +1,7 @@
-"""Every hazard and isotonic refusal, pinned by type and message before any learner (X14 H1-H11).
+"""Every hazard and isotonic refusal, pinned by type and message before any learner.
+
+X14 shipped H1 to H13.  X70 narrowed H5 and added H14 (part (d)); part (c) closed H7 and H11,
+whose tests now check that the same designs fit, and added H16, H19, H20, H24 and H25.
 
 Each fit passes learners that raise on ``fit``, so a refusal that reached a learner would
 fail with ``AssertionError`` rather than the refusal under test.
@@ -12,10 +15,20 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LogisticRegression
 
+from cleverly.assessment import assessment_capabilities
 from cleverly.exceptions import CapabilityError, MethodConfigurationError, RefusalReason
-from cleverly.interventions import ModifiedPolicy, Shift
-from cleverly.longitudinal import IPSI, LTMLE, SDR, SequentialGComputation, SequentialIPW
+from cleverly.interventions import DoseQuantile, ModifiedPolicy, Shift
+from cleverly.longitudinal import (
+    IPSI,
+    LTMLE,
+    SDR,
+    Separable,
+    SequentialGComputation,
+    SequentialIPW,
+)
+from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.methods import (
     GComputationMethod,
     IPSIMethod,
@@ -24,7 +37,12 @@ from cleverly.methods import (
     TMLEMethod,
 )
 from cleverly.msm import MSM
-from tests.discrete_law_point_survival import CellMeans, end_of_study_law, survival_law
+from tests.discrete_law_point_survival import (
+    CellMeans,
+    CellProbabilities,
+    end_of_study_law,
+    survival_law,
+)
 
 
 class _Refuse(CellMeans):
@@ -195,23 +213,147 @@ def test_h6_a_pseudo_learner_on_a_hazard_fit_is_refused() -> None:
         LTMLE({"a1": 1}, survival_model="hazard", pseudo_learner=_Refuse(), **_refusing())
 
 
-def test_h7_a_modified_treatment_policy_is_refused() -> None:
+def test_h7_a_modified_treatment_policy_now_fits() -> None:
+    """X70 part (c) closed H7: a policy on the categorical baseline treatment is fitted."""
+    result = LTMLE(
+        {"up": _up()},
+        n_folds=1,
+        survival_model="hazard",
+        outcome_learner=CellMeans(),
+        treatment_learner=CellProbabilities(),
+        censoring_learner=CellMeans(),
+    ).fit(LAW.frame(), **LAW.fit_columns())
+    assert all(fit.hazard is not None and fit.hazard.converged for fit in result.fits.values())
+
+
+def _up() -> ModifiedPolicy:
     def up(a: Any, h: Any) -> Any:
         return np.minimum(np.asarray(a, dtype=float) + 1.0, 2.0)
 
-    policy = ModifiedPolicy("up", apply=up, policy_kind="known")
+    return ModifiedPolicy("up", apply=up, policy_kind="known")
+
+
+def test_h16_a_tuned_cap_on_a_hazard_fit_is_refused() -> None:
+    frame, columns = _dose_frame()
     message = (
-        "regimen 'up' is a modified treatment policy, and survival_model='hazard' does not "
-        "support one. Its plug-in evaluates the event and censoring hazards at the shifted "
-        "dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use "
-        "survival_model='iterated_mean', which supports a modified treatment policy at "
-        "baseline."
+        "regimen 'up' tunes its cap from the treatment law, and survival_model='hazard' does "
+        "not build the tuner's term in the influence curve. Use survival_model='iterated_mean', "
+        "which builds it."
     )
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        LTMLE({"up": policy}, n_folds=1, survival_model="hazard", **_refusing()).fit(
+        LTMLE(
+            {"up": Shift(0.5, cap=DoseQuantile(0.9), target="population")},
+            n_folds=1,
+            survival_model="hazard",
+            **_refusing(),
+        ).fit(frame, **columns)
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert raised.value.refusal.roadmap is None
+
+
+def test_h19_a_working_model_beside_a_policy_on_a_hazard_fit_is_refused() -> None:
+    message = (
+        "msm= with survival_model='hazard' cannot take the modified treatment policy 'up'. Each "
+        "such policy is targeted by its own weighted walk, and a coefficient score sums cells "
+        "of every regimen, so no one walk solves it. Fit msm= with "
+        "survival_model='iterated_mean', which takes a modified treatment policy cell."
+    )
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+        LTMLE(
+            {"a0": 0, "up": _up()},
+            n_folds=1,
+            msm=_msm(),
+            survival_model="hazard",
+            targeting="one_step",
+            **_refusing(),
+        ).fit(LAW.frame(), **LAW.fit_columns())
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+
+
+def test_h20_a_separable_regimen_beside_a_policy_is_refused() -> None:
+    law = survival_law(causes=2)
+    message = (
+        "a Separable regimen and the modified treatment policy 'up' cannot share one fit. A "
+        "separable fit targets every regimen of the fit on the two hazard factors, and a "
+        "modified treatment policy needs its own weighted walk. Fit the separable regimens and "
+        "the modified treatment policy in two LTMLE calls."
+    )
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+        LTMLE(
+            {"up": _up(), "sep": Separable(arms={"death": 0, "relapse": 1}, first="death")},
+            n_folds=1,
+            survival_model="hazard",
+            targeting="one_step",
+            **_refusing(),
+        ).fit(law.frame(), **law.fit_columns())
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+
+
+def test_h24_pooled_hazards_beside_a_policy_are_refused() -> None:
+    message = (
+        "hazard_pooling='pooled' cannot take the modified treatment policy 'up'. The pooled "
+        "hazard fit predicts every regimen at its plan's treatment values and builds no design "
+        "at a shifted dose. Set hazard_pooling='node', which predicts each shifted dose from "
+        "its own design."
+    )
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+        LTMLE(
+            {"a0": 0, "up": _up()},
+            n_folds=1,
+            survival_model="hazard",
+            hazard_pooling="pooled",
+            **_refusing(),
+        ).fit(LAW.frame(), **LAW.fit_columns())
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    # An iterated-mean fit pools its censoring regressions beside a policy and reaches them.
+    with pytest.raises(AssertionError, match="a learner ran"):
+        LTMLE({"up": _up()}, n_folds=1, hazard_pooling="pooled", **_refusing()).fit(
             LAW.frame(), **LAW.fit_columns()
         )
-    _assert_gap(raised.value)
+
+
+def test_h25_a_truncation_replay_of_a_policy_walk_is_refused() -> None:
+    result = LTMLE(
+        {"a0": 0, "up": _up()},
+        n_folds=1,
+        survival_model="hazard",
+        targeting="one_step",
+        outcome_learner=CellMeans(),
+        treatment_learner=CellProbabilities(),
+        censoring_learner=CellMeans(),
+    ).fit(LAW.frame(), **LAW.fit_columns())
+    message = (
+        "the truncation replay re-targets the retained initial hazards of one shared walk, and "
+        "regimen 'up' was targeted by its own weighted walk, whose slot hazards and loss "
+        "weights the replay does not rebuild. Refit with each g_bounds= value, or replay a fit "
+        "without a modified treatment policy."
+    )
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+        result.diagnostics.truncation_curve(bounds=[0.05])
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    # The row reads unavailable before any call, with the record the replay raises.
+    (row,) = (
+        item for item in assessment_capabilities(result) if item.operation == "truncation_curve"
+    )
+    assert not row.available
+    with pytest.raises(CapabilityError, match=re.escape(message)) as replayed:
+        longitudinal_truncation_curve(result, [0.05])
+    assert row.refusal == replayed.value.refusal
+    # The witness: the same fit without the policy replays, and its row reads available.
+    static = LTMLE(
+        {"a0": 0, "a1": 1},
+        n_folds=1,
+        survival_model="hazard",
+        targeting="one_step",
+        outcome_learner=CellMeans(),
+        treatment_learner=CellProbabilities(),
+        censoring_learner=CellMeans(),
+    ).fit(LAW.frame(), **LAW.fit_columns())
+    (row,) = (
+        item for item in assessment_capabilities(static) if item.operation == "truncation_curve"
+    )
+    assert row.available
+    assert len(static.diagnostics.truncation_curve(bounds=[0.05]).to_frame())
 
 
 @pytest.mark.parametrize(
@@ -296,27 +438,35 @@ def test_h12_the_untargeted_engines_take_no_curve_option(engine: type) -> None:
     assert "isotonic" not in IPSIMethod().estimator_kwargs(longitudinal=True)
 
 
-def test_h11_a_continuous_baseline_treatment_is_refused() -> None:
+def _dose_frame() -> tuple[pd.DataFrame, dict[str, Any]]:
     rng = np.random.default_rng(0)
-    n = 200
-    w = rng.integers(0, 2, n).astype(float)
-    frame = pd.DataFrame({"W": w, "D": rng.uniform(0.0, 2.0, n)})
+    n = 1_000
+    frame = pd.DataFrame({"W": rng.integers(0, 2, n).astype(float), "D": rng.uniform(0, 2, n)})
     for k in (1, 2):
         frame[f"C{k}"] = 1.0
-        frame[f"Y{k}"] = 0.0
-    message = (
-        "survival_model='hazard' needs a categorical baseline treatment, and treatment 'D' "
-        "is continuous. The hazard plug-in would need the treatment density at every dose, "
-        "and that construction is not built. X70 in docs/roadmap.md tracks this. Use "
-        "survival_model='iterated_mean'."
-    )
-    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        LTMLE({"up": Shift(0.5, cap=None)}, n_folds=1, survival_model="hazard", **_refusing()).fit(
-            frame,
-            treatment="D",
-            continuous_treatment=["D"],
-            outcome=["Y1", "Y2"],
-            baseline=["W"],
-            censoring=["C1", "C2"],
-        )
-    _assert_gap(raised.value)
+        frame[f"Y{k}"] = (rng.uniform(size=n) < 0.2).astype(float)
+    first = frame["Y1"] == 1.0
+    frame.loc[first, ["C2", "Y2"]] = np.nan
+    columns: dict[str, Any] = {
+        "treatment": "D",
+        "continuous_treatment": ["D"],
+        "outcome": ["Y1", "Y2"],
+        "baseline": ["W"],
+        "censoring": ["C1", "C2"],
+    }
+    return frame, columns
+
+
+def test_h11_a_continuous_baseline_treatment_now_fits() -> None:
+    """X70 part (c) closed H11: a policy on a continuous baseline dose is fitted."""
+    frame, columns = _dose_frame()
+    result = LTMLE(
+        {"up": Shift(0.5, cap=None)},
+        n_folds=1,
+        survival_model="hazard",
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        censoring_learner=CellMeans(),
+    ).fit(frame, **columns)
+    estimates = [result.estimates[f"risk_regimen[up @ t={t}]"].psi for t in (1, 2)]
+    assert 0.0 < estimates[0] <= estimates[1] < 1.0

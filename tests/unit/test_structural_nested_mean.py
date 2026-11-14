@@ -940,16 +940,13 @@ def test_w7_a_time_varying_blip_feature_allows_blips_only() -> None:
     features = {2: ["S2"]}
     clean = StructuralNestedMean(None, blip_features=features, **GLMS).fit(frame, **SIM)
     assert "blip[A2:1:S2]" in clean and "ey_reference" in clean
-    _refused(
-        RefusalReason.IMPLEMENTATION_GAP,
+    for call in (
         lambda: StructuralNestedMean(REGIMENS, blip_features=features, **GLMS).fit(frame, **SIM),
-        roadmap="X72",
-    )
-    _refused(
-        RefusalReason.IMPLEMENTATION_GAP,
         lambda: clean.check_model(),
-        roadmap="X72",
-    )
+    ):
+        error = _refused(RefusalReason.API_REDIRECTION, call)
+        assert error.refusal.roadmap is None
+        assert "LTMLE or SDR" in str(error)
 
 
 def test_w7_a_singular_block_is_refused() -> None:

@@ -66,6 +66,9 @@ SHOWN = (
     "working_model_projection",
 )
 WITHHELD = tuple(status for status in PRECEDENCE if status not in SHOWN)
+#: Statuses whose interval no roadmap item plans to reopen: the owner removed the
+#: non-TMLE baseline items on 2026-11-14, so the record's alternative is the route.
+NO_REOPEN_ROUTE = frozenset({"adaptive_baseline_plugin"})
 
 
 def _status_table() -> list[list[str]]:
@@ -109,9 +112,13 @@ class TestEachRecordIsComplete:
             record.assessment_note,
             record.bootstrap_note,
             record.diagnostic_noun,
-            record.reopened_by,
         ):
             assert text.strip() == text and text
+        if status in NO_REOPEN_ROUTE:
+            assert record.reopened_by is None
+        else:
+            assert record.reopened_by is not None
+            assert record.reopened_by.strip() == record.reopened_by and record.reopened_by
 
     @pytest.mark.parametrize("status", list(STATUS_RECORDS))
     def test_the_reason_is_whole_sentences(self, status: str) -> None:
@@ -155,6 +162,11 @@ class TestEachRecordIsComplete:
     @pytest.mark.parametrize("status", list(STATUS_RECORDS))
     def test_the_reason_names_its_roadmap_item_and_the_anchor_exists(self, status: str) -> None:
         record = STATUS_RECORDS[status]
+        if record.reopened_by is None:
+            assert status in NO_REOPEN_ROUTE
+            assert "docs/roadmap.md" not in record.reason
+            assert "roadmap" not in record.assessment_note
+            return
         assert f"{record.reopened_by} in docs/roadmap.md" in record.reason
         assert f"{record.reopened_by} in the roadmap" in record.assessment_note
         heading = re.compile(rf"^#{{2,4}} {re.escape(record.reopened_by)}\. ", re.MULTILINE)
@@ -184,7 +196,10 @@ class TestTheDocumentedTable:
             # A shown status keeps the ordinary column. A withheld one prints the plug-in SE.
             label = SPREAD_LABELS[spread_name("std_err", status)]
             assert f"`{label}`" in cells
-            assert f"[{record.reopened_by}](" in cells
+            if record.reopened_by is None:
+                assert "roadmap.md" not in cells
+            else:
+                assert f"[{record.reopened_by}](" in cells
 
 
 class TestThePrecedence:

@@ -127,11 +127,16 @@ ACCEPTED_LABEL = "accepted (named exception)"
 
 
 def _accepted_by_exception(slug: str, implementation: str, scenario: str, estimand: str) -> bool:
-    """Whether a truth row is the one its owner accepted by a named exception."""
-    # Imported here because ``red_cells`` itself imports this module.
-    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, RedKey
+    """Whether a truth row was accepted as valid by a named exception.
 
-    return RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}") in ACCEPTED_BY_EXCEPTION
+    An exception whose row also has an owner only lifts the ``reporting`` requirement, so that
+    row still prints as failed.
+    """
+    # Imported here because ``red_cells`` itself imports this module.
+    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS, RedKey
+
+    key = RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}")
+    return key in ACCEPTED_BY_EXCEPTION and key not in OWNERS
 
 
 def _comparison_result(row: Any) -> str:
@@ -407,6 +412,25 @@ def measured(row: Any) -> str:
                 f"lower bound {render(float(row.gain_lower))}"
             )
         return measured
+    if family in _POLICY_VARIANCE_FAMILIES:
+        # ``mtp-policy-variance``: an option row is judged on its coverage floor and its SE-ratio
+        # clause, a control on one of the two, and a reported row reads both, so every row
+        # prints both intervals with the code-read reading and the lowest-SE-quartile coverage.
+        measured = (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+        if pd.notna(getattr(row, "q1_coverage", None)):
+            measured += (
+                f", lowest-SE-quartile coverage {render(float(row.q1_coverage))} "
+                f"({_interval(row.q1_coverage_ci_lower, row.q1_coverage_ci_upper)})"
+            )
+        if pd.notna(getattr(row, "rms_ratio", None)):
+            measured += f", RMS ratio {_interval(row.rms_ratio_ci_lower, row.rms_ratio_ci_upper)}"
+        reading = getattr(row, "reading", None)
+        if isinstance(reading, str) and reading:
+            measured += f", reads {reading}"
+        return measured
     if family in {"non_h1", "witness"}:
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
@@ -489,6 +513,20 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
+    if family == "stratified_contraction":
+        # Fix-6's stratified ladder: a rate row answers to its slope, and a rung to its SE ratio
+        # alone, so the rung prints that interval beside its published bias and coverage, and
+        # the coverage its bias and SE ratio imply.
+        if "__rate_" in str(row.cell):
+            return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+        rung = (
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"bias {render(float(row.standardized_bias))} SD, "
+            f"coverage {render(float(row.coverage))}"
+        )
+        if str(row.role) == "control":
+            return rung
+        return f"{rung} against {render(float(row.implied_coverage))} implied"
     if family in {"refuter_size", "refuter_power"}:
         # The cell's verdict reads the count of its trials, so the row prints that count.
         word = "rejections" if family == "refuter_size" else "detections"
@@ -967,6 +1005,17 @@ def _has_exact_efficiency(row: Any) -> bool:
         row.efficiency_empirical_ci_lower
     )
 
+
+#: The ``mtp-policy-variance`` families whose rows print coverage and the SE-ratio interval.
+_POLICY_VARIANCE_FAMILIES = frozenset(
+    {
+        "policy_variance",
+        "policy_calibration",
+        "reporting_calibration",
+        "sdr_default_pseudo",
+        "tail_option",
+    }
+)
 
 #: The ``small-sample-wald`` coverage families and their re-read rows, each judged or reported
 #: on its two coverage legs, and the two cells whose verdict also reads the paired gain.

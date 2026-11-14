@@ -54,6 +54,28 @@ measured standard-error ratios from 0.9797 to 1.0130 over 1,600 replications at 
 results apply only to that study's law and estimator settings. They do not establish calibrated
 variance for other laws, weights, clusters, survival outcomes, or sample sizes.
 
+### Check overlap at each time point
+
+To see where support thins out in the fit above, plot each unit's predicted chance of the
+plan's treatment at each time point:
+
+```python
+from cleverly.plotting import overlap
+
+fig = overlap(result, regimen="always", censoring=True)
+```
+
+Each top panel holds the units still following the plan up to that time point. Those who then took
+the plan's treatment sit above the axis, and those who did not sit below. Bars near 0 on the
+horizontal axis mark units with little chance of the plan's treatment. When few of them sit above
+the axis, the plan was rarely followed by units like them, and those who did follow it carry large
+weights. The lower panels show each time point's chance of staying in the study, among those who
+took the plan's treatment. The fit's limits apply to the product over time points, which
+`cleverly.plotting.weights(result)` draws, so no limit line is drawn here.
+
+`cleverly.plotting.learners(result)` and `cleverly.plotting.calibration(result)` draw the learner
+weights and calibration of each prediction model by time point.
+
 ## Read a long panel
 
 Customer data usually arrives as one row per customer and decision time. Each row holds the
@@ -380,12 +402,29 @@ A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a p
 bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
 The bootstrap is opt in. A fit never turns it on.
 
+A policy that shifts a continuous dose, such as a price cut, is different: the bootstrap does not
+help there. On the five-period price plan of the pricing study, the BCa interval covers about 91%
+to 92% of the time, no better than the Wald interval
+([measured here](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
+
+Pass `variance="policy_weighted"` instead, with `n_folds=1` and `simultaneous=False`. The fit
+weights each row by its density ratio: how much more likely the policy makes that row's dose than
+the observed treatment pattern does. The option also works out the standard error from every row
+at the dose the policy would set, and reports the larger of that and the usual one. The interval is
+never narrower than the default, and it no longer runs too narrow when a sample happens to miss the
+rare rows with extreme weights, but it can be wider than it needs to be. Its coverage is never
+below the default's, and it is close to nominal in large samples when the density ratio is known
+exactly or, when the ratio is learned, when the outcome model is right.
+[The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
+states which fits it refuses and what it was validated against.
+
 | option | what it does | label today |
 | --- | --- | --- |
 | `n_bootstrap=B` | refits the whole estimator on `B` resamples and attaches an interval to each estimate | `supported` only for a covered fit, otherwise `experimental` |
 | `bootstrap_interval="percentile"` | takes the quantiles of the `B` draws. This is the default | as above |
 | `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `supported` for a single-fold fit that matches a long-horizon row, within the limits below, otherwise `experimental` |
 | `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `supported` for a three-level `LTMLE` fit at five decisions that matches `G46.tmle.categorical_k5`, otherwise `experimental` |
+| `variance="policy_weighted"` | for a continuous-dose policy, reports the larger of the usual standard error and one read at each row's policy dose. Not combined with `n_bootstrap` | `supported` where a support row licenses it ([policy-weighted variance study](../technical-reference/method-evidence/mtp-policy-variance.md)), otherwise `experimental` |
 | `result.diagnostics.influence()` | reports how few rows carry each influence curve. Call it directly: `run_all()` does not include it | a diagnostic, with no label |
 
 The label checks the plan family of the fit. It does not check $n$, the learners or the quantity.
@@ -916,11 +955,15 @@ reports its point estimate with a diagnostic standard error, under the status
 `IPSI` and a fit with `survival_model="hazard"` refuse the option.
 
 `LongitudinalTreatment(markov_order=k)` lets each model at node `t` read the baseline covariates
-and only the last `k` nodes of history. It assumes that the earlier history adds nothing to those
+and only the last `k + 1` nodes of history. It assumes that the earlier history adds nothing to those
 models. The causal conditions still need the full history: every confounder of each decision must
 be recorded somewhere in it. The estimate stays on target in large samples when one family of
 models, the outcome models or the treatment and censoring models, is right on the window. The
 interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the declaration.
+
+A treatment given once and held stays in every model, since it is the treatment at every
+node. A covariate measured before that treatment leaves the models once it is out of the window,
+so declare it in `baseline=` to keep it.
 
 `LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
 in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.

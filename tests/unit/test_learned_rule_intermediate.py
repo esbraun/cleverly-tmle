@@ -45,7 +45,7 @@ from cleverly import CausalStudy, LearnedRuleValue, OptimalRuleValue, PointTreat
 from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_on_rows
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, RefusalReason
+from cleverly.exceptions import CapabilityError, DataError, InSampleLearnerWarning, RefusalReason
 from cleverly.interventions import LearnedRule, Rule, Static
 from cleverly.interventions.learned import (
     freeze_learned_rule,
@@ -688,21 +688,6 @@ class TestTheRefusals:
             with pytest.raises(CapabilityError, match=r"X11 \(n2\)"):
                 omitted_variable_bounds(result, name, cf_y=0.05, cf_d=0.05)
 
-    def test_the_method_layer_has_no_spelling(self) -> None:
-        design = PointTreatment(
-            outcome="Y", treatment="A", adjustment=tuple(COVARIATES), intermediate="Z"
-        )
-        study = CausalStudy(cde_frame(), design=design)
-        with pytest.raises(CapabilityError, match=r"X11 \(j3\)") as caught:
-            study.identify(LearnedRuleValue())
-        assert "TMLE(learned_rule=LearnedRule())" in str(caught.value)
-        with pytest.raises(CapabilityError, match=r"X11 \(f3\)"):
-            study.identify(OptimalRuleValue())
-        with pytest.raises(CapabilityError, match=r"X11 \(j2\)"):
-            study.identify(
-                LearnedRuleValue(rule=LearnedRule(loss="blip", learner=LinearRegression()))
-            )
-
     def test_the_e_value_refuses(self) -> None:
         from cleverly.sensitivity.evalue import evalue
 
@@ -718,6 +703,126 @@ class TestTheRefusals:
                 estimand=NAME,
                 grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 0.2)),
             )
+
+
+class TestTheMethodLayerSpelling:
+    """X11 (j3): ``LearnedRuleValue(intermediate=z)`` is the engine fit's level ``z``."""
+
+    def _study(self, frame: pd.DataFrame | None = None) -> CausalStudy:
+        design = PointTreatment(
+            outcome="Y", treatment="A", adjustment=tuple(COVARIATES), intermediate="Z"
+        )
+        return CausalStudy(cde_frame() if frame is None else frame, design=design)
+
+    def _estimate(self, z: float) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", InSampleLearnerWarning)
+            return (
+                self._study()
+                .identify(LearnedRuleValue(intermediate=z))
+                .estimate(
+                    outcome_learner=outcome_learner(),
+                    treatment_learner=LogisticRegression(max_iter=1000),
+                    intermediate_learner=LogisticRegression(max_iter=1000),
+                    n_folds=5,
+                    cv_evaluation=True,
+                    simultaneous=False,
+                    random_state=0,
+                )
+            )
+
+    @pytest.mark.parametrize("z", LEVELS)
+    def test_each_level_equals_the_engine_fit_bit_for_bit(self, z: float) -> None:
+        engine = fit_cde()[z]
+        method = self._estimate(z)
+        assert method[NAME].psi == engine[NAME].psi
+        assert method[NAME].std_error == engine[NAME].std_error
+        np.testing.assert_array_equal(
+            method.nuisance.regimes.fold_rules, engine.nuisance.regimes.fold_rules
+        )
+
+    def test_the_support_key_equals_the_engine_key(self) -> None:
+        from cleverly import _support
+
+        engine = fit_cde()[0.0]
+        method = self._estimate(0.0)
+        keys = [
+            _support.point_key(result.estimator, result.data, (NAME,))[0]
+            for result in (engine, method)
+        ]
+        assert keys[0] == keys[1]
+        assert method.estimates[NAME].support.label == engine.estimates[NAME].support.label
+
+    def test_the_variants_cite_the_learned_rule_item_at_a_level(self) -> None:
+        """A learned rule at a level hears its own F27 reason, not the CDE's F5 reason."""
+        effect = self._study().identify(LearnedRuleValue(intermediate=0.0))
+        rows = {item.name: item for item in effect.available_methods()}
+        assert rows["tmle"].available
+        for name in ("collaborative_tmle", "drtmle"):
+            assert not rows[name].available
+            assert "F27" in (rows[name].reason or "")
+            assert "F5" not in (rows[name].reason or "")
+
+    def test_the_two_levels_differ(self) -> None:
+        """The nonzero witness: a spelling that ignored the level would report one number."""
+        assert abs(self._estimate(0.0)[NAME].psi - self._estimate(1.0)[NAME].psi) > 1e-2
+
+    def test_the_identified_record_holds_the_assumptions_of_the_level(self) -> None:
+        record = self._study().identify(LearnedRuleValue(intermediate=0.0)).identification
+        text = " ".join(record.assumptions)
+        assert "consistency: Y = Y(a, 0) when A = a and Z = 0" in text
+        assert "Y(a, z) is independent of Z given (A, W)" in text
+        assert "intermediate positivity at Z = 0" in text
+        assert "intermediate variable" not in text
+        plain = CausalStudy(
+            cde_frame(),
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=tuple(COVARIATES)),
+        ).identify(LearnedRuleValue())
+        assert "intermediate positivity" not in " ".join(plain.identification.assumptions)
+        assert plain.functional.intermediate is None
+
+    def test_the_definition_names_the_level(self) -> None:
+        assert LearnedRuleValue(intermediate=1.0).definition.endswith(
+            "with the intermediate held at 1"
+        )
+
+    def test_the_declaration_refusals(self) -> None:
+        study = self._study()
+        with pytest.raises(CapabilityError, match="needs the level") as caught:
+            study.identify(LearnedRuleValue())
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "LearnedRuleValue(intermediate=0.0)" in str(caught.value)
+        plain = CausalStudy(
+            cde_frame(),
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=tuple(COVARIATES)),
+        )
+        with pytest.raises(CapabilityError, match="declares none") as caught:
+            plain.identify(LearnedRuleValue(intermediate=0.0))
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        with pytest.raises(DataError, match=r"0\.0 or 1\.0"):
+            LearnedRuleValue(intermediate=0.5)
+
+    def test_simulated_confounding_of_a_level_refuses_by_name(self) -> None:
+        from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+
+        result = self._estimate(0.0)
+        grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 0.2))
+        assert result.sensitivity.capability("simulated_confounding").reason is not None
+        with pytest.raises(CapabilityError, match=r"X11 \(j4\)") as caught:
+            simulated_confounding(result, estimand=NAME, grid=grid)
+        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert "held at a level (here Z = 0)" in str(caught.value)
+
+    def test_a_rule_learner_and_the_optimal_value_keep_their_refusals(self) -> None:
+        study = self._study()
+        with pytest.raises(CapabilityError, match=r"X11 \(j2\)"):
+            study.identify(
+                LearnedRuleValue(
+                    rule=LearnedRule(loss="blip", learner=LinearRegression()), intermediate=0.0
+                )
+            )
+        with pytest.raises(CapabilityError, match=r"X11 \(f3\)"):
+            study.identify(OptimalRuleValue(intermediate=0.0))
 
 
 class TestTheFrozenRule:

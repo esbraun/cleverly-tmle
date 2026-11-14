@@ -14,6 +14,7 @@ written out, give the shipped fit bit for bit.
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import re
 import warnings
@@ -461,6 +462,49 @@ def test_the_bounded_loss_search_stalls_the_two_cause_walk(
     assert not fit.converged
     with pytest.raises(AssertionError):
         _assert_windows_fall(fit)
+
+
+def test_a_searched_walk_that_returns_to_a_visited_state_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The logits alternate between two states, as in a round-off cycle at the floor.
+
+    The searched step is a function of the logits, so the walk stops at the first revisit.  With
+    the revisit exit removed, the same walk runs to ``max_iter``.
+    """
+    result = _fit(ArmOnly(), step_bound=0.5)
+    inputs, start = _internals(result)
+    record = next(iter(result.fits.values())).hazard
+    shifted = dataclasses.replace(start, logits=start.logits + 1e-3)
+
+    def walk() -> Any:
+        states = itertools.cycle([shifted, start])
+        monkeypatch.setattr(hazard_module, "_bounded_hazard_step", lambda *args: next(states))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _, fit = hazard_module.solve_per_horizon(
+                start,
+                inputs,
+                record.targets[0][2],
+                record.targets,
+                max_iter=30,
+                tol=1e-10,
+                step_bound=0.5,
+            )
+        return fit
+
+    fit = walk()
+    # As for a zero-length step: the walk stopped short of ``max_iter`` without moving on.
+    assert fit.n_iter == 2 and not fit.converged
+    assert fit.failure == "line_search_exhausted"
+    mutate(
+        monkeypatch,
+        hazard_module,
+        hazard_module,
+        "solve_per_horizon",
+        [("visited.seen(state.logits)", "False")],
+    )
+    assert walk().n_iter == 30
 
 
 def test_a_step_bound_is_replayed() -> None:

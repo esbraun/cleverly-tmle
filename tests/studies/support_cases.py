@@ -989,6 +989,68 @@ def _d_cases() -> tuple[RowCase, ...]:
         )
     )
     add(
+        _seeded(
+            "D11",
+            "drtmle-foldwise-n1500",
+            "both_correct",
+            "drtmle_foldwise_n1500.py:294",
+            "drtmle_foldwise_n1500",
+            "both_correct",
+            400,
+            lambda study, frame: study.foldwise.fit_cleverly(
+                frame, "both_correct", study.foldwise.PRIMARY_FIT
+            ),
+        )
+    )
+    add(
+        _seeded(
+            "D12",
+            "multi-arm-drtmle-foldwise",
+            "multi_arm_binary_drtmle",
+            "multi_arm_drtmle_foldwise.py:231",
+            "multi_arm_drtmle_foldwise",
+            "multi_arm_binary_drtmle",
+            400,
+        )
+    )
+    add(
+        _observed(
+            "D12",
+            "drtmle-foldwise",
+            "double_robustness/multi_arm_drtmle__treatment_correct",
+            "drtmle_foldwise_properties.py:709",
+            "drtmle_foldwise_properties",
+            lambda module: _study("multi_arm_drtmle_foldwise").draw_from_seed(
+                "multi_arm_binary_drtmle", 400, 0
+            )[0],
+            lambda module, frame: DRTMLE(**module.multi_arm_settings(module.multi_arm_cell())).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
+            ),
+        )
+    )
+    add(
+        _seeded(
+            "D13",
+            "stratified-drtmle-foldwise",
+            "stratified_both_correct",
+            "stratified_drtmle_foldwise.py:374",
+            "stratified_drtmle_foldwise",
+            "stratified_both_correct",
+            600,
+        )
+    )
+    add(
+        _observed(
+            "D13",
+            "drtmle-foldwise",
+            "double_robustness/marginal_ate__stratified",
+            "drtmle_foldwise_properties.py:724",
+            "drtmle_foldwise_properties",
+            lambda module: module.stratified.draw_from_seed(module.stratified.SCENARIO, 600, 0)[0],
+            lambda module, frame: module.stratified_fit(frame),
+        )
+    )
+    add(
         _case(
             "D02",
             "canonical-multi-arm-drtmle",
@@ -2725,6 +2787,33 @@ def _hazard_msm_cases() -> tuple[RowCase, ...]:
     return (case("survival"), case("competing"))
 
 
+def _hazard_mtp_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-mtp`` (X70 part (c)): ``G61``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_mtp", "hazard-mtp"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G61.{row}",
+            slug,
+            label,
+            f"{module}.py:428",
+            module,
+            lambda study: study.law_of(label).draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("levels", "levels"),
+        case("density", "gaussian_density"),
+        case("classifier", "gaussian_classifier"),
+        case("cross_fitted", "gaussian_crossfit"),
+        case("vector", "vector"),
+    )
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -2819,6 +2908,29 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
                     400, 0, module.CELLS[label][0]
                 ),
                 lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
+    # Fix-5: the option fits of ``mtp-policy-variance`` that license ``wald_policy``.
+    policy = "mtp_policy_variance_properties"
+    for row, family, label in (
+        ("G39.ltmle.tau5", "policy_variance", "pricing_ltmle_tau5"),
+        ("G39.sdr.tau5", "policy_variance", "pricing_sdr_tau5"),
+        ("G39.ltmle.tau2", "policy_variance", "pricing_ltmle_tau2"),
+        ("G39.sdr.tau2", "policy_variance", "pricing_sdr_tau2"),
+        ("G10.continuous", "policy_calibration", "p4_ltmle"),
+        ("G24.mtp.in_sample", "policy_calibration", "p4_sdr"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-policy-variance",
+                f"{label}__option",
+                f"{policy}.py:429",
+                policy,
+                lambda module, family=family, label=label: module.draw_frame(family, label, 400, 0),
+                lambda module, frame, family=family, label=label: module.config_of(
+                    family, label
+                ).fit(frame, module.OPTION),
             )
         )
     tuning = "canonical_mtp_tuning"
@@ -3283,6 +3395,7 @@ CASES: tuple[RowCase, ...] = (
     *_survival_ctmle_cases(),
     *_survival_dr_tmle_cases(),
     *_hazard_msm_cases(),
+    *_hazard_mtp_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

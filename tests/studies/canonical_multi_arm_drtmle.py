@@ -243,7 +243,30 @@ def fit_cleverly(
     *,
     simultaneous: bool = False,
     require_unbounded: bool = True,
+    reduced_crossfit: str = str(CONFIGURATION["reduced_crossfit"]),
 ) -> Any:
+    """The registered fit of one replication.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        One sample with its ``fold`` column.
+    scenario : str
+        The scenario; the fit does not depend on it.
+    simultaneous : bool, default False
+        Whether the fit also reports a simultaneous band.
+    require_unbounded : bool, default True
+        Whether an active propensity bound is refused.
+    reduced_crossfit : str, default ``CONFIGURATION["reduced_crossfit"]``
+        The reduced-regression construction.  A keyword so that
+        ``multi-arm-drtmle-foldwise`` (Fix-6) fits this construction with ``"foldwise"``
+        rather than a copy of it.  Every row this study publishes uses the default.
+
+    Returns
+    -------
+    Any
+        The single fitted result.
+    """
     del scenario
     result = (
         FixedFoldDRTMLE(
@@ -266,7 +289,7 @@ def fit_cleverly(
             random_state=0,
             guard=("Q", "g"),
             reduction="univariate",
-            reduced_crossfit="pooled",
+            reduced_crossfit=reduced_crossfit,
             update_order="drtmle",
         )
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])

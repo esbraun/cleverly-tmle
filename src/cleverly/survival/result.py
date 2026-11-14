@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._refusal import RefusalReason
 from .._support import Support, combine_support
 from .._typing import FloatArray
@@ -599,6 +600,14 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         The dataframe library the data arrived in; :meth:`to_frame` returns a frame of it.
     restricted_horizons : tuple of float
         The restriction times the fit targeted.
+
+    Notes
+    -----
+    :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a
+    row for every assessment operation. The support, nuisance, score and influence
+    diagnostics read :attr:`record` and the influence curves, and the E-value reads a risk
+    ratio of the fit; every refutation, the truncation curve and every other sensitivity
+    analysis refuses with its reason and roadmap item.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -610,6 +619,16 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     n: int
     backend: str | None = None
     restricted_horizons: tuple[float, ...] = field(default=())
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
+    #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
+    #: another fit.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+
+    #: The assessment family: one declaration per assessment operation in
+    #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`.
+    assessment_family: ClassVar[str] = CONTINUOUS_SURVIVAL_FAMILY
+    #: The method identity of the result.
+    fitted_method: ClassVar[str] = "tmle"
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
@@ -1290,6 +1309,80 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         return emit_frame(
             {key: [row.get(key) for row in rows] for key in columns}, backend=self.backend
         )
+
+    # ------------------------------------------------------------- assessment
+
+    @property
+    def diagnostics(self) -> Any:
+        """The support, score, nuisance and influence diagnostics of the fit."""
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade, whose every row refuses on this fit."""
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            The score-equation, support and nuisance-model checks, read off the record.
+        """
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        The refutation, the truncation curve and every sensitivity row refuse on this fit,
+        and the report names each refusal without raising it.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored fit."""
+        from ..assessment import replayability
+
+        return replayability(self)
 
     def save(self, path: Any) -> Any:
         """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.

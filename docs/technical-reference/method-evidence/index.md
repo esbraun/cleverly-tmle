@@ -118,10 +118,12 @@ separable-effects
 survival-ctmle
 survival-dr-tmle
 hazard-msm
+hazard-mtp
 continuous-time-survival
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
+mtp-policy-variance
 mtp-pricing
 mtp-tuning
 sequentially-doubly-robust-estimation
@@ -144,6 +146,9 @@ survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-foldwise
+dr-tmle-foldwise-n1500
+multi-arm-dr-tmle-foldwise
+stratified-dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
 adaptive-iptw-pairing

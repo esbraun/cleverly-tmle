@@ -211,13 +211,12 @@ _MSM_REFUSAL = Refusal(
     alternative="Declare it where the regimens are: LTMLE(regimens, msm=MSM(...)).",
 )
 _COVARIATE_FEATURE_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.API_REDIRECTION,
     "a blip feature reads a time-varying covariate, so a static level needs the counterfactual "
     "law of that covariate under the regimen, which this estimator does not estimate. The "
     "blips and the reference mean E[Y(0)] are reported.",
     alternative="Fit the static contrast with LTMLE or SDR, or declare blip features that read "
     "baseline columns and earlier treatments only.",
-    roadmap="X72",
 )
 
 
@@ -1102,12 +1101,18 @@ class StructuralDiagnostics:
         class.
     learner_diagnostics : tuple
         The Super Learner diagnostics of every regression, empty for other learners.
+    class_probabilities : tuple of ndarray
+        For each node, the ``(n, d_t)`` out-of-fold estimated probability of each
+        non-reference level given the history, the centring of the g-estimating equation
+        that :attr:`extreme_share` reads.  The reference level's probability is one minus
+        the row sum.  A dose node holds an ``(n, 0)`` array.
     """
 
     smallest_eigenvalue: tuple[float, ...]
     extreme_share: tuple[float, ...]
     n_constant_fits: int
     learner_diagnostics: tuple[Any, ...] = ()
+    class_probabilities: tuple[FloatArray, ...] = ()
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """The smallest eigenvalue and the share of extreme probabilities at each time.
@@ -1574,6 +1579,7 @@ class StructuralNestedMean:
             ),
             n_constant_fits=nuisances.n_constant,
             learner_diagnostics=tuple(nuisances.diagnostics),
+            class_probabilities=tuple(nuisances.own[node.time - 1] for node in nodes),
         )
         estimates, kinds = self._estimates(
             prepared, nodes, regimens, reference, stage, solution, status, classification

@@ -53,7 +53,7 @@ from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
-from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION
+from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.schema import truth_on_inference_scale, validate_replicates
 from tests.studies.evidence.seeds import replicate_seed
@@ -844,7 +844,7 @@ class TestPublishedVerdicts:
             failures = published.loc[~published["passed"]]
             if study.accepted_reference_failure:
                 failures = failures.loc[failures["implementation"] != study.reference]
-            # The one named exception: a row of ``ACCEPTED_BY_EXCEPTION``, keyed to its study,
+            # The named exceptions: rows of ``ACCEPTED_BY_EXCEPTION``, each keyed to its study,
             # implementation, scenario and estimand.  Any other failed row still fails here.
             accepted = [
                 key.key
@@ -1271,6 +1271,57 @@ class TestPublishedVerdicts:
                 f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
 
+        # Fix-6's stratified contraction ladder.  A level row answers to its own SE-ratio
+        # interval (coverage is published beside the coverage its bias implies, never gated),
+        # a control rung states no verdict, and a rate row answers to the reading of its own
+        # slope interval.  Recomputed from the published endpoints with the module's constants.
+        ladder = published.loc[published["property"] == "stratified_contraction"]
+        if not ladder.empty:
+            from tests.studies import stratified_drtmle_foldwise_ladder as unit_s
+
+            sanity = study.margins.se_ratio_sanity
+            for row in ladder.itertuples():
+                half_width = (row.slope_ci_upper - row.slope_ci_lower) / 2
+                label = str(row.cell).split("__", 1)[0]
+                if "__rate_" not in str(row.cell):
+                    expected = row.role == "control" or (
+                        sanity[0] <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= sanity[1]
+                    )
+                elif label not in unit_s.READ_LABELS:
+                    expected = True
+                elif row.role == "control":
+                    expected = row.slope_ci_upper >= unit_s.FIRST_ORDER_SLOPE
+                else:
+                    expected = (
+                        half_width <= unit_s.RESOLUTION_TARGET
+                        and row.slope_ci_upper < unit_s.FIRST_ORDER_SLOPE
+                    )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own ladder endpoint"
+                )
+                # The role follows the cell: the both-wrong rungs are the controls.
+                assert row.role == ("control" if "both_wrong" in str(row.cell) else "positive"), (
+                    f"{row.cell} publishes role={row.role!r} against its own cell"
+                )
+                # The published reading agrees with the verdict.  A level control and an unread
+                # rate row state no reading; every other row passes iff its reading is clean.
+                rate = "__rate_" in str(row.cell)
+                if (not rate and row.role == "control") or (
+                    rate and label not in unit_s.READ_LABELS
+                ):
+                    assert row.reading == unit_s.NOT_READ, (
+                        f"{row.cell} publishes reading={row.reading!r} on a row it does not read"
+                    )
+                else:
+                    clean = row.reading in {
+                        unit_s.CLEAN,
+                        unit_s.CONSISTENT,
+                        unit_s.FAILS_TO_CONTRACT,
+                    }
+                    assert bool(row.passed) is clean, (
+                        f"{row.cell} publishes passed={row.passed} beside reading={row.reading!r}"
+                    )
+
         # Unconditional over every study with calibration cells.  Guarding this block on the
         # presence of the efficiency columns left a study that publishes no exact ratio with
         # *no* reader of its calibration verdicts at all.
@@ -1293,6 +1344,13 @@ class TestPublishedVerdicts:
             # the accounting row names ``worst case fails`` as the reason.
             worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    # A reported row of the family (``hazard-mtp``'s untruncated density
+                    # route) carries no claim, so it must not publish a red verdict.
+                    assert bool(row.passed) and bool(row.property_passed), (
+                        f"{row.cell} is a diagnostic row and publishes a verdict"
+                    )
+                    continue
                 # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
                 # cell ``correctly_specified`` and ``shift-policies`` names its control
                 # ``shrunken_se_control``, with no ``__`` at all, while the longitudinal
@@ -1459,6 +1517,44 @@ class TestPublishedVerdicts:
         for row in published.loc[published["property"] == "witness"].itertuples():
             assert bool(row.passed) is bool(row.coverage_ci_upper < 0.50), (
                 f"{row.cell} publishes passed={row.passed} against its own witness ceiling"
+            )
+
+        # ``mtp-policy-variance``: restated from the declaration in the driver's docstring
+        # rather than read from the properties module.  The clause reads the 99% SE-ratio
+        # interval: its lower end below 0.93 is red-narrow and above 1.25 red-wide, and the
+        # five-node price rows also need a coverage upper bound that reaches 0.95.
+        policy = published.loc[
+            published["property"].isin({"policy_variance", "policy_calibration"})
+        ]
+        for row in policy.itertuples():
+            kind = str(row.cell).rsplit("__", 1)[-1]
+            if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                expected = True
+            elif kind == "option":
+                expected = (
+                    bool(row.bias_equivalent)
+                    and row.coverage_ci_lower >= study.margins.coverage_floor
+                    and 0.93 <= row.se_ratio_ci_lower <= 1.25
+                    and (
+                        not str(row.cell).startswith(("pricing_ltmle_tau5", "pricing_sdr_tau5"))
+                        or row.coverage_ci_upper >= 0.95
+                    )
+                )
+                reading = "conservative" if row.se_ratio_ci_upper > 1.07 else "calibrated"
+                assert not expected or row.reading == reading, (
+                    f"{row.cell} reads {row.reading!r} against its SE-ratio interval"
+                )
+            elif kind == "wald":
+                expected = row.coverage_ci_upper < 0.95
+            elif kind == "coverage_floor_control":
+                expected = row.coverage_ci_upper < 0.90
+            elif kind == "inflated_se_control":
+                expected = row.se_ratio_ci_lower > 1.25
+            else:
+                assert kind in ("shrunken_se_control", "noise_control"), row.cell
+                expected = row.se_ratio_ci_upper < 0.93
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own clause"
             )
 
         correction = published.loc[published["property"] == "correction_necessity"]
@@ -1826,6 +1922,12 @@ SMALL_SAMPLE_TWO_LEG_PROPERTIES = frozenset(
 )
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # ``mtp-policy-variance``: an option positive answers to its bias, the coverage floor,
+        # the SE-ratio clause and (``tau5``) the nominal clause; each control to its own
+        # coverage or SE-ratio ceiling; the reported Wald rows carry the diagnostic role.
+        # Checked row by row below.
+        "policy_variance",
+        "policy_calibration",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
@@ -1911,6 +2013,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
         # Checked row by row below.
         "single_robustness",
+        # Fix-6's stratified ladder: level rows answer to their SE-ratio interval, rate rows to
+        # the reading of their slope interval, control rungs state no verdict.  Checked row by
+        # row below.
+        "stratified_contraction",
         # X43's softmax update: a positive cell answers to bias equivalence and the efficiency
         # band of its SE ratio, the outcome-only control to a bias interval wholly above zero
         # and beyond the margin.  Checked row by row below.
@@ -2018,6 +2124,11 @@ SAME_DRAW_FAMILIES = {
 #: refused, so no cell establishes that any of them is valid.
 DIAGNOSTIC_PROPERTIES = frozenset(
     {
+        # ``mtp-policy-variance``: the learned-classifier Wald twin, SDR's default pseudo
+        # learner and the option on the large twins at 400 draws, each reported with no verdict.
+        "reporting_calibration",
+        "sdr_default_pseudo",
+        "tail_option",
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
         "construction_diagnostic",
@@ -2182,6 +2293,16 @@ class TestNegativeControls:
         # its coverage and standard error are published and never gated.
         if label != "bias" and set(cell["scenario"]) <= set(study.point_only_scenarios):
             pytest.skip("a point-only cell gates neither coverage nor the standard error")
+        if (
+            label == "standard error"
+            and tuple(study.margins.se_ratio_sanity) == property_verdicts.UNION_MODEL_SE_BAND
+        ):
+            # ``mtp-policy-variance``: its truth rows are tail-size twins, declared to pass on
+            # bias and the coverage floor under the union-model SE screen, so an inflated SE
+            # is not their failure.  The SE calibration of the p4 and atom twins is gated by the
+            # study's interval-calibration twins; the pricing twins' SE ratio is published and
+            # gated nowhere, as the declaration states (Fix-5 plan 6.0).
+            pytest.skip("the truth rows declare the union-model SE screen")
         baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
             "implementation"
         )
@@ -3478,9 +3599,14 @@ class TestThePublishedTestTables:
         elif name == "properties":
             expected = [_committed_property_result(row) for row in frame.itertuples()]
         else:
-            # A failed truth row the owner accepted by a named exception reads as that, and
-            # only that row.  The label is spelled out here, not imported from the renderer.
-            accepted = {key.key for key in ACCEPTED_BY_EXCEPTION if key.slug == study.slug}
+            # A failed truth row accepted as valid by a named exception reads as that, and only
+            # that row; an exception whose row keeps an owner still reads as failed.  The label
+            # is spelled out here, not imported from the renderer.
+            accepted = {
+                key.key
+                for key in ACCEPTED_BY_EXCEPTION
+                if key.slug == study.slug and key not in OWNERS
+            }
             expected = [
                 "pass"
                 if bool(row.passed)
