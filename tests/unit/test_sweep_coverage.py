@@ -155,7 +155,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         (
             "dependence:t",
             "missing:eliminated",
-            "splitting:cross_fitted",
             "splitting:fold_targeted_evaluated",
             "splitting:repeated",
             "treatment:3",

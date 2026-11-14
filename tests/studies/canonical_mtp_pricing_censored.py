@@ -32,8 +32,8 @@ per engine.  The support rows ``G39.<engine>.tau3_cross_fitted_censored`` cite t
 **Which cell carries which claim.**  The primary rows check that the censored recursion, with
 the price ratio exact, is unbiased and covers at n = 2,400; on this law they cannot see a
 censoring factor that never reaches the weights, because the primary outcome learners nearly
-correct for the dropout on their own (a 160-draw design-review probe read the bias of a fit with
-a constant per-node retention within 0.07 SD of the learned one).  That the factor reaches the
+correct for the dropout on their own, so a fit whose censoring factor is a constant per node reads
+a bias close to the learned fit's.  That the factor reaches the
 weights, at the observed dose, is carried by the necessity pairs (a wrong outcome model, where
 only the weights can correct) and by the exact-law witnesses with their mutation controls
 (``tests/unit/test_longitudinal_mtp_censored.py``).  The calibration cells carry the interval

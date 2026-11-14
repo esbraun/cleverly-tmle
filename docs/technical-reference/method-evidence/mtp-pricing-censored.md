@@ -31,7 +31,7 @@ $$C_t \sim \text{Bernoulli}\bigl(\text{expit}(2.8 + 0.5 W_1 + 0.8 L_t - 0.6 (A_t
 Dropout is monotone. Retention rises with engagement and falls with the price gap, so the
 customers who stay are the likelier buyers, and the dropout is informative given the history. The
 draw changes no structural equation of law P, so every truth is law P's
-(`tests/studies/mtp_pricing_common.py`). Per-node retention is at least 0.59 on the support, and
+(`tests/studies/mtp_pricing_common.py`). Per-node retention is at least 0.58 on the support (its minimum is 0.587), and
 about 14% of units are censored by the third node. `tests/unit/test_mtp_pricing_censored_design.py`
 checks the truth, the retention bound and that the censoring draw leaves law P's columns unchanged.
 
@@ -57,12 +57,13 @@ differ from them in the dropout and in n, not in the dropout alone.
 | claim | cells |
 | --- | --- |
 | the censored recursion is unbiased and covers, with the policy ratio exact and the censoring model learned | the primary rows of both scenarios |
-| the censoring factor reaches the weights, evaluated at the observed treatment | the `censoring_necessity` pairs and the exact-law witnesses of `tests/unit/test_longitudinal_mtp_censored.py` |
+| the censoring factor reaches the weights | the `censoring_necessity` pairs and the exact-law witnesses of `tests/unit/test_longitudinal_mtp_censored.py` |
+| the censoring factor is evaluated at the observed treatment, not the policy's | the exact-law witness with its mutation control M-a (`tests/unit/test_longitudinal_mtp_censored.py`) |
 | the interval is calibrated with a learned classifier and a learned censoring model, cross-fitted | the `interval_calibration` cells and their controls |
 
 The primary rows cannot see a censoring factor that never reaches the weights. On this law the
-primary outcome learners nearly correct for the dropout on their own: a 160-draw design-review
-probe read the bias of a fit with a constant per-node retention within 0.07 SD of the learned one.
+primary outcome learners nearly correct for the dropout on their own, so a fit whose censoring
+factor is a constant per node reads a bias close to the learned fit's.
 With a wrong outcome model only the weights can correct for informative dropout, so the necessity
 pairs carry that claim. The exact-law witnesses fit a two-node censored law exactly and add four
 mutation controls. Each control breaks one step: retention read at the shifted dose, a retention
@@ -178,9 +179,9 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | a correctly specified main-terms logistic censoring model | the study does not measure a misspecified or flexible censoring learner. A wrong retention model biases the weights |
 | censoring at random given the history and the current treatment | the data cannot check it. Dropout that depends on unrecorded causes biases every estimate |
-| three nodes, cross-fitted, classifier ratio route, end-of-study binary outcome | in-sample fits, the density route, two or five nodes, a bounded outcome, survival outcomes and pooled censoring with a continuous policy stay experimental |
-| one plan, a 12% price rise that binds at the upper end of the support | other policy shapes rest on the complete-data studies and the exact-law witnesses |
-| per-node retention of at least 0.59, about 14% censored by the third node | heavier dropout raises the tail size of the weights, and the study does not measure it |
+| three nodes, cross-fitted, classifier ratio route, end-of-study binary outcome | in-sample fits, the density route, two or five nodes, a continuous outcome, survival outcomes and pooled censoring with a continuous policy stay experimental |
+| one plan, a 12% multiplicative increase in the treatment that binds at the upper end of the support | other policy shapes rest on the complete-data studies and the exact-law witnesses |
+| per-node retention of at least 0.58, about 14% censored by the third node | heavier dropout raises the tail size of the weights, and the study does not measure it |
 | the `lmtp` comparison is pending, and would read `cleverly`'s own joint ratio | the paired rows would check the recursion given the ratio, not the retention model |
 
 ## Reproduction

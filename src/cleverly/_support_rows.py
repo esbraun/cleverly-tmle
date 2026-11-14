@@ -4713,9 +4713,10 @@ def _long_rows() -> tuple[SupportRow, ...]:
 _CENSORED_POLICY_LIMITS: Final[tuple[str, ...]] = (
     "validated with a correctly specified main-terms logistic censoring model; a misspecified "
     "censoring model biases the weights and is not measured",
-    "validated with per-node retention of at least 0.59 and cumulative retention above 0.20 at "
+    "validated with per-node retention of at least 0.58 and cumulative retention above 0.20 at "
     "three nodes, about 14% censored by the last node",
-    "validated on a 12% price rise that binds at the upper end of the declared support only",
+    "validated on one plan only, a 12% multiplicative increase in the treatment that binds at "
+    "the upper end of the declared support",
     "censoring must be at random given the history and the current treatment; the data cannot "
     "check it",
 )

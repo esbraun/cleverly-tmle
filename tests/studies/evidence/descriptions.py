@@ -2489,7 +2489,7 @@ PROPERTIES: dict[str, str] = {
     ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
     "censoring_necessity": (
-        "the censoring factor reaches the weights, evaluated at the observed treatment"
+        "the censoring factor reaches the weights: without it a wrong outcome model is biased"
     ),
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"

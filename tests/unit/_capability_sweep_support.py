@@ -822,10 +822,11 @@ def fit_ltmle() -> Any:
 
 
 def _fit_mtp_censored(estimator: str) -> Any:
-    """A three-node continuous-treatment policy fit with dropout after each node, in sample.
+    """A three-node continuous-treatment policy fit with dropout after each node, five folds.
 
     Law P-C of ``mtp-pricing-censored`` at 600 rows: a modified policy on a continuous
-    treatment, the learned classifier ratio and a logistic censoring factor (X77).
+    treatment, the learned classifier ratio and a logistic censoring factor, cross-fitted as the
+    supported rows ``G39.<engine>.tau3_cross_fitted_censored`` are (X77).
     """
     from tests.studies import canonical_mtp_pricing_censored as censored
     from tests.studies import mtp_pricing_censored_common as law_pc
@@ -834,6 +835,7 @@ def _fit_mtp_censored(estimator: str) -> Any:
         law_pc.sample(600, 3),
         estimator=estimator,
         treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
     )
 
 
