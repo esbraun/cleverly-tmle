@@ -137,7 +137,9 @@ def test_the_reported_cells_are_the_pilots() -> None:
     if PILOT.empty:
         return
     shares = pilot.failure_shares(PILOT)
-    assert shares["v3_half_n"] == 0.0
+    # The rerun at the stable conditional risk loses no V3 fit to the old survival floor; the
+    # extension's five are the kept refusals (pilot-diagnosis.md), under the bound.
+    assert shares["v3_half_n"] <= study.FAILURE_BOUND
     assert all(shares[cell] <= study.FAILURE_BOUND for cell in study.GATED_CELLS)
     # The gated count holds 6,000 with V3 inside it.
     assert "v3_half_n" in study.GATED_CELLS
