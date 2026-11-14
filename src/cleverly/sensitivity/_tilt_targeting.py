@@ -54,7 +54,13 @@ from ..data.causal_data import arm_share
 from ..estimators._nuisance import tilt_missingness
 from ..exceptions import DataWarning
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
-from ..inference.influence import ParameterEstimate, Scale, make_estimate, unscale
+from ..inference.influence import (
+    ParameterEstimate,
+    Scale,
+    make_estimate,
+    unscale,
+    with_components,
+)
 from ..utils.bounds import expit, g_bounds_for, logit
 
 #: Predictions are kept this far inside ``(0, 1)`` while the fluctuation moves them, the
@@ -546,7 +552,13 @@ def targeted_tilt_estimates(
                 observed_mean.append(natural_course_curve(cut(out), y, d, a, w, tilt))
             return observed_mean[0]
 
-        def finish(target: Any, psi: float, curve: FloatArray, scale: Scale) -> ParameterEstimate:
+        def finish(
+            target: Any,
+            psi: float,
+            curve: FloatArray,
+            scale: Scale,
+            arms: tuple[tuple[float, FloatArray], tuple[float, FloatArray]] | None = None,
+        ) -> ParameterEstimate:
             reported = result[target.name]
             log_psi = None
             if scale == "fraction":
@@ -555,7 +567,7 @@ def targeted_tilt_estimates(
                 value, ic = unscale(psi, curve, scaler, scale)
             if scale == "ratio":
                 log_psi, value = psi, float(np.exp(psi))
-            return make_estimate(
+            estimate = make_estimate(
                 target.name,
                 value,
                 ic,
@@ -569,7 +581,31 @@ def targeted_tilt_estimates(
                 reference_df=reported.reference_df,
                 # The tilted refit solves its own score to tolerance (``solve_tilt``).
                 rule_widened=False,
+                # The fit's bounds and outcome family choose the shipped interval scale
+                # (range-logit, MOVER or skew-widened t), as on the reported estimate.
+                bounds=reported.bounds,
+                outcome_family=reported.outcome_family,
             )
+            if arms is None or reported.bounds != (-1.0, 1.0):
+                return estimate
+            one, zero = (
+                make_estimate(
+                    f"{target.name}[{side}]",
+                    *unscale(arm_psi, arm_curve, scaler, "level"),
+                    n=size,
+                    cluster=cluster,
+                    scale="level",
+                    alpha=alpha,
+                    covariance_rule=reported.covariance_rule,
+                    inference=reported.inference,
+                    reference_df=reported.reference_df,
+                    rule_widened=False,
+                    bounds=(0.0, 1.0),
+                    outcome_family=reported.outcome_family,
+                )
+                for side, (arm_psi, arm_curve) in zip(("arm", "versus"), arms, strict=True)
+            )
+            return with_components(estimate, one, zero)
 
         out: dict[str, ParameterEstimate] = {}
         for target in targets:
@@ -589,6 +625,7 @@ def targeted_tilt_estimates(
                             psi_arms[i] - psi_arms[r],
                             curves[:, i] - curves[:, r],
                             "difference",
+                            arms=((psi_arms[i], curves[:, i]), (psi_arms[r], curves[:, r])),
                         )
                     continue
                 g = propensity(parameter.group)

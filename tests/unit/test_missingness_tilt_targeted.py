@@ -549,6 +549,26 @@ class TestTheReadingNamesEveryComposition:
         rules = self._rules(result, monkeypatch)
         assert rules and all("+stratified" in rule for rule in rules), rules
 
+    def test_off_zero_every_target_keeps_the_fits_interval_scale(self, fitted: Any) -> None:
+        """The tilted estimate forms its interval on the fit's scale (range-logit, MOVER).
+
+        The control is the interval at gamma near zero, which must reproduce the fit's.
+        """
+        from cleverly.sensitivity.missingness import _targeted_tilt
+
+        targets = list(_tilt_targets(fitted).values())
+        direction = dict.fromkeys(fitted.data.arm_codes, 1.0)
+        # The draws combine by the fit's own rule, as the reported estimates do.
+        near = _targeted_tilt(fitted, targets, 1e-9, direction)
+        far = _targeted_tilt(fitted, targets, 1.0, direction)
+        for name, estimate in far.items():
+            assert estimate.interval_scale == fitted[name].interval_scale, name
+            assert near[name].ci == pytest.approx(fitted[name].ci, rel=1e-5, abs=1e-8)
+        # A nonzero witness: a binary arm mean off zero is not symmetric about its estimate.
+        level = next(e for e in far.values() if e.interval_scale == "range_logit")
+        low, high = level.ci
+        assert abs((high - level.psi) - (level.psi - low)) > 1e-6
+
 
 def test_an_interval_tipping_value_carries_the_reading() -> None:
     from cleverly.assessment import INTERPRETERS
