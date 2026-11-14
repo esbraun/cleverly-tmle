@@ -275,6 +275,7 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "structural",
         "augmented_trial",
         "effect_modification",
+        "continuous_survival",
     }
     assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == families
     for family in sorted(families):
