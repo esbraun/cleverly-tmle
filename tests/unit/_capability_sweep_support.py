@@ -1254,6 +1254,18 @@ def fit_sdr() -> Any:
     )
 
 
+def fit_learned_regimen() -> Any:
+    """A learned two-node rule pair, ``LTMLE(LearnedRegimen())`` (family learned).
+
+    The panel and settings of :mod:`tests.unit.test_longitudinal_learned_regimen`. Its
+    truncation and refutation rows refuse with the F27 record, since each runs the fit again
+    and relearns the rules.
+    """
+    from tests.unit import test_longitudinal_learned_regimen as learned_regimen
+
+    return learned_regimen.fit()
+
+
 #: The treated nodes of each regimen of :func:`fit_longitudinal_msm`.
 _DURATION = {"always": 2.0, "never": 0.0}
 
@@ -1674,6 +1686,7 @@ KINDS: dict[str, Kind] = {
     "mixed_mtp": _kind(fit_mixed_mtp, *_READ, *_POINT),
     "eliminated": _kind(fit_eliminated, *_READ, *_POINT),
     "separable": _kind(fit_separable, *_READ, *_POINT),
+    "learned_regimen": _kind(fit_learned_regimen, *_READ),
 }
 
 

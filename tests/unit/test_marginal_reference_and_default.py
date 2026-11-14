@@ -214,3 +214,28 @@ def test_a_hazard_ltmle_truncation_row_stays_available() -> None:
 
     fit = KINDS["ltmle_hazard"].build()
     assert fit.diagnostics.capability("truncation_curve").available
+
+
+def test_a_learned_regimen_s_refit_rows_carry_their_call_s_refusal() -> None:
+    """Both rows that run the fit again quote the F27 record their calls raise."""
+    from cleverly.longitudinal.estimator import longitudinal_truncation_curve
+    from tests.unit._capability_sweep_support import KINDS
+
+    fit = KINDS["learned_regimen"].build()
+    truncation = fit.diagnostics.capability("truncation_curve")
+    refute = fit.diagnostics.capability("refute")
+    for row in (truncation, refute):
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.refusal.roadmap == "F27"
+    with pytest.raises(CapabilityError) as raised:
+        longitudinal_truncation_curve(fit, [0.05])
+    assert raised.value.refusal == truncation.refusal
+    with pytest.raises(CapabilityError) as raised:
+        fit.diagnostics.refute()
+    assert raised.value.refusal.condition.endswith(refute.refusal.condition)
+    # The refit guard the refutation runs raises the same record past the facade.
+    from cleverly.longitudinal.learned import refuse_learned_regimen_result
+
+    with pytest.raises(CapabilityError) as raised:
+        refuse_learned_regimen_result(fit, "a refit")
+    assert raised.value.refusal == refute.refusal

@@ -534,11 +534,46 @@ def refuse_learned_regimen_data(data: LongitudinalData) -> None:
         )
 
 
-def refuse_learned_regimen_result(result: Any, what: str) -> None:
-    """Refuse a surface that would refit a learned-regimen fit.
+def learned_regimen_refusal(result: Any, what: str) -> Refusal | None:
+    """Why ``what`` is refused on a learned-regimen fit, or ``None``.
 
     A refit, a truncation replay and a refutation run the fit again, and so relearn the rules:
-    each run then estimates the value of other rules (F27).
+    each run then estimates the value of other rules (F27). The capability rows of those
+    surfaces and the calls read this one record.
+
+    Parameters
+    ----------
+    result : LongitudinalResult or LTMLE
+        The fit, or the estimator a refit would run.
+    what : str
+        The surface, for the message, such as ``"the truncation curve"``.
+
+    Returns
+    -------
+    Refusal or None
+        The ``IMPLEMENTATION_GAP`` record (roadmap F27) when the fit holds a learned regimen
+        or the estimator declares one, else ``None``.
+    """
+    if hasattr(result, "config"):
+        learned = any(isinstance(regimen, LearnedRegimen) for regimen in result.config.regimens)
+    else:
+        learned = learned_regimen_in(getattr(result, "regimens", None)) is not None
+    if not learned:
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"{what} is not available for a LearnedRegimen fit: it runs the fit again, which "
+        "relearns the rules, so each run estimates the value of other rules (F27).",
+        alternative=(
+            "Fix the learned rules first, and fit them as DynamicRegimen(..., rule_kind='known') "
+            "on independent data; result.learned_regimen.fold_rules holds them."
+        ),
+        roadmap="F27",
+    )
+
+
+def refuse_learned_regimen_result(result: Any, what: str) -> None:
+    """Refuse a surface that would refit a learned-regimen fit.
 
     Parameters
     ----------
@@ -550,23 +585,12 @@ def refuse_learned_regimen_result(result: Any, what: str) -> None:
     Raises
     ------
     CapabilityError
-        If the fit holds a learned regimen, or the estimator declares one.
+        If the fit holds a learned regimen, or the estimator declares one, with the record
+        of :func:`learned_regimen_refusal`.
     """
-    if hasattr(result, "config"):
-        learned = any(isinstance(regimen, LearnedRegimen) for regimen in result.config.regimens)
-    else:
-        learned = learned_regimen_in(getattr(result, "regimens", None)) is not None
-    if not learned:
-        return
-    raise _gap(
-        f"{what} is not available for a LearnedRegimen fit: it runs the fit again, which "
-        "relearns the rules, so each run estimates the value of other rules (F27).",
-        alternative=(
-            "Fix the learned rules first, and fit them as DynamicRegimen(..., rule_kind='known') "
-            "on independent data; result.learned_regimen.fold_rules holds them."
-        ),
-        roadmap="F27",
-    )
+    refusal = learned_regimen_refusal(result, what)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
 
 
 # --------------------------------------------------------------------------- plans

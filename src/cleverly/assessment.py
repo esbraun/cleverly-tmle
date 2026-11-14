@@ -983,6 +983,20 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         from .longitudinal.estimator import longitudinal_truncation_refusal
 
         truncation = longitudinal_truncation_refusal(result)
+        # A learned-regimen fit refuses every surface that runs the fit again (F27): the
+        # truncation call and a refutation's refit raise this record before any other.
+        from .longitudinal.learned import learned_regimen_refusal
+
+        learned = learned_regimen_refusal(result, "the truncation curve")
+        if learned is not None:
+            truncation = learned
+            refit = learned_regimen_refusal(result, "a refit")
+            rows = tuple(
+                replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refit)
+                if row.operation == "refute"
+                else row
+                for row in rows
+            )
     if truncation is not None:
         rows = tuple(
             replace(

@@ -107,13 +107,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         ),
     ),
     **_exempt(
-        "a LearnedRegimen fit's truncation_curve and refute rows read available while both "
-        "calls refuse it (refuse_learned_regimen_result, F27), so its kind would fail the "
-        "sweep until the longitudinal rows quote that refusal",
-        "Fix-15",
-        ("family:learned",),
-    ),
-    **_exempt(
         "the continuous-time survival result has no assessment facades",
         "X101",
         ("result:ContinuousSurvivalResult",),
