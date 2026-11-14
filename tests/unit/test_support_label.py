@@ -104,12 +104,41 @@ def skew_reread(estimate: Any, golden: dict[str, Any]) -> tuple[float, float] | 
     )
 
 
+def skew_pvalue(estimate: Any, golden: dict[str, Any], null: float = 0.0) -> float:
+    """The p-value against ``null`` that inverts the golden numbers' skew-widened t: the
+    largest ``alpha`` at which ``null`` lies inside the level ``1 - alpha`` interval, by
+    bisection.
+
+    It reads the golden estimate and standard error with the fit's df and acceleration, so it
+    does not read the fit's own p-value.
+    """
+
+    def inside(alpha: float) -> bool:
+        low, high = skew_widened_ci(
+            float(golden["psi"]),
+            float(golden["std_err"]),
+            alpha,
+            df=estimate.effective_df,
+            acceleration=float(estimate.acceleration),
+        )
+        return low <= null <= high
+
+    if not inside(1e-15):
+        return 1e-15
+    low, high = 1e-15, 1.0
+    while high - low > 1e-13:
+        middle = 0.5 * (low + high)
+        low, high = (middle, high) if inside(middle) else (low, middle)
+    return high
+
+
 def golden_under_skew(result: Any, golden: dict[str, Any]) -> dict[str, Any]:
     """A golden ``to_dict`` re-read for the skew-widened t (see :func:`skew_reread`).
 
-    The interval comes from the golden estimate and standard error, the two keys the skew
-    reading adds come from the fit, and the p-value, which inverts the interval, from the
-    fit; ``tests/unit/test_rule_widened_interval.py`` checks that inversion.
+    The interval and the p-value come from the golden estimate and standard error
+    (:func:`skew_pvalue`), and only the two keys the skew reading adds come from the fit.
+    The skew-widened t contains the normal interval at every level, so the p-value is at
+    least the golden normal one.
     """
     estimate = result[golden["estimand"]]
     reread = skew_reread(estimate, golden)
@@ -117,13 +146,22 @@ def golden_under_skew(result: Any, golden: dict[str, Any]) -> dict[str, Any]:
         return golden
     low, high = reread
     assert low <= golden["ci_lower"] and golden["ci_upper"] <= high
+    pvalue = skew_pvalue(estimate, golden)
+    assert pvalue >= golden["p_value"] * (1 - 1e-9)
+    # The golden p-values against 0 sit at the inversion's floor, so the inversion is also
+    # pinned where it is informative: at the golden normal interval's lower limit, which the
+    # skew-widened t contains, the fit's test equals the inversion of the golden numbers.
+    at_limit = skew_pvalue(estimate, golden, null=float(golden["ci_lower"]))
+    assert at_limit >= 0.05
+    fitted = estimate.wald_test(null=float(golden["ci_lower"])).pvalue
+    assert fitted == pytest.approx(at_limit, rel=1e-8)
     return {
         **golden,
         "ci_lower": low,
         "ci_upper": high,
         "interval_scale": "skew_t",
         "effective_df": float(estimate.effective_df),
-        "p_value": estimate.to_dict()["p_value"],
+        "p_value": pvalue,
     }
 
 

@@ -142,11 +142,13 @@ class TestIntervalLimitsOnTheRecords:
             assert record.lower <= record.estimate - half
             assert record.upper >= record.estimate + half
             assert record.support == "supported" and record.support_reason == ""
-        first = real.replications[0]
-        fitted = fit().fit(study._draw(first.seed)[0], **study.fit_kwargs)
-        estimate = study._select(fitted)["ate"]
-        assert estimate.interval_scale == "skew_t"
-        assert (first.lower, first.upper) == pytest.approx(estimate.ci, rel=1e-10)
+        # Every replicate is refitted from its seed: containment alone would also pass a
+        # percentile interval wider than the Wald body.
+        for record in real.replications:
+            fitted = fit().fit(study._draw(record.seed)[0], **study.fit_kwargs)
+            estimate = study._select(fitted)["ate"]
+            assert estimate.interval_scale == "skew_t"
+            assert (record.lower, record.upper) == pytest.approx(estimate.ci, rel=1e-10)
         fig = plotting.zipper(real)
         assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect"
         assert "experimental" not in _core.note_text(fig)

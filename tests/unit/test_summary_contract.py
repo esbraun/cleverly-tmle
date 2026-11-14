@@ -229,9 +229,23 @@ def test_a_summary_has_a_heading_a_table_and_fits_the_width(key: str, detail: st
     assert isinstance(summary, Summary)
     assert summary.heading.strip()
     assert summary.tables
-    width = max(WIDTH, *(_narrowest(table) for table in summary.tables))
+    narrowest = max(_narrowest(table) for table in summary.tables)
+    # A summary may pass the width only where its unbreakable cells force it, and only on a
+    # declared fixture, so a new table that cannot fit is noticed rather than allowed.
+    assert (narrowest > WIDTH) == ((key, detail) in WIDER_THAN_WIDTH), (key, detail, narrowest)
+    width = max(WIDTH, narrowest)
     long = [line for line in str(summary).splitlines() if len(line) > width]
     assert not long, long
+
+
+#: The fixtures whose unbreakable cells pass :data:`WIDTH`: the all-experimental in-sample
+#: SNMM table, whose long coefficient names and df column cannot print narrower than 85.
+WIDER_THAN_WIDTH: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("longitudinal_records:snmm_in_sample", "short"),
+        ("longitudinal_records:snmm_in_sample", "full"),
+    }
+)
 
 
 def _narrowest(table: SummaryTable) -> int:
