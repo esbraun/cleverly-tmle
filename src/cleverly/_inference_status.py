@@ -172,15 +172,15 @@ NO_LOGIT_RANGE_BANDS: Final[str] = (
 )
 
 
+#: The summary line of a longitudinal fit whose estimates add the boundary-node supplement.
+BOUNDARY_NODE_BAND_NOTE: Final[str] = (
+    "{names} add a boundary-node variance that neither the multiplier process nor a row "
+    "resample carries, so no simultaneous band covers them."
+)
+
 #: The line a result summary prints when a fit skips its band because an estimate of the band's
 #: family reads a treatment arm whose observed outcomes in its stratum take a single value
 #: (the status ``"constant_arm_cell_plugin"``). ``{names}`` lists them.
-#: The summary line of a longitudinal fit whose estimates add the boundary-node supplement.
-BOUNDARY_NODE_BAND_NOTE: Final[str] = (
-    "{names} add a boundary-node variance that the band's multiplier process does not carry, "
-    "so no simultaneous band covers them."
-)
-
 NO_CONSTANT_ARM_BANDS: Final[str] = (
     "No simultaneous band is reported: the estimate {names} reads a treatment arm whose "
     "observed outcomes in its stratum take a single value, so its standard error leaves that "
@@ -609,25 +609,24 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             reason=(
                 "A longitudinal parameter reports no confidence interval, no p-value and no "
-                "standard error when a node regression of its recursion read a constant "
-                "target, such as a grid node at which no follower of the regimen had the "
-                "event, and the fit is outside the reach of the boundary-node supplement. "
-                "That regression is its maximum-likelihood value, 0 or 1, so the "
-                "point estimate stands, and the node's term of the influence curve is "
-                "identically zero. On an LTMLE iterated-mean or hazard fit whose estimate lies "
-                "inside its bounds, the interval adds the node's variance at the exact "
-                "one-sided binomial bound of its hazard (X54 part (i)). The fits outside that "
-                "reach keep this status, because no construction here bounds their node "
-                "variance: SDR reads a doubly robust transform of every later node; IPSI adds "
-                "a mechanism term at each tilt node; IPW and g-formula baselines fit no "
+                "standard error when a node regression of its recursion read a constant target, "
+                "such as a grid node at which no follower of the regimen had the event, and the "
+                "fit is outside the reach of the boundary-node supplement. That regression is its "
+                "maximum-likelihood value, 0 or 1, so the point estimate stands, and the node's "
+                "term of the influence curve is identically zero. On an LTMLE iterated-mean or "
+                "hazard fit whose estimate lies inside its bounds, the interval adds the node's "
+                "variance at the exact one-sided binomial bound of its hazard (X54 part (i)). The "
+                "fits outside that reach keep this status, because no construction here bounds "
+                "their node variance: SDR reads a doubly robust transform of every later node; "
+                "IPSI adds a mechanism term at each tilt node; IPW and g-formula baselines fit no "
                 "targeted node regression; a fit with repeated fold draws takes a median over "
-                "draws whose constant nodes differ; variance='policy_weighted' reports a "
-                "maximum of two variances that no rule here combines with a node bound; the "
-                "drift-corrected and separable-effects survival fits, a fold-average plan and "
-                "an isotonic projection change the node's term of the curve; a collaborative "
-                "survival fit and a learned rule select along the fit, where no study measures "
-                "the supplement; and a continuous outcome's node has no binomial bound. The fit's "
-                "warning names which. A contrast or a restricted mean that reads such a "
+                "draws whose constant nodes differ; variance='policy_weighted' reports a maximum "
+                "of two variances that no rule here combines with a node bound; the "
+                "drift-corrected and separable-effects survival fits, a fold-average plan and an "
+                "isotonic projection change the node's term of the curve; a collaborative survival "
+                "fit and a learned rule choose the node's coefficient along the fit, which no "
+                "bound here covers; and a continuous outcome's node has no binomial bound. The "
+                "fit's warning names which. A contrast or a restricted mean that reads such a "
                 "parameter takes this status too, and the simultaneous band leaves it out. The "
                 "plug-in standard error remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. F31 in docs/roadmap.md holds these kinds and the rare-event "
@@ -640,8 +639,8 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "the roadmap holds those fits"
             ),
             bootstrap_note=(
-                "a diagnostic; a resample can hold an event at the node that the sample "
-                "lacks, and no result validates the bootstrap coverage at a boundary node"
+                "a diagnostic; a row resample keeps the node's one value, so the bootstrap "
+                "spread leaves out the node's variance"
             ),
             diagnostic_noun="constant-node plug-in diagnostic",
             reopened_by="F31",
@@ -832,8 +831,9 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
         ),
         "collaborative": (
             "a collaborative survival TMLE",
-            "its mechanism is selected along the fit, and no study measures the supplement "
-            "with that selection",
+            "its mechanism is selected along the fit, so the node's coefficient in the curve "
+            "is chosen by data the curve does not account for, and no bound here covers that "
+            "choice",
         ),
         "separable": (
             "a separable-effects fit",
@@ -841,7 +841,8 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
         ),
         "learned_rule": (
             "a learned-rule fit",
-            "its regimen is learned on the folds, and no study measures the supplement there",
+            "its regimen is learned on the folds, so which rows follow it, and with them the "
+            "node's coefficient in the curve, are chosen by data the curve does not account for",
         ),
         "fold_average": (
             "a fold-average plan",

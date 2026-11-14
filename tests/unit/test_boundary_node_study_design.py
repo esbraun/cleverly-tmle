@@ -20,7 +20,9 @@ from tests.studies import boundary_node_laws as laws
 from tests.studies import boundary_node_ltmle as study
 from tests.studies import boundary_node_pilot as pilot
 from tests.studies import boundary_node_properties as properties
+from tests.studies import fractional_glm
 from tests.studies.evidence import property_failures
+from tests.studies.evidence.red_cells import owner_ids
 from tests.studies.evidence.registry import registered
 
 PILOT = Path(__file__).resolve().parents[1] / "canonical" / "boundary_node_ltmle" / "pilot.csv.gz"
@@ -140,8 +142,11 @@ def test_the_newcombe_interval_contains_the_difference() -> None:
 def rows() -> pd.DataFrame:
     if not PILOT.exists():
         pytest.skip("the pilot has not been committed")
-    frame = pd.read_csv(PILOT)
+    frame = pd.read_csv(PILOT, dtype={"lost": str, "withheld": str})
     frame["lost"] = frame["lost"].fillna("")
+    frame["withheld"] = frame["withheld"].fillna("")
+    for column in ("firing", "supplemented_here", "supplemented_covered", "plugin_covered"):
+        frame[column] = frame[column].fillna(False).astype(bool)
     return frame
 
 
@@ -158,22 +163,34 @@ def test_the_supplemented_interval_contains_the_plugin_interval(rows: pd.DataFra
     assert (kept["supplemented_high"] >= kept["plugin_high"] - 1e-12).all()
 
 
+def _control(rows: pd.DataFrame) -> pd.DataFrame:
+    return rows[(rows["cell"] == "interior_n200") & (rows["target"] == "always")]
+
+
 def test_the_paired_control_has_power_at_the_declared_size(rows: pd.DataFrame) -> None:
-    """Both clauses of ``paired_attributable`` at n = 200, R = 4,000, at the pilot rates."""
-    cell = rows[(rows["cell"] == "interior_n200") & (rows["target"] == "always")].copy()
-    cell["firing"] = cell["firing"].astype(bool)
-    for column in ("supplemented_covered", "plugin_covered"):
-        cell[column] = cell[column].astype(bool)
-    power = pilot.control_power(cell)
-    assert power["clause_i"] >= 0.90, power
-    assert power["clause_ii"] >= 0.90, power
+    """Both clauses of ``paired_attributable`` at n = 200, R = 4,000, on the 2,000-draw pilot.
+
+    The predictive power draws the pilot's rates from their posteriors in each simulation.
+    """
+    assert len(_control(rows)) == 2_000
+    for predictive in (False, True):
+        power = pilot.control_power(_control(rows), predictive=predictive)
+        assert power["clause_i"] >= 0.90, power
+        assert power["clause_ii"] >= 0.90, power
+
+
+def test_a_plugin_that_loses_nothing_has_no_power(rows: pd.DataFrame) -> None:
+    """Mutation control: a plug-in that covers as the supplement does passes neither clause."""
+    cell = _control(rows).copy()
+    cell["plugin_covered"] = cell["supplemented_covered"]
+    power = pilot.control_power(cell, predictive=True, simulations=400)
+    assert power["clause_i"] < 0.05 and power["clause_ii"] < 0.05, power
 
 
 #: Rows whose all-draw G1 pass probability at R = 4,000 is below 0.90 at the pilot rates. G1 on
-#: all draws is published, not gated (plan rev 3.1): ``interior_n400`` ``always`` reads 0.918 from
-#: its non-firing draws, about 1.4 expected events at node 4 under the interval the package
-#: already shipped. ``regenerate.py`` declares it under F31 before the run.
-BELOW_ALL_DRAW_G1 = {("interior_n400", "always")}
+#: all draws is published, not gated (plan rev 3.1). The 400-draw pilot put ``interior_n400``
+#: ``always`` here at 0.918; the 2,000-draw pilot reads 0.941 and puts no row here.
+BELOW_ALL_DRAW_G1: set[tuple[str, str]] = set()
 
 
 def _g1_threshold(replicates: int = 4_000, floor: float = 0.90) -> int:
@@ -225,6 +242,160 @@ def test_the_mutation_controls_of_the_pass_probability() -> None:
     """A coverage at the floor passes about half the time; one below it almost never."""
     assert _pass_probability(0.99, 600, 0.90) > 0.999
     assert _pass_probability(0.88, 600, 0.90) < 0.01
+
+
+def _predictive_lost(lost: int, draws: int, replicates: int = 4_000) -> int:
+    """The 95th percentile of the lost keys at ``replicates``, under the Jeffreys posterior."""
+    return int(stats.betabinom.ppf(0.95, replicates, lost + 0.5, draws - lost + 0.5))
+
+
+def _g2_worst_case(errors: np.ndarray, lost: int, margin: float = 0.25) -> bool:
+    """G2 with ``lost`` errors filled at the survivor minimum or maximum, the margin held.
+
+    The harness's S1 clause (``bias_clause``): the Student 99% interval must lie inside
+    ``margin`` complete-case SDs at every vertex split. The upper end is convex and the lower
+    concave in the fills, so the two extreme splits decide.
+    """
+    bound = margin * float(np.std(errors, ddof=1))
+    splits = (0, lost) if lost else (0,)
+    for low_fills in splits:
+        filled = np.concatenate(
+            [errors, np.full(low_fills, errors.min()), np.full(lost - low_fills, errors.max())]
+        )
+        half = stats.t.ppf(0.995, filled.size - 1) * filled.std(ddof=1) / np.sqrt(filled.size)
+        if not (-bound <= filled.mean() - half and filled.mean() + half <= bound):
+            return False
+    return True
+
+
+def _g2_pass(errors: np.ndarray, lost: int, simulations: int = 200, seed: int = 0) -> float:
+    """The predictive chance that a 4,000-draw row passes G2 with ``lost`` keys lost.
+
+    Each simulation resamples the pilot, then the study's survivors from that resample.
+    """
+    rng = np.random.default_rng(seed)
+    passes = 0
+    for _ in range(simulations):
+        posterior = rng.choice(errors, errors.size)
+        passes += _g2_worst_case(rng.choice(posterior, 4_000 - lost), lost)
+    return passes / simulations
+
+
+def _floor_pass(hits: int, trials: int, study_trials: int, floor: float, seed: int = 0) -> float:
+    """The predictive pass chance of an exact floor: the coverage drawn from its posterior."""
+    rng = np.random.default_rng(seed)
+    rates = rng.beta(hits + 0.5, trials - hits + 0.5, 200)
+    return float(np.mean([_pass_probability(rate, study_trials, floor) for rate in rates]))
+
+
+def _gated_pass_probabilities(rows: pd.DataFrame) -> dict[str, float]:
+    """Every gated clause's predictive pass probability, keyed by clause and row."""
+    out: dict[str, float] = {}
+    for cell in study.CELLS:
+        keys = rows[(rows["cell"] == cell.name) & (rows["target"] == "always")]
+        lost = _predictive_lost(int((keys["lost"] != "").sum()), len(keys))
+        for target in study.TARGETS:
+            group = rows[
+                (rows["cell"] == cell.name) & (rows["target"] == target) & (rows["lost"] == "")
+            ]
+            errors = (group["psi"] - group["truth"]).to_numpy(dtype=float)
+            out[f"bias/{cell.name}__{target}"] = _g2_pass(errors, lost)
+    for name in properties.FIRING_CELLS:
+        cell_name, target, _ = name.split("__")
+        group = rows[(rows["cell"] == cell_name) & (rows["target"] == target)]
+        fire = group.loc[group["firing"], "supplemented_covered"]
+        trials = int(study.expected_firing(study.CELL_BY_NAME[cell_name], target))
+        out[f"firing/{name}"] = _floor_pass(
+            int(fire.sum()), len(fire), trials, properties.FIRING_FLOOR
+        )
+    for name in properties.ZERO_CELLS:
+        cell_name, target, _ = name.split("__")
+        covered = rows[(rows["cell"] == cell_name) & (rows["target"] == target)]
+        hits = int(covered["supplemented_covered"].sum())
+        out[f"zero/{name}"] = _floor_pass(hits, len(covered), 4_000, properties.ZERO_FLOOR)
+    power = pilot.control_power(_control(rows), predictive=True)
+    out["paired/clause_i"], out["paired/clause_ii"] = power["clause_i"], power["clause_ii"]
+    return out
+
+
+@pytest.fixture(scope="module")
+def chances(rows: pd.DataFrame) -> dict[str, float]:
+    return _gated_pass_probabilities(rows)
+
+
+def test_every_bias_row_passes_g2_at_the_predictive_worst_case(chances: dict[str, float]) -> None:
+    """G2 at the 95th percentile of the lost keys, every lost error at its worst vertex."""
+    bias = {key: value for key, value in chances.items() if key.startswith("bias/")}
+    assert len(bias) == 24
+    assert min(bias.values()) >= 0.99, bias
+
+
+def test_the_gated_family_passes_with_probability_at_least_090(chances: dict[str, float]) -> None:
+    """The product of every gated clause's predictive pass probability.
+
+    The clauses are the 24 G2 rows, 19 firing floors, two zero cells and two paired clauses.
+    """
+    assert len(chances) == 24 + 19 + 2 + 2
+    assert float(np.prod(list(chances.values()))) >= 0.90, chances
+
+
+def test_the_g2_pass_probability_sees_a_bias_and_a_large_loss() -> None:
+    """Mutation controls: a bias of 0.3 SD, or losses filled at far extremes, fail G2."""
+    errors = np.random.default_rng(1).normal(size=2_000)
+    assert _g2_pass(errors, 4, simulations=50) > 0.95
+    assert _g2_pass(errors + 0.3, 4, simulations=50) < 0.05
+    assert not _g2_worst_case(np.concatenate([errors, [40.0, -40.0]]), 400)
+
+
+def _primary_legs(group: pd.DataFrame, simulations: int = 200, seed: int = 0) -> np.ndarray:
+    """Predictive pass chances of the primary's bias, coverage and SE-ratio legs at R = 1,000."""
+    rng = np.random.default_rng(seed)
+    replicates = study.PRIMARY_REPLICATES
+    psi = group["psi"].to_numpy(dtype=float)
+    errors = psi - group["truth"].to_numpy(dtype=float)
+    se = group["supplemented_std_error"].to_numpy(dtype=float)
+    covered = group["supplemented_covered"].to_numpy(dtype=bool)
+    threshold = _g1_threshold(replicates)
+    low_band, high_band = study.STUDY.margins.se_ratio_sanity
+    legs = np.zeros((simulations, 3), dtype=bool)
+    for s in range(simulations):
+        pick = rng.choice(rng.integers(0, psi.size, psi.size), replicates)
+        e = errors[pick]
+        bound = 0.25 * e.std(ddof=1)
+        half = stats.t.ppf(0.995, replicates - 1) * e.std(ddof=1) / np.sqrt(replicates)
+        legs[s, 0] = -bound <= e.mean() - half and e.mean() + half <= bound
+        legs[s, 1] = covered[pick].sum() >= threshold
+        boot = rng.integers(0, replicates, (200, replicates))
+        ratios = se[pick][boot].mean(axis=1) / psi[pick][boot].std(axis=1, ddof=1)
+        low, high = np.quantile(ratios, [0.005, 0.995])
+        legs[s, 2] = low_band <= low and high <= high_band
+    return legs.mean(axis=0)
+
+
+def test_the_primary_passes_or_carries_its_declared_reading(rows: pd.DataFrame) -> None:
+    """Each primary row passes its bias and coverage legs, and its SE-ratio leg too or else it
+    is declared red under an owner that the roadmap lists.
+
+    The record's margins are the harness defaults; no band is widened for the bound.
+    """
+    assert study.STUDY.margins.se_ratio_sanity == (0.80, 1.20)
+    assert set(study.PRIMARY_RED_READINGS) <= set(study.ESTIMANDS)
+    assert set(study.PRIMARY_RED_READINGS.values()) <= set(owner_ids())
+    for target, estimand in study.TARGETS.items():
+        group = rows[(rows["cell"] == study.SCENARIO) & (rows["target"] == target)]
+        bias, coverage, ratio = _primary_legs(group)
+        assert bias >= 0.99 and coverage >= 0.90, (target, bias, coverage)
+        if estimand in study.PRIMARY_RED_READINGS:
+            assert ratio < 0.10, (target, ratio)
+        else:
+            assert ratio >= 0.90, (target, ratio)
+
+
+def test_the_primary_legs_see_a_short_standard_error(rows: pd.DataFrame) -> None:
+    """Mutation control: halving the reported SE fails the SE-ratio leg of ``risk[never]``."""
+    group = rows[(rows["cell"] == study.SCENARIO) & (rows["target"] == "never")].copy()
+    group["supplemented_std_error"] *= 0.5
+    assert _primary_legs(group, simulations=40)[2] < 0.05
 
 
 # ------------------------------------------------------------------------------- law B
@@ -332,26 +503,25 @@ def test_declared_and_not_yet_registered() -> None:
     assert study.STUDY.failure_bound == {"cleverly": 0.05}
 
 
-def test_a_study_glm_failure_is_recorded_as_a_lost_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The study GLM's IRLS failure is a lost key with its own words; any other error raises."""
-    from tests.studies.evidence.replication import _Recorded
+def _separated_draw() -> tuple[pd.DataFrame, study.Cell]:
+    """Pilot draw 1726 of the cross-fitted cell, whose pseudo-outcome the default GLM raised on."""
+    cell = study.CELL_BY_NAME["interior_n200_crossfit"]
+    rng = np.random.default_rng(pilot.draw_seed(cell.name, 1726))
+    return laws.law_of(cell.variant).draw(cell.n, rng), cell
 
-    def fail(self: object, *args: object, **kwargs: object) -> None:
-        raise RuntimeError(study.STUDY_GLM_FAILURE)
 
-    frame = laws.law_of("interior").draw(200, np.random.default_rng(3))
-    cell = study.CELL_BY_NAME["interior_n200"]
-    monkeypatch.setattr(study.QuasiBinomialGLM, "fit", fail)
-    with pytest.raises(_Recorded) as caught:
-        study.fit(frame, cell)
-    assert caught.value.failure.message == study.STUDY_GLM_FAILURE
-    assert caught.value.failure.error_type == "RuntimeError"
+def test_the_study_glm_fits_a_numerically_separated_draw() -> None:
+    """The draw that lost its key in the first pilot fits: no lost-replicate source remains."""
+    frame, cell = _separated_draw()
+    result = study.fit(frame, cell)
+    assert np.isfinite(result[study.TARGETS["always"]].psi)
 
-    def other(self: object, *args: object, **kwargs: object) -> None:
-        raise RuntimeError("another failure")
 
-    monkeypatch.setattr(study.QuasiBinomialGLM, "fit", other)
-    with pytest.raises(RuntimeError, match="another failure"):
+def test_without_the_flag_the_separated_draw_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: without the numerical-separation branch the draw raises."""
+    frame, cell = _separated_draw()
+    monkeypatch.setattr(fractional_glm, "numerically_separated", lambda *args: False)
+    with pytest.raises(RuntimeError, match="quasibinomial IRLS did not converge"):
         study.fit(frame, cell)
 
 
@@ -366,6 +536,7 @@ def _rows(seed: int = 0, replicates: int = 4_000) -> pd.DataFrame:
         fire = rng.uniform(size=replicates) < 0.5
         if cell.zero:
             fire[:] = True
+        supplemented = fire | (rng.uniform(size=replicates) < 0.05)
         errors = rng.normal(size=replicates) * 0.05
         for target in study.TARGETS:
             for arm in study.ARMS:
@@ -393,6 +564,7 @@ def _rows(seed: int = 0, replicates: int = 4_000) -> pd.DataFrame:
                             "rejected": 0,
                             "firing": fire.astype(int),
                             "multi_flag": 0,
+                            "supplemented": supplemented.astype(int),
                             "withheld": 0,
                         }
                     )
@@ -487,3 +659,37 @@ def test_a_lost_draw_is_read_as_a_firing_miss() -> None:
     candidates = properties._firing_candidates(ctx, row)
     assert len(candidates) == 31
     assert candidates[0][1].passed and not candidates[-1][1].passed
+
+
+def test_a_quiet_draw_is_neither_firing_nor_supplemented(passing: pd.DataFrame) -> None:
+    """Misses on draws supplemented at another node leave the quiet reading alone.
+
+    Mutation control: the same misses on quiet draws lower it and raise ``rare_event_limit``.
+    """
+    name = "interior_n200__always__supplemented"
+    base = _verdicts(passing).loc[name]
+    assert not base["rare_event_limit"]
+    elsewhere = passing.copy()
+    mask = (
+        (elsewhere["cell"] == name) & (elsewhere["firing"] == 0) & (elsewhere["supplemented"] == 1)
+    )
+    assert mask.sum() > 50
+    elsewhere.loc[mask, "covered"] = 0
+    assert _verdicts(elsewhere).loc[name, "quiet_coverage"] == base["quiet_coverage"]
+    quiet = passing.copy()
+    mask = (quiet["cell"] == name) & (quiet["firing"] == 0) & (quiet["supplemented"] == 0)
+    quiet.loc[mask, "covered"] = (np.arange(mask.sum()) % 5 > 0).astype(int)
+    shifted = _verdicts(quiet).loc[name]
+    assert shifted["quiet_coverage"] < 0.85
+    assert shifted["rare_event_limit"]
+    assert shifted["passed"]
+
+
+def test_the_firing_se_ratio_reads_the_firing_draws(passing: pd.DataFrame) -> None:
+    name = "interior_n200__always__supplemented"
+    verdicts = _verdicts(passing).loc[name]
+    group = passing[passing["cell"] == name]
+    fire = group["firing"] == 1
+    expected = group.loc[fire, "std_error"].mean() / group.loc[fire, "estimate"].std(ddof=1)
+    assert verdicts["firing_se_ratio"] == pytest.approx(expected, rel=1e-12)
+    assert verdicts["firing_se_ratio_ci_lower"] < expected < verdicts["firing_se_ratio_ci_upper"]

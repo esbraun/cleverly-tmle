@@ -32,11 +32,26 @@ does a quasi-complete separation, where some row must lie on the hyperplane; tha
 deviance rule above.  The last iterate approximates the limiting predictions, and a fit that
 converged before takes the same iterates and stops at the same step.
 
-Neither change moves a registered study that ran before it, for two structural reasons.  No
-committed failure record carries the text the learner raised, so no committed run reached the
-branch that raised.  And no registered study puts this learner inside a ``SuperLearner``
-library or a bootstrap refit, the two places where a raise would have been swallowed rather
-than failing the run.
+A third case is a fractional target that is binary to within
+:data:`NUMERICAL_BINARY_TOLERANCE`: a pseudo-outcome carried back from a separated later fit,
+with values such as ``1e-289`` and ``1 - 5e-8``. Its deviance tends to zero as under complete
+separation, and the relative rule is not met in ``max_iter`` steps, so the learner raised on
+about 1% of the cross-fitted draws of ``boundary-node-ltmle``'s pilot. The farthest such value
+from 0 or 1 in that pilot was ``2.5e-6``, and the tolerance is ``1e-4``. With
+``numerical_separation=True``, when the target rounded to 0 and 1 is completely separated
+(:func:`numerically_separated`), the fit keeps its last iterate with the same warning. The
+branch is reached only where the learner raised or already kept the last iterate, so no fit
+that converged, and no last iterate it kept, changes. It is opt-in, and only
+``boundary-node-ltmle`` opts in: the long-horizon studies refit this learner inside a
+bootstrap, which drops a replicate that raises, so turning it on for every study could move a
+committed bootstrap interval.
+
+No committed failure record carries the text the learner raised, so no committed run reached
+the branch that raised in a fit whose error would stop it. No registered study puts this
+learner inside a ``SuperLearner`` library. The long-horizon studies
+(:mod:`tests.studies.long_horizon_common`) do refit it inside a bootstrap with
+``n_bootstrap=199``, where a replicate that raises is dropped rather than failing the run, so
+the first two changes are not shown to leave those bootstrap rows unchanged.
 """
 
 from __future__ import annotations
@@ -52,6 +67,40 @@ from sklearn.base import BaseEstimator
 
 #: R's ``glm.control(epsilon=)``: the relative deviance change at which ``glm`` stops.
 DEVIANCE_EPSILON = 1e-8
+
+
+#: How far from 0 or 1 a fractional target may lie and still be read as binary by
+#: :func:`numerically_separated`.
+NUMERICAL_BINARY_TOLERANCE = 1e-4
+
+
+def numerically_separated(design: np.ndarray, target: np.ndarray, weights: np.ndarray) -> bool:
+    """Whether a target within :data:`NUMERICAL_BINARY_TOLERANCE` of binary is separated.
+
+    A pseudo-outcome carried back from a completely separated later fit holds values such as
+    ``1e-289`` and ``1 - 5e-8`` where the limit holds 0 and 1. Its deviance then tends to zero
+    as in complete separation, and :func:`completely_separated` misses it only because the
+    values are not exactly 0 and 1. This reads the target rounded to 0 and 1 when every
+    positive-weight value lies within the tolerance of one of them.
+
+    Parameters
+    ----------
+    design : ndarray
+        The ``(n, p)`` design, intercept column included.
+    target : ndarray
+        The ``(n,)`` target.
+    weights : ndarray
+        The ``(n,)`` row weights. Rows of zero weight do not count.
+
+    Returns
+    -------
+    bool
+        Whether the rounded positive-weight rows are completely separated.
+    """
+    observed = target[weights > 0]
+    if np.max(np.minimum(np.abs(observed), np.abs(1.0 - observed))) > NUMERICAL_BINARY_TOLERANCE:
+        return False
+    return completely_separated(design, np.round(target), weights)
 
 
 class QuasiBinomialSeparationWarning(RuntimeWarning):
@@ -123,9 +172,12 @@ class QuasiBinomialGLM(BaseEstimator):
     #: fits as ``c`` copies of the row (:mod:`cleverly.longitudinal.frequency`).
     frequency_exact = True
 
-    def __init__(self, *, max_iter: int = 100, tol: float = 1e-10) -> None:
+    def __init__(
+        self, *, max_iter: int = 100, tol: float = 1e-10, numerical_separation: bool = False
+    ) -> None:
         self.max_iter = max_iter
         self.tol = tol
+        self.numerical_separation = numerical_separation
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> QuasiBinomialGLM:
         matrix = np.asarray(X, dtype=float)
@@ -157,7 +209,10 @@ class QuasiBinomialGLM(BaseEstimator):
             last = expit(design @ coefficient)
             before = deviance(target, expit(design @ previous), weights)
             after = deviance(target, last, weights)
-            if after <= before and completely_separated(design, target, weights):
+            if after <= before and (
+                completely_separated(design, target, weights)
+                or (self.numerical_separation and numerically_separated(design, target, weights))
+            ):
                 warnings.warn(
                     f"quasibinomial IRLS coefficients did not converge in {self.max_iter} "
                     "steps: complete separation, last iterate kept",

@@ -18,6 +18,11 @@ random separated designs.
 The learner is shared by many registered studies, so a converging fit must take the same
 iterates as before.  ``_previous_fit`` is the learner as it was, and the bit-identity test
 compares the two on converging fits.
+
+A third case, opt-in through ``numerical_separation=True``, is a target binary to within
+``1e-4``: a pseudo-outcome carried back from a separated later fit. One such fit from the
+``boundary-node-ltmle`` pilot is a fixture below. It raises by default and fits with the flag,
+and the flag leaves converging fits bit-identical.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from tests.studies.fractional_glm import (
     QuasiBinomialSeparationWarning,
     completely_separated,
     deviance,
+    numerically_separated,
 )
 
 
@@ -308,3 +314,118 @@ def test_a_deviance_that_rises_is_not_read_as_separation(monkeypatch: pytest.Mon
     monkeypatch.setattr(fractional_glm.np.linalg, "lstsq", oscillate)
     with pytest.raises(RuntimeError, match="did not converge"):
         QuasiBinomialGLM().fit(X, y)
+
+
+#: One of the four pseudo-outcome regressions that raised in the pilot's
+#: ``interior_n200_crossfit`` cell, on its one covariate. Every value is within ``5e-8`` of 0 or 1, and the
+#: one value near 1 sits at the smallest covariate. Unlisted targets are exactly 0.
+_NUMERICAL_X = (
+    -0.195934,
+    1.270248,
+    1.193440,
+    0.504915,
+    -0.283032,
+    0.148482,
+    0.787413,
+    -1.278158,
+    -1.475866,
+    -0.470222,
+    -0.185183,
+    -0.063796,
+    -0.747503,
+    -0.153576,
+    1.503990,
+    -0.899555,
+    1.420630,
+    -1.784143,
+    -1.281221,
+    -0.787614,
+    -1.846442,
+    -0.822189,
+    -0.067870,
+    -1.780764,
+    -0.430177,
+    -0.150682,
+    -0.967302,
+    -1.581684,
+    -0.658924,
+    -1.318144,
+    -0.325347,
+    -0.987794,
+    0.696619,
+    0.399445,
+    -1.261857,
+    0.564534,
+    -0.424567,
+    0.707594,
+)
+_NUMERICAL_Y_NONZERO = {
+    7: 1.2039173034120965e-127,
+    8: 6.135937585849431e-81,
+    12: 5.211938783598094e-253,
+    15: 4.347967905069976e-217,
+    17: 4.1329897223318884e-08,
+    18: 6.370764678407521e-127,
+    19: 1.5591146484510947e-243,
+    20: 0.9999999536409566,
+    21: 2.296990583384628e-235,
+    23: 6.574974907546119e-09,
+    26: 4.395597301813421e-201,
+    27: 6.117070808897285e-56,
+    28: 6.178401561166117e-274,
+    29: 3.365172061530106e-118,
+    31: 3.049152644507041e-196,
+    34: 1.696460336471902e-131,
+}
+
+
+def _numerically_separated_fit() -> tuple[np.ndarray, np.ndarray]:
+    X = np.array(_NUMERICAL_X).reshape(-1, 1)
+    y = np.zeros(len(_NUMERICAL_X))
+    for row, value in _NUMERICAL_Y_NONZERO.items():
+        y[row] = value
+    return X, y
+
+
+def test_a_numerically_binary_separated_target_raises_by_default() -> None:
+    X, y = _numerically_separated_fit()
+    assert not completely_separated(_with_intercept(X), y, np.ones_like(y))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        QuasiBinomialGLM().fit(X, y)
+
+
+def test_numerical_separation_keeps_the_last_iterate() -> None:
+    X, y = _numerically_separated_fit()
+    assert numerically_separated(_with_intercept(X), y, np.ones_like(y))
+    with pytest.warns(QuasiBinomialSeparationWarning, match="complete separation"):
+        model = QuasiBinomialGLM(numerical_separation=True).fit(X, y)
+    fitted = model.predict(X)
+    assert np.max(np.abs(fitted - np.round(y))) < 1e-6
+
+
+def test_numerical_separation_rests_on_its_detector(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: without the detector the flagged fit raises again."""
+    monkeypatch.setattr(fractional_glm, "numerically_separated", lambda *args: False)
+    X, y = _numerically_separated_fit()
+    with pytest.raises(RuntimeError, match="did not converge"):
+        QuasiBinomialGLM(numerical_separation=True).fit(X, y)
+
+
+def test_a_target_off_binary_is_not_numerically_separated() -> None:
+    """A value ``2e-4`` from 0 exceeds the tolerance, so the rounded design is not read."""
+    X, y = _numerically_separated_fit()
+    y[17] = 2e-4
+    assert not numerically_separated(_with_intercept(X), y, np.ones_like(y))
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_the_numerical_flag_leaves_a_converging_fit_unchanged(seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(400, 3))
+    y = rng.binomial(1, expit(0.3 + X @ np.array([0.5, -0.4, 0.2]))).astype(float)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        model = QuasiBinomialGLM(numerical_separation=True).fit(X, y)
+    expected = _previous_fit(X, y)
+    assert np.array_equal(model.intercept_, expected[:1])
+    assert np.array_equal(model.coef_[0], expected[1:])

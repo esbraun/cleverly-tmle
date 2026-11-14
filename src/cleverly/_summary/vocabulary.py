@@ -538,6 +538,11 @@ BOOTSTRAP_DIAGNOSTIC: Final[Mapping[str, str]] = MappingProxyType(
             "because the fit reads fewer than {clusters} clusters, and no validation study "
             "measures a bootstrap interval at so few."
         ),
+        "boundary_node": (
+            "The bootstrap range of {names} is a diagnostic, not a confidence interval: every "
+            "resample of rows keeps the flagged node's one value, so the bootstrap cannot see "
+            "the variance that the boundary-node supplement adds."
+        ),
         "declared": (
             "The bootstrap range of {names} is a diagnostic, not a confidence interval: the "
             "collaborative fit builds its treatment model from the data again on each "

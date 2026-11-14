@@ -868,6 +868,32 @@ def fit_ltmle_boundary_node() -> Any:
     )
 
 
+def fit_ltmle_boundary_node_iterated() -> Any:
+    """The clustered iterated-mean fit with no event in arm ``a1`` at node 2.
+
+    Law A's path of ``boundary-node-ltmle``: the arm's node-2 regression holds one value, so
+    the estimates at horizons 2 to 4 add the supplement summed within clusters of ten.
+    """
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    frame["site"] = np.arange(len(frame)) // 10
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(
+            time="time", event="event", treatment="A", baseline=["W1", "W2"], cluster="site"
+        ),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_hazard_one_step() -> Any:
     """The one-step whole-curve hazard fit."""
     return _fit_point_survival(survival_model="hazard", targeting="one_step")
@@ -1102,6 +1128,8 @@ KINDS: dict[str, Kind] = {
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     # Horizons 2 to 4 carry the boundary-node supplement; every row the hazard fit answers runs.
     "ltmle_boundary_node": _kind(fit_ltmle_boundary_node, *_READ, *_POINT),
+    # The iterated-mean path, clustered: the same rows run on the supplemented horizons.
+    "ltmle_boundary_node_iterated": _kind(fit_ltmle_boundary_node_iterated, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.

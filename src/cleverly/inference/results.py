@@ -1222,6 +1222,7 @@ def derived_bootstrap(
     return replace(
         summary,
         diagnostic=any(item.diagnostic for item in kept),
+        boundary_node=any(item.boundary_node for item in kept),
         below_floor=any(item.below_floor for item in kept),
         cluster_floor=next((item.cluster_floor for item in kept if item.below_floor), None),
         support=combine_support([item.support for item in kept], kind="derived"),
@@ -1403,7 +1404,9 @@ def attach_bootstrap(
         The replicate draws.
     diagnostic : bool, default=False
         Whether the fit declares its bootstrap interval a diagnostic. Stored on each
-        :class:`~cleverly.inference.BootstrapSummary`.
+        :class:`~cleverly.inference.BootstrapSummary`. An estimate that adds the boundary-node
+        supplement (:attr:`~cleverly.inference.ParameterEstimate.node`) is a diagnostic
+        whatever this says: every row resample keeps the node's one value.
     classification : Classification or None, default=None
         The fit's classification. Each summary takes the support that
         :func:`~cleverly._support.support_for` gives for the interval's kind: ``"bootstrap"``
@@ -1443,9 +1446,12 @@ def attach_bootstrap(
             )
         else:
             drawn = bootstrap.interval(name, alpha)
+        # A row resample keeps a flagged node's one value, so the bootstrap spread leaves out
+        # the variance the boundary-node supplement bounds; that interval is a diagnostic.
         return replace(
             drawn,
-            diagnostic=diagnostic,
+            diagnostic=diagnostic or estimate.node is not None,
+            boundary_node=estimate.node is not None,
             below_floor=below_floor,
             cluster_floor=cluster_floor,
             support=support_for(

@@ -26,6 +26,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly._inference_status import BOUNDARY_NODE_OUT_OF_REACH, OUT_OF_RANGE_STATUS
 from cleverly.exceptions import CapabilityError, DataWarning
 from cleverly.inference import influence_variance
+from cleverly.inference import results as results_module
+from cleverly.inference.influence import bootstrap_line
 from cleverly.inference.multiplier import simultaneous_bands
 from cleverly.inference.node_variance import hazard_bound
 from cleverly.interventions import Shift
@@ -51,10 +53,12 @@ def _frame(
     quiet: dict[int, tuple[int, ...]] | None = None,
     full: dict[int, tuple[int, ...]] | None = None,
     cluster_size: int | None = None,
+    weighted: bool = False,
 ) -> LongitudinalData:
     """A four-node panel; ``quiet`` removes every event of an arm at the named nodes.
 
     ``full`` turns every unit of an arm at risk at the named nodes into an event there.
+    ``weighted`` gives the rows sampling weights drawn from 0.5 to 2.
     """
     rng = np.random.default_rng(seed)
     w = rng.integers(0, 2, n)
@@ -75,6 +79,9 @@ def _frame(
     if cluster_size is not None:
         frame["id"] = np.arange(n) // cluster_size
         settings["id"] = "id"
+    if weighted:
+        frame["wt"] = np.random.default_rng(seed + 1).uniform(0.5, 2.0, n)
+        settings["weights"] = "wt"
     return LongitudinalData.from_time_to_event(
         frame,
         time="time",
@@ -164,13 +171,14 @@ def test_the_hazard_bound_needs_a_unit() -> None:
 # --------------------------------------------------------------------- the nonzero witnesses
 
 
+@pytest.mark.parametrize("weighted", [False, True], ids=["unit_weights", "weighted"])
 @pytest.mark.parametrize("hazard", [False, True], ids=["iterated_mean", "hazard"])
 @pytest.mark.parametrize("n_folds", [1, 2])
 def test_the_supplement_is_the_binomial_bound_over_the_fitted_rows(
-    hazard: bool, n_folds: int
+    hazard: bool, n_folds: int, weighted: bool
 ) -> None:
     """Unclustered: the variance is the curve's plus n^-2 s^2 sum C^2 over the node's rows."""
-    data = _frame(quiet={1: (2,)})
+    data = _frame(quiet={1: (2,)}, weighted=weighted)
     result = _fit(data, hazard=hazard, n_folds=n_folds)
     name = "risk_regimen[treated @ t=2]"
     estimate = result[name]
@@ -219,10 +227,13 @@ def test_counting_every_row_moves_the_bound(monkeypatch: pytest.MonkeyPatch) -> 
     assert mutated.node.node_variance != pytest.approx(reported.node.node_variance, rel=1e-6)
 
 
+@pytest.mark.parametrize("weighted", [False, True], ids=["unit_weights", "weighted"])
 @pytest.mark.parametrize("hazard", [False, True], ids=["iterated_mean", "hazard"])
-def test_a_clustered_node_counts_clusters_and_sums_within_them(hazard: bool) -> None:
+def test_a_clustered_node_counts_clusters_and_sums_within_them(
+    hazard: bool, weighted: bool
+) -> None:
     """m_t is the clusters with a fitted row, and a unit's loading is its summed |C|."""
-    data = _frame(n=120, quiet={1: (2,)}, cluster_size=10)
+    data = _frame(n=120, quiet={1: (2,)}, cluster_size=10, weighted=weighted)
     result = _fit(data, hazard=hazard)
     estimate = result["risk_regimen[treated @ t=2]"]
     loading = _loading(result, "treated @ t=2", 2)
@@ -231,6 +242,33 @@ def test_a_clustered_node_counts_clusters_and_sums_within_them(hazard: bool) -> 
     assert estimate.node.loadings.nodes[0].units == 12
     assert estimate.node.node_variance == pytest.approx(
         float(np.sum(loading**2)) / data.n**2, rel=1e-12
+    )
+
+
+@pytest.mark.parametrize("power", ["** 2", "* 0.0 + 1.0"], ids=["squared", "omitted"])
+@pytest.mark.parametrize("cluster_size", [None, 10], ids=["rows", "clusters"])
+def test_a_wrong_weight_in_the_coefficient_is_caught(
+    monkeypatch: pytest.MonkeyPatch, power: str, cluster_size: int | None
+) -> None:
+    """m2 mutation control: a coefficient with w squared or without w misses the witness."""
+    data = _frame(n=120, quiet={1: (2,)}, cluster_size=cluster_size, weighted=True)
+    mutate(
+        monkeypatch,
+        sequential_module,
+        sequential_module,
+        "boundary_coefficient",
+        [
+            (
+                "weights = np.asarray(fit.obs_weights, dtype=float)",
+                f"weights = np.asarray(fit.obs_weights, dtype=float) {power}",
+            )
+        ],
+    )
+    result = _fit(data)
+    estimate = result["risk_regimen[treated @ t=2]"]
+    loading = _loading(result, "treated @ t=2", 2)
+    assert estimate.node.node_variance != pytest.approx(
+        float(np.sum(loading**2)) / data.n**2, rel=1e-6
     )
 
 
@@ -256,8 +294,10 @@ def test_the_all_ones_mirror_carries_its_term_through_a_contrast(
 ) -> None:
     """B2: every follower at risk at node 2 has the event, so the risk is exactly 1.
 
-    The level is on its bound and takes ``out_of_range_plugin``. The contrast against the
-    interior arm is inside its bounds and its node term, read with b = 1, is nonzero.
+    The level is on its bound and takes ``out_of_range_plugin``, and the contrast against the
+    interior arm inherits that status by precedence, so neither shows an interval. The
+    contrast's node record, read with b = 1, is still nonzero; a shown interval that reads a
+    node held at 1 is the competing-risks witness below.
     """
     data = _frame(full={1: (2,)})
     # No treated unit is at risk after node 2, so the curve stops there.
@@ -265,6 +305,7 @@ def test_the_all_ones_mirror_carries_its_term_through_a_contrast(
     assert result["risk_regimen[treated @ t=2]"].inference == OUT_OF_RANGE_STATUS
     contrast = result["ate_regimen[control vs treated @ t=2]"]
     assert -1.0 < contrast.psi < 1.0
+    assert contrast.inference == OUT_OF_RANGE_STATUS
     assert contrast.node is not None
     nodes = [node for node in contrast.node.loadings.nodes if node.level.endswith("t=2]")]
     assert {(node.node, node.value) for node in nodes} == {(1, 1.0), (2, 1.0)}
@@ -283,6 +324,83 @@ def test_the_all_ones_mirror_carries_its_term_through_a_contrast(
         lambda fit: tuple(cell for cell in real(fit) if cell.value == 0.0),
     )
     assert _fit(data, horizons=[1, 2])["ate_regimen[control vs treated @ t=2]"].node is None
+
+
+def _competing_full(split: bool) -> tuple[LongitudinalData, int]:
+    """Two causes; every treated unit at risk at node 2 has an event there.
+
+    The all-cause hazard of the treated cell is held at 1 at node 2. With ``split`` the events
+    there take both causes, so the cell drops one residual (the all-cause one). Without it they
+    are all cause 2, so cause 1 is held at 0 as well and the cell drops two. The second value
+    is that count, read from the frame: causes with no event in the cell, plus one when every
+    unit of the cell has an event.
+    """
+    rng = np.random.default_rng(3)
+    n = 600
+    w = rng.integers(0, 2, n)
+    a = rng.binomial(1, 0.5, n)
+    time = rng.integers(1, 4, n).astype(float)
+    event = rng.choice([0, 1, 2], n, p=[0.3, 0.35, 0.35])
+    at_risk = (a == 1) & (time >= 2)
+    time[at_risk] = 2.0
+    event[at_risk] = rng.choice([1, 2], int(at_risk.sum())) if split else 2
+    frame = pd.DataFrame({"time": time, "event": event, "A": a, "W": w})
+    cell = event[(a == 1) & (time == 2.0)]
+    dropped = sum(int(not np.any(cell == cause)) for cause in (1, 2)) + int(np.all(cell > 0))
+    data = LongitudinalData.from_time_to_event(
+        frame,
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=["W"],
+        grid=[1, 2],
+        causes={1: "c1", 2: "c2"},
+    )
+    return data, dropped
+
+
+@pytest.mark.parametrize("split", [True, False], ids=["causes_split", "one_cause"])
+def test_a_shown_incidence_reads_a_node_held_at_one(split: bool) -> None:
+    """M2: the all-cause hazard is held at 1 and the cause-specific incidence is interior.
+
+    The shown interval adds the node's loading times the residuals the cell drops, counted
+    here from the panel: one when the causes split, two when cause 1 is also held at 0.
+    """
+    data, terms = _competing_full(split)
+    result = _fit(data, hazard=True)
+    name = "cif_regimen[treated, c1 @ t=2]"
+    estimate = result[name]
+    assert estimate.supplies_inference
+    assert 0.0 < estimate.psi < 1.0
+    assert estimate.node is not None
+    assert terms == (1 if split else 2)
+    (cell,) = result.fits["treated, c1 @ t=2"].hazard_boundary
+    assert (cell.time, cell.terms) == (2, terms)
+    supplement = terms**2 * float(np.sum(_loading(result, "treated, c1 @ t=2", 2) ** 2))
+    assert supplement > 0.0
+    assert estimate.node.node_variance == pytest.approx(supplement / data.n**2, rel=1e-12)
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        [("if not (empty or full):", "if not empty:"), ("empty + full)", "empty)")],
+        [("empty + full)", "1)")],
+    ],
+    ids=["full_dropped", "one_term"],
+)
+def test_the_full_node_count_is_caught(
+    monkeypatch: pytest.MonkeyPatch, edits: list[tuple[str, str]]
+) -> None:
+    """Mutations: a cell that drops the full node, or counts one term, moves the variance."""
+    from cleverly.longitudinal import hazard as hazard_module
+
+    data, _ = _competing_full(split=False)
+    expected = _fit(data, hazard=True)["cif_regimen[treated, c1 @ t=2]"].node.node_variance
+    mutate(monkeypatch, hazard_module, hazard_module.HazardInputs, "boundary_cells", edits)
+    mutated = _fit(data, hazard=True)["cif_regimen[treated, c1 @ t=2]"].node
+    assert mutated is not None
+    assert mutated.node_variance != pytest.approx(expected, rel=1e-6)
 
 
 def test_a_clustered_contrast_sums_both_regimens_inside_each_unit() -> None:
@@ -494,6 +612,56 @@ def test_the_band_leaves_a_supplemented_estimate_out_and_refuses_it_by_name() ->
         result.covariance(sorted(supplemented))
 
 
+def _bootstrapped(data: LongitudinalData) -> Any:
+    return _fit(data, simultaneous=True, n_bootstrap=19, bootstrap_interval="percentile")
+
+
+def test_the_bootstrap_of_a_supplemented_estimate_is_a_diagnostic_and_leaves_the_band() -> None:
+    """A row resample keeps the flagged node's one value, so its spread misses the node term.
+
+    The supplemented estimates publish their bootstrap as a range with that reason and stay
+    out of the bootstrap sup-t band; their unflagged neighbours keep an interval and the band.
+    """
+    result = _bootstrapped(_frame(quiet={1: (2,)}))
+    supplemented = set(boundary_node_parameters(result))
+    assert supplemented
+    for name in supplemented:
+        summary = result[name].bootstrap
+        assert summary.diagnostic and summary.boundary_node
+        assert "bootstrap_range_lower" in result[name].to_dict()
+        assert "keeps the flagged node's one value" in bootstrap_line(result[name])
+    quiet = "risk_regimen[treated @ t=1]"
+    assert not result[quiet].bootstrap.diagnostic
+    assert result.bootstrap_band is not None
+    assert quiet in result.bootstrap_band.bands
+    assert supplemented.isdisjoint(result.bootstrap_band.bands)
+    assert "the boundary-node supplement adds" in str(result.summary())
+
+
+def test_a_bootstrap_that_ignores_the_node_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation controls: an interval or a band that reads the node's resample passes neither."""
+    data = _frame(quiet={1: (2,)})
+    mutate(
+        monkeypatch,
+        results_module,
+        estimator_module,
+        "attach_bootstrap",
+        [("diagnostic=diagnostic or estimate.node is not None,", "diagnostic=diagnostic,")],
+    )
+    mutate(
+        monkeypatch,
+        estimator_module,
+        LTMLE,
+        "_attach_bootstrap",
+        [("and estimate.node is None\n", "\n")],
+    )
+    result = _bootstrapped(data)
+    name = "risk_regimen[treated @ t=2]"
+    assert result[name].node is not None
+    assert not result[name].bootstrap.diagnostic
+    assert name in result.bootstrap_band.bands
+
+
 def test_the_frame_reports_both_variance_parts() -> None:
     data = _frame(quiet={1: (2,)})
     estimate = _fit(data)["risk_regimen[treated @ t=2]"]
@@ -518,7 +686,12 @@ def _supplemented_kind() -> Any:
 
 
 def test_refute_scales_its_shift_by_the_supplemented_standard_error() -> None:
-    """The refutation reads the reported standard error, the curve's plus the node term."""
+    """The refutation reads the reported standard error, the curve's plus the node term.
+
+    One scale serves every test of a report. A placebo refit permutes treatment, so its arm can
+    hold events at the node and the supplement is part of the spread it compares; for this
+    added common cause, which keeps the node's one value, the larger scale is conservative.
+    """
     result = _supplemented_kind()
     name = "ate_regimen[a1 vs a0 @ t=2]"
     estimate = result[name]
@@ -641,6 +814,114 @@ def _hazard_witness(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, np.ndarray, n
     derivative = (risk(hazards[:, 1] + step) - risk(hazards[:, 1] - step)) / (2.0 * step)
     exact = np.abs(np.asarray(fit.obs_weights) * fit.hazard_clever[:, 1] * derivative) * rows
     return result, loading, exact
+
+
+def _saturated_hazard_panel() -> pd.DataFrame:
+    """A censored three-node panel on binary ``W`` and ``A``; time 4 is event-free follow-up."""
+    rng = np.random.default_rng(5)
+    n = 160
+    time = rng.integers(1, 5, n).astype(float)
+    event = rng.binomial(1, 0.6, n)
+    event[time == 4.0] = 0
+    return pd.DataFrame(
+        {"time": time, "event": event, "A": rng.binomial(1, 0.5, n), "W": rng.integers(0, 2, n)}
+    )
+
+
+def _saturated_hazard_fit(frame: pd.DataFrame, weights: np.ndarray) -> Any:
+    """The hazard fit with cell-mean learners, so the estimate is the empirical plug-in."""
+    data = LongitudinalData.from_time_to_event(
+        frame.assign(wt=weights),
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=["W"],
+        grid=[1, 2, 3],
+        weights="wt",
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return LTMLE(
+            {"treated": 1, "control": 0},
+            outcome_learner=CellMeans(),
+            treatment_learner=CellMeans(),
+            censoring_learner=CellMeans(),
+            n_folds=1,
+            random_state=0,
+            survival_model="hazard",
+            g_bounds=(1e-8, 1.0),
+        ).fit(data)
+
+
+def _empirical_influence(frame: pd.DataFrame, unit: int, name: str) -> float:
+    """``n`` times the central difference of the estimate in one unit's weight."""
+    n, step = len(frame), 1e-5
+    up, down = np.ones(n), np.ones(n)
+    up[unit] += step
+    down[unit] -= step
+    psi_up = _saturated_hazard_fit(frame, up)[name].psi
+    psi_down = _saturated_hazard_fit(frame, down)[name].psi
+    return float(n * (psi_up - psi_down) / (2.0 * step))
+
+
+def _clever_witness() -> list[tuple[float, float, float]]:
+    """At the last node of horizons 2 and 3: the coefficient by differences, and the fit's.
+
+    With cell-mean learners the estimate is the plug-in of the empirical law, so its
+    derivative in a unit's weight is that unit's influence. Two treated units of one ``W`` cell,
+    one with the event at node ``h`` and one event-free past it, share every term of the curve
+    of the risk at ``h`` except the node-``h`` residual, which is 1 - h for one and -h for the
+    other. Their difference is the node's coefficient, whose survival factor is 1 at the last
+    node, with no use of ``hazard_clever``.
+    """
+    frame = _saturated_hazard_panel()
+    result = _saturated_hazard_fit(frame, np.ones(len(frame)))
+    treated = (frame["A"] == 1) & (frame["W"] == 0)
+    out = []
+    for h in (2, 3):
+        name = f"risk_regimen[treated @ t={h}]"
+        event = int(np.flatnonzero(treated & (frame["time"] == h) & (frame["event"] == 1))[0])
+        survivor = int(np.flatnonzero(treated & (frame["time"] > h))[0])
+        differenced = _empirical_influence(frame, event, name) - _empirical_influence(
+            frame, survivor, name
+        )
+        curve = result[name].influence_curve
+        fit = result.fits[f"treated @ t={h}"]
+        clever = float(np.asarray(fit.obs_weights)[event] * fit.hazard_clever[event, h - 1])
+        assert fit.hazard_clever[survivor, h - 1] == pytest.approx(clever, rel=1e-12)
+        out.append((differenced, clever, float(curve[event] - curve[survivor])))
+    return out
+
+
+def test_the_clever_weight_is_the_curve_coefficient_by_finite_differences() -> None:
+    """M3: ``hazard_clever`` is the coefficient read off the estimator itself.
+
+    The panel's censoring puts an inverse weight in the coefficient, so it exceeds 1.
+    """
+    for differenced, clever, curve in _clever_witness():
+        assert clever > 1.0
+        assert differenced == pytest.approx(clever, rel=1e-6)
+        assert curve == pytest.approx(clever, rel=1e-10)
+
+
+@pytest.mark.parametrize(
+    "new",
+    ["q[r][:, None] * inverse * 0.5, 0.0)", "q[r][:, None] * np.ones_like(inverse), 0.0)"],
+    ids=["half", "no_censoring_inverse"],
+)
+def test_a_wrong_clever_weight_scale_is_caught(monkeypatch: pytest.MonkeyPatch, new: str) -> None:
+    """Mutation control: a stored clever weight off by a factor misses the differenced one."""
+    from cleverly.longitudinal import hazard as hazard_module
+
+    mutate(
+        monkeypatch,
+        hazard_module,
+        hazard_module,
+        "_cell_fits",
+        [("q[r][:, None] * inverse, 0.0)", new)],
+    )
+    for differenced, clever, _ in _clever_witness():
+        assert differenced != pytest.approx(clever, rel=1e-3)
 
 
 def test_the_hazard_loading_bounds_each_exact_coefficient(

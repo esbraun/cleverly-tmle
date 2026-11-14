@@ -56,6 +56,7 @@ from ..inference.cluster import (
 )
 from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
+    bootstrap_diagnostic_reason,
     bootstrap_is_diagnostic,
 )
 from ..inference.multiplier import (
@@ -469,13 +470,9 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
         low, high = summary.ci
         flagged = bootstrap_is_diagnostic(estimate)
         if flagged:
-            if not estimate.supplies_inference:
-                reason = "withheld"
-            elif summary.below_floor:
-                reason = "below_floor"
+            reason = bootstrap_diagnostic_reason(estimate)
+            if reason == "below_floor":
                 floor = summary.cluster_floor or floor
-            else:
-                reason = "declared"
             diagnostic.setdefault(reason, []).append(name)
         elif summary.support.label == vocabulary.EXPERIMENTAL:
             experimental.append(name)

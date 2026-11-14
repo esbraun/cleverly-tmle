@@ -6590,10 +6590,14 @@ class _SequentialEstimator:
         result = attach_bootstrap(
             result, bootstrap, classification=classification, interval=self.bootstrap_interval
         )
+        # An estimate that adds the boundary-node supplement stays out of the bootstrap band:
+        # every resample keeps its flagged node's one value, as for the multiplier band.
         banded = {
             name: estimate
             for name, estimate in result.estimates.items()
-            if estimate.supplies_inference and name in bootstrap.std_errors
+            if estimate.supplies_inference
+            and estimate.node is None
+            and name in bootstrap.std_errors
         }
         # As for the multiplier band, no source gives a t-calibrated joint band, and a family
         # with a constant arm cell builds none.

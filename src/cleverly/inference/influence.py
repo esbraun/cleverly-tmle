@@ -405,6 +405,12 @@ DIAGNOSTIC_BOOTSTRAP_NOTE = (
     "no registered study measures the coverage of that interval"
 )
 
+#: Why the bootstrap of an estimate that adds the boundary-node supplement is a diagnostic.
+BOUNDARY_NODE_BOOTSTRAP_NOTE = (
+    "a diagnostic: every row resample keeps the flagged node's one value, so the bootstrap "
+    "cannot see the variance the boundary-node supplement bounds"
+)
+
 #: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
 #: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
 BootstrapInterval = Literal["percentile", "bca"]
@@ -443,6 +449,32 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
     )
 
 
+def bootstrap_diagnostic_reason(estimate: ParameterEstimate) -> str:
+    """Why the bootstrap of an estimate is a diagnostic, as a key of the summary's notes.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        An estimate whose bootstrap :func:`bootstrap_is_diagnostic` reads as a diagnostic.
+
+    Returns
+    -------
+    str
+        ``"withheld"`` when the status withholds the interval, ``"below_floor"`` when the fit
+        reads too few clusters, ``"boundary_node"`` when the estimate adds the boundary-node
+        supplement, and ``"declared"`` when the fit declares its bootstrap a diagnostic.
+    """
+    summary = estimate.bootstrap
+    assert summary is not None
+    if not estimate.supplies_inference:
+        return "withheld"
+    if summary.below_floor:
+        return "below_floor"
+    if summary.boundary_node:
+        return "boundary_node"
+    return "declared"
+
+
 def bootstrap_line(estimate: ParameterEstimate) -> str:
     """The printed bootstrap spread and interval of one estimate.
 
@@ -479,6 +511,8 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
         note = status_record(estimate.inference).bootstrap_note
     elif summary.below_floor:
         note = status_record("few_cluster_plugin").bootstrap_note
+    elif summary.boundary_node:
+        note = BOUNDARY_NODE_BOOTSTRAP_NOTE
     else:
         note = DIAGNOSTIC_BOOTSTRAP_NOTE
     return f"{spread}{interval} range [{low:.5g}, {high:.5g}] ({note})"
@@ -1825,6 +1859,10 @@ class BootstrapSummary:
         Whether the fit declares the bootstrap interval a diagnostic. ``True`` publishes
         the columns under their diagnostic names, through :func:`bootstrap_column`, at every
         status. Only the collaborative fit sets it.
+    boundary_node : bool, default=False
+        Whether the estimate adds the boundary-node supplement. ``True`` comes with
+        ``diagnostic``: every row resample keeps the flagged node's one value, so the
+        bootstrap cannot see the variance the supplement bounds.
     below_floor : bool, default=False
         Whether the fit reads fewer clusters with positive weight mass than the interval floor
         (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
@@ -1856,6 +1894,7 @@ class BootstrapSummary:
     n_failed: int
     draws: FloatArray
     diagnostic: bool = False
+    boundary_node: bool = False
     below_floor: bool = False
     cluster_floor: int | None = None
     support: Support = UNCLASSIFIED

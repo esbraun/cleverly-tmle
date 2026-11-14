@@ -1073,7 +1073,10 @@ $C$ is the clever weight at the node, which bounds the coefficient of every resi
 The reported variance is $\hat\sigma^2_{IC} + \hat\sigma^2_{node}$, on the interval scale and
 reference the estimate already uses, and `variance_source` reads `"boundary_node"`
 (`cleverly.inference.node_variance`; the witnesses are in
-`tests/unit/test_boundary_node_variance.py`).
+`tests/unit/test_boundary_node_variance.py`). There a central difference of the estimate in one
+unit's weight, on cell-mean learners, gives the coefficient of the last node's residual without
+reading the clever weight, and it equals the clever weight to $10^{-6}$; a stored weight off by
+half, or without its censoring inverse, fails that check.
 
 What it claims: at a law whose node hazards lie in $(0, 1)$ and whose node risk sets grow with
 $n$, a flagged node has probability at most $(1 - h_{min})^{cn}$, and the supplemented interval
@@ -1086,12 +1089,15 @@ estimate carries the support label its fit already has. Its gates read only what
 changes: coverage on the draws where node 4 is flagged, bias, and a zero-hazard cell. On the
 iterated-mean path a paired control also requires that the interval without the supplement
 loses coverage on those draws. On the hazard path, which targets a held baseline treatment
-only, a node flagged often carries a small share of the variance, so no such control has power,
-and its cells can show that the bounded coefficient does not lose coverage but not that the
-supplement is needed. A draw with no flagged node keeps the ordinary interval at a node with one
-or two events, and the study publishes that coverage and declares a shortfall there as F31's
-rare-event limit, not as a failure of the supplement
-(`tests/canonical/boundary_node_ltmle/regenerate.py`).
+only, a flagged node often carries a small share of the variance, so no such control has power.
+
+Law B measures the coverage of the hazard-path interval on draws with a flagged node, and the
+coefficient bound rests on its unit witness. A draw on which no node is flagged or supplemented
+keeps the ordinary interval at a node with one or two events. The study publishes that coverage
+and declares a shortfall there as F31's rare-event limit, not as a failure of the supplement.
+The primary's standard-error ratio for the risk under `always` and for the contrast is declared
+red before the run under the owner `X54-supplement-width`: a one-sided bound is wider than the
+node's own variance (`tests/canonical/boundary_node_ltmle/regenerate.py`).
 
 The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
 one fold draw, the default variance, and no isotonic projection, fold average, learned rule or
@@ -1105,6 +1111,9 @@ is missing (`BOUNDARY_NODE_OUT_OF_REACH` in `cleverly._inference_status`).
 | a contrast, a ratio, `rmst()` and `rmtl()` | the supplement at their own gradient, through the same loadings |
 | `covariance()` | `CapabilityError`: the supplement bounds each functional's variance and is not a quadratic form |
 | the simultaneous band | the other parameters only. The multiplier process does not carry the node term, and the summary and the curve plot name the parameters it leaves out |
+| `n_bootstrap=` | a diagnostic range for each supplemented parameter, and the bootstrap sup-t band leaves it out. Every row resample keeps the flagged node's one value, so the bootstrap cannot see the variance the supplement bounds; the summary's `bootstrap_diagnostic` note says so |
+| `diagnostics.score_equations()` | unchanged: each node's relative score is read on the curve, which the supplement does not enter |
+| `refute()` | the reported standard error, supplement included. A placebo refit permutes treatment, so the refitted arm can hold events at the node, and the supplement is then part of the spread the reading compares. For a refit that keeps the node's one value, such as an added common cause or a subset, the larger scale makes the reading conservative |
 | a `constant_node_plugin` parameter | as an estimate with no interval: `-` in `summary()`, NaN in the inferential columns of `curve()` and `to_frame()`, the plug-in spread in the `plugin_` columns, and out of the band |
 
 [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) keeps the kinds outside the reach

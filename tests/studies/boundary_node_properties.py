@@ -4,8 +4,8 @@ Each key draws one sample of a cell of :data:`tests.studies.boundary_node_ltmle.
 once, and writes nine rows: three targets by three arms
 (:func:`tests.studies.boundary_node_ltmle.draw_arms`). Beside the shared replicate columns a
 row records ``firing`` (node 4 of the target's firing regimen flagged), ``multi_flag``
-(firing, and another node flagged) and ``withheld`` (the estimate withheld its interval, so
-every arm reads a miss). A key whose fit raises is lost in all nine cells, and the declared
+(firing, and another node flagged), ``supplemented`` (the estimate added the supplement at any
+node) and ``withheld`` (the estimate withheld its interval, so every arm reads a miss). A key whose fit raises is lost in all nine cells, and the declared
 rules read it as a miss wherever it could fall.
 
 The gates are the statistics the supplement changes (plan rev 3.1):
@@ -28,10 +28,13 @@ rule                        rows and threshold
 ==========================  =====================================================================
 
 Every other row is ``diagnostic`` and publishes its readings without a verdict. Every row
-publishes the all-draw coverage and its exact interval, the firing, non-firing and multi-flag
-coverages, and on a ``supplemented`` row the median ratio of its half-width to the
-``oracle_node`` half-width on firing draws, with ``firing_above_099``, the over-coverage
-reading (the firing lower end above 0.99).
+publishes the all-draw coverage and its exact interval, the firing, quiet and multi-flag
+coverages, and the SE ratio on the firing draws with its 99% bootstrap interval. A quiet draw
+is neither firing nor supplemented, so it shows the ordinary interval; ``rare_event_limit``
+marks a row whose quiet coverage has an exact lower end below 0.90, the shortfall the
+declaration assigns to F31's rare-event limit. A ``supplemented`` row also publishes the median
+ratio of its half-width to the ``oracle_node`` half-width on firing draws, with
+``firing_above_099``, the over-coverage reading (the firing lower end above 0.99).
 """
 
 from __future__ import annotations
@@ -75,9 +78,11 @@ FIRING_FLOOR: Final[float] = 0.90
 ZERO_FLOOR: Final[float] = 0.92
 #: The over-coverage reading's threshold.
 OVER_COVERAGE: Final[float] = 0.99
+#: The bootstrap resamples of the firing SE ratio's interval, a reading.
+SE_RATIO_RESAMPLES: Final[int] = 1_000
 
 #: The columns a row carries beside :data:`REPLICATE_COLUMNS`.
-EXTRA_COLUMNS: Final[tuple[str, ...]] = ("firing", "multi_flag", "withheld")
+EXTRA_COLUMNS: Final[tuple[str, ...]] = ("firing", "multi_flag", "supplemented", "withheld")
 
 #: The readings :func:`summarize_properties` adds to every row.
 READING_COLUMNS: Final[tuple[str, ...]] = (
@@ -88,10 +93,14 @@ READING_COLUMNS: Final[tuple[str, ...]] = (
     "firing_ci_lower",
     "firing_ci_upper",
     "firing_above_099",
+    "firing_se_ratio",
+    "firing_se_ratio_ci_lower",
+    "firing_se_ratio_ci_upper",
     "quiet_draws",
     "quiet_coverage",
     "quiet_ci_lower",
     "quiet_ci_upper",
+    "rare_event_limit",
     "multi_flag_draws",
     "multi_flag_coverage",
     "withheld_draws",
@@ -212,6 +221,7 @@ def key_rows(
                     "rejected": int(reading["rejected"]),
                     "firing": int(bool(entry["firing"])),
                     "multi_flag": int(bool(entry["multi_flag"])),
+                    "supplemented": int(bool(entry["supplemented_here"])),
                     "withheld": int(bool(entry["withheld"])),
                 }
             )
@@ -275,6 +285,7 @@ def synthetic_columns(cell: Any, rng: np.random.Generator) -> dict[str, Any]:
     return {
         "firing": firing,
         "multi_flag": int(firing and rng.uniform() < 0.1),
+        "supplemented": int(firing or rng.uniform() < 0.05),
         "withheld": 0,
     }
 
@@ -292,10 +303,12 @@ def synthetic_centre(cell: Any, columns: Mapping[str, Any], centre: float, scale
 
 #: The share of a cell's requested replications that the accounting lets a run lose. The plan
 #: asked for 0.10; the harness caps a bound at 0.05
-#: (:data:`~tests.studies.evidence.property_failures.MAXIMUM_BOUND`). The pilot lost 6 of 400
-#: cross-fitted law A draws (an empty risk set in a training fold, or the study GLM's IRLS not
-#: converging on a nearly separated pseudo-outcome), so the cross-fitted cell expects about 60
-#: of its 200 allowed losses. Every lost draw is read as a miss wherever it can fall.
+#: (:data:`~tests.studies.evidence.property_failures.MAXIMUM_BOUND`). The pilot lost 6 of
+#: 2,000 law A draws at n = 100 and 3 of 2,000 cross-fitted ones, each because no unit followed
+#: ``always`` through node 4 in the sample or in an outer training fold, so the worst cell
+#: expects about 12 of its 200 allowed losses. The study GLM keeps its last iterate on a
+#: numerically separated pseudo-outcome, so its IRLS loses no draw. Every lost draw is read as a
+#: miss wherever it can fall.
 FAILURE_BOUND = 0.05
 
 #: The draw-level statistic the accounting reports for each lost replicate.
@@ -359,6 +372,24 @@ def paired_counts(rows: pd.DataFrame) -> dict[str, int]:
     }
 
 
+def firing_se_ratio(
+    group: pd.DataFrame, mask: np.ndarray, level: float, seed: int
+) -> tuple[float, float, float]:
+    """Mean reported SE over the spread of the errors on ``mask``, with a bootstrap interval."""
+    errors = (group["estimate"] - group["truth"]).to_numpy(dtype=float)[mask]
+    reported = group["std_error"].to_numpy(dtype=float)[mask]
+    keep = np.isfinite(errors) & np.isfinite(reported)
+    errors, reported = errors[keep], reported[keep]
+    if errors.size < 2:
+        return (float("nan"), float("nan"), float("nan"))
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, errors.size, (SE_RATIO_RESAMPLES, errors.size))
+    ratios = reported[picks].mean(axis=1) / errors[picks].std(axis=1, ddof=1)
+    tail = (1.0 - level) / 2.0
+    low, high = np.quantile(ratios, [tail, 1.0 - tail])
+    return float(reported.mean() / errors.std(ddof=1)), float(low), float(high)
+
+
 def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: float) -> None:
     """Fill :data:`READING_COLUMNS` on every row of the family."""
     family = rows.loc[rows["property"] == FAMILY]
@@ -369,24 +400,32 @@ def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: flo
         cell = study.CELL_BY_NAME[cell_name]
         group = groups[name]
         fire = _flag(group["firing"])
+        quiet = ~fire & ~_flag(group["supplemented"])
         covered = group["covered"].to_numpy() > 0
         multi = _flag(group["multi_flag"])
         values: dict[str, float] = {
             "expected_firing": study.expected_firing(cell, target),
             "firing_gated": float(name in FIRING_CELLS),
             "firing_draws": float(fire.sum()),
-            "quiet_draws": float((~fire).sum()),
+            "quiet_draws": float(quiet.sum()),
             "multi_flag_draws": float(multi.sum()),
             "multi_flag_coverage": float(covered[multi].mean()) if multi.any() else np.nan,
             "withheld_draws": float(_flag(group["withheld"]).sum()),
             "all_draw_floor_met": float(summary.loc[index, "coverage_ci_lower"] >= FIRING_FLOOR),
         }
-        for prefix, mask in (("firing", fire), ("quiet", ~fire)):
+        for prefix, mask in (("firing", fire), ("quiet", quiet)):
             rate, low, high = _proportion(int(covered[mask].sum()), int(mask.sum()), level)
             values[f"{prefix}_coverage"] = rate
             values[f"{prefix}_ci_lower"] = low
             values[f"{prefix}_ci_upper"] = high
         values["firing_above_099"] = float(values["firing_ci_lower"] > OVER_COVERAGE)
+        values["rare_event_limit"] = float(values["quiet_ci_lower"] < FIRING_FLOOR)
+        seed = stream_seed(STUDY, "firing_se_ratio", FAMILY, name)
+        (
+            values["firing_se_ratio"],
+            values["firing_se_ratio_ci_lower"],
+            values["firing_se_ratio_ci_upper"],
+        ) = firing_se_ratio(group, fire, level, seed)
         if arm == "supplemented":
             oracle = groups[_cell(cell_name, target, "oracle_node")]
             joined = group[["replicate", "std_error", "firing"]].merge(

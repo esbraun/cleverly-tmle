@@ -30,8 +30,9 @@ arm                 interval
 
 Each row also records whether node 4 was flagged for the target's regimen (``firing``: under
 ``always`` for ``always`` and the contrast, under ``never`` for ``never``), whether another
-node was (``multi_flag``), whether the estimate withheld its interval (``withheld``, then a miss
-in every arm), and the half-width of the arm's interval. The rules are those of
+node was (``multi_flag``), whether the estimate added the supplement at any node
+(``supplemented``), whether the estimate withheld its interval (``withheld``, then a miss in
+every arm), and the half-width of the arm's interval. The rules are those of
 :mod:`tests.studies.boundary_node_properties`.
 
 Learners: GLM main terms for the node regressions (the study's quasi-binomial GLM) and an
@@ -53,15 +54,12 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal import sequential as sequential_module
-from cleverly.validation._failures import failure_call
-from cleverly.validation.simulation import ReplicationFailure
 from tests.parallel import STUDY_JOBS
 from tests.studies import boundary_node_laws as laws
 from tests.studies.canonical_ltmle import regimen_rows
 from tests.studies.canonical_ltmle_survival import horizon_initials
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.replication import _Recorded
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
@@ -83,6 +81,14 @@ TARGETS: Final[dict[str, str]] = {
 #: The regimen whose node 4 a target's ``firing`` reads.
 FIRING_REGIMEN: Final[dict[str, str]] = {"always": "always", "never": "never", "contrast": "always"}
 ESTIMANDS: Final[tuple[str, ...]] = tuple(TARGETS.values())
+#: The primary truth rows declared red before the run, each with its red-cell owner in the
+#: roadmap: the SE-ratio leg of a supplemented row reads the width of a one-sided bound, so it is
+#: predicted above the sanity band's upper end of 1.20 (``regenerate.py``). The coverage and bias
+#: legs of these rows stay binding, and ``risk[never]``'s row is predicted to pass.
+PRIMARY_RED_READINGS: Final[dict[str, str]] = {
+    TARGETS["always"]: "X54-supplement-width",
+    TARGETS["contrast"]: "X54-supplement-width",
+}
 ARMS: Final[tuple[str, ...]] = ("supplemented", "plugin", "oracle_node")
 
 
@@ -232,7 +238,13 @@ def fit(frame: pd.DataFrame, cell: Cell) -> Any:
             treatment_probabilities=frame[[f"p{t}" for t in range(1, laws.NODES + 1)]].to_numpy(),
             id="cluster" if cell.cluster_size is not None else None,
         )
-        settings = {"outcome_learner": QuasiBinomialGLM(), "pseudo_learner": QuasiBinomialGLM()}
+        # A pseudo-outcome carried back from a separated later fit is binary to within 1e-5, and
+        # the default learner raises on it; the flag keeps the last iterate there and changes no
+        # fit that converges (:class:`~tests.studies.fractional_glm.QuasiBinomialGLM`).
+        settings = {
+            "outcome_learner": QuasiBinomialGLM(numerical_separation=True),
+            "pseudo_learner": QuasiBinomialGLM(numerical_separation=True),
+        }
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         estimator = LTMLE(
@@ -244,28 +256,7 @@ def fit(frame: pd.DataFrame, cell: Cell) -> Any:
             g_bounds=(1e-8, 1.0),
             **settings,
         )
-        try:
-            return estimator.fit(data)
-        except RuntimeError as error:
-            if str(error) != STUDY_GLM_FAILURE:
-                raise
-            # The study GLM raises a plain RuntimeError, which the harness records only when a
-            # listed library raised it. Its IRLS fails on a nearly separated pseudo-outcome
-            # (targets of 1e-300 beside a few large ones), a fitting failure of this draw, so
-            # the key is recorded as lost with the learner's own call and words.
-            raise _Recorded(
-                ReplicationFailure(
-                    replicate=-1,
-                    seed=-1,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                    call=failure_call(error),
-                )
-            ) from error
-
-
-#: The message of the study GLM's IRLS failure (:class:`~tests.studies.fractional_glm.QuasiBinomialGLM`).
-STUDY_GLM_FAILURE: Final[str] = "quasibinomial IRLS did not converge"
+        return estimator.fit(data)
 
 
 def _fit_key(level: str) -> str:

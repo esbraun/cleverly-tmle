@@ -1,6 +1,6 @@
 r"""The pilot of ``boundary-node-ltmle``, run before the declaration on its own seed stream.
 
-Each cell of the study is fitted on 400 draws of :mod:`tests.studies.boundary_node_laws`, and
+Each cell of the study is fitted on 2,000 draws of :mod:`tests.studies.boundary_node_laws`, and
 each draw writes one row per target with three arms on the same fit:
 
 * ``supplemented``: the shipped interval, the curve's variance plus the boundary-node
@@ -42,7 +42,7 @@ from tests.studies import boundary_node_properties as properties
 
 #: The seed of the pilot stream, used by no other study.
 PILOT_SEED: Final[int] = 20261431
-PILOT_REPLICATES: Final[int] = 400
+PILOT_REPLICATES: Final[int] = 2_000
 CELLS: Final[tuple[study.Cell, ...]] = study.CELLS
 TARGETS: Final[dict[str, str]] = study.TARGETS
 ARMS: Final[tuple[str, ...]] = study.ARMS
@@ -132,28 +132,42 @@ newcombe_interval = properties.newcombe_interval
 
 
 def control_power(
-    rows: pd.DataFrame, replicates: int = 4_000, simulations: int = 2_000, seed: int = 0
+    rows: pd.DataFrame,
+    replicates: int = 4_000,
+    simulations: int = 2_000,
+    seed: int = 0,
+    *,
+    predictive: bool = False,
 ) -> dict[str, float]:
     """The power of both paired clauses at ``replicates`` draws, at the pilot rates.
 
-    Each simulated study draws the firing count, then the joint arm outcomes of each firing
-    draw from the pilot's empirical joint distribution and the plug-in coverage of each
-    non-firing draw from its pilot rate.
+    Each simulated study draws the firing count, then the joint arm outcomes of the firing
+    draws and the plug-in coverage of the non-firing draws. At the pilot rates these come from
+    the pilot's empirical shares. With ``predictive`` each simulation first draws the rates
+    from their Jeffreys posteriors (a Dirichlet over the four joint outcomes, a Beta for the
+    firing share and for the non-firing coverage), so the power carries the pilot's own
+    uncertainty.
     """
     rng = np.random.default_rng(seed)
     fire = rows["firing"].to_numpy(dtype=bool)
     joint = rows.loc[fire, ["supplemented_covered", "plugin_covered"]].to_numpy(dtype=bool)
     rest = rows.loc[~fire & (rows["lost"] == ""), "plugin_covered"].to_numpy(dtype=bool)
-    share = fire.mean()
+    # The four joint outcomes on firing draws: (supplemented, plug-in) covered.
+    outcomes = np.array([[True, True], [True, False], [False, True], [False, False]])
+    counts = np.array([np.sum(np.all(joint == outcome, axis=1)) for outcome in outcomes])
     first = second = 0
     for _ in range(simulations):
+        if predictive:
+            share = rng.beta(fire.sum() + 0.5, (~fire).sum() + 0.5)
+            shares = rng.dirichlet(counts + 0.5)
+            quiet_rate = rng.beta(rest.sum() + 0.5, (~rest).sum() + 0.5)
+        else:
+            share, shares, quiet_rate = fire.mean(), counts / counts.sum(), rest.mean()
         m = rng.binomial(replicates, share)
-        pick = joint[rng.integers(0, len(joint), m)]
-        gained = int(np.sum(pick[:, 0] & ~pick[:, 1]))
-        lost = int(np.sum(~pick[:, 0] & pick[:, 1]))
-        first += mcnemar_lower(gained, lost, m) > 0.0
-        quiet = rng.binomial(replicates - m, rest.mean())
-        _, high = newcombe_interval(int(pick[:, 1].sum()), m, quiet, replicates - m)
+        both, gained, lost, _ = rng.multinomial(m, shares)
+        first += mcnemar_lower(int(gained), int(lost), m) > 0.0
+        quiet = rng.binomial(replicates - m, quiet_rate)
+        _, high = newcombe_interval(int(both + lost), m, quiet, replicates - m)
         second += high < 0.0
     return {"clause_i": first / simulations, "clause_ii": second / simulations}
 
@@ -200,6 +214,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         interior = frame[(frame["cell"] == "interior_n200") & (frame["target"] == "always")]
         if len(interior):
             print("control power at R = 4000:", control_power(interior))
+            print("predictive:", control_power(interior, predictive=True))
 
 
 #: The readings :func:`summarize` writes, by name, for the design test.

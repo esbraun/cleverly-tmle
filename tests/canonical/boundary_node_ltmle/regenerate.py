@@ -10,18 +10,19 @@ its run is committed; until then its property module is an uncommitted subject o
 differential.
 
 Order of the work (plan X54 rev 3.1, section 5.5): the laws and their declared grids; the pilot
-of :mod:`tests.studies.boundary_node_pilot` on its own seed stream, 400 draws of each of the
+of :mod:`tests.studies.boundary_node_pilot` on its own seed stream, 2,000 draws of each of the
 eight cells, committed as ``pilot.csv.gz``; this declaration; the declared run. Budget: about
-0.06 s per fit at the pilot (one fit per key, its three arms read off that fit), so 8 cells by
-4,000 draws plus the 1,000-draw primary is about 0.6 CPU-h of fitting; declared 6 CPU-h.
+0.04 to 0.08 s per fit at the pilot (one fit per key, its three arms read off that fit), so 8
+cells by 4,000 draws plus the 1,000-draw primary is under 1 CPU-h of fitting; declared 6 CPU-h.
 
 What is gated, and why (declared before any run, from the law and not from a pilot value).
-The supplement acts only on a draw whose node 4 is flagged (a firing draw). A non-firing
-draw's interval is the one the package shipped before the supplement, and in these laws it sits
-in the rare-event regime: a node flagged with probability ``f`` holds about ``-ln f`` expected
-events, so a non-firing draw carries one or two events at the node that holds most of the
-variance. The same identity makes flagging common, so no law can have both. The gates are
-therefore the statistics the supplement changes:
+The supplement acts only on a draw whose node 4 is flagged (a firing draw). A draw that is
+neither firing nor supplemented at another node (a quiet draw) shows the interval the package
+shipped before the supplement, and in these laws it sits in the rare-event regime: a node
+flagged with probability ``f`` holds about ``-ln f`` expected events, so a quiet draw carries
+one or two events at the node that holds most of the variance. The same identity makes
+flagging common, so no law can have both. The gates are therefore the statistics the
+supplement changes:
 
 * ``bias`` (G2) on every ``supplemented`` row;
 * ``firing floor`` on every ``supplemented`` row whose exact expected firing count at 4,000
@@ -33,54 +34,71 @@ therefore the statistics the supplement changes:
   ``always``, the ``paired_attributable`` control of plan B1.
 
 All-draw coverage of every arm is published with its exact interval and its G1 reading
-(``all_draw_floor_met``), with the firing, non-firing and multi-flag coverages and the median
-half-width ratio to the ``oracle_node`` interval. Law B has no attributable control: under a
-held treatment a node flagged half the time carries about 0.04 of the variance, so no clause
-has power. Law B shows that the hazard path, with its coefficient bound, does not lose coverage
-on firing draws and what it costs in width; it cannot show that the supplement is needed there.
+(``all_draw_floor_met``), with the firing, quiet and multi-flag coverages, the SE ratio on the
+firing draws with its 99% bootstrap interval, and the median half-width ratio to the
+``oracle_node`` interval. Law B has no attributable control: under a held treatment a node
+flagged half the time carries about 0.04 of the variance, so no clause has power. Law B
+measures the coverage of the hazard-path interval on draws with a flagged node; the coefficient
+bound rests on its unit witness (``tests/unit/test_boundary_node_variance.py``).
 
-Pilot readings at 400 draws (``pilot.csv.gz``): supplemented coverage on firing draws 0.95 to
-1.00 in every gated row; plug-in coverage of the control 0.824 on firing draws against 0.892 on
-non-firing draws, supplemented 1.000, so both paired clauses have power 1.0 and 0.9995 at
-4,000 draws (``boundary_node_pilot.control_power``); all-draw supplemented coverage 0.918 at
-``interior_n400`` ``always`` and non-firing coverage 0.78 to 0.93 in the law A interior cells
-under ``always``; half-width ratio of ``risk[always]`` to the oracle-node interval 1.6 to 1.9
-in the law A interior cells, 3.3 in the zero cell, 1.07 to 1.08 on law B; standardized bias at
-most 0.14.
+Pilot readings at 2,000 draws per cell (``pilot.csv.gz``): supplemented coverage on firing draws
+0.957 to 1.000 in every gated row; plug-in coverage of the control 0.828 on firing draws against
+0.900 on non-firing draws, supplemented 0.999; quiet coverage of ``risk[always]`` 0.79 to 0.94
+in the law A interior cells; half-width ratio of ``risk[always]`` to the oracle-node interval
+1.6 to 1.9 in the law A interior cells, 3.4 in the zero cell, 1.07 to 1.08 on law B;
+standardized bias at most 0.09. Lost keys: 6 at ``n = 100`` and 3 cross-fitted, each because no
+unit followed ``always`` through node 4 in the sample or in an outer training fold; none
+elsewhere.
+
+Pass probabilities (``tests/unit/test_boundary_node_study_design.py``, predictive: each
+simulation draws the pilot's rates from their posteriors). Every G2 row passes with probability
+at least 0.99 (all read 1.00) with the 95th percentile of its lost keys filled at the worst
+vertex. Every firing floor and zero cell reads at least 0.9999. The paired clauses have power
+1.00 and 0.993. The product over the 47 gated clauses (24 G2 rows, 19 firing floors, 2 zero
+cells, 2 paired clauses) is 0.993. In the primary, the bias legs of all three targets read 1.00;
+the coverage legs read 0.995, 0.945 and 1.00 for ``risk[always]``, ``risk[never]`` and the
+contrast; the SE-ratio leg of ``risk[never]`` reads 1.00, and those of ``risk[always]`` and the
+contrast read 0.00 and 0.05 (below).
 
 Red-cell readings (declared before any run). The record is ``reporting``, so a red gated verdict
 is published, and it takes the route of plan section 5.8 named here. No cell is re-sized,
-re-drawn, dropped or relabelled after a verdict is seen.
+re-drawn, dropped or relabelled after a verdict is seen, and no margin differs from the harness
+defaults.
 
+* The primary SE-ratio legs of ``risk[always]`` and the contrast are predicted red: the pilot
+  reads SE ratios of 1.29 and 1.19 against the band's upper end of 1.20, a pass probability
+  below 0.10 for each. The supplement adds a flagged node's variance at the one-sided bound of
+  its hazard, not at the hazard, so this is the bound's width cost and no defect. Both rows are
+  declared here under the roadmap's red-cell owner ``X54-supplement-width``
+  (``boundary_node_ltmle.PRIMARY_RED_READINGS``), and the claims are added to
+  ``tests/studies/evidence/red_cells.py`` with the run. A red coverage or bias leg of a primary
+  row is not covered by that reading: it is a defect suspect.
 * Every gated statistic passes and the paired control passes: the supplement ships on both
-  paths. A published non-firing coverage below 0.925 in an interior cell, and an all-draw
-  reading below its G1 floor (predicted at ``interior_n400`` ``always``), are recorded under
-  roadmap F31 as the measured rare-event limit of the shipped interval (R4), declared here before
-  the run. They are not part (i) red cells.
+  paths. A quiet coverage whose exact lower end is below 0.90 (``rare_event_limit``) in an
+  interior cell, predicted at ``interior_n100``, ``interior_n200`` and the cross-fitted cell, is
+  recorded under roadmap F31 as the measured rare-event limit of the shipped interval (R4),
+  declared here before the run. It is not a part (i) red cell.
 * A law B gated statistic is red while law A passes: the iterated-mean path ships alone, and the
   hazard path refuses a flagged node with its R2 text, reopened by F31.
 * A law A ``firing floor`` is red and the diagnosis finds no defect (the finite-sample reading of
-  the plans guide: the 99% interval of the cell's SE ratio contains 1 and its coverage is
+  the plans guide: the 99% interval of the cell's firing SE ratio contains 1 and its coverage is
   consistent with 0.95): the supplement ships under a new shown status ``"boundary_node_plugin"``
   (experimental label, interval shown), reopened by F31. Any other red firing floor is a defect
   suspect and nothing ships until it is fixed and re-run under a fresh declaration.
 * The law A zero cell is red: a defect suspect, because the conservative argument of plan 2.5(5)
   failed. Diagnose it; nothing ships until it is fixed.
-* The primary (``interior_n200``, 1,000 draws, the shipped interval of each target) is read by
-  the harness's G1, G2 and SE-ratio band of 0.8 to 1.2. The supplement is a bound, so the SE
-  ratio of ``risk[always]`` is predicted above the band (pilot 1.30, contrast 1.18). That reading
-  is the declared width cost of the bound, published under ``reporting``, not a red cell. A red
-  primary G2 is a defect suspect.
 * A red ``bias`` row is a defect suspect: the supplement does not move a point estimate, every
-  learner is correctly specified, and the pilot read at most 0.14 SD.
+  learner is correctly specified, and the pilot read at most 0.09 SD.
 * A paired clause fails, or has no power at the declared law: the study cannot license the
   construction and nothing ships. That is a design-test failure, redesigned under a fresh
   declaration, not a red cell.
-* A replication that raises is never redrawn. A recordable failure, including the study GLM's
-  IRLS failure on a nearly separated pseudo-outcome, costs its key in every cell of its law
-  under the declared bound of 0.05 (the pilot lost 6 of 400 cross-fitted draws and 2 of 400 at
-  ``n = 100``), and every declared rule reads a lost draw as a miss wherever it can fall. A cell
-  past its bound is red with the count stated.
+* A replication that raises is never redrawn. A recordable failure costs its key in every cell
+  of its law under the declared bound of 0.05, and every declared rule reads a lost draw as a
+  miss wherever it can fall. The study GLM keeps its last iterate on a pseudo-outcome that is
+  binary to within ``1e-4`` and completely separated once rounded, where it raised in the first
+  pilot (:class:`tests.studies.fractional_glm.QuasiBinomialGLM`, ``numerical_separation``); no
+  other study opts in, and no fit that converged changes. A cell past its bound is red with the
+  count stated.
 """
 
 from pathlib import Path

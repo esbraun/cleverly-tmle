@@ -1154,7 +1154,11 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
     from .._summary._estimates import plain_support_reason
     from .._summary.vocabulary import BOOTSTRAP_DIAGNOSTIC
-    from ..inference.influence import BOOTSTRAP_INTERVAL_LABELS, bootstrap_is_diagnostic
+    from ..inference.influence import (
+        BOOTSTRAP_INTERVAL_LABELS,
+        bootstrap_diagnostic_reason,
+        bootstrap_is_diagnostic,
+    )
 
     summary = estimate.bootstrap
     kind = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
@@ -1162,12 +1166,7 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     low, high = (float(value) for value in summary.ci)
     found: list[str] = []
     if bootstrap_is_diagnostic(estimate):
-        if not estimate.supplies_inference:
-            reason = "withheld"
-        elif summary.below_floor:
-            reason = "below_floor"
-        else:
-            reason = "declared"
+        reason = bootstrap_diagnostic_reason(estimate)
         floor = summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS
         found.append(BOOTSTRAP_DIAGNOSTIC[reason].format(names=name, clusters=floor))
         spread_word, limits_word = "bootstrap SD", f"{kind} range (diagnostic)"

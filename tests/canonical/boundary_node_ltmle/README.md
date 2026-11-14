@@ -16,7 +16,9 @@ one-sided binomial bound of its hazard. It has no comparator.
 
 Declared, not run. No artifact but the pilot is committed, so the record is not in
 `registered()`. The evidence page and the grid rows land with the registration, after the run.
-`regenerate.py` holds the declaration: the gates, the red-cell readings and the budget.
+`regenerate.py` holds the declaration: the gates, the red-cell readings and the budget. The
+two-replicate smoke below runs both phases and writes the six artefacts and the manifest; its
+primary rows are red by size alone and are not evidence.
 
 ## Run
 
