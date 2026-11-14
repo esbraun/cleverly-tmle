@@ -1055,7 +1055,7 @@ _ARM = (*_LIVE, *_BOUND, "benchmark")
 #: refit this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
 KINDS: dict[str, Kind] = {
-    "ordinary": _kind(fit_ordinary, *_ARM),
+    "ordinary": _kind(fit_ordinary, "marginal_bounds", *_ARM),
     # AdaptiveIPTW fits no outcome regression: the bound, tilt, refit and truncation rows
     # refuse it by name, and the rows that read the treatment mechanism run. The E-value
     # runs on the fit whose mechanism is declared, because it needs an interval.
@@ -1068,29 +1068,33 @@ KINDS: dict[str, Kind] = {
     "iptw_missing_treatment": _kind(fit_iptw_missing_treatment, *_READ),
     "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
     "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
-    "binary": _kind(fit_binary, *_ARM),
-    "missing": _kind(fit_missing, *_LIVE, *_TILT),
+    "binary": _kind(fit_binary, "marginal_bounds", *_ARM),
+    "missing": _kind(fit_missing, "marginal_bounds", *_LIVE, *_TILT),
     "shift": _kind(fit_shift, *_LIVE),
     "cde": _kind(fit_cde, *_LIVE),
-    "multi_arm": _kind(fit_multi_arm, *_ARM),
+    "multi_arm": _kind(fit_multi_arm, "marginal_bounds", *_ARM),
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
-    "ctmle_oat_shared": _kind(fit_ctmle_oat_shared, *_LIVE),
+    "ctmle_oat_shared": _kind(fit_ctmle_oat_shared, "marginal_bounds", *_LIVE),
     "ctmle_oat+missing": _kind(fit_ctmle_oat_missing, *_LIVE, *_TILT),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
     # The point bound holds the fold rules fixed (X11 part (n)). A refit relearns the
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
-    "weighted": _kind(fit_weighted, *_ARM),
-    "stratified": _kind(fit_stratified, *_ARM),
-    "clustered": _kind(fit_clustered, *_ARM),
-    "drtmle": _kind(fit_drtmle, *_LIVE, "corrections"),
+    "weighted": _kind(fit_weighted, "marginal_bounds", *_ARM),
+    "stratified": _kind(fit_stratified, "marginal_bounds", *_ARM),
+    "clustered": _kind(fit_clustered, "marginal_bounds", *_ARM),
+    "drtmle": _kind(fit_drtmle, "marginal_bounds", *_LIVE, "corrections"),
     # Both refit the treatment mechanism on their own rows, because randomized=True.
-    "drtmle+missing": _kind(fit_drtmle_missing, *_LIVE, *_TILT, "corrections"),
-    "drtmle+missing+multi_arm": _kind(fit_drtmle_missing_multi_arm, *_LIVE, *_TILT, "corrections"),
+    "drtmle+missing": _kind(fit_drtmle_missing, "marginal_bounds", *_LIVE, *_TILT, "corrections"),
+    "drtmle+missing+multi_arm": _kind(
+        fit_drtmle_missing_multi_arm, "marginal_bounds", *_LIVE, *_TILT, "corrections"
+    ),
     # The composite construction: an observational delta= and a declared missing
     # treatment. The omitted-variable rows refuse a missing treatment by name.
-    "drtmle+composite": _kind(fit_drtmle_composite, *_LIVE, *_TILT, "corrections"),
+    "drtmle+composite": _kind(
+        fit_drtmle_composite, "marginal_bounds", *_LIVE, *_TILT, "corrections"
+    ),
     "missing_treatment": _kind(fit_missing_treatment, *_LIVE, "evalue"),
     "tmle+missing_treatment+weights": _kind(fit_tmle_missing_treatment_weights, *_LIVE, *_TILT),
     "drtmle+missing_treatment+multi_arm": _kind(
@@ -1099,7 +1103,7 @@ KINDS: dict[str, Kind] = {
     "drtmle+missing_treatment+id": _kind(
         fit_drtmle_missing_treatment_clustered, *_LIVE, *_TILT, "corrections"
     ),
-    "ctmle_ordered": _kind(fit_ctmle_ordered, *_LIVE),
+    "ctmle_ordered": _kind(fit_ctmle_ordered, "marginal_bounds", *_LIVE),
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
     "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
@@ -1107,30 +1111,35 @@ KINDS: dict[str, Kind] = {
     "regime+missing": _kind(fit_regime_missing, *_LIVE, "missingness"),
     # Two coefficients, so a bare tipping_gamma() defers on the estimand.
     "msm+missing": _kind(fit_msm_missing, *_LIVE, "missingness"),
-    "rr+missing": _kind(fit_rr_missing, *_LIVE, *_TILT, "evalue"),
+    "rr+missing": _kind(fit_rr_missing, "marginal_bounds", *_LIVE, *_TILT, "evalue"),
     # PAR and PAF, so a bare tipping_gamma() defers on the estimand.
-    "par+missing": _kind(fit_attributable_missing, *_LIVE, "missingness"),
+    "par+missing": _kind(fit_attributable_missing, "marginal_bounds", *_LIVE, "missingness"),
     # Four tiltable parameters, so a bare tipping_gamma() defers on the estimand.
-    "joint+missing": _kind(fit_joint_natural_course, *_LIVE, "missingness"),
+    "joint+missing": _kind(fit_joint_natural_course, "marginal_bounds", *_LIVE, "missingness"),
     # No treatment mechanism is fitted, so no support row answers.
     "natural_course": _kind(
         fit_natural_course, "nuisance_models", "score_equations", *_POINT, *_TILT
     ),
     # One covariate, which benchmark cannot drop.
-    "split_plan": _kind(fit_split_plan, *_LIVE, *_BOUND),
-    "drtmle_companion": _kind(fit_drtmle_companion, *_LIVE, "corrections"),
+    "split_plan": _kind(fit_split_plan, "marginal_bounds", *_LIVE, *_BOUND),
+    "drtmle_companion": _kind(fit_drtmle_companion, "marginal_bounds", *_LIVE, "corrections"),
     "policy_means": _kind(fit_policy_means, *_LIVE),
-    "natural_course_study": _kind(fit_natural_course_study, *_LIVE),
+    "natural_course_study": _kind(fit_natural_course_study, "marginal_bounds", *_LIVE),
     # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.
     "reconfigured_stratified": _kind(
-        reconfigured_stratified, *_READ, "truncation_curve", *_BOUND, refits=False
+        reconfigured_stratified,
+        "marginal_bounds",
+        *_READ,
+        "truncation_curve",
+        *_BOUND,
+        refits=False,
     ),
     # A shift fit answers no bound row.
     "reconfigured_unbounded_scale": _kind(
         unbounded_scale, *_READ, "truncation_curve", refits=False
     ),
     "reconfigured_unbounded_scale_ate": _kind(
-        unbounded_scale_ate, *_READ, "truncation_curve", *_BOUND, refits=False
+        unbounded_scale_ate, "marginal_bounds", *_READ, "truncation_curve", *_BOUND, refits=False
     ),
     "reconfigured_ctmle_clustered": _kind(
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
@@ -1178,6 +1187,19 @@ def _facades(result: Any) -> tuple[Any, Any]:
     return result.diagnostics, result.sensitivity
 
 
+def _estimand_choice(result: Any, facade: Any, operation: str) -> str:
+    """The estimand the sweep supplies: the deferred row's own first candidate.
+
+    A row that defers on its estimand names the candidates it chooses between, and the
+    first reported estimate need not be one of them: a PAR fit reports ``par``, which the
+    marginal bound cannot take, so it offers every arm parameter instead (Fix-15).
+    """
+    candidates = facade._estimand_candidates(operation)
+    if candidates:
+        return str(candidates[0])
+    return str(next(iter(result.estimates)))
+
+
 def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
     """Supply one value for every argument a row of ``result`` still waits on.
 
@@ -1196,7 +1218,12 @@ def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
                 continue
             for name in row.requires_arguments:
                 if name not in request:
-                    request = {**request, name: fillers[name]()}
+                    value = (
+                        _estimand_choice(result, facade, declared.operation)
+                        if name == "estimand"
+                        else fillers[name]()
+                    )
+                    request = {**request, name: value}
                     filled = True
             if request:
                 arguments[declared.operation] = request

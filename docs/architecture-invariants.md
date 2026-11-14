@@ -581,7 +581,7 @@ that the call refuses reads `unavailable`.
 An ambiguous default estimand is a deferral on both facades. Several operations default to
 `estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
 no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
-`unavailable`, because no argument makes a missing derivation run.
+`unavailable`, because no argument makes a missing derivation run. `marginal_bounds()` defaults to `None`, which it resolves to the fit's reported parameter, and defers on the same rule. It can bound an arm parameter the fit did not report, so a fit with no eligible reported parameter defers rather than reads `unavailable`.
 
 One eligible parameter is the case each facade answers for itself. A facade that substitutes that
 name runs the row under it. A facade that substitutes nothing defers the row, because the

@@ -12,7 +12,6 @@ Three defects, each with a witness and a mutation control:
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 import numpy as np
@@ -64,13 +63,63 @@ def test_a_normal_quantile_is_the_mutation_the_witness_sees(monkeypatch: Any) ->
 
 
 def test_the_normal_reference_holds_at_the_threshold_and_without_clusters() -> None:
-    fit = _clustered(400, 10)  # 40 clusters: the normal reference
+    fit = _clustered(400, 10)  # 40 clusters, the threshold: the normal reference
     assert fit.estimates["ate"].reference_df is None
     bounds = marginal_sensitivity_bounds(fit, 1.0, estimand="ate")
     row = bounds.rows[0]
     assert bounds.reference_df is None
     z = stats.norm.ppf(0.975)
     np.testing.assert_allclose(row.upper_limit - row.upper, z * row.upper_std_error, rtol=1e-10)
+
+
+def test_a_stratum_alias_reads_its_own_stratum_s_cluster_count() -> None:
+    frame, _ = make_clustered(n=600, cluster_size=20, seed=7)  # 30 clusters
+    frame["V"] = np.where(frame["cluster"] < 12, "a", "b")
+    covariates = [name for name in frame.columns if name.startswith("W")]
+    fit = (
+        TMLE(**linear_in_sample())
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            id="cluster",
+            covariates=(*covariates, "V"),
+            strata="V",
+        )
+        .single()
+    )
+    seen = {}
+    for name in ("ate[V='a']", "ate[V='b']", "ate"):
+        bounds = marginal_sensitivity_bounds(fit, 1.0, estimand=name)
+        assert bounds.reference_df == fit.estimates[name].reference_df
+        seen[name] = bounds.reference_df
+    # Witness: 12 and 18 clusters in the strata, 30 in all; reading every row gives 28.
+    assert seen == {"ate[V='a']": 10, "ate[V='b']": 16, "ate": 28}
+
+
+def test_a_cv_tmle_bound_keeps_j_minus_two_beside_the_fold_evaluated_j_minus_v() -> None:
+    """The bound pools the cluster variance, so its reference is J - 2, not the J - V the
+    fold-evaluated estimate reads; reading ``estimate.reference_df`` would be the mutation."""
+    frame, _ = make_clustered(n=600, cluster_size=20, seed=7)  # 30 clusters
+    fit = (
+        TMLE(
+            **linear_in_sample(
+                cross_fit=True,
+                n_folds=5,
+                cv_evaluation=True,
+                estimands=("ate", "ey1", "ey0"),
+                q_bounds=(float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0),
+            )
+        )
+        .fit(frame, outcome="Y", treatment="A", id="cluster")
+        .single()
+    )
+    assert fit.estimates["ate"].reference_df == 25
+    assert marginal_sensitivity_bounds(fit, 1.0, estimand="ate").reference_df == 28
+
+
+def test_the_t_reference_stops_one_cluster_below_the_threshold() -> None:
+    assert marginal_sensitivity_bounds(_clustered(390, 10), 1.0, estimand="ate").reference_df == 37
 
 
 def test_the_summary_names_a_t_reference() -> None:
@@ -121,46 +170,42 @@ def test_the_att_default_is_not_the_ate() -> None:
     np.testing.assert_allclose(att.lower, fit.estimates["att"].psi, atol=0.02)
 
 
+@pytest.mark.parametrize("kind", ["par+missing", "natural_course_study"])
+def test_a_fit_reporting_no_parameter_the_bounds_take_defers(kind: str) -> None:
+    from tests.unit._capability_sweep_support import KINDS
+
+    fit = KINDS[kind].build()
+    row = fit.sensitivity._capability_for_arguments("marginal_bounds", {})
+    assert row.status is AssessmentStatus.DEFERRED
+    assert "estimand" in row.requires_arguments
+    with pytest.raises(ValueError, match="pass estimand="):
+        marginal_sensitivity_bounds(fit, 1.0)
+    assert marginal_sensitivity_bounds(fit, 1.0, estimand="ate").estimand == "ate"
+
+
 def test_the_combined_report_bounds_the_reported_parameter() -> None:
     fit = _fit(ATT())
     report = fit.assess(include_retargets=True, include_refits=True, random_state=0)
     item = next(item for item in report.sensitivity.items if item.name == "marginal_bounds")
-    assert "att" in (item.detail or "") or "att" in str(item.report)
+    assert item.report.estimand == "att"
 
 
 # ------------------------------------------------------------- survival truncation rows
 
 
-def _survival(method: Any) -> Any:
-    from cleverly import RegimeContrast, TimeToEvent
-    from tests.unit.test_survival_drtmle import sample_frame
-
-    study = CausalStudy(
-        sample_frame(600, 21),
-        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
-    )
-    effect = study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0"))
-    learner = LogisticRegression(max_iter=1000)
-    settings: dict[str, Any] = {"outcome_learner": learner, "cross_fit": False, "random_state": 0}
-    settings["method"] = method
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return effect.estimate(**settings)
-
-
 def test_the_survival_drtmle_and_ctmle_truncation_rows_carry_their_call_s_refusal() -> None:
     from cleverly.longitudinal.estimator import longitudinal_truncation_curve
-    from cleverly.methods import CollaborativeTMLEMethod, DRTMLEMethod
+    from tests.unit._capability_sweep_support import KINDS
 
-    for method in (DRTMLEMethod(), CollaborativeTMLEMethod(selection_folds=3)):
-        fit = _survival(method)
+    for kind in ("survival_drtmle", "survival_ctmle"):
+        fit = KINDS[kind].build()
         row = fit.diagnostics.capability("truncation_curve")
         assert not row.available
         assert row.status is AssessmentStatus.UNAVAILABLE
         assert row.refusal.roadmap == "X62"
         with pytest.raises(CapabilityError) as raised:
             longitudinal_truncation_curve(fit, [0.05])
-        assert raised.value.refusal == row.refusal
+        assert raised.value.refusal is row.refusal
 
 
 def test_a_hazard_ltmle_truncation_row_stays_available() -> None:

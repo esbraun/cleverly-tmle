@@ -468,6 +468,7 @@ then owns the choice. The report defers each of these rows and names `estimand` 
 | `tipping_gamma()` | `sensitivity` | `"ate"` |
 | `refute()` | `diagnostics` | `"ate"` |
 | `evalue()` | `sensitivity` | `None` |
+| `marginal_bounds()` | `sensitivity` | `None`, the parameter the fit reported |
 
 Pass the parameter through `arguments=` to run the row. The row is available again for that
 request. A sensitivity analysis needs no argument when the fit reports exactly one eligible
@@ -798,7 +799,8 @@ print(odds_bounds.summary())
 Read the `lower` and `upper` columns at each `gamma`, and the interval for the range beside them.
 `odds_bounds.breakdown` is the smallest grid `gamma` whose range contains 0, or `None` when no grid
 value reaches it. The bounds cover two-arm and multi-arm `TMLE`, `DRTMLE` and `CTMLE` fits with a
-continuous or binary outcome, and longitudinal fits refuse them. A
+continuous or binary outcome, and longitudinal fits refuse them. Without `estimand=` they bound the
+parameter the fit reported, so a multi-arm fit needs `estimand=` to name its contrast. A
 [simulation study](../technical-reference/method-evidence/marginal-bound-limit-coverage.md) backs
 the interval for the ATE of a two-arm, five-fold cross-fitted `TMLE` with the study's `GLM` models
 and at least 8,000 rows. Every other

@@ -75,7 +75,9 @@ parameters are means of the same summands.
 
 **The interval.**  ``[lower - z se_lower, upper + z se_upper]`` with
 :math:`z = \Phi^{-1}(1 - (1 - \text{level})/2)` covers the identified set with asymptotic
-probability at least ``level`` by the union bound.  It is a set interval: the tighter
+probability at least ``level`` by the union bound.  A clustered fit below the few-cluster
+threshold replaces :math:`z` with the Student t quantile on the fit's own ``J - 2`` degrees
+of freedom over the rows the bounded parameter reads.  It is a set interval: the tighter
 interval for the parameter alone (Imbens and Manski 2004) is not shipped.  The binary
 quantile is a plug-in threshold, so its sharpness needs a margin condition: the outcome
 regression puts little mass near :math:`1 - \tau`.  Validity needs no such condition.

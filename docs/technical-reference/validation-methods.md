@@ -730,10 +730,14 @@ reports a bare `ate` settles the `"ate"` default. A multi-arm fit reports `ate[h
 | `tipping_gamma` | sensitivity | `"ate"` |
 | `refute` | diagnostics | `"ate"` |
 | `evalue` | sensitivity | `None` |
+| `marginal_bounds` | sensitivity | `None`, the fit's reported parameter |
 
 The library reads that default from the routed signature. `benchmark` takes `covariates` first and
 `estimand` by keyword, and the keyword default is as ambiguous as a positional one. `evalue`
 selects its own contrast from a `None` default, and defers when two contrasts qualify.
+`marginal_bounds` reads the [default parameter](#marginal-sensitivity-model-bounds) rule of its
+own section. It can bound an arm parameter the fit did not report, so a fit that reports none it
+can take defers rather than reads `unavailable`.
 
 The count of eligible reported parameters selects the answer.
 
@@ -2453,8 +2457,9 @@ narrower and is not shipped.
 
 **Reference distribution.** A clustered fit below the few-cluster threshold replaces $z$ with
 the fit's own reference, the Student $t$ quantile with $J - 2$ degrees of
-freedom over the clusters the bounded parameter reads (`reference_df` on the result), so at
-$\Gamma = 1$ the set interval is as wide as the fit's interval. Those clustered limits stay
+freedom over the clusters the bounded parameter reads (`reference_df` on the result). That is
+the rule of the fit's own clustered interval, except on a fold-evaluated fit, whose estimate reads
+$J - V$ while the bounds pool the cluster variance and keep $J - 2$. Those clustered limits stay
 descriptive.
 
 **Default parameter.** With no `estimand`, the bounds answer for the parameter the fit reported:
