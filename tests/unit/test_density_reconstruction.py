@@ -11,8 +11,8 @@ between the fit and the truth.
 - W2: the ratio at the largest doses keeps its tail weight.
 - W3a to W3g: segment masses, exponential exactness, no new extremum, segment breaks, one
   representation across readers, the mixed law's partial-bin mass, and the pass cap.
-- W4a to W4f: the grid's core, floor, robust width cap, gap bins, explicit edges, the
-  preflight, and the thin-stretch factor at each end.
+- W4a to W4g: the grid's core, floor, robust width cap, gap bins, explicit edges, the
+  preflight, the thin-stretch factor at each end, and its row count stopping at the next gap.
 - W5: the collapse of a vector's last dose onto an atom integrates a multi-bin segment.
 - W6: the remainder with a wrong outcome regression.
 - W7, W10: the longitudinal fits read the point fit's density; occupancy travels with the
@@ -846,6 +846,84 @@ def test_w4f_a_thin_stretch_never_cut_hides_a_far_dose(monkeypatch: pytest.Monke
     monkeypatch.setattr(density_module, "THIN_STRETCH_FACTOR", np.inf)
     found = _thin_stretch_problems()
     assert sum("the far dose shares a bin" in item for item in found) == 4, found
+
+
+#: Rows in the far cluster of :func:`_extreme_before_cluster`, more than :data:`TAIL_ROWS`.
+W4G_CLUSTER = 30
+
+
+def _extreme_before_cluster(r: float, *, lower: bool) -> tuple[np.ndarray, float]:
+    """:func:`_moved_extreme` with a far cluster six units past the moved dose.
+
+    The cluster's :data:`W4G_CLUSTER` rows sit beyond a gap of their own, so the moved dose is
+    a thin stretch between two empty runs.  Returns the sample and the moved dose.
+    """
+    n = 20_000
+    base = stats.norm.ppf((np.arange(1, n - W4G_CLUSTER + 1) - 0.5) / (n - W4G_CLUSTER))
+    local = base[-2] - base[-2 - TAIL_ROWS]
+    base[-1] = base[-2] + r * local
+    cluster = base[-1] + 6.0 + np.linspace(0.0, 0.3, W4G_CLUSTER)
+    a = np.concatenate([base, cluster])
+    return (-a, -base[-1]) if lower else (a, base[-1])
+
+
+def _cluster_problems() -> list[str]:
+    found = []
+    for lower in (False, True):
+        for r in (1.5, 2.5, 3.5, 5.0):
+            a, moved = _extreme_before_cluster(r, lower=lower)
+            edges = bin_edges(a, default_density_bins(a.size))
+            counts = np.histogram(a, edges)[0]
+            at = int(np.searchsorted(edges, moved, side="right") - 1)
+            far = int(np.searchsorted(edges, a[-1], side="right") - 1)
+            between = counts[min(at, far) + 1 : max(at, far)]
+            if not np.any(between == 0) or counts[far] != W4G_CLUSTER:
+                found.append(f"r = {r}, lower = {lower}: the far cluster lost its gap")
+            if r < 3.0 and counts[at] < TAIL_ROWS:
+                found.append(
+                    f"r = {r}, lower = {lower}: an ordinary spacing left {counts[at]} rows"
+                )
+            if r > 3.0 and counts[at] != 1:
+                found.append(f"r = {r}, lower = {lower}: the far dose shares a bin of {counts[at]}")
+    return found
+
+
+#: The tail-pilot draw on which counting past the far cluster left law C's last body dose
+#: alone in a bin at 20,000.
+W4G_DRAW = 2107
+
+
+def _cluster_draw() -> float:
+    """Law C at 20,000 on :data:`W4G_DRAW`: the IC gap with the oracle hazard."""
+    from tests.studies import mtp_density_tails_fits as fits
+    from tests.studies import mtp_density_tails_pilot as pilot
+
+    frame = law.draw("C", 20_000, pilot.seed("ic_gap_tail_C_n20000", W4G_DRAW))
+    return float(fits.ic_gap("C", frame, fits.fit_density("C", frame)))
+
+
+def test_w4g_a_far_cluster_does_not_lift_the_thin_stretch_factor() -> None:
+    """Rows past the next gap do not count towards the thin stretch's TAIL_ROWS."""
+    assert _cluster_problems() == []
+
+
+def test_w4g_the_pilot_draw_reads_within_the_bound() -> None:
+    assert _cluster_draw() <= 0.08
+
+
+def test_w4g_counting_to_the_sample_end_isolates_the_extreme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: count the rows beyond a run to the sample's end, past the cluster's gap."""
+    shipped = density_module._rows_beyond
+    monkeypatch.setattr(
+        density_module,
+        "_rows_beyond",
+        lambda ordered, x0, x1, upper, wide: shipped(ordered, x0, x1, upper, []),
+    )
+    found = _cluster_problems()
+    assert sum("an ordinary spacing left 1 rows" in item for item in found) == 4, found
+    assert _cluster_draw() > 0.2
 
 
 # ------------------------------------------------------------------ W5

@@ -122,10 +122,11 @@ _FLAT_WARNING = 0.5
 TAIL_ROWS = 20
 
 #: How much longer than its local span an empty run must be to become a gap when fewer than
-#: :data:`TAIL_ROWS` observations lie beyond it.  Such a run would close an end stretch thinner
-#: than the floor, and the outermost bin carries the mass beyond the sample's extreme: at factor
-#: 1 an ordinary top spacing of an exponential tail is cut off in about 9% of samples, and the
-#: extreme then sits alone in its bin.  At 3 that falls to about 0.2%.  Other runs keep factor 1.
+#: :data:`TAIL_ROWS` observations lie beyond it, up to the next gap or the sample's end.  Such a
+#: run would close a stretch thinner than the floor between two empty bins, or at the end, where
+#: the outermost bin carries the mass beyond the sample's extreme: at factor 1 an ordinary top
+#: spacing of an exponential tail is cut off in about 9% of samples, and the extreme then sits
+#: alone in its bin.  At 3 that falls to about 0.2%.  Other runs keep factor 1.
 THIN_STRETCH_FACTOR = 3.0
 
 #: A bin whose probability is at most this is inactive for its row and breaks the row's
@@ -361,6 +362,38 @@ def _width_cap(core: FloatArray) -> float:
     return float(core[k - 1] - core[1]) / (k - 2)
 
 
+def _local_span(ordered: FloatArray, x0: float, x1: float, upper: bool) -> float:
+    """The span of the :data:`TAIL_ROWS` observations next to an empty run on its inner side.
+
+    An empty run shorter than that is ordinary spacing in a thinning tail, not a gap.
+    """
+    if upper:
+        below = int(np.searchsorted(ordered, x0, side="right"))
+        return x0 - float(ordered[max(below - TAIL_ROWS, 0)])
+    above = int(np.searchsorted(ordered, x1, side="left"))
+    return float(ordered[min(above + TAIL_ROWS - 1, ordered.size - 1)]) - x1
+
+
+def _rows_beyond(
+    ordered: FloatArray, x0: float, x1: float, upper: bool, wide: list[tuple[float, float]]
+) -> int:
+    """The observations an empty run ``[x0, x1]`` would leave on its outer side.
+
+    They are counted up to the nearest ``wide`` run (one long enough to be a gap at factor 1)
+    on that side, or to the sample's end, so a far cluster beyond a second gap does not make a
+    thin stretch between the two read as full.
+    """
+    if upper:
+        ends = [lo for lo, _ in wide if lo >= x1]
+        if ends:
+            return _count(ordered, x1, min(ends))
+        return int(ordered.size - np.searchsorted(ordered, x1, side="left"))
+    ends = [hi for _, hi in wide if hi <= x0]
+    if ends:
+        return _count(ordered, max(ends), x0)
+    return int(np.searchsorted(ordered, x0, side="right"))
+
+
 def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
     """The outer refinement of an equal-mass core: width cap, gap bins and the row floor."""
     k = core.size - 1
@@ -386,8 +419,7 @@ def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
             ]
         )
         upper = 0.5 * (lower + higher) > median
-        stretches: list[tuple[str, int, int]] = []
-        start = 0
+        runs: list[tuple[int, int]] = []
         j = 0
         while j < parts:
             if counts[j] > 0:
@@ -396,26 +428,29 @@ def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
             stop = j
             while stop < parts and counts[stop] == 0:
                 stop += 1
+            runs.append((j, stop))
+            j = stop
+
+        # The runs long enough to be a gap at factor 1 bound the stretch a cut would leave.
+        wide = [
+            (float(cuts[p]), float(cuts[q]))
+            for p, q in runs
+            if cuts[q] - cuts[p] > max(2.0 * h, _local_span(ordered, cuts[p], cuts[q], upper))
+        ]
+        stretches: list[tuple[str, int, int]] = []
+        start = 0
+        for j, stop in runs:
             x0, x1 = float(cuts[j]), float(cuts[stop])
-            # The span of the TAIL_ROWS observations next to the run on its inner side: an
-            # empty run shorter than that is ordinary spacing in a thinning tail, not a gap.
-            # A run with fewer than TAIL_ROWS observations beyond it must be longer than
-            # THIN_STRETCH_FACTOR spans, since it would leave a thin outermost stretch.
-            if upper:
-                below = int(np.searchsorted(ordered, x0, side="right"))
-                local = x0 - float(ordered[max(below - TAIL_ROWS, 0)])
-                beyond = int(ordered.size - np.searchsorted(ordered, x1, side="left"))
-            else:
-                above = int(np.searchsorted(ordered, x1, side="left"))
-                local = float(ordered[min(above + TAIL_ROWS - 1, ordered.size - 1)]) - x1
-                beyond = int(np.searchsorted(ordered, x0, side="right"))
+            # A run with fewer than TAIL_ROWS observations beyond it, up to the next wide run
+            # or the sample's end, must be longer than THIN_STRETCH_FACTOR spans, since it
+            # would leave a thin stretch between two empty bins or at the end.
+            beyond = _rows_beyond(ordered, x0, x1, upper, wide)
             factor = THIN_STRETCH_FACTOR if beyond < TAIL_ROWS else 1.0
-            if x1 - x0 > 2.0 * h and x1 - x0 > factor * local:
+            if x1 - x0 > 2.0 * h and x1 - x0 > factor * _local_span(ordered, x0, x1, upper):
                 if j > start:
                     stretches.append(("data", start, j))
                 stretches.append(("gap", j, stop))
                 start = stop
-            j = stop
         if parts > start:
             stretches.append(("data", start, parts))
         for kind, first, last in stretches:
@@ -440,7 +475,8 @@ def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> Fl
     - a run of pieces holding no observation becomes one empty *gap* bin when it is longer
       than ``2 h`` and longer than the span of the :data:`TAIL_ROWS` observations next to it
       on its inner side, or than :data:`THIN_STRETCH_FACTOR` times that span when fewer than
-      :data:`TAIL_ROWS` observations lie beyond it;
+      :data:`TAIL_ROWS` observations lie beyond it, up to the next run long enough to be a gap
+      at that span or the sample's end;
     - the other pieces are merged from the outer end inward until each bin holds at least
       ``min(TAIL_ROWS, m)`` of the ``m`` observations of its stretch.
 
