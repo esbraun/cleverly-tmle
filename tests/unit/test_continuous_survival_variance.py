@@ -512,3 +512,95 @@ def test_a_generic_contrast_of_switched_estimates_refuses() -> None:
         smooth_contrast(estimates, lambda x: x[0] - x[1], [treated, control], n=fit.n)
     with pytest.raises(CapabilityError, match=r"ContinuousSurvivalResult\.contrast"):
         ratio_contrast(estimates, treated, control, n=fit.n, name="rr")
+
+
+# --------------------------------------------- scaling, divisor and floor wiring
+
+
+def test_the_stored_variances_read_the_walks_matrix_in_time_units_over_n_minus_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engine's matrix reaches each estimate scaled by tau on restricted rows, over n - 1.
+
+    tau = 1.5 so the time-unit factor does not vanish, and a positivity floor of 0.3 binds, so
+    the engine must pass the floored weight factor.  Each mutation fails here: unit factor 1 in
+    place of tau, the divisor n in place of n - 1, and None in place of the floored factor.
+    """
+    from cleverly.survival import engine as engine_module
+
+    calls: list[tuple[Any, np.ndarray]] = []
+    original = engine_module.predictable_covariance
+
+    def spy(problem: Any, evaluation: Any, dlam: Any, reach: Any = None) -> np.ndarray:
+        out = original(problem, evaluation, dlam, reach)
+        calls.append((reach, out, original(problem, evaluation, dlam, None)))
+        return out
+
+    monkeypatch.setattr(engine_module, "predictable_covariance", spy)
+    tau = 1.5
+    subject = ContinuousSurvivalTMLE(
+        [0.5, 1.0],
+        restricted_horizons=(tau,),
+        cross_fit=False,
+        hazard_library=[CoxHazard("main")],
+        censoring_library=[CoxHazard("main")],
+        g_bounds=0.3,
+        random_state=0,
+    )
+    frame = _sample(300, seed=2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = subject.fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+    ((reach, raw, unfloored),) = calls
+    assert fit.record.bounded_share > 0.0
+    assert reach is not None and reach.min() < 1.0 and reach.max() == 1.0
+    assert not np.allclose(raw, unfloored)
+    targets = list(fit.predictable.targets)
+    n = fit.n
+    scale = np.array([tau if name.startswith("rmtl_regimen") else 1.0 for name in targets])
+
+    def expected(weights: dict[str, float]) -> float:
+        g = np.zeros(len(targets))
+        for name, value in weights.items():
+            g[targets.index(name)] = value
+        g = g * scale
+        return float(g @ raw @ g) / (n - 1)
+
+    risk, control = "cif_regimen[1, 1 @ t=1]", "cif_regimen[0, 1 @ t=1]"
+    difference = "ate_regimen[1 vs 0, 1 @ t=1]"
+    rmtl = f"rmtl_regimen[1, 1 @ t={tau:g}]"
+    rmtls = [rmtl, f"rmtl_regimen[1, 2 @ t={tau:g}]"]
+    rmst = f"rmst_regimen[1 @ t={tau:g}]"
+    cases = {
+        risk: {risk: 1.0},
+        difference: {risk: 1.0, control: -1.0},
+        rmtl: {rmtl: 1.0},
+        rmst: dict.fromkeys(rmtls, -1.0),
+    }
+    for name, weights in cases.items():
+        record = fit[name].switched
+        assert record.predictable_variance == pytest.approx(expected(weights), rel=1e-10), name
+
+
+def test_a_transformed_switched_estimate_carries_its_predictable_variation() -> None:
+    """The delta method scales the PV by the slope squared; a copy without it refuses."""
+    from cleverly.inference.delta import Transform
+    from cleverly.inference.results import transform_estimate
+
+    fit, _ = _fits()
+    estimate = next(e for e in fit.values() if e.variance_source == "predictable_variation")
+    mapped = transform_estimate(estimate, Transform.logit())
+    slope = 1.0 / (estimate.psi * (1.0 - estimate.psi))
+    assert mapped.switched.predictable_variance == pytest.approx(
+        slope**2 * estimate.switched.predictable_variance, rel=1e-12
+    )
+    assert mapped.variance_source == "predictable_variation"
+    with pytest.raises(CapabilityError, match=r"ContinuousSurvivalResult\.contrast"):
+        make_estimate(
+            estimate.name,
+            estimate.psi,
+            estimate.influence_curve,
+            n=estimate.n,
+            rule_widened=False,
+            covariance_rule="switched",
+        )

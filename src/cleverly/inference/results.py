@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._support import Classification, Kind, combine_support, interval_floor, support_for
 from .._typing import FloatArray, IntArray
-from ..exceptions import CapabilityError, Refusal, RefusalReason
+from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
@@ -38,6 +38,7 @@ from .influence import (
     spread_name,
     with_precedent_status,
 )
+from .switched import SWITCHED_REFUSAL
 
 __all__ = [
     "RepeatSpread",
@@ -92,21 +93,6 @@ def select_estimates(
 def estimate_curves(estimates: Mapping[str, ParameterEstimate]) -> dict[str, FloatArray]:
     """Influence curves in the result's stable report order."""
     return {name: estimate.influence_curve for name, estimate in estimates.items()}
-
-
-#: Why a generic contrast of estimates under ``variance="switched"`` is refused.
-SWITCHED_REFUSAL = Refusal(
-    RefusalReason.API_REDIRECTION,
-    "These estimates report the switched variance of a continuous-time survival fit: the "
-    "influence-curve variance raised to the predictable variation where the curve is sparse. "
-    "A contrast built from their influence curves alone would report the influence-curve "
-    "variance, and the switch needs the fit's predictable-variation covariance, which the "
-    "estimates do not carry.",
-    alternative=(
-        "Use ContinuousSurvivalResult.contrast or ContinuousSurvivalResult.ratio, which read "
-        "the fit's covariance, or fit with variance='influence_curve'."
-    ),
-)
 
 
 def covariance_rule(
@@ -361,9 +347,11 @@ def transform_estimate(
 
     The arithmetic of :func:`smooth_contrast` with ``transform=``: the curve is multiplied
     by the transform's slope at the value, and the variance is read off that curve under the
-    estimate's covariance rule.  So ``transform_estimate(smooth_contrast(...), T)`` equals
-    ``smooth_contrast(..., transform=T)`` bit for bit, support record included: a change of
-    inference scale does not change where the estimate came from.
+    estimate's covariance rule; a switched estimate's predictable variation is multiplied by
+    the slope squared, and the switch is read on the mapped curve.  So
+    ``transform_estimate(smooth_contrast(...), T)`` equals ``smooth_contrast(..., transform=T)``
+    bit for bit, support record included: a change of inference scale does not change where
+    the estimate came from.
 
     Parameters
     ----------
@@ -400,6 +388,10 @@ def transform_estimate(
         support=estimate.support,
         outcome_family=estimate.outcome_family,
         rule_widened=estimate.rule_widened,
+        # The delta method carries the predictable variation by the same slope as the curve.
+        predictable_variance=None
+        if estimate.switched is None
+        else slope**2 * estimate.switched.predictable_variance,
     )
     return replace(mapped, transform=transform)
 

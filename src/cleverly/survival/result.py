@@ -933,8 +933,11 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
 
         Each reported estimate solves its score equation, so a smooth function of them solves
         it to first order: its influence curve is the gradient times the joint curves
-        (:func:`cleverly.inference.results.smooth_contrast`).  No registered study measures
-        such a function, so the result reads ``experimental``.
+        (:func:`cleverly.inference.results.smooth_contrast`).  Under ``variance="switched"``
+        the variance is :math:`h^\\top \\hat\\Sigma_{pv} h` with :math:`h` the function's gradient
+        over the targeted levels, raised over the influence-curve variance as for a stored
+        estimate, with the switch read on the derived curve.  No registered study measures such
+        a function, so the result reads ``experimental``.
 
         Parameters
         ----------
@@ -1041,8 +1044,11 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         :math:`IC_1/\\{\\psi_1(1-\\psi_1)\\} - IC_0/\\{\\psi_0(1-\\psi_0)\\}` for an odds ratio
         (:func:`cleverly.inference.results.ratio_contrast`).  ``view="survival"`` takes the
         ratio of :math:`1 - F` instead, which is event-free survival on a fit with one event
-        type only.  No registered study measures a continuous-time ratio, so it reads
-        ``experimental``.
+        type only.  Under ``variance="switched"`` the log-scale variance is
+        :math:`h^\\top \\hat\\Sigma_{pv} h` with :math:`h` the gradient of the log ratio over the
+        targeted levels, raised over the influence-curve variance as for a stored estimate, with
+        the switch read on the ratio's own curve.  No registered study measures a
+        continuous-time ratio, so it reads ``experimental``.
 
         Parameters
         ----------

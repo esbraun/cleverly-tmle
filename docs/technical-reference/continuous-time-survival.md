@@ -126,8 +126,10 @@ across arms. `predictable_covariance` in `cleverly.survival._targeting` computes
 in one pass, and the result stores it as `result.predictable` on the scale of the influence-curve
 variance (divided by $n - 1$). At the true nuisances $\hat\Sigma_{pv}$ and the influence curve's
 covariance have the same expectation; `tests/unit/test_continuous_survival_variance.py` checks
-the identity on an exact law to $10^{-14}$, with a mutation control for the multinomial square,
-the left limit $S(u^-)$, the cross-arm block, the floored weight and the cross-cause entries.
+the identity on an exact law to $10^{-10}$, with a mutation control for the multinomial square,
+the left limit $S(u^-)$, one arm's martingale block, the floored weight and the off-diagonal
+entries. A fit with $\tau = 1.5$ and a binding positivity floor checks that each stored variance
+reads the walk's matrix in time units, over $n - 1$, with the floored weight.
 
 Three properties follow. The switched variance is never below the influence-curve variance, so
 its interval at the same centre contains the influence-curve interval and keeps its double

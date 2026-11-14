@@ -76,7 +76,7 @@ from .._inference_status import (
 from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import ConvergenceWarning, refuse_inference
+from ..exceptions import CapabilityError, ConvergenceWarning, refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
@@ -94,7 +94,7 @@ from .delta import (
     wald_ci,
     wald_statistic,
 )
-from .switched import SwitchedVariance, VarianceSource, switched_record
+from .switched import SWITCHED_REFUSAL, SwitchedVariance, VarianceSource, switched_record
 
 __all__ = [
     "BoundedKind",
@@ -1162,7 +1162,7 @@ class ParameterEstimate:
             return None
         curve = np.asarray(self.influence_curve, dtype=float).reshape(-1)
         return satterthwaite_df(
-            curve, rows=curve != 0.0, centered=self.covariance_rule == "centered"
+            curve, rows=curve != 0.0, centered=self.covariance_rule in ("centered", "switched")
         )
 
     @property
@@ -1963,11 +1963,14 @@ def make_estimate(
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     record: SwitchedVariance | None = None
-    if covariance_rule == "switched" or predictable_variance is not None:
-        if covariance_rule != "switched" or predictable_variance is None:
+    if covariance_rule == "switched" and predictable_variance is None:
+        # A copy of a switched estimate that does not carry its predictable variation.
+        raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
+    if predictable_variance is not None:
+        if covariance_rule != "switched":
             raise ValueError(
-                "a predictable variance needs covariance_rule='switched', and that rule needs "
-                f"predictable_variance; got {covariance_rule!r} and {predictable_variance!r}"
+                "a predictable variance needs covariance_rule='switched'; got "
+                f"{covariance_rule!r}"
             )
         if cluster is not None:
             raise ValueError("the switched variance is defined for independent rows only")

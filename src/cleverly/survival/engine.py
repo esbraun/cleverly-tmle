@@ -645,12 +645,14 @@ class ContinuousSurvivalTMLE:
         relevant = factual & reach
         bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
         # pi S_c w^2 = w min(1, pi S_c / floor): the predictable variation reads the floored
-        # weight squared, as P_n D^2 does.  None where the floor binds nowhere.
-        floored = (
-            np.minimum(product / floor, 1.0)
-            if self.variance == "switched" and np.any(product < floor)
-            else None
-        )
+        # weight squared, as P_n D^2 does.  Only the binding cells are kept through the walk
+        # (their indices and ratios), so no (2, n, M) array outlives this block; the dense
+        # factor is rebuilt for the one call that reads it.  None where the floor binds nowhere.
+        floored: tuple[tuple[np.ndarray, ...], np.ndarray] | None = None
+        if self.variance == "switched":
+            binding = np.nonzero(product < floor)
+            if binding[0].size:
+                floored = (binding, product[binding] / floor)
         last_time_floor_share = float(np.mean(product[..., -1] < floor))
         # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
         del survival, retention, retention_before, product, factual, reach, relevant, dgam
@@ -722,7 +724,14 @@ class ContinuousSurvivalTMLE:
 
         predictable = None
         if self.variance == "switched":
-            predictable = predictable_covariance(problem, result.evaluation, result.dlam, floored)
+            reach_factor = None
+            if floored is not None:
+                reach_factor = np.ones((2, n, len(grid)))
+                reach_factor[floored[0]] = floored[1]
+            predictable = predictable_covariance(
+                problem, result.evaluation, result.dlam, reach_factor
+            )
+            del reach_factor
         del floored
         estimates, covariance = build_estimates(
             result,

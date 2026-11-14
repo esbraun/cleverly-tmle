@@ -41,9 +41,11 @@ from typing import Final, Literal
 import numpy as np
 
 from .._typing import FloatArray
+from ..exceptions import Refusal, RefusalReason
 
 __all__ = [
     "SWITCHED_FLOOR",
+    "SWITCHED_REFUSAL",
     "PredictableCovariance",
     "SwitchedVariance",
     "VarianceSource",
@@ -56,6 +58,20 @@ VarianceSource = Literal["influence_curve", "predictable_variation"]
 #: A predictable variation at or below this multiple of the influence-curve variance is treated
 #: as degenerate, and the estimate keeps the influence-curve variance.
 SWITCHED_FLOOR: Final[float] = 1e-12
+
+#: The refusal of a computation that holds switched estimates but not the fit's covariance.
+SWITCHED_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "These estimates report the switched variance of a continuous-time survival fit: the "
+    "influence-curve variance raised to the predictable variation where the curve is sparse. "
+    "A contrast built from their influence curves alone would report the influence-curve "
+    "variance, and the switch needs the fit's predictable-variation covariance, which the "
+    "estimates do not carry.",
+    alternative=(
+        "Use ContinuousSurvivalResult.contrast or ContinuousSurvivalResult.ratio, which read "
+        "the fit's covariance, or fit with variance='influence_curve'."
+    ),
+)
 
 
 @dataclass(frozen=True, eq=False)
