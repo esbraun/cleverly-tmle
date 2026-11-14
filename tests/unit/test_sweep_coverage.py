@@ -127,8 +127,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         (
             "family:P8",
             "family:P12",
-            "family:P13",
-            "family:P14",
             "family:blips",
             "family:competing",
             "family:learned",
@@ -145,11 +143,9 @@ UNSWEPT: Mapping[str, Exemption] = {
         (
             "estimand:ate_learned_rule",
             "estimand:ate_rr_tilt",
-            "estimand:cate_projection",
             "estimand:ey_known_regime",
             "estimand:ey_optimal_rule",
             "estimand:ey_rr_tilt",
-            "estimand:log_crr_projection",
         ),
     ),
     **_exempt(
@@ -160,7 +156,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "missing:eliminated",
             "splitting:cross_fitted",
             "splitting:fold_targeted_evaluated",
-            "splitting:repeated",
             "treatment:3",
             "treatment:6",
             "treatment:arms4",

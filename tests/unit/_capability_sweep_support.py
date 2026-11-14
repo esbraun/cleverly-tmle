@@ -1457,8 +1457,16 @@ MUTATIONS: dict[str, Mutation] = {
         "the tilt rows ignore every rule the rows did not read before RM23",
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
         # The learned-rule kind came after RM23. Its tilt rule is one the pre-RM23 rows did
-        # not read, so M1 makes its tilt rows read available while both calls refuse.
-        frozenset((*DECLINED_TILT_KINDS, "learned_rule")),
+        # not read, so M1 makes its tilt rows read available while both calls refuse. The EP
+        # rule kinds with a declared sieve or learner are learned-rule fits too.
+        frozenset(
+            (
+                *DECLINED_TILT_KINDS,
+                "learned_rule",
+                "learned_rule_ep_sieve",
+                "learned_rule_ep_learner",
+            )
+        ),
         _RAISED.format("missingness") + "missingness_tilt ",
     ),
     "M2": Mutation(
@@ -1532,7 +1540,16 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
         # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
-        frozenset({"split_plan", "regime", "regime+missing", "learned_rule"}),
+        frozenset(
+            {
+                "split_plan",
+                "regime",
+                "regime+missing",
+                "learned_rule",
+                "learned_rule_ep_sieve",
+                "learned_rule_ep_learner",
+            }
+        ),
         "("
         + _RAISED.format("benchmark")
         + "benchmark cannot drop every covariate"
