@@ -1038,14 +1038,15 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator in ("gcomp", "parametric_gformula"):
+    truncation = None
+    if family == "longitudinal":
         # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
-        # moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
+        # moves it; a SurvivalCTMLE or SurvivalDRTMLE replay would rerun a selection or a
+        # drift loop that no study measures. The call reads the same helper.
+        from .longitudinal.estimator import longitudinal_truncation_refusal
 
-        truncation = (
-            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
-        )
+        truncation = longitudinal_truncation_refusal(result)
+    if truncation is not None:
         rows = tuple(
             replace(
                 row,
@@ -1061,9 +1062,10 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         from .longitudinal.estimator import hazard_mtp_replay
 
         # A hazard fit targets each modified treatment policy by its own weighted walk,
-        # which the truncation replay does not rebuild (H25).
+        # which the truncation replay does not rebuild (H25). The call raises the method's
+        # own refusal above before it reaches the replay, so that one stands.
         walk = hazard_mtp_replay(result)
-        if walk is not None:
+        if walk is not None and truncation is None:
             rows = tuple(
                 replace(
                     row,
@@ -5587,6 +5589,14 @@ class SensitivityFacade(_CapabilityFacade):
         tuple of str
             Eligible reported names, empty when the route settles its own estimand.
         """
+        if operation == "marginal_bounds":
+            # Its ``estimand=None`` resolves to the fit's own reported parameter, and the
+            # call raises when that leaves a choice (Fix-15), so the row defers on the same
+            # candidates rather than run on a parameter the fit did not report.
+            from .sensitivity.marginal import default_estimand_candidates
+
+            candidates = default_estimand_candidates(self._result)
+            return () if len(candidates) == 1 else candidates
         function, _ = self._routed_callable(operation)
         if not _defaults_to_ambiguous_estimand(function):
             return ()
