@@ -567,6 +567,47 @@ class TestReaders:
 # ----------------------------------------------------------------------------- study API
 
 
+class TestPlotsAndFacadeRows:
+    """Every plot and sensitivity row answers the known-score fit or refuses it by name."""
+
+    @pytest.mark.parametrize(
+        "operation",
+        ["contour", "elements", "omitted_confounding", "robustness_value", "marginal_bounds"],
+    )
+    def test_each_bound_row_refuses_the_att_and_names_the_form(self, operation: str) -> None:
+        from tests.unit._capability_sweep_support import fit_known_score
+
+        facade = fit_known_score().sensitivity
+        with pytest.raises(CapabilityError, match='conditional_form="known_score"'):
+            getattr(facade, operation)(estimand="att")
+        # The ATE rows still answer: only the reweighted parameters are refused.
+        getattr(facade, operation)(estimand="ate")
+
+    def test_the_result_plots_draw_the_known_score_fit(self) -> None:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        from cleverly import plotting
+        from tests.unit._capability_sweep_support import fit_known_score
+
+        result = fit_known_score()
+        for draw in (
+            plotting.balance,
+            plotting.calibration,
+            plotting.curve,
+            plotting.forest,
+            plotting.overlap,
+        ):
+            plt.close(draw(result))
+        # The influence plot draws the known-score curve D_KS, which the estimate reports.
+        figure = plotting.influence(result, name="att")
+        plt.close(figure)
+        # The truncation sweep carries the form, so its plot does too.
+        plt.close(plotting.sensitivity(result.diagnostics.truncation_curve(estimands=["att"])))
+
+
 class TestStudyAPI:
     def test_targeting_carries_the_form_to_the_fit(self) -> None:
         from cleverly import ATT, CausalStudy, PointTreatment, TMLEMethod

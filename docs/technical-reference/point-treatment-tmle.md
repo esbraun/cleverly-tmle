@@ -1339,17 +1339,20 @@ rows.
 | replay and `refit` | carried. A refit of a known-mechanism fit reproduces it bit for bit |
 | `retarget`, the truncation curve, the MNAR tilt, and the omitted-variable bound | read the cached declared mechanism |
 | the omitted-variable `benchmark` | refused. A declared mechanism does not change when a covariate is dropped |
+| `variable_importance` | not carried. Each candidate is a different treatment with no declaration |
 
 A fit with `conditional_form="known_score"` (below) keeps that form in every reader that refits
 or re-solves through the estimator: the bootstrap, `refit`, `retarget`, the truncation curve, and
 the placebo, subset, simulated-confounding and other refit refutations. The dummy and simulated
 outcome refutations take the ATT and ATC truth as the mean over every held row weighted by the
 declared probability of the conditioning arm, the functional that form estimates. The MNAR tilt,
-the omitted-variable bound and the marginal sensitivity bound rebuild the ATT and ATC as the mean
+the omitted-variable bound (with its contour, elements and robustness value) and the marginal
+sensitivity bound rebuild the ATT and ATC as the mean
 over the conditioning arm, so they refuse those two estimands of a known-score fit, and run on
 its other estimands. `variable_importance` fits each candidate treatment with the arm-mean form,
-because a candidate declares no mechanism.
-| `variable_importance` | not carried. Each candidate is a different treatment with no declaration |
+because a candidate declares no mechanism. The figures read what the fit reports: the influence
+plot of the ATT draws the known-score curve, and the truncation-curve figure draws the carried
+sweep.
 
 **Refusals.** Each of these refuses before any learner.
 

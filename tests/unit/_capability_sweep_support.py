@@ -333,6 +333,27 @@ def fit_iptw_known() -> Any:
     )
 
 
+def fit_known_score() -> Any:
+    """A TMLE fit with a declared mechanism and the known-score ATT and ATC (X35).
+
+    The ATT and ATC rows weight by the declared probability, so every row that recomputes
+    them as an arm mean (the tilt and bound rows) must refuse them or skip them, and the
+    ATE rows answer as on any declared-mechanism fit.
+    """
+    frame = known_mechanism.point_frame()
+    return (
+        TMLE(**linear_in_sample(estimands=("ate", "att", "atc"), conditional_form="known_score"))
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            treatment_probabilities=frame[["p0", "p1"]].to_numpy(dtype=float),
+        )
+        .single()
+    )
+
+
 def fit_iptw_regime() -> Any:
     """A deterministic regime pair, a static and a rule, on the discrete law."""
     return (
@@ -1008,6 +1029,10 @@ KINDS: dict[str, Kind] = {
     "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
     "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
     "binary": _kind(fit_binary, *_ARM),
+    # A declared mechanism leaves no omitted confounder of the treatment, so benchmark
+    # refuses it, as on every declared-mechanism fit. The bound rows answer the ATE; their
+    # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).
+    "known_score": _kind(fit_known_score, *_LIVE, *_BOUND),
     "missing": _kind(fit_missing, *_LIVE, *_TILT),
     "shift": _kind(fit_shift, *_LIVE),
     "cde": _kind(fit_cde, *_LIVE),
@@ -1407,11 +1432,14 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
         # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
-        frozenset({"split_plan", "regime", "regime+missing", "learned_rule"}),
+        # A TMLE fit with a declared mechanism has an outcome regression, so only the
+        # predicate's known-mechanism rule refuses its benchmark (X35).
+        frozenset({"split_plan", "regime", "regime+missing", "learned_rule", "known_score"}),
         "("
         + _RAISED.format("benchmark")
         + "benchmark cannot drop every covariate"
-        + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule)",
+        + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
+        + "|benchmark declined: .*this fit's data declares the mechanism known)",
     ),
     "M9": Mutation(
         "the simulated-confounding row ignores the predicate",
