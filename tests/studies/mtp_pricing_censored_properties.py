@@ -30,19 +30,24 @@ bias clause gates.
 
 **Sizes, declared before the pilots** (X77 plan rev 2, section 5).
 
-* Calibration: the arm-pooled and per-arm predictive rules cannot size two arms from pilots of
-  a few hundred draws (the predictive SD of a 400-draw pilot's SE ratio is 0.038 against a
-  half-band of 0.07, and both rules return no R), so each arm is sized at target (guide,
-  "Sizing", 2026-11-13): R = 2,800 passes a calibrated arm with probability 0.980, the family
-  of two with 0.960 (:func:`target_replicates`).  The 400-draw pilot of each arm
-  (:func:`calibration_pilot`, ``diagnostic`` stream) reads its plug-in pass probability at its
-  pilot ratio; an arm below 0.90 has its pilot extended, and a confirmed departure is diagnosed
-  before the declaration.
+* Calibration: sized from the pilots by the per-arm rule (:func:`tools.per_arm_replicates`;
+  the two engines are distinct settings).  The plan declared R = 2,800 by the guide's fallback
+  for 400-draw pilots, with an arm whose plug-in pass probability fell below 0.90 to have its
+  pilot extended.  At 400 draws the arms read SE ratios 1.066 (``LTMLE``) and 1.059 (``SDR``),
+  at 1,200 draws 1.047 and 1.016, and at 2,800 draws 1.019 and 1.020
+  (:data:`PILOT_SE_RATIOS`), coverage 0.949 and 0.951.  The ``LTMLE`` excess at 1,200 draws
+  was the same with the true retention as the censoring learner (1.044 against 1.047 on the
+  same draws), so it did not come from learning the censoring model, and its 99% bootstrap
+  interval, [1.00, 1.10], held 1.  At 2,800 draws the plug-in pass at R = 2,800 is 0.83 per
+  arm, so the per-arm rule over the 2,800-draw pilots sets R = 10,800: pass 0.976 and 0.975,
+  family 0.952 (:func:`calibration_replicates`).  ``mtp-pricing``'s siblings ran 7,200.
 * Necessity pairs: ``mtp-pricing``'s pair-pilot rule (:func:`pair_pilot`), at least
   :data:`PAIR_PILOT_DRAWS` paired draws per engine at the declared n, each positive's
   ``equivalence_power`` and each control's ``necessity_power`` at least 0.90 at
   :data:`PAIR_REPLICATES`.  Exit declared before the pilot: a larger n, or ``reporting`` with an
-  owner, never a weaker law.
+  owner, never a weaker law.  The 200-draw pilots at n = 2,400 (:data:`PAIR_PILOT_READINGS`)
+  read positive biases 0.002 and 0.042 SD and controls displaced by 0.47 and 0.61 SD; every
+  power is above 0.9999, so R = 1,000 and the retention intercept 2.8 stand.
 
 The red-cell reading is in :mod:`tests.studies.canonical_mtp_pricing_censored`.
 """
@@ -101,25 +106,47 @@ ESTIMAND = f"ey_regimen[{PLAN}]"
 CELLS: dict[str, str] = {f"censored_crossfit_{e}_tau{TAU}": e for e in ("ltmle", "sdr")}
 assert tuple(CELLS) == study.CALIBRATION_LABELS
 
+#: The calibration pilot's draws per arm as first declared, and as extended and read.
 PILOT_DRAWS = 400
+PILOT_DRAWS_READ = 2_800
 PAIR_PILOT_DRAWS = 200
-#: Each arm at target (guide, "Sizing"): see :func:`target_replicates`.
+#: The plan's fallback size, at which an arm's plug-in pass probability is read.
 TARGET_REPLICATES = 2_800
-CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, TARGET_REPLICATES)
+#: Each arm's SE ratio on its 2,800-draw pilot (``diagnostic`` stream).
+PILOT_SE_RATIOS: dict[str, float] = {
+    "censored_crossfit_ltmle_tau3": 1.0194685493760738,
+    "censored_crossfit_sdr_tau3": 1.0197899214098862,
+}
+#: Each arm's replications: :func:`calibration_replicates`.
+SIZED_REPLICATES = 10_800
+CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, SIZED_REPLICATES)
 #: The noise of each ``noise_control`` is ``NOISE_FACTOR`` times the arm's own SD (its
 #: calibration pilot's empirical SD times sqrt(n)), as in ``mtp-pricing``.
 NOISE_FACTOR = 1.0
-#: Each arm's ``noise_sd`` from its calibration pilot.  Provisional until the pilot runs: the
-#: complete-data siblings' values (``mtp_pricing_properties.NOISE_SD``).
+#: Each arm's ``noise_sd`` from its 2,800-draw calibration pilot.
 NOISE_SD: dict[str, float] = {
-    "censored_crossfit_ltmle_tau3": pricing_properties.NOISE_SD[
-        "crossfit_ltmle_learned_classifier_tau3"
-    ],
-    "censored_crossfit_sdr_tau3": pricing_properties.NOISE_SD[
-        "crossfit_sdr_learned_classifier_tau3"
-    ],
+    "censored_crossfit_ltmle_tau3": 1.038,
+    "censored_crossfit_sdr_tau3": 1.053,
 }
 assert set(NOISE_SD) == set(CELLS)
+
+#: The pair pilots' readings (``tools.pair_reading``, 200 paired draws, ``diagnostic`` stream).
+PAIR_PILOT_READINGS: dict[str, dict[str, float]] = {
+    "necessity_ltmle_tau3": {
+        "positive_standardized_bias": 0.002075644680509305,
+        "control_standardized_bias": 0.5061164454214552,
+        "equivalence_power": 0.9999998954438447,
+        "necessity_power": 0.9999999833639209,
+        "displacement": 0.46869860202749836,
+    },
+    "necessity_sdr_tau3": {
+        "positive_standardized_bias": 0.04224099396042749,
+        "control_standardized_bias": 0.7407867744721034,
+        "equivalence_power": 0.9999675280243919,
+        "necessity_power": 1.0,
+        "displacement": 0.6120209562029517,
+    },
+}
 
 #: Each pair set: its engine.
 PAIR_SETS: dict[str, str] = {f"necessity_{e}_tau{TAU}": e for e in ("ltmle", "sdr")}
@@ -156,6 +183,13 @@ TAIL_SIZE_NOT_COMPUTED: dict[str, str] = {
 
 def truth() -> float:
     return common.truth(TAU, f"ey[{PLAN}]")
+
+
+def calibration_replicates() -> dict[str, Any]:
+    """The per-arm rule over the 2,800-draw pilots: R, each arm's pass and the family's."""
+    return tools.per_arm_replicates(
+        [PILOT_SE_RATIOS[label] for label in CELLS], PILOT_DRAWS_READ, tools.C_FIT
+    )
 
 
 def target_replicates() -> dict[str, Any]:

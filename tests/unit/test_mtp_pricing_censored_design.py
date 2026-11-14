@@ -23,6 +23,7 @@ from tests.studies import mtp_pricing_censored_common as law
 from tests.studies import mtp_pricing_censored_own_curve as own
 from tests.studies import mtp_pricing_censored_properties as properties
 from tests.studies import mtp_pricing_common as law_p
+from tests.studies import mtp_study_tools as tools
 from tests.studies import mtp_tail_size_common as tail
 from tests.studies.evidence.inference import clopper_pearson
 
@@ -120,13 +121,17 @@ def test_the_numpy_censored_fit_is_cleverlys(estimator: str, learners: str) -> N
         assert np.max(np.abs(steps[t - 1][alive] - true[t - 1][alive])) < 0.25
 
 
-def test_the_calibration_cells_are_sized_at_target() -> None:
-    """The small-pilot fallback: each arm at R = 2,800, pass and family from the band."""
-    sizing = properties.target_replicates()
-    assert sizing["R"] == properties.TARGET_REPLICATES == 2_800
-    assert sizing["per_cell"] >= 0.975
-    assert sizing["family_wise"] >= 0.95
-    assert sizing["family_wise"] == pytest.approx(sizing["per_cell"] ** 2)
+def test_the_calibration_cells_are_sized_from_the_extended_pilots() -> None:
+    """The fallback target fails the pilots' ratios; the per-arm rule over them sets R."""
+    target = properties.target_replicates()
+    assert target["R"] == properties.TARGET_REPLICATES == 2_800
+    for ratio in properties.PILOT_SE_RATIOS.values():
+        assert tools.cell_pass(ratio, properties.TARGET_REPLICATES, tools.C_FIT) < 0.90
+    sizing = properties.calibration_replicates()
+    assert sizing["R"] == properties.SIZED_REPLICATES == 10_800
+    assert min(sizing["per_cell"]) >= tools.CELL_TARGET
+    assert sizing["family_wise"] >= tools.FAMILY_TARGET
+    assert set(properties.CALIBRATION_REPLICATES.values()) == {properties.SIZED_REPLICATES}
 
 
 def test_the_primary_coverage_floor_passes_at_nominal_coverage() -> None:
@@ -184,3 +189,11 @@ def test_the_tail_sizes_and_the_study_n_follow_from_the_committed_moments() -> N
     assert gated == study.WALD_GATED_CELLS
     assert below == study.BELOW_TAIL_SIZE
     assert not missing and not study.TAIL_SIZE_NOT_COMPUTED
+
+
+def test_the_pair_pilots_clear_the_power_rule() -> None:
+    for name, reading in properties.PAIR_PILOT_READINGS.items():
+        assert name in properties.PAIR_SETS
+        assert reading["equivalence_power"] >= 0.90
+        assert reading["necessity_power"] >= 0.90
+        assert reading["displacement"] > properties.NECESSITY_DISPLACEMENT
