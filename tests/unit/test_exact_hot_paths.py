@@ -1,7 +1,8 @@
 """Faster forms of four internal computations return exactly what the plain forms return.
 
-Each test keeps the plain form as a reference and compares bitwise on inputs chosen to reach
-the cases where a shortcut could differ: tie blocks and NaNs for the weighted AUC, ties and
+The tests of the first three keep the plain form as a reference and compare bitwise; the
+duplicate-covariate tests compare with the real digest and under forced digest collisions. The
+inputs reach the cases where a shortcut could differ: tie blocks and NaNs for the weighted AUC, ties and
 NaN event times for the Breslow counts, pattern counts on either side of the term count for
 the constant-cell check, and digest collisions and signed zeros for duplicate covariates.
 """
@@ -109,7 +110,15 @@ def _deaths_reference(time: np.ndarray, event: np.ndarray) -> np.ndarray:
 
 @pytest.mark.parametrize(
     "case",
-    ["continuous", "tied", "nan event times", "signed zero", "one event", "all events"],
+    [
+        "continuous",
+        "tied",
+        "nan event times",
+        "signed zero",
+        "one event",
+        "all events",
+        "no events",
+    ],
 )
 def test_breslow_counts_match_the_row_scan(case: str) -> None:
     rng = np.random.default_rng(7)
@@ -127,6 +136,8 @@ def test_breslow_counts_match_the_row_scan(case: str) -> None:
         event[5] = 1.0
     elif case == "all events":
         event[:] = 1.0
+    elif case == "no events":
+        event[:] = 0.0
     sets = _risk_sets(time, event)
     expected = _deaths_reference(time, event)
     assert sets.deaths.dtype == expected.dtype
@@ -308,6 +319,22 @@ def test_working_model_check_is_unchanged() -> None:
             outcome, treatment, qualifying, positive, msm=msm, contrast=None
         )
         assert found == expected
+
+
+def test_a_saturated_working_model_reports_its_constant_cell() -> None:
+    # One pattern with both arms weighted gives two cells for two terms: saturated. Arm 1's
+    # outcome is constant, so the coefficient on the arm reads a constant cell.
+    n = 20
+    design = np.zeros((n, 2, 2))
+    design[:, :, 0] = 1.0
+    design[:, 1, 1] = 1.0
+    msm = SimpleNamespace(design=design, weights=np.ones((n, 2)), arms=(0.0, 1.0))
+    treatment = np.tile([0.0, 1.0], n // 2)
+    outcome = np.where(treatment == 1.0, 1.0, np.arange(n) % 2).astype(float)
+    ones = np.ones(n, dtype=bool)
+    found = _coefficients_on_constant_cells(outcome, treatment, ones, ones, msm=msm, contrast=None)
+    assert found
+    assert found == _cells_reference(outcome, treatment, ones, ones, msm=msm, contrast=None)
 
 
 # ----------------------------------------------------------------------------------------
