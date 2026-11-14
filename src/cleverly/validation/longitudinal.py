@@ -50,6 +50,7 @@ __all__ = [
     "LONGITUDINAL_CLASSIFIER_RATIO",
     "LONGITUDINAL_CONSTANT_TARGET",
     "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
+    "LONGITUDINAL_CONTINUATION_NOT_SCORED",
     "LONGITUDINAL_HELD_DECISION",
     "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
@@ -90,6 +91,14 @@ LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classificati
 #: event, or every follower holds 1.  The node's regression is that value, so no learner ran.
 LONGITUDINAL_CONSTANT_TARGET = (
     "every follower holds the same 0 or 1 target, regression is that value"
+)
+
+#: A hazard fit with covariates after baseline regresses the future of each node as a hazard
+#: curve over the later nodes, fitted on soft events read from the targeted later nodes.  Its
+#: loss is a soft-label log-likelihood with no observed label to score against, so the report
+#: lists one omission per node, regimen and cause in place of a row.
+LONGITUDINAL_CONTINUATION_NOT_SCORED = (
+    "the regression of the future is a soft-label hazard fit, which this report does not score"
 )
 
 #: A training fold of a cross-fitted fit held one target value, 0 or 1, at the node while the
@@ -243,8 +252,10 @@ class LongitudinalDiagnostics:
     configured cap replaced every contributing row.
 
     ``node_kind`` says what decided the node's arm: ``"label"``, ``"rule"``,
-    ``"policy"``, ``"tilt"``, ``"mtp"``, or ``"held"`` at a later node of a held design,
-    which repeats the baseline decision and reports the arms its units at risk hold.  The
+    ``"policy"``, ``"tilt"``, ``"mtp"``, or ``"held"``.  ``"held"`` marks a later node of a
+    held design whose regimen declares a one-node rule, policy or modified treatment policy;
+    the node repeats the baseline decision and reports the arms its units at risk hold.  A
+    static arm reports ``"label"`` at every node.  The
     column is present when some node is a policy node, as ``cause`` is
     present on a competing-risk fit only.  So a policy that is one-hot on one sample, and so
     resolves as a rule, and not on another changes which columns the report has.  At a
@@ -1068,7 +1079,9 @@ def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> Longitudina
     to the horizon, so the row sits at the horizon node.  A separable fit solves one per
     hazard factor, and the row reports the larger relative score of the two.  ``converged``
     is the targeting record's verdict over every target it solved together: a one-step walk and a
-    per-horizon Newton solve stop on the largest relative score of their targets.
+    per-horizon Newton solve stop on the largest relative score of their targets.  On a
+    backward pass (covariates after baseline) the row's relative score is the largest of the
+    target's node walks, each on its own scale, and its score stays the share-weighted sum.
     """
     record = fit.hazard
     # A separable fit records one score per hazard factor, ``(label, cause, horizon, factor)``;
@@ -1082,6 +1095,15 @@ def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> Longitudina
     ]
     worst = int(np.argmax(relatives))
     score, relative = scores[worst], relatives[worst]
+    if record.nodes:
+        # A backward pass sums each node walk's score and scale; a stalled node would be
+        # diluted by the others, so the row reads the largest node relative score.
+        relative = max(
+            abs(float(node.score[i])) / max(float(node.score_scale[i]), 1e-300)
+            for node in record.nodes
+            for i, entry in enumerate(node.targets)
+            if tuple(entry[:3]) == key
+        )
     converged = bool(record.converged)
     return LongitudinalScoreRow(
         fit.regimen.label,
@@ -1612,3 +1634,33 @@ def _hazard_nuisances(
                 )
             taken = taken + hazard
             earlier = earlier | target
+    _continuation_omissions(result, causes, omissions)
+
+
+def _continuation_omissions(
+    result: Any,
+    causes: tuple[str | None, ...],
+    omissions: list[LongitudinalNuisanceOmission],
+) -> None:
+    """One omission per node before the last horizon, regimen and cause of a fit whose
+    covariates after baseline give it continuation fits."""
+    from ..longitudinal.hazard_backward import later_covariates
+
+    if not later_covariates(result.data):
+        return
+    labels: dict[str, int] = {}
+    for fit in result.fits.values():
+        label = fit.regimen.label
+        labels[label] = max(labels.get(label, 0), int(fit.horizon))
+    for label, t_max in labels.items():
+        for time in range(1, t_max):
+            omissions.extend(
+                LongitudinalNuisanceOmission(
+                    "continuation",
+                    time,
+                    LONGITUDINAL_CONTINUATION_NOT_SCORED,
+                    regimen=label,
+                    cause=cause,
+                )
+                for cause in causes
+            )

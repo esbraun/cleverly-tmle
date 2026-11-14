@@ -18,7 +18,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
 | the plan draws the arm at random | a known policy $q_t(a \mid H_t)$ at a node, with the integrated influence curve | the policy is part of the estimand and must be fixed before the fit |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
-| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model needs one categorical baseline treatment and no covariate after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
+| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model needs one baseline treatment held over the nodes, and `targeting="one_step"` when a covariate is measured after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
 
@@ -1094,7 +1094,7 @@ node, and $t$ is a reported horizon.
 
 | item | contract |
 | --- | --- |
-| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome, and no covariate is measured after baseline. Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome. A covariate measured after baseline is taken under `targeting="one_step"` ([covariates after baseline on the hazard path](#covariates-after-baseline-on-the-hazard-path)). Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
 | regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy at the baseline decision is targeted by its own weighted walk ([a modified treatment policy on the hazard path](#a-modified-treatment-policy-on-the-hazard-path)) |
 | estimand | $\psi_{r,j}(t) = E \sum_a q_r(a \mid W) F_j(t \mid a, W)$, the estimand of the [held design](#one-baseline-treatment-held-over-the-nodes). Contrasts, ratios, the survival view, `rmst` and `rmtl` derive from it as on an iterated-mean fit. No parameter name changes |
 | identification | no unmeasured confounding of $A$ given $W$, censoring at random given $(A, W)$, and positivity. Moore and van der Laan (2009), Section 2. Cai and van der Laan (2020), Section 2 |
@@ -1107,9 +1107,11 @@ node, and $t$ is a reported horizon.
 | inference | the influence-curve variance and the multiplier band over the reported parameters, as on an iterated-mean fit. With `id=`, the cluster sums and the fit statuses of [clusters](#clusters) apply |
 | cross-fitting | with `n_folds > 1`, the hazards, $g$ and $G$ are out of fold. One pooled targeting then runs over every row |
 
-`outcome_learner` is the hazard learner on a hazard fit. `pseudo_learner=` is refused, because the
-fit regresses the event indicator at each node and fits no pseudo-outcome. Every arm is targeted
-together, so the score of every contrast is solved.
+`outcome_learner` is the hazard learner on a hazard fit. On a design with baseline covariates only,
+`pseudo_learner=` is refused (H6), because the fit regresses the event indicator at each node and
+fits no pseudo-outcome. With a covariate after baseline it fits the regressions of the future
+([covariates after baseline on the hazard path](#covariates-after-baseline-on-the-hazard-path)).
+Every arm is targeted together, so the score of every contrast is solved.
 
 `SurvivalCTMLE` runs this per-horizon targeting on a collaborative selection of its treatment and
 censoring models, one arm at a time
@@ -1437,6 +1439,58 @@ one-visit arm-and-dose vector. Support rows `G61` license their point estimates 
 intervals, and the simultaneous band on the six-level and density fits. Another composition,
 such as `targeting="iterative"`, observation weights, clusters or `node_bounds=`, matches no row
 and is labelled `experimental`.
+
+### Covariates after baseline on the hazard path
+
+`survival_model="hazard"` with `targeting="one_step"` takes a baseline treatment held over the
+nodes beside covariates $L_k$ measured at nodes $k \ge 2$. It follows the form of Rytgaard, Gerds
+and van der Laan (2022): no model of $p(L_{k+1} \mid \text{past})$ is fitted, and at each node the
+event hazards and a regression that integrates the next covariates out are fluctuated with the
+regimen's clever weight. The implementation is `longitudinal/hazard_backward.py`. A block at node 1
+alone precedes the treatment, so it is a baseline confounder, and such a design runs the hazard
+engine above unchanged.
+
+Write $H_k = (W, \bar L_k, A_1)$ for the history at node $k$ on the rows uncensored and event-free
+through $k - 1$, $\bar q_{r,k}$ for the regimen's density at node 1 (one at each later node, which
+holds $A_1$), and $h^r_k = \bar q_{r,k} / \prod_{s \le k} g_s c_s$, the iterated-mean clever
+covariate of the plan at node $k$.
+
+| item | contract |
+| --- | --- |
+| design | one baseline treatment held over every node, a survival or competing-risk outcome, and a `time_varying=` block at some node $k \ge 2$. $L_k$ may be binary, categorical or continuous: no density is fitted |
+| regimens | at node 1: a static arm, a known rule, a known stochastic policy, an odds tilt of a declared mechanism (which `_resolve_tilts` turns into a known policy before the hazard route runs), or a modified treatment policy. The tests cover a modified treatment policy on a categorical node and a shift of a continuous dose |
+| estimand | $\psi_{r,j}(t) = E\,Q^r_{1,jt}(H_1)$ with $Q^r_{k,jt}(H_k) = \sum_a q_{r,k}(a \mid H_k)[\lambda_j(k \mid H_k, a) + (1 - \sum_l \lambda_l(k \mid H_k, a)) M^r_{k,jt}(H_k, a)]$, $M^r_{k,jt} = E[Q^r_{k+1,jt}(H_{k+1}) \mid H_k, A = a, C_k = 1, Y_k = 0]$ for $k < t$ and $M^r_{t,jt} = 0$. It is the iterated-mean survival recursion with its node regression split by the value of $Y_k$, so the parameter names, contrasts, `rmst` and `rmtl` are those of the iterated-mean fit |
+| identification | that of the iterated-mean fit on the same design: no unmeasured confounding of $A$ given $(W, L_1)$, censoring at random given $(H_k, A)$, and positivity of the regimen. Díaz et al. (2023), Theorem 1, with the identity policy at $k \ge 2$ ([held design](#one-baseline-treatment-held-over-the-nodes)) |
+| influence curve | the iterated-mean EIF regrouped by the identity $Z_k - \bar Q_k = \sum_l (dN_l(k) - \lambda_l(k))(1\{l = j\} - M_k) + (1 - \sum_l dN_l(k))(Q_{k+1} - M_k)$, so $D_{r,j,t} = \sum_{k \le t} h^r_k R_k [\sum_l \kappa^l(k)(dN_l(k) - \lambda_l(k)) + (1 - \sum_l dN_l(k))(Q^r_{k+1,jt} - M^r_{k,jt})] + Q^r_{1,jt}(H_1) - \psi_{r,j}(t)$, with $\kappa^l(k) = 1\{l = j\} - M^r_{k,jt}$. The first bracket is the hazard term, the second the covariate term. The identity holds for any nuisances, so the efficiency is the iterated-mean fit's. At one cause on the grid it is display (19) of Rytgaard et al. (2022) |
+| continuation | $M^r_{k,jt}$ for every $(j, t)$ is the incidence of one hazard curve $\nu^r_k(s, l \mid H_k, a)$ over the later nodes $s = k + 1, \ldots, t_{\max}$. Its pseudo-outcome is the sub-distribution $p(s, l)$ that node $k + 1$'s targeted curve implies, with soft at-risk $\rho(s) = 1 - \sum_{u < s, l} p(u, l)$. `pseudo_learner` fits it cause by cause, regressing $p(s, j)/(\rho(s) - \sum_{l < j} p(s, l))$ with weight $w(\rho(s) - \sum_{l < j} p(s, l))$ on the node design stacked over the later nodes with one indicator per node, clipped into $[0, 1]$ |
+| node panel | the node hazard (sub-node 0) and the continuation (sub-nodes $\sigma \ge 1$) as one curve, in the weighted `HazardInputs` form: at sub-node 0 the events $dN_l(k)$, inverse $h^r_k$ and loss weight $w h^r_k$; at sub-node $\sigma$ the events $p(s, l)/\rho(s)$, inverse $h^r_k \rho(s)$ and loss weight $w h^r_k \rho(s)$. The shipped $\kappa$ read on this curve is $1\{l = j\} - M^r_{k,jt}$ at sub-node 0 and the continuation's own bracket after it, so the shipped score of the panel is the node-$k$ bracket of $D_{r,j,t}$ for every horizon and cause together. The panel holds the rows at risk entering node $k$ |
+| targeting | one backward pass per regimen. At node $t_{\max}$ down to 1 the shipped one-step walk runs once on the node panel, over every horizon $t \ge k$ and cause; node $k$'s pseudo-outcome is then read from its targeted curve, and $\nu^r_{k-1}$ is fitted on it. No score of node $k$ reads an earlier node, so after node 1 every term of $P_n D^*$ is solved. The record sums each node's score and scale times $n_k / n$, its `relative_score` and the score-equation row read the largest node walk's own relative score, so a stalled node is not diluted by the others, and `converged` holds when every node walk converged; `result.fits[...].hazard.nodes` holds the node records, node 1 first |
+| slots and held cells | node 1 takes the slots of the held engine (the arm, the policy's levels, or the observed dose and the branch doses); a later node has one slot, the observed $A_1$. A cell (sub-node, slot key, cause) is held at zero when no follower with positive loss weight has a (soft) event of that cause, and the all-cause hazard is held at one when every such follower's event fraction is one |
+| remainder | $\sum_{k \le t} E_0[(\hat h^r_k - h^r_{0,k}) R_k \{\sum_l (\lambda_{0,l} - \hat\lambda_l)(k)\hat\kappa^l(k) + (1 - \sum_l \lambda_{0,l}(k))(\tilde M_k - \hat M_k)\}]$, with $\tilde M_k$ the true regression of the estimated next stage: the iterated-mean product with its node error split into a hazard and a continuation error. It is zero when the mechanism is right, or when every hazard and continuation is. Rytgaard et al. (2022), display (13), is its continuous-time form; their Theorem 2 gives asymptotic linearity in sample under its Donsker condition |
+| cross-fitting | with `n_folds > 1`, each fold fits its node hazards and runs an untargeted backward pass on its training rows; the held-out continuations are stitched, and one pooled pass walks every node over every row, as the cross-fitted iterated-mean recursion does ([cross-fitting the recursion](#cross-fitting-the-recursion)). That Theorem 3 of Díaz et al. (2023) carries to the node-panel walk is this package's reading, not the paper's |
+| settings | competing causes, observation weights, clusters, `g_bounds` (on the cumulative), `alpha`, `node_bounds=` (on the node hazard only; a bound that excludes a cell is stamped on the record and warned, as on the held engine), cross-fitting, `iterate=` and the bootstrap. `pseudo_learner` defaults to `outcome_learner`'s library read as a regression, so a single classifier passed as `outcome_learner` needs an explicit `pseudo_learner`. The nuisance report scores the node hazards and lists each continuation as `LONGITUDINAL_CONTINUATION_NOT_SCORED` |
+| refused | the per-horizon algorithm (H28), `msm=` (H29), a declared `stopping=` rule (H30), any hazard replay, such as `truncation_curve()` (H31), and `markov_order=` (H32: its window leaves the held treatment out of the node hazard designs, so the hazards would be pooled over the arms) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+
+Each one-step node walk keeps the hazards and each continuation in $[0, 1)$ with
+$\sum_l < 1$, so each unit's $p(s, l)$ is a sub-distribution and the reported curve is a mean of
+running sums of non-negative terms. Every curve is then non-decreasing in floating point, as
+"Monotonicity" in [hazard-based survival targeting](#hazard-based-survival-targeting) argues, and
+each unit's incidences and the all-cause survival from the same hazards sum to one.
+
+| property | iterated mean with $L_k$ | hazard fit with $L_k$ |
+| --- | --- | --- |
+| estimand, identification, EIF, efficiency | the same | the same; the EIF is regrouped by an identity |
+| remainder | product of weight and node-regression errors | the same product, the node error split into hazard and continuation errors |
+| curve over horizons | no claim; `isotonic=True` projects each curve on its own and keeps its influence curves | non-decreasing in floating point, with the influence curve of the reported estimate |
+| causes | each cause its own recursion | one sub-distribution per unit, so $\sum_j F_j \le 1$ |
+| fits per regimen and cause, every horizon reported | $T(T + 1)/2$ regressions of composite pseudo-outcomes | $T$ node hazard fits shared by the regimens, and $T - 1$ continuation fits pooled over the later nodes |
+| node bounds | bounds on each node regression | bounds on the cause-specific hazards |
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_time_varying.py` | on law (H) of `tests/discrete_law_hazard_time_varying.py` passed as weighted data, a wrong hazard and a wrong continuation (both without $L_k$) with the true mechanism give the enumerated truth within `1e-8` at one and two causes, for static arms, a rule, a known policy, an odds tilt at node 1, a "one level up" policy on three arms and a shift of a continuous dose; the untargeted pass misses. A hazard that reads $L_k$ but is misspecified, with a constant continuation, is exact too: the one witness whose covariate term is first order at the initial fit (without $L_k$ in the hazard, every fitted $Q_{k+1}$ is a function of $(W, A)$ and the covariate term is zero there). Saturated learners leave every walk still, and the influence curve equals the iterated-mean curve and the exact EIF within `1e-10`. The regrouping and soft-hazard identities, the held-cell variant, the panel rows and scale, and $w h^r_k$ against the iterated-mean clever covariate. Mutations, each detected by more than `1e-3` and with a control on which its term vanishes: the curve or the panel without the covariate term, without the hazard term, a weight with its own node's retention, a stale pseudo-outcome, a hard at-risk set, $\kappa$ without its tail (on a fit reporting the last horizon only, since a walk over every horizon masks it), and the observed slot at a policy node. Also a coherent curve on a draw where the iterated-mean curve decreases, held continuation cells, $L_1$ alone (also under pooled censoring on the iterated-mean path), `node_bounds=` and an excluded cell, five folds on 20,000 draws within four standard errors, a continuous $L_k$ against a Gauss-Hermite truth, clusters, `iterate="best"` and the bootstrap, the nuisance-report omissions, a walk stopped short, and H6 and H28 to H32 |
+
+No registered study covers this fit yet, so its rows are labelled `experimental`.
 
 ### The isotonic projection
 
@@ -1955,8 +2009,10 @@ through a `CausalStudy`. The default `"node"` fits one model per node.
 
 The design matches `survtmle`'s `glm.ctime` in `t`. A linear time column is invariant to a
 constant offset, because the intercept absorbs it. Every node's design must have the same columns.
-So the option needs one baseline treatment and no time-varying covariate, and a fit refuses other
-designs with `CapabilityError`. A point-treatment fit refuses `hazard_pooling=`.
+So the option needs one baseline treatment and no covariate block at a node after the first, and a
+fit refuses other designs with `CapabilityError`. A block at node 1 alone enters every node's design
+as a baseline column does, so it is accepted, though under `markov_order=` the window leaves it out
+of the later nodes' designs. A point-treatment fit refuses `hazard_pooling=`.
 
 `tests/unit/test_hazard_pooled.py` holds the evidence for the cause hazards. It checks the
 stacked rows, the fold of each unit, the hazards against a hand-fit pooled regression, and a
