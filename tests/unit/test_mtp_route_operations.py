@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.estimators.tmle import TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import PolicySet
 from cleverly.longitudinal import LTMLE, SDR
@@ -113,6 +114,76 @@ def test_w15_a_refit_forced_to_the_other_route_fails_the_spy(
     calls = _spy(monkeypatch)
     _refute(result)
     assert "density" in calls and set(calls) != {result.config.ratio_route.route}
+
+
+def _adjusted_atoms(ratio: str | None) -> Any:
+    """The all-atom kind with a second covariate, so that ``benchmark`` has one to drop."""
+    frame = kinds.atoms_frame()
+    frame["V"] = np.random.default_rng(1).normal(size=len(frame))
+    frame["Y"] = frame["Y"] + 0.3 * frame["V"]
+    bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return (
+            TMLE(**kinds._learners(policies=[kinds.ATOM_SHIFT], ratio=ratio, q_bounds=bounds))
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W", "V"],
+                treatment_kind="continuous",
+                dose_atoms=kinds.ATOMS,
+            )
+            .single()
+        )
+
+
+def _fixed_panel(ratio: str | None) -> Any:
+    """The panel kind without ``L2``, which ``simulated_confounding`` replays."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return LTMLE(
+            {"natural": panel_law.NATURAL, "up": panel_law.UP},
+            reference="natural",
+            outcome_learner=LogisticRegression(max_iter=1000),
+            pseudo_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=1,
+            ratio=ratio,
+            simultaneous=False,
+            random_state=0,
+        ).fit(
+            panel_law.sample_continuous(300, 0),
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W"],
+            time_varying=[[], []],
+            continuous_treatment=["A1", "A2"],
+        )
+
+
+#: No kind answers ``benchmark`` or ``simulated_confounding`` (the atom kind has one covariate
+#: and the panel kind a time-varying one), so each runs on its nearest kind that does.
+_SENSITIVITY_REFITS = {"benchmark": _adjusted_atoms, "simulated_confounding": _fixed_panel}
+
+
+@pytest.mark.parametrize("route", list(kinds.ROUTES))
+@pytest.mark.parametrize("operation", list(_SENSITIVITY_REFITS))
+def test_w15_every_sensitivity_refit_reads_the_route_recorded_on_the_result(
+    operation: str, route: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _SENSITIVITY_REFITS[operation](kinds.ROUTES[route])
+    recorded = result.config.ratio_route.route
+    facade = dataclasses.replace(result).sensitivity
+    assert facade.capability(operation).available
+    arguments = dict(sweep.sweep_arguments(dataclasses.replace(result)).get(operation, {}))
+    if facade.capability(operation).accepts_random_state:
+        arguments["random_state"] = 0
+    calls = _spy(monkeypatch)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        getattr(facade, operation)(**arguments)
+    assert calls and set(calls) == {recorded}, calls
 
 
 # ------------------------------------------------------------------ the nuisance report
