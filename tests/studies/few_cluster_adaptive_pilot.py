@@ -13,7 +13,9 @@ coverage of 0.95 from 0.90 and a variance ratio of 0.52 from 1. Budget, from the
 seconds per fit (stacked default library 17.8 to 23.3, in sample 3.8 to 5.9, cross-fitted
 ``LTMLE`` about 26, the stacked control about 0.5, every GLM fit under 0.1): about 14 CPU-h
 stacked, 3 in sample, 3 for L3 and under 1 for the rest, so about 20 CPU-h, and 24 if the
-``LTMLE`` fit takes the 62 s a shared machine read. That is about 1.5 hours on 16 cores.
+``LTMLE`` fit takes the 62 s a shared machine read. The committed run, on a shared 4-core
+machine, took 26.9 CPU-h (``pilot.json``), with every stacked fit and the ``LTMLE`` fit within
+1.5 times these figures.
 
 Run from the repository root, with every BLAS and OpenMP thread variable at 1::
 
@@ -179,9 +181,6 @@ def run(directory: Path, jobs: int) -> pd.DataFrame:
 
 # ---------------------------------------------------------------- the readings of the pilot
 
-#: Posterior draws per predictive pass probability, and their seed.
-POSTERIOR_DRAWS: Final[int] = 400
-POSTERIOR_SEED: Final[int] = 0
 #: The two-sided normal quantile of the declared 99% intervals.
 Z_99: Final[float] = float(stats.norm.ppf(0.995))
 
@@ -200,27 +199,26 @@ def _cp_upper(hits: np.ndarray, trials: int) -> np.ndarray:
     return np.where(hits < trials, high, 1.0)
 
 
-def _rates(hits: int, trials: int, rng: np.random.Generator) -> np.ndarray:
-    """Posterior draws of a rate under the Jeffreys prior."""
-    return rng.beta(hits + 0.5, trials - hits + 0.5, POSTERIOR_DRAWS)
+def _predictive(hits: int, trials: int, study_trials: int) -> np.ndarray:
+    """The predictive law of the study's hit count: beta-binomial under the Jeffreys prior.
+
+    Exact, so a pass probability carries no Monte Carlo error of its own (a 400-draw posterior
+    sample moved the primary's figure across 0.95).
+    """
+    k = np.arange(study_trials + 1)
+    return np.asarray(stats.betabinom.pmf(k, study_trials, hits + 0.5, trials - hits + 0.5))
 
 
-def lower_end_pass(hits: int, trials: int, study_trials: int, floor: float, seed: int = 0) -> float:
+def lower_end_pass(hits: int, trials: int, study_trials: int, floor: float) -> float:
     """Predictive P(exact 99% lower end of a rate over ``study_trials`` at least ``floor``)."""
-    k = np.arange(study_trials + 1)
-    clears = _cp_lower(k, study_trials) >= floor
-    rates = _rates(hits, trials, np.random.default_rng(seed))
-    return float(np.mean([stats.binom.pmf(k, study_trials, p)[clears].sum() for p in rates]))
+    clears = _cp_lower(np.arange(study_trials + 1), study_trials) >= floor
+    return float(_predictive(hits, trials, study_trials)[clears].sum())
 
 
-def upper_end_fails(
-    hits: int, trials: int, study_trials: int, ceiling: float, seed: int = 0
-) -> float:
+def upper_end_fails(hits: int, trials: int, study_trials: int, ceiling: float) -> float:
     """Predictive P(exact 99% upper end of a rate over ``study_trials`` below ``ceiling``)."""
-    k = np.arange(study_trials + 1)
-    clears = _cp_upper(k, study_trials) < ceiling
-    rates = _rates(hits, trials, np.random.default_rng(seed))
-    return float(np.mean([stats.binom.pmf(k, study_trials, p)[clears].sum() for p in rates]))
+    clears = _cp_upper(np.arange(study_trials + 1), study_trials) < ceiling
+    return float(_predictive(hits, trials, study_trials)[clears].sum())
 
 
 def normal_pass(estimate: float, pilot_se: float, study_se: float, threshold: float) -> float:
@@ -269,7 +267,6 @@ def pilot_readings(
             continue
         n = len(group)
         lost = int(_lost(group).sum())
-        seed = zlib.crc32(str(cell).encode())
         covered = int((group["covered"] > 0).sum())
         record: dict[str, Any] = {
             "cell": cell,
@@ -290,12 +287,12 @@ def pilot_readings(
         shown = kept.loc[kept["withheld"] < 0.5]
         record["withheld"] = float(1 - len(shown) / max(len(kept), 1))
         if arm == "t_reference":
-            record["p_g1"] = lower_end_pass(covered, n, study_draws, 0.90, seed)
+            record["p_g1"] = lower_end_pass(covered, n, study_draws, 0.90)
             shown_hits = int((shown["covered"] > 0).sum())
             record["shown_coverage"] = shown_hits / max(len(shown), 1)
             shown_study = round(study_draws * len(shown) / n)
             record["p_shown"] = lower_end_pass(
-                shown_hits, len(shown), shown_study, properties.SHOWN_COVERAGE_FLOOR, seed
+                shown_hits, len(shown), shown_study, properties.SHOWN_COVERAGE_FLOOR
             )
             errors = (kept["estimate"] - kept["truth"]).to_numpy(dtype=float)
             bias = float(errors.mean() / errors.std(ddof=1))
@@ -368,7 +365,7 @@ def pilot_readings(
             record["p_passed"] = first * second
         else:
             record["p_passed"] = upper_end_fails(
-                covered, n, study_draws, properties.MUST_FAIL_CEILING, seed
+                covered, n, study_draws, properties.MUST_FAIL_CEILING
             )
         out.append(record)
     return pd.DataFrame(out)
@@ -388,6 +385,167 @@ def _log_se_ratio(errors: np.ndarray, std_error: np.ndarray) -> tuple[float, flo
     return float(np.log(se.mean() / np.sqrt(variance))), float(
         terms.std(ddof=1) / np.sqrt(errors.size)
     )
+
+
+#: The coverage a cell at target reads (the nominal level of every declared interval).
+NOMINAL: Final[float] = 1.0 - study.STUDY.margins.alpha
+
+
+def at_target_pass(
+    rows: pd.DataFrame, cell: str, study_draws: int = study.PROPERTY_REPLICATES
+) -> dict[str, float]:
+    """Each clause's pass probability for a positive cell at target, at ``study_draws`` draws.
+
+    At target the variance ratio is 1, coverage is nominal and the paired difference to the GLM
+    arm is 0 (plan 5.4). The spreads are the pilot's: the log variance ratio's delta-method SE
+    and the paired discordant share, each scaled to ``study_draws``. A figure below 0.90 raises
+    the cell to 4,800 draws (plan 5.4). The non-inferiority figure is ``nan`` on a row that does
+    not carry the clause.
+    """
+    groups = dict(tuple(rows.groupby("cell", sort=False)))
+    group = groups[cell]
+    k = np.arange(study_draws + 1)
+    at_nominal = stats.binom.pmf(k, study_draws, NOMINAL)
+    lower = _cp_lower(k, study_draws)
+    _, ratio_se = log_variance_ratio(group["estimate"], group["std_error"])
+    spread = ratio_se * np.sqrt(len(group) / study_draws)
+    floor = -float(np.log(properties.VARIANCE_RATIO_FLOOR))
+    out = {
+        "g1": float(at_nominal[lower >= study.STUDY.margins.coverage_floor].sum()),
+        "shown": float(at_nominal[lower >= properties.SHOWN_COVERAGE_FLOOR].sum()),
+        "variance_ratio": float(stats.norm.cdf((floor - Z_99 * spread) / spread)),
+        "noninferiority": float("nan"),
+    }
+    if properties.noninferiority_gated(cell):
+        counts = properties.paired_counts(group, groups[properties.glm_cell(cell)])
+        discord = (counts["gained"] + counts["lost"]) / counts["trials"]
+        unit = float(np.sqrt(discord / study_draws))
+        margin = -properties.NONINFERIORITY_MARGIN
+        out["noninferiority"] = float(stats.norm.cdf((margin - Z_99 * unit) / unit))
+    return out
+
+
+def plug_in_pass(
+    rows: pd.DataFrame, cell: str, study_draws: int = study.PROPERTY_REPLICATES
+) -> float:
+    """A positive cell's pass probability at ``study_draws`` with the pilot readings as true.
+
+    The product of G1, shown coverage, the variance ratio, G2 and, on a row that carries it, the
+    paired non-inferiority clause, each at its pilot value without the pilot's own error. The
+    declared rule reads :func:`pilot_readings`, which carries that error; this figure is
+    published beside it.
+    """
+    groups = dict(tuple(rows.groupby("cell", sort=False)))
+    group = groups[cell]
+    n = len(group)
+    k = np.arange(study_draws + 1)
+    covered = float((group["covered"] > 0).mean())
+    law = stats.binom.pmf(k, study_draws, covered)
+    lower = _cp_lower(k, study_draws)
+    g1 = float(law[lower >= study.STUDY.margins.coverage_floor].sum())
+    shown = float(law[lower >= properties.SHOWN_COVERAGE_FLOOR].sum())
+    ratio, ratio_se = log_variance_ratio(group["estimate"], group["std_error"])
+    spread = ratio_se * np.sqrt(n / study_draws)
+    floor = float(np.log(properties.VARIANCE_RATIO_FLOOR))
+    variance = float(stats.norm.cdf((ratio - floor - Z_99 * spread) / spread))
+    errors = (group["estimate"] - group["truth"]).to_numpy(dtype=float)
+    bias, unit = float(errors.mean() / errors.std(ddof=1)), 1 / np.sqrt(study_draws)
+    margin = study.STUDY.margins.standardized_bias
+    g2 = float(
+        stats.norm.cdf((margin - bias) / unit - Z_99)
+        - stats.norm.cdf((-margin - bias) / unit + Z_99)
+    )
+    out = g1 * shown * variance * g2
+    if properties.noninferiority_gated(cell):
+        counts = properties.paired_counts(group, groups[properties.glm_cell(cell)])
+        gained, dropped = counts["gained"] / n, counts["lost"] / n
+        diff = gained - dropped
+        sd = float(np.sqrt(gained + dropped - diff**2) / np.sqrt(study_draws))
+        out *= float(stats.norm.cdf((diff - properties.NONINFERIORITY_MARGIN - Z_99 * sd) / sd))
+    return float(out)
+
+
+#: The pilot cell of the primary's configuration (L1, 20 clusters, stacked default library).
+PRIMARY_CELL: Final[str] = study.cell_name(
+    "tmle_stacked", "equal10", study.PRIMARY_CLUSTERS, "t_reference"
+)
+#: The arm-pooled rule's step, smallest primary and family-wise target: a primary has at least
+#: 1,000 draws, and the smallest multiple of 400 with a family-wise pass of at least 0.95.
+PRIMARY_STEP: Final[int] = 400
+PRIMARY_MINIMUM: Final[int] = 1_000
+FAMILY_TARGET: Final[float] = 0.95
+
+
+def primary_pass(rows: pd.DataFrame, replicates: int) -> dict[str, float]:
+    """The primary's predictive pass probability at ``replicates``, leg by leg.
+
+    The primary is one row (the ATE of one scenario) with three legs
+    (:func:`tests.studies.evidence.performance.independent_performance_tests`): the exact 99%
+    coverage lower end at least 0.90, the 99% bias interval inside 0.25 SD, and the 99% SE-ratio
+    interval inside the sanity band. Each is predicted from :data:`PRIMARY_CELL` with the
+    pilot's own error: coverage beta-binomial, the log SE ratio and the standardized bias
+    normal. ``family`` is the product, the family-wise figure of the one-row family.
+    """
+    group = rows.loc[rows["cell"] == PRIMARY_CELL]
+    n = len(group)
+    hits = int((group["covered"] > 0).sum())
+    margins = study.STUDY.margins
+    g1 = lower_end_pass(hits, n, replicates, margins.coverage_floor)
+    errors = (group["estimate"] - group["truth"]).to_numpy(dtype=float)
+    ratio, ratio_se = _log_se_ratio(errors, group["std_error"].to_numpy(dtype=float))
+    study_se = ratio_se * np.sqrt(n / replicates)
+    low, high = (float(np.log(v)) for v in margins.se_ratio_sanity)
+    se_ratio = normal_pass(ratio, ratio_se, study_se, low) - (
+        1 - normal_pass(-ratio, ratio_se, study_se, -high)
+    )
+    bias = float(errors.mean() / errors.std(ddof=1))
+    pilot_se, run_se = 1 / np.sqrt(n), 1 / np.sqrt(replicates)
+    margin = -margins.standardized_bias
+    g2 = normal_pass(-abs(bias), pilot_se, run_se, margin) - (
+        1 - normal_pass(abs(bias), pilot_se, run_se, margin)
+    )
+    return {"g1": g1, "se_ratio": se_ratio, "bias": g2, "family": g1 * se_ratio * g2}
+
+
+def primary_replicates(rows: pd.DataFrame, cap: int = 8_000) -> int:
+    """The smallest multiple of :data:`PRIMARY_STEP`, at least :data:`PRIMARY_MINIMUM`, whose
+    family-wise :func:`primary_pass` reaches :data:`FAMILY_TARGET`."""
+    start = -(-PRIMARY_MINIMUM // PRIMARY_STEP) * PRIMARY_STEP
+    for replicates in range(start, cap + 1, PRIMARY_STEP):
+        if primary_pass(rows, replicates)["family"] >= FAMILY_TARGET:
+            return replicates
+    raise ValueError(f"no primary count up to {cap} reaches {FAMILY_TARGET}")
+
+
+def cpu_seconds(rows: pd.DataFrame) -> dict[tuple[str, str, int], float]:
+    """The mean CPU seconds of one fit, by ``(fit, law, J)``, over the pilot's keys."""
+    parts = rows["cell"].str.split("__")
+    keys = rows.assign(fit=parts.str[0], law=parts.str[1], J=parts.str[2].str[1:].astype(int))
+    keys = keys.drop_duplicates(["fit", "law", "J", "replicate"])
+    means = keys.groupby(["fit", "law", "J"])["cpu_seconds"].mean()
+    return {(str(f), str(law), int(j)): float(v) for (f, law, j), v in means.items()}
+
+
+def projected_cpu_hours(
+    rows: pd.DataFrame,
+    property_draws: int = study.PROPERTY_REPLICATES,
+    primary_draws: int = study.PRIMARY_REPLICATES,
+) -> dict[str, float]:
+    """The declared run's CPU hours at the pilot's per-fit CPU times, by group, and the total.
+
+    The primary refits the stacked L1 fit at 20 clusters. The summary's bootstraps are not
+    counted (under 1 CPU-h).
+    """
+    seconds = cpu_seconds(rows)
+    groups: dict[str, float] = {}
+    for (fit, _, _), value in seconds.items():
+        group = fit if fit in {"tmle_stacked", "tmle_in_sample", "ltmle_crossfit"} else "other"
+        groups[group] = groups.get(group, 0.0) + value * property_draws / 3600
+    groups["primary"] = seconds[("tmle_stacked", "equal10", study.PRIMARY_CLUSTERS)] * (
+        primary_draws / 3600
+    )
+    groups["total"] = sum(groups.values())
+    return groups
 
 
 def main(argv: Sequence[str] | None = None) -> None:

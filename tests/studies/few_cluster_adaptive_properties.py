@@ -409,11 +409,10 @@ PROPERTY_GROUPS: Final[dict[str, tuple[tuple[str, ...], ...]]] = {
     )
 }
 
-#: The share of a cell's requested replicates the accounting lets a run lose. The plan asked
-#: for 0.10 (Q3); the harness caps a bound at 0.05
-#: (:data:`~tests.studies.evidence.property_failures.MAXIMUM_BOUND`). Every lost fit is a miss
-#: in the worst case of G1, so the bound cannot help a positive cell pass.
-FAILURE_BOUND = 0.05
+#: The share of a cell's requested replicates the accounting lets a run lose, 0.01 per side as
+#: every registered study's bound. Every lost fit is a miss in the worst case of G1, so the bound
+#: cannot help a positive cell pass. The pilot lost no fit in 15,200.
+FAILURE_BOUND = 0.01
 
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS

@@ -48,10 +48,26 @@ publishes ``glm_reference`` (reported; the paired non-inferiority clause of the 
 positives reads it). ``stacked_control`` is a must-fail control; ``interpolating_control`` is
 reported. The rules are those of :mod:`tests.studies.few_cluster_adaptive_properties`.
 
-**Primary.** L1 at 20 clusters, stacked default-library ``TMLE``, the ATE, 1,000 replications.
-No comparator fits a few-cluster TMLE with a Super Learner and a t reference, so the record
-declares no reference and publishes an empty equivalence artifact. The policy is ``reporting``,
-declared before any run.
+**Primary.** L1 at 20 clusters, stacked default-library ``TMLE``, the ATE, 1,200 replications:
+the smallest multiple of 400 of at least 1,000 whose predictive family-wise pass probability
+reaches 0.95 on the pilot (0.956; 0.933 at 1,000,
+:func:`tests.studies.few_cluster_adaptive_pilot.primary_replicates`). No comparator fits a
+few-cluster TMLE with a Super Learner and a t reference, so the record declares no reference and
+publishes an empty equivalence artifact. The policy is ``reporting``, declared before any run,
+because the pilot predicts three positive rows red (:data:`PREDICTED_REDS`). The failure bound
+is 0.01 per side.
+
+**Pilot.** 400 draws of every fit of every cell on the stream of
+:mod:`tests.studies.few_cluster_adaptive_pilot` (``pilot.csv.gz``; no fit raised). Every stacked
+default-library cell reads a variance ratio whose 99% interval contains 1 (0.93 to 1.13), and
+its paired all-draw coverage difference to the stacked GLM arm on the same draws lies in
+:math:`[-0.008, 0.013]`, so the pilot confirms no departure of the stacked library from the
+parametric baseline. At 10 clusters both laws read coverage 0.92 for the default library and
+0.92 to 0.93 for the stacked GLM arm on the same draws: a few-cluster deficit the parametric
+baseline shares (the committed exact-propensity GLM reads 0.935 there at 4,000 draws), which the
+shown-coverage clause's 0.92 floor sees. The in-sample fits read variance ratios of 0.68 to 0.88
+and coverage 1.5 to 3.3 points under their GLM arm at every count, the overfitting the theory
+predicts. The stacked control's power to fail is at least 0.989 at every count.
 """
 
 from __future__ import annotations
@@ -82,9 +98,16 @@ from tests.studies.few_cluster_crossfit_ltmle import TARGET as LTMLE_TARGET
 from tests.studies.few_cluster_crossfit_ltmle import draw as draw_end_of_study
 from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
-PRIMARY_REPLICATES: Final[int] = 1_000
+PRIMARY_REPLICATES: Final[int] = 1_200
 PRIMARY_CLUSTERS: Final[int] = 20
 PRIMARY_N: Final[int] = 10 * PRIMARY_CLUSTERS
+#: Draws of every property cell, the reported in-sample cells included (plan 5.4). At target
+#: (variance ratio 1, nominal coverage, a paired difference of 0) every clause of every positive
+#: row passes with probability at least 0.9993 on the pilot's spreads, so no cell is raised to
+#: 4,800 (:func:`tests.studies.few_cluster_adaptive_pilot.at_target_pass`). The in-sample cells
+#: keep 4,000 draws, paired with the stacked and GLM fits of the same draws, so their published
+#: bias over SD and paired GLM difference compare with the stacked rows' at equal precision
+#: (Remark 3's in-sample against cross-fitted reading).
 PROPERTY_REPLICATES: Final[int] = 4_000
 SEED: Final[int] = 20264581
 RESAMPLING_SEED: Final[int] = 20264582
@@ -197,7 +220,7 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly",
-    failure_bound={"cleverly": 0.05},
+    failure_bound={"cleverly": 0.01},
     modules=(
         "tests/studies/few_cluster_adaptive_learners.py",
         "tests/studies/few_cluster_adaptive_properties.py",
@@ -482,7 +505,68 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int | None = None) -> repli
     )
 
 
+# ------------------------------------------------------------------- the pilot's predictions
+
+#: The predictive probability that each gated row passes at :data:`PROPERTY_REPLICATES` draws,
+#: read from the committed 400-draw pilot
+#: (:func:`tests.studies.few_cluster_adaptive_pilot.pilot_readings`) before the declaration: a
+#: positive row's clauses as a product, an IID control's two clauses, and a must-fail control's
+#: power to fail. Each figure carries the pilot's own error (Jeffreys beta-binomial for a rate,
+#: normal for the log variance ratio, the bias and the paired difference).
+PREDICTED_PASS: Final[dict[str, float]] = {
+    "ltmle_crossfit__equal40__j20__iid_t_control": 1.000,
+    "ltmle_crossfit__equal40__j20__t_reference": 0.924,
+    "stacked_control__equal10__j10__stacked_control": 0.999,
+    "stacked_control__equal10__j20__stacked_control": 1.000,
+    "stacked_control__equal10__j40__stacked_control": 1.000,
+    "stacked_control__nonlinear10__j10__stacked_control": 0.999,
+    "stacked_control__nonlinear10__j20__stacked_control": 0.989,
+    "stacked_control__nonlinear10__j40__stacked_control": 1.000,
+    "tmle_stacked__equal10__j10__iid_t_control": 1.000,
+    "tmle_stacked__equal10__j10__t_reference": 0.171,
+    "tmle_stacked__equal10__j20__iid_t_control": 1.000,
+    "tmle_stacked__equal10__j20__t_reference": 0.756,
+    "tmle_stacked__equal10__j40__iid_t_control": 1.000,
+    "tmle_stacked__equal10__j40__t_reference": 0.870,
+    "tmle_stacked__nonlinear10__j10__iid_t_control": 1.000,
+    "tmle_stacked__nonlinear10__j10__t_reference": 0.123,
+    "tmle_stacked__nonlinear10__j20__iid_t_control": 1.000,
+    "tmle_stacked__nonlinear10__j20__t_reference": 0.974,
+    "tmle_stacked__nonlinear10__j40__iid_t_control": 1.000,
+    "tmle_stacked__nonlinear10__j40__t_reference": 0.239,
+}
+#: A gated row is a predicted red when its predictive pass probability is below this: red is
+#: more likely than not. The plug-in rule (pilot readings taken as true, figure below 0.90)
+#: names the same three rows (0.022, 0.005 and 0.313).
+PREDICTED_RED_BELOW: Final[float] = 0.50
+#: The gated rows the pilot predicts red, declared before the run with their readings
+#: (``tests/canonical/few_cluster_adaptive_learners/regenerate.py``). At 10 clusters the
+#: shown-coverage clause binds (predictive 0.26 and 0.21; coverage 0.92 on both laws, shared
+#: with the paired GLM arm); on L2 at 40 the shown-coverage and variance-ratio clauses (0.46
+#: and 0.58; coverage 0.930, variance ratio 0.93, the paired GLM arm 0.918 and 0.90).
+PREDICTED_REDS: Final[tuple[str, ...]] = (
+    "tmle_stacked__equal10__j10__t_reference",
+    "tmle_stacked__nonlinear10__j10__t_reference",
+    "tmle_stacked__nonlinear10__j40__t_reference",
+)
+#: The red-cell owner of a red positive row that its declared route reads as no code defect
+#: (the roadmap's Red-cell owners table).
+RED_OWNER: Final[str] = "X54-adaptive-learners"
+#: The owner of each predicted red, declared before the run.
+PREDICTED_RED_OWNERS: Final[dict[str, str]] = dict.fromkeys(PREDICTED_REDS, RED_OWNER)
+#: The two no-defect readings of a red positive row, decided by the paired all-draw coverage
+#: difference to its GLM arm on the same draws (exact 99% lower end, the margin of the
+#: non-inferiority clause). Above the margin the deficit is one the parametric baseline shares;
+#: at or below it the default library is worse than the baseline.
+SHARED_READING: Final[str] = "few-cluster or law deficit shared with the parametric baseline"
+LIBRARY_READING: Final[str] = "default-library limit"
+#: No interim stop (design review m3): every cell runs its declared draws.
+INTERIM_DRAWS: Final[int | None] = None
+
+
 __all__: Sequence[str] = (
+    "PREDICTED_PASS",
+    "PREDICTED_REDS",
     "STUDY",
     "draw",
     "draw_and_fit",

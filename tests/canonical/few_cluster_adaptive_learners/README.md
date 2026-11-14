@@ -16,11 +16,12 @@ support row (`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`). It has no c
 
 ## State of this directory
 
-Designed, not declared. The 400-draw pilot that sizes the study has not run, so no artifact is
-committed, the record is not in `registered()` and the shortfall table is empty. After the
-pilot, its `pilot.csv.gz` is committed here, the design test recomputes the pass probabilities
-from it, and the redeclaration in `regenerate.py` states the predicted red cells. The evidence
-page, the grid rows and the shortfall entries land with the registration, after the run.
+Declared, not run. The 400-draw pilot that sizes the study is committed here (`pilot.csv.gz`,
+`pilot.json`: 25,600 rows, no fit raised, 26.9 CPU-hours). The design test recomputes the
+predicted pass probabilities, the three predicted red rows, the 1,200-draw primary and the
+projected 279 CPU-hours from it, and `regenerate.py` states each red row's reading and its
+owner. The record is not in `registered()` and the shortfall table is empty. The evidence page,
+the grid rows and the shortfall entries land with the registration, after the run.
 
 ## Run
 
@@ -38,7 +39,7 @@ Run a disposable smoke of the primary phase:
 python -m tests.canonical.few_cluster_adaptive_learners.regenerate --replicates 2 --output /tmp/few-cluster-adaptive-learners-smoke
 ```
 
-Run the declared study, only after the redeclaration:
+Run the declared study:
 
 ```bash
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 \

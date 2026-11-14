@@ -10,6 +10,7 @@ predicted pass probabilities the declaration states are recomputed from them.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -77,9 +78,11 @@ def test_declared_and_not_yet_registered() -> None:
     assert not study.STUDY.artifact("property-replicates.parquet").exists()
     assert properties.__name__ in UNCOMMITTED_MODULES
     assert study.STUDY.publication_policy == "reporting"
-    assert properties.FAILURE_BOUND == 0.05
-    assert study.STUDY.failure_bound == {"cleverly": 0.05}
+    assert properties.FAILURE_BOUND == 0.01
+    assert study.STUDY.failure_bound == {"cleverly": 0.01}
     assert study.PROPERTY_REPLICATES == 4_000
+    assert study.STUDY.replicates == study.PRIMARY_REPLICATES == 1_200
+    assert study.INTERIM_DRAWS is None
 
 
 def test_the_declared_thresholds() -> None:
@@ -503,11 +506,115 @@ def test_the_pilot_resumes_from_its_checkpoints(
     assert all(pilot.chunk_path(tmp_path, c).exists() for c in chunks)
 
 
-@pytest.mark.skipif(not PILOT.exists(), reason="the 400-draw pilot is not committed yet")
 def test_the_committed_pilot_holds_every_declared_key(pilot_rows: pd.DataFrame) -> None:
     expected = sum(len(study.ARMS[fit]) for *_, fit in pilot.pilot_keys())
-    assert len(pilot_rows) == expected
+    assert len(pilot_rows) == expected == 25_600
     assert set(pilot_rows["cell"]) == set(study.PUBLISHED_CELLS)
+    assert not pilot._lost(pilot_rows).any()
+    record = json.loads((study.STUDY.artifacts / "pilot.json").read_text())
+    assert record["rows"] == expected and record["lost_rows"] == 0
+    assert record["draws"] == pilot.PILOT_DRAWS and record["pilot_seed"] == pilot.PILOT_SEED
+
+
+@pytest.fixture(scope="module")
+def readings(pilot_rows: pd.DataFrame) -> pd.DataFrame:
+    return pilot.pilot_readings(pilot_rows).set_index("cell")
+
+
+def test_the_predicted_pass_probabilities_are_the_pilot_s(readings: pd.DataFrame) -> None:
+    gated = readings.loc[readings["role"] != "diagnostic", "p_passed"]
+    assert set(gated.index) == set(study.PREDICTED_PASS)
+    for cell, value in study.PREDICTED_PASS.items():
+        assert gated[cell] == pytest.approx(value, abs=5e-4), cell
+
+
+def test_the_predicted_reds_and_their_owner(pilot_rows: pd.DataFrame) -> None:
+    """Both rules name the same rows: predictive below 0.50, and plug-in below 0.90."""
+    from tests.studies.evidence.red_cells import owner_ids
+
+    positives = [c for c, r in _roles().items() if r == "positive"]
+    predictive = {c for c in positives if study.PREDICTED_PASS[c] < study.PREDICTED_RED_BELOW}
+    plug_in = {c for c in positives if pilot.plug_in_pass(pilot_rows, c) < 0.90}
+    assert predictive == plug_in == set(study.PREDICTED_REDS)
+    assert study.RED_OWNER in owner_ids()
+    assert dict.fromkeys(study.PREDICTED_REDS, study.RED_OWNER) == study.PREDICTED_RED_OWNERS
+    # Every control is predicted to do its job.
+    controls = [c for c, r in _roles().items() if r == "control"]
+    assert min(study.PREDICTED_PASS[c] for c in controls) >= 0.98
+
+
+def _roles() -> dict[str, str]:
+    return {cell.cell: cell.role for cell in properties.declared_cells()}
+
+
+def test_the_stacked_control_has_power_at_every_count() -> None:
+    """Plan 5.4: power at least 0.90 at every count, so no count keeps the caveat for want of it."""
+    for law in study.POINT_LAWS:
+        for clusters in study.COUNTS[law]:
+            cell = study.cell_name("stacked_control", law, clusters, "stacked_control")
+            assert study.PREDICTED_PASS[cell] >= 0.90, cell
+
+
+def test_no_stacked_departure_from_the_parametric_baseline(pilot_rows: pd.DataFrame) -> None:
+    """The diagnosis the declaration needed: on every stacked row the variance ratio's 99%
+    interval holds 1, and the exact 99% interval of the paired all-draw coverage difference to
+    the stacked GLM arm on the same draws holds 0. Mutation: SEs scaled by 0.8 move the ratio's
+    interval off 1."""
+    groups = dict(tuple(pilot_rows.groupby("cell")))
+    for law in study.POINT_LAWS:
+        for clusters in study.COUNTS[law]:
+            cell = study.cell_name("tmle_stacked", law, clusters, "t_reference")
+            group = groups[cell]
+            ratio, se = pilot.log_variance_ratio(group["estimate"], group["std_error"])
+            assert abs(ratio) < pilot.Z_99 * se, cell
+            shrunk, _ = pilot.log_variance_ratio(group["estimate"], 0.8 * group["std_error"])
+            assert shrunk < -pilot.Z_99 * se, cell
+            counts = properties.paired_counts(group, groups[properties.glm_cell(cell)])
+            low = properties.mcnemar_lower(counts["gained"], counts["lost"], counts["trials"])
+            high = -properties.mcnemar_lower(counts["lost"], counts["gained"], counts["trials"])
+            assert low < 0.0 < high, cell
+
+
+def test_the_ten_cluster_deficit_is_shared_with_the_glm_arm(pilot_rows: pd.DataFrame) -> None:
+    """At 10 clusters the default library and the stacked GLM arm read the same coverage."""
+    groups = dict(tuple(pilot_rows.groupby("cell")))
+    for law in study.POINT_LAWS:
+        cell = study.cell_name("tmle_stacked", law, 10, "t_reference")
+        mine = float((groups[cell]["covered"] > 0).mean())
+        theirs = float((groups[properties.glm_cell(cell)]["covered"] > 0).mean())
+        assert mine < 0.93 and theirs < 0.93
+        assert abs(mine - theirs) <= 0.01
+
+
+def test_no_cell_is_raised_to_4800(pilot_rows: pd.DataFrame) -> None:
+    """Plan 5.4 raises a cell whose at-target figure for any clause is below 0.90."""
+    for cell, role in _roles().items():
+        if role != "positive":
+            continue
+        figures = pilot.at_target_pass(pilot_rows, cell)
+        values = [v for v in figures.values() if np.isfinite(v)]
+        assert min(values) >= 0.999, (cell, figures)
+        assert np.isfinite(figures["noninferiority"]) == properties.noninferiority_gated(cell)
+
+
+def test_the_primary_count_is_the_arm_pooled_rule(pilot_rows: pd.DataFrame) -> None:
+    assert pilot.primary_replicates(pilot_rows) == study.PRIMARY_REPLICATES == 1_200
+    at = pilot.primary_pass(pilot_rows, study.PRIMARY_REPLICATES)
+    assert at["family"] == pytest.approx(0.956, abs=1e-3)
+    assert pilot.primary_pass(pilot_rows, 1_000)["family"] < pilot.FAMILY_TARGET
+
+
+def test_the_projected_budget(pilot_rows: pd.DataFrame) -> None:
+    """About 279 CPU-h at the pilot's CPU times; the plan's per-fit figures within 1.5 times."""
+    hours = pilot.projected_cpu_hours(pilot_rows)
+    assert hours["total"] == pytest.approx(278.2, abs=1.0)
+    assert hours["tmle_stacked"] == pytest.approx(185.8, abs=1.0)
+    seconds = pilot.cpu_seconds(pilot_rows)
+    planned = {10: 17.8, 20: 20.6, 40: 23.3}
+    for law in study.POINT_LAWS:
+        for clusters, figure in planned.items():
+            assert seconds[("tmle_stacked", law, clusters)] <= 1.5 * figure
+    assert seconds[("ltmle_crossfit", "equal40", 20)] <= 1.5 * 26
 
 
 def test_the_pass_probabilities_see_a_shortfall() -> None:
