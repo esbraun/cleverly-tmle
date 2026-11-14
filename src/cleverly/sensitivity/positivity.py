@@ -1312,8 +1312,8 @@ def _refuse_policy_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
     On a continuous or vector dose the policy's density ratio is the fit's only treatment
     weight, and a point fit has no bound on it: ``ratio_trim=`` is refused there.  A
     ``g(W)`` bound would act on the empty propensity and move nothing.  The density route
-    at a vector with a categorical component is the exception: the bound reaches that
-    component's factor of the ratio, as the fit's own ``g_bounds`` does.
+    at a vector whose categorical component a policy moves is the exception: the bound
+    reaches that component's factor of the ratio, as the fit's own ``g_bounds`` does.
     """
     nuisance = result.nuisance
     if axis or nuisance.policies is None or np.asarray(nuisance.propensity.values).shape[1]:
@@ -1321,8 +1321,10 @@ def _refuse_policy_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
     joint = nuisance.policies.joint
     if joint is not None and any(len(cell) for cell in joint.cells):
         # The density route at a vector with a categorical component: the bound reaches
-        # the categorical factor of the ratio.
-        return None
+        # the categorical factor of the ratio wherever a policy moves that component.
+        targets = np.asarray(joint.targets)
+        if np.any(targets[:, 1:] != targets[:, :1]):
+            return None
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
         "on a modified treatment policy of a continuous or vector dose the density ratio "
@@ -1510,7 +1512,8 @@ def truncation_curve(
         explicit ``g(W)`` bound moves a value of a declared known mechanism.  A modified
         treatment policy of a continuous or vector dose refuses the ``g(W)`` axis: its fit
         has no propensity, and the density ratio, its only treatment weight, has no bound.
-        A vector with a categorical component on the density route is the exception.
+        A vector whose categorical component a policy moves, on the density route, is the
+        exception.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
     estimator = result.estimator
