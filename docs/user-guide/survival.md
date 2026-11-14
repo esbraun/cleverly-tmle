@@ -200,6 +200,11 @@ any cause have happened, not counting people who left follow-up. By time 0.5 abo
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
 
+`exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
+each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
+the nudged risks satisfy their equations. The refutation tests and the sensitivity analyses for an
+unmeasured confounder do not run on this fit yet, and the report lists each with its reason.
+
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
