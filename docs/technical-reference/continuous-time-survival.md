@@ -108,7 +108,7 @@ fold when the fit is cross-fitted, in sample otherwise, and stored as fitted, be
 The weights bound the product $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ for both arms and
 never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` holds each row's
 received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
-arrays, and storing them left every estimate of a fixed fit bit-identical.
+arrays.
 
 ## Assessment
 
@@ -134,12 +134,17 @@ Each diagnostic that runs reads the record and the influence curves and refits n
 Each refusal is a `CapabilityError` carrying the record its row declares. The free functions of
 `cleverly.sensitivity` and `cleverly.validation` raise the same record before they read any
 point-treatment attribute. `tests/unit/test_continuous_survival_assessment.py` checks every row and
-every refusal, and that `influence()` reads each estimate's influence curve. Its witnesses are a
-failed walk that fails the score row, a binding floor that warns on the support row, and a
-censoring model that depends on the arm. Under that model each arm's stored censoring survival
-matches the model's prediction under that arm, and the two arms differ. The capability sweep
-(`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its
-call agrees.
+every refusal, and that `influence()` reads each estimate's influence curve. The capability sweep
+(`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
+agrees.
+
+The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
+support row, and a censoring model that depends on the arm. Under that model each arm's stored
+censoring survival matches the model's prediction under that arm, recomputed as the product over the
+observed times strictly before each target, and the two arms differ. One target sits on an observed
+censoring time, so a lookup that includes that time's own jump fails. Under cross-fitting, a patched
+treatment fit whose value encodes its training rows shows that each row stores the probability from
+the model its own fold did not train.
 
 ## What is refused
 

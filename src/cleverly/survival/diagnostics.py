@@ -9,10 +9,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from .._summary import vocabulary
 from .result import level_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -202,6 +203,9 @@ class ContinuousSurvivalNuisances:
     cross_fitted: bool
     n_folds: int
     grid_size: int
+
+    #: The battery's row label: this fit has no outcome regression to name.
+    check_label: ClassVar[str] = vocabulary.CONTINUOUS_SURVIVAL_NUISANCE_NAME
 
 
 def _quantiles(values: Any) -> dict[float, float]:

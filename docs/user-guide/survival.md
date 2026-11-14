@@ -202,8 +202,9 @@ so the first line reads `experimental`. The other conditions of the label are in
 
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
-the nudged risks satisfy their equations. The refutation tests and the sensitivity analyses for an
-unmeasured confounder do not run on this fit yet, and the report lists each with its reason.
+the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests
+and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
+lists each with its reason.
 
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.

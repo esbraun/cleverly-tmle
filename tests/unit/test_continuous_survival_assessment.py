@@ -193,10 +193,21 @@ def test_an_explicit_evalue_estimand_lifts_no_refusal(result: Any) -> None:
 
 
 def test_corrections_do_not_apply(result: Any) -> None:
+    """The row and the free function carry one refusal record, which the facade raises."""
+    from cleverly.validation import correction_check
+
     row = result.diagnostics.capability("corrections")
     assert row.status is AssessmentStatus.NOT_APPLICABLE
-    with pytest.raises(CapabilityError, match="correction system"):
+    with pytest.raises(CapabilityError, match="correction system") as facade:
         result.diagnostics.corrections()
+    with pytest.raises(CapabilityError) as free:
+        correction_check(result, tolerance=1e-3)
+    assert row.refusal is not None
+    assert free.value.refusal == row.refusal
+    assert row.refusal.reason is RefusalReason.INVALID_DECLARATION
+    # The facade prefixes the row's status, as it does for every row it gates.
+    assert facade.value.refusal.reason is row.refusal.reason
+    assert facade.value.refusal.condition.endswith(row.refusal.condition)
 
 
 def test_nothing_replays_from_the_stored_fit(result: Any) -> None:
@@ -227,6 +238,9 @@ def _free_calls() -> dict[str, tuple[Any, dict[str, Any], str]]:
         "tipping_gamma": (sensitivity.tipping_gamma, {}, "F16"),
         "evalue": (sensitivity.evalue, {}, "X6"),
         "positivity_report": (sensitivity.positivity_report, {}, None),
+        "nuisance_diagnostics": (validation.nuisance_diagnostics, {}, None),
+        "score_check": (validation.score_check, {}, None),
+        "correction_check": (validation.correction_check, {"tolerance": 1e-3}, None),
     }
 
 
@@ -237,13 +251,15 @@ def test_a_free_function_refuses_by_name_without_the_facade(result: Any, name: s
     The witness of a lost capability row: no row gates these calls, and each one still
     raises the record its row declares, rather than an ``AttributeError`` from the
     point-treatment state the result does not hold. A point-treatment report redirects to
-    the facade.
+    the facade, and the correction check refuses as its ``corrections`` row does.
     """
     function, kwargs, roadmap = _free_calls()[name]
     with pytest.raises(CapabilityError) as caught:
         function(result, **kwargs)
     assert caught.value.refusal.roadmap == roadmap
-    if roadmap is None:
+    if name == "correction_check":
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    elif roadmap is None:
         assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
@@ -290,6 +306,8 @@ def test_the_stored_probabilities_are_the_received_arms(monkeypatch: pytest.Monk
     The treatment probability is a known function, so a swap of the arms of ``pi`` moves it
     exactly. Censoring depends on the arm, so the stored censoring survival of each arm
     differs from the other arm's by far more than rounding, and a swap of the arm axis fails.
+    A target on an observed censoring time separates the left limit S_c(t_k-) from S_c(t_k),
+    so a lookup that includes the target's own jump fails too.
     """
     from cleverly.survival import engine
 
@@ -300,7 +318,11 @@ def test_the_stored_probabilities_are_the_received_arms(monkeypatch: pytest.Monk
         return known[predict], None
 
     monkeypatch.setattr(engine, "_fit_propensity", fixed)
-    horizons = [0.5, 1.0]
+    # One target sits on an observed censoring time, where S_c(t_k-) and S_c(t_k) differ.
+    time = frame["time"].to_numpy()
+    censored = np.sort(time[(frame["event"].to_numpy() == 0) & (time > 0.5) & (time < 1.0)])
+    on_censoring = float(censored[censored.size // 2])
+    horizons = [0.5, on_censoring, 1.0]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         fit = ContinuousSurvivalTMLE(
@@ -314,23 +336,70 @@ def test_the_stored_probabilities_are_the_received_arms(monkeypatch: pytest.Monk
     np.testing.assert_array_equal(record.p1, known)
     np.testing.assert_array_equal(record.arm, frame["A"].to_numpy())
 
-    # S_c(t_k-) recomputed from the stored censoring model, over the observed times before
-    # each target, under each arm.
-    time = frame["time"].to_numpy()
+    # S_c(t-) recomputed from the stored censoring model as the product, over the observed
+    # times strictly before t, of one minus each censoring hazard jump, under each arm.
     grid = np.unique(time[time <= horizons[-1]])
-    before = np.searchsorted(grid, horizons, side="left")
 
-    def survival(arm: int) -> np.ndarray:
+    def survival(arm: int, strictly_before: bool) -> np.ndarray:
         X = np.column_stack([np.full(time.size, float(arm)), frame["W"].to_numpy()])
         cumulative = record.censoring.model.cumulative_hazard(X, grid)
-        jumps = np.diff(np.concatenate([np.zeros((X.shape[0], 1)), cumulative], axis=1), axis=1)
-        steps = np.concatenate([np.ones((X.shape[0], 1)), 1.0 - np.clip(jumps, 0.0, 1.0)], axis=1)
-        return np.cumprod(steps, axis=1)[:, before]
+        jumps = np.diff(cumulative, axis=1, prepend=0.0)
+        steps = 1.0 - np.clip(jumps, 0.0, 1.0)
+        columns = []
+        for target in horizons:
+            kept = grid < target if strictly_before else grid <= target
+            columns.append(np.prod(steps[:, kept], axis=1))
+        return np.column_stack(columns)
 
     for arm in (0, 1):
-        np.testing.assert_allclose(record.retention_before[arm], survival(arm), rtol=1e-12)
+        np.testing.assert_allclose(
+            record.retention_before[arm], survival(arm, strictly_before=True), rtol=1e-12
+        )
+        # At a censoring time the left limit excludes that time's own jump.
+        at = survival(arm, strictly_before=False)[:, 1]
+        assert np.any(record.retention_before[arm, :, 1] > at)
     # The arms differ, so a swap of axis 0 cannot pass the check above.
     assert np.max(np.abs(record.retention_before[1] - record.retention_before[0])) > 0.05
     # The floor is the resolved default the weights applied, 5 / (sqrt(n) log n).
     n = len(frame)
     assert record.weight_floor == 5.0 / (np.sqrt(n) * np.log(n))
+
+
+def test_the_stored_treatment_probability_is_out_of_fold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under cross-fitting each row carries the propensity of the model its fold did not train.
+
+    The patched fit returns a value that encodes its training rows, so a row filled from an
+    in-sample fit, or from another fold's model, carries the wrong value.
+    """
+    from cleverly.survival import engine
+
+    frame = _arm_censored(n=300)
+    n = len(frame)
+    calls: list[tuple[np.ndarray, np.ndarray, float]] = []
+
+    def encoding(learner, L, A, train, predict, folds, random_state):  # type: ignore[no-untyped-def]
+        rows = np.arange(n)
+        trained, predicted = rows[train], rows[predict]
+        value = 0.2 + 0.6 * float(np.mean(trained)) / n
+        calls.append((trained, predicted, value))
+        return np.full(predicted.size, value), None
+
+    monkeypatch.setattr(engine, "_fit_propensity", encoding)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = ContinuousSurvivalTMLE(
+            [0.5, 1.0],
+            cross_fit=True,
+            n_folds=3,
+            hazard_library=[CoxHazard("main")],
+            censoring_library=[CoxHazard("main")],
+            random_state=0,
+        ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+    p1 = fit.record.p1
+    assert len(calls) == 3
+    np.testing.assert_array_equal(np.sort(np.concatenate([c[1] for c in calls])), np.arange(n))
+    for trained, predicted, value in calls:
+        assert np.intersect1d(trained, predicted).size == 0
+        np.testing.assert_array_equal(p1[predicted], value)
+    # Each fold's value differs, so a row read from another fold's model fails the check above.
+    assert len({value for _, _, value in calls}) == 3

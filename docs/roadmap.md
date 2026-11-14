@@ -68,7 +68,7 @@ tier is the one the legend lists.
 | tier | what it holds |
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
-| 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
+| 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
 | 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
@@ -837,7 +837,7 @@ wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation), and th
 | --- | --- | --- |
 | (a) refutation | the placebo, random-common-cause and subset refits of `refute`, which need the result to keep its estimator and its data | the point-treatment `refute` |
 | (b) simulated common cause | a replay that perturbs the event and censoring times of a continuous-time fit | the survival replay of X91 part (c), which reads a time grid |
-| (c) truncation curve | a rerun of the targeting walk at other floors on $\pi(a \mid L) S_c(u^- \mid a, L)$, which needs the initial hazard jumps kept or refitted | the record's `positivity_floor`, `bounded_share` and `last_time_floor_share` |
+| (c) truncation curve | a rerun of the targeting walk at other floors on $\pi(a \mid L) S_c(u^- \mid a, L)$, which needs the initial hazard jumps kept or refitted | the record's `weight_floor`, `bounded_share` and `last_time_floor_share` |
 
 Acceptance: each part that ships turns its capability row available, with a test that the row and
 the call agree in the capability sweep, and a nonzero witness that the refit changes the data it

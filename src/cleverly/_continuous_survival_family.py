@@ -108,6 +108,12 @@ SCORE_TOLERANCE_REFUSAL: Final = Refusal(
     alternative="Call score_equations() with no tolerance and read the report's cutoff.",
 )
 
+#: The correction identities belong to guarded doubly-robust point-treatment targeting.
+_CORRECTIONS: Final = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "the continuous-time survival TMLE does not use the correction system",
+)
+
 #: A point-treatment report a caller reached as a free function rather than the facade.
 _REPORT: Final = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -133,6 +139,7 @@ _BY_OPERATION: Final[dict[str, Refusal]] = {
     "missingness": _TILT,
     "tipping_gamma": _TILT,
     "evalue": EVALUE_REFUSAL,
+    "corrections": _CORRECTIONS,
 }
 
 #: The free functions of :mod:`cleverly.sensitivity` and :mod:`cleverly.validation`, by the
@@ -143,6 +150,7 @@ _FUNCTIONS: Final[dict[str, str]] = {
     "contour_data": "contour",
     "marginal_sensitivity_bounds": "marginal_bounds",
     "missingness_tilt": "missingness",
+    "correction_check": "corrections",
 }
 
 
@@ -161,7 +169,8 @@ def continuous_survival_refusal(operation: str) -> Refusal:
     Refusal
         An ``implementation_gap`` record naming ``X101`` for the refits and the truncation
         curve, ``F16`` for the omitted-variable, marginal and tilt bounds, and ``X6`` for
-        the E-value; an ``api_redirection`` record for a point-treatment report.
+        the E-value; an ``invalid_declaration`` record for the correction identities, which
+        the fit does not use; an ``api_redirection`` record for a point-treatment report.
 
     Examples
     --------

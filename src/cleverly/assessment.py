@@ -712,10 +712,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         artifacts=(),
         available=False,
         status=AssessmentStatus.NOT_APPLICABLE,
-        refusal=Refusal(
-            RefusalReason.INVALID_DECLARATION,
-            "the continuous-time survival TMLE does not use the correction system",
-        ),
+        refusal=continuous_survival_refusal("corrections"),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
     ),
     _capability(
