@@ -145,8 +145,10 @@ def test_a_result_and_its_report_draw_the_same_figure() -> None:
 
 
 def test_a_continuous_fit_has_no_panels_view() -> None:
-    with pytest.raises(ValueError, match="view='summary'"):
+    with pytest.raises(CapabilityError, match="continuous-time fit has none") as raised:
         fixtures.continuous().plot(view="panels")
+    assert raised.value.refusal.reason == "invalid_declaration"
+    assert "view='summary'" in str(raised.value)
 
 
 def test_an_omitted_check_is_refused_with_its_reason() -> None:
