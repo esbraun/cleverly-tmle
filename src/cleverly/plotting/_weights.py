@@ -581,8 +581,11 @@ def _zero_text(zeros: Sequence[_Zeros], time_label: str, *, named: bool) -> str:
 
 def _balance_object(source: Any) -> Any:
     from ..sensitivity.balance import CovariateBalance, covariate_balance
+    from ..sensitivity.balance_time import BalanceOverTime
 
-    return source if isinstance(source, CovariateBalance) else covariate_balance(source)
+    if isinstance(source, (CovariateBalance, BalanceOverTime)):
+        return source
+    return covariate_balance(source)
 
 
 def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int]:
@@ -628,6 +631,9 @@ def balance(
     max_covariates: int = 30,
     treatment_label: str | None = None,
     labels: dict[str, str] | None = None,
+    diagnostic: str | None = None,
+    view: Literal["summary", "panels"] = "summary",
+    nodes: Sequence[int] | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -741,7 +747,22 @@ def balance(
         raise ValueError(f"max_covariates must be an integer of at least 1; got {max_covariates!r}")
     if max_covariates < 1:
         raise ValueError(f"max_covariates must be at least 1; got {max_covariates!r}")
+    from ..sensitivity.balance_time import BalanceOverTime
+    from ._balance_time import check_point_keywords, draw
+
     summary = _balance_object(source)
+    if isinstance(summary, BalanceOverTime):
+        return draw(
+            summary,
+            diagnostic=diagnostic,
+            view=view,
+            nodes=nodes,
+            max_covariates=max_covariates,
+            treatment_label=treatment_label,
+            labels=labels,
+            title=title or None,
+        )
+    check_point_keywords(diagnostic, view, nodes)
     contrasts = summary.contrasts
 
     def said(contrast: str) -> str:

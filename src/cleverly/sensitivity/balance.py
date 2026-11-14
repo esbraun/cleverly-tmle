@@ -10,7 +10,7 @@ description of the data and the fitted weights, not an estimate: it carries no i
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
 
@@ -22,6 +22,9 @@ from ..exceptions import CapabilityError, DataError
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
     from ..estimators.base import TMLEResult
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.result import ContinuousSurvivalResult
+    from .balance_time import BalanceOverTime
 
 __all__ = ["BalanceRow", "CovariateBalance", "covariate_balance"]
 
@@ -332,12 +335,30 @@ def _choose_estimand(result: TMLEResult, estimand: str | None) -> BalanceEstiman
     )
 
 
+@overload
+def covariate_balance(
+    result: LongitudinalResult | ContinuousSurvivalResult,
+    *,
+    estimand: None = None,
+    threshold: float = DEFAULT_THRESHOLD,
+) -> BalanceOverTime: ...
+
+
+@overload
 def covariate_balance(
     result: TMLEResult,
     *,
     estimand: BalanceEstimand | None = None,
     threshold: float = DEFAULT_THRESHOLD,
-) -> CovariateBalance:
+) -> CovariateBalance: ...
+
+
+def covariate_balance(
+    result: Any,
+    *,
+    estimand: BalanceEstimand | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
+) -> CovariateBalance | BalanceOverTime:
     """Compute each covariate's standardized mean difference, before and after weighting.
 
     Use it to check the treatment model on the covariates you know. A weighted difference
@@ -428,6 +449,17 @@ def covariate_balance(
 
     refuse_augmented_trial(result, "covariate_balance", "report")
     _refuse_sequential(result)
+    if _over_time(result):
+        from .balance_time import balance_over_time
+
+        if estimand is not None:
+            raise ValueError(
+                "estimand= chooses the point-treatment weights (ate, att, atc); a fit over time "
+                "is weighted by its treatment and censoring models at each node, so leave it out."
+            )
+        if not float(threshold) > 0.0:
+            raise ValueError(f"threshold must be positive; got {threshold!r}")
+        return balance_over_time(result, threshold=float(threshold))
     if not result.nuisance.fits_treatment:
         raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     data = result.data
@@ -562,8 +594,8 @@ def covariate_balance(
 
 
 def _refuse_sequential(result: Any) -> None:
-    """Refuse the fits whose treatment is not one point-treatment model with its weights."""
-    from .._refusal import NO_ALTERNATIVE, RefusalReason
+    """Refuse the fits that estimate no treatment model; a fit over time passes."""
+    from .._refusal import RefusalReason
     from ..exceptions import CapabilityError
     from ..longitudinal.estimator import LongitudinalResult
     from ..survival.result import ContinuousSurvivalResult
@@ -577,16 +609,9 @@ def _refuse_sequential(result: Any) -> None:
             "g-computation or parametric g-formula fit estimates none.",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    if isinstance(result, LongitudinalResult):
-        what = (
-            "a longitudinal fit, whose weights multiply a treatment and a censoring model "
-            "at each node"
-        )
-    elif isinstance(result, ContinuousSurvivalResult):
-        what = (
-            "a continuous-time survival fit, whose weights also carry a censoring model over time"
-        )
-    elif not hasattr(result, "nuisance"):
+    if isinstance(result, (LongitudinalResult, ContinuousSurvivalResult)):
+        return
+    if not hasattr(result, "nuisance"):
         from ..estimators.dose_response import DoseResponseResult
 
         why = (
@@ -599,12 +624,11 @@ def _refuse_sequential(result: Any) -> None:
             f"model; {why}.",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    else:
-        return
-    raise CapabilityError(
-        "covariate_balance weighs the covariates by a point-treatment fit's treatment model; "
-        f"it does not yet weigh {what}.",
-        reason=RefusalReason.IMPLEMENTATION_GAP,
-        alternative=NO_ALTERNATIVE,
-        roadmap="X103",
-    )
+
+
+def _over_time(result: Any) -> bool:
+    """Whether the fit's weights vary over time: a longitudinal or continuous-time fit."""
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.result import ContinuousSurvivalResult
+
+    return isinstance(result, (LongitudinalResult, ContinuousSurvivalResult))
