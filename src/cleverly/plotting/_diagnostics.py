@@ -1603,7 +1603,7 @@ def bootstrap(
 
 def _concentration(
     influence_curve: Any, cluster: Any = None
-) -> tuple[np.ndarray, np.ndarray, str, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, str, float]:
     """The cumulative share of the centred sum of squares carried by the top units.
 
     Units are the rows, or the clusters when ``cluster`` is given, in which case the
@@ -1614,7 +1614,8 @@ def _concentration(
 
     Returns the fraction of units taken (``0, 1/m, ..., 1``, largest squared value first),
     the share of the sum of squares those units carry, ``"rows"`` or ``"clusters"``, and the
-    units' influence values (the cluster sums on a clustered fit), which the Kish count reads.
+    Kish count of the units' influence values (the cluster sums on a clustered fit). The count
+    reads the centred values computed here, so no copy of the units outlives this function.
     """
     from ..inference.bootstrap import cluster_sums
 
@@ -1626,14 +1627,20 @@ def _concentration(
     values = cluster_sums(curve, None if cluster is None else np.asarray(cluster))
     if values.size < 2:
         raise ValueError("need at least two units to show how the influence is spread")
-    squares = np.sort((values - values.mean()) ** 2)[::-1]
+    from ..inference.influence import kish_count
+
+    centred = values - values.mean()
+    del values
+    kish = kish_count(centred, centered=False)
+    squares = np.sort(centred**2)[::-1]
+    del centred
     total = float(squares.sum())
     if total <= 0.0:
         raise ValueError("the influence values are all equal, so there is no spread to show")
     count = squares.size
     fraction = np.concatenate([[0.0], np.arange(1, count + 1) / count])
     share = np.concatenate([[0.0], np.cumsum(squares) / total])
-    return fraction, share, "rows" if cluster is None else "clusters", values
+    return fraction, share, "rows" if cluster is None else "clusters", kish
 
 
 def _line_points(
@@ -1812,7 +1819,7 @@ def influence(
             f"{estimate.n} rows); pass the fitted result, or cluster= with one code per row"
         )
     limit = _core.display_limit(max_points, "max_points", 16)
-    fraction, share, units, unit_values = _concentration(estimate.influence_curve, cluster)
+    fraction, share, units, kish = _concentration(estimate.influence_curve, cluster)
     count = fraction.size - 1
     top = max(1, math.ceil(0.01 * count - 1e-12))
     drawn = _line_points(fraction, share, top, limit)
@@ -1865,11 +1872,6 @@ def influence(
     subtitle = (
         f"{_core.estimand_words(label)}: {headline} {_percent(top_share)} of the squared influence"
     )
-    from ..inference.influence import kish_count
-
-    # The count influence_row reports, read off the unit values already grouped and checked
-    # above (a zero spread was refused there), without its other moments.
-    kish = kish_count(unit_values)
     found = [
         "Descriptive: a measure of how the stored influence values are spread; "
         "no interval is drawn. Values are centred at their mean, as the variance centres them.",

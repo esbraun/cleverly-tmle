@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 import cleverly.sensitivity.positivity as positivity_module
 from cleverly import plotting
-from cleverly.inference import kish_count, make_estimate
+from cleverly.inference import make_estimate
 from cleverly.inference.sparse import influence_row
 from cleverly.plotting import _curves as diagnostics_curves
 from cleverly.plotting import _diagnostics as diagnostics_module
@@ -196,10 +196,10 @@ def test_influence_reports_the_kish_count_of_influence_row(
         cluster=None if cluster is None else np.unique(cluster, return_inverse=True)[1],
     )
     fig = plotting.influence(estimate, cluster=cluster)
-    *_, values = diagnostics_module._concentration(curve, cluster)
+    fraction, *_, found = diagnostics_module._concentration(curve, cluster)
     kish = influence_row("ate", curve, cluster=cluster).kish
-    assert kish_count(values) == kish
-    assert _kish_note(fig) == f"Kish effective count: {kish:.0f} of {values.size} " + (
+    assert found == kish
+    assert _kish_note(fig) == f"Kish effective count: {kish:.0f} of {fraction.size - 1} " + (
         "rows." if cluster is None else "clusters."
     )
 
