@@ -57,7 +57,7 @@ GATED_CALIBRATION = (
 DIAGNOSED_AT_CAP: dict[str, str] = {}
 
 
-def jeffreys_at_most(k: int, m_probe: int, c: int, m: int) -> float:
+def jeffreys_at_most(k: float, m_probe: int, c: int, m: int) -> float:
     """P(at most ``c`` of ``m`` draws exceed) under the Jeffreys posterior of ``k`` in ``m_probe``."""
     return float(betabinom.cdf(c, m, k + 0.5, m_probe - k + 0.5))
 
@@ -269,7 +269,7 @@ def c_cluster_clause(warned: int, draws: int) -> float:
     return 1.0 - float(betabinom.cdf(floor - 1, 30, warned + 0.5, draws - warned + 0.5))
 
 
-def gt_cluster_clause(warned: int, draws: int) -> float:
+def gt_cluster_clause(warned: float, draws: int) -> float:
     """At most 6 of 220 G and T draws warn, from ``warned`` of ``draws`` dose-pilot draws."""
     return jeffreys_at_most(warned, draws, properties.CLUSTER_GT_CEILING, 220)
 
@@ -492,41 +492,63 @@ class TestTheControls:
                 total += 1
         assert jeffreys_at_most(warned, total, properties.CLUSTER_GT_CEILING, 220) < 0.01
 
-    #: The draws of the signature control's stream on which the broken reading breaches.  The
-    #: booster with occupancy from the wrong sample breaches (ratio error above 1.0) on 4 of
-    #: the stream's first 12 draws (0, 4, 8 and 10); the control reads the first three.
-    SIGNATURE_DRAWS = (0, 4, 8)
+    #: The signature control's fixed window of draws, declared before any fit is read.
+    SIGNATURE_WINDOW = range(12)
+    #: The fewest breaches the broken reading must make in the window.
+    SIGNATURE_BREACHES = 3
 
     def test_the_signature_fails_a_broken_reading(self) -> None:
-        """The booster read with occupancy from the wrong sample breaches on each control draw,
-        and each breach fails at least one mark."""
-        for draw in self.SIGNATURE_DRAWS:
+        """On draws 0 to 11 of the control's stream, the booster read with occupancy from the
+        wrong sample breaches (ratio error above 1.0) at least 3 times, and every breach fails
+        at least one mark.
+
+        The claim is about breaches, so the window may hold non-breaching draws; they are not
+        read.  At the declaration the window held 4 breaches (draws 0, 4, 8 and 10), each failing
+        the exact-probability mark.
+        """
+        breaches = []
+        for draw in self.SIGNATURE_WINDOW:
             frame = law.draw("G", 2_000, stream_seed(study.STUDY, "design_signature", draw))
             other = law.draw("G", 2_000, stream_seed(study.STUDY, "design_signature_other", draw))
             fitted = fits.learned_density("G", frame, "boosting", occupancy_from=other)
-            assert fitted.error > pilot.TAIL_SMALL, (draw, fitted.error)
-            assert not fits.signature("G", frame, fitted).learner_limitation, draw
+            if fitted.error > pilot.TAIL_SMALL:
+                breaches.append(draw)
+                assert not fits.signature("G", frame, fitted).learner_limitation, draw
+        assert len(breaches) >= self.SIGNATURE_BREACHES, breaches
 
     def test_the_noise_control_power_bound(self) -> None:
-        """At 1,000 control draws the noise control leaves the band only while the arm's SD is
-        below about 1.85 efficiency-bound SEs; at 3,200 draws that bound would be 2.08."""
+        """At 1,000 control draws the noise control fails the band with power 0.99 while the
+        arm's SD is below about 1.52 efficiency-bound SEs, and with power 0.5 below 1.85."""
         assert noise_detection_bound(properties.CONTROL_REPLICATES) == pytest.approx(
+            1.523, abs=2e-3
+        )
+        assert noise_detection_bound(properties.CONTROL_REPLICATES, power=0.5) == pytest.approx(
             1.847, abs=2e-3
         )
-        assert noise_detection_bound(properties.CALIBRATION_REPLICATES) == pytest.approx(
+        assert noise_detection_bound(properties.CALIBRATION_REPLICATES, power=0.5) == pytest.approx(
             2.077, abs=2e-3
         )
 
 
-def noise_detection_bound(replicates: int) -> float:
-    """The arm SD, in efficiency-bound SEs, below which the noise control fails the SE-ratio band.
+#: The noise control's declared detection power.
+NOISE_POWER = 0.99
+
+
+def noise_detection_bound(replicates: int, power: float = NOISE_POWER) -> float:
+    """The arm SD, in efficiency-bound SEs, below which the noise control fails the SE-ratio
+    band with probability ``power`` at ``replicates`` control draws.
 
     With a calibrated arm of SD ``t`` bound SEs, the noise control's SE ratio is
-    ``t / sqrt(1 + t^2)``, and its 99% interval leaves the band below 0.93 while
-    ``ratio (1 + 2.576 / sqrt(2R)) < 0.93``.
+    ``rho = t / sqrt(1 + t^2)``.  Its estimate reads ``rho`` with SD about ``rho / sqrt(2R)``,
+    and its 99% interval leaves the band below 0.93 when the estimate ``r`` has
+    ``r (1 + 2.576 / sqrt(2R)) < 0.93``.  That happens with probability ``power`` when
+    ``rho (1 + z_power / sqrt(2R)) (1 + 2.576 / sqrt(2R)) <= 0.93``.  At ``power = 0.5`` this is
+    the half-power bound, 1.85 at R = 1,000; at 0.99 it is 1.52.
     """
     low, _ = MARGINS.calibration_se_ratio
-    ratio = low / (1.0 + Z99 / math.sqrt(2.0 * replicates))
+    root = math.sqrt(2.0 * replicates)
+    z = float(norm.ppf(power))
+    ratio = low / ((1.0 + Z99 / root) * (1.0 + z / root))
     return float(ratio / math.sqrt(1.0 - ratio**2))
 
 
@@ -781,17 +803,22 @@ def cluster_pass(pilot_rows: pd.DataFrame) -> float:
     c_warned, c_total = count("cluster_C_n20000", "cluster")
     assert c_total == pilot.DOSE_DRAWS
     c_pass = c_cluster_clause(c_warned, c_total)
-    sources = [f"cluster_{name}_n{n}" for name, n in pilot.DOSE_SOURCES if name != "C"]
-    warned, total = (
-        sum(v) for v in zip(*(count(label, "cluster") for label in sources), strict=True)
-    )
-    gt_pass = gt_cluster_clause(warned, total)
+
+    def pooled(reading: str) -> tuple[float, int]:
+        """The G and T warning count, each dose pilot weighted by its declared share of the
+        220 draws (80, 80, 30 and 30), on the pilots' pooled draw count."""
+        rate, total = 0.0, 0
+        for name, n in properties.CLUSTER_SOURCES:
+            warned, draws = count(f"cluster_{name}_n{n}", reading)
+            assert draws == pilot.DOSE_DRAWS, (name, n)
+            rate += properties.GAP_DRAWS[n] / properties.CLUSTER_GT_DRAWS * warned / draws
+            total += draws
+        return rate * total, total
+
+    gt_pass = gt_cluster_clause(*pooled("cluster"))
     disabled, _ = count("cluster_C_n20000", "cluster_gap_disabled")
     assert c_cluster_clause(disabled, c_total) < 0.01
-    eager, total = (
-        sum(v) for v in zip(*(count(label, "cluster_eager") for label in sources), strict=True)
-    )
-    assert gt_cluster_clause(eager, total) < 0.01
+    assert gt_cluster_clause(*pooled("cluster_eager")) < 0.01
     return c_pass * gt_pass
 
 
