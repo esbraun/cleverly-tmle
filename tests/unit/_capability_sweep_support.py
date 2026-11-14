@@ -1201,10 +1201,8 @@ KINDS: dict[str, Kind] = {
     "reconfigured_stratified": _kind(
         reconfigured_stratified, *_READ, "truncation_curve", *_BOUND, refits=False
     ),
-    # A shift fit answers no bound row.
-    "reconfigured_unbounded_scale": _kind(
-        unbounded_scale, *_READ, "truncation_curve", refits=False
-    ),
+    # A shift fit answers no bound row, and its g(W) truncation axis is refused.
+    "reconfigured_unbounded_scale": _kind(unbounded_scale, *_READ, refits=False),
     "reconfigured_unbounded_scale_ate": _kind(
         unbounded_scale_ate, *_READ, "truncation_curve", *_BOUND, refits=False
     ),
@@ -1503,7 +1501,14 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
-        frozenset({"incremental", "incremental+missing", *_POINT_POLICY_KINDS}),
+        frozenset(
+            {
+                "incremental",
+                "incremental+missing",
+                "reconfigured_unbounded_scale",
+                *_POINT_POLICY_KINDS,
+            }
+        ),
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand"
         + "|on a modified treatment policy of a continuous or vector dose)",
