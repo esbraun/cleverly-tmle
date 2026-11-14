@@ -1046,6 +1046,22 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         from .longitudinal.estimator import longitudinal_truncation_refusal
 
         truncation = longitudinal_truncation_refusal(result)
+        # A learned-regimen fit refuses every surface that runs the fit again (F27): the
+        # truncation call raises this record before any other, and the facade's refute
+        # call raises it from this row. The free refute() reaches it at the refit, after
+        # its request checks.
+        from .longitudinal.learned import learned_regimen_refusal
+
+        learned = learned_regimen_refusal(result, "the truncation curve")
+        if learned is not None:
+            truncation = learned
+            refit = learned_regimen_refusal(result, "a refit")
+            rows = tuple(
+                replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refit)
+                if row.operation == "refute"
+                else row
+                for row in rows
+            )
     if truncation is not None:
         rows = tuple(
             replace(
@@ -5370,13 +5386,15 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) not in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        if (
+            operation == "evalue"
+            and _family(self._result)
+            not in ("structural", AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY)
+            and not _is_projection(self._result)
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
-            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand. A
+            # projection fit keeps its declared R9 row, which its call raises (Fix-15).
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 
@@ -5839,12 +5857,13 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        # A structural or adaptive TMLE fit declares every row refused, so an explicit
-        # estimand lifts none.
-        if not explicit_evalue or _family(self._result) in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        # A structural, adaptive TMLE, continuous-time survival or projection fit declares
+        # every row refused, so an explicit estimand lifts none.
+        if (
+            not explicit_evalue
+            or _family(self._result)
+            in ("structural", AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY)
+            or _is_projection(self._result)
         ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(
