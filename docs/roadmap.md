@@ -853,8 +853,8 @@ after baseline. It also supports a categorical treatment at several nodes under 
 rules and known policies, and with `targeting="one_step"` that design may declare covariates
 measured after baseline too. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
-list each design it refuses. H2 names `survival_model="iterated_mean"` with
-`isotonic=True` as the working alternative.
+list each design it refuses and the working alternative each one names, most often
+`survival_model="iterated_mean"`.
 
 Parts (d), (c), (a) and (b1) are delivered. The subsection "A working model over the hazard curve" of
 [hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
