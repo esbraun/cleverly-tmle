@@ -284,18 +284,93 @@ def test_the_recorder_names_each_interval_a_fit_reads() -> None:
         assert refit.match(row, []) == {"scale": "own"}
 
 
-def test_every_committed_refit_record_replays() -> None:
-    """Each committed scope or refit record held its estimate and standard error to the
-    committed row (the replay rule), and names a scale."""
+def _replay_records(rows: list[tuple[str, str, float, float]]) -> pd.DataFrame:
+    """Mismatched scope records: ``(group, scale, estimate shift, standard-error shift)``
+    against replicate 0 of :func:`_truth_group`."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    committed = _truth_group(covered_at=0.97).rows.iloc[0]
+    out = []
+    for group, scale, shift, se_shift in rows:
+        record = dict.fromkeys(refit.RECORD_COLUMNS, np.nan)
+        record.update(
+            stage="scope",
+            phase="primary",
+            group=group,
+            replicate=0,
+            estimate=committed["estimate"] + shift,
+            std_error=committed["std_error"] + se_shift,
+            committed_estimate=committed["estimate"],
+            committed_std_error=committed["std_error"],
+            replay="mismatch",
+            scale=scale,
+        )
+        out.append(record)
+    return pd.DataFrame(out, columns=list(refit.RECORD_COLUMNS))
+
+
+def test_a_replay_shift_inside_the_limit_is_accepted_and_one_outside_is_not() -> None:
+    """Nonzero witness for the replay rule: the committed group's estimates spread by ``sd``,
+    so a refit ``0.2 sd`` away is accepted and one ``0.3 sd`` away is unresolved, on either the
+    estimate or the standard error.  An ``own`` row and a group the screen never judges are
+    accepted at any shift, and a failed refit never is."""
+    group = _truth_group(covered_at=0.97)
+    groups = {group.key: group}
+    sd = float(group.rows["estimate"].std(ddof=1))
+    se_sd = float(group.rows["std_error"].std(ddof=1))
+    assert sd > 0.0 and se_sd == 0.0  # a constant standard error: only an exact SE replays
+    limit = screen_module.SHIFT_LIMIT
+    inside = _replay_records([("s/ate", "skew_t", (limit - 0.05) * sd, 0.0)])
+    assert screen_module.replay_shifts(inside, groups) == (1, [])
+    outside = _replay_records([("s/ate", "mover", (limit + 0.05) * sd, 0.0)])
+    assert screen_module.replay_shifts(outside, groups) == (0, ["s/ate@r0"])
+    se_moved = _replay_records([("s/ate", "skew_t", 0.0, 1e-6)])
+    assert screen_module.replay_shifts(se_moved, groups) == (0, ["s/ate@r0"])
+    exempt = _replay_records([("s/ate", "own", 5.0 * sd, 0.1), ("s/other", "skew_t", 9.0, 0.0)])
+    assert screen_module.replay_shifts(exempt, groups) == (2, [])
+    failed = _replay_records([("s/ate", "failed", np.nan, np.nan)])
+    assert screen_module.replay_shifts(failed, groups) == (0, ["s/ate@r0"])
+    replayed = inside.assign(replay="ok", estimate=inside["estimate"] + 10.0)
+    assert screen_module.replay_shifts(replayed, groups) == (0, [])
+
+
+def test_an_unresolved_replay_keeps_the_study_waiting() -> None:
+    unresolved = screen_module.RefitReading("mismatch:1", [], [], 3)
+    assert screen_module._disposition("x", False, True, unresolved) == (
+        "refits",
+        "refit records: mismatch:1",
+    )
+    shifted = screen_module.RefitReading("ok", [], [], 2)
+    disposition, reason = screen_module._disposition("dose-response", False, True, shifted)
+    assert disposition == "neutral"
+    assert "2 refit records" in reason and screen_module.REPLAY_CAUSES["dose-response"] in reason
+
+
+def test_every_replay_cause_names_a_registered_study() -> None:
+    slugs = {record.slug for record in registered()}
+    assert set(screen_module.REPLAY_CAUSES) <= slugs
+
+
+def test_every_committed_refit_record_names_a_scale_and_each_mismatch_is_judged(
+    screen: pd.DataFrame,
+) -> None:
+    """Each committed scope or refit record names a scale, and the screen judges each
+    mismatched record: accepted into ``replay_shifts``, or the study waits on
+    ``mismatch:<k>`` (which :func:`test_no_study_awaits_its_refits` then fails)."""
     from tests.studies.evidence import asymmetric_refit as refit
 
     if not refit.AUDIT_DIR.exists():
         return
+    by_study = screen.set_index("study")
     for directory in sorted(path for path in refit.AUDIT_DIR.iterdir() if path.is_dir()):
+        missed = 0
         for name in (refit.SCOPE_FILE, refit.REFITS_FILE):
             records = refit.read_records(directory, name)
             if records is None:
                 continue
             assert list(records.columns) == list(refit.RECORD_COLUMNS), directory.name
-            assert (records["replay"] != "mismatch").all(), (directory.name, name)
             assert records["scale"].astype(str).str.len().gt(0).all(), (directory.name, name)
+            missed += int((records["replay"] == "mismatch").sum())
+        row = by_study.loc[directory.name]
+        if missed and not str(row["scope"]).startswith("mismatch:"):
+            assert int(row["replay_shifts"]) > 0, directory.name
