@@ -18,7 +18,8 @@ Three families carry verdicts, each declared before any run.
       ``pre_fix_control`` (the pre-fix one-step reading with the wrong regression, on G).
     - The classifier route that ``ratio=None`` resolves to (the default stack, five outer
       folds, the policy steps), with the correct regression at n = 2,000, 3,200 draws, gated on
-      G, T and S (``<law>_classifier__correctly_specified``).  Its DR cells (the wrong
+      G and T (``<law>_classifier__correctly_specified``) and reported on S
+      (``S_classifier__reported``), whose influence curve has an infinite fourth moment.  Its DR cells (the wrong
       regression, 400 draws on G and T, and the both-wrong contrast on G, the classifier without
       ``W1``) are reported, each row with the remainder proxy
       ``sqrt(n) E_n[(r_n - r0)(Q0 - Q_ols)] / SD(D0)``.
@@ -26,9 +27,13 @@ Three families carry verdicts, each declared before any run.
       folds, 3,200 draws on ``LTMLE`` and ``SDR``: ``ate_regimen[up vs natural]`` gated, the six
       other estimands reported.
 
-    The shrunken-SE and noise controls on G (density), G (classifier) and ``LTMLE`` are derived
-    from the positive arm's own rows (:func:`~tests.studies.evidence.property_verdicts.calibration_controls`),
-    so they cost no fit and read every positive draw.
+    The shrunken-SE and noise controls on G (density), G (classifier) and ``LTMLE`` have their
+    own streams (``control_density_G``, ``control_classifier_G``, ``control_LTMLE``), 1,000
+    draws each, fitted exactly as the positive arm; neither control reads a positive draw.  The
+    shrunken control multiplies those fits' SEs by :data:`SHRUNKEN_SE_FACTOR`, and the noise
+    control adds one efficiency-bound unit of noise from its own ``efficiency_noise`` stream,
+    indexed by replicate, to their estimates.  The verdict reads the SE-ratio clause only, so
+    each control must fail that clause.
 
 ``ic_gap``
     ``SD(IC - D0) / SD(D0)`` of the oracle-hazard density fit, against the exact efficient
@@ -54,7 +59,6 @@ harness refuses a cell that lost more than its bound.
 from __future__ import annotations
 
 import argparse
-import itertools
 from collections.abc import Sequence
 from functools import cache
 from pathlib import Path
@@ -76,8 +80,6 @@ from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
-    calibration_controls,
-    calibration_derived,
     calibration_verdicts,
     finish,
 )
@@ -122,8 +124,14 @@ GAP_CONTROLS: dict[str, str] = {
 
 LONGITUDINAL_LABELS = study.LONGITUDINAL_LABELS
 LTMLE_GATED = study.LONGITUDINAL_GATED_LABELS["LTMLE"]
-#: The labels whose calibration controls are derived from their positive arm.
-CONTROLLED_LABELS = ("G", "G_classifier", LTMLE_GATED)
+#: The configuration of each own-seed control stream to the positive configuration it refits.
+CONTROL_CONFIGURATIONS = {
+    "density_control": "density",
+    "classifier_control": "classifier",
+    "longitudinal_control": "longitudinal",
+}
+#: The two controls each control stream's fit writes.
+CONTROL_KINDS = ("shrunken_se_control", "noise_control")
 POSITIVE_SUFFIXES = ("correctly_specified", "wrong_outcome")
 #: The DR coverage controls: the cell kind and the clause it publishes.
 COVERAGE_CONTROLS = {
@@ -179,7 +187,7 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
             CALIBRATION_REPLICATES,
             name,
         )
-        for name in study.CLASSIFIER_GATED
+        for name in study.CLASSIFIER_LAWS
     ),
     *(
         (
@@ -210,6 +218,31 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
             estimator,
         )
         for estimator in study.LONGITUDINAL
+    ),
+    # The own-seed control streams, each refitting its positive arm's configuration.
+    (
+        "interval_calibration",
+        "control_density_G",
+        "density_control",
+        CALIBRATION_N,
+        CONTROL_REPLICATES,
+        "G",
+    ),
+    (
+        "interval_calibration",
+        "control_classifier_G",
+        "classifier_control",
+        CALIBRATION_N,
+        CONTROL_REPLICATES,
+        "G",
+    ),
+    (
+        "interval_calibration",
+        "control_LTMLE",
+        "longitudinal_control",
+        CALIBRATION_N,
+        CONTROL_REPLICATES,
+        "LTMLE",
     ),
     *(
         ("ic_gap", f"{name}_n_{n}", "shipped", n, GAP_DRAWS[n], name)
@@ -262,14 +295,18 @@ def _draw(key: _Key) -> pd.DataFrame:
         else:
             name, size, source = label, n, replicate
         return law.draw(name, size, _seed("ic_gap", f"{name}_n_{size}", source))
-    if configuration == "longitudinal":
+    if configuration.startswith("longitudinal"):
         return fits.draw_longitudinal(n, _seed(family, stream, replicate))
     return law.draw(fits.law_of(label), n, _seed(family, stream, replicate))
 
 
 def _calibration_label(stream: str, configuration: str, label: str) -> str:
-    if configuration == "density":
+    if configuration in {"density", "density_control"}:
         return label
+    if configuration == "longitudinal_control":
+        return LTMLE_GATED
+    if configuration == "classifier_control":
+        return f"{label}_classifier"
     if configuration in {"wrong_outcome", "both_wrong", "pre_fix"}:
         return f"{label}_dr"
     if configuration == "classifier":
@@ -289,7 +326,7 @@ def _calibration_suffix(configuration: str, label: str) -> str:
     if configuration == "pre_fix":
         return "pre_fix_control"
     if configuration == "classifier":
-        return "correctly_specified"
+        return "correctly_specified" if label in study.CLASSIFIER_GATED else "reported"
     return "reported"
 
 
@@ -298,8 +335,8 @@ def _gap_cell(stream: str) -> str:
     return f"{name}__{rest}"
 
 
-def _base_cells(key: _Key) -> list[str]:
-    """The cells a key's rows fill, without the derived controls."""
+def cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows fill."""
     family, stream, configuration, _, _, _, label = key[0]
     if family == "ic_gap":
         return [f"ic_gap/{_gap_cell(stream)}"]
@@ -314,19 +351,9 @@ def _base_cells(key: _Key) -> list[str]:
             for estimand, cell_label in LONGITUDINAL_LABELS[label].items()
         ]
     prefix = _calibration_label(stream, configuration, label)
+    if configuration in CONTROL_CONFIGURATIONS:
+        return [f"interval_calibration/{prefix}__{kind}" for kind in CONTROL_KINDS]
     return [f"interval_calibration/{prefix}__{_calibration_suffix(configuration, label)}"]
-
-
-#: The calibration positive arm of each controlled label to the controls derived from it.
-DERIVED_CELLS = calibration_derived(CONTROLLED_LABELS)
-
-
-def cells_of(key: _Key) -> list[str]:
-    """The ``family/cell`` names the key's rows and derived controls fill."""
-    names: list[str] = []
-    for name in _base_cells(key):
-        names += [name, *DERIVED_CELLS.get(name, ())]
-    return names
 
 
 def cell_of(key: _Key) -> str:
@@ -396,7 +423,7 @@ def _covered(fitted: fits.PointFit, truth: float) -> bool:
 def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """The rows of one key: one fit (or none, for the cluster cells) on its drawn sample."""
     family, _, configuration, _, n, _, label = payload
-    base = _base_cells((payload,))
+    base = cells_of((payload,))
     if family == "cluster_warning":
         doses = frame["A"].to_numpy(dtype=float)
         if label == "GT":
@@ -432,6 +459,8 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 covered=_covered(fitted, truth),
             )
         ]
+    if configuration in CONTROL_CONFIGURATIONS:
+        return control_rows(payload, frame, base)
     if configuration == "longitudinal":
         result = fits.fit_longitudinal(label, frame)
         rows = []
@@ -501,6 +530,64 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
     ]
 
 
+@cache
+def control_noise(prefix: str) -> np.ndarray:
+    """The noise control's noise for every replicate of a control stream, indexed by replicate.
+
+    Drawn over the stream's requested range from ``stream_seed(STUDY, "efficiency_noise",
+    prefix)``, a stream no fit reads, so a lost replicate changes no other row's noise.
+    """
+    rng = np.random.default_rng(stream_seed(STUDY, "efficiency_noise", prefix))
+    scale = efficiency_bounds()[prefix] / np.sqrt(CALIBRATION_N)
+    return rng.normal(scale=scale, size=CONTROL_REPLICATES)
+
+
+def control_rows(payload: _Payload, frame: pd.DataFrame, names: list[str]) -> list[dict[str, Any]]:
+    """The shrunken-SE and noise control rows of one control-stream fit.
+
+    The fit is the positive arm's configuration on the control stream's own draw.  The
+    shrunken row multiplies its SE by :data:`SHRUNKEN_SE_FACTOR`; the noise row adds
+    :func:`control_noise` at this replicate to its estimate.  Both read a symmetric interval at
+    :data:`CRITICAL`.
+    """
+    _, _, configuration, replicate, n, _, label = payload
+    positive = CONTROL_CONFIGURATIONS[configuration]
+    if positive == "longitudinal":
+        estimate = fits.fit_longitudinal(label, frame)[fits.LONGITUDINAL_GATED]
+        truth = fits.LONGITUDINAL_TRUTH[fits.LONGITUDINAL_GATED]
+        value, std_error = float(estimate.psi), float(estimate.std_error)
+    else:
+        fitted = (
+            fits.fit_density(label, frame)
+            if positive == "density"
+            else fits.fit_classifier(label, frame)
+        )
+        truth = fits.truth(label)
+        value, std_error = fitted.estimate, fitted.std_error
+    prefix = names[0].split("/", 1)[1].split("__", 1)[0]
+    moved = {
+        "shrunken_se_control": (value, SHRUNKEN_SE_FACTOR * std_error),
+        "noise_control": (value + float(control_noise(prefix)[replicate]), std_error),
+    }
+    rows = []
+    for name in names:
+        estimate, se = moved[name.rsplit("__", 1)[1]]
+        half = CRITICAL * se
+        rows.append(
+            _row(
+                name,
+                "control",
+                payload,
+                n=n,
+                truth=truth,
+                estimate=estimate,
+                std_error=se,
+                covered=bool(estimate - half <= truth <= estimate + half),
+            )
+        )
+    return rows
+
+
 def fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
     """The replicate rows of one key, drawn and fitted in one call."""
     return fit_drawn(payload, _draw((payload,)))
@@ -524,7 +611,7 @@ def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
 
 @cache
 def efficiency_bounds() -> dict[str, float]:
-    """``SD(D0)`` of every calibration label a derived control reads."""
+    """``SD(D0)`` of every calibration label a control stream reads."""
     return {
         "G": float(law.EFFICIENCY_SD["G"]),
         "G_classifier": float(law.EFFICIENCY_SD["G"]),
@@ -569,46 +656,62 @@ def generate_property_rows(
         replicate_of=replicate_of,
         n_jobs=n_jobs,
         draw=_draw,
-        derived=DERIVED_CELLS,
         checkpoint=tools.property_checkpoint(parts) if budget is None else None,
     )
+    rows = pd.DataFrame([row for result in outcomes for row in result])
     if streams is not None or replicates is not None:
         # A part's rows live in its checkpoints; the declared run assembles the families.
-        return pd.DataFrame([row for result in outcomes for row in result])
-    rows = pd.DataFrame([row for result in outcomes for row in result])
-    rows = pd.concat(
-        [
-            rows,
-            calibration_controls(
-                rows,
-                STUDY,
-                labels=CONTROLLED_LABELS,
-                efficiency_bounds=efficiency_bounds(),
-                calibration_n=CALIBRATION_N,
-                shrunken_se_factor=SHRUNKEN_SE_FACTOR,
-                critical=CRITICAL,
-            ),
-        ],
-        ignore_index=True,
-    )
+        return rows
     return rows.reindex(columns=[*REPLICATE_COLUMNS, "remainder_proxy"]).sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
 
 
-#: Cloud parts of the largest streams, each planned at 80 CPU-h (20 h on 4 cores) or less:
-#: ``stream -> parts``, split into equal replicate ranges.  Every other stream runs whole.
-RUNNER_PARTS: dict[str, int] = {"longitudinal_SDR": 5, "longitudinal_LTMLE": 3}
-#: The CPU-hours a cloud part is planned at, at most.
-PART_HOURS = 80.0
+#: The cloud parts of the declared run's heavy streams: ``part -> (streams, replicates)``, where
+#: ``None`` runs each stream whole.  Each part is planned at :data:`PART_HOURS` or less at the
+#: smoke's per-fit times; the assembly run fits every other stream and reuses the parts'
+#: checkpoints.  Draws checkpoint one by one and each replicate has its own seed, so a split
+#: changes no draw.
+RUNNER_PARTS: dict[str, tuple[tuple[str, ...], range | None]] = {
+    "P1": (("classifier_G",), None),
+    "P2": (("classifier_T",), None),
+    "P3": (("classifier_S",), None),
+    "P4": (
+        (
+            "classifier_dr_G",
+            "classifier_dr_T",
+            "classifier_dr_G_both_wrong",
+            "control_density_G",
+            "control_classifier_G",
+        ),
+        None,
+    ),
+    "P5": (("longitudinal_LTMLE",), range(0, 1_600)),
+    "P6": (("longitudinal_LTMLE",), range(1_600, 3_200)),
+    "P7": (("control_LTMLE",), None),
+    **{
+        f"P{8 + index}": (("longitudinal_SDR",), range(800 * index, 800 * (index + 1)))
+        for index in range(4)
+    },
+}
+#: The CPU-hours a cloud part is planned at, at most: 13.6 h on 4 cores at the smoke's times,
+#: which leaves room inside a 20 h runner for the smoke's timing to be low.
+PART_HOURS = 55.0
+
+
+def stream_replicates(stream: str) -> int:
+    """The requested replicate count of a stream."""
+    return next(fit_set[4] for fit_set in FIT_SETS if fit_set[1] == stream)
 
 
 def part_ranges(stream: str) -> list[range]:
-    """The replicate ranges of a stream's cloud parts."""
-    replicates = next(fit_set[4] for fit_set in FIT_SETS if fit_set[1] == stream)
-    parts = RUNNER_PARTS.get(stream, 1)
-    bounds = np.linspace(0, replicates, parts + 1).round().astype(int)
-    return [range(int(a), int(b)) for a, b in itertools.pairwise(bounds)]
+    """The replicate ranges of a stream's cloud parts, or its whole range in one."""
+    ranges = [
+        range(stream_replicates(stream)) if span is None else span
+        for streams, span in RUNNER_PARTS.values()
+        if stream in streams
+    ]
+    return ranges or [range(stream_replicates(stream))]
 
 
 # ------------------------------------------------------------------ routes
@@ -624,6 +727,9 @@ ROUTES: dict[tuple[str, str], str | None] = {
     ("interval_calibration", "classifier_wrong_outcome"): "classifier",
     ("interval_calibration", "classifier_both_wrong"): "classifier",
     ("interval_calibration", "longitudinal"): "classifier",
+    ("interval_calibration", "density_control"): "density",
+    ("interval_calibration", "classifier_control"): "classifier",
+    ("interval_calibration", "longitudinal_control"): "classifier",
     ("ic_gap", "shipped"): "density",
     ("ic_gap", "pre_fix"): "density",
     ("ic_gap", "support_ignored"): "density",
@@ -637,13 +743,13 @@ def resolved_route(payload: _Payload, frame: pd.DataFrame) -> str | None:
     family, _, configuration, _, _, _, label = payload
     if ROUTES[(family, configuration)] is None:
         return None
-    if configuration == "longitudinal":
+    if configuration.startswith("longitudinal"):
         estimator = fits.longitudinal_estimator(label)
         return estimator.ratio_route(fits.longitudinal_data(frame)).route
     if configuration.startswith("classifier"):
         estimator = fits.classifier_estimator(
             label,
-            outcome="correct" if configuration == "classifier" else "wrong",
+            outcome="correct" if configuration in {"classifier", "classifier_control"} else "wrong",
             without_w1=configuration == "classifier_both_wrong",
         )
         return estimator.ratio_route(fits.point_data(label, frame, route="classifier")).route
@@ -691,7 +797,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         for name in cells_of(key):
             cell = name.split("/", 1)[1]
             prefix = cell.split("__", 1)[0]
-            if family == "interval_calibration" and configuration == "longitudinal":
+            if family == "interval_calibration" and configuration.startswith("longitudinal"):
                 estimand = next(e for e, lab in LONGITUDINAL_LABELS[label].items() if lab == prefix)
                 dgp = Declared(prefix, estimand, fits.LONGITUDINAL_TRUTH[estimand])
             elif family == "interval_calibration":
@@ -1062,7 +1168,6 @@ def gated_cells() -> tuple[str, ...]:
 
 
 __all__ = [
-    "DERIVED_CELLS",
     "FAILURE_BOUND",
     "FIT_SETS",
     "PROPERTY_RULES",
@@ -1085,12 +1190,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="One cloud part of the declared property run.")
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--parts", type=Path, required=True)
-    parser.add_argument("--streams", nargs="+", required=True)
+    parser.add_argument("--part", choices=sorted(RUNNER_PARTS), default=None)
+    parser.add_argument("--streams", nargs="+", default=None)
     parser.add_argument("--replicates", default=None, help="START:STOP")
     arguments = parser.parse_args()
+    if (arguments.part is None) == (arguments.streams is None):
+        parser.error("name one --part, or --streams with an optional --replicates")
+    if arguments.part is not None:
+        streams, span = RUNNER_PARTS[arguments.part]
+    else:
+        streams, span = tuple(arguments.streams), _range(arguments.replicates)
     generate_property_rows(
-        n_jobs=arguments.jobs,
-        parts=arguments.parts,
-        streams=arguments.streams,
-        replicates=_range(arguments.replicates),
+        n_jobs=arguments.jobs, parts=arguments.parts, streams=streams, replicates=span
     )

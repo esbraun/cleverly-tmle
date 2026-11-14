@@ -19,8 +19,10 @@ oracle hazard learner (each row's exact bin probabilities, so only the represent
 the correct and a wrong outcome regression, and the pre-fix representation (equal-mass grid read
 as a histogram) as a reference reading.  It shares no code with ``src/``.
 
-``EFFICIENCY_SD`` is ``SD(D0)`` from Monte Carlo over 4,000,000 draws; the witnesses use it only
-to scale the influence-curve gap ``SD(IC - D0) / SD(D0)``, which no constant in ``psi0`` moves.
+Each ``psi0`` is an adaptive quadrature over the dose and Gauss quadrature over ``W1``, checked
+to 1e-5 by the design test.  ``EFFICIENCY_SD`` is ``SD(D0)``, from Monte Carlo over 4,000,000
+draws on G, T, C, B and U and from quadrature on S; the witnesses use it only to scale the
+influence-curve gap ``SD(IC - D0) / SD(D0)``, which no constant in ``psi0`` moves.
 """
 
 from __future__ import annotations
@@ -44,14 +46,16 @@ BOUNDED_SD, W1_BOUND = 1.2, 2.5
 LAWS = ("G", "T", "C", "S", "B", "U")
 SUPPORTED = ("B", "U")
 
-#: ``(psi0, SD(D0))`` by Monte Carlo, 4,000,000 draws.
+#: ``(psi0, SD(D0))``.  ``psi0`` is the design test's quadrature value; ``SD(D0)`` is a
+#: 4,000,000-draw Monte Carlo value on G, T, C, B and U, and the quadrature value on S, whose
+#: influence curve has an infinite fourth moment, so its Monte Carlo SD converges slowly.
 TRUTH = {
-    "G": (0.7620878893447987, 2.1802671430413594),
-    "T": (0.8012982641621987, 2.163865726954183),
-    "C": (0.710847761584088, 2.57631874283126),
-    "S": (0.6111472701877791, 2.5332099962281647),
-    "B": (-0.4047355661123545, 2.954624574578488),
-    "U": (-0.2683273712975322, 2.572458112748248),
+    "G": (0.7625000000000004, 2.1802671430413594),
+    "T": (0.8018010623482388, 2.163865726954183),
+    "C": (0.7109937499999999, 2.57631874283126),
+    "S": (0.6124999999999995, 2.3757941871187676),
+    "B": (-0.4073868372685718, 2.954624574578488),
+    "U": (-0.27079338325542174, 2.572458112748248),
 }
 EFFICIENCY_SD = {law: sd for law, (_, sd) in TRUTH.items()}
 

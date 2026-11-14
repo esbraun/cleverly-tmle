@@ -1665,9 +1665,9 @@ tests.studies.mtp_density_tails_properties,ic_gap,control median falls less than
 tests.studies.mtp_density_tails_properties,ic_gap,"every 20,000 gap at or below its bound",positive_diffuse
 tests.studies.mtp_density_tails_properties,interval_calibration,both-wrong coverage below band,pair_collapse
 tests.studies.mtp_density_tails_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.mtp_density_tails_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.mtp_density_tails_properties,interval_calibration,noise se ratio below band,none
 tests.studies.mtp_density_tails_properties,interval_calibration,pre-fix coverage below band,pair_collapse
-tests.studies.mtp_density_tails_properties,interval_calibration,se ratio below band,se_high
+tests.studies.mtp_density_tails_properties,interval_calibration,se ratio below band,none
 tests.studies.mtp_density_tails_properties,interval_calibration,se ratio in calibration band,affine
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias

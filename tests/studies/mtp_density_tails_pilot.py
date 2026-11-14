@@ -25,6 +25,11 @@ label                              what it reads
 ``ic_gap_<law>_n<size>``           the oracle-hazard gap on G, T, C, S, B and U, 80 draws at
                                    n = 2,000 and 30 at n = 20,000, and the doses' cluster
                                    readings (shipped, gap-disabled, eager) on the same draws
+``ic_gap_tail_<law>_n20000``       the oracle-hazard gap at n = 20,000 on each gated law, 3,000
+                                   draws: the exceedance count the 20,000 clause's Jeffreys
+                                   beta-binomial pass probability reads
+``cluster_<law>_n<size>``          the three cluster readings on doses alone, 3,000 draws: C at
+                                   20,000, G and T at 2,000 and 20,000
 ``boosting_<law>_n<size>``         the default library's booster read by the shipped reading and
                                    the pre-fix one, with the misfit signature on each draw: all
                                    six laws at n = 2,000 (20 draws), G, T, C and S at 20,000 (10)
@@ -40,8 +45,14 @@ label                              what it reads
                                    C and S, with them on T and G
 =================================  ==============================================================
 
+A calibration pilot whose plug-in pass probability is below 0.90 is extended by
+:data:`EXTENSION_DRAWS` replicates on its own stream (``--replicates 400:800`` and so on), at most
+:data:`MAX_EXTENSIONS` times; the design test applies the rule.
+
 Every row records the draw's per-fit seconds (``seconds``), so the design test rebudgets each
-cell from its pilot.  A fit that raises is a pilot finding, recorded with its class in
+cell from its pilot.  Each shipped learned-hazard row also records the misfit signature's three
+marks (``mark_exact``, ``mark_top5``, ``mark_logp``), so :func:`reported_readings` routes each
+breach without a cached fit.  A fit that raises is a pilot finding, recorded with its class in
 ``refusal``.
 """
 
@@ -65,8 +76,32 @@ from tests.studies.evidence.seeds import stream_seed
 
 ARTIFACTS = study.STUDY.artifacts
 OUTPUT = ARTIFACTS / "pilot.csv.gz"
+#: The committed reported readings, recomputed by a fast test from ``pilot.csv.gz`` and the
+#: declared run's ``properties.csv``.
+READINGS = ARTIFACTS / "readings.json"
+PROPERTIES = ARTIFACTS / "properties.csv"
 CHECKPOINTS = ARTIFACTS / "pilot-checkpoints"
 CALIBRATION_DRAWS = 400
+#: An extension adds this many draws to a calibration pilot, at most this many times.
+EXTENSION_DRAWS = 400
+MAX_EXTENSIONS = 3
+#: The 20,000 tail pilot and the cluster dose pilots: draws per label.
+TAIL_DRAWS = 3_000
+DOSE_DRAWS = 3_000
+#: The cluster dose pilots: ``(law, n)``.
+DOSE_SOURCES: tuple[tuple[str, int], ...] = (
+    ("C", 20_000),
+    ("G", 2_000),
+    ("G", 20_000),
+    ("T", 2_000),
+    ("T", 20_000),
+)
+#: The booster's ceilings: the largest count of 20 draws at 2,000 above a ratio error of 1.0
+#: before the grid choice is reopened for that law, whatever the signature says.  Each is the
+#: 0.95 predictive quantile of the Jeffreys posterior of the probe's count (2 of 60 on G, 2 of
+#: 20 on T, 0 of 20 on C, 0 of 30 on S, 1 of 10 on B, 0 of 10 on U), frozen before any booster
+#: pilot draw.
+BOOSTER_CEILINGS: dict[str, int] = {"G": 3, "T": 6, "C": 2, "S": 2, "B": 8, "U": 4}
 #: The draws of each ``ic_gap`` size.
 GAP_DRAWS = {2_000: 80, 20_000: 30}
 LEARNED_LAWS = ("G", "T", "C", "S")
@@ -86,7 +121,7 @@ PILOTS: dict[str, tuple[str, str, int, int]] = {
     },
     **{
         f"calibration_classifier_{name}": ("classifier", name, 2_000, CALIBRATION_DRAWS)
-        for name in study.CLASSIFIER_GATED
+        for name in study.CLASSIFIER_LAWS
     },
     **{
         f"calibration_{estimator}": ("longitudinal", estimator, 2_000, CALIBRATION_DRAWS)
@@ -97,6 +132,11 @@ PILOTS: dict[str, tuple[str, str, int, int]] = {
         for name in law.LAWS
         for n, draws in GAP_DRAWS.items()
     },
+    **{
+        f"ic_gap_tail_{name}_n20000": ("ic_gap_tail", name, 20_000, TAIL_DRAWS)
+        for name in study.GAP_GATED
+    },
+    **{f"cluster_{name}_n{n}": ("cluster", name, n, DOSE_DRAWS) for name, n in DOSE_SOURCES},
     **{f"boosting_{name}_n2000": ("boosting", name, 2_000, 20) for name in law.LAWS},
     **{f"boosting_{name}_n20000": ("boosting", name, 20_000, 10) for name in LEARNED_LAWS},
     **{f"stacked_{name}": ("stacked", name, 2_000, 5) for name in LEARNED_LAWS},
@@ -125,6 +165,9 @@ COLUMNS = (
     "exact_error",
     "worst_share",
     "log_gap",
+    "mark_exact",
+    "mark_top5",
+    "mark_logp",
     "seconds",
     "refusal",
 )
@@ -177,6 +220,7 @@ def _learned_rows(
             )
         )
         marks = fits.signature(case, frame, fitted) if kind == "shipped" else None
+        flags = (None, None, None) if marks is None else tuple(int(m) for m in marks.marks)
         rows.append(
             _row(
                 label,
@@ -188,10 +232,28 @@ def _learned_rows(
                 exact_error=None if marks is None else marks.exact_error,
                 worst_share=None if marks is None else marks.worst_share,
                 log_gap=None if marks is None else marks.log_gap,
+                mark_exact=flags[0],
+                mark_top5=flags[1],
+                mark_logp=flags[2],
                 seconds=s,
             )
         )
     return rows
+
+
+def _cluster_rows(
+    label: str, replicate: int, case: str, n: int, frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    """The shipped, gap-disabled and eager cluster readings of one draw's doses."""
+    doses = frame["A"].to_numpy(dtype=float)
+    return [
+        _row(label, replicate, case, n, reading, estimate=float(flag))
+        for reading, flag in (
+            ("cluster", fits.warns(doses)),
+            ("cluster_gap_disabled", fits.warns_gap_disabled(doses)),
+            ("cluster_eager", fits.warns_eager(doses)),
+        )
+    ]
 
 
 def _one(label: str, replicate: int) -> list[dict[str, Any]]:
@@ -231,20 +293,18 @@ def _one(label: str, replicate: int) -> list[dict[str, Any]]:
         row = _estimate_row(label, replicate, case, n, "classifier", fitted, truth, s)
         row["ratio_error"] = fits.ratio_error(case, fitted.ratio, frame)
         return [row]
+    if kind == "ic_gap_tail":
+        fitted, s = _timed(lambda: fits.fit_density(case, frame))
+        row = _row(label, replicate, case, n, "ic_gap", seconds=s)
+        row["ratio_error"] = fits.ic_gap(case, frame, fitted)
+        return [row]
+    if kind == "cluster":
+        return _cluster_rows(label, replicate, case, n, frame)
     if kind == "ic_gap":
         fitted, s = _timed(lambda: fits.fit_density(case, frame))
         row = _estimate_row(label, replicate, case, n, "ic_gap", fitted, truth, s)
         row["ratio_error"] = fits.ic_gap(case, frame, fitted)
-        doses = frame["A"].to_numpy(dtype=float)
-        clusters = [
-            _row(label, replicate, case, n, reading, estimate=float(flag))
-            for reading, flag in (
-                ("cluster", fits.warns(doses)),
-                ("cluster_gap_disabled", fits.warns_gap_disabled(doses)),
-                ("cluster_eager", fits.warns_eager(doses)),
-            )
-        ]
-        return [row, *clusters]
+        return [row, *_cluster_rows(label, replicate, case, n, frame)]
     if kind in {"boosting", "stacked"}:
         return _learned_rows(label, replicate, case, frame, kind)
     if kind == "logistic":
@@ -353,6 +413,261 @@ def collect(checkpoints: Path = CHECKPOINTS, output: Path = OUTPUT) -> pd.DataFr
     return frame
 
 
+# ------------------------------------------------------------------ reported readings
+
+#: The booster's tail reading: at 2,000 at most 10% of draws above 1.0 (2 of 20; none of the 5
+#: stacked draws) and none above 3.0; at 20,000 at most 10% above 0.5 (1 of 10).  A draw past
+#: the first threshold of its size is a breach.
+TAIL_SHARE = 0.10
+TAIL_SMALL, TAIL_SMALL_NONE = 1.0, 3.0
+TAIL_LARGE = 0.5
+#: The laws whose booster median ratio error falls by at least a third from 2,000 to 20,000.
+FALL_LAWS = ("G", "C")
+FALL_FACTOR = 2.0 / 3.0
+#: With the declared support, the median ratio error is at most this times the
+#: support-ignored reading's.
+SUPPORT_SLACK = 1.10
+#: The classifier steps readings: T's 20,000 median over its 2,000 median, with and without
+#: the steps; the cut on Gcap and Bp2; the change allowed on G, C and S.
+STEPS_FALL, STALL = 0.8, 0.9
+STEPS_CUT = 0.75
+STEPS_NEUTRAL = 0.10
+STEPS_CUT_CASES = ("Gcap", "Bp2")
+STEPS_NEUTRAL_CASES = ("G", "C", "S")
+#: The classifier DR reading on G: the mean remainder proxy within this many SEs of zero.
+DR_REMAINDER_G = 0.2
+#: A T classifier DR coverage below this is reported with its remainder.
+DR_COVERAGE_T = 0.90
+
+
+def _number(value: Any) -> float | None:
+    value = float(value)
+    return None if np.isnan(value) else float(f"{value:.10g}")
+
+
+def _shipped(rows: pd.DataFrame, label: str, reading: str) -> np.ndarray:
+    selected = rows.loc[(rows["label"] == label) & (rows["reading"] == reading), "ratio_error"]
+    return selected.to_numpy(dtype=float)
+
+
+def _median(values: np.ndarray) -> float | None:
+    return _number(np.median(values)) if values.size else None
+
+
+def _tail_small(errors: np.ndarray) -> dict[str, Any]:
+    above = int(np.sum(errors > TAIL_SMALL))
+    extreme = int(np.sum(errors > TAIL_SMALL_NONE))
+    return {
+        "draws": int(errors.size),
+        "above_1": above,
+        "above_3": extreme,
+        "holds": bool(above <= int(TAIL_SHARE * errors.size) and extreme == 0),
+    }
+
+
+def _ceiling(errors: np.ndarray, name: str) -> dict[str, Any]:
+    above = int(np.sum(errors > TAIL_SMALL))
+    return {
+        "ceiling": BOOSTER_CEILINGS[name],
+        "above_1": above,
+        "reopened": bool(above > BOOSTER_CEILINGS[name]),
+    }
+
+
+def breach_routes(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    """Every breaching learned-hazard draw with its route from the three marks.
+
+    A shipped booster, stacked or learned-support booster draw breaches above
+    :data:`TAIL_SMALL` at 2,000 or :data:`TAIL_LARGE` at 20,000.  It is a learner limitation
+    when all three marks hold, and a defect suspect otherwise, a missing mark included.
+    """
+    learned = rows["label"].astype(str).str.match(r"^(boosting|stacked|learned)_")
+    selected = rows.loc[learned & rows["reading"].isin(["boosting", "stacked"])]
+    out = []
+    for _, row in selected.sort_values(["label", "replicate"]).iterrows():
+        error = float(row["ratio_error"])
+        threshold = TAIL_SMALL if int(row["n"]) == 2_000 else TAIL_LARGE
+        if not error > threshold:
+            continue
+        marks = [row.get(column) for column in ("mark_exact", "mark_top5", "mark_logp")]
+        held = all(mark is not None and not pd.isna(mark) and int(mark) == 1 for mark in marks)
+        out.append(
+            {
+                "label": str(row["label"]),
+                "replicate": int(row["replicate"]),
+                "ratio_error": _number(error),
+                "route": "learner_limitation" if held else "defect_suspect",
+            }
+        )
+    return out
+
+
+def _booster_readings(rows: pd.DataFrame) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name in law.LAWS:
+        small = _shipped(rows, f"boosting_{name}_n2000", "boosting")
+        large = _shipped(rows, f"boosting_{name}_n20000", "boosting")
+        reading: dict[str, Any] = {
+            "median_2000": _median(small),
+            "tail_2000": _tail_small(small),
+            **_ceiling(small, name),
+        }
+        if name in LEARNED_LAWS:
+            above = int(np.sum(large > TAIL_LARGE))
+            reading["median_20000"] = _median(large)
+            reading["tail_20000"] = {
+                "draws": int(large.size),
+                "above_05": above,
+                "holds": bool(above <= int(TAIL_SHARE * large.size)),
+            }
+        if name in FALL_LAWS and small.size and large.size:
+            fall = float(np.median(large) / np.median(small))
+            reading["fall"] = {"ratio": _number(fall), "holds": bool(fall <= FALL_FACTOR)}
+        out[name] = reading
+    return out
+
+
+def _learned_readings(rows: pd.DataFrame) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name in law.SUPPORTED:
+        label = f"learned_{name}"
+        booster = _shipped(rows, label, "boosting")
+        support: dict[str, Any] = {}
+        for learner in ("boosting", "pooled_logistic"):
+            declared = _shipped(rows, label, learner)
+            pre_fix = _shipped(rows, label, f"{learner}_pre_fix")
+            ignored = _shipped(rows, label, f"{learner}_support_ignored")
+            holds = bool(
+                declared.size
+                and pre_fix.size
+                and ignored.size
+                and np.median(declared) < np.median(pre_fix)
+                and np.median(declared) <= SUPPORT_SLACK * np.median(ignored)
+            )
+            support[learner] = {
+                "median": _median(declared),
+                "pre_fix_median": _median(pre_fix),
+                "support_ignored_median": _median(ignored),
+                "holds": holds,
+            }
+        out[name] = {"tail_2000": _tail_small(booster), **_ceiling(booster, name), **support}
+    return out
+
+
+def _steps_readings(rows: pd.DataFrame) -> dict[str, Any]:
+    def median(case: str, n: int, reading: str) -> float:
+        values = _shipped(rows, f"classifier_{case}_n{n}", reading)
+        return float(np.median(values)) if values.size else float("nan")
+
+    out: dict[str, Any] = {}
+    with_fall = median("T", 20_000, "with_steps") / median("T", 2_000, "with_steps")
+    without_fall = median("T", 20_000, "without_steps") / median("T", 2_000, "without_steps")
+    out["T"] = {
+        "with_steps_fall": _number(with_fall),
+        "without_steps_fall": _number(without_fall),
+        "holds": bool(with_fall <= STEPS_FALL and without_fall >= STALL),
+    }
+    for case in (*STEPS_CUT_CASES, *STEPS_NEUTRAL_CASES):
+        ratio = median(case, 2_000, "with_steps") / median(case, 2_000, "without_steps")
+        holds = ratio <= STEPS_CUT if case in STEPS_CUT_CASES else abs(ratio - 1) <= STEPS_NEUTRAL
+        out.setdefault(case, {}).update(steps_ratio_2000=_number(ratio), holds=bool(holds))
+    return out
+
+
+def _summary_row(summary: pd.DataFrame, cell: str) -> pd.Series | None:
+    selected = summary.loc[
+        (summary["property"] == "interval_calibration") & (summary["cell"] == cell)
+    ]
+    return None if selected.empty else selected.iloc[0]
+
+
+def _classifier_dr_readings(summary: pd.DataFrame) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for cell in ("G_classifier_dr__reported", "T_classifier_dr__reported"):
+        row = _summary_row(summary, cell)
+        if row is None:
+            continue
+        remainder = float(row["remainder_proxy"])
+        coverage = float(row["coverage"])
+        reading: dict[str, Any] = {
+            "bias_in_se": _number(float(row["bias"]) / float(row["empirical_se"])),
+            "remainder": _number(remainder),
+            "coverage": _number(coverage),
+        }
+        if cell.startswith("G_"):
+            reading["holds"] = bool(abs(remainder) <= DR_REMAINDER_G)
+        else:
+            reading["holds"] = bool(remainder < 0.0)
+            reading["coverage_below_090"] = bool(coverage < DR_COVERAGE_T)
+        out[cell] = reading
+    row = _summary_row(summary, "G_classifier_dr_both_wrong__reported")
+    if row is not None:
+        out["G_classifier_dr_both_wrong__reported"] = {
+            "bias_in_se": _number(float(row["bias"]) / float(row["empirical_se"])),
+            "remainder": _number(float(row["remainder_proxy"])),
+            "coverage": _number(float(row["coverage"])),
+        }
+    return out
+
+
+def _reported_calibration(summary: pd.DataFrame) -> dict[str, Any]:
+    low, high = study.STUDY.margins.calibration_se_ratio
+    c_low, c_high = study.STUDY.margins.calibration_coverage
+    selected = summary.loc[
+        (summary["property"] == "interval_calibration")
+        & summary["cell"].astype(str).str.endswith("__reported")
+        & ~summary["cell"].astype(str).str.contains("_classifier_dr")
+    ]
+    out: dict[str, Any] = {}
+    for _, row in selected.sort_values("cell").iterrows():
+        inside = bool(
+            low <= float(row["se_ratio_ci_lower"])
+            and float(row["se_ratio_ci_upper"]) <= high
+            and c_low <= float(row["coverage_ci_lower"])
+            and float(row["coverage_ci_upper"]) <= c_high
+        )
+        out[str(row["cell"])] = {
+            "se_ratio": _number(row["se_ratio"]),
+            "coverage": _number(row["coverage"]),
+            "inside_band": inside,
+        }
+    return out
+
+
+def reported_readings(pilot_rows: pd.DataFrame, property_rows: pd.DataFrame) -> dict[str, Any]:
+    """Every declared reported reading, from the pilot rows and the declared run's summary.
+
+    ``pilot_rows`` is ``pilot.csv.gz``; ``property_rows`` is the declared run's
+    ``properties.csv``.  The booster's median falls, its tail readings and each law's count
+    against :data:`BOOSTER_CEILINGS` (also on the boosters of ``learned_B`` and ``learned_U``);
+    the stacked tail reading; the B and U support readings; the classifier steps readings; the
+    classifier DR bias, remainder and coverage; the reported calibration rows; and the route of
+    every breach (:func:`breach_routes`).  The stacked cells read no ceiling.
+    """
+    stacked = {
+        name: _tail_small(_shipped(pilot_rows, f"stacked_{name}", "stacked"))
+        for name in LEARNED_LAWS
+    }
+    return {
+        "boosting": _booster_readings(pilot_rows),
+        "learned": _learned_readings(pilot_rows),
+        "stacked": stacked,
+        "classifier_steps": _steps_readings(pilot_rows),
+        "classifier_dr": _classifier_dr_readings(property_rows),
+        "reported_calibration": _reported_calibration(property_rows),
+        "breaches": breach_routes(pilot_rows),
+    }
+
+
+def write_readings(
+    pilot_path: Path = OUTPUT, properties_path: Path = PROPERTIES, output: Path = READINGS
+) -> dict[str, Any]:
+    """Recompute :func:`reported_readings` from the committed artifacts and write it."""
+    readings = reported_readings(pd.read_csv(pilot_path), pd.read_csv(properties_path))
+    output.write_text(json.dumps(readings, indent=2, sort_keys=True) + "\n")
+    return readings
+
+
 def _range(text: str | None) -> range | None:
     if text is None:
         return None
@@ -368,6 +683,7 @@ if __name__ == "__main__":
     parser.add_argument("--draws", type=int, default=None)
     parser.add_argument("--output", type=Path, default=CHECKPOINTS)
     parser.add_argument("--collect", action="store_true")
+    parser.add_argument("--readings", action="store_true", help="write readings.json")
     arguments = parser.parse_args()
     if arguments.labels:
         run(
@@ -382,3 +698,5 @@ if __name__ == "__main__":
             arguments.output,
             arguments.output.parent / "pilot.csv.gz" if arguments.output != CHECKPOINTS else OUTPUT,
         )
+    if arguments.readings:
+        write_readings()

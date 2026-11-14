@@ -11,9 +11,9 @@ continuous law.
 unbounded ratio), T (G truncated to ``[-2, 4.5]`` with the shift capped there), C (a 0.15% far
 component beyond a gap), S (Student-t tails), and B and U (a covariate-dependent upper end of
 the support, declared as ``Support(0, u(W))``, under the policy that adds one below ``u - 1`` and
-holds the dose above it).  Each law's truth ``psi0`` and efficiency bound ``SD(D0)`` are Monte
-Carlo values over 4,000,000 draws, computed from the closed-form density and outcome regression
-and never from the estimator.  The fits and the study-local controls are in
+holds the dose above it).  Each law's truth ``psi0`` is a quadrature of the closed-form density
+and outcome regression, and its efficiency bound ``SD(D0)`` a 4,000,000-draw Monte Carlo value
+(a quadrature on S); neither comes from the estimator.  The fits and the study-local controls are in
 :mod:`tests.studies.mtp_density_tails_fits`.
 
 **The primary rows** fit the density route with the oracle hazard (each row's exact bin masses,
@@ -71,7 +71,12 @@ DENSITY_REPORTED = ("S", "B", "U")
 #: Laws whose density-route double robustness is gated (n = 8,000).
 ROBUST_GATED = ("G", "T")
 #: Laws whose classifier-route calibration is gated.
-CLASSIFIER_GATED = ("G", "T", "S")
+CLASSIFIER_GATED = ("G", "T")
+#: Laws whose classifier-route calibration is reported: S's influence curve has an infinite
+#: fourth moment, so the SE ratio's spread exceeds the normal sizing at any feasible R.
+CLASSIFIER_REPORTED = ("S",)
+#: Every law with a classifier calibration stream and pilot, gated or reported.
+CLASSIFIER_LAWS = (*CLASSIFIER_GATED, *CLASSIFIER_REPORTED)
 #: The longitudinal default-route estimators.
 LONGITUDINAL = ("LTMLE", "SDR")
 #: Laws whose influence-curve gap is gated; S and ``Gscale`` are reported.
@@ -110,6 +115,11 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
             cell
             for name in CLASSIFIER_GATED[1:]
             for cell in _cells(f"{name}_classifier", "correctly_specified")
+        ),
+        *(
+            cell
+            for name in CLASSIFIER_REPORTED
+            for cell in _cells(f"{name}_classifier", "reported")
         ),
         *_cells("G_classifier_dr", "reported"),
         *_cells("T_classifier_dr", "reported"),

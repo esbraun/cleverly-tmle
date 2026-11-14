@@ -1,21 +1,25 @@
 """The ``mtp-density-tails`` declaration: truths, routes, pass probabilities, controls and seeds.
 
-Each truth is checked by an adaptive quadrature written here, against the Monte Carlo value the
-law module carries.  Each declared pass probability, the boosting tail table among them, is
-recomputed from its stated inputs: the at-target calibration rule, the Jeffreys beta-binomial
-of the probe counts, and the cluster rates.  Each control is shown to fail its named clause on
-draws of the exact law, and the route every cell's fit records is resolved without a fit.
+Each truth is checked to 1e-5 by an adaptive quadrature written here.  Each declared pass
+probability is recomputed from its stated inputs: the at-target calibration rule and its
+extension rule, the Jeffreys beta-binomial of the probe counts (the booster's tail table and
+its frozen ceilings, the 20,000 tail pilot, the cluster dose pilots), and the whole-study
+product against its floors.  Each control is shown to fail its named clause on draws of the
+exact law, and the route every cell's fit records is resolved without a fit.
 
 The pilot readings (``TestThePilot``) read ``tests/canonical/mtp_density_tails/pilot.csv.gz``:
-the calibration arms' plug-in pass probabilities and their extensions, the ``ic_gap`` clauses'
-plug-in and predictive pass probabilities, the cluster clauses from the pilot's doses, the tail table
-and the booster's ceilings from the pilot's draws, and each cell's budget from the pilot's
-per-fit seconds.  Until the pilots run, those tests skip, and the declaration commit is the
-first in which they do not.  Nothing here reads a study run.
+each gated calibration arm's plug-in pass probability under the extension rule, the noise
+control's power, the ``ic_gap`` clauses with the tail pilot's exceedances, the cluster clauses
+from the dose pilots, the booster's counts against its ceilings, the whole-study pass, each
+cloud part's budget from the pilot's per-fit seconds, and the committed reported readings.
+Until the pilots run, those tests skip, and the declaration commit is the first in which they
+do not.  Nothing here reads a study run except ``readings.json``'s check, which skips until
+the declared run has written ``properties.csv``.
 """
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any, ClassVar
 
@@ -23,7 +27,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.integrate import quad
-from scipy.stats import beta, betabinom, binom, chi2, norm
+from scipy.stats import beta, betabinom, binom, norm, poisson
 
 from tests import mtp_density_tails_law as law
 from tests.studies import canonical_mtp_density_tails as study
@@ -35,6 +39,22 @@ from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 MARGINS = study.STUDY.margins
 Z99 = float(norm.ppf(0.995))
+#: The declared floors: each gated ``ic_gap`` law and each calibration arm, the ``ic_gap``
+#: family, and the whole study.  A pilot below a floor is diagnosed before the declaration.
+FLOOR_LAW = FLOOR_ARM = 0.90
+FLOOR_GAP_FAMILY = 0.85
+FLOOR_STUDY = 0.90
+#: The gated calibration pilots: nine arms, one estimand each (S's classifier arm is reported).
+GATED_CALIBRATION = (
+    *(f"calibration_density_{name}" for name in study.DENSITY_GATED),
+    *(f"calibration_dr_{name}" for name in study.ROBUST_GATED),
+    *(f"calibration_classifier_{name}" for name in study.CLASSIFIER_GATED),
+    *(f"calibration_{estimator}" for estimator in study.LONGITUDINAL),
+)
+#: Gated calibration pilots that ended at the extension cap with no confirmed departure and
+#: whose diagnosis found no defect: ``label -> the diagnosis``.  Their plug-in pass enters the
+#: family and whole-study figures.  Empty until a pilot ends at the cap.
+DIAGNOSED_AT_CAP: dict[str, str] = {}
 
 
 def jeffreys_at_most(k: int, m_probe: int, c: int, m: int) -> float:
@@ -88,15 +108,42 @@ def _inner(name: str, w1: float, w2: float) -> float:
 
 @pytest.mark.parametrize("name", law.LAWS)
 def test_each_truth_matches_an_independent_quadrature(name: str) -> None:
-    """The law module's ``psi0`` is a 4,000,000-draw mean: within 5 Monte Carlo SEs of it."""
+    """The law module's ``psi0`` is this quadrature's value, to 1e-5."""
     nodes, weights = _w1_nodes(name)
     value = sum(
         0.5 * weight * _inner(name, float(w1), w2)
         for w1, weight in zip(nodes, weights, strict=True)
         for w2 in (0.0, 1.0)
     )
-    error = law.EFFICIENCY_SD[name] / math.sqrt(4_000_000)
-    assert abs(value - law.TRUTH[name][0]) <= 5.0 * error, (value, law.TRUTH[name][0])
+    assert abs(value - law.TRUTH[name][0]) <= 1e-5, (value, law.TRUTH[name][0])
+
+
+def test_the_efficiency_bound_of_s_matches_its_quadrature() -> None:
+    """S's ``SD(D0)`` is the quadrature of ``E[r0^2] + Var(Q0(d(A), W))``, unit outcome noise."""
+    x, w = np.polynomial.hermite_e.hermegauss(30)
+    w = w / w.sum()
+    first = second = ratio = 0.0
+    for w2 in (0.0, 1.0):
+        for w1, weight in zip(x, w, strict=True):
+            c = float(law.centre(w1, w2))
+
+            def pdf(a: float, c: float = c) -> float:
+                return float(law.student.pdf((a - c) / law.SIGMA, law.DEGREES) / law.SIGMA)
+
+            def q(a: float, w1: float = float(w1), w2: float = w2) -> float:
+                return float(law.q0(a + law.DELTA, w1, w2))
+
+            first += 0.5 * weight * quad(lambda a: q(a) * pdf(a), -np.inf, np.inf, limit=400)[0]
+            second += (
+                0.5 * weight * quad(lambda a: q(a) ** 2 * pdf(a), -np.inf, np.inf, limit=400)[0]
+            )
+            ratio += (
+                0.5
+                * weight
+                * quad(lambda a: pdf(a - law.DELTA) ** 2 / pdf(a), -40, 40, limit=400)[0]
+            )
+    sd = math.sqrt(ratio + second - first**2)
+    assert abs(sd - law.EFFICIENCY_SD["S"]) <= 1e-3, sd
 
 
 def test_the_scaled_variant_truth_matches_its_closed_form() -> None:
@@ -141,7 +188,7 @@ def test_every_cell_records_the_route_its_row_names() -> None:
         if family == "cluster_warning":
             assert properties.ROUTES[(family, configuration)] is None
             continue
-        if configuration == "longitudinal":
+        if configuration.startswith("longitudinal"):
             frame = fits.draw_longitudinal(400, 0)
         else:
             frame = law.draw(fits.law_of(label), 400, 0)
@@ -173,27 +220,84 @@ def test_the_route_guard_fails_when_the_default_resolves_elsewhere(
 # ---------------------------------------------------------------------------- pass probabilities
 
 
+def simulate_extensions(rho: float, runs: int, seed: int) -> dict[str, float]:
+    """The extension rule on simulated pilots whose SE ratio reads ``rho`` with SD ``1/sqrt(2M)``.
+
+    Extend by :data:`~tests.studies.mtp_density_tails_pilot.EXTENSION_DRAWS` while the plug-in
+    is below 0.90; stop when it reaches 0.90 (clear), when the pooled 99% interval excludes 1
+    (departure), or after :data:`~tests.studies.mtp_density_tails_pilot.MAX_EXTENSIONS` (cap).
+    """
+    rng = np.random.default_rng(seed)
+    step = pilot.EXTENSION_DRAWS
+    blocks = rng.normal(rho, 1.0 / math.sqrt(2.0 * step), (runs, pilot.MAX_EXTENSIONS + 1))
+    outcome = np.full(runs, "", dtype=object)
+    extensions = np.zeros(runs, dtype=int)
+    for e in range(pilot.MAX_EXTENSIONS + 1):
+        draws = pilot.CALIBRATION_DRAWS + e * step
+        ratio = blocks[:, : e + 1].mean(axis=1)
+        open_ = outcome == ""
+        clear = open_ & (plug_in_ratio_array(ratio, properties.CALIBRATION_REPLICATES) >= FLOOR_ARM)
+        departure = open_ & ~clear & (np.abs(ratio - 1.0) > Z99 / math.sqrt(2.0 * draws))
+        outcome[clear] = "clear"
+        outcome[departure] = "departure"
+        extensions[open_] = e
+        if e == pilot.MAX_EXTENSIONS:
+            outcome[outcome == ""] = "cap"
+    return {
+        "mean": float(extensions.mean()),
+        **{kind: float(np.mean(outcome == kind)) for kind in ("clear", "departure", "cap")},
+    }
+
+
+def plug_in_ratio_array(se_ratio: np.ndarray, replicates: int) -> np.ndarray:
+    """The SE-ratio clause's plug-in pass probability at each pilot SE ratio, at ``replicates``."""
+    low, high = MARGINS.calibration_se_ratio
+    root = math.sqrt(2.0 * replicates)
+    return np.asarray(
+        norm.cdf((high - se_ratio) * root - Z99) - norm.cdf((low - se_ratio) * root + Z99)
+    )
+
+
+def tail_clause(exceedances: int, draws: int) -> float:
+    """The 20,000 clause: no exceedance in 30 draws, from ``exceedances`` of ``draws``."""
+    return jeffreys_at_most(exceedances, draws, 0, properties.GAP_DRAWS[20_000])
+
+
+def c_cluster_clause(warned: int, draws: int) -> float:
+    """At least 26 of 30 C draws warn, from ``warned`` of ``draws`` dose-pilot draws."""
+    floor = properties.CLUSTER_C_FLOOR
+    return 1.0 - float(betabinom.cdf(floor - 1, 30, warned + 0.5, draws - warned + 0.5))
+
+
+def gt_cluster_clause(warned: int, draws: int) -> float:
+    """At most 6 of 220 G and T draws warn, from ``warned`` of ``draws`` dose-pilot draws."""
+    return jeffreys_at_most(warned, draws, properties.CLUSTER_GT_CEILING, 220)
+
+
 class TestThePassProbabilities:
     def test_each_calibration_arm_is_sized_at_target(self) -> None:
-        """Ten arms, one estimand each: the SE-ratio clauses pass with 0.975 at R = 3,200."""
+        """Nine arms, one estimand each: the SE-ratio clauses pass with 0.978 at R = 3,200."""
         assert properties.CALIBRATION_REPLICATES == properties.ROBUST_REPLICATES == 3_200
         assert arm_pass(2_800) == pytest.approx(0.9922, abs=5e-4)
-        assert arm_pass(2_800) ** 10 == pytest.approx(0.925, abs=5e-4)
+        assert arm_pass(2_800) ** 9 == pytest.approx(0.932, abs=5e-4)
         assert arm_pass(3_200) == pytest.approx(0.9975, abs=5e-4)
-        assert arm_pass(3_200) ** 10 == pytest.approx(0.975, abs=5e-4)
-        assert arm_pass(3_200) ** 10 >= 0.95
-        # Had each longitudinal arm gated all seven estimands: 22 SE-ratio clauses.
-        assert arm_pass(3_200) ** 22 == pytest.approx(0.946, abs=1e-3)
-        assert arm_pass(3_600) ** 22 == pytest.approx(0.983, abs=5e-4)
+        assert arm_pass(3_200) ** 9 == pytest.approx(0.978, abs=5e-4)
+        assert arm_pass(3_200) ** 9 >= 0.95
+        # Had each longitudinal arm gated all seven estimands: 21 SE-ratio clauses.
+        assert arm_pass(3_200) ** 21 == pytest.approx(0.949, abs=1e-3)
+        assert arm_pass(3_600) ** 21 == pytest.approx(0.984, abs=5e-4)
 
-    def test_the_ten_arms_are_the_declared_gated_arms(self) -> None:
+    def test_the_nine_arms_are_the_declared_gated_arms(self) -> None:
         gated = {
             cell.cell
             for cell in properties.declared_cells()
             if cell.property == "interval_calibration" and cell.role == "positive"
         }
-        assert len(gated) == 10
+        assert len(gated) == len(GATED_CALIBRATION) == 9
         assert {cell.split("__")[1] for cell in gated} == set(properties.POSITIVE_SUFFIXES)
+        assert "S_classifier__reported" in study.STUDY.property_cells["interval_calibration"]
+        roles = {cell.cell: cell.role for cell in properties.declared_cells()}
+        assert roles["S_classifier__reported"] != "positive"
 
     def test_a_coverage_clause_cannot_bind_at_target(self) -> None:
         """At R = 3,200 coverage has SD 0.0039 inside a band of plus or minus 0.03."""
@@ -201,16 +305,59 @@ class TestThePassProbabilities:
         assert sd == pytest.approx(0.0039, abs=5e-5)
         assert 2.0 * norm.sf(0.03 / sd) < 1e-13
 
-    def test_the_cluster_clauses_at_the_probe_rates(self) -> None:
-        """C warned in 20 of 20 probe draws at 20,000; G and T in none of 80."""
-        c_pass = 1.0 - float(betabinom.cdf(properties.CLUSTER_C_FLOOR - 1, 30, 20.5, 0.5))
-        gt_pass = jeffreys_at_most(0, 80, properties.CLUSTER_GT_CEILING, 220)
-        assert c_pass == pytest.approx(0.977, abs=5e-4)
-        assert gt_pass == pytest.approx(0.961, abs=5e-4)
-        assert c_pass * gt_pass == pytest.approx(0.939, abs=1e-3)
+    def test_the_extension_rule(self) -> None:
+        """The plug-in reaches 0.90 for a pilot ratio in [0.978, 1.022]; a calibrated arm
+        extends 0.91 times on average and ends clear, at a departure or at the cap with 0.897,
+        0.026 and 0.076."""
+        grid = np.linspace(0.95, 1.05, 2001)
+        clear = grid[plug_in_ratio_array(grid, properties.CALIBRATION_REPLICATES) >= FLOOR_ARM]
+        assert clear.min() == pytest.approx(0.978, abs=5e-4)
+        assert clear.max() == pytest.approx(1.022, abs=5e-4)
+        outcome = simulate_extensions(1.0, 40_000, stream_seed(study.STUDY, "design_extend"))
+        assert outcome["mean"] == pytest.approx(0.91, abs=0.02)
+        assert outcome["clear"] == pytest.approx(0.897, abs=0.006)
+        assert outcome["departure"] == pytest.approx(0.026, abs=0.004)
+        assert outcome["cap"] == pytest.approx(0.076, abs=0.005)
+        # The reserve is the cap on the four costly arms, at the pilots' smoke seconds.
+        seconds = {"classifier_G": 53.4, "classifier_T": 58.2, "LTMLE": 120.8, "SDR": 252.0}
+        reserve = sum(
+            pilot.MAX_EXTENSIONS * pilot.EXTENSION_DRAWS * s / 3600 for s in seconds.values()
+        )
+        assert reserve == pytest.approx(161.4, abs=0.5)
+
+    def test_the_tail_pilot_clause(self) -> None:
+        """No exceedance in 30 draws, from ``k`` of 3,000 tail-pilot draws, k = 0 to 3."""
+        draws = pilot.TAIL_DRAWS
+        expected = (0.995, 0.985, 0.975, 0.966)
+        for k, value in enumerate(expected):
+            assert tail_clause(k, draws) == pytest.approx(value, abs=5e-4), k
+        assert set(pilot.PILOTS) >= {f"ic_gap_tail_{name}_n20000" for name in study.GAP_GATED}
+
+    def test_the_cluster_clauses_at_the_dose_probe_rates(self) -> None:
+        """C warned in 299 of 300 probe draws at 20,000; G and T in none of 2,600."""
+        assert c_cluster_clause(299, 300) == pytest.approx(0.99999, abs=5e-6)
+        assert gt_cluster_clause(0, 2_600) >= 1.0 - 5e-7
         assert properties.CLUSTER_GT_DRAWS == 220
         # The eager control warned on 21 of 80 probe draws: it passes the clause with 4e-9.
-        assert jeffreys_at_most(21, 80, properties.CLUSTER_GT_CEILING, 220) < 1e-8
+        assert gt_cluster_clause(21, 80) < 1e-8
+        assert {f"cluster_{name}_n{n}" for name, n in pilot.DOSE_SOURCES} <= set(pilot.PILOTS)
+
+    def test_the_whole_study_passes_with_at_least_090(self) -> None:
+        """0.978 (nine arms) x 0.975 (five laws, no tail exceedance) x 1.0 x 1.0 = 0.954."""
+        calibration = arm_pass(properties.CALIBRATION_REPLICATES) ** len(GATED_CALIBRATION)
+        gap = tail_clause(0, pilot.TAIL_DRAWS) ** len(study.GAP_GATED)
+        clusters = c_cluster_clause(299, 300) * gt_cluster_clause(0, 2_600)
+        whole = calibration * gap * clusters
+        assert gap == pytest.approx(0.975, abs=1e-3)
+        assert gap >= FLOOR_GAP_FAMILY
+        assert whole == pytest.approx(0.954, abs=1e-3)
+        assert whole >= FLOOR_STUDY
+        # One exceedance on each of two laws.
+        two = tail_clause(1, pilot.TAIL_DRAWS) ** 2 * tail_clause(0, pilot.TAIL_DRAWS) ** 3
+        assert calibration * two * clusters == pytest.approx(0.935, abs=1e-3)
+        text = " ".join((study.STUDY.artifacts / "regenerate.py").read_text().split())
+        assert "**0.954** predictive" in text
+        assert "0.85 for the ``ic_gap`` family, and 0.90 for the whole study" in text
 
     #: The boosting tail table: ``law -> (k above 1.0 of M, pass, plug-in, pass of none above 3.0)``.
     TABLE_5B: ClassVar[dict[str, tuple[int, int, float, float, float]]] = {
@@ -221,16 +368,15 @@ class TestThePassProbabilities:
         "B": (1, 10, 0.555, 0.677, 0.582),
         "U": (0, 10, 0.878, 1.0, 0.582),
     }
-    #: The 0.95 predictive ceilings of the 2,000 tail clause, out of 20 draws.
-    CEILINGS: ClassVar[dict[str, int]] = {"G": 3, "T": 6, "C": 2, "S": 2, "B": 8, "U": 4}
 
-    def test_table_5b(self) -> None:
+    def test_table_5b_and_the_frozen_ceilings(self) -> None:
+        """The ceilings the pilot module freezes are the probe's 0.95 predictive quantiles."""
         for name, (k, m_probe, value, plug, none) in self.TABLE_5B.items():
             assert jeffreys_at_most(k, m_probe, 2, 20) == pytest.approx(value, abs=5e-4), name
             assert binom.cdf(2, 20, k / m_probe) == pytest.approx(plug, abs=5e-4), name
             assert jeffreys_at_most(0, m_probe, 0, 20) == pytest.approx(none, abs=5e-4), name
             ceiling = int(betabinom.ppf(0.95, 20, k + 0.5, m_probe - k + 0.5))
-            assert ceiling == self.CEILINGS[name], name
+            assert ceiling == pilot.BOOSTER_CEILINGS[name], name
         for name in ("G", "T", "C", "S"):
             assert jeffreys_at_most(0, 2, 1, 10) == pytest.approx(0.617, abs=5e-4), name
 
@@ -294,18 +440,22 @@ class TestTheControls:
             assert _coverage_control_power(coverage, properties.CONTROL_REPLICATES) > 0.999
 
     def test_the_pre_fix_dr_control_fails_coverage_on_g(self) -> None:
-        """The pre-fix one-step reading with the wrong Q undercovers on G at n = 8,000."""
+        """The pre-fix one-step reading with the wrong Q undercovers on G at n = 8,000.
+
+        As built its mean z is about -1.6 (coverage near 0.62); the bias's lower 95% limit over
+        100 draws keeps clear of the 0.85 floor at which the control's power reaches 0.999.
+        """
         z = []
-        for draw in range(20):
+        for draw in range(100):
             frame = law.draw(
                 "G", properties.ROBUST_N, stream_seed(study.STUDY, "design_prefix", draw)
             )
             estimate, se = fits.pre_fix_one_step("G", frame)
             z.append((estimate - law.TRUTH["G"][0]) / se)
-        # The bias's lower 95% limit over the 20 draws, read as the control's coverage.
+        # The bias's lower 95% limit over the 100 draws, read as the control's coverage.
         bias = abs(float(np.mean(z))) - 2.0 * float(np.std(z, ddof=1)) / math.sqrt(len(z))
         coverage = norm.cdf(1.96 - bias) - norm.cdf(-1.96 - bias)
-        assert bias > 0.5, z
+        assert bias > 0.85, z
         assert _coverage_control_power(coverage, properties.CONTROL_REPLICATES) > 0.999
 
     def test_the_pre_fix_reading_fails_the_small_sample_bound(self) -> None:
@@ -342,13 +492,42 @@ class TestTheControls:
                 total += 1
         assert jeffreys_at_most(warned, total, properties.CLUSTER_GT_CEILING, 220) < 0.01
 
+    #: The draws of the signature control's stream on which the broken reading breaches.  The
+    #: booster with occupancy from the wrong sample breaches (ratio error above 1.0) on 4 of
+    #: the stream's first 12 draws (0, 4, 8 and 10); the control reads the first three.
+    SIGNATURE_DRAWS = (0, 4, 8)
+
     def test_the_signature_fails_a_broken_reading(self) -> None:
-        """Occupancy from the wrong sample fails at least one mark on every draw."""
-        for draw in range(3):
+        """The booster read with occupancy from the wrong sample breaches on each control draw,
+        and each breach fails at least one mark."""
+        for draw in self.SIGNATURE_DRAWS:
             frame = law.draw("G", 2_000, stream_seed(study.STUDY, "design_signature", draw))
             other = law.draw("G", 2_000, stream_seed(study.STUDY, "design_signature_other", draw))
-            fitted = fits.learned_density("G", frame, "pooled_logistic", occupancy_from=other)
+            fitted = fits.learned_density("G", frame, "boosting", occupancy_from=other)
+            assert fitted.error > pilot.TAIL_SMALL, (draw, fitted.error)
             assert not fits.signature("G", frame, fitted).learner_limitation, draw
+
+    def test_the_noise_control_power_bound(self) -> None:
+        """At 1,000 control draws the noise control leaves the band only while the arm's SD is
+        below about 1.85 efficiency-bound SEs; at 3,200 draws that bound would be 2.08."""
+        assert noise_detection_bound(properties.CONTROL_REPLICATES) == pytest.approx(
+            1.847, abs=2e-3
+        )
+        assert noise_detection_bound(properties.CALIBRATION_REPLICATES) == pytest.approx(
+            2.077, abs=2e-3
+        )
+
+
+def noise_detection_bound(replicates: int) -> float:
+    """The arm SD, in efficiency-bound SEs, below which the noise control fails the SE-ratio band.
+
+    With a calibrated arm of SD ``t`` bound SEs, the noise control's SE ratio is
+    ``t / sqrt(1 + t^2)``, and its 99% interval leaves the band below 0.93 while
+    ``ratio (1 + 2.576 / sqrt(2R)) < 0.93``.
+    """
+    low, _ = MARGINS.calibration_se_ratio
+    ratio = low / (1.0 + Z99 / math.sqrt(2.0 * replicates))
+    return float(ratio / math.sqrt(1.0 - ratio**2))
 
 
 def _coverage_control_power(coverage: float, replicates: int) -> float:
@@ -394,39 +573,91 @@ class TestTheCells:
             gap = (("ic_gap", f"{name}_n_{n}", "shipped", source, n, 0, name),)
             pd.testing.assert_frame_equal(properties._draw(key), properties._draw(gap))
 
-    def test_each_large_stream_fits_its_cloud_parts(self) -> None:
-        """At the declared per-fit times (181.8 s and 368.9 s), each part is under 80 CPU-h."""
-        seconds = {"longitudinal_LTMLE": 181.8, "longitudinal_SDR": 368.9}
-        for stream, per_fit in seconds.items():
-            for span in properties.part_ranges(stream):
-                assert len(span) * per_fit / 3600 <= properties.PART_HOURS, stream
-            covered = [r for span in properties.part_ranges(stream) for r in span]
-            assert covered == list(range(properties.CALIBRATION_REPLICATES))
+    #: The smoke's per-fit seconds of each stream a cloud part runs.
+    SMOKE_SECONDS: ClassVar[dict[str, float]] = {
+        "classifier_G": 53.09,
+        "classifier_T": 60.91,
+        "classifier_S": 49.98,
+        "classifier_dr_G": 54.15,
+        "classifier_dr_T": 61.09,
+        "classifier_dr_G_both_wrong": 79.90,
+        "control_density_G": 0.12,
+        "control_classifier_G": 53.09,
+        "longitudinal_LTMLE": 121.33,
+        "control_LTMLE": 121.33,
+        "longitudinal_SDR": 244.49,
+    }
+
+    def test_the_eleven_cloud_parts(self) -> None:
+        """Each part is at most 55 CPU-h at the smoke's times, and the parts cover each heavy
+        stream's replicates once."""
+        assert len(properties.RUNNER_PARTS) == 11
+        hours = {}
+        for part, (streams, span) in properties.RUNNER_PARTS.items():
+            hours[part] = sum(
+                len(range(properties.stream_replicates(stream)) if span is None else span)
+                * self.SMOKE_SECONDS[stream]
+                / 3600
+                for stream in streams
+            )
+            assert hours[part] <= properties.PART_HOURS, (part, hours[part])
+        assert max(hours.values()) == pytest.approx(54.3, abs=0.05)
+        assert sum(hours.values()) == pytest.approx(541.0, abs=0.5)
+        for stream in self.SMOKE_SECONDS:
+            covered = sorted(r for span in properties.part_ranges(stream) for r in span)
+            assert covered == list(range(properties.stream_replicates(stream))), stream
 
     def test_the_seeds_are_distinct(self) -> None:
+        """Every declared seed at its full count, each calibration pilot with its three
+        extensions, draws a distinct sample, and 32-bit coincidences are no more than chance.
+
+        Within the study no seed repeats on the same law and size, so no two cells or pilots
+        share a sample; a coincidence across laws or sizes draws a different sample.  Against
+        every other registered study's primary seeds at their full counts, and within the study,
+        the number of coincident values is below the Poisson 0.9999 quantile of chance.
+        """
         records = {record.slug: record for record in registered()}
         others = [record for slug, record in records.items() if slug != study.STUDY.slug]
         assert study.SEED not in {record.seed for record in others}
         assert study.RESAMPLING_SEED not in {record.resampling_seed for record in others}
-        seeds = [
-            replicate_seed(study.STUDY, scenario, r)
+        drawn: list[tuple[str, int, int]] = [
+            (scenario, study.PRIMARY_N, replicate_seed(study.STUDY, scenario, r))
             for scenario in study.SCENARIOS
-            for r in range(50)
+            for r in range(study.PRIMARY_REPLICATES)
         ]
-        seeds += [
-            stream_seed(study.STUDY, "property_sample", family, stream, r)
-            for family, stream, *_ in properties.FIT_SETS
-            for r in range(50)
+        for family, stream, configuration, n, replicates, label in properties.FIT_SETS:
+            if family == "cluster_warning":
+                continue  # reads the ic_gap draws by design
+            sample = "longitudinal" if configuration.startswith("longitudinal") else label
+            drawn += [
+                (fits.law_of(sample) if sample != "longitudinal" else sample, n, seed)
+                for seed in (
+                    stream_seed(study.STUDY, "property_sample", family, stream, r)
+                    for r in range(replicates)
+                )
+            ]
+        reserve = pilot.MAX_EXTENSIONS * pilot.EXTENSION_DRAWS
+        for label, (kind, case, n, draws) in pilot.PILOTS.items():
+            sample = "longitudinal" if kind == "longitudinal" else fits.law_of(case)
+            count = draws + (reserve if label.startswith("calibration_") else 0)
+            drawn += [(sample, n, pilot.seed(label, r)) for r in range(count)]
+        assert len(set(drawn)) == len(drawn)
+        seeds = [seed for _, _, seed in drawn]
+        within = len(seeds) - len(set(seeds))
+        assert within <= poisson.ppf(0.9999, len(seeds) ** 2 / 2.0**33), within
+        noise = [
+            stream_seed(study.STUDY, "efficiency_noise", prefix)
+            for prefix in properties.efficiency_bounds()
         ]
-        seeds += [pilot.seed(label, r) for label in pilot.PILOTS for r in range(50)]
-        assert len(set(seeds)) == len(seeds)
+        assert not set(noise) & set(seeds)
         foreign = {
             replicate_seed(record, scenario, r)
             for record in others
             for scenario in record.scenarios
-            for r in range(50)
+            for r in range(record.replicates)
         }
-        assert not foreign & set(seeds)
+        expected = len(set(seeds)) * len(foreign) / 2.0**32
+        assert len(foreign & set(seeds)) <= poisson.ppf(0.9999, expected)
 
 
 # ---------------------------------------------------------------------------- the pilot
@@ -450,119 +681,320 @@ def calibration_plug_in(se_ratio: float, coverage: float, replicates: int) -> fl
     return float(max(ratio, 0.0) * max(cover, 0.0))
 
 
-def gap_pass(small: np.ndarray, large: np.ndarray, name: str, *, predictive: bool) -> float:
-    """The three ``ic_gap`` clauses' pass probability at the planned counts, from pilot gaps.
+def pooled_calibration(rows: pd.DataFrame, truth: float) -> tuple[float, float, int]:
+    """A pilot's pooled SE ratio, coverage and draw count; coverage at the symmetric interval.
 
-    The median clauses resample the pilot's gaps; the 20,000 clause reads a lognormal fitted to
-    them, its parameters fixed (plug-in) or drawn from their posterior (predictive).
+    Coverage is recomputed from each row's estimate and SE against the law module's truth, so
+    it does not depend on the truth a checkpoint was written with.
     """
-    rng = np.random.default_rng(stream_seed(study.STUDY, "design_gap_pass", name, predictive))
+    estimate = rows["estimate"].to_numpy(dtype=float)
+    se = rows["std_error"].to_numpy(dtype=float)
+    ratio = float(se.mean() / estimate.std(ddof=1))
+    coverage = float(np.mean(np.abs(estimate - truth) <= properties.CRITICAL * se))
+    return ratio, coverage, len(rows)
+
+
+def departure(rows: pd.DataFrame, truth: float, label: str) -> bool:
+    """A confirmed departure: the pooled 99% bootstrap interval of the SE ratio excludes 1, or
+    the exact 99% interval of coverage excludes 0.95."""
+    estimate = rows["estimate"].to_numpy(dtype=float)
+    se = rows["std_error"].to_numpy(dtype=float)
+    rng = np.random.default_rng(stream_seed(study.STUDY, "design_departure", label))
+    index = rng.integers(0, len(rows), (2_000, len(rows)))
+    ratios = se[index].mean(axis=1) / estimate[index].std(axis=1, ddof=1)
+    low, high = np.quantile(ratios, [0.005, 0.995])
+    covered = int(np.sum(np.abs(estimate - truth) <= properties.CRITICAL * se))
+    c_low = beta.ppf(0.005, covered, len(rows) - covered + 1) if covered else 0.0
+    c_high = beta.ppf(0.995, covered + 1, len(rows) - covered) if covered < len(rows) else 1.0
+    return bool(low > 1.0 or high < 1.0 or c_low > 0.95 or c_high < 0.95)
+
+
+def _pilot_truth(label: str) -> float:
+    kind, case, _, _ = pilot.PILOTS[label]
+    if kind == "longitudinal":
+        return float(fits.LONGITUDINAL_TRUTH[fits.LONGITUDINAL_GATED])
+    return float(fits.truth(case))
+
+
+def _calibration_rows(pilot_rows: pd.DataFrame, label: str) -> pd.DataFrame:
+    rows = pilot_rows.loc[(pilot_rows["label"] == label) & (pilot_rows["refusal"].isna())]
+    if pilot.PILOTS[label][0] == "longitudinal":
+        rows = rows.loc[rows["reading"] == fits.LONGITUDINAL_GATED]
+    return rows
+
+
+def arm_reading(pilot_rows: pd.DataFrame, label: str) -> float:
+    """The arm's pass probability under the extension rule, or a failed assertion.
+
+    An arm whose plug-in reaches 0.90 enters at target; an arm at the cap enters at its plug-in
+    once :data:`DIAGNOSED_AT_CAP` records a diagnosis with no defect.  A confirmed departure, or
+    an arm below 0.90 with an extension left, stops the declaration.
+    """
+    rows = _calibration_rows(pilot_rows, label)
+    truth = _pilot_truth(label)
+    ratio, coverage, draws = pooled_calibration(rows, truth)
+    extensions = (draws - pilot.CALIBRATION_DRAWS) // pilot.EXTENSION_DRAWS
+    assert draws == pilot.CALIBRATION_DRAWS + extensions * pilot.EXTENSION_DRAWS, (label, draws)
+    assert 0 <= extensions <= pilot.MAX_EXTENSIONS, (label, draws)
+    plug = calibration_plug_in(ratio, coverage, properties.CALIBRATION_REPLICATES)
+    if plug >= FLOOR_ARM:
+        return arm_pass(properties.CALIBRATION_REPLICATES)
+    assert not departure(rows, truth, label), f"{label}: a confirmed departure; diagnose it"
+    assert extensions == pilot.MAX_EXTENSIONS, f"{label}: plug-in {plug:.3f}; extend by 400"
+    assert label in DIAGNOSED_AT_CAP, f"{label}: at the cap; diagnose it before the declaration"
+    return plug
+
+
+def _pilot_gaps(pilot_rows: pd.DataFrame, label: str) -> np.ndarray:
+    rows = pilot_rows.loc[(pilot_rows["label"] == label) & (pilot_rows["reading"] == "ic_gap")]
+    return rows["ratio_error"].to_numpy(dtype=float)
+
+
+def gap_pass(pilot_rows: pd.DataFrame, name: str) -> float:
+    """A gated law's three ``ic_gap`` clauses at the planned counts, from its pilots.
+
+    The fall and the 2,000 bound resample the 80 and 30 pilot gaps; the 20,000 clause is the
+    Jeffreys beta-binomial of the tail pilot's exceedances (:func:`tail_clause`).
+    """
+    small = _pilot_gaps(pilot_rows, f"ic_gap_{name}_n2000")
+    large = _pilot_gaps(pilot_rows, f"ic_gap_{name}_n20000")
+    tail = _pilot_gaps(pilot_rows, f"ic_gap_tail_{name}_n20000")
+    assert small.size == pilot.GAP_DRAWS[2_000] and large.size == pilot.GAP_DRAWS[20_000], name
+    assert tail.size == pilot.TAIL_DRAWS, name
+    rng = np.random.default_rng(stream_seed(study.STUDY, "design_gap_pass", name))
     draws = 4_000
     m_small = np.median(rng.choice(small, (draws, properties.GAP_DRAWS[2_000])), axis=1)
     m_large = np.median(rng.choice(large, (draws, properties.GAP_DRAWS[20_000])), axis=1)
-    fall = np.mean(m_large <= properties.GAP_FALL * m_small)
-    bound = np.mean(m_small <= properties.GAP_BOUND_SMALL[name])
-    logs = np.log(large)
-    k = logs.size
-    mu, s = float(logs.mean()), float(logs.std(ddof=1))
-    if predictive:
-        sigma = s * np.sqrt((k - 1) / chi2.rvs(k - 1, size=draws, random_state=rng))
-        mean = mu + sigma / np.sqrt(k) * rng.standard_normal(draws)
-    else:
-        sigma, mean = np.full(draws, s), np.full(draws, mu)
-    each = norm.cdf((np.log(properties.GAP_BOUND_LARGE[name]) - mean) / sigma)
-    large_clause = float(np.mean(each ** properties.GAP_DRAWS[20_000]))
-    return float(fall * bound * large_clause)
+    fall = float(np.mean(m_large <= properties.GAP_FALL * m_small))
+    bound = float(np.mean(m_small <= properties.GAP_BOUND_SMALL[name]))
+    exceedances = int(np.sum(tail > properties.GAP_BOUND_LARGE[name]))
+    return fall * bound * tail_clause(exceedances, tail.size)
+
+
+def cluster_pass(pilot_rows: pd.DataFrame) -> float:
+    """The two cluster clauses from the dose pilots; each control is read on the same doses."""
+
+    def count(label: str, reading: str) -> tuple[int, int]:
+        rows = pilot_rows.loc[(pilot_rows["label"] == label) & (pilot_rows["reading"] == reading)]
+        return int(rows["estimate"].sum()), len(rows)
+
+    c_warned, c_total = count("cluster_C_n20000", "cluster")
+    assert c_total == pilot.DOSE_DRAWS
+    c_pass = c_cluster_clause(c_warned, c_total)
+    sources = [f"cluster_{name}_n{n}" for name, n in pilot.DOSE_SOURCES if name != "C"]
+    warned, total = (
+        sum(v) for v in zip(*(count(label, "cluster") for label in sources), strict=True)
+    )
+    gt_pass = gt_cluster_clause(warned, total)
+    disabled, _ = count("cluster_C_n20000", "cluster_gap_disabled")
+    assert c_cluster_clause(disabled, c_total) < 0.01
+    eager, total = (
+        sum(v) for v in zip(*(count(label, "cluster_eager") for label in sources), strict=True)
+    )
+    assert gt_cluster_clause(eager, total) < 0.01
+    return c_pass * gt_pass
 
 
 class TestThePilot:
     def test_each_calibration_arm_passes_with_090_or_is_extended(
         self, pilot_rows: pd.DataFrame
     ) -> None:
-        for label, (kind, case, _, draws) in pilot.PILOTS.items():
-            if not label.startswith("calibration_"):
-                continue
-            rows = pilot_rows.loc[pilot_rows["label"] == label]
-            if kind == "longitudinal":
-                rows = rows.loc[rows["reading"] == fits.LONGITUDINAL_GATED]
-            truth = (
-                fits.LONGITUDINAL_TRUTH[fits.LONGITUDINAL_GATED]
-                if kind == "longitudinal"
-                else fits.truth(case)
-            )
-            assert len(rows) >= draws, label
-            ratio = float(rows["std_error"].mean() / rows["estimate"].std(ddof=1))
-            coverage = float(rows["covered"].mean())
-            assert abs(rows["estimate"].mean() - truth) < 5 * rows["estimate"].std() / math.sqrt(
-                len(rows)
-            )
-            assert (
-                calibration_plug_in(ratio, coverage, properties.CALIBRATION_REPLICATES) >= 0.90
-            ), (
-                label,
-                ratio,
-                coverage,
-            )
+        family = 1.0
+        for label in GATED_CALIBRATION:
+            rows = _calibration_rows(pilot_rows, label)
+            truth = _pilot_truth(label)
+            spread = rows["estimate"].std() / math.sqrt(len(rows))
+            assert abs(rows["estimate"].mean() - truth) < 5 * spread, label
+            family *= arm_reading(pilot_rows, label)
+        assert family >= 0.95 or DIAGNOSED_AT_CAP, family
 
-    def test_the_ic_gap_clauses_pass_with_090_predictive(self, pilot_rows: pd.DataFrame) -> None:
+    def test_the_noise_control_has_power_on_each_controlled_arm(
+        self, pilot_rows: pd.DataFrame
+    ) -> None:
+        """Each controlled arm's pilot SD is below the noise control's detection bound."""
+        bound = noise_detection_bound(properties.CONTROL_REPLICATES)
+        arms = {
+            "calibration_density_G": "G",
+            "calibration_classifier_G": "G_classifier",
+            "calibration_LTMLE": properties.LTMLE_GATED,
+        }
+        for label, prefix in arms.items():
+            rows = _calibration_rows(pilot_rows, label)
+            unit = properties.efficiency_bounds()[prefix] / math.sqrt(properties.CALIBRATION_N)
+            spread = float(rows["estimate"].std(ddof=1)) / unit
+            assert spread < bound, (label, spread, bound)
+
+    def test_the_ic_gap_clauses_pass_with_090(self, pilot_rows: pd.DataFrame) -> None:
         family = 1.0
         for name in study.GAP_GATED:
-            gaps = {}
-            for n in study.GAP_SIZES:
-                rows = pilot_rows.loc[
-                    (pilot_rows["label"] == f"ic_gap_{name}_n{n}")
-                    & (pilot_rows["reading"] == "ic_gap")
-                ]
-                assert len(rows) == pilot.GAP_DRAWS[n]
-                gaps[n] = rows["ratio_error"].to_numpy(dtype=float)
-            value = gap_pass(gaps[2_000], gaps[20_000], name, predictive=True)
-            assert value >= 0.90, (name, value)
+            value = gap_pass(pilot_rows, name)
+            assert value >= FLOOR_LAW, (name, value)
             family *= value
-        assert family >= 0.85
+        assert family >= FLOOR_GAP_FAMILY
 
-    def test_the_cluster_clauses_from_the_pilot_doses(self, pilot_rows: pd.DataFrame) -> None:
-        def count(label: str, reading: str) -> tuple[int, int]:
-            rows = pilot_rows.loc[
-                (pilot_rows["label"] == label) & (pilot_rows["reading"] == reading)
-            ]
-            return int(rows["estimate"].sum()), len(rows)
+    def test_the_cluster_clauses_from_the_dose_pilots(self, pilot_rows: pd.DataFrame) -> None:
+        assert cluster_pass(pilot_rows) >= FLOOR_LAW
 
-        c_warned, c_total = count("ic_gap_C_n20000", "cluster")
-        c_pass = 1.0 - float(
-            betabinom.cdf(
-                properties.CLUSTER_C_FLOOR - 1, 30, c_warned + 0.5, c_total - c_warned + 0.5
-            )
-        )
-        assert c_pass >= 0.90
-        gt = [count(f"ic_gap_{name}_n{n}", "cluster") for name, n in properties.CLUSTER_SOURCES]
-        eager = [
-            count(f"ic_gap_{name}_n{n}", "cluster_eager") for name, n in properties.CLUSTER_SOURCES
-        ]
-        warned, total = sum(w for w, _ in gt), sum(t for _, t in gt)
-        assert jeffreys_at_most(warned, total, properties.CLUSTER_GT_CEILING, 220) >= 0.90
-        warned, total = sum(w for w, _ in eager), sum(t for _, t in eager)
-        assert jeffreys_at_most(warned, total, properties.CLUSTER_GT_CEILING, 220) < 0.01
-        disabled, _ = count("ic_gap_C_n20000", "cluster_gap_disabled")
-        assert disabled == 0
+    def test_the_whole_study_passes_with_090(self, pilot_rows: pd.DataFrame) -> None:
+        calibration = 1.0
+        for label in GATED_CALIBRATION:
+            calibration *= arm_reading(pilot_rows, label)
+        gap = 1.0
+        for name in study.GAP_GATED:
+            gap *= gap_pass(pilot_rows, name)
+        whole = calibration * gap * cluster_pass(pilot_rows)
+        assert whole >= FLOOR_STUDY, (calibration, gap, whole)
 
-    def test_table_5b_and_the_ceilings_from_the_pilot(self, pilot_rows: pd.DataFrame) -> None:
-        """Recomputed from the pilot's booster draws: the at-risk laws stay named."""
+    def test_the_booster_counts_against_the_frozen_ceilings(self, pilot_rows: pd.DataFrame) -> None:
+        """The ceilings are read, not recomputed: a count above one reopens that law's grid."""
+        readings = pilot.reported_readings(pilot_rows, pd.DataFrame(columns=["property", "cell"]))
         for name in law.LAWS:
-            rows = pilot_rows.loc[
-                (pilot_rows["label"] == f"boosting_{name}_n2000")
-                & (pilot_rows["reading"] == "boosting")
-            ]
-            errors = rows["ratio_error"].to_numpy(dtype=float)
-            above = int(np.sum(errors > 1.0))
-            value = jeffreys_at_most(above, errors.size, 2, 20)
-            if name not in ("T", "B"):
-                assert value >= 0.5, (name, above, errors.size)
-            assert int(betabinom.ppf(0.95, 20, above + 0.5, errors.size - above + 0.5)) <= 20
+            reading = readings["boosting"][name]
+            assert reading["tail_2000"]["draws"] == 20, name
+            assert reading["ceiling"] == pilot.BOOSTER_CEILINGS[name]
+            assert not reading["reopened"], (name, reading["above_1"])
+        for name in law.SUPPORTED:
+            assert not readings["learned"][name]["reopened"], name
 
-    def test_each_cell_is_rebudgeted_from_the_pilot(self, pilot_rows: pd.DataFrame) -> None:
-        """Each longitudinal part stays under 80 CPU-h at the pilot's median per-fit seconds."""
-        for estimator in study.LONGITUDINAL:
-            rows = pilot_rows.loc[pilot_rows["label"] == f"calibration_{estimator}"]
-            per_fit = float(rows.drop_duplicates("replicate")["seconds"].median())
-            for span in properties.part_ranges(f"longitudinal_{estimator}"):
-                assert len(span) * per_fit / 3600 <= properties.PART_HOURS, (estimator, per_fit)
+    def test_each_cloud_part_is_rebudgeted_from_the_pilot(self, pilot_rows: pd.DataFrame) -> None:
+        """Each cloud part stays at most 55 CPU-h at the pilot's median per-fit seconds."""
+        pilot_of = {
+            "classifier_G": "calibration_classifier_G",
+            "classifier_T": "calibration_classifier_T",
+            "classifier_S": "calibration_classifier_S",
+            "control_classifier_G": "calibration_classifier_G",
+            "longitudinal_LTMLE": "calibration_LTMLE",
+            "control_LTMLE": "calibration_LTMLE",
+            "longitudinal_SDR": "calibration_SDR",
+        }
+        seconds = dict(TestTheCells.SMOKE_SECONDS)
+        for stream, label in pilot_of.items():
+            rows = pilot_rows.loc[pilot_rows["label"] == label]
+            seconds[stream] = float(rows.drop_duplicates("replicate")["seconds"].median())
+        for part, (streams, span) in properties.RUNNER_PARTS.items():
+            hours = sum(
+                len(range(properties.stream_replicates(stream)) if span is None else span)
+                * seconds[stream]
+                / 3600
+                for stream in streams
+            )
+            assert hours <= properties.PART_HOURS, (part, hours)
+
+
+def test_the_committed_readings_match_their_recomputation() -> None:
+    """``readings.json`` is :func:`reported_readings` of the committed pilot and properties."""
+    if not (pilot.READINGS.exists() and pilot.OUTPUT.exists() and pilot.PROPERTIES.exists()):
+        pytest.skip("the readings are written after the declared run")
+    recomputed = pilot.reported_readings(pd.read_csv(pilot.OUTPUT), pd.read_csv(pilot.PROPERTIES))
+    assert json.loads(json.dumps(recomputed)) == json.loads(pilot.READINGS.read_text())
+
+
+def _synthetic_pilot() -> pd.DataFrame:
+    """Pilot rows built to give known readings: G breaches twice, one breach without a mark."""
+    rows: list[dict[str, Any]] = []
+
+    def add(label: str, n: int, reading: str, errors: list[float], marks: int = 1) -> None:
+        for r, error in enumerate(errors):
+            rows.append(
+                {
+                    "label": label,
+                    "replicate": r,
+                    "n": n,
+                    "reading": reading,
+                    "ratio_error": error,
+                    "mark_exact": marks,
+                    "mark_top5": 1,
+                    "mark_logp": 1,
+                }
+            )
+
+    quiet = [0.2] * 20
+    for name in law.LAWS:
+        errors = [1.5, 1.2, *[0.3] * 18] if name == "G" else [0.3] * 20
+        add(f"boosting_{name}_n2000", 2_000, "boosting", errors)
+        add(f"boosting_{name}_n2000", 2_000, "boosting_pre_fix", [0.9] * 20)
+    for name in pilot.LEARNED_LAWS:
+        add(f"boosting_{name}_n20000", 20_000, "boosting", [0.15] * 10)
+        add(f"stacked_{name}", 2_000, "stacked", [0.3] * 5)
+    for name in law.SUPPORTED:
+        label = f"learned_{name}"
+        errors = [0.3] * 20 if name == "B" else [*[1.1] * 5, *[0.3] * 15]
+        add(label, 2_000, "boosting", errors, marks=0 if name == "U" else 1)
+        add(label, 2_000, "boosting_pre_fix", [0.9] * 20)
+        add(label, 2_000, "boosting_support_ignored", [0.31 if name == "B" else 0.2] * 20)
+        add(label, 2_000, "pooled_logistic", quiet)
+        add(label, 2_000, "pooled_logistic_pre_fix", [0.5] * 20)
+        add(label, 2_000, "pooled_logistic_support_ignored", quiet)
+    for case in pilot.CLASSIFIER_CASES:
+        add(
+            f"classifier_{case}_n2000",
+            2_000,
+            "with_steps",
+            [0.5 if case in ("Gcap", "Bp2") else 1.0],
+        )
+        add(f"classifier_{case}_n2000", 2_000, "without_steps", [1.0])
+    add("classifier_T_n20000", 20_000, "with_steps", [0.7])
+    add("classifier_T_n20000", 20_000, "without_steps", [1.0])
+    return pd.DataFrame(rows)
+
+
+def test_reported_readings_on_synthetic_rows() -> None:
+    """Every reading on rows built to give it: the fall, the ceilings, the routing, the
+    support readings, the steps readings and the reported calibration rows."""
+    summary = pd.DataFrame(
+        [
+            {
+                "property": "interval_calibration",
+                "cell": "S__reported",
+                "se_ratio": 1.0,
+                "se_ratio_ci_lower": 0.96,
+                "se_ratio_ci_upper": 1.04,
+                "coverage": 0.95,
+                "coverage_ci_lower": 0.94,
+                "coverage_ci_upper": 0.96,
+            },
+            {
+                "property": "interval_calibration",
+                "cell": "S_classifier__reported",
+                "se_ratio": 0.9,
+                "se_ratio_ci_lower": 0.86,
+                "se_ratio_ci_upper": 0.94,
+                "coverage": 0.93,
+                "coverage_ci_lower": 0.92,
+                "coverage_ci_upper": 0.94,
+            },
+            {
+                "property": "interval_calibration",
+                "cell": "T_classifier_dr__reported",
+                "bias": -0.4,
+                "empirical_se": 1.0,
+                "remainder_proxy": -0.4,
+                "coverage": 0.88,
+            },
+        ]
+    )
+    readings = pilot.reported_readings(_synthetic_pilot(), summary)
+    boosting = readings["boosting"]
+    assert boosting["G"]["above_1"] == 2 and boosting["G"]["tail_2000"]["holds"]
+    assert not boosting["G"]["reopened"]
+    assert boosting["G"]["fall"]["holds"]  # 0.15 / 0.3 = 0.5 <= 2/3
+    assert boosting["C"]["fall"]["ratio"] == pytest.approx(0.5)
+    learned = readings["learned"]
+    assert learned["U"]["above_1"] == 5 and learned["U"]["reopened"]  # ceiling 4
+    assert not learned["B"]["reopened"]
+    assert learned["B"]["boosting"]["holds"]  # 0.3 < 0.9 and 0.3 <= 1.1 x 0.31
+    assert not learned["U"]["boosting"]["holds"]  # 0.3 > 1.1 x 0.2
+    routes = {(b["label"], b["replicate"]): b["route"] for b in readings["breaches"]}
+    assert routes[("boosting_G_n2000", 0)] == "learner_limitation"
+    assert routes[("learned_U", 0)] == "defect_suspect"  # mark_exact is 0
+    assert len(routes) == 2 + 5
+    steps = readings["classifier_steps"]
+    assert steps["T"]["holds"]  # 0.7 <= 0.8 and 1.0 >= 0.9
+    assert steps["Gcap"]["holds"] and steps["Bp2"]["holds"] and steps["G"]["holds"]
+    calibration = readings["reported_calibration"]
+    assert calibration["S__reported"]["inside_band"]
+    assert not calibration["S_classifier__reported"]["inside_band"]
+    dr = readings["classifier_dr"]["T_classifier_dr__reported"]
+    assert dr["holds"] and dr["coverage_below_090"]
+    assert readings["stacked"]["G"]["holds"]
+    assert json.loads(json.dumps(readings)) == readings
