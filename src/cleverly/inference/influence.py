@@ -94,6 +94,7 @@ from .delta import (
     wald_ci,
     wald_statistic,
 )
+from .switched import SwitchedVariance, VarianceSource, switched_record
 
 __all__ = [
     "BoundedKind",
@@ -147,8 +148,10 @@ Scale = Literal["level", "difference", "ratio", "fraction"]
 #: The outcome family a builder records on an estimate: a binary outcome or a continuous one.
 OutcomeFamily = Literal["binomial", "gaussian"]
 
-#: How an estimate's joint covariance is read off its influence curve.
-CovarianceRule = Literal["centered", "second_moment"]
+#: How an estimate's joint covariance is read off its influence curve.  ``"switched"`` reports
+#: the curve's centred variance raised to its predictable variation where the curve is sparse
+#: (:mod:`cleverly.inference.switched`); its joint covariance is the fit's, not the curves'.
+CovarianceRule = Literal["centered", "second_moment", "switched"]
 
 #: What kind of bounded functional a target is: a mean of the outcome, or a difference of two
 #: such means.  :func:`parameter_bounds` turns it into the range on a binary outcome.
@@ -973,12 +976,16 @@ class ParameterEstimate:
         Present for ratios only: the estimate on the log scale.
     bootstrap : BootstrapSummary or None
         Bootstrap summary, when ``n_bootstrap > 0`` was requested.
-    covariance_rule : {"centered", "second_moment"}
+    covariance_rule : {"centered", "second_moment", "switched"}
         How joint covariance and delta-method contrasts are computed from the influence
         curve. ``"centered"`` uses the sample covariance at the observation or cluster
         unit, which can differ from :attr:`variance` on a fold-evaluated or repeated fit.
         ``"second_moment"`` uses the raw second moment that the stacked cross-fitted
-        natural-course mean reports as its variance.
+        natural-course mean reports as its variance. ``"switched"`` is the rule of a
+        continuous-time survival fit with ``variance="switched"``: :attr:`variance` is the
+        centred curve variance, raised to the predictable variation that :attr:`switched`
+        records when the curve is sparse, and a contrast reads the fit's covariance through
+        the result's own methods.
     inference : str
         Whether the package supplies inference for this estimate. One of
         :data:`InferenceStatus`. The
@@ -1032,9 +1039,15 @@ class ParameterEstimate:
         binary outcome does. The curve and :attr:`std_error` stay on the reported scale.
         ``True`` for a restricted mean of a continuous-time survival fit, whose range is
         ``(0, tau)``; ``False`` for every other estimate.
+    switched : SwitchedVariance or None
+        Under the ``"switched"`` rule, both variances of the estimate and the relative
+        standard deviation of its curve's variance
+        (:class:`~cleverly.inference.switched.SwitchedVariance`). ``None`` under every other
+        rule.
 
     Attributes
     ----------
+    variance_source : str
     small_sample_df : float or None
         The :func:`satterthwaite_df` of :attr:`influence_curve` over the rows where it is not
         0, centred there under the ``"centered"`` covariance rule. Computed when the estimate
@@ -1126,10 +1139,20 @@ class ParameterEstimate:
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     range_interval: bool = False
+    switched: SwitchedVariance | None = None
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "small_sample_df", self._small_sample_df())
+
+    @property
+    def variance_source(self) -> VarianceSource:
+        """Which variance :attr:`variance` is: ``"influence_curve"`` or ``"predictable_variation"``.
+
+        ``"predictable_variation"`` only under ``variance="switched"``, when the curve is sparse
+        and its predictable variation is usable and larger than its centred variance.
+        """
+        return "influence_curve" if self.switched is None else self.switched.source
 
     def _small_sample_df(self) -> float | None:
         """:attr:`small_sample_df`, from the curve's non-zero rows; no status is read or set."""
@@ -1592,7 +1615,10 @@ class ParameterEstimate:
         (:attr:`interval_scale`). An estimate with a Student t reference adds ``reference_df``,
         and its bootstrap columns take the diagnostic names. An estimate under a declared
         stopping rule adds ``rule_widened`` (``True``) and ``residual_margin``, so a consumer
-        can tell that ``ci_lower`` and ``ci_upper`` include the margin. ``std_err`` is present
+        can tell that ``ci_lower`` and ``ci_upper`` include the margin. An estimate under the
+        ``"switched"`` rule adds ``variance_source``, both standard errors
+        (``influence_curve_std_err`` and ``predictable_variation_std_err``) and
+        ``variance_rel_sd``, the relative standard deviation that the switch reads. ``std_err`` is present
         exactly when :attr:`supplies_inference` is ``True``, so a programmatic consumer has a
         total test.
 
@@ -1616,6 +1642,11 @@ class ParameterEstimate:
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
+        if self.switched is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = _root(self.switched.influence_variance)
+            row["predictable_variation_std_err"] = _root(self.switched.predictable_variance)
+            row["variance_rel_sd"] = self.switched.relative_sd
         row["scale"] = self.scale
         row["interval_scale"] = self.interval_scale
         if self.log_psi is not None:
@@ -1858,6 +1889,7 @@ def make_estimate(
     bounds: tuple[float, float] | None = None,
     outcome_family: OutcomeFamily | None = None,
     range_interval: bool = False,
+    predictable_variance: float | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1888,11 +1920,14 @@ def make_estimate(
         Significance level of the interval.
     log_psi : float or None, default=None
         The estimate on the log scale, for a ratio only.
-    covariance_rule : {"centered", "second_moment"}, default="centered"
+    covariance_rule : {"centered", "second_moment", "switched"}, default="centered"
         ``"centered"`` stores :func:`~cleverly.inference.influence_variance`.
         ``"second_moment"`` stores
         :func:`~cleverly.inference.cluster.stacked_second_moment_variance` and refuses a
-        cluster.
+        cluster. ``"switched"`` stores the centred variance, raised to
+        ``predictable_variance`` when the curve is sparse
+        (:class:`~cleverly.inference.switched.SwitchedVariance`); it needs that argument and
+        refuses a cluster.
     inference : str, default="influence_curve"
         Whether the package supplies inference for the estimate. One of
         :data:`InferenceStatus`, which the
@@ -1914,15 +1949,30 @@ def make_estimate(
     range_interval : bool, default=False
         Whether a level estimate with finite ``bounds`` forms its interval on the logit of its
         position in them (:attr:`ParameterEstimate.range_interval`).
+    predictable_variance : float or None, default=None
+        The estimate's predictable variation on its inference scale, under the
+        ``"switched"`` rule only.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
-        ``support``, ``bounds``, ``rule_widened`` and ``outcome_family``.
+        ``support``, ``bounds``, ``rule_widened``, ``outcome_family`` and, under the
+        ``"switched"`` rule, ``switched``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
-    if covariance_rule == "second_moment":
+    record: SwitchedVariance | None = None
+    if covariance_rule == "switched" or predictable_variance is not None:
+        if covariance_rule != "switched" or predictable_variance is None:
+            raise ValueError(
+                "a predictable variance needs covariance_rule='switched', and that rule needs "
+                f"predictable_variance; got {covariance_rule!r} and {predictable_variance!r}"
+            )
+        if cluster is not None:
+            raise ValueError("the switched variance is defined for independent rows only")
+        record = switched_record(ic, influence_variance(ic, None), predictable_variance)
+        variance = record.variance
+    elif covariance_rule == "second_moment":
         if cluster is not None:
             raise ValueError(_SECOND_MOMENT_CLUSTER_REFUSAL)
         variance = stacked_second_moment_variance(ic)
@@ -1930,7 +1980,8 @@ def make_estimate(
         variance = influence_variance(ic, cluster)
     else:
         raise ValueError(
-            f"covariance_rule must be 'centered' or 'second_moment'; got {covariance_rule!r}"
+            "covariance_rule must be 'centered', 'second_moment' or 'switched'; got "
+            f"{covariance_rule!r}"
         )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
     inference = bounded_status(inference, float(psi), bounds)
@@ -1952,7 +2003,15 @@ def make_estimate(
         rule_widened=rule_widened,
         outcome_family=outcome_family,
         range_interval=range_interval,
+        switched=record,
     )
+
+
+def _root(variance: float) -> float:
+    """The standard error of a variance, ``nan`` when it is negative or not finite."""
+    if not np.isfinite(variance) or variance < 0.0:
+        return float("nan")
+    return float(np.sqrt(variance))
 
 
 def _median_adjusted_variance(points: FloatArray, variances: Sequence[float]) -> float:

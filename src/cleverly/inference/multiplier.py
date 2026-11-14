@@ -742,7 +742,7 @@ def simultaneous_bands(
     _refuse_out_of_range(items, band_scale)
     n = items[0][1].n
     ic = np.column_stack([estimate.influence_curve for _, estimate in items])
-    se = np.array([_band_std_error(estimate) for _, estimate in items])
+    se = np.array([_critical_std_error(estimate) for _, estimate in items])
     critical = multiplier_critical_value(
         ic,
         se,
@@ -931,6 +931,22 @@ def _band_std_error(estimate: ParameterEstimate) -> float:
     standard error without the accessor's refusal.
     """
     return estimate._plugin_std_error()
+
+
+def _critical_std_error(estimate: ParameterEstimate) -> float:
+    """The standard error the max-t statistic standardizes each curve by.
+
+    The curve's own: :func:`_band_std_error`, except under ``variance="switched"``, where the
+    reported standard error can exceed the curve's.  The critical value then reads the
+    correlation of the curves standardized by their own standard errors, and each half-width
+    takes the reported one, so the band is at least the influence-curve band
+    (X6 plan, 2.1.5).
+    """
+    record = estimate.switched
+    if record is None:
+        return _band_std_error(estimate)
+    variance = record.influence_variance
+    return float(np.sqrt(variance)) if np.isfinite(variance) and variance >= 0 else float("nan")
 
 
 def _checked_items(

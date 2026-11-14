@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._support import Classification, Kind, combine_support, interval_floor, support_for
 from .._typing import FloatArray, IntArray
-from ..exceptions import CapabilityError, RefusalReason
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
@@ -94,6 +94,21 @@ def estimate_curves(estimates: Mapping[str, ParameterEstimate]) -> dict[str, Flo
     return {name: estimate.influence_curve for name, estimate in estimates.items()}
 
 
+#: Why a generic contrast of estimates under ``variance="switched"`` is refused.
+SWITCHED_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "These estimates report the switched variance of a continuous-time survival fit: the "
+    "influence-curve variance raised to the predictable variation where the curve is sparse. "
+    "A contrast built from their influence curves alone would report the influence-curve "
+    "variance, and the switch needs the fit's predictable-variation covariance, which the "
+    "estimates do not carry.",
+    alternative=(
+        "Use ContinuousSurvivalResult.contrast or ContinuousSurvivalResult.ratio, which read "
+        "the fit's covariance, or fit with variance='influence_curve'."
+    ),
+)
+
+
 def covariance_rule(
     estimates: Mapping[str, ParameterEstimate],
     names: Sequence[str],
@@ -103,9 +118,14 @@ def covariance_rule(
     """The one covariance rule every selected estimate declares.
 
     A selection that mixes rules is refused. No derivation here supplies the
-    cross-covariance between a centred curve and a raw second moment.
+    cross-covariance between a centred curve and a raw second moment. A selection of
+    ``"switched"`` estimates is refused too: their variance is not the variance of their
+    curves, so a contrast of the curves would report the influence-curve variance beside
+    inputs that report the predictable variation.
     """
     rules = {estimates[name].covariance_rule for name in names}
+    if "switched" in rules:
+        raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
     if len(rules) != 1:
         raise ValueError(
             f"the selected estimates {list(names)} declare different covariance rules "

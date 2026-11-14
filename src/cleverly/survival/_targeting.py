@@ -504,3 +504,148 @@ def default_cutoff(n: int) -> float:
         The bound.
     """
     return 1.0 / (np.sqrt(n) * np.log(n))
+
+
+#: Units per block of the predictable-variation pass, so its ``(J, P, units, M)`` temporaries
+#: stay near 50 MB at the largest grids the engine meets.
+_PV_BLOCK_CELLS: Final = 6_000_000
+
+
+def _before(survival: FloatArray) -> FloatArray:
+    """``S(u_m^-)``: the survival just before each grid time, from ``S(u_m)``."""
+    return np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
+
+
+def _multinomial_moment(clever: FloatArray, dlam: FloatArray, rho: FloatArray) -> FloatArray:
+    r"""``(P, P)`` :math:`\sum_{i,m} \rho\, V(u_m)_{pq}` for one arm and one block of units.
+
+    :math:`V_{pq} = \sum_l c_{l,p} c_{l,q}\, d\Lambda_l - (\sum_l c_{l,p}\, d\Lambda_l)
+    (\sum_l c_{l,q}\, d\Lambda_l)`, the conditional covariance of the multinomial jumps of the
+    causes given survival to :math:`u_m`.
+
+    Parameters
+    ----------
+    clever : ndarray
+        ``(J, P, b, M)`` :math:`c_{l,p}(u_m, L_i)`.
+    dlam : ndarray
+        ``(J, b, M)`` the arm's hazard jumps.
+    rho : ndarray
+        ``(b, M)`` the nonnegative weight :math:`\hat S(u^-)\, \hat\pi \hat S_c(u^-)\, \hat w^2`.
+
+    Returns
+    -------
+    ndarray
+        The block's contribution.
+    """
+    J, P = clever.shape[:2]
+    out = np.zeros((P, P))
+    first = np.zeros(clever.shape[1:])
+    for l in range(J):
+        scaled = clever[l] * np.sqrt(rho * dlam[l])[None]
+        flat = scaled.reshape(P, -1)
+        out += flat @ flat.T
+        first += clever[l] * dlam[l][None]
+    first *= np.sqrt(rho)[None]
+    flat = first.reshape(P, -1)
+    out -= flat @ flat.T
+    return out
+
+
+def _martingale_block(
+    problem: Problem,
+    evaluation: Evaluation,
+    dlam: FloatArray,
+    reach: FloatArray | None,
+    a: int,
+) -> FloatArray:
+    r"""``(JQ, JQ)`` :math:`\sum_i \sum_m \rho_{im} V_a(u_m \mid L_i)` over the targets of arm ``a``.
+
+    Every unit contributes for both arms, whatever it received: the term is
+    :math:`E[M_a^2 \mid L]`, a function of :math:`L` alone.
+    """
+    J, Q = problem.n_causes, problem.n_rows
+    n, M = problem.at_risk.shape
+    survival = evaluation.survival[a]
+    incidence = evaluation.incidence[a]
+    # W_q(u_m) = sum over m' >= m of the row's weights, the same for every unit.
+    tail = np.cumsum(problem.target_weights[:, ::-1], axis=1)[:, ::-1]  # (Q, M)
+    out = np.zeros((J * Q, J * Q))
+    block = max(1, _PV_BLOCK_CELLS // max(1, J * J * Q * M))
+    for start in range(0, n, block):
+        rows = slice(start, min(n, start + block))
+        weight = problem.weight[a][rows]
+        rho = _before(survival[rows]) * weight
+        rho = rho * (1.0 if reach is None else reach[a][rows])
+        clever = np.empty((J, J * Q, rho.shape[0], M))
+        for j in range(J):
+            f = incidence[j][rows]  # (b, M)
+            # G_q(u) = {sum_{m' >= m} w_q F_j(u_m') - W_q(u) F_j(u)} / S(u)
+            weighted = f[None] * problem.target_weights[:, None, :]  # (Q, b, M)
+            weighted = np.cumsum(weighted[:, :, ::-1], axis=2)[:, :, ::-1]
+            shared = (weighted - tail[:, None, :] * f[None]) / survival[rows][None]
+            cols = slice(j * Q, (j + 1) * Q)
+            for l in range(J):
+                clever[l, cols] = -shared
+                if l == j:
+                    clever[l, cols] += tail[:, None, :]
+        out += _multinomial_moment(clever, dlam[a][:, rows], rho)
+    return out
+
+
+def predictable_covariance(
+    problem: Problem,
+    evaluation: Evaluation,
+    dlam: FloatArray,
+    reach: FloatArray | None = None,
+) -> FloatArray:
+    r"""``(P, P)`` the predictable-variation second moments of the influence curves.
+
+    .. math::
+
+        \hat\Sigma_{pv} = \widehat{\mathrm{Cov}}_n(\hat F) + \sum_a P_n \sum_{u_m}
+        \hat S(u_m^-)\, \hat\pi \hat S_c(u_m^-)\, \hat w_a^2\, V_a(u_m),
+
+    with :math:`V_a` the multinomial covariance of :func:`_multinomial_moment` for the targets of
+    arm :math:`a` and zero across arms (:math:`1\{A = 1\} 1\{A = 0\} = 0`), and
+    :math:`\hat F` each unit's plug-in of every target.  A target with grid weights
+    :math:`\omega` has :math:`c_l(u) = 1\{l = j\} W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) -
+    W(u) F_j(u)\} / S(u)`, the clever covariate of :func:`_direction` without the weight.  Where
+    the positivity floor binds, :math:`\hat\pi \hat S_c \hat w^2 = \hat w \min(1, \hat\pi \hat
+    S_c / g_{\min})`, so the floored weight enters squared, as it does in :math:`P_n \hat D^2`.
+
+    At the true nuisances on a sample that is its own law, the matrix equals the population
+    covariance of the influence curves: the conditional covariance of the martingale part
+    integrates to its second moment, and its cross term with :math:`\hat F` is zero (X6 plan,
+    2.1.3, a derivation).  Its diagonal is the predictable variance of each target.
+
+    Parameters
+    ----------
+    problem : Problem
+        The fixed inputs.
+    evaluation : Evaluation
+        The evaluation at ``dlam``: its survival and incidences.
+    dlam : ndarray
+        ``(2, J, n, M)`` the hazard jumps, the targeted ones for a fit.
+    reach : ndarray or None
+        ``(2, n, M)`` :math:`\min(1, \hat\pi \hat S_c(u^-) / g_{\min})`, or ``None`` where the
+        floor binds nowhere.
+
+    Returns
+    -------
+    ndarray
+        Population second moments (divided by :math:`n`), in the order of ``evaluation``'s
+        influence columns.
+    """
+    J, Q = problem.n_causes, problem.n_rows
+    n = problem.n
+    rows = problem.target_weights.T
+    plugins = np.zeros((n, 2 * J * Q))
+    for a in (0, 1):
+        for j in range(J):
+            plugins[:, (a * J + j) * Q : (a * J + j + 1) * Q] = evaluation.incidence[a, j] @ rows
+    centred = plugins - plugins.mean(axis=0)
+    out = centred.T @ centred / n
+    for a in (0, 1):
+        block = slice(a * J * Q, (a + 1) * J * Q)
+        out[block, block] += _martingale_block(problem, evaluation, dlam, reach, a) / n
+    return out
