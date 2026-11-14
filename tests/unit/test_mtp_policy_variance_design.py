@@ -139,7 +139,7 @@ def test_the_twin_sizes_are_the_declared_table() -> None:
 
 
 def test_the_record_publishes_the_cells_the_fit_sets_write() -> None:
-    declared = properties.declared_cells()
+    declared = properties.declared_cell_names()
     assert set(study.PROPERTY_CELLS) == set(declared)
     for family, cells in study.PROPERTY_CELLS.items():
         assert set(cells) == declared[family], family

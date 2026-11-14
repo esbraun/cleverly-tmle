@@ -377,7 +377,7 @@ DERIVED_CELLS: dict[str, tuple[str, ...]] = {
 }
 
 
-def declared_cells() -> dict[str, set[str]]:
+def declared_cell_names() -> dict[str, set[str]]:
     """Every cell the fit sets and their derived controls write, by family."""
     out: dict[str, set[str]] = {}
     for family, label, _ in FIT_SETS:
@@ -766,7 +766,12 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins)
     policy_verdicts(summary, rows)
     red_routes(summary)
-    return finish(summary, rates)
+    summary = finish(summary, rates)
+    # The text columns read back from ``properties.csv`` with NaN for an empty cell, so the
+    # recomputed table writes NaN where it held None (the CSV bytes are the same).
+    for column in ("reading", "red_route"):
+        summary[column] = summary[column].astype(object).where(summary[column].notna(), np.nan)
+    return summary
 
 
 def red_routes(summary: pd.DataFrame) -> None:
