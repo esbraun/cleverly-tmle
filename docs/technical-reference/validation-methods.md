@@ -2766,7 +2766,7 @@ reading, and one note per test with its purpose, its conditions and its rung in 
 | `placebo` | permutes the treatment column and refits. A dose whose declared support is a function moves each dose's position within its band instead (below) | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the paired shift against the original fit, in standard errors | how far the learners move when a noise column joins the adjustment set |
 | `subset` | refits on random subsamples | the scatter ratio rho against `SE * sqrt((n/m - 1) * n/(n - 1))`; `(R - 1) * rho^2` follows a chi-square law on R - 1 degrees of freedom | the reported standard error is the right size |
-| `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
+| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the control refit's own Wald test of the exact null, on its interval scale and reference distribution (a few-cluster t, `tests/unit/test_refutation_reference.py`) | the design, under the control assumptions the paragraph below states |
 | `dummy_outcome` | draws an outcome independent of `W` and `A` and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
 | `simulated_outcome` | draws `Y` from a declared mean `m(a, W)` and refits | the same three readings, against the exact truth of the target | adjustment and treatment terms in the full pipeline |
 | `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `Y` from `m(a, W)`, and refits | bias, standard-error ratio, and coverage against the same bands | operating characteristics on a law fitted to resemble the data |
@@ -3265,7 +3265,8 @@ test fits a point-treatment TMLE of `C` on `A_{t+1}`, adjusted for `H_{t+1}`, on
 node `t + 1`. `future_treatment_node=t` selects the node, and the default is 1.
 
 The test uses the outcome and treatment learners and the fold count of the fit. The bounds rule
-and the learner rule of the negative-control outcome apply to the control.
+and the learner rule of the negative-control outcome apply to the control. Its p-value is the
+control fit's own Wald test of 0, as for the negative-control outcome.
 
 The reading is valid only when `C` is measured before `A_{t+1}`, has no effect on `A_{t+1}`, and gets no feedback from `A_{t+1}`. The
 code cannot check this condition, so the report states it and stays at `L0`. `refute()` refuses
