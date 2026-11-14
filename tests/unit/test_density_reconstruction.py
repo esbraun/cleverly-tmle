@@ -11,8 +11,8 @@ between the fit and the truth.
 - W2: the ratio at the largest doses keeps its tail weight.
 - W3a to W3g: segment masses, exponential exactness, no new extremum, segment breaks, one
   representation across readers, the mixed law's partial-bin mass, and the pass cap.
-- W4a to W4e: the grid's core, floor, robust width cap, gap bins, explicit edges and the
-  preflight.
+- W4a to W4f: the grid's core, floor, robust width cap, gap bins, explicit edges, the
+  preflight, and the thin-stretch factor at each end.
 - W5: the collapse of a vector's last dose onto an atom integrates a multi-bin segment.
 - W6: the remainder with a wrong outcome regression.
 - W7, W10: the longitudinal fits read the point fit's density; occupancy travels with the
@@ -33,6 +33,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.interventions.joint_density as joint_module
@@ -769,6 +770,82 @@ def test_w4e_the_preflight_reads_the_refined_grid(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(density_module, "available_memory", lambda: free)
     with pytest.raises(MethodConfigurationError, match="density_bins="):
         preflight_conditional_densities(learner, [(2, dose)], Folds.single(400), n_bins=10)
+
+
+def _moved_extreme(r: float, *, lower: bool) -> np.ndarray:
+    """20,000 Gaussian quantiles with the extreme moved out ``r`` local spans past its neighbour.
+
+    The local span is that of the :data:`TAIL_ROWS` rows next to the moved dose; ``lower``
+    mirrors the sample so that the smallest dose moves down.
+    """
+    n = 20_000
+    base = stats.norm.ppf((np.arange(1, n + 1) - 0.5) / n)
+    local = base[-2] - base[-2 - TAIL_ROWS]
+    base[-1] = base[-2] + r * local
+    return -base if lower else base
+
+
+def _outer_bin(r: float, *, lower: bool) -> int:
+    """The rows in the outermost bin on the moved side."""
+    a = _moved_extreme(r, lower=lower)
+    counts = np.histogram(a, bin_edges(a, default_density_bins(a.size)))[0]
+    return int(counts[0] if lower else counts[-1])
+
+
+def _thin_stretch_problems() -> list[str]:
+    found = []
+    for lower in (False, True):
+        for r in (1.5, 2.5):
+            if (rows := _outer_bin(r, lower=lower)) < TAIL_ROWS:
+                found.append(f"r = {r}, lower = {lower}: an ordinary spacing left {rows} rows")
+        for r in (3.5, 5.0):
+            if (rows := _outer_bin(r, lower=lower)) != 1:
+                found.append(f"r = {r}, lower = {lower}: the far dose shares a bin of {rows}")
+    return found
+
+
+#: The review draw on which factor 1 left G's maximum alone in its top bin at 20,000.
+W4F_DRAW = 11
+
+
+def _review_draw() -> tuple[int, float]:
+    """Law G at 20,000 on the review draw: the top bin's rows and the IC gap (oracle hazard)."""
+    from tests.studies import canonical_mtp_density_tails as study
+    from tests.studies import mtp_density_tails_fits as fits
+    from tests.studies.evidence.seeds import stream_seed
+
+    frame = law.draw("G", 20_000, stream_seed(study.STUDY, "review_gappos", "G", 20_000, W4F_DRAW))
+    dose = frame["A"].to_numpy()
+    edges = bin_edges(dose, default_density_bins(dose.size))
+    fit = fits.fit_density("G", frame)
+    return int(np.sum(dose >= edges[-2])), float(fits.ic_gap("G", frame, fit))
+
+
+def test_w4f_a_thin_outer_stretch_is_cut_only_beyond_three_spans() -> None:
+    assert _thin_stretch_problems() == []
+
+
+def test_w4f_the_review_draw_keeps_its_maximum_in_a_full_bin() -> None:
+    rows, gap = _review_draw()
+    assert rows >= TAIL_ROWS
+    assert gap <= 0.08
+
+
+def test_w4f_factor_one_isolates_the_extreme(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation (i): the rule before the fix, factor 1 on a thin outer stretch."""
+    monkeypatch.setattr(density_module, "THIN_STRETCH_FACTOR", 1.0)
+    found = _thin_stretch_problems()
+    assert sum("an ordinary spacing left 1 rows" in item for item in found) == 4, found
+    rows, gap = _review_draw()
+    assert rows == 1
+    assert gap > 0.1
+
+
+def test_w4f_a_thin_stretch_never_cut_hides_a_far_dose(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation (ii): a thin outer stretch is never a gap, so a far dose joins a full bin."""
+    monkeypatch.setattr(density_module, "THIN_STRETCH_FACTOR", np.inf)
+    found = _thin_stretch_problems()
+    assert sum("the far dose shares a bin" in item for item in found) == 4, found
 
 
 # ------------------------------------------------------------------ W5

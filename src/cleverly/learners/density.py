@@ -121,6 +121,13 @@ _FLAT_WARNING = 0.5
 #: error most.
 TAIL_ROWS = 20
 
+#: How much longer than its local span an empty run must be to become a gap when fewer than
+#: :data:`TAIL_ROWS` observations lie beyond it.  Such a run would close an end stretch thinner
+#: than the floor, and the outermost bin carries the mass beyond the sample's extreme: at factor
+#: 1 an ordinary top spacing of an exponential tail is cut off in about 9% of samples, and the
+#: extreme then sits alone in its bin.  At 3 that falls to about 0.2%.  Other runs keep factor 1.
+THIN_STRETCH_FACTOR = 3.0
+
 #: A bin whose probability is at most this is inactive for its row and breaks the row's
 #: segment.  Hazards are clipped to ``[1e-12, 1 - 1e-12]`` (:data:`_HAZARD_EPS`), so a bin
 #: outside a row's support, or past the bin where its hazard reaches the upper clip, carries
@@ -392,13 +399,18 @@ def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
             x0, x1 = float(cuts[j]), float(cuts[stop])
             # The span of the TAIL_ROWS observations next to the run on its inner side: an
             # empty run shorter than that is ordinary spacing in a thinning tail, not a gap.
+            # A run with fewer than TAIL_ROWS observations beyond it must be longer than
+            # THIN_STRETCH_FACTOR spans, since it would leave a thin outermost stretch.
             if upper:
                 below = int(np.searchsorted(ordered, x0, side="right"))
                 local = x0 - float(ordered[max(below - TAIL_ROWS, 0)])
+                beyond = int(ordered.size - np.searchsorted(ordered, x1, side="left"))
             else:
                 above = int(np.searchsorted(ordered, x1, side="left"))
                 local = float(ordered[min(above + TAIL_ROWS - 1, ordered.size - 1)]) - x1
-            if x1 - x0 > 2.0 * h and x1 - x0 > local:
+                beyond = int(np.searchsorted(ordered, x0, side="right"))
+            factor = THIN_STRETCH_FACTOR if beyond < TAIL_ROWS else 1.0
+            if x1 - x0 > 2.0 * h and x1 - x0 > factor * local:
                 if j > start:
                     stretches.append(("data", start, j))
                 stretches.append(("gap", j, stop))
@@ -427,7 +439,8 @@ def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> Fl
       pieces no wider than ``h``;
     - a run of pieces holding no observation becomes one empty *gap* bin when it is longer
       than ``2 h`` and longer than the span of the :data:`TAIL_ROWS` observations next to it
-      on its inner side;
+      on its inner side, or than :data:`THIN_STRETCH_FACTOR` times that span when fewer than
+      :data:`TAIL_ROWS` observations lie beyond it;
     - the other pieces are merged from the outer end inward until each bin holds at least
       ``min(TAIL_ROWS, m)`` of the ``m`` observations of its stretch.
 
