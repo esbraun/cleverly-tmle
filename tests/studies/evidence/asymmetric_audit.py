@@ -52,6 +52,28 @@ bound (:func:`side_bounds`, :data:`CORNERS`), narrowing as well as widening, by 
 rule.  No verdict moving makes the study ``neutral``; a move lists it as ``moved``, for a targeted
 rerun.  ``tests/unit/test_asymmetric_audit.py`` fails while any study reads ``refits``.
 
+**A refit that misses its committed row** (``replay`` = ``mismatch``) is judged, not discarded
+(:func:`replay_shifts`).  The R_a bound is a ratio of the shipped to the normal half-width per
+side, and the screen applies it to the *committed* row's estimate and standard error, so a
+refit that differs from the committed fit still bounds the committed interval when the ratio
+does not depend on the difference.  The skew-widened t's ratio on each side is
+``max(q, q +- a K) / z``: a function of the degrees of freedom and of the acceleration of the
+influence curve alone, free of the estimate and of the standard error.  MOVER's ratio reads the
+arms' positions in their standard errors.  The bound is the 99% quantile of 20 replicates
+inflated by 1.5, built over fits that differ from one another by about one sampling standard
+deviation in estimate and in standard error, and it is applied to every committed replicate,
+most of which were never refitted.  A refit within :data:`SHIFT_LIMIT` of those deviations of
+its committed row is a perturbation well inside the spread the bound already spans, so the
+mismatch is recorded and counted (``replay_shifts``) and the bound is applied.  A row whose
+refit reads no package interval (``own``) is accepted whatever its shift: the scale is set by
+the code path, not by the estimate, and no shipped interval reaches its verdict.  A group the
+screen never judges is accepted too.  Any other mismatch (a larger shift, or a refit that
+failed where the committed fit did not) leaves the study reading ``refits`` with
+``mismatch:<k>``.  :data:`REPLAY_CAUSES` records the diagnosed cause of each study's
+mismatches: a fit that moved on main after the study's run (``stale on main``, routed to that
+study's owner, not a PR 3 defect), floating-point drift between machines, or a row whose
+estimate column PR 3 itself moves.
+
 Refresh the screen with::
 
     python -m tests.studies.evidence.asymmetric_audit --jobs 4
@@ -93,6 +115,7 @@ SCREEN_COLUMNS = (
     "scope",
     "remaining_groups",
     "bound_flips",
+    "replay_shifts",
     "reason",
 )
 
@@ -129,6 +152,47 @@ CURRENT: dict[str, str] = {
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row
 #: records a MOVER flip.
 SCREEN_REASONS: dict[str, str] = {}
+
+#: How far a refit may sit from the committed row it replays, in sampling standard deviations
+#: of the committed group's estimates and of its standard errors, for the R_a bound to apply
+#: to the committed row (module docstring).  Declared before any R_a refit was read.
+SHIFT_LIMIT = 0.25
+
+_STALE = (
+    "stale on main: the shift reproduces on the cloud machine at a4a8a15c, with the study's "
+    "own seeds and learners, so a result-changing commit landed after the study's run"
+)
+_MACHINE = (
+    "machine: the cloud machine replays the committed row exactly at a4a8a15c, so the shift "
+    "is floating-point drift of the refit machine, not code"
+)
+
+#: The diagnosed cause of each study's replay mismatches in the WSL scope run at a4a8a15c
+#: (Fix-3, 2026-11-14).  A study listed ``stale on main`` holds committed rows that main's
+#: code no longer reproduces; that is its owner's to rerun, and the screen still bounds PR 3's
+#: interval on its committed rows.
+REPLAY_CAUSES: dict[str, str] = {
+    "canonical-cvtmle": f"{_STALE}; already at 8f13a9ce (2026-11-07), so before Fix-11 (#639); "
+    "its run commit 84d26a6b (0.1.2) is outside the retained history",
+    "fold-evaluated-cvtmle": f"{_STALE}; the same crossfit_overfitting fit as canonical-cvtmle, "
+    "run at d546049f (0.1.2)",
+    "fold-targeted-cvtmle": f"{_STALE}; run at d546049f (0.1.2)",
+    "canonical-ctmle-oat": f"{_STALE}; run at a8661971 (0.1.2); the row reads its own interval",
+    "refuter-calibration-point": f"{_STALE}; already at 8f13a9ce, the merge that installed the "
+    "artifacts from d0583c6b; the row is a refuter statistic the study forms itself",
+    "survival-ctmle": f"{_MACHINE}; the collaborative selection is a greedy discrete path, so the "
+    "drift takes other steps on WSL; every row reads its own interval",
+    "dose-response": f"{_MACHINE}; at most 1.2e-7",
+    "hazard-msm": f"{_MACHINE}; 8.7e-9",
+    "refuter-calibration-band": f"{_MACHINE}; a refuter statistic the study forms itself",
+    "adaptive-tmle-trial": "machine: the run commit c6f9e51c misses a3/psi on the cloud machine "
+    "too (1.4e-6 there, 3.7e-7 on WSL), so the fit is sensitive to floating-point drift",
+    "mtp-pricing": "machine or solver tolerance: at most 3.7e-7, not diagnosed further",
+    "long-horizon-categorical-ltmle": "PR 3: the k5 band row's estimate is the pointwise "
+    "control's max-t statistic, which reads the shipped pointwise intervals "
+    "(simultaneous.standardized_deviation inverts the MOVER or skew-t test); its verdict reads "
+    "the bootstrap band, whose critical value replays",
+}
 
 
 @dataclass(frozen=True)
@@ -439,11 +503,14 @@ class RefitReading:
     flips : list of str
         The verdicts that move at some end of the R_a bound, each ``<verdict>@<corner>``;
         a remaining group whose committed interval is not the normal one is ``<key>@unbounded``.
+    shifts : int, default=0
+        The mismatched records :func:`replay_shifts` accepted.
     """
 
     scope: str
     remaining: list[str]
     flips: list[str]
+    shifts: int = 0
 
 
 def exact_groups(slug: str) -> set[str]:
@@ -528,6 +595,56 @@ def bound_flips(
     return sorted(set(flips))
 
 
+def replay_shifts(records: pd.DataFrame, groups: Mapping[str, Group]) -> tuple[int, list[str]]:
+    """``(accepted, unresolved)``: the refit records whose replay missed, judged.
+
+    A mismatched record is accepted when its scale is ``own`` (no package interval reaches
+    its verdict), when the screen judges no group of its name, or when its estimate and its
+    standard error each sit within :data:`SHIFT_LIMIT` sampling standard deviations of the
+    committed row, the deviations read over the committed group's replicates.  Every other
+    mismatched record is unresolved, named ``<group>@r<replicate>``.
+
+    Parameters
+    ----------
+    records : pandas.DataFrame
+        Scope or refit records (:data:`~asymmetric_refit.RECORD_COLUMNS`).
+    groups : Mapping
+        The screen's groups by key.
+
+    Returns
+    -------
+    tuple
+        The count of accepted records and the names of the unresolved ones.
+    """
+    accepted = 0
+    unresolved: list[str] = []
+    missed = records.loc[records["replay"] == "mismatch"]
+    for row in missed.itertuples(index=False):
+        key = str(row.group)
+        if str(row.scale) == "own" or key not in groups:
+            accepted += 1
+            continue
+        rows = groups[key].rows
+        estimates = rows["estimate"].to_numpy(dtype=float)
+        errors = rows["std_error"].to_numpy(dtype=float)
+        spread = (
+            np.std(estimates[np.isfinite(estimates)], ddof=1),
+            np.std(errors[np.isfinite(errors)], ddof=1),
+        )
+        shifts = (
+            abs(float(row.estimate) - float(row.committed_estimate)),
+            abs(float(row.std_error) - float(row.committed_std_error)),
+        )
+        if all(
+            np.isfinite(shift) and np.isfinite(sd) and shift <= SHIFT_LIMIT * sd
+            for shift, sd in zip(shifts, spread, strict=True)
+        ):
+            accepted += 1
+        else:
+            unresolved.append(f"{key}@r{int(row.replicate)}")
+    return accepted, unresolved
+
+
 def _refit_reading(
     study: _Study, groups: Mapping[str, Group], z: float, *, needed: list[str], exact: set[str]
 ) -> RefitReading:
@@ -538,13 +655,13 @@ def _refit_reading(
     scope = refit.read_records(slug, refit.SCOPE_FILE)
     if scope is None:
         return RefitReading("absent", [], [])
-    mismatched = int((scope["replay"] == "mismatch").sum())
-    if mismatched:
-        return RefitReading(f"mismatch:{mismatched}", [], [])
+    shifted, unresolved = replay_shifts(scope, groups)
+    if unresolved:
+        return RefitReading(f"mismatch:{len(unresolved)}", [], [], shifted)
     usable = scope.loc[~scope["scale"].isin(["failed"])]
     missing = [key for key in needed if key not in set(usable["group"])]
     if missing:
-        return RefitReading(f"missing:{len(missing)}", [], [])
+        return RefitReading(f"missing:{len(missing)}", [], [], shifted)
     remaining = sorted(
         str(group)
         for group, scale in zip(usable["group"], usable["scale"], strict=True)
@@ -554,8 +671,14 @@ def _refit_reading(
     )
     remaining = sorted(set(remaining))
     if not remaining:
-        return RefitReading("ok", [], [])
+        return RefitReading("ok", [], [], shifted)
     records = refit.read_records(slug, refit.REFITS_FILE)
+    if records is not None:
+        records = records.loc[records["group"].isin(remaining)]
+        more, unresolved = replay_shifts(records, groups)
+        shifted += more
+        if unresolved:
+            return RefitReading(f"mismatch:{len(unresolved)}", remaining, [], shifted)
     bounds: dict[str, tuple[float, float, float, float]] = {}
     lacking = 0
     unbounded = []
@@ -570,8 +693,9 @@ def _refit_reading(
         else:
             bounds[key] = bound
     if lacking:
-        return RefitReading(f"refits:{lacking}", remaining, [])
-    return RefitReading("ok", remaining, unbounded + bound_flips(study, groups, bounds, z))
+        return RefitReading(f"refits:{lacking}", remaining, [], shifted)
+    flips = unbounded + bound_flips(study, groups, bounds, z)
+    return RefitReading("ok", remaining, flips, shifted)
 
 
 def _disposition(
@@ -593,10 +717,24 @@ def _disposition(
     if refit.scope != "ok":
         return "refits", f"refit records: {refit.scope}"
     if refit.flips:
-        return "moved", "a verdict moves inside the R_a bound; listed for a targeted rerun"
-    if not refit.remaining:
-        return "neutral", "scope refit: no unsettled group takes MOVER or the skew-widened t"
-    return "neutral", "R_a bound: no verdict moves at either end of either side"
+        disposition, reason = (
+            "moved",
+            "a verdict moves inside the R_a bound; listed for a targeted rerun",
+        )
+    elif not refit.remaining:
+        disposition, reason = (
+            "neutral",
+            "scope refit: no unsettled group takes MOVER or the skew-widened t",
+        )
+    else:
+        disposition, reason = "neutral", "R_a bound: no verdict moves at either end of either side"
+    if refit.shifts:
+        cause = REPLAY_CAUSES.get(slug, "cause not diagnosed")
+        reason += (
+            f"; {refit.shifts} refit records missed their committed row and the replay rule "
+            f"accepted them ({cause})"
+        )
+    return disposition, reason
 
 
 def screen_row(record: StudyRecord) -> dict[str, Any]:
@@ -730,6 +868,7 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
         "scope": refit.scope,
         "remaining_groups": len(refit.remaining),
         "bound_flips": ";".join(refit.flips),
+        "replay_shifts": refit.shifts,
         "reason": reason,
     }
 

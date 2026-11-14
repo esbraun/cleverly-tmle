@@ -18,7 +18,11 @@ limits.  Each written row is matched to the logged estimates by its estimate and
 and its estimate and standard error are held to the committed row at :data:`REPLAY_TOLERANCE`
 (``replay`` = ``ok``, ``mismatch`` or ``absent``).  A row that matches no logged estimate is
 ``own``: the study formed that interval itself, so the shipped default does not reach its
-committed verdict.
+committed verdict.  A mismatch is recorded, not a stop: the screen judges each one
+(:func:`tests.studies.evidence.asymmetric_audit.replay_shifts`) and applies the R_a bound to the
+committed row when the refit sits within a quarter of a sampling deviation of it.  The R_a
+refits read the scope records whatever their replay, so a scope run with mismatches resumes at
+the R_a stage.
 
 **R_a refits.**  Every group whose replicate-0 estimate takes ``mover`` or ``skew_t``, and that the
 screen does not already recompute exactly, is refitted on its first :data:`REFIT_REPLICATES`
@@ -36,7 +40,8 @@ exists::
     python -m tests.studies.evidence.asymmetric_refit refits --jobs N --cache DIR [slug ...]
 
 ``project`` fits nothing: it prints each study's R_a keys and their CPU-hours projected from the
-scope stage's seconds per key.
+scope stage's seconds per key.  A fitting command exits 1 when a study crashed or a key failed;
+replay mismatches are counted in ``capture.json`` and judged by the screen.
 
 Every fitting command refuses to start unless each of
 :data:`~tests.studies.evidence.band_rerun.THREAD_VARIABLES` is ``1``.
@@ -696,7 +701,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             status = 1
             continue
         print(json.dumps(summary, sort_keys=True), flush=True)
-        if summary["replay_mismatch"] or summary["failed_keys"]:
+        if summary["failed_keys"]:
             status = 1
     return status
 
