@@ -158,10 +158,16 @@ the committed results and checked at the precision printed.
 | `margin:calibration_se_ratio_upper` | 1.0700 | calibration SE-ratio upper bound |
 | `margin:calibration_coverage_lower` | 0.9200 | calibration coverage lower bound |
 | `margin:calibration_coverage_upper` | 0.9800 | calibration coverage upper bound |
+| `margin:type_i_ceiling` | 0.1000 | type-I upper bound |
 | `margin:paired_difference` | 0.1500 | paired similarity margin in pooled SDs. No cell of this study reads it until the comparator runs register |
 | `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio noninferiority bound. No cell of this study reads it until the comparator runs register |
 | `margin:coverage_noninferiority` | -0.0250 | coverage-difference noninferiority bound. No cell of this study reads it until the comparator runs register |
 | `margin:calibration_noninferiority` | 0.0500 | calibration-excess noninferiority bound. No cell of this study reads it until the comparator runs register |
+| `margin:minimum_power` | 0.8000 | power lower bound |
+| `margin:root_n_slope` | -0.5000 | expected root-n slope |
+| `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound |
+| `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound |
+| `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
