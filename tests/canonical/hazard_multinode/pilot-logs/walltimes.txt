@@ -5,3 +5,4 @@ WALL wrong_learner_base 243s
 WALL wrong_learner_four 283s
 WALL wrong_learner_msm 502s
 WALL wrong_learner_node 315s
+WALL both_wrong_base 19s
