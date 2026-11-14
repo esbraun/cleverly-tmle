@@ -304,6 +304,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
     "time_to_event_drtmle": _survival_method(DRTMLEMethod()),
     "continuous_survival": _continuous_survival,
+    # X6 (c): restricted_horizons= adds restricted means, in time units, beside the risks.
+    "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
     "dose_response": _dose_response,
@@ -404,6 +406,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "continuous_survival": {
+        "forest": "draws",
+        "curve": "X100",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "draws",
+        "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "continuous_survival_restricted": {
         "forest": "draws",
         "curve": "X100",
         "influence": "draws",

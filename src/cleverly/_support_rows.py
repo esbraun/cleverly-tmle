@@ -6241,6 +6241,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "has no node structure to classify. cleverly.survival.result.continuous_survival_support, "
         "not a support row, records the configurations the study licenses."
     ),
+    "continuous-survival-functionals": (
+        "It measures ContinuousSurvivalTMLE with restricted_horizons=, which no support key "
+        "reads: the continuous-time fit has no node structure to classify. "
+        "cleverly.survival.result.continuous_survival_support, not a support row, records the "
+        "configurations the study licenses."
+    ),
     "adaptive-iptw-pairing": (
         "It pairs the gate study's fits with R drtmle replicate by replicate, has no property "
         "cell, and licenses no configuration. The gate study adaptive-iptw is the evidence of "

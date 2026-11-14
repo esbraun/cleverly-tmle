@@ -1,0 +1,787 @@
+"""The continuous-time result's functionals (X6 part (c)): restricted means, ratios and the curve.
+
+The exact law is the two-cause ``PointLaw`` that ``test_continuous_survival.py`` reads: events at
+times 1, 2 and 3, so a restricted mean time lost is an exact weighted sum of the law's risks,
+and its efficient influence function is the same sum of their complex-step Gateaux derivatives.
+"""
+
+from __future__ import annotations
+
+import json
+import warnings
+from dataclasses import replace
+from functools import cache
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from cleverly._refusal import RefusalReason
+from cleverly.exceptions import CapabilityError
+from cleverly.inference.delta import Transform
+from cleverly.inference.influence import make_estimate
+from cleverly.inference.results import _reported_curve
+from cleverly.sensitivity import evalue, evalue_from_rr
+from cleverly.survival import ContinuousSurvivalTMLE, StratifiedNelsonAalen, _targeting
+from cleverly.survival._targeting import (
+    Evaluation,
+    Problem,
+    evaluate,
+    point_weights,
+    restricted_weights,
+    walk,
+)
+from cleverly.survival.result import (
+    CONTINUOUS_SURVIVAL_STUDY,
+    FUNCTIONALS_LIMITS,
+    FUNCTIONALS_STUDY,
+    MEASURED_DEFAULTS,
+    OFF_GRID_SHARE,
+    RATIO_REASON,
+    RESTRICTED_EVENT_SHARE,
+    continuous_survival_support,
+    risk_names,
+)
+from tests.unit.test_continuous_survival import (
+    _arrays,
+    _exact_propensity,
+    _gateaux,
+    _jumps,
+    _law,
+    _sample,
+    _truth,
+)
+
+#: The restriction times read on the exact law.  At 2.5 the integral splits the last step.
+TAUS = (2.5, 3.0)
+
+
+def _lost_weights(tau: float) -> dict[int, float]:
+    """``{time: weight}`` of the law's risks in :math:`\\int_0^\\tau F`, events at 1, 2, 3."""
+    return {h: max(0.0, min(h + 1.0, tau) - h) for h in (1, 2, 3) if h <= tau}
+
+
+def _rmtl_truth(arm: int, cause: int, tau: float) -> float:
+    return sum(w * _truth(arm, h, cause) for h, w in _lost_weights(tau).items())
+
+
+def _rmtl_gateaux(arm: int, cause: int, tau: float) -> np.ndarray:
+    return sum(w * _gateaux(arm, h, cause) for h, w in _lost_weights(tau).items())  # type: ignore[return-value]
+
+
+def _problem(
+    horizons: tuple[float, ...], taus: tuple[float, ...], *, hazard_by: tuple[int, ...] = (0, 1)
+) -> tuple[Problem, np.ndarray]:
+    """The exact-law problem with point rows at ``horizons`` and restricted rows at ``taus``."""
+    W, A, T, D = _arrays()
+    X = np.column_stack([A, W]).astype(float)
+    grid = np.unique(T)
+    dlam = np.zeros((2, 2, T.size, grid.size))
+    for j in range(2):
+        model = StratifiedNelsonAalen(by=hazard_by).fit(X, T, (j + 1 == D).astype(float))
+        dlam[:, j] = _jumps(model, X, grid)
+    censoring = StratifiedNelsonAalen(by=(0, 1)).fit(
+        X, np.where(D > 0, T - 0.25, T), (D == 0).astype(float)
+    )
+    retention = np.cumprod(1 - _jumps(censoring, X, grid), axis=-1)
+    retention = np.concatenate([np.ones((2, T.size, 1)), retention[..., :-1]], axis=-1)
+    p1 = np.array([np.mean(A[w == W] == 1) for w in W])
+    pi = np.stack([1 - p1, p1])
+    at_risk = (T[:, None] >= grid[None, :]).astype(float)
+    events = np.stack(
+        [((T[:, None] == grid[None, :]) & (D[:, None] == j + 1)).astype(float) for j in range(2)]
+    )
+    index = np.searchsorted(grid, horizons, side="right") - 1
+    rows = np.vstack(
+        [point_weights(index, grid.size), *[restricted_weights(grid, t)[None] for t in taus]]
+    )
+    return Problem(A, at_risk, events, 1.0 / (pi[:, :, None] * retention), rows), dlam
+
+
+def _target(problem: Problem, arm: int, cause: int, row: int) -> int:
+    return (arm * problem.n_causes + cause) * problem.n_rows + row
+
+
+# --------------------------------------------------------------- T-c1: the curve
+
+
+def test_the_restricted_weights_integrate_the_step_function_exactly() -> None:
+    grid = np.array([0.5, 1.0, 2.0, 4.0])
+    values = np.array([0.1, 0.3, 0.4, 0.7])
+    for tau, expected in [(0.4, 0.0), (1.5, 0.1 * 0.5 + 0.3 * 0.5), (5.0, 0.05 + 0.3 + 0.8 + 0.7)]:
+        assert restricted_weights(grid, tau) @ values == pytest.approx(expected, abs=1e-15)
+
+
+def test_the_restricted_mean_curve_is_the_gateaux_derivative() -> None:
+    problem, dlam = _problem((1.0, 2.0, 3.0), TAUS)
+    evaluation = evaluate(problem, dlam)
+    first = _law()["first"]
+    for a in (0, 1):
+        for j in (1, 2):
+            for r, tau in enumerate(TAUS):
+                p = _target(problem, a, j - 1, 3 + r)
+                assert evaluation.psi[p] == pytest.approx(_rmtl_truth(a, j, tau), abs=1e-14)
+                error = np.max(np.abs(evaluation.influence[first, p] - _rmtl_gateaux(a, j, tau)))
+                assert error < 1e-12
+    # The split step is a real witness: the weight at time 2 is a half, not one or zero.
+    assert _lost_weights(2.5) == {1: 1.0, 2: 0.5}
+    assert abs(_rmtl_truth(1, 1, 2.5) - _rmtl_truth(1, 1, 3.0)) > 1e-3
+
+
+def test_the_engine_assembles_the_restricted_means_and_the_rmst(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_fit_arrays`` with ``restricted_horizons``: grid weights, indexing, RMTL and RMST."""
+    from cleverly.survival import engine
+
+    data = _law()
+    monkeypatch.setattr(engine, "_fit_propensity", _exact_propensity)
+    fit = ContinuousSurvivalTMLE(
+        [1.0, 2.0, 3.0],
+        restricted_horizons=TAUS,
+        cross_fit=False,
+        hazard_library=[StratifiedNelsonAalen((0, 1))],
+        censoring_library=[StratifiedNelsonAalen((0, 1))],
+        tol=1e-12,
+        random_state=0,
+        causes={1: "1", 2: "2"},
+        arms={"0": 0, "1": 1},
+    ).fit(data["frame"], time="time", event="event", treatment="A", baseline=["W"])
+    first = data["first"]
+    for tau in TAUS:
+        for a in (0, 1):
+            total = np.zeros(first.size)
+            for j in (1, 2):
+                lost = fit.rmtl(str(a), tau, str(j))
+                assert lost.psi == pytest.approx(_rmtl_truth(a, j, tau), abs=1e-12)
+                assert lost.bounds == (0.0, tau)
+                gateaux = _rmtl_gateaux(a, j, tau)
+                assert np.max(np.abs(_reported_curve(lost)[first] - gateaux)) < 1e-10
+                total += gateaux
+            # T-c9: RMST = tau - sum of the RMTLs, with the curve by linearity.
+            survival = fit.rmst(str(a), tau)
+            truth = tau - sum(_rmtl_truth(a, j, tau) for j in (1, 2))
+            assert survival.psi == pytest.approx(truth, abs=1e-12)
+            assert np.max(np.abs(_reported_curve(survival)[first] + total)) < 1e-10
+        gain = fit.rmst("1", tau, versus="0")
+        assert gain.name == f"rmst_regimen[1 vs 0 @ t={tau:g}]"
+        assert gain.psi == pytest.approx(fit.rmst("1", tau).psi - fit.rmst("0", tau).psi)
+        back = fit.rmst("0", tau, versus="1")
+        assert back.name == f"rmst_regimen[0 vs 1 @ t={tau:g}]"
+        assert back.psi == pytest.approx(-gain.psi, abs=1e-15)
+        np.testing.assert_array_equal(back.influence_curve, -gain.influence_curve)
+        lost_gap = fit.rmtl("1", tau, "2", versus="0")
+        assert lost_gap.name == f"rmtl_regimen[1 vs 0, 2 @ t={tau:g}]"
+        assert lost_gap.bounds == (-tau, tau)
+
+
+# ------------------------------------------------- T-c2: the direction of a weighted target
+
+
+def _brute_direction(
+    problem: Problem, evaluation: Evaluation, v: np.ndarray, *, drop_own_f: bool = False
+) -> np.ndarray:
+    """``sum_p v_p sum_m w_m 1{u <= u_m} c^(m)_l(u) / (pi S_c)``, point by point."""
+    J, Q = problem.n_causes, problem.n_rows
+    n, M = problem.at_risk.shape
+    out = np.zeros((2, J, n, M))
+    for a in (0, 1):
+        S = evaluation.survival[a]
+        for j in range(J):
+            F = evaluation.incidence[a, j]
+            for q in range(Q):
+                p = (a * J + j) * Q + q
+                for m in np.flatnonzero(problem.target_weights[q]):
+                    w = v[p] * problem.target_weights[q, m]
+                    upto = np.arange(M) <= m
+                    shared = (F[:, [m]] - (0.0 if drop_own_f else F)) / S
+                    for l in range(J):
+                        own = 1.0 if l == j else 0.0
+                        out[a, l] += w * upto[None, :] * (own - shared)
+        out[a] *= problem.weight[a][None]
+    return out
+
+
+def test_the_weighted_direction_is_the_sum_over_grid_points() -> None:
+    problem, dlam = _problem((3.0,), TAUS, hazard_by=(0,))
+    evaluation = evaluate(problem, dlam)
+    v = np.random.default_rng(0).normal(size=problem.n_targets)
+    direction = _targeting._direction(problem, evaluation, v)
+    np.testing.assert_allclose(direction, _brute_direction(problem, evaluation, v), atol=1e-12)
+    # Mutation: dropping W(u) F_j(u) from the reverse sum moves the direction far.
+    mutated = _brute_direction(problem, evaluation, v, drop_own_f=True)
+    assert np.max(np.abs(mutated - direction)) > 1e-2
+
+
+# --------------------------------------------------------------- T-c3: the walk
+
+
+@pytest.fixture(scope="module")
+def wrong_restricted() -> tuple[Problem, np.ndarray]:
+    # One target time (3) and RMTL(2.5) = F(1) + F(2) / 2, which no risk at 3 spans.
+    return _problem((3.0,), (2.5,), hazard_by=(0,))
+
+
+def _rmtl_targets(problem: Problem) -> list[int]:
+    return [_target(problem, a, j, 1) for a in (0, 1) for j in (0, 1)]
+
+
+def _rmtl_bias(problem: Problem, psi: np.ndarray) -> np.ndarray:
+    return np.array(
+        [
+            psi[_target(problem, a, j, 1)] - _rmtl_truth(a, j + 1, 2.5)
+            for a in (0, 1)
+            for j in (0, 1)
+        ]
+    )
+
+
+def test_the_walk_solves_the_restricted_mean_score_and_removes_its_bias(
+    wrong_restricted: tuple[Problem, np.ndarray],
+) -> None:
+    problem, dlam = wrong_restricted
+    result = walk(problem, dlam, cutoff=1e-7, max_steps=20_000)
+    assert result.converged
+    assert np.all(result.standardized_score[_rmtl_targets(problem)] <= 1e-7)
+    initial = np.abs(_rmtl_bias(problem, result.initial.psi))
+    assert initial.max() > 1e-3
+    assert np.max(np.abs(_rmtl_bias(problem, result.evaluation.psi))) < 1e-5
+
+
+def test_a_restricted_mean_left_out_of_the_direction_stays_unsolved(
+    wrong_restricted: tuple[Problem, np.ndarray], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    problem, dlam = wrong_restricted
+    original = _targeting._direction
+    left_out = _rmtl_targets(problem)
+
+    def without(problem: Problem, evaluation: Any, v: np.ndarray) -> np.ndarray:
+        kept = v.copy()
+        kept[left_out] = 0.0
+        return original(problem, evaluation, kept)
+
+    monkeypatch.setattr(_targeting, "_direction", without)
+    result = walk(problem, dlam, cutoff=1e-7, max_steps=2_000)
+    assert not result.converged
+    assert np.max(result.standardized_score[left_out]) > 1e-3
+    assert np.max(np.abs(_rmtl_bias(problem, result.evaluation.psi))) > 1e-3
+
+
+# ----------------------------------------------------- end-to-end fits on a sample
+
+
+@cache
+def _fit(restricted: tuple[float, ...] = (1.5,), causes: bool = True) -> Any:
+    frame = _sample()
+    if not causes:
+        frame = frame.assign(event=(frame["event"] > 0).astype(int))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return ContinuousSurvivalTMLE(
+            [0.5, 1.0],
+            restricted_horizons=restricted,
+            cross_fit=False,
+            random_state=0,
+            simultaneous=True,
+            n_multiplier=200,
+            causes={1: "relapse", 2: "death"} if causes else None,
+            arms={"control": 0, "treated": 1},
+            reference="control",
+        ).fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+
+
+def test_the_fit_reports_and_targets_every_restricted_mean() -> None:
+    fit = _fit()
+    names = [
+        "rmtl_regimen[control, relapse @ t=1.5]",
+        "rmtl_regimen[treated, death @ t=1.5]",
+        "rmtl_regimen[treated vs control, relapse @ t=1.5]",
+        "rmst_regimen[control @ t=1.5]",
+        "rmst_regimen[treated vs control @ t=1.5]",
+    ]
+    assert all(name in fit for name in names)
+    assert fit.record.converged
+    assert len(fit.record.standardized_score) == 2 * 2 * 3
+    assert max(fit.record.standardized_score) <= fit.record.cutoff
+    # The band covers the risks and their differences only.
+    assert set(fit.simultaneous.bands) == set(risk_names(fit.arms, fit.causes, fit.horizons))
+    # Every estimate reads experimental: the fit is in sample, and its restriction time lies
+    # past its last target time, which the functionals study does not measure (D3).
+    assert all(e.support.label == "experimental" for e in fit.values())
+    for name in (names[0], "cif_regimen[treated, death @ t=1]"):
+        assert "past the last target time" in fit[name].support.reason
+        assert fit[name].support.limits[-1] == FUNCTIONALS_LIMITS[0]
+    # ratio() reads the fit's own risk ratio's label, in either order, not the unmeasured one.
+    stored = fit["rr_regimen[treated vs control, death @ t=1]"].support
+    pair = ("cif_regimen[treated, death @ t=1]", "cif_regimen[control, death @ t=1]")
+    assert fit.ratio(*pair).support == stored
+    assert fit.ratio(*reversed(pair)).support == stored
+    assert RATIO_REASON not in stored.reason
+    assert RATIO_REASON in fit.ratio(*pair, kind="or").support.reason
+
+
+def test_the_initial_estimates_skip_the_restricted_rows() -> None:
+    fit = _fit()
+    initial = fit.initial_estimates
+    assert set(initial) == set(risk_names(fit.arms, fit.causes, fit.horizons))
+    assert all(0.0 <= initial[name] <= 1.0 for name in initial if "ate_" not in name)
+
+
+def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> None:
+    measured = dict(MEASURED_DEFAULTS)
+    common = {"n": 1_000, "causes": 2, "cross_fitted": True, "default_nuisances": True}
+
+    def label(**kwargs: Any) -> Any:
+        return continuous_survival_support(settings=measured, **{**common, **kwargs})
+
+    plain = label(scale="level", event_share=0.6)
+    assert plain.label == "supported" and plain.evidence == (CONTINUOUS_SURVIVAL_STUDY,)
+    # A ratio is measured only in a fit with one restricted horizon.
+    assert label(scale="ratio", event_share=0.6).reason == RATIO_REASON
+    for scale in ("level", "difference", "ratio"):
+        moved = label(scale=scale, event_share=0.6, restricted_horizons=1)
+        assert moved.label == "supported", scale
+        assert moved.evidence == (FUNCTIONALS_STUDY,)
+        assert moved.limits[-1] == FUNCTIONALS_LIMITS[0]
+    # m3: a restricted mean reads supported only inside the window around the measured share.
+    low, high = RESTRICTED_EVENT_SHARE
+    for scale in ("level", "difference"):
+        inside = label(scale=scale, event_share=0.75, restricted=True, restricted_horizons=1)
+        assert inside.label == "supported"
+        edge = label(scale=scale, event_share=low, restricted=True, restricted_horizons=1)
+        assert edge.label == "supported"
+        early = label(scale=scale, event_share=0.6, restricted=True, restricted_horizons=1)
+        assert early.label == "experimental"
+        assert "weights the sparse early times" in early.reason
+        late = label(scale=scale, event_share=high + 0.01, restricted=True, restricted_horizons=1)
+        assert late.label == "experimental"
+    # The window is the restricted means', not the risks': 0.6 passes a risk and fails an RMTL.
+    assert label(scale="level", event_share=0.6, restricted_horizons=1).label == "supported"
+    # D3: a restriction time past the last target time is unmeasured, for every estimate.
+    for restricted in (False, True):
+        past = label(
+            scale="level",
+            event_share=0.75,
+            restricted=restricted,
+            restricted_horizons=1,
+            past_last_time=True,
+        )
+        assert past.label == "experimental" and "past the last target time" in past.reason
+    several = label(scale="level", event_share=0.6, restricted_horizons=2)
+    assert several.label == "experimental"
+    assert "targets 2 restricted horizons" in several.reason
+    # The other conditions still bind on a restricted fit.
+    small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=500)
+    assert small.label == "experimental"
+
+
+# ----------------------------------------------------------------- T-c4: refusal C1
+
+
+def test_a_restricted_mean_the_fit_did_not_target_is_refused() -> None:
+    fit = _fit(())
+    with pytest.raises(CapabilityError, match=r"rmtl\(\) reads a restricted mean") as caught:
+        fit.rmtl("treated", 1.5, "relapse")
+    message = str(caught.value)
+    assert "about 40% of random times" in message
+    assert "restricted_horizons=(1.5,)" in message
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+    with pytest.raises(CapabilityError, match=r"rmst\(\) reads a restricted mean"):
+        _fit().rmst("treated", 2.0)
+
+
+def test_the_refusal_quotes_the_registered_off_grid_share() -> None:
+    from pathlib import Path
+
+    readings = pd.read_csv(
+        Path(__file__).parents[1] / "canonical/continuous_survival/targeting-readings.csv"
+    )
+    assert round(float(readings["mean_off_grid_share"].iloc[0]), 2) == OFF_GRID_SHARE
+
+
+def test_restricted_means_need_a_cause_and_known_arms() -> None:
+    fit = _fit()
+    with pytest.raises(ValueError, match="name one with cause="):
+        fit.rmtl("treated", 1.5)
+    with pytest.raises(ValueError, match="unknown cause"):
+        fit.rmtl("treated", 1.5, "stroke")
+    with pytest.raises(ValueError, match="unknown arm"):
+        fit.rmst("placebo", 1.5)
+    with pytest.raises(ValueError, match="same arm"):
+        fit.rmst("treated", 1.5, versus="treated")
+    single = _fit(causes=False)
+    assert single.rmtl("treated", 1.5).name == "rmtl_regimen[treated @ t=1.5]"
+    with pytest.raises(ValueError, match="one event type"):
+        single.rmtl("treated", 1.5, "1")
+
+
+def test_the_engine_refuses_restricted_horizons_it_cannot_target() -> None:
+    with pytest.raises(ValueError, match="positive finite"):
+        ContinuousSurvivalTMLE([1.0], restricted_horizons=(-1.0,))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        ContinuousSurvivalTMLE([1.0], restricted_horizons=(2.0, 1.0))
+    frame = _sample()
+    followed = float(frame.loc[frame["Z"] == 0, "time"].max())
+    with pytest.raises(CapabilityError, match="before the last restricted horizon"):
+        ContinuousSurvivalTMLE([1.0], restricted_horizons=(followed + 1.0,), cross_fit=False).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    early = float(frame["time"][frame["event"] > 0].min()) / 2
+    with pytest.raises(CapabilityError, match="first restricted horizon"):
+        ContinuousSurvivalTMLE([1.0], restricted_horizons=(early,), cross_fit=False).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+
+
+# ----------------------------------------------------------- T-c5: ratio and refusals
+
+
+def test_the_ratio_is_the_stored_log_ratio() -> None:
+    fit = _fit()
+    top, bottom = "cif_regimen[treated, death @ t=1]", "cif_regimen[control, death @ t=1]"
+    rr = fit.ratio(top, bottom)
+    stored = fit["rr_regimen[treated vs control, death @ t=1]"]
+    assert rr.name == stored.name
+    assert rr.psi == pytest.approx(stored.psi, rel=1e-14)
+    assert rr.log_psi == pytest.approx(np.log(fit[top].psi / fit[bottom].psi), rel=1e-14)
+    np.testing.assert_allclose(rr.ci, stored.ci, rtol=1e-12)
+    assert rr.support == stored.support
+    assert rr.support.label == "experimental"
+    inverse = fit.ratio(bottom, top)
+    assert inverse.name == "rr_regimen[control vs treated, death @ t=1]"
+    assert inverse.psi == pytest.approx(1 / rr.psi)
+    odds = fit.ratio(top, bottom, kind="or")
+    a, b = fit[top].psi, fit[bottom].psi
+    assert odds.psi == pytest.approx(a / (1 - a) / (b / (1 - b)))
+    assert odds.name.startswith("or_regimen[")
+
+
+@pytest.mark.parametrize(
+    ("numerator", "denominator"),
+    [
+        ("cif_regimen[treated, death @ t=1]", "cif_regimen[treated, death @ t=0.5]"),
+        ("cif_regimen[treated, death @ t=1]", "cif_regimen[control, relapse @ t=1]"),
+        ("cif_regimen[treated, death @ t=1]", "cif_regimen[treated, death @ t=1]"),
+        ("ate_regimen[treated vs control, death @ t=1]", "cif_regimen[control, death @ t=1]"),
+        ("rmtl_regimen[treated, death @ t=1.5]", "rmtl_regimen[control, death @ t=1.5]"),
+    ],
+)
+def test_a_ratio_of_anything_but_the_two_arms_risks_is_refused(
+    numerator: str, denominator: str
+) -> None:
+    with pytest.raises(CapabilityError, match="use contrast") as caught:
+        _fit().ratio(numerator, denominator)
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+
+
+def test_a_risk_between_target_times_is_refused() -> None:
+    fit = _fit()
+    with pytest.raises(CapabilityError, match=r"0\.7 is not a target time") as caught:
+        fit.ratio("cif_regimen[treated, death @ t=0.7]", "cif_regimen[control, death @ t=0.7]")
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+    with pytest.raises(CapabilityError, match=r"0\.7 is not a target time"):
+        fit.curve(times=[0.5, 0.7])
+
+
+def test_the_survival_view_needs_one_event_type() -> None:
+    with pytest.raises(CapabilityError, match="not event-free survival"):
+        _fit().ratio(
+            "cif_regimen[treated, death @ t=1]",
+            "cif_regimen[control, death @ t=1]",
+            view="survival",
+        )
+    with pytest.raises(CapabilityError, match="not event-free survival"):
+        _fit().curve(scale="survival")
+    single = _fit(causes=False)
+    top, bottom = "risk_regimen[treated @ t=1]", "risk_regimen[control @ t=1]"
+    ratio = single.ratio(top, bottom, view="survival")
+    assert ratio.name == "survival_rr_regimen[treated vs control @ t=1]"
+    assert ratio.psi == pytest.approx((1 - single[top].psi) / (1 - single[bottom].psi))
+
+
+# ------------------------------------------------------------------ the curve
+
+
+def test_the_curve_reads_the_targeted_points_and_the_band() -> None:
+    fit = _fit()
+    curve = fit.curve()
+    assert len(curve) == 2 * 2 * 2 + 2 * 2
+    assert list(curve["parameter"]) == risk_names(fit.arms, fit.causes, fit.horizons)
+    for _, row in curve.iterrows():
+        estimate = fit[row["parameter"]]
+        assert row["psi"] == estimate.psi
+        assert (row["ci_lower"], row["ci_upper"]) == estimate.ci
+        assert (row["band_lower"], row["band_upper"]) == fit.simultaneous.bands[row["parameter"]]
+    assert set(curve["scale"]) == {"level", "difference"}
+    assert list(fit.curve(times=[1.0])["time"]) == [1.0] * 6
+
+
+def test_the_survival_curve_mirrors_levels_and_negates_differences() -> None:
+    fit = _fit(causes=False)
+    risk, survival = fit.curve(), fit.curve(scale="survival")
+    level = risk["scale"] == "level"
+    np.testing.assert_allclose(survival["psi"][level], 1 - risk["psi"][level])
+    np.testing.assert_allclose(survival["ci_lower"][level], 1 - risk["ci_upper"][level])
+    np.testing.assert_allclose(survival["psi"][~level], -risk["psi"][~level])
+    np.testing.assert_allclose(survival["ci_upper"][~level], -risk["ci_lower"][~level])
+    np.testing.assert_allclose(survival["band_lower"][~level], -risk["band_upper"][~level])
+    assert survival["estimand"].iloc[0] == "survival_regimen[control @ t=0.5]"
+    assert all(name in fit for name in survival["parameter"])
+
+
+# ------------------------------------------------------------ T-c6: contrast
+
+
+def test_a_nonlinear_contrast_is_the_delta_method_by_finite_differences() -> None:
+    fit = _fit()
+    names = ["cif_regimen[treated, death @ t=1]", "rmst_regimen[treated @ t=1.5]"]
+
+    def function(x: np.ndarray) -> float:
+        return float(np.log(x[0]) * x[1])
+
+    derived = fit.contrast(function, names, name="log risk times rmst", scale="level")
+    point = np.array([fit[name].psi for name in names])
+    h = 1e-6
+    gradient = np.array(
+        [(function(point + h * e) - function(point - h * e)) / (2 * h) for e in np.eye(2)]
+    )
+    curve = np.column_stack([_reported_curve(fit[name]) for name in names]) @ gradient
+    std_err = float(np.sqrt(np.var(curve, ddof=1) / fit.n))
+    assert derived.psi == pytest.approx(function(point), rel=1e-14)
+    assert derived.std_error == pytest.approx(std_err, rel=1e-6)
+    low, high = derived.ci
+    assert (high - low) / 2 == pytest.approx(1.959964 * std_err, rel=1e-5)
+    assert derived.support.label == "experimental"
+    assert "smooth function" in derived.support.reason
+
+
+# --------------------------------------------------------------- T-c7: to_dict
+
+
+def test_to_dict_round_trips_through_json() -> None:
+    fit = _fit()
+    record = fit.to_dict()
+    assert json.loads(json.dumps(record, allow_nan=False)) == record
+    assert set(record["estimates"]) == set(fit)
+    name = "rmst_regimen[treated vs control @ t=1.5]"
+    assert record["estimates"][name]["psi"] == fit[name].psi
+    assert record["settings"]["restricted_horizons"] == [1.5]
+    assert record["record"]["converged"] is True
+
+
+# --------------------------------------------------------------- T-c8: E-value
+
+
+def test_the_evalue_reads_the_ratio_of_the_two_arms_risks() -> None:
+    fit = _fit()
+    top, bottom = "cif_regimen[treated, death @ t=1]", "cif_regimen[control, death @ t=1]"
+    result = evalue(fit, (top, bottom))
+    rr = fit.ratio(top, bottom)
+    assert result.estimand == rr.name
+    assert result.risk_ratio == pytest.approx(rr.psi)
+    assert result.point == pytest.approx(evalue_from_rr(rr.psi))
+    above = rr.psi >= 1.0
+    nearer = rr.ci[0] if above else rr.ci[1]
+    crosses = rr.ci[0] <= 1.0 <= rr.ci[1]
+    assert result.limit == pytest.approx(1.0 if crosses else evalue_from_rr(nearer))
+    assert result.level == pytest.approx(0.95)
+    assert result.limit_reading is not None and not result.limit_reading.licensed
+    assert "competing cause" in result.note
+
+
+@pytest.mark.parametrize(
+    "estimand",
+    [
+        None,
+        "cif_regimen[treated, death @ t=1]",
+        ("cif_regimen[treated, death @ t=1]", "cif_regimen[treated, death @ t=0.5]"),
+    ],
+)
+def test_the_evalue_refuses_anything_but_the_pair(estimand: Any) -> None:
+    with pytest.raises(CapabilityError, match="cif_regimen\\[treated, death @ t=2\\]"):
+        evalue(_fit(), estimand)
+
+
+# ------------------------------------------------- the unit of time (review B1) and the scale
+
+
+#: Seconds in a Julian year: the same follow-up in the two units.
+_SECONDS = 365.25 * 24 * 3600
+
+
+@cache
+def _unit_fit(scale: float) -> Any:
+    frame = _sample()
+    frame = frame.assign(time=frame["time"] * scale)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return ContinuousSurvivalTMLE(
+            [0.5 * scale, 1.0 * scale],
+            restricted_horizons=(1.5 * scale,),
+            cross_fit=False,
+            random_state=0,
+            causes={1: "relapse", 2: "death"},
+            arms={"control": 0, "treated": 1},
+            reference="control",
+        ).fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+
+
+def test_the_walk_does_not_depend_on_the_unit_of_time() -> None:
+    # The metric floors each variance and adds a ridge relative to the largest one; a restricted
+    # mean in seconds would swamp the risks unless the walk targets RMTL / tau.
+    years, seconds = _unit_fit(1.0), _unit_fit(_SECONDS)
+    assert years.record.converged and seconds.record.converged
+    assert years.record.steps == seconds.record.steps
+    np.testing.assert_allclose(
+        years.record.standardized_score, seconds.record.standardized_score, rtol=1e-6, atol=1e-9
+    )
+    for arm in years.arms:
+        for cause in years.causes:
+            for t in (0.5, 1.0):
+                name = f"cif_regimen[{arm}, {cause} @ t={t:g}]"
+                other = f"cif_regimen[{arm}, {cause} @ t={t * _SECONDS:g}]"
+                assert seconds[other].psi == pytest.approx(years[name].psi, abs=1e-9)
+            lost, scaled = years.rmtl(arm, 1.5, cause), seconds.rmtl(arm, 1.5 * _SECONDS, cause)
+            assert scaled.psi == pytest.approx(lost.psi * _SECONDS, rel=1e-8)
+            np.testing.assert_allclose(np.array(scaled.ci) / _SECONDS, lost.ci, rtol=1e-8)
+        rmst = years.rmst(arm, 1.5)
+        assert seconds.rmst(arm, 1.5 * _SECONDS).psi == pytest.approx(rmst.psi * _SECONDS, rel=1e-8)
+
+
+def test_a_restricted_mean_takes_the_range_logit_interval_of_its_range() -> None:
+    fit = _fit()
+    scale = Transform.range_logit(0.0, 1.5)
+    for name in ("rmtl_regimen[treated, death @ t=1.5]", "rmst_regimen[control @ t=1.5]"):
+        estimate = fit[name]
+        assert estimate.interval_scale == "range_logit"
+        assert estimate.transform is None
+        assert estimate.bounds == (0.0, 1.5)
+        # The standard error is the time-unit one, from the curve in time units (review R1).
+        curve = np.asarray(estimate.influence_curve)
+        natural = float(np.std(curve, ddof=1) / np.sqrt(curve.size))
+        assert estimate.std_error == pytest.approx(natural, rel=1e-3)
+        frame = fit.to_frame().set_index("estimand")
+        assert frame.loc[name, "std_err"] == pytest.approx(estimate.std_error)
+        # The interval is formed on the logit of the estimate's place in (0, tau).
+        low, high = estimate.ci
+        assert 0.0 < low < estimate.psi < high < 1.5
+        logit_se = estimate.std_error * scale.slope(estimate.psi)
+        half = (scale.forward(high) - scale.forward(low)) / 2
+        assert half == pytest.approx(1.959963984540054 * logit_se, rel=1e-6)
+        assert scale.forward(estimate.psi) == pytest.approx(
+            (scale.forward(high) + scale.forward(low)) / 2
+        )
+    difference = fit["rmst_regimen[treated vs control @ t=1.5]"]
+    assert difference.interval_scale == "identity"
+    assert difference.bounds == (-1.5, 1.5)
+
+
+def test_only_a_restricted_mean_opts_in_to_its_own_range() -> None:
+    # A risk keeps the (0, 1) rule, and a level estimate with other finite bounds that does
+    # not opt in keeps the identity interval, so no other bounded mean changes (review R1).
+    fit = _fit()
+    risk = fit["cif_regimen[treated, relapse @ t=1]"]
+    assert risk.interval_scale == "range_logit" and not risk.range_interval
+    curve = np.asarray(fit["rmst_regimen[control @ t=1.5]"].influence_curve)
+    plain = make_estimate(
+        "m", 0.6, curve, n=curve.size, scale="level", bounds=(0.0, 1.5), rule_widened=False
+    )
+    opted = replace(plain, range_interval=True)
+    assert plain.interval_scale == "identity"
+    assert opted.interval_scale == "range_logit"
+    assert opted.std_error == plain.std_error
+    assert opted.ci != plain.ci
+
+
+# ------------------------------- an independent brute force past the last target (review M1)
+
+
+def _brute_law(seed: int = 7) -> tuple[pd.DataFrame, float, float]:
+    rng = np.random.default_rng(seed)
+    n = 120
+    W = rng.binomial(1, 0.5, n)
+    A = rng.binomial(1, 0.35 + 0.3 * W)
+    h1 = 0.5 * np.exp(0.4 * W - 0.5 * A)
+    h2 = 0.3 * np.exp(-0.3 * W + 0.4 * A)
+    T0 = rng.exponential(1 / (h1 + h2))
+    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
+    C = rng.exponential(1 / 0.2, n)
+    T = np.minimum(T0, C)
+    D = np.where(T0 <= C, cause, 0)
+    frame = pd.DataFrame({"time": T, "event": D, "A": A, "W": W.astype(float)})
+    times = np.unique(T)
+    first = float(np.quantile(T[D > 0], 0.4))
+    tau = float(np.quantile(T[D > 0], 0.7))
+    tau = 0.5 * (times[times <= tau][-1] + times[times > tau][0])  # between grid points
+    return frame, first, tau
+
+
+def _plug_in(frame: pd.DataFrame, omega: np.ndarray, arm: int, cause: int, tau: float) -> Any:
+    """The RMTL of the weighted empirical law from scratch: Nelson-Aalen, Aalen-Johansen, and the
+    exact integral of the step function to ``tau``."""
+    W, A = frame["W"].to_numpy(), frame["A"].to_numpy()
+    T, D = frame["time"].to_numpy(), frame["event"].to_numpy()
+    value = 0.0
+    for w in (0.0, 1.0):
+        share = omega[w == W].sum() / omega.sum()
+        stratum = (arm == A) & (w == W)
+        survival, incidence, integral, previous = 1.0 + 0j, 0.0 + 0j, 0.0 + 0j, 0.0
+        for u in np.unique(T):
+            if u > tau:
+                break
+            integral += incidence * (u - previous)
+            previous = u
+            at_risk = omega[stratum & (u <= T)].sum()
+            if at_risk == 0:
+                continue
+            jumps = [omega[stratum & (u == T) & (j == D)].sum() / at_risk for j in (1, 2)]
+            incidence += survival * jumps[cause - 1]
+            survival *= 1 - jumps[0] - jumps[1]
+        integral += incidence * (tau - previous)
+        value += share * integral
+    return value
+
+
+def test_a_restricted_mean_past_the_last_target_time_is_its_own_gateaux_derivative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The saturated fit is the empirical law, so the walk takes no step and the engine's curve
+    is the complex-step Gateaux derivative of the plug-in at P_n.  ``tau`` lies past the last
+    target time and between grid points, so stopping the grid at the last target time, which
+    would hold the incidence flat to ``tau``, fails here."""
+    from cleverly.survival import engine
+
+    frame, first, tau = _brute_law()
+    assert tau > first
+    monkeypatch.setattr(engine, "_fit_propensity", _exact_propensity)
+    fit = ContinuousSurvivalTMLE(
+        [first],
+        restricted_horizons=(tau,),
+        cross_fit=False,
+        hazard_library=[StratifiedNelsonAalen((0, 1))],
+        censoring_library=[StratifiedNelsonAalen((0, 1))],
+        random_state=0,
+        causes={1: "c1", 2: "c2"},
+        arms={"0": 0, "1": 1},
+    ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+    assert fit.record.steps == 0
+    n = len(frame)
+    base = np.full(n, 1.0 / n, dtype=complex)
+    h = 1e-30
+    gateaux: dict[tuple[int, int], np.ndarray] = {}
+    for a in (0, 1):
+        for j in (1, 2):
+            out = np.empty(n)
+            for i in range(n):
+                omega = (1 - 1j * h) * base
+                omega[i] += 1j * h
+                out[i] = np.imag(_plug_in(frame, omega, a, j, tau)) / h
+            gateaux[a, j] = out
+            estimate = fit.rmtl(str(a), tau, f"c{j}")
+            truth = float(np.real(_plug_in(frame, base, a, j, tau)))
+            assert estimate.psi == pytest.approx(truth, abs=1e-12)
+            assert np.max(np.abs(_reported_curve(estimate) - out)) < 1e-10
+    gain = fit.rmst("1", tau, versus="0")
+    expected = -sum(gateaux[1, j] - gateaux[0, j] for j in (1, 2))
+    assert np.max(np.abs(gain.influence_curve - expected)) < 1e-10

@@ -1,8 +1,9 @@
 """Assessment of a continuous-time survival fit (X101): every row runs or refuses by name.
 
 The support, nuisance-model and score-equation rows and ``diagnostics.influence()`` read
-the fit's record and its influence curves. Every refutation, the truncation curve and every
-sensitivity analysis refuses with a ``CapabilityError`` naming its roadmap item, and the
+the fit's record and its influence curves, and the E-value reads a risk ratio of the fit.
+Every refutation, the truncation curve and every other sensitivity analysis refuses with a
+``CapabilityError`` naming its roadmap item, and the
 capability row declares the same record, so ``assess()`` reports each refusal and never
 raises.
 
@@ -54,7 +55,6 @@ SENSITIVITY_REFUSALS = {
     "missingness": "F16",
     "tipping_gamma": "F16",
     "simulated_confounding": "X101",
-    "evalue": "X6",
 }
 
 
@@ -71,6 +71,8 @@ def test_assess_runs_every_row_or_names_its_refusal(result: Any) -> None:
     assert statuses["support"] is AssessmentStatus.COMPLETED
     assert statuses["nuisance_models"] is AssessmentStatus.COMPLETED
     assert statuses["corrections"] is AssessmentStatus.NOT_APPLICABLE
+    # The E-value reads the ratio of two named risks, so a bare report defers on the pair.
+    assert statuses["evalue"] is AssessmentStatus.DEFERRED
     for name in (*DIAGNOSTIC_REFUSALS, *SENSITIVITY_REFUSALS):
         assert statuses[name] is AssessmentStatus.UNAVAILABLE, name
     for item in (*report.diagnostics.items, *report.sensitivity.items):
@@ -186,10 +188,18 @@ def test_each_refused_sensitivity_analysis_names_its_item(
     assert caught.value.refusal.roadmap == roadmap
 
 
-def test_an_explicit_evalue_estimand_lifts_no_refusal(result: Any) -> None:
-    name = next(key for key in result.estimates if key.startswith("rr_regimen"))
-    with pytest.raises(CapabilityError, match=r"X6 in docs/roadmap\.md"):
-        result.sensitivity.evalue(name)
+def test_the_evalue_defers_on_the_pair_and_reads_the_named_ratio(result: Any) -> None:
+    """The row defers without the two risks, and with them reads ``ratio()``'s estimate."""
+    row = result.sensitivity.capability("evalue")
+    assert not row.available and row.status is AssessmentStatus.DEFERRED
+    assert row.requires_arguments == ("estimand",)
+    pair = ("cif_regimen[1, 1 @ t=1]", "cif_regimen[0, 1 @ t=1]")
+    assert result.sensitivity._capability_for_arguments("evalue", {"estimand": pair}).available
+    report = result.sensitivity.evalue(estimand=pair)
+    expected = result.ratio(*pair)
+    assert report.risk_ratio == pytest.approx(expected.psi)
+    with pytest.raises(CapabilityError, match="not the two arms' risks"):
+        result.sensitivity.evalue(estimand=(pair[0], pair[0]))
 
 
 def test_corrections_do_not_apply(result: Any) -> None:
@@ -236,7 +246,6 @@ def _free_calls() -> dict[str, tuple[Any, dict[str, Any], str]]:
         "marginal_sensitivity_bounds": (sensitivity.marginal_sensitivity_bounds, {}, "F16"),
         "missingness_tilt": (sensitivity.missingness_tilt, {}, "F16"),
         "tipping_gamma": (sensitivity.tipping_gamma, {}, "F16"),
-        "evalue": (sensitivity.evalue, {}, "X6"),
         "positivity_report": (sensitivity.positivity_report, {}, None),
         "nuisance_diagnostics": (validation.nuisance_diagnostics, {}, None),
         "score_check": (validation.score_check, {}, None),

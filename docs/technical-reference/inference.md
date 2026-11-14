@@ -60,6 +60,12 @@ under-covers erratically at moderate counts and near the boundary
 ([references](../references.md#intervals-for-a-proportion)); the logit interval cannot leave the
 range.
 
+A restricted mean of a continuous-time survival fit, which lies in $(0, \tau)$, opts in to the
+same rule through `range_interval`: $f$ is then the logit of $\hat\psi / \tau$, and its
+standard error and curve stay in time units
+([continuous-time survival](continuous-time-survival.md)). Every other estimate with bounds
+other than $(0, 1)$ keeps the identity interval.
+
 Every other estimate keeps its interval: a difference of two such means (identity scale, normal
 reference), a working-model coefficient of a binary outcome, a ratio or a transformed contrast
 (normal reference on its own scale), every estimate of a continuous outcome, and every clustered

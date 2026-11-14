@@ -5003,10 +5003,11 @@ _AUGMENTED_TRIAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _augmented_tria
 
 
 def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
-    """Every sensitivity row of a continuous-time survival fit, each refused with its record.
+    """Every sensitivity row of a continuous-time survival fit but the E-value, each refused.
 
-    The omitted-variable, marginal and tilt rows name F16, the simulated common cause X101
-    and the E-value X6 (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).
+    The omitted-variable, marginal and tilt rows name F16 and the simulated common cause X101
+    (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).  The E-value
+    reads the fit's risk ratio, so :meth:`SensitivityFacade._evalue_row` builds its row.
     """
     return tuple(
         _capability(
@@ -5019,10 +5020,11 @@ def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             refusal=continuous_survival_refusal(row.operation),
         )
         for row in _STRUCTURAL_SENSITIVITY
+        if row.operation != "evalue"
     )
 
 
-#: The sensitivity declarations of a continuous-time survival fit (X101).
+#: The refused sensitivity declarations of a continuous-time survival fit (X101).
 _CONTINUOUS_SURVIVAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
     _continuous_survival_sensitivity_rows()
 )
@@ -5100,7 +5102,7 @@ class SensitivityFacade(_CapabilityFacade):
         if family == AUGMENTED_TRIAL_FAMILY:
             return _AUGMENTED_TRIAL_SENSITIVITY
         if family == CONTINUOUS_SURVIVAL_FAMILY:
-            return _CONTINUOUS_SURVIVAL_SENSITIVITY
+            return (*_CONTINUOUS_SURVIVAL_SENSITIVITY, self._evalue_row())
         if family == "point" and _is_projection(self._result):
             # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
             # axis it has no entry for.
@@ -5373,7 +5375,6 @@ class SensitivityFacade(_CapabilityFacade):
         if operation == "evalue" and _family(self._result) not in (
             "structural",
             AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
             # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
@@ -5844,7 +5845,6 @@ class SensitivityFacade(_CapabilityFacade):
         if not explicit_evalue or _family(self._result) in (
             "structural",
             AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
         ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(

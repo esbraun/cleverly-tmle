@@ -219,7 +219,8 @@ so the first line reads `experimental`. The other conditions of the label are in
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
 the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests
 and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
-lists each with its reason.
+lists each with its reason. The one exception is the E-value of a risk ratio, which runs when you
+name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder) shows.
 
 The plots draw the same checks from what the fit kept:
 
@@ -244,6 +245,54 @@ When some people had almost no chance of one treatment, the intervals of a study
 covered as little as 37% of the time.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
 gives the method, its conditions and what it refuses.
+
+### Restricted means and risk ratios with exact times
+
+With exact times, call `ContinuousSurvivalTMLE` directly to get the restricted mean survival time
+(RMST), the average time without either event up to a cut-off, and the restricted mean time lost
+to one event. Name each cut-off in `restricted_horizons=` before the fit.
+
+```python
+from cleverly.survival import ContinuousSurvivalTMLE
+
+exact_fit = ContinuousSurvivalTMLE(
+    (0.5, 2.0),
+    restricted_horizons=(2.0,),
+    arms={"treated": 1, "control": 0},
+    reference="control",
+    causes={1: "relapse", 2: "death"},
+    random_state=0,
+).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+gained = exact_fit.rmst("treated", 2.0, versus="control")
+lost = exact_fit.rmtl("treated", 2.0, "relapse", versus="control")
+ratio = exact_fit.ratio(
+    "cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]"
+)
+print(round(gained.psi, 3), round(lost.psi, 3), round(ratio.psi, 2), ratio.support.label)
+```
+
+The first number is the time without relapse or death that treating everyone adds, on average,
+over the first 2 time units. The second is the change in time lost to relapse over the same
+window, negative when treatment saves time. The third
+is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci`.
+
+The ratio reads `supported`. A [simulation study](../technical-reference/method-evidence/continuous-survival-functionals.md)
+with one cut-off at the last target time found the restricted means unbiased and their 95%
+intervals covering 93% to 95% of the time. It measured a cut-off by which three quarters of the
+events had happened, and a mean up to an earlier cut-off leans more on the early times, where
+intervals ran narrow. So `rmst` and `rmtl` read `supported` only at a cut-off by which 67% to 85%
+of the events have happened. By time 2 here 62% had, so the first two read `experimental`. The
+study's [limits](../technical-reference/method-evidence/continuous-survival-functionals.md#limits)
+give the other conditions, among them that a cut-off past the last target time reads
+`experimental`.
+
+The fit adjusts its predicted event rates until each reported number satisfies the equation its
+interval rests on. A cut-off it was not told about was never part of that adjustment, so `rmst`
+and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from the first argument, the
+target times. The "What is refused" table of
+[continuous-time survival](../technical-reference/continuous-time-survival.md) lists each case.
+The extra cut-offs join the adjustment, so the risks of this fit differ slightly
+from those of a fit without them.
 
 ## Treatments over time with an event outcome
 
@@ -574,7 +623,7 @@ not record could change the answer.
 
 | call | what it does | where it runs |
 | --- | --- | --- |
-| `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")` |
+| `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")`. On a fit with exact times, name the two arms' risks of one event at one target time, such as `("cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]")` |
 | `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not |
 
 `simulated_confounding` returns a surface: one estimate for each pair of confounder strengths in

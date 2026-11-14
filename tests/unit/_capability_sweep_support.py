@@ -1107,7 +1107,7 @@ def fit_gformula() -> Any:
     )
 
 
-def fit_continuous_survival() -> Any:
+def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
@@ -1129,11 +1129,21 @@ def fit_continuous_survival() -> Any:
     )
     return ContinuousSurvivalTMLE(
         [0.5, 1.0],
+        restricted_horizons=restricted_horizons,
         cross_fit=False,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
         random_state=0,
     ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+
+
+def fit_continuous_survival_restricted() -> Any:
+    """The continuous-time fit above with a restricted horizon at its last target time.
+
+    The walk also targets each arm's restricted mean time lost to each cause, so the fit
+    reports restricted means and their influence curves beside the risks.
+    """
+    return fit_continuous_survival(restricted_horizons=(1.0,))
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -1323,17 +1333,37 @@ KINDS: dict[str, Kind] = {
     # No truncation curve and no replay (X62), so only the reading rows and refute run.
     "survival_drtmle": _kind(fit_survival_drtmle, *_READ, "refute"),
     "survival_ctmle": _kind(fit_survival_ctmle, *_READ, "refute"),
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, refits=False),
+    # The E-value reads the risk ratio of the pair of risks the sweep names.
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, "evalue", refits=False),
+    "continuous_survival+restricted": _kind(
+        fit_continuous_survival_restricted, *_READ, "evalue", refits=False
+    ),
 }
 
 
 # ------------------------------------------------------------------------- the sweep
 
 
+def _first_estimand(result: Any) -> Any:
+    """The first estimate's name, or a continuous-time fit's first pair of the arms' risks.
+
+    The E-value of a continuous-time fit reads the ratio of two arms' risks at one cause and
+    time, so it names the pair rather than one estimate.
+    """
+    if getattr(result, "assessment_family", None) == "continuous_survival":
+        index = result._risk_index()
+        first, (arm, *place) = next(iter(index.items()))
+        other = next(
+            name for name, key in index.items() if key[0] != arm and list(key[1:]) == place
+        )
+        return (first, other)
+    return next(iter(result.estimates))
+
+
 def _fillers(result: Any) -> dict[str, Callable[[], Any]]:
     """The value the sweep supplies for each argument a row can defer on."""
     return {
-        "estimand": lambda: next(iter(result.estimates)),
+        "estimand": lambda: _first_estimand(result),
         "covariates": lambda: list(omitted_variable._benchmark_covariates(result.data)[:1]),
         "grid": lambda: _GRID,
         "bounds": lambda: (0.05,),
@@ -1346,17 +1376,18 @@ def _facades(result: Any) -> tuple[Any, Any]:
     return result.diagnostics, result.sensitivity
 
 
-def _estimand_choice(result: Any, facade: Any, operation: str) -> str:
+def _estimand_choice(result: Any, facade: Any, operation: str) -> Any:
     """The estimand the sweep supplies: the deferred row's own first candidate.
 
     A row that defers on its estimand names the candidates it chooses between, and the
     first reported estimate need not be one of them: a PAR fit reports ``par``, which the
-    marginal bound cannot take, so it offers every arm parameter instead (Fix-15).
+    marginal bound cannot take, so it offers every arm parameter instead (Fix-15). With no
+    candidates the filler answers: the first estimate, or a continuous-time fit's pair.
     """
     candidates = facade._estimand_candidates(operation)
     if candidates:
         return str(candidates[0])
-    return str(next(iter(result.estimates)))
+    return _first_estimand(result)
 
 
 def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:

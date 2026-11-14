@@ -813,13 +813,15 @@ efficient estimators.
 risks of competing causes under a binary baseline treatment, with no time grid (X91 part (g)).
 The registered study
 [continuous-time survival TMLE](technical-reference/method-evidence/continuous-time-survival.md)
-gates its default cross-fitted fit at n = 1,000. This item holds what remains.
+gates its default cross-fitted fit at n = 1,000, and
+[continuous-time survival restricted means and risk ratios](technical-reference/method-evidence/continuous-survival-functionals.md)
+gates the same fit with one restricted horizon. This item holds what remains.
 
 | part | what to add | base |
 | --- | --- | --- |
 | (a) the early-time standard error | at the first quartile of the event times the influence-curve standard error ran up to 8% below the sampling spread at n = 1,000 (5% at 4,000) and coverage fell to 0.88, while the estimates were unbiased with the efficient spread. The fit labels a time by which fewer than 40% of the events have happened experimental. A diagnosis, then a corrected variance or a declared finite-sample rule, would lift the label | the study's `early-time.csv`; the pilot at n = 4,000 in `tests/studies/continuous_survival_pilot.csv.gz` |
 | (b) one event type and more than two causes | a study of each; both run today and read experimental | Rytgaard and van der Laan (2024), Section 3.1, covers any number of causes |
-| (c) the result's curve, contrasts, ratios and RMST | `curve()`, `contrast()`, `to_dict()`, `ratio()`, `rmst()` and `evalue` on `ContinuousSurvivalResult`, and a study of the risk ratio and the band | the influence curves the result already holds |
+| (c) the band of a fit with restricted means | `curve()`, `contrast()`, `to_dict()`, `ratio()`, `rmtl()`, `rmst()` and `evalue` ship on `ContinuousSurvivalResult`, and `restricted_horizons=` targets each restricted mean. The registered study [continuous-time survival restricted means and risk ratios](technical-reference/method-evidence/continuous-survival-functionals.md) gates the risks, risk ratios and restricted means of a fit with one restricted horizon at the last target time. Its declared band row over every risk and risk difference runs as a second phase after the band thread's PR 2; until then the band reads experimental | the study's declaration in `tests/studies/continuous_survival_functionals_properties.py` |
 | (d) a bootstrap | a full-refit bootstrap of the continuous-time fit | none read |
 | (e) time-varying treatment and covariates | the continuous-time intensity model and its targeting | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5) |
 | (f) a comparator | `concrete` 1.0.5 implements the form of Rytgaard, Eriksson and van der Laan (2023), tilts only each unit's received arm, which a mutation test shows is not doubly robust, and is archived. Pin it by commit before any paired cell | the `concrete` source |
@@ -831,8 +833,8 @@ gates its default cross-fitted fit at n = 1,000. This item holds what remains.
 diagnostics and `diagnostics.influence()` read the fit's record and influence curves
 ([continuous-time survival](technical-reference/continuous-time-survival.md#assessment)). This item
 holds the operations that refit or retarget the fit. The omitted-variable, marginal and tilt bounds
-wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation), and the E-value for
-[X6](#x6-continuous-time-survival-and-competing-risks) part (c).
+wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation). The E-value of a risk
+ratio of the fit runs.
 
 | part | what to add | base |
 | --- | --- | --- |
