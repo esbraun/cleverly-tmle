@@ -2,6 +2,8 @@
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`).
+Run it from the repository root as a module,
+``python -m tests.canonical.boundary_node_ltmle.regenerate``, so that ``tests`` imports.
 The record has no comparator, so the run starts no container. Laws, learners, cells, sizes,
 margins, seeds and replicate counts are those of :mod:`tests.studies.boundary_node_ltmle` and
 :mod:`tests.studies.boundary_node_properties`, fixed before any run and recomputed by
@@ -107,8 +109,12 @@ defaults.
   miss wherever it can fall. The study GLM keeps its last iterate on a pseudo-outcome that is
   binary to within ``1e-4`` and completely separated once rounded, where it raised in the first
   pilot (:class:`tests.studies.fractional_glm.QuasiBinomialGLM`, ``numerical_separation``); no
-  other study opts in, and no fit that converged changes. A cell past its bound is red with the
-  count stated.
+  other study opts in, and no fit that converged changes. Where a target separated once rounded
+  has a value farther from 0 or 1 than that, as on property draw 130 of the cross-fitted cell,
+  which stopped the first declared run at ``03e75140``, the learner continues IRLS for up to ten
+  times its steps before it raises. A fit that still fails raises
+  ``QuasiBinomialConvergenceError``, which the harness records as a lost key, so no learner
+  failure stops the run. A cell past its bound is red with the count stated.
 """
 
 from pathlib import Path

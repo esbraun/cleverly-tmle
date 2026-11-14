@@ -565,10 +565,40 @@ def test_the_study_glm_fits_a_numerically_separated_draw() -> None:
     assert np.isfinite(result[study.TARGETS["always"]].psi)
 
 
+def test_the_draw_that_stopped_the_first_run_fits() -> None:
+    """Property draw 130 of the cross-fitted cell: a target separated once rounded, one value
+    ``4.2e-4`` from 1. The flagged learner continues and fits."""
+    cell = study.CELL_BY_NAME["interior_n200_crossfit"]
+    frame = properties._draw((cell.name, 130))
+    result = study.fit(frame, cell)
+    assert np.isfinite(result[study.TARGETS["always"]].psi)
+
+
+def test_a_study_glm_failure_is_a_lost_replicate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fit the flagged learner cannot finish costs its key; it does not stop the run."""
+    from cleverly.validation._failures import recordable
+
+    def fail(self: object, *args: object, **kwargs: object) -> None:
+        raise fractional_glm.QuasiBinomialConvergenceError("quasibinomial IRLS did not converge")
+
+    frame, cell = _separated_draw()
+    monkeypatch.setattr(fractional_glm.QuasiBinomialGLM, "fit", fail)
+    with pytest.raises(fractional_glm.QuasiBinomialConvergenceError) as caught:
+        study.fit(frame, cell)
+    assert recordable(caught.value)
+
+
 def test_without_the_flag_the_separated_draw_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation control: without the numerical-separation branch the draw raises."""
+    """Mutation control: without the numerical-separation branches the draw raises."""
     frame, cell = _separated_draw()
     monkeypatch.setattr(fractional_glm, "numerically_separated", lambda *args: False)
+    real = fractional_glm.completely_separated
+
+    def exact_only(design: np.ndarray, target: np.ndarray, weights: np.ndarray) -> bool:
+        binary = np.all((target == 0.0) | (target == 1.0))
+        return bool(binary and real(design, target, weights))
+
+    monkeypatch.setattr(fractional_glm, "completely_separated", exact_only)
     with pytest.raises(RuntimeError, match="quasibinomial IRLS did not converge"):
         study.fit(frame, cell)
 

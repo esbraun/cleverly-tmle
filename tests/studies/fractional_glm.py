@@ -46,6 +46,14 @@ that converged, and no last iterate it kept, changes. It is opt-in, and only
 bootstrap, which drops a replicate that raises, so turning it on for every study could move a
 committed bootstrap interval.
 
+The same flag covers a target separated once rounded with a value farther from 0 or 1 than the
+tolerance, such as ``1 - 4.2e-4``, which stopped the first declared run of
+``boundary-node-ltmle``. Its maximum is finite but distant, so IRLS approaches it slowly. Where
+the learner would raise, it continues from its last iterate for up to
+:data:`EXTENDED_ITERATIONS` times ``max_iter`` further steps, then applies the same rules. A fit
+that still fails raises :class:`QuasiBinomialConvergenceError`, which a study harness records as
+a lost replicate. Without the flag the learner raises a plain ``RuntimeError`` as before.
+
 No committed failure record carries the text the learner raised, so no committed run reached
 the branch that raised in a fit whose error would stop it. No registered study puts this
 learner inside a ``SuperLearner`` library. The long-horizon studies
@@ -101,6 +109,44 @@ def numerically_separated(design: np.ndarray, target: np.ndarray, weights: np.nd
     if np.max(np.minimum(np.abs(observed), np.abs(1.0 - observed))) > NUMERICAL_BINARY_TOLERANCE:
         return False
     return completely_separated(design, np.round(target), weights)
+
+
+#: How many times ``max_iter`` a fit separated once rounded may continue before it raises.
+EXTENDED_ITERATIONS = 10
+
+
+class QuasiBinomialConvergenceError(RuntimeError, np.linalg.LinAlgError):
+    """IRLS did not converge, raised by a learner with ``numerical_separation=True``.
+
+    A :class:`numpy.linalg.LinAlgError` as well as a ``RuntimeError``, so a study harness
+    records it as a lost replicate (:func:`cleverly.validation._failures.recordable`) rather
+    than stopping the run, while a caller that catches ``RuntimeError`` still does.
+    """
+
+
+def _irls(
+    design: np.ndarray,
+    target: np.ndarray,
+    weights: np.ndarray,
+    coefficient: np.ndarray,
+    steps: int,
+    tol: float,
+) -> tuple[bool, np.ndarray, np.ndarray]:
+    """Up to ``steps`` IRLS steps from ``coefficient``: converged, the previous and last iterate."""
+    previous = coefficient
+    for _ in range(steps):
+        previous = coefficient
+        fitted = expit(design @ coefficient)
+        variance = np.clip(fitted * (1.0 - fitted), 1e-10, None)
+        working = design @ coefficient + (target - fitted) / variance
+        root_weight = np.sqrt(weights * variance)
+        updated = np.linalg.lstsq(design * root_weight[:, None], working * root_weight, rcond=None)[
+            0
+        ]
+        if np.max(np.abs(updated - coefficient)) <= tol:
+            return True, coefficient, updated
+        coefficient = updated
+    return False, previous, coefficient
 
 
 class QuasiBinomialSeparationWarning(RuntimeWarning):
@@ -191,37 +237,46 @@ class QuasiBinomialGLM(BaseEstimator):
         mean = float(np.average(target, weights=weights))
         coefficient = np.zeros(design.shape[1], dtype=float)
         coefficient[0] = math.log(np.clip(mean, 1e-8, 1.0 - 1e-8) / np.clip(1.0 - mean, 1e-8, 1.0))
-        previous = coefficient
-        for _ in range(self.max_iter):
-            previous = coefficient
-            fitted = expit(design @ coefficient)
-            variance = np.clip(fitted * (1.0 - fitted), 1e-10, None)
-            working = design @ coefficient + (target - fitted) / variance
-            root_weight = np.sqrt(weights * variance)
-            updated = np.linalg.lstsq(
-                design * root_weight[:, None], working * root_weight, rcond=None
-            )[0]
-            if np.max(np.abs(updated - coefficient)) <= self.tol:
-                coefficient = updated
-                break
-            coefficient = updated
-        else:
+        converged, previous, coefficient = _irls(
+            design, target, weights, coefficient, self.max_iter, self.tol
+        )
+        if not converged:
             last = expit(design @ coefficient)
             before = deviance(target, expit(design @ previous), weights)
             after = deviance(target, last, weights)
-            if after <= before and (
+            separated = after <= before and (
                 completely_separated(design, target, weights)
                 or (self.numerical_separation and numerically_separated(design, target, weights))
+            )
+            if (
+                not separated
+                and self.numerical_separation
+                and abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON
+                and completely_separated(design, np.round(target), weights)
             ):
+                # A target separated once rounded, with a value off 0 or 1 by more than the
+                # tolerance, has a finite but distant maximum that IRLS approaches slowly.
+                # Only a fit that would raise reaches here; it continues from its iterate.
+                steps = EXTENDED_ITERATIONS * self.max_iter
+                converged, previous, coefficient = _irls(
+                    design, target, weights, coefficient, steps, self.tol
+                )
+                if not converged:
+                    before = deviance(target, expit(design @ previous), weights)
+                    after = deviance(target, expit(design @ coefficient), weights)
+        if not converged:
+            if separated:
                 warnings.warn(
                     f"quasibinomial IRLS coefficients did not converge in {self.max_iter} "
                     "steps: complete separation, last iterate kept",
                     QuasiBinomialSeparationWarning,
                     stacklevel=2,
                 )
+            elif abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON:
+                if self.numerical_separation:
+                    raise QuasiBinomialConvergenceError("quasibinomial IRLS did not converge")
+                raise RuntimeError("quasibinomial IRLS did not converge")
             else:
-                if abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON:
-                    raise RuntimeError("quasibinomial IRLS did not converge")
                 warnings.warn(
                     f"quasibinomial IRLS coefficients did not converge in {self.max_iter} "
                     "steps, but the deviance did: quasi-complete separation, last iterate kept",

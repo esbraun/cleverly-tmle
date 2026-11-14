@@ -404,9 +404,18 @@ def test_numerical_separation_keeps_the_last_iterate() -> None:
 
 
 def test_numerical_separation_rests_on_its_detector(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation control: without the detector the flagged fit raises again."""
+    """Mutation control: without either detector the flagged fit raises again."""
     monkeypatch.setattr(fractional_glm, "numerically_separated", lambda *args: False)
+    real = fractional_glm.completely_separated
     X, y = _numerically_separated_fit()
+    rounded = np.round(y)
+    monkeypatch.setattr(
+        fractional_glm,
+        "completely_separated",
+        lambda design, target, weights: (
+            False if np.array_equal(target, rounded) else real(design, target, weights)
+        ),
+    )
     with pytest.raises(RuntimeError, match="did not converge"):
         QuasiBinomialGLM(numerical_separation=True).fit(X, y)
 
@@ -429,3 +438,160 @@ def test_the_numerical_flag_leaves_a_converging_fit_unchanged(seed: int) -> None
     expected = _previous_fit(X, y)
     assert np.array_equal(model.intercept_, expected[:1])
     assert np.array_equal(model.coef_[0], expected[1:])
+
+
+#: A pseudo-outcome regression of property draw 130 of ``interior_n200_crossfit``, which
+#: stopped the first declared run: separated once rounded, with one value ``4.2e-4`` from 1,
+#: beyond :data:`~tests.studies.fractional_glm.NUMERICAL_BINARY_TOLERANCE`. Its maximum is finite
+#: and distant, so IRLS needs about 200 steps. Values below ``1e-20`` are written as 0.
+_EXTENDED_X = (
+    -0.944388,
+    0.163901,
+    -0.208937,
+    -0.159121,
+    0.712430,
+    0.110891,
+    2.321552,
+    -0.312164,
+    -0.985751,
+    -0.921071,
+    2.729214,
+    2.069248,
+    0.357537,
+    1.258227,
+    -0.392028,
+    0.407077,
+    -0.442837,
+    1.016585,
+    -0.529769,
+    0.767256,
+    0.107041,
+    0.923500,
+    -1.061007,
+    0.320218,
+    1.042800,
+    0.128777,
+    0.603791,
+    -0.209603,
+    1.342066,
+    1.258558,
+    0.744884,
+    -0.757811,
+    -0.409675,
+    -0.763399,
+    -0.730881,
+    -0.340801,
+    1.419281,
+    0.671333,
+    -0.577598,
+    -0.311114,
+    0.879252,
+    -1.620806,
+    2.286791,
+    -0.576001,
+    -1.477433,
+    -1.645567,
+    0.833955,
+    -1.675981,
+    -1.161935,
+    -1.323723,
+    -1.146804,
+    -0.969337,
+    0.577222,
+    2.425375,
+    1.458983,
+    0.851693,
+    0.809495,
+    0.376800,
+    1.402052,
+    0.433613,
+    0.906432,
+    0.337261,
+    -0.054296,
+    0.236460,
+    -0.886785,
+    0.291616,
+    0.991522,
+    1.354027,
+    -0.540610,
+    0.096669,
+    0.986682,
+    -1.327845,
+    -0.776812,
+    0.930688,
+    -1.040652,
+    0.472550,
+    -0.271687,
+    -0.210933,
+    1.006554,
+    1.022168,
+    1.189479,
+)
+_EXTENDED_Y_NONZERO = {
+    6: 1.0,
+    10: 1.0,
+    11: 1.0,
+    28: 1.8225960584984293e-10,
+    36: 0.9999999273842101,
+    42: 1.0,
+    53: 1.0,
+    54: 0.9999999999999998,
+    58: 0.9995763609261213,
+    67: 7.501014435182158e-08,
+}
+
+
+def _extended_fit() -> tuple[np.ndarray, np.ndarray]:
+    X = np.array(_EXTENDED_X).reshape(-1, 1)
+    y = np.zeros(len(_EXTENDED_X))
+    for row, value in _EXTENDED_Y_NONZERO.items():
+        y[row] = value
+    return X, y
+
+
+def test_a_target_separated_once_rounded_continues_and_fits() -> None:
+    """The flag continues IRLS where the default raises, and reaches the target."""
+    X, y = _extended_fit()
+    assert not numerically_separated(_with_intercept(X), y, np.ones_like(y))
+    assert completely_separated(_with_intercept(X), np.round(y), np.ones_like(y))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        QuasiBinomialGLM().fit(X, y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = QuasiBinomialGLM(numerical_separation=True).fit(X, y)
+    assert np.max(np.abs(model.predict(X) - y)) < 1e-8
+
+
+def test_the_continuation_rests_on_the_rounded_separation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: without the rounded-separation check the flagged fit raises.
+
+    It raises the recordable error.
+    """
+    real = fractional_glm.completely_separated
+    X, y = _extended_fit()
+    rounded = np.round(y)
+    monkeypatch.setattr(
+        fractional_glm,
+        "completely_separated",
+        lambda design, target, weights: (
+            False if np.array_equal(target, rounded) else real(design, target, weights)
+        ),
+    )
+    with pytest.raises(fractional_glm.QuasiBinomialConvergenceError):
+        QuasiBinomialGLM(numerical_separation=True).fit(X, y)
+
+
+def test_a_flagged_failure_is_recorded_and_a_default_one_stops_the_run() -> None:
+    """The flagged learner's error is one the study harness records as a lost replicate."""
+    from cleverly.validation._failures import recordable
+
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(400, 2))
+    y = rng.binomial(1, expit(1.0 + 2.0 * X[:, 0])).astype(float)
+    with pytest.raises(fractional_glm.QuasiBinomialConvergenceError) as flagged:
+        QuasiBinomialGLM(max_iter=2, numerical_separation=True).fit(X, y)
+    assert recordable(flagged.value)
+    with pytest.raises(RuntimeError) as default:
+        QuasiBinomialGLM(max_iter=2).fit(X, y)
+    assert type(default.value) is RuntimeError
+    assert not recordable(default.value)
