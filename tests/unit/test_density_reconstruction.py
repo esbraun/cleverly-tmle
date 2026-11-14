@@ -40,6 +40,7 @@ import cleverly.learners.density as density_module
 from cleverly.dose_response import DoseResponse
 from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_mixed_density
+from cleverly.estimators.dose_response import DoseResponseTMLE
 from cleverly.interventions import JointPolicy, ModifiedPolicy, Piece, Shift, Support
 from cleverly.learners import Folds
 from cleverly.learners.density import (
@@ -1333,3 +1334,37 @@ def test_the_dose_response_rule_breaks_at_the_bin_centres() -> None:
     np.testing.assert_allclose(with_centres, closed, rtol=1e-10)
     edges_only = _kernel_mass(density, e)
     assert np.max(np.abs(edges_only / closed - 1.0)) > 1e-8
+
+
+def test_the_dose_response_estimator_breaks_its_rule_at_the_bin_centres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The estimator builds its rule on the fitted grid's edges and centres."""
+    rng = np.random.default_rng(3)
+    w = rng.normal(size=300)
+    a = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, 1.0 / (1.0 + np.exp(1.0 - 0.5 * a - 0.4 * w)))
+    frame = pd.DataFrame({"Y": y, "A": a, "W": w})
+    asked: list[np.ndarray] = []
+    real = DoseResponse.quadrature
+
+    def record(self: DoseResponse, breaks: Any, *args: Any, **kwargs: Any) -> Any:
+        asked.append(np.asarray(breaks, dtype=float))
+        return real(self, breaks, *args, **kwargs)
+
+    monkeypatch.setattr(DoseResponse, "quadrature", record)
+    curve = DoseResponse(doses=(2.0, 3.0), bandwidths=(1.0,), support=(0.5, 4.5))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        DoseResponseTMLE(
+            curve,
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            random_state=0,
+        ).fit(frame, outcome="Y", treatment="A", covariates=["W"])
+    e = bin_edges(a, default_density_bins(a.size), name="A")
+    centres = 0.5 * (e[:-1] + e[1:])
+    assert asked
+    for breaks in asked:
+        assert np.all(np.isin(e, breaks)) and np.all(np.isin(centres, breaks))
