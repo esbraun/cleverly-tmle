@@ -2156,6 +2156,13 @@ their target and in where C3f, C7 and C8 are read.
   and its value under $P_w$ exceeds that of $d_0$ by 0.028. Estimated weights take the conditional
   reading of every estimated-weight fit: the target is the optimal value on the tilt the supplied
   weights define, and the interval treats them as fixed.
+- Weights with known treatment probabilities. The treatment mechanism of $P_w$ is
+  $g_w(a \mid W) = g_0(a \mid W)\,E[w \mid a, W]/E[w \mid W]$, which equals $g_0$ only for a
+  weight in $W$ alone. The fit reads `treatment_probabilities=` beside `weights=` as $g_w$. With
+  the design probabilities $g_0$ and a weight in $A$ or $Y$, such as $1 + AY$, the limit misses
+  $\Psi^w_{d_0^w}$ whenever $\bar Q$ is misspecified, and the fit does not detect it. With such a
+  weight, estimate $g$. With estimated $g$ at $n = 40{,}000$, the fit under $1 + AY$ lands within
+  3 standard errors of $\Psi^w_{d_0^w}$ (`test_learned_rule_optimal_compositions.py`).
 - Strata. With $S = s(W)$, the optimal rule restricted to a stratum is the stratum's optimal rule,
   so one learned rule per fold serves every stratum, as the
   [fold-evaluated stratum construction](cv-tmle.md) does for the learned rule. Each stratum targets
