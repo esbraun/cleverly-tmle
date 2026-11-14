@@ -1168,6 +1168,18 @@ def _over_time(
     note_list += _support_notes([r.estimate for r in in_play], "curve")
     if band_obj is not None:
         note_list += _band_note(band_obj.support, "simultaneous band")
+        supplemented = [
+            r.parameter
+            for r in in_play
+            if getattr(r.estimate, "node", None) is not None and r.parameter not in band_obj.bands
+        ]
+        if supplemented:
+            from .._inference_status import BOUNDARY_NODE_BAND_NOTE
+
+            note_list.append(
+                BOUNDARY_NODE_BAND_NOTE.format(names=", ".join(dict.fromkeys(supplemented)))
+                + " No band is drawn at those times."
+            )
         if view == "survival":
             note_list.append(
                 "The survival band mirrors the fit's risk band about the survival estimate."

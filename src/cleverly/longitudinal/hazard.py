@@ -669,11 +669,19 @@ class HazardInputs:
     def boundary_cells(self, regimen: int, horizon: int) -> tuple[BoundaryCell, ...]:
         """The cells of :meth:`constant_nodes`, each with its rows, for the node supplement.
 
-        A cell is a node and an observed level ``regimen`` reads.  Its rows are the rows at
-        risk at the node with that observed level and positive weight.  Its dropped residuals
-        are the causes held at zero, plus one when the all-cause hazard is held at one.
+        A cell is a node and a cell key ``regimen`` reads: an observed level, or on a slot
+        state the key of a unit's observed slot.  Its rows are the rows at risk at the node
+        with that key and positive weight, the rows :func:`_held_cells` found it from.  Its
+        dropped residuals are the causes held at zero, plus one when the all-cause hazard is
+        held at one.
         """
-        read = np.any(self.q[regimen] > 0.0, axis=0)
+        if self.cells is None:
+            keys = self.observed
+            read = np.any(self.q[regimen] > 0.0, axis=0)
+        else:
+            keys = self.cells[:, 0]
+            read = np.zeros(self.full.shape[1], dtype=bool)
+            read[np.unique(self.cells[self.q[regimen] > 0.0])] = True
         cells: list[BoundaryCell] = []
         for k in range(min(horizon, self.n_times)):
             for level in np.flatnonzero(read):
@@ -681,7 +689,7 @@ class HazardInputs:
                 full = bool(self.full[k, level])
                 if not (empty or full):
                     continue
-                rows = self.at_risk[:, k] & (self.observed == level) & (self.weights > 0.0)
+                rows = self.at_risk[:, k] & (keys == level) & (self.weights > 0.0)
                 cells.append(
                     BoundaryCell(k + 1, rows, 1.0 if full and not empty else 0.0, empty + full)
                 )

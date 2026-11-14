@@ -28,6 +28,7 @@ from cleverly.exceptions import CapabilityError, DataWarning
 from cleverly.inference import influence_variance
 from cleverly.inference.multiplier import simultaneous_bands
 from cleverly.inference.node_variance import hazard_bound
+from cleverly.interventions import Shift
 from cleverly.longitudinal import LTMLE, SDR, LongitudinalData
 from cleverly.longitudinal import estimator as estimator_module
 from cleverly.longitudinal import sequential as sequential_module
@@ -37,6 +38,7 @@ from cleverly.longitudinal.estimator import (
     boundary_node_parameters,
     constant_node_parameters,
 )
+from tests.discrete_law_point_survival import CellMeans
 from tests.unit._source_mutation import mutate
 
 ALPHA = 0.05
@@ -348,6 +350,51 @@ def test_two_flagged_nodes_add_inside_a_cluster_and_apart_on_rows(clustered: boo
     assert estimate.node.node_variance == pytest.approx(expected, rel=1e-12)
 
 
+def test_a_continuous_dose_policy_reads_the_shared_cell_of_its_slots() -> None:
+    """A policy on a continuous dose: every unit at risk shares the node's one held cell.
+
+    The hazard walk keys a continuous node's cells by slot, not by observed level, so the
+    cell's rows are every positive-weight row at risk there, rebuilt here from the panel.
+    The coefficient is the walk's loss weight ``w r / G``, the clever weight at the node.
+    """
+    rng = np.random.default_rng(0)
+    n = 600
+    frame = pd.DataFrame({"W": rng.integers(0, 2, n).astype(float), "D": rng.uniform(0, 2, n)})
+    frame["C1"] = frame["C2"] = 1.0
+    frame["Y1"] = (rng.uniform(size=n) < 0.2).astype(float)
+    frame["Y2"] = 0.0
+    frame.loc[frame["Y1"] == 1.0, ["C2", "Y2"]] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            {"up": Shift(0.5, cap=None)},
+            n_folds=1,
+            survival_model="hazard",
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            censoring_learner=CellMeans(),
+        ).fit(
+            frame,
+            treatment="D",
+            continuous_treatment=["D"],
+            outcome=["Y1", "Y2"],
+            baseline=["W"],
+            censoring=["C1", "C2"],
+        )
+    estimate = result["risk_regimen[up @ t=2]"]
+    assert estimate.node is not None
+    rows = (frame["Y1"] == 0.0).to_numpy()
+    fit = result.fits["up @ t=2"]
+    (cell,) = fit.hazard_boundary
+    assert cell.time == 2
+    assert np.array_equal(cell.rows, rows)
+    coefficient = np.asarray(result.data.weights, dtype=float) * fit.hazard_clever[:, 1]
+    bound = hazard_bound(int(rows.sum()), ALPHA)
+    supplement = bound * (1.0 - bound) * float(np.sum((coefficient * rows) ** 2)) / n**2
+    assert supplement > 0.0
+    assert estimate.node.node_variance == pytest.approx(supplement, rel=1e-12)
+
+
 def test_the_range_logit_interval_carries_the_supplemented_variance() -> None:
     data = _frame(quiet={1: (2,)})
     estimate = _fit(data)["risk_regimen[treated @ t=2]"]
@@ -456,3 +503,59 @@ def test_the_frame_reports_both_variance_parts() -> None:
     assert row["influence_curve_std_err"] == pytest.approx(
         np.sqrt(estimate.node.influence_variance)
     )
+
+
+# ------------------------------------------------------- what reads a supplemented estimate
+
+
+def _supplemented_kind() -> Any:
+    """The capability sweep's boundary-node kind: horizons 2 to 4 carry the supplement."""
+    from tests.unit._capability_sweep_support import KINDS
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return KINDS["ltmle_boundary_node"].build()
+
+
+def test_refute_scales_its_shift_by_the_supplemented_standard_error() -> None:
+    """The refutation reads the reported standard error, the curve's plus the node term."""
+    result = _supplemented_kind()
+    name = "ate_regimen[a1 vs a0 @ t=2]"
+    estimate = result[name]
+    assert estimate.node is not None
+    curve_only = float(np.sqrt(estimate.node.influence_variance))
+    assert estimate.plugin_std_error > curve_only
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = result.diagnostics.refute(
+            estimand=name, tests=("random_common_cause",), n_replicates=1
+        )
+    (test,) = report.tests
+    shift = test.values[0] - test.original
+    assert test.statistic == pytest.approx(shift / estimate.plugin_std_error, rel=1e-9)
+    assert test.statistic != pytest.approx(shift / curve_only, rel=1e-6)
+
+
+def test_the_survival_functionals_carry_the_supplement() -> None:
+    """RMST and the E-value's risk ratio read the node term of the risks they combine."""
+    from tests.unit.test_plotting_result_matrix import _boundary_node
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = _boundary_node()
+        rmst = result.rmst("arm1", 3)
+        ratio = result.ratio("risk_regimen[arm1 @ t=2]", "risk_regimen[arm0 @ t=2]")
+        evalue = result.sensitivity.evalue(("risk_regimen[arm1 @ t=2]", "risk_regimen[arm0 @ t=2]"))
+    # RMST(3) = 3 - F(1) - F(2), so only F(2) loads on the flagged node.
+    assert rmst.node is not None
+    risk = result.estimates["risk_regimen[arm1 @ t=2]"]
+    assert rmst.node.node_variance == pytest.approx(risk.node.node_variance, rel=1e-12)
+    assert rmst.variance == pytest.approx(
+        influence_variance(rmst.influence_curve, None) + rmst.node.node_variance, rel=1e-12
+    )
+    assert ratio.node is not None
+    assert evalue.estimand == ratio.name
+    # The E-value's limit is that of the supplemented interval's limit nearer the null.
+    assert ratio.psi < 1.0 < 1.0 / ratio.ci[1]
+    rr = 1.0 / ratio.ci[1]
+    assert evalue.limit == pytest.approx(rr + np.sqrt(rr * (rr - 1.0)), rel=1e-9)
