@@ -551,22 +551,29 @@ variance takes the centered variance of the cluster totals inside each fold
 at every cluster count. Without a learned rule it also needs clusters of equal denominator mass
 ([clusters of unequal mass](#clusters-of-unequal-mass)).
 
-The fold-evaluated variance is calibrated from 4 training clusters, with the propensity estimated
-or declared known. The training complement of a validation fold is every cluster outside it, so
-it holds the clusters that fit that fold's models. The
-[few-cluster fold variance study](method-evidence/few-cluster-fold-variance.md) measures 2 to 24
-training clusters at $V = 2$ and 5, with 2 to 6 clusters per validation fold, equal cluster sizes
-and parametric learners. Every cell passes from 4. At 2 training clusters, 5.5% of the `equal10`
-draws withhold their interval, which leaves all-draw coverage below 0.90, and the estimated
-propensity's covariate-law cell reads shown coverage 0.926, whose exact lower end sits below
-0.92. At 2 clusters per
-validation fold the cells with 8 and 16 training clusters pass, so the limit is the training
-complement.
+The training complement of a validation fold is every cluster outside it, so it holds the clusters
+that fit that fold's models. The
+[few-cluster fold variance study](method-evidence/few-cluster-fold-variance.md) measures the
+fold-evaluated interval at 2 to 24 training clusters, with the propensity estimated or declared
+known. A cell passes when the exact 99% interval of its shown coverage lies inside [0.92, 0.98],
+the exact 99% lower end of its coverage over every draw is at least 0.90, and the 99% lower end of
+its variance ratio is at least 0.8649. Every cell passes from 4 training clusters. That holds
+under the study's conditions: equal cluster sizes, equal folds of 2 to 6 clusters at $V = 2$ and
+5, unpenalized logistic learners, and its two binary-outcome laws.
 
-`MINIMUM_FOLD_TRAINING_CLUSTERS` keys the floor by mechanism, and a fit whose smallest training
-complement holds fewer positive-mass clusters takes `"few_cluster_plugin"`. With an estimated
-propensity on 2 to 8 training clusters, a few fits report very wide intervals: the variance ratio
-of the mean squared SE to the spread reads up to 15.7 while its 5%-trimmed form reads 0.94 to 2.2.
+At 2 training clusters, 5.5% of the `equal10` draws withhold their interval, which leaves
+all-draw coverage below 0.90, and the estimated propensity's covariate-law cell reads shown
+coverage 0.926, whose exact lower end sits below 0.92. At 2 clusters per validation fold the
+cells with 8 and 16 training clusters pass, so the limit is the training complement. With an
+estimated propensity on 2 to 8 training clusters, a few fits report very wide intervals: the
+variance ratio of the mean squared SE to the spread reads up to 15.7 while its 5%-trimmed form
+reads 0.94 to 2.2.
+
+`MINIMUM_FOLD_TRAINING_CLUSTERS` keys the floor by mechanism (4 estimated, 4 known), and a fit
+whose smallest training complement holds fewer positive-mass clusters takes
+`"few_cluster_plugin"`. The whole-fit floor still applies: a fit with fewer than 10 positive-mass
+clusters keeps `"few_cluster_plugin"` even when every complement holds 4 or more, so the passing
+cells below 10 clusters, such as $J = 8$ at 4 training clusters, stay labelled.
 
 Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
 what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.

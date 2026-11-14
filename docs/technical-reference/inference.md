@@ -470,21 +470,24 @@ $V=5$, with 2 clusters per fold: over 1,500 draws, $t_{J-2}$ covered 0.935 and $
 0.955. The registered few-cluster study and the covariate pair of the unequal-size study, at 40
 clusters in 10 folds on $t_{30}$, measure the rule at equal cluster sizes.
 
-The fold-evaluated variance is calibrated from 4 training clusters. The training complement of a
-validation fold is every cluster outside it, the clusters that fit that fold's outcome and
-treatment models. The registered
+The training complement of a validation fold is every cluster outside it, the clusters that fit
+that fold's outcome and treatment models. The registered
 [few-cluster fold variance study](method-evidence/few-cluster-fold-variance.md) measures the
-centred fold variance on $t_{J-V}$ at 2, 4, 6, 8, 16 and 24 training clusters, with 2 to 6
-clusters per validation fold ($V = 2$ and 5), equal cluster sizes and parametric learners. With
-the propensity estimated or declared known, every cell passes from 4 training clusters. At 2, the
-all-draw coverage falls below 0.90 or the shown coverage leaves the band. A validation fold of 2
-clusters is calibrated when its complement is large, so the limit is the training complement and
-not the validation fold.
+centred fold variance on $t_{J-V}$ at 2, 4, 6, 8, 16 and 24 training clusters. A cell passes when
+the exact 99% interval of shown coverage lies inside [0.92, 0.98], the exact 99% lower end of
+all-draw coverage is at least 0.90, and the 99% lower end of the variance ratio is at least
+0.8649. With the propensity estimated or declared known, every cell passes from 4 training
+clusters. The conditions are equal cluster sizes, equal folds of 2 to 6 clusters at $V = 2$ and 5,
+unpenalized logistic learners and two binary-outcome laws. At 2 training clusters, the all-draw
+coverage falls below 0.90 or the shown coverage leaves the band.
 
-`MINIMUM_FOLD_TRAINING_CLUSTERS` holds the floor per treatment mechanism
-(4 estimated, 4 known), and a fold-evaluated `TMLE` whose smallest training complement holds
-fewer positive-mass clusters takes `"few_cluster_plugin"`. With the whole-fit floor of 10, that
-happens only when the folds put almost every positive-mass cluster in one validation fold.
+A validation fold of 2 clusters passes when its complement is large, so the limit is the training
+complement and not the validation fold. `MINIMUM_FOLD_TRAINING_CLUSTERS` holds the floor per
+treatment mechanism (4 estimated, 4 known), and a fold-evaluated `TMLE` whose smallest training
+complement holds fewer positive-mass clusters takes `"few_cluster_plugin"`. With the whole-fit
+floor of 10, that happens only when weights leave almost every positive-mass cluster in one
+validation fold. The whole-fit floor still labels a fit below 10 positive-mass clusters, so the
+passing cells below 10 clusters keep `"few_cluster_plugin"`.
 
 `cv_evaluation=True` refuses a clustered fit, before any learner, when the clusters differ in the
 denominator mass of a requested estimand: the total weight (the row count when unweighted) for

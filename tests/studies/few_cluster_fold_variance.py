@@ -327,7 +327,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference=None,
-    failure_bound={"cleverly": 0.05},
+    failure_bound={"cleverly": 0.01},
     modules=(
         "tests/studies/few_cluster_fold_variance.py",
         "tests/studies/few_cluster_fold_variance_properties.py",

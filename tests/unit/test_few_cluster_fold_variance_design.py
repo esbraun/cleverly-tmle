@@ -185,7 +185,7 @@ def test_registered_from_the_declared_run() -> None:
     assert properties.__name__ not in UNCOMMITTED_MODULES
     assert study.STUDY.publication_policy == "reporting"
     assert properties.FAILURE_BOUND == 0.05
-    assert study.STUDY.failure_bound == {"cleverly": 0.05}
+    assert study.STUDY.failure_bound == {"cleverly": 0.01}
 
 
 # ------------------------------------------------------------------------------- the pilot

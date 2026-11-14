@@ -106,3 +106,42 @@ def test_the_floor_reads_only_the_fold_evaluated_report(monkeypatch: pytest.Monk
     )
     stacked = _fit(known=False, cv_evaluation=False)
     assert stacked.estimates["ate"].inference == "influence_curve"
+
+
+def test_the_shipped_floor_binds_through_weights_on_generated_folds() -> None:
+    """The unpatched witness: zero weight on 4 clusters of one fold leaves a complement of 3."""
+    frame, _ = make_clustered(n=280, seed=0, cluster_size=20, family="binomial")  # 14 clusters
+
+    def fit(data: Any, **roles: Any) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return (
+                TMLE(
+                    outcome_learner=LogisticRegression(),
+                    treatment_learner=LogisticRegression(),
+                    cross_fit=True,
+                    n_folds=2,
+                    cv_evaluation=True,
+                    stratify_folds="none",
+                    estimands=("ate",),
+                    simultaneous=False,
+                    random_state=0,
+                )
+                .fit(
+                    data, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cluster", **roles
+                )
+                .single()
+            )
+
+    unweighted = fit(frame)
+    assert unweighted.estimates["ate"].inference == "influence_curve"
+    cluster = frame["cluster"].to_numpy()
+    folds = [test for _, test in unweighted.nuisance.folds]
+    second = np.unique(cluster[folds[1]])
+    weights = np.where(np.isin(cluster, second[:4]), 0.0, 1.0)
+    weighted = fit(frame.assign(w=weights), weights="w")
+    same = [test for _, test in weighted.nuisance.folds]
+    assert all(np.array_equal(a, b) for a, b in zip(same, folds, strict=True))
+    assert smallest_training_clusters(cluster, same, weights) == 3
+    assert len(np.unique(cluster[weights > 0])) >= 10  # the whole-fit floor does not decide it
+    assert weighted.estimates["ate"].inference == "few_cluster_plugin"

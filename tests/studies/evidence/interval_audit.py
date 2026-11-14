@@ -499,8 +499,9 @@ SCREEN_REASONS: dict[str, str] = {
         "interval is unchanged"
     ),
     "few-cluster-fold-variance": (
-        "every fit is clustered (id=), and a clustered mean keeps the identity interval on its t "
-        "reference: the range-logit scale applies to an unclustered mean only "
+        "the flagged rows are the cluster_covariate cells (ey1, a bounded mean): every fit is "
+        "clustered (id=), and a clustered mean keeps the identity interval on its t reference; "
+        "the range-logit scale applies to an unclustered mean only "
         "(ParameterEstimate.interval_scale)"
     ),
     "option-patience": (

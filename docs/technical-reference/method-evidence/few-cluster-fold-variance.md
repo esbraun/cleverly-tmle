@@ -184,7 +184,9 @@ passes its variance-ratio lower end.
 The pilot predicted two further reds in the known configuration, `cluster_covariate__v2_j4` and
 `equal10__v2_j8` (`PREDICTED_RED`), and a known floor of 6. Both cells passed: the shown coverage
 of the covariate cell is 0.929 with exact lower end 0.921, and `equal10__v2_j8` reads 0.929 with
-all-draw coverage 0.927. So the known floor is 4, not 6. The prediction is recorded as made; no
+all-draw coverage 0.927. So the known floor is 4, not 6. The cell that decides it,
+`equal10__v2_j8` with the propensity known, has a shown-coverage lower end of 0.9211 against the
+band's 0.92, and the pilot gave it a pass probability of 0.23. The prediction is recorded as made; no
 rule, threshold or floor was changed after the verdicts.
 
 ## Reported readings
@@ -247,8 +249,8 @@ from the committed results and checked at the precision printed.
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound. No cell of this study reads it |
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound. No cell of this study reads it |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude. No cell of this study reads it |
-| `margin:subject_failure_bound` | 0.0500 | declared share of replications a cell may lose to a recordable fitting failure |
-| `margin:subject_failures_allowed` | 50 | the same bound, in primary replications |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limitations
 
