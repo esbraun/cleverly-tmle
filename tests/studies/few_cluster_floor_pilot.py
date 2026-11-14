@@ -9,6 +9,9 @@ the study's declaration (``STUDY.artifacts``, or ``--output``):
 =========================  ===================================================================
 file                       content
 =========================  ===================================================================
+``pilot-raw-rows.csv.gz``  the stamped rows with CPU timings, written before the summary;
+                           ``--from-raw`` summarises them again without refitting
+``pilot-raw-log.csv.gz``   the failure records, written with them when there are any
 ``pilot.csv.gz``           the rows
 ``pilot-failures.csv``     one row per lost key: fit, law, J, replicate, which key (main fit
                            or (C)), record class, exception class, call and message. The pilot
@@ -368,18 +371,37 @@ def timing_table(
     return pd.concat([table, pd.DataFrame(totals)], ignore_index=True)
 
 
-def run(which: str, output: Path | None = None, jobs: int = 1) -> dict[str, pd.DataFrame]:
-    """Fit the pilot of one study and write every table the module docstring lists."""
+#: The raw files :func:`run` writes before it summarises, so a summary error costs no refit.
+RAW_ROWS, RAW_RECORDS = "pilot-raw-rows.csv.gz", "pilot-raw-log.csv.gz"
+
+
+def run(
+    which: str, output: Path | None = None, jobs: int = 1, *, from_raw: bool = False
+) -> dict[str, pd.DataFrame]:
+    """Fit the pilot of one study and write every table the module docstring lists.
+
+    The fitted rows (with timings) and the failure records are written first, as
+    :data:`RAW_ROWS` and :data:`RAW_RECORDS`. ``from_raw`` reads them back instead of fitting,
+    so a summary that raises can be rerun without the fits.
+    """
     module = importlib.import_module(MODULES[which])
-    with recording("cleverly", witness=module.PROPERTY_WITNESS) as recorded:
-        rows = module.generate_property_rows(
-            n_jobs=jobs, budget=PILOT_DRAWS, stream="pilot", timed=True, record_every=True
-        )
-    records = property_failures.frame(recorded)
-    stamped = property_failures.stamp(rows, records)
-    summary = module.summarize_properties(stamped.drop(columns=list(floor.TIMING_COLUMNS)))
     output = module.STUDY.artifacts if output is None else output
     output.mkdir(parents=True, exist_ok=True)
+    if from_raw:
+        stamped = pd.read_csv(output / RAW_ROWS, keep_default_na=False, na_values=[""])
+        log = output / RAW_RECORDS
+        records = pd.read_csv(log, keep_default_na=False, na_values=[""]) if log.exists() else None
+    else:
+        with recording("cleverly", witness=module.PROPERTY_WITNESS) as recorded:
+            rows = module.generate_property_rows(
+                n_jobs=jobs, budget=PILOT_DRAWS, stream="pilot", timed=True, record_every=True
+            )
+        records = property_failures.frame(recorded)
+        stamped = property_failures.stamp(rows, records)
+        stamped.to_csv(output / RAW_ROWS, index=False)
+        if records is not None:  # no failure record leaves no log
+            records.to_csv(output / RAW_RECORDS, index=False)
+    summary = module.summarize_properties(stamped.drop(columns=list(floor.TIMING_COLUMNS)))
     failures = failure_table(records)
     sized = sizing_table(which, module, summary)
     family_rows = sized.loc[sized["kind"] == "family"]
@@ -408,8 +430,11 @@ def main() -> None:
     parser.add_argument("study", choices=sorted(MODULES))
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument(
+        "--from-raw", action="store_true", help="summarise the raw files of an earlier fit"
+    )
     args = parser.parse_args()
-    run(args.study, args.output, args.jobs)
+    run(args.study, args.output, args.jobs, from_raw=args.from_raw)
 
 
 if __name__ == "__main__":

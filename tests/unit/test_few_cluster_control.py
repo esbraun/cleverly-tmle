@@ -274,3 +274,48 @@ class TestLostReplicates:
         # The S4 set of a cell that lost one replicate: one SE-at-max set and two vertices.
         assert len(candidates) == 3
         assert all(judged.passed for _, judged in candidates)
+
+
+class TestShownOnly:
+    """A study whose fits withhold intervals reads the SE ratios on the shown draws."""
+
+    @staticmethod
+    def withheld(rows: pd.DataFrame, replicates: set[int]) -> pd.DataFrame:
+        out = rows.copy()
+        hit = out["replicate"].isin(replicates) & out["cell"].isin((POSITIVE, CONTROL))
+        out.loc[hit, "std_error"] = np.nan
+        return out
+
+    def test_withheld_draws_without_an_se_are_dropped_from_the_ratios(self) -> None:
+        rows = synthetic_rows(400, cluster_scale=1.0, iid_scale=0.6, seed=3)
+        gone = set(range(0, 400, 7))
+        with pytest.raises(ValueError, match="finite and positive"):
+            verdicts(self.withheld(rows, gone))
+        summary, _ = apply_shared_verdicts(
+            self.withheld(rows, gone), RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(
+            summary, self.withheld(rows, gone), RECORD, GROUPS, shown_only=True
+        )
+        control = summary.set_index("cell").loc[CONTROL]
+        kept = rows.loc[~rows["replicate"].isin(gone)]
+        expected = paired_se_ratio_interval(
+            kept.loc[kept["cell"] == CONTROL, ["replicate", "std_error"]],
+            kept.loc[kept["cell"] == POSITIVE, ["replicate", "std_error"]],
+            replicates=RECORD.margins.bootstrap_replicates,
+            confidence_level=RECORD.margins.confidence_level,
+            seed=pv.stream_seed(RECORD, FEW_CLUSTER_FAMILY, CONTROL),
+        )
+        assert control["paired_se_ratio"] == pytest.approx(expected.ratio, rel=1e-12)
+        assert control["paired_se_ratio_ci_upper"] == expected.interval.high
+        assert bool(control["passed"])
+
+    def test_a_cell_with_every_draw_withheld_fails_its_control(self) -> None:
+        rows = self.withheld(synthetic_rows(50, cluster_scale=1.0, iid_scale=0.6), set(range(50)))
+        summary, _ = apply_shared_verdicts(
+            rows, RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(summary, rows, RECORD, GROUPS, shown_only=True)
+        table = summary.set_index("cell")
+        assert np.isnan(table.loc[POSITIVE, "se_ratio_ci_upper"])
+        assert not bool(table.loc[CONTROL, "passed"])

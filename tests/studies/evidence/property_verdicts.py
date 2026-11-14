@@ -2107,6 +2107,8 @@ def few_cluster_reference_verdicts(
     rows: pd.DataFrame,
     record: StudyRecord,
     groups: Sequence[Sequence[str]],
+    *,
+    shown_only: bool = False,
 ) -> None:
     """The positive, control and reported rules of every ``few_cluster_reference`` cell.
 
@@ -2129,6 +2131,12 @@ def few_cluster_reference_verdicts(
     likely as under-coverage. ``clustered-few-cluster-tmle`` and
     ``few-cluster-cross-fitted-ltmle`` both read this one rule.
 
+    A study whose fits can withhold an interval (the X54 floor studies) passes ``shown_only``.
+    The SE ratios then read the shown draws whose arms report a finite positive SE, and the
+    paired ratio the draws both arms show; a withheld draw stays a miss in the coverage the
+    shared summary computed over every draw. A cell with fewer than two such draws publishes
+    no SE ratio, and its control fails: no clause can be read.
+
     Parameters
     ----------
     summary : pandas.DataFrame
@@ -2140,15 +2148,27 @@ def few_cluster_reference_verdicts(
     groups : sequence of sequence of str
         The module's declared groups of the family (``PROPERTY_GROUPS``), which pair each
         control with its positive arm.
+    shown_only : bool, default False
+        Read the SE ratios on the draws with a finite positive SE, as above.
     """
     margins = record.margins
     family = summary["property"] == FEW_CLUSTER_FAMILY
 
     def cell_rows(cell: str) -> pd.DataFrame:
-        return rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+        selected = rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+        if not shown_only:
+            return selected
+        se = selected["std_error"].to_numpy(dtype=float)
+        # The shown subset is no longer the accounted cell, so it pairs on replicate ids alone.
+        return selected.loc[
+            np.isfinite(se) & (se > 0.0), ["replicate", "estimate", "std_error", "truth"]
+        ]
 
     for index in summary.index[family.to_numpy()]:
         cell = str(summary.loc[index, "cell"])
+        if shown_only and len(cell_rows(cell)) < 2:
+            summary.loc[index, ["se_ratio_ci_lower", "se_ratio_ci_upper"]] = np.nan
+            continue
         ratio = se_ratio_interval(
             cell_rows(cell),
             replicates=margins.bootstrap_replicates,
@@ -2169,9 +2189,18 @@ def few_cluster_reference_verdicts(
             )
         elif role == "control":
             positive, _ = few_cluster_pair(summary, groups, cell)
+            control_rows, positive_rows = cell_rows(cell), cell_rows(positive)
+            if shown_only:
+                both = np.intersect1d(control_rows["replicate"], positive_rows["replicate"])
+                control_rows = control_rows.loc[control_rows["replicate"].isin(both)]
+                positive_rows = positive_rows.loc[positive_rows["replicate"].isin(both)]
+                if len(both) < 2:
+                    summary.loc[index, "passed"] = False
+                    summary.loc[index, "property_passed"] = False
+                    continue
             paired = paired_se_ratio_interval(
-                cell_rows(cell),
-                cell_rows(positive),
+                control_rows,
+                positive_rows,
                 replicates=margins.bootstrap_replicates,
                 confidence_level=margins.confidence_level,
                 seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),

@@ -231,7 +231,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=(*FEW_CLUSTER_COLUMNS, *floor.READING_COLUMNS, *floor.CANDIDATE_COLUMNS),
         rate_labels=(),
     )
-    few_cluster_reference_verdicts(summary, rows, STUDY, PROPERTY_GROUPS[FAMILY])
+    few_cluster_reference_verdicts(summary, rows, STUDY, PROPERTY_GROUPS[FAMILY], shown_only=True)
     floor.floor_readings(summary, rows, STUDY)
     floor.candidate_verdicts(summary, rows, STUDY, PROPERTY_GROUPS[floor.CANDIDATE_FAMILY])
     rates.extend(floor.pooled_rows(summary, rows, STUDY, pooled_starts(summary)))
