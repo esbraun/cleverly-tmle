@@ -213,7 +213,10 @@ Coordinatewise medians do not preserve identities among several estimands. A rep
 point-treatment fit with the median therefore refuses joint covariance and post-fit contrasts. It also refuses
 simultaneous bands, because a multiplier construction would use the retained central-draw curve.
 That curve supports marginal diagnostics. The split-adjusted variance above supplies the pointwise
-interval.
+interval. The projection coefficients of a `ConditionalContrast` fit are the exception: each draw
+stores its coefficients, covariance and curves, and `covariance()`, the heterogeneity test, the
+effect curve and its band combine the draws by the longitudinal rules below
+([repeated splits](conditional-effects.md#repeated-splits)).
 
 **Longitudinal fits combine each derived quantity per draw.** `LTMLE`, `SDR` and `IPSI` accept
 `repeats`. Each draw is the complete single-draw fit at its own split and seed. The longitudinal

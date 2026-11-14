@@ -190,7 +190,7 @@ It moved each part that an established method or a natural extension carries to 
 | Longitudinal simulated-confounding replay | censoring on end-of-study outcomes, and survival outcomes whose treatment is not held from baseline; a time-varying covariate after the first treatment node; a time-varying latent with treatment feedback | identification | one time-fixed latent on uncensored end-of-study fits ([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F), and on survival and competing-risk fits whose treatment is held from baseline, censored or not ([X91](#x91-survival-targets-across-the-estimators) part C) | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | the treatment axis on a fit with an intermediate | identification | the outcome axis, and an intermediate axis that holds the treatment ([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part F) | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` open for the [admitted set](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) and refuse for every other learner under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
-| Targeted bootstrap inference | full-refit bootstrap consistency with data-adaptive or cross-fitted nuisances; a row-resampling (nonparametric) targeted bootstrap for learners other than HAL | asymptotic | the in-sample point-treatment `TMLE` bootstrap publishes its percentile interval, with a data-adaptive learner too, although the registered study measured only correctly specified nuisances. A cross-fitted point bootstrap, and every `DRTMLE` and `CTMLE` bootstrap, prints as a diagnostic. [X55](#x55-bootstrap-extensions) holds the extensions that published support carries | [F2](#f2-targeted-bootstrap-inference) |
+| Targeted bootstrap inference | full-refit bootstrap consistency with data-adaptive or cross-fitted nuisances; a row-resampling (nonparametric) targeted bootstrap for learners other than HAL | asymptotic | the in-sample point-treatment `TMLE` bootstrap publishes its percentile interval, with a data-adaptive learner too, although the registered study measured only correctly specified nuisances. A cross-fitted point bootstrap publishes its interval labelled experimental, and every `DRTMLE` and `CTMLE` bootstrap prints as a diagnostic. [X55](#x55-bootstrap-extensions) holds the extensions that published support carries | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | (a) a sample estimate of the bounds of Tan (2025); (b) its interval; (c) an omitted-variable bound or an E-value on a longitudinal fit; (d) a censoring-node missingness tilt | (a) asymptotic; (b) regularity; (c) and (d) identification | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Other refused C-TMLE and DR-TMLE compositions | C-TMLE ATT, ATC, incremental, modified treatment policies, the risk-ratio tilt, controlled direct effects, continuous doses and longitudinal functionals; DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt, incremental, controlled direct effects, longitudinal functionals, continuous doses, a partial guard with missing outcomes, fold targeting and fold evaluation; DR-TMLE combined with C-TMLE | regularity for the C-TMLE targets; asymptotic for the DR-TMLE targets | named pre-fit refusals. [X50](#x50-further-dr-tmle-compositions) and [X51](#x51-c-tmle-point-estimates-for-further-targets) hold the compositions that moved, and [X62](#x62-other-dr-tmle-and-c-tmle-compositions) holds the others | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | Selector-path C-TMLE inference | inference after the shipped stopping-index selection; a fold-specific selection under `cv_evaluation=True` or `targeting_scheme="fold"` | adaptive-optimum inference | point estimates and path diagnostics. The greedy, ordered, discrete, lasso and learners paths refuse `ci`, `pvalue` and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set and a `learners` fit with an empty declared list. [X52](#x52-parametric-c-tmle-intervals) holds one declared partial candidate with parametric learners | [F18](#f18-selector-path-c-tmle-inference) |
@@ -1781,12 +1781,16 @@ the rule learner of the learned-rule value
 ([conditional effects](technical-reference/conditional-effects.md),
 [the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)).
 
-What stays here is the compositions the shipped refusals name with this item: missing
-treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1 and
-the full-refit bootstrap for `ConditionalContrast`; a conditional contrast from a method other
-than `method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a
-curve; a declared final learner on the log-ratio scale; an interval for an EP rule fitted with a
-declared `sieve=` or `learner=`; and scalar aggregates of an EP curve.
+The projection TMLE also fits a missing treatment in sample (through the composite indicator),
+`strata=`, `repeats` above 1 and the full-refit bootstrap; these read experimental until the
+`projection-compositions` study is registered. The EP rule's interval with a declared `sieve=` or
+`learner=` waits on the `learned-rule-ep-declared` study the same way.
+
+What stays here is the compositions the shipped refusals name with this item: an intermediate and
+a continuous or vector treatment for `ConditionalContrast`; a conditional contrast from a method
+other than `method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a
+curve; a declared final learner on the log-ratio scale; and scalar aggregates of an EP curve. A
+cross-fitted missing treatment is [X53](#x53-missing-outcome-cv-tmle-variants) (c).
 
 Evidence stays open too. The `hte3` comparator runs of the `ep-cate`, `ep-crr` and
 `ep-assessment` studies are pending, and the EP curve carries no interval. The projection band,
@@ -2179,10 +2183,10 @@ So do `LogisticRegressionCV`, an L1 or elastic-net penalty, and every other lear
 
 The package ships the full-refit bootstrap, in which each replicate refits the whole estimator. Its
 registered study `full-refit-bootstrap-and-derived-contrasts` measures in-sample fits with
-correctly specified nuisances, and it measures the point-treatment `TMLE` only. `TMLE` publishes
-the percentile interval as inference for an in-sample point-treatment fit only. A cross-fitted
-point-treatment fit prints its bootstrap as a diagnostic, as the cross-fitted longitudinal kinds
-do. Every `DRTMLE` fit and every `CTMLE` fit prints it as a diagnostic too. An in-sample `TMLE`
+correctly specified nuisances, and it measures the point-treatment `TMLE` only. A cross-fitted
+point-treatment `TMLE` fit publishes the percentile interval under its inferential names, labelled
+experimental with a reason that names this item; the cross-fitted longitudinal kinds publish
+theirs labelled experimental too. Every `DRTMLE` fit and every `CTMLE` fit prints it as a diagnostic too. An in-sample `TMLE`
 fit with a data-adaptive learner still publishes the interval. The registered study measured only
 correctly specified nuisances, and this row holds the theory for the data-adaptive case.
 
@@ -2568,7 +2572,7 @@ compositions that moved.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
-| an interval at an exceptional law, where the limiting-rule condition C3 of that contract fails | adaptive-optimum inference | a CV-TMLE interval for the fold-average target without a limiting rule. van der Laan and Luedtke (2015), Theorem 6, and Hubbard et al. (2016), Theorem 1, both need a limit curve. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value, and [X11](#x11-learned-policy-follow-ups) part (f2b) holds that online estimator. Fava (2026), arXiv:2610.02944v1, covers a known-propensity IPW score only. The [optimal-value study](technical-reference/method-evidence/learned-rule-optimal-value.md) reports the same interval at a law whose blip is zero on 60% of the population: against the fold-average target it covers 0.919 at an SE ratio of 0.893, with fold rules that disagree on 0 to 0.735 of rows, and no claim is made |
+| an interval at an exceptional law, where the limiting-rule condition C3 of that contract fails | adaptive-optimum inference | a CV-TMLE interval for the fold-average target without a limiting rule. van der Laan and Luedtke (2015), Theorem 6, and Hubbard et al. (2016), Theorem 1, both need a limit curve. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value, and [X11](#x11-learned-policy-follow-ups) part (f2b) holds that online estimator. Fava (2026), arXiv:2610.02944v1, covers a known-propensity IPW score only. The [optimal-value study](technical-reference/method-evidence/learned-rule-optimal-value.md) reports the same interval at a law whose blip is zero on 60% of the population: against the fold-average target it covers 0.919 at an SE ratio of 0.893, with fold rules that disagree on 0 to 0.735 of rows, and no claim is made. The EP rule reads coverage 0.901 and SE ratio 0.833 at n = 2,000 at the law with no effect anywhere ([`learned-rule-ep`](technical-reference/method-evidence/learned-rule-ep.md)) |
 | the full-refit bootstrap | asymptotic | each resample relearns the rules, so each draw has a different target. No read source gives the bootstrap law of a data-adaptive target |
 | a continuous treatment | regularity | a deterministic dose rule gives the value of fixed doses, which is not pathwise differentiable |
 | a fold-evaluated `DRTMLE` learned rule | asymptotic | no read source gives a fold-evaluated DR-TMLE. `DRTMLE` refuses `cv_evaluation=True` for that reason |

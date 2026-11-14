@@ -294,12 +294,31 @@ half-and-half split for a continuous outcome. Known treatment probabilities
 (`treatment_probabilities=`) were checked with a score from other data and a continuous outcome. The difference between two scores was checked for a continuous outcome
 only, and its interval at 10% came out a little wide: it covered 96% of the time.
 
+## Other settings for the coefficients
+
+Four more settings fit the coefficients of a working model. Their numbers are computed, but they
+are labelled `experimental` until their validation study has run.
+
+- **Rows with no recorded treatment.** Declare the column that marks a recorded treatment with
+  `PointTreatment(treatment_missingness=...)` and fit with `cross_fit=False`. Every row's
+  covariates still count, and the fit reweights the rows with a recorded treatment by how likely
+  a row like it was to have one. This is valid when whether the treatment was recorded depends
+  only on the treatment and the covariates.
+- **Effects within groups.** `PointTreatment(strata=["S"])` reports, next to the overall
+  coefficients, each group's own coefficients, named like `cate_projection[W1][S=1]`. Each group
+  needs every basis column to vary inside it, or the fit stops and names the group.
+- **Repeating the split.** `repeats=3` refits on three random splits of the rows and reports the
+  median coefficient. Its standard error adds how much the coefficient moves between splits, and
+  `se_without_displacement` gives it without that addition for comparison.
+- **The bootstrap.** `n_bootstrap=200` refits the whole analysis on 200 resamples of the rows
+  and reports an interval from the spread of the refitted coefficients.
+
 ## What is not supported yet
 
 An interval for the EP curve, a learner of your own as its last step on the log-ratio scale,
-checks of how much hidden confounding would move the coefficients, missing treatment values, an
-intermediate variable, `strata=`, repeated out-of-fold fits on new splits and the bootstrap each
-refuse before any model is fitted and say what to do instead.
+checks of how much hidden confounding would move the coefficients, an intermediate variable, and
+rows with no recorded treatment combined with cross-fitting each refuse before any model is
+fitted and say what to do instead.
 
 The [conditional effects reference](../technical-reference/conditional-effects.md) gives
 the exact targets, the formulas behind the intervals and the evidence.

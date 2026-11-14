@@ -248,7 +248,9 @@ previous reader had is not a citation; a page number is.
   Corollary 3.3, on p. C30, gives the fixed-repeat interval under the paper's DML assumptions.
   It does not establish that a targeted MAR plug-in satisfies those assumptions. The package
   applies the scalar rule per name and the matrix rule in `covariance()` to repeated longitudinal
-  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)).
+  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)) and
+  to the projection coefficients of a repeated point-treatment `ConditionalContrast` fit
+  ([repeated splits](technical-reference/conditional-effects.md#repeated-splits)).
   There the licence is the per-draw expansion of each single-draw estimator, and Corollary 3.3 is
   the DML analogue.
 

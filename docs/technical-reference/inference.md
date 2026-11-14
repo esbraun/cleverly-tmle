@@ -180,7 +180,10 @@ the five refusals. A repeated point-treatment fit refuses `covariance()` and `co
 altogether, as the [CV-TMLE reference](cv-tmle.md) states. A learned-rule fit of several splits is
 the exception: it stores the mean of the split curves, so both read that curve under the
 `"centered"` rule, as on one split
-([the mean over splits](point-treatment-tmle.md#learned-rules)).
+([the mean over splits](point-treatment-tmle.md#learned-rules)). The projection coefficients of a
+`ConditionalContrast` fit are the other: `covariance()` over projection names returns the matrix
+rule, as on a repeated longitudinal fit
+([repeated splits](conditional-effects.md#repeated-splits)).
 
 A repeated longitudinal fit gives both. `contrast()` runs in every draw and then takes the median
 rule on its inference scale. `covariance(names)` returns the matrix rule of Chernozhukov et al.
@@ -677,8 +680,13 @@ a data-adaptive nuisance.
 
 A support row lists the `bootstrap` kind when a registered cell measured the percentile interval
 for that configuration. The rows `T01.binary`, `T31`, `G01` and `G11.nodes4` list it. A bootstrap
-on any other fit keeps the interval names and carries the label `experimental`. This covers a
-cross-fitted point fit, whose replicates redraw the split ([F2](../roadmap.md#f2-targeted-bootstrap-inference)),
+on any other fit keeps the interval names and carries the label `experimental`.
+
+This covers a
+cross-fitted point fit, whose replicates redraw the split; its label carries the reason that names
+[F2](../roadmap.md#f2-targeted-bootstrap-inference). It also covers the projection coefficients of
+a `ConditionalContrast` fit, in sample or cross-fitted, until the `projection-compositions` study
+is registered,
 a clustered fit, a competing-event fit, and every `DRTMLE` fit. Of these, the study measured only
 the in-sample clustered `LTMLE` bootstrap, in cells `boot_ey_clustered` and `boot_ate_clustered`.
 The contrast cell failed calibration, so its support row `G05.in_sample` lists the point kind
@@ -842,7 +850,7 @@ These fit shapes publish no default band.
 
 | shape | why it publishes no band |
 | --- | --- |
-| a point-treatment fit with more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
+| a point-treatment fit with more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states. A projection fit's `effect_curve()` builds its band by `median_bands` |
 | fold-targeted CV-TMLE, the learned-rule value, and the missing-outcome natural-course mean | one estimate per fit |
 | the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
 | a status that withholds its interval, or a $t$ reference | no band is built. A status that shows its interval with no $t$ reference builds a band that carries `support` |
@@ -871,7 +879,9 @@ Evidence for everything above:
 [`tests/unit/test_inference.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_inference.py)
 pins the exact covariance identities, the weighted effective sample size, cluster aggregation, the
 delta-method transformations, the multiplier critical value, and the simultaneous bands.
-A repeated cross-fitted point-treatment fit reports no covariance.
+A repeated cross-fitted point-treatment fit reports no covariance, except over the projection
+coefficients of a `ConditionalContrast`, which `tests/unit/test_projection_compositions.py` checks
+against the matrix rule.
 [`tests/unit/test_repeated_crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_repeated_crossfit.py)
 pins that refusal, and pins the median point and the split-adjusted median variance the fit reports
 instead.
