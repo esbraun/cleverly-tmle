@@ -1281,7 +1281,9 @@ At a consistent outcome regression $D_{\text{KS}}$ attains the known-score bound
 is the smaller one. The gain is zero only when the effect $\tau_0$ is constant where
 $0<g_0<1$, and a completely randomized trial gains too: the known-score form averages every
 unit's covariates, the default form only the treated units'. With a wrong outcome regression
-neither curve's variance is smaller in general. Both forms estimate the population ATT. As an
+neither curve's variance is smaller in general.
+
+Both forms estimate the population ATT. As an
 estimate of the effect among the treated units actually in the sample, the known-score form
 carries the extra term $-(A-g_0)(\tau-\psi)/p$, so the default `"arm_mean"` form suits that
 question. Without a declared mechanism the option is refused: the weighting term would carry the

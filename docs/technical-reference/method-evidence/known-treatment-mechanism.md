@@ -26,8 +26,9 @@ No bound binds on either side, because every $g_0$ lies in $[0.25, 0.70]$. Each 
 quadrature over the law. R `tmle` does not hold a known mechanism fixed for the ATT and the ATC.
 It recalibrates `g1W` and fluctuates it beside the outcome regression. That construction is
 equivalent to the known-mechanism ATT only at a correct outcome regression, so the study pairs
-the ATT and the ATC at `binary_q_correct` only. These cells measure the default `"arm_mean"`
-form. The known-score form, `conditional_form="known_score"`, has its own
+the ATT and the ATC at `binary_q_correct` only.
+
+These cells measure the default `"arm_mean"` form. The known-score form, `conditional_form="known_score"`, has its own
 [study](known-score-att.md).
 
 ## Accuracy against known truth
