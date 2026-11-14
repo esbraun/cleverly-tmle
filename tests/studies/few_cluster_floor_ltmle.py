@@ -20,10 +20,16 @@ declared parametric (:class:`~tests.studies.few_cluster_floor.ParametricQuasiBin
 them; the declaration changes no fit. Each positive row also carries the same draw refitted
 with :class:`cleverly.learners.GLM` node regressions (``package_glm_*`` columns, reported, M2).
 
-**Arms.** ``t_reference`` (positive, (A)), ``iid_t_control`` (control), ``normal_reference``,
-``t_j_minus_1_reference``, ``wang_inflated`` (B, every draw) and, at :math:`J \ge 10` where every
-fold holds 2 clusters, ``cluster_jackknife`` (C, the first 2,000 draws). Below 10 R5 refuses (C)
-before any refit and the decision reads it as withheld on every draw (M4).
+**Arms** (``few_cluster_reference``). ``t_reference`` (positive, (A)), ``iid_t_control``
+(control), ``normal_reference``, ``t_j_minus_1_reference`` and ``wang_inflated`` (B, every draw,
+reported).
+
+**Part (c) verdicts** (``few_cluster_candidate``, review M1). On the first 2,000 draws, (B) and,
+at :math:`J \ge 10` where every fold holds 2 clusters, ``cluster_jackknife`` (C), each paired
+with a copy of (A)'s row on the same draw. Below 10 R5 refuses (C) before any refit (M4). (C)
+is fitted in its own key (``ltmle_cross_fitted__jackknife``), so its failure never costs (A)'s
+row (review B1). The package-GLM refit never raises out of the key either: any exception is
+recorded with its class and message.
 
 **Primary.** 10 clusters of ``equal40``, 1,000 replications, no comparator. The policy is
 ``reporting``, declared before any run.
@@ -32,6 +38,7 @@ before any refit and the decision reads it as withheld on every draw (M4).
 from __future__ import annotations
 
 import math
+import time
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
@@ -82,6 +89,15 @@ MAX_FOLDS: Final[int] = 5
 #: Replications per cell (plan 5.2): 4,000, raised by the family-wise rule (M5) once the
 #: pilot is read.
 PROPERTY_REPLICATES: Final[int] = 4_000
+#: The pilot's predicted reds, ``cell -> reading`` (review M4): empty until the pilot is read;
+#: the design test checks this against the committed ``pilot-sizing.csv``.
+PILOT_PREDICTED_REDS: Final[dict[str, str]] = {}
+#: Families whose plug-in pass probability stays under the target at ``R_CAP`` (review M4).
+PILOT_SHORTFALLS: Final[frozenset[str]] = frozenset()
+#: Families whose (C) arm the pilot measures as short of admissibility (review M4).
+JACKKNIFE_SHORTFALLS: Final[frozenset[str]] = frozenset()
+#: The fit name of a (C) key (review B1).
+JACKKNIFE_FIT: Final[str] = f"{FIT}__jackknife"
 
 
 def folds(clusters: int) -> int:
@@ -95,17 +111,29 @@ def jackknife_counts() -> tuple[int, ...]:
 
 
 def arms(clusters: int) -> tuple[tuple[str, str], ...]:
-    """The arms of the fit at ``clusters``, each with its role."""
-    out = [
+    """The ``few_cluster_reference`` arms of the fit at ``clusters``, each with its role."""
+    del clusters
+    return (
         (floor.REFERENCE_ARM, floor.POSITIVE),
         ("iid_t_control", floor.CONTROL),
         ("normal_reference", floor.DIAGNOSTIC),
         ("t_j_minus_1_reference", floor.DIAGNOSTIC),
         (floor.WANG_ARM, floor.DIAGNOSTIC),
-    ]
-    if clusters in jackknife_counts():
-        out.append((floor.JACKKNIFE_ARM, floor.DIAGNOSTIC))
-    return tuple(out)
+    )
+
+
+def candidates(clusters: int) -> tuple[str, ...]:
+    """The candidates with a ``few_cluster_candidate`` pair at ``clusters``: (B), then (C)."""
+    return floor.VERDICT_CANDIDATES if clusters in jackknife_counts() else (floor.WANG_ARM,)
+
+
+def candidate_arms(clusters: int) -> tuple[tuple[str, str], ...]:
+    """The ``few_cluster_candidate`` arms at ``clusters``: each candidate, then (A)'s copy."""
+    return tuple(
+        arm
+        for candidate in candidates(clusters)
+        for arm in ((candidate, floor.POSITIVE), (floor.reference_for(candidate), floor.CONTROL))
+    )
 
 
 def cell_name(sizes: str, clusters: int, arm: str) -> str:
@@ -118,14 +146,23 @@ def grid() -> tuple[tuple[str, int], ...]:
     return tuple((sizes, clusters) for sizes in SIZE_LAWS for clusters in LADDER)
 
 
-def requested(arm: str, budget: int | None = None) -> int:
-    """A cell's requested replications, capped at ``budget``: (C) reads only the first 2,000."""
+def requested(budget: int | None = None, *, candidate: bool = False) -> int:
+    """A cell's requested replications, capped at ``budget``; a part (c) cell reads only the
+    first :data:`~tests.studies.few_cluster_floor.CANDIDATE_DRAWS`."""
     replicates = PROPERTY_REPLICATES if budget is None else min(PROPERTY_REPLICATES, budget)
-    return min(replicates, floor.CANDIDATE_DRAWS) if arm == floor.JACKKNIFE_ARM else replicates
+    return min(replicates, floor.CANDIDATE_DRAWS) if candidate else replicates
 
 
 PUBLISHED_CELLS: Final[tuple[str, ...]] = tuple(
     cell_name(sizes, clusters, arm) for sizes, clusters in grid() for arm, _ in arms(clusters)
+)
+CANDIDATE_CELLS: Final[tuple[str, ...]] = tuple(
+    cell_name(sizes, clusters, arm)
+    for sizes, clusters in grid()
+    for arm, _ in candidate_arms(clusters)
+)
+POOLED_CELLS: Final[tuple[str, ...]] = tuple(
+    floor.pooled_name(FIT, candidate) for candidate in floor.VERDICT_CANDIDATES
 )
 
 STUDY = StudyRecord(
@@ -142,7 +179,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference=None,
-    failure_bound={"cleverly": floor.FAILURE_BOUND},
+    failure_bound={"cleverly": floor.PRIMARY_FAILURE_BOUND},
     modules=(
         "tests/studies/few_cluster_floor_ltmle.py",
         "tests/studies/few_cluster_floor_ltmle_properties.py",
@@ -164,7 +201,11 @@ STUDY = StudyRecord(
     ),
     runner_module="tests.studies.few_cluster_floor_ltmle",
     properties_module="tests.studies.few_cluster_floor_ltmle_properties",
-    property_cells={FAMILY: PUBLISHED_CELLS},
+    property_cells={
+        FAMILY: PUBLISHED_CELLS,
+        floor.CANDIDATE_FAMILY: CANDIDATE_CELLS,
+        floor.POOLED_FAMILY: POOLED_CELLS,
+    },
     publication_policy="reporting",
 )
 
@@ -217,30 +258,33 @@ def subject(clusters: int, *, package_glm: bool = False, **overrides: Any) -> LT
 
 
 def fit_estimate(frame: pd.DataFrame, clusters: int, **overrides: Any) -> Any:
-    """The target estimate of one draw, its ``reference_df`` checked."""
+    """The target estimate of one draw, its ``reference_df`` checked when it supplies an
+    interval (a withheld estimate reports none, review B1)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = subject(clusters, **overrides).fit(frame, outcome="Y", id=ID, **NODES)
     estimate = result[TARGET]
-    if estimate.reference_df != clusters - 2:
+    if estimate.supplies_inference and estimate.reference_df != clusters - 2:
         raise AssertionError(
             f"J = {clusters}: the fit reports reference_df {estimate.reference_df}, not J - 2"
         )
     return estimate
 
 
-def package_glm_columns(frame: pd.DataFrame, truth: float, clusters: int) -> dict[str, Any]:
-    """The reported package-GLM refit of a draw (M2): raised, shown and covered."""
-    from cleverly.exceptions import DataError
+def _package_glm_reading(frame: pd.DataFrame, truth: float, clusters: int) -> dict[str, Any]:
+    """The reported package-GLM refit of a draw (M2): raised, shown and covered.
 
+    Any exception is caught and recorded with its class and message, so the refit never
+    costs the main fit's row (review B1).
+    """
     try:
         estimate = fit_estimate(frame, clusters, package_glm=True)
-    except DataError as error:
+    except Exception as error:  # recorded, never raised: a reported column
         return {
             "package_glm_raised": 1,
             "package_glm_shown": 0,
             "package_glm_covered": 0,
-            "package_glm_error": str(error)[:80],
+            "package_glm_error": floor.error_text(error),
         }
     reading = floor.reference_readings(
         estimate, clusters=clusters, covariates=BASELINE_COVARIATES, arms=(floor.REFERENCE_ARM,)
@@ -255,20 +299,37 @@ def package_glm_columns(frame: pd.DataFrame, truth: float, clusters: int) -> dic
     }
 
 
+def package_glm_columns(frame: pd.DataFrame, truth: float, clusters: int) -> dict[str, Any]:
+    """:func:`_package_glm_reading`, with its CPU seconds (read by the pilot only)."""
+    started = time.process_time()
+    out = _package_glm_reading(frame, truth, clusters)
+    return {**out, "package_glm_cpu_seconds": time.process_time() - started}
+
+
 def draw_seed(sizes: str, clusters: int, replicate: int, stream: str = "property") -> int:
     """The seed of one draw of a ``(law, J)`` cell on a named stream (``property`` or ``pilot``)."""
     return int(stream_seed(STUDY, stream, f"{sizes}/J{clusters}", replicate))
 
 
-def candidate_c(frame: pd.DataFrame, clusters: int, estimate: Any) -> floor.Reading:
-    """(C) on one draw: the jackknife refit, a refusal read as a miss; its point must be (A)'s."""
+def candidate_c(frame: pd.DataFrame, clusters: int, estimate: Any | None) -> floor.Reading:
+    """(C) on one draw, never raising: a refusal, a failed refit or an error is a withheld miss.
+
+    A pre-fit refusal reads ``jackknife_refused``, any other exception ``jackknife_error`` with
+    its class and message, and an estimate that withholds before any refit the main fit's
+    trigger. The jackknife fit's point must equal (A)'s when the main fit ran.
+    """
     from cleverly.exceptions import CapabilityError, DataError
 
+    psi = float("nan") if estimate is None else float(estimate.psi)
     try:
         refit = fit_estimate(frame, clusters, cluster_variance="jackknife")
     except (CapabilityError, DataError):
-        return floor.refused_jackknife(float(estimate.psi), clusters)
-    if not math.isclose(float(refit.psi), float(estimate.psi), rel_tol=1e-9, abs_tol=1e-12):
+        return floor.refused_jackknife(psi, clusters)
+    except Exception as error:  # (C)'s failure is (C)'s miss, never (A)'s
+        return floor.failed_jackknife(psi, clusters, error)
+    if estimate is not None and not math.isclose(
+        float(refit.psi), float(estimate.psi), rel_tol=1e-9, abs_tol=1e-12
+    ):
         raise AssertionError(
             f"J = {clusters}: the jackknife fit's point {refit.psi} is not (A)'s {estimate.psi}"
         )
@@ -283,36 +344,88 @@ def fit_rows(
     *,
     budget: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Every arm's row of one draw; ``budget`` caps the requested replications."""
+    """Every row of one draw but (C)'s; ``budget`` caps the requested replications.
+
+    The ``few_cluster_reference`` arms (the positive row with the package-GLM columns), then
+    on the first :data:`~tests.studies.few_cluster_floor.CANDIDATE_DRAWS` draws (B) and each
+    pair's copy of (A). Only the main fit raising loses the key.
+    """
     frame, truths = drawn
     truth = float(truths[TARGET])
     estimate = fit_estimate(frame, clusters)
     published = arms(clusters)
-    names = [arm for arm, _ in published]
     readings = floor.reference_readings(
-        estimate, clusters=clusters, covariates=BASELINE_COVARIATES, arms=names
+        estimate,
+        clusters=clusters,
+        covariates=BASELINE_COVARIATES,
+        arms=[arm for arm, _ in published],
     )
-    if floor.JACKKNIFE_ARM in names and replicate < floor.CANDIDATE_DRAWS:
-        readings[floor.JACKKNIFE_ARM] = candidate_c(frame, clusters, estimate)
-    rows = []
-    for arm, role in published:
-        if arm not in readings:
-            continue
-        rows.append(
-            floor.arm_row(
-                readings[arm],
-                cell=cell_name(sizes, clusters, arm),
-                role=role,
-                replicate=replicate,
-                n=CLUSTER_SIZE * clusters,
-                requested=requested(arm, budget),
-                truth=truth,
-                clusters=clusters,
-            )
+    rows = [
+        floor.arm_row(
+            readings[arm],
+            cell=cell_name(sizes, clusters, arm),
+            role=role,
+            replicate=replicate,
+            n=CLUSTER_SIZE * clusters,
+            requested=requested(budget),
+            truth=truth,
+            clusters=clusters,
         )
-    extra = package_glm_columns(frame, truth, clusters)
-    rows[0].update(extra)
+        for arm, role in published
+    ]
+    rows[0].update(package_glm_columns(frame, truth, clusters))
+    if replicate < floor.CANDIDATE_DRAWS:
+        wanted = requested(budget, candidate=True)
+        wang = rows[-1]
+        for candidate in candidates(clusters):
+            if candidate == floor.WANG_ARM:
+                rows.append(
+                    floor.candidate_copy(wang, arm=candidate, role=floor.POSITIVE, requested=wanted)
+                )
+            rows.append(
+                floor.candidate_copy(
+                    rows[0],
+                    arm=floor.reference_for(candidate),
+                    role=floor.CONTROL,
+                    requested=wanted,
+                )
+            )
     return rows
+
+
+def jackknife_rows(
+    sizes: str,
+    clusters: int,
+    replicate: int,
+    drawn: tuple[pd.DataFrame, Mapping[str, float]],
+    *,
+    budget: int | None = None,
+) -> list[dict[str, Any]]:
+    """(C)'s row of one draw, the key ``ltmle_cross_fitted__jackknife`` (review B1).
+
+    The main fit runs again only to check that (C)'s point is (A)'s. Its raising never loses
+    this key: (A)'s own key records that loss, and (C) then reads its own fit
+    (:func:`candidate_c`), whose every failure is a withheld row.
+    """
+    frame, truths = drawn
+    try:
+        estimate = fit_estimate(frame, clusters)
+    except Exception:  # (A)'s loss, recorded by (A)'s key, never (C)'s
+        estimate = None
+    reading = candidate_c(frame, clusters, estimate)
+    return [
+        floor.arm_row(
+            reading,
+            cell=cell_name(sizes, clusters, floor.JACKKNIFE_ARM),
+            role=floor.POSITIVE,
+            replicate=replicate,
+            n=CLUSTER_SIZE * clusters,
+            requested=requested(budget, candidate=True),
+            truth=float(truths[TARGET]),
+            clusters=clusters,
+        )
+        | {"property": floor.CANDIDATE_FAMILY}
+    ]
 
 
 # ------------------------------------------------------------------------------------ primary
@@ -368,4 +481,5 @@ __all__: Sequence[str] = (
     "fit_rows",
     "grid",
     "jackknife_counts",
+    "jackknife_rows",
 )

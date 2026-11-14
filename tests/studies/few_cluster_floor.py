@@ -86,11 +86,16 @@ EXPECTED_FLOOR_COVERAGE: Final[float] = 0.925
 FAMILY_PASS_TARGET: Final[float] = 0.95
 R_STEP: Final[int] = 400
 R_CAP: Final[int] = 6_000
-#: The share of a cell's requested replications the accounting lets a run lose. The plan asks
-#: for 0.10; the harness caps a bound at 0.05
+#: The **property** bound: the share of a property cell's requested replications the
+#: accounting lets a run lose (each properties module's ``FAILURE_BOUND``). The plan asks for
+#: 0.10; the harness caps a bound at 0.05
 #: (:data:`~tests.studies.evidence.property_failures.MAXIMUM_BOUND`). A lost fit is a miss in
 #: G1 either way.
 FAILURE_BOUND: Final[float] = 0.05
+#: The **primary** bound of both records (``StudyRecord.failure_bound``), the 0.01 every
+#: registered study declares (``tests/unit/test_failure_accounting.py::TestPrimaryBound``).
+#: The primaries call the fit directly, so a withheld estimate there is a row, not a loss.
+PRIMARY_FAILURE_BOUND: Final[float] = 0.01
 
 #: The positive arm, candidate (A).
 REFERENCE_ARM: Final[str] = "t_reference"
@@ -106,17 +111,27 @@ EXTRA_COLUMNS: Final[tuple[str, ...]] = (
     "clusters",
     "half_width",
     "failed_refits",
+    "jackknife_error",
 )
-#: The withheld triggers a row can record; ``""`` is a shown interval.
+#: The withheld trigger of each withheld package status (:func:`trigger_of`); any other
+#: withheld status reads ``"other"``.
+STATUS_TRIGGERS: Final[dict[str, str]] = {
+    "constant_arm_cell_plugin": "constant_arm_cell",
+    "constant_node_plugin": "constant_node",
+    "out_of_range_plugin": "out_of_range",
+    "jackknife_refit_plugin": "jackknife_refit_plugin",
+    "no_cluster_variance_plugin": "no_cluster_variance",
+    "stack_failure_plugin": "stack_failure",
+}
+#: The withheld triggers a row can record; ``""`` is a shown interval. Beyond the package
+#: statuses: (B) undefined at :math:`J \le p`, (C) refused before any refit, and (C)'s fit
+#: raising on a draw where the main fit ran (its class and message in ``jackknife_error``).
 TRIGGERS: Final[tuple[str, ...]] = (
     "",
-    "constant_cell",
-    "constant_node",
-    "out_of_range",
-    "boundary_node",
+    *STATUS_TRIGGERS.values(),
     "wang_undefined",
     "jackknife_refused",
-    "jackknife_refit_plugin",
+    "jackknife_error",
     "other",
 )
 
@@ -175,17 +190,7 @@ def trigger_of(estimate: Any) -> str:
     """The withheld trigger of an estimate: ``""`` when it shows its interval."""
     if bool(estimate.supplies_inference):
         return ""
-    status = str(estimate.inference)
-    for name, trigger in (
-        ("constant_cell", "constant_cell"),
-        ("constant_node", "constant_node"),
-        ("out_of_range", "out_of_range"),
-        ("boundary_node", "boundary_node"),
-        ("jackknife_refit", "jackknife_refit_plugin"),
-    ):
-        if name in status:
-            return trigger
-    return "other"
+    return STATUS_TRIGGERS.get(str(estimate.inference), "other")
 
 
 # --------------------------------------------------------------------------------------- rows
@@ -209,6 +214,8 @@ class Reading:
         One of :data:`TRIGGERS`; ``""`` when shown.
     failed_refits : int
         Failed jackknife refits (the (C) arm), else 0.
+    error : str
+        The class and message of an exception (C)'s fit raised, else ``""``.
     """
 
     psi: float
@@ -217,6 +224,7 @@ class Reading:
     reference_df: float
     trigger: str = ""
     failed_refits: int = 0
+    error: str = ""
 
     @property
     def shown(self) -> bool:
@@ -281,11 +289,16 @@ def reference_readings(
 def jackknife_reading(estimate: Any, *, clusters: int) -> Reading:
     """(C) off an estimate of a ``cluster_variance="jackknife"`` fit, on :math:`t_{J-2}`.
 
-    A refit failure or any other withheld status is a miss with its trigger.
+    A refit failure or any other withheld status is a miss with its trigger. An estimate that
+    withholds its interval before any refit (a constant arm, say) carries no jackknife record;
+    (C) then reads withheld with the main fit's own trigger, as (A) does (review B1).
     """
     record = estimate.jackknife
-    if record is None:  # pragma: no cover - the study asked for the jackknife
-        raise AssertionError("the (C) arm's estimate carries no jackknife record")
+    if record is None:
+        trigger = trigger_of(estimate)
+        if not trigger:
+            raise AssertionError("a shown (C) estimate carries no jackknife record")
+        return Reading(float(estimate.psi), float("nan"), float("nan"), clusters - 2, trigger)
     failed = len(record.failed_refits)
     psi = float(estimate.psi)
     trigger = trigger_of(estimate)
@@ -306,6 +319,17 @@ def jackknife_reading(estimate: Any, *, clusters: int) -> Reading:
 def refused_jackknife(psi: float, clusters: int) -> Reading:
     """(C) on a draw where the jackknife refused before any refit: a miss."""
     return Reading(psi, float("nan"), float("nan"), clusters - 2, "jackknife_refused")
+
+
+def failed_jackknife(psi: float, clusters: int, error: BaseException) -> Reading:
+    """(C) on a draw where its fit raised and the main fit did not: a miss, the error kept."""
+    message = f"{type(error).__name__}: {error}"[:160]
+    return Reading(psi, float("nan"), float("nan"), clusters - 2, "jackknife_error", error=message)
+
+
+def error_text(error: BaseException) -> str:
+    """The class and message of an exception, as a row records it."""
+    return f"{type(error).__name__}: {error}"[:160]
 
 
 def arm_row(
@@ -346,6 +370,7 @@ def arm_row(
         "clusters": clusters,
         "half_width": half,
         "failed_refits": reading.failed_refits,
+        "jackknife_error": reading.error,
     }
 
 
@@ -356,9 +381,30 @@ PACKAGE_COLUMNS: Final[tuple[str, ...]] = (
     "package_glm_covered",
     "package_glm_error",
 )
+#: The pilot's timing columns (:func:`timed`): a key's CPU seconds, and the package-GLM
+#: refit's share of them on an LTMLE positive row.
+TIMING_COLUMNS: Final[tuple[str, ...]] = ("cpu_seconds", "package_glm_cpu_seconds")
+
+
+def timed(
+    fit_key: Callable[[Any, Any], list[dict[str, Any]]],
+) -> Callable[[Any, Any], list[dict[str, Any]]]:
+    """``fit_key`` with its process CPU seconds written on every row it returns (the pilot's)."""
+    import time
+
+    def run(key: Any, drawn: Any) -> list[dict[str, Any]]:
+        started = time.process_time()
+        rows = fit_key(key, drawn)
+        spent = time.process_time() - started
+        return [{**row, "cpu_seconds": spent} for row in rows]
+
+    return run
+
+
 #: The readings :func:`floor_readings` adds to every row of the family.
 READING_COLUMNS: Final[tuple[str, ...]] = (
     "clusters",
+    "requested_draws",
     "shown_draws",
     "withheld_draws",
     "withheld_by_trigger",
@@ -376,6 +422,7 @@ READING_COLUMNS: Final[tuple[str, ...]] = (
     "package_glm_coverage",
     "shown_coverage_package_raised",
     "shown_coverage_package_ran",
+    "failed_refit_share",
 )
 
 
@@ -386,12 +433,20 @@ def parse(cell: str) -> tuple[str, str, int, str]:
 
 
 def floor_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: Any) -> None:
-    """Fill :data:`READING_COLUMNS` on every row of the family."""
+    """Fill :data:`READING_COLUMNS` on every row of ``few_cluster_reference`` and of
+    ``few_cluster_candidate`` (whose (C) rows carry the package-GLM split, m6)."""
     level = record.margins.confidence_level
     summary["withheld_by_trigger"] = summary["withheld_by_trigger"].astype(object)
-    family = rows.loc[rows["property"] == FAMILY]
+    for family in (FAMILY, CANDIDATE_FAMILY):
+        _family_readings(summary, rows, family, record, level)
+
+
+def _family_readings(
+    summary: pd.DataFrame, rows: pd.DataFrame, family_name: str, record: Any, level: float
+) -> None:
+    family = rows.loc[rows["property"] == family_name]
     groups = dict(tuple(family.groupby("cell", sort=False)))
-    for index in summary.index[summary["property"] == FAMILY]:
+    for index in summary.index[summary["property"] == family_name]:
         name = str(summary.loc[index, "cell"])
         _, _, clusters, arm = parse(name)
         group = groups[name]
@@ -401,6 +456,7 @@ def floor_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: Any) -> No
         triggers = group.loc[group["withheld"] == 1, "trigger"].value_counts().sort_index()
         values: dict[str, Any] = {
             "clusters": float(clusters),
+            "requested_draws": float(wanted),
             "shown_draws": float(trials),
             "withheld_draws": float(len(group) - trials),
             "withheld_by_trigger": ";".join(f"{k}={v}" for k, v in triggers.items()),
@@ -423,8 +479,14 @@ def floor_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: Any) -> No
             spread = float(np.std(shown["estimate"].to_numpy(dtype=float), ddof=1))
             if spread > 0:
                 values["shown_se_ratio"] = float(shown["std_error"].mean() / spread)
-        if arm == REFERENCE_ARM and "package_glm_raised" in group:
+        if "package_glm_raised" in group:
             values.update(package_readings(group, level))
+        if arm == JACKKNIFE_ARM:
+            refits = pd.to_numeric(group["failed_refits"], errors="coerce").fillna(0)
+            values["failed_refit_share"] = float((refits > 0).sum() / wanted)
+            reference = groups.get(name.removesuffix(JACKKNIFE_ARM) + reference_for(JACKKNIFE_ARM))
+            if reference is not None:
+                values.update(jackknife_package_split(group, reference))
         for column, value in values.items():
             summary.loc[index, column] = value
 
@@ -448,6 +510,29 @@ def package_readings(group: pd.DataFrame, level: float) -> dict[str, float]:
     }
     for label, mask in (("raised", raised == 1), ("ran", raised == 0)):
         part = group.loc[mask & (group["withheld"] == 0)]
+        out[f"shown_coverage_package_{label}"] = (
+            float(part["covered"].mean()) if len(part) else float("nan")
+        )
+    return out
+
+
+def jackknife_package_split(jackknife: pd.DataFrame, reference: pd.DataFrame) -> dict[str, float]:
+    """(C)'s shown-only coverage split by whether the package GLM raised on the draw (m6).
+
+    The package-GLM flag lives on the (A) row of the same draw. A separated last iterate of
+    the study GLM is outside the jackknife's smooth-equation argument, so (C) on those draws
+    is published apart.
+    """
+    if "package_glm_raised" not in reference:
+        return {}
+    flags = pd.to_numeric(reference.set_index("replicate")["package_glm_raised"], errors="coerce")
+    if flags.isna().all():
+        return {}
+    raised = jackknife["replicate"].map(flags).fillna(0).astype(int)
+    shown = jackknife["withheld"] == 0
+    out = {}
+    for label, mask in (("raised", raised == 1), ("ran", raised == 0)):
+        part = jackknife.loc[mask & shown]
         out[f"shown_coverage_package_{label}"] = (
             float(part["covered"].mean()) if len(part) else float("nan")
         )
@@ -625,6 +710,10 @@ class CandidateCell:
         The paired mean half-width ratio to (A).
     length_high : float
         The 99% upper end of that ratio.
+    gain_low : float
+        The 99% lower end of the cell's paired coverage gain over (A), the
+        ``few_cluster_candidate`` verdict row's S7 interval (clause (i)); ``nan`` when the
+        candidate has no verdict row there.
     """
 
     candidate: str
@@ -636,6 +725,7 @@ class CandidateCell:
     shown: int
     length: float = 1.0
     length_high: float = 1.0
+    gain_low: float = float("nan")
 
     @property
     def calibrated(self) -> bool:
@@ -655,11 +745,14 @@ class Decision:
         Each admissible candidate's number of calibrated counts at or above its count.
     winner : str
         The candidate the declared order picks.
+    reasons : dict
+        Why each inadmissible candidate is not admissible, the measured reason a refusal names.
     """
 
     admissible: dict[str, int | None]
     calibrated_counts: dict[str, int]
     winner: str
+    reasons: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def admissibility(
@@ -667,22 +760,38 @@ def admissibility(
     candidate: str,
     *,
     start: int,
-    level: float = LEVEL,
-) -> bool:
+    pooled: Mapping[tuple[str, str], bool],
+) -> tuple[bool, str]:
     """Whether ``candidate`` passes both non-inferiority clauses at and above ``start``.
 
-    Clause (i): each cell's 99% lower end above :data:`PER_CELL_MARGIN`. Clause (ii): the
-    pooled 99% lower end over every such cell above :data:`POOLED_MARGIN`. A candidate with
-    no cell there is not admissible.
+    Clause (i): each cell's ``few_cluster_candidate`` verdict, the 99% lower end of its paired
+    coverage gain at least :data:`PER_CELL_MARGIN` (the S7 interval, :func:`candidate_verdicts`).
+    Clause (ii): every configuration's ``few_cluster_candidate_pooled`` verdict at this start
+    (:func:`pooled_rows`), each above :data:`POOLED_MARGIN`. Running clause (ii) per
+    configuration and taking the conjunction is plan 5.7's "the worse of the two" (rev 3.6, m9).
+    A candidate with no cell there is not admissible.
+
+    Returns
+    -------
+    tuple
+        The verdict and, when it fails, the measured reason.
     """
     mine = [cell for cell in cells if cell.candidate == candidate and cell.clusters >= start]
     if not mine:
-        return False
-    per_cell = all(
-        difference_interval([cell.pair], level=level).low > PER_CELL_MARGIN for cell in mine
-    )
-    pooled = difference_interval([cell.pair for cell in mine], level=level).low > POOLED_MARGIN
-    return bool(per_cell and pooled)
+        return False, f"no {candidate} cell at or above {start} clusters"
+    failing = [
+        f"{cell.configuration}/{cell.law}/J{cell.clusters}"
+        for cell in mine
+        if not cell.gain_low >= PER_CELL_MARGIN
+    ]
+    configurations = sorted({cell.configuration for cell in mine})
+    unpooled = [name for name in configurations if not pooled.get((name, candidate), False)]
+    reasons = []
+    if failing:
+        reasons.append(f"clause (i) fails at {', '.join(failing)}")
+    if unpooled:
+        reasons.append(f"clause (ii) fails in {', '.join(unpooled)}")
+    return not reasons, "; ".join(reasons)
 
 
 def reference_decision(
@@ -690,15 +799,15 @@ def reference_decision(
     *,
     floor_a: int,
     jackknife_start: int,
-    level: float = LEVEL,
+    pooled: Mapping[tuple[str, str], bool],
 ) -> Decision:
     """The declared part (c) decision for one family (plan 5.7, rules 1 and 2).
 
     (A) is admissible from ``floor_a``. (B) is admissible from ``floor_a`` and (C) from
-    ``max(floor_a, jackknife_start)`` when it passes both clauses there. Among admissible
-    candidates the one with at least :data:`CALIBRATION_LEAD` more calibrated counts (each
-    count calibrated in every configuration and law) wins; otherwise the shortest one whose
-    length ratio's upper end lies below 1; ties go to A, then B, then C.
+    ``max(floor_a, jackknife_start)`` when it passes both clauses there (:func:`admissibility`).
+    Among admissible candidates the one with at least :data:`CALIBRATION_LEAD` more calibrated
+    counts (each count calibrated in every configuration and law) wins; otherwise the shortest
+    one whose length ratio's upper end lies below 1; ties go to A, then B, then C.
     """
     starts = {
         REFERENCE_ARM: floor_a,
@@ -706,9 +815,12 @@ def reference_decision(
         JACKKNIFE_ARM: max(floor_a, jackknife_start),
     }
     admissible: dict[str, int | None] = {REFERENCE_ARM: floor_a}
+    reasons: dict[str, str] = {}
     for candidate in (WANG_ARM, JACKKNIFE_ARM):
-        ok = admissibility(cells, candidate, start=starts[candidate], level=level)
+        ok, reason = admissibility(cells, candidate, start=starts[candidate], pooled=pooled)
         admissible[candidate] = starts[candidate] if ok else None
+        if not ok:
+            reasons[candidate] = reason
     counts: dict[str, int] = {}
     for candidate, start in admissible.items():
         if start is None:
@@ -723,7 +835,7 @@ def reference_decision(
     leaders = [name for name in order if counts[name] == best]
     runner_up = max((counts[name] for name in order if name not in leaders), default=-1)
     if len(leaders) == 1 and best - runner_up >= CALIBRATION_LEAD:
-        return Decision(admissible, counts, leaders[0])
+        return Decision(admissible, counts, leaders[0], reasons)
     contenders = [name for name in order if best - counts[name] < CALIBRATION_LEAD]
     shorter = []
     for name in contenders:
@@ -737,8 +849,513 @@ def reference_decision(
         if mine and all(cell.length_high < 1.0 for cell in mine):
             shorter.append((float(np.median([cell.length for cell in mine])), name))
     if shorter:
-        return Decision(admissible, counts, min(shorter)[1])
-    return Decision(admissible, counts, contenders[0])
+        return Decision(admissible, counts, min(shorter)[1], reasons)
+    return Decision(admissible, counts, contenders[0], reasons)
+
+
+# ------------------------------------------------------------------ the candidate verdict family
+
+#: The verdict family of part (c) (review M1): each candidate cell (role ``positive``) paired
+#: with a copy of (A)'s row on the same draw (role ``control``), on the first
+#: :data:`CANDIDATE_DRAWS` draws.
+CANDIDATE_FAMILY: Final[str] = "few_cluster_candidate"
+#: One summary row per configuration and candidate: clause (ii) over the cells at or above the
+#: candidate's admissibility count.
+POOLED_FAMILY: Final[str] = "few_cluster_candidate_pooled"
+#: The summary columns the candidate and pooled rows publish.
+CANDIDATE_COLUMNS: Final[tuple[str, ...]] = (
+    "coverage_gain_ci_lower",
+    "coverage_gain_ci_upper",
+    "pooled_start",
+    "pooled_cells",
+)
+#: The candidates with a verdict row: (B) and (C).
+VERDICT_CANDIDATES: Final[tuple[str, ...]] = (WANG_ARM, JACKKNIFE_ARM)
+_REFERENCE_PREFIX: Final[str] = "reference_for_"
+
+
+def reference_for(candidate: str) -> str:
+    """The arm name of (A)'s copy that a candidate cell is paired with."""
+    return f"{_REFERENCE_PREFIX}{candidate}"
+
+
+def positive_of(cell: str) -> str:
+    """The candidate cell of a ``few_cluster_candidate`` pair, given either member."""
+    fit, law, count, arm = cell.split("__")
+    return "__".join((fit, law, count, arm.removeprefix(_REFERENCE_PREFIX)))
+
+
+def candidate_copy(
+    row: Mapping[str, Any], *, arm: str, role: str, requested: int
+) -> dict[str, Any]:
+    """A ``few_cluster_reference`` row filed as one arm of a ``few_cluster_candidate`` pair."""
+    fit, law, count, _ = str(row["cell"]).split("__")
+    return {
+        **row,
+        "property": CANDIDATE_FAMILY,
+        "cell": "__".join((fit, law, count, arm)),
+        "role": role,
+        "requested_replicates": requested,
+    }
+
+
+def candidate_seed(record: Any, cell: str) -> int:
+    """The resampling seed of a pair's S7 interval, the same for both members."""
+    from tests.studies.evidence.seeds import stream_seed
+
+    return int(stream_seed(record, CANDIDATE_FAMILY, positive_of(cell)))
+
+
+def candidate_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: Any,
+    groups: Sequence[Sequence[str]],
+) -> None:
+    """Clause (i) on every ``few_cluster_candidate`` pair present in ``summary`` (M1).
+
+    The pair's paired coverage gain of the candidate over (A)'s copy
+    (:func:`~tests.studies.evidence.properties.coverage_gain_interval`, a percentile bootstrap
+    of the mean paired difference on draws both kept) is written on both rows. Each row's own
+    verdict holds, and the joint verdict is the gain's lower end at least
+    :data:`PER_CELL_MARGIN`. The S7 clause of the module's rule reads the same columns, and
+    under a lost draw it fills the candidate uncovered and (A) covered, the worst case for the
+    candidate. This replaces the normal interval of :func:`difference_interval` for clause (i)
+    (rev 3.6).
+    """
+    from tests.studies.evidence.properties import coverage_gain_interval
+
+    margins = record.margins
+    family = rows.loc[rows["property"] == CANDIDATE_FAMILY]
+    by_cell = dict(tuple(family.groupby("cell", sort=False)))
+    present = set(summary.loc[summary["property"] == CANDIDATE_FAMILY, "cell"].astype(str))
+    for members in groups:
+        if not set(members) <= present:
+            continue
+        positive = positive_of(members[0])
+        control = next(name for name in members if name != positive)
+        low, high = coverage_gain_interval(
+            by_cell[positive],
+            by_cell[control],
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=candidate_seed(record, positive),
+        )
+        mask = (summary["property"] == CANDIDATE_FAMILY) & summary["cell"].isin(members)
+        summary.loc[mask, "coverage_gain_ci_lower"] = low
+        summary.loc[mask, "coverage_gain_ci_upper"] = high
+        summary.loc[mask, "passed"] = True
+        summary.loc[mask, "property_passed"] = bool(low >= PER_CELL_MARGIN)
+
+
+def pooled_name(configuration: str, candidate: str) -> str:
+    """The cell of a pooled row."""
+    return f"{configuration}__{candidate}"
+
+
+def pooled_sources(row: Mapping[str, Any], rows: pd.DataFrame) -> list[tuple[str, str]]:
+    """The candidate cells a pooled row reads: its configuration's pairs at or above its start."""
+    configuration, candidate = str(row["cell"]).split("__")
+    start = float(row["pooled_start"])
+    present = rows.loc[rows["property"] == CANDIDATE_FAMILY, "cell"].astype(str).unique()
+    out = []
+    for name in sorted(present):
+        fit, _, count, arm = name.split("__")
+        if fit != configuration or int(count.removeprefix("j")) < start:
+            continue
+        if arm in (candidate, reference_for(candidate)):
+            out.append((CANDIDATE_FAMILY, name))
+    return out
+
+
+def _pooled_differences(
+    rows: pd.DataFrame, cells: Sequence[tuple[str, str]], *, aligned: bool
+) -> np.ndarray:
+    """The paired differences of every pair in ``cells``, concatenated.
+
+    Complete case: the draws both arms kept. Aligned: every requested draw, a lost candidate
+    draw uncovered and a lost (A) draw covered, as the S7 fill.
+    """
+    family = rows.loc[rows["property"] == CANDIDATE_FAMILY]
+    names = {name for _, name in cells}
+    out: list[float] = []
+    for name in sorted(names):
+        if positive_of(name) != name:
+            continue
+        fit, law, count, arm = name.split("__")
+        positive = family.loc[family["cell"] == name]
+        control = family.loc[family["cell"] == "__".join((fit, law, count, reference_for(arm)))]
+        left = dict(
+            zip(positive["replicate"].astype(int), positive["covered"].astype(float), strict=True)
+        )
+        right = dict(
+            zip(control["replicate"].astype(int), control["covered"].astype(float), strict=True)
+        )
+        if aligned:
+            requested = int(
+                (positive if len(positive) else control)["requested_replicates"].iloc[0]
+            )
+            ids: Iterable[int] = range(requested)
+            out.extend(left.get(i, 0.0) - right.get(i, 1.0) for i in ids)
+        else:
+            out.extend(left[i] - right[i] for i in sorted(set(left) & set(right)))
+    return np.asarray(out, dtype=float)
+
+
+def pooled_interval(
+    rows: pd.DataFrame, cells: Sequence[tuple[str, str]], *, record: Any, cell: str, aligned: bool
+) -> Interval:
+    """Clause (ii)'s interval: the percentile bootstrap of the mean pooled paired difference.
+
+    Resampling the concatenated draws ignores which cell a draw came from, which adds the
+    spread between cell means to the variance: conservative against the stratified form.
+    """
+    from tests.studies.evidence.properties import mean_difference_interval
+    from tests.studies.evidence.seeds import stream_seed
+
+    differences = _pooled_differences(rows, cells, aligned=aligned)
+    if not len(differences):
+        return Interval(float("nan"), float("nan"))
+    return mean_difference_interval(
+        differences,
+        replicates=record.margins.bootstrap_replicates,
+        confidence_level=record.margins.confidence_level,
+        seed=int(stream_seed(record, POOLED_FAMILY, cell)),
+    )
+
+
+def pooled_rows(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: Any,
+    starts: Mapping[tuple[str, str], int],
+) -> list[dict[str, Any]]:
+    """One ``few_cluster_candidate_pooled`` row per configuration and candidate in ``starts``.
+
+    ``starts`` maps ``(configuration, candidate)`` to the candidate's admissibility count in
+    that configuration's family, read off the same summary's floor verdicts. A row is written
+    only when its configuration has a candidate cell. It passes when the complete-case pooled
+    gain's 99% lower end lies above :data:`POOLED_MARGIN`.
+    """
+    present = set(rows.loc[rows["property"] == CANDIDATE_FAMILY, "cell"].astype(str))
+    configurations = {name.split("__")[0] for name in present}
+    out = []
+    for (configuration, candidate), start in sorted(starts.items()):
+        if configuration not in configurations:
+            continue
+        name = pooled_name(configuration, candidate)
+        row: dict[str, Any] = dict.fromkeys(summary.columns, np.nan)
+        row.update(property=POOLED_FAMILY, cell=name, role="positive", pooled_start=float(start))
+        cells = pooled_sources(row, rows)
+        interval = pooled_interval(rows, cells, record=record, cell=name, aligned=False)
+        passed = bool(interval.low > POOLED_MARGIN)
+        row.update(
+            coverage_gain_ci_lower=interval.low,
+            coverage_gain_ci_upper=interval.high,
+            pooled_cells=float(len(cells) // 2),
+            passed=passed,
+            property_passed=passed,
+        )
+        out.append(row)
+    return out
+
+
+def candidate_rule() -> Any:
+    """The declared rule of the two part (c) families (review M1).
+
+    ``few_cluster_candidate``: the harness's S7 clause, the gain's 99% lower end at least
+    :data:`PER_CELL_MARGIN`, on each pair (group ``pair``). ``few_cluster_candidate_pooled``:
+    the pooled gain's lower end above :data:`POOLED_MARGIN`, read off the row and, under a
+    lost draw, recomputed with the S7 fill over :func:`pooled_sources`.
+    """
+    from tests.studies.evidence import property_failures as pf
+
+    def judge(interval: Interval) -> Any:
+        return pf.Judged(interval.low - POOLED_MARGIN, bool(interval.low > POOLED_MARGIN))
+
+    def read(ctx: Any, row: pd.Series) -> Any:
+        return judge(
+            Interval(float(row["coverage_gain_ci_lower"]), float(row["coverage_gain_ci_upper"]))
+        )
+
+    def reads(ctx: Any, row: pd.Series) -> list[tuple[str, str]]:
+        return pooled_sources(row, ctx.rows)
+
+    def candidates(ctx: Any, row: pd.Series) -> list[tuple[str, Any]]:
+        interval = pooled_interval(
+            ctx.rows, reads(ctx, row), record=ctx.record, cell=str(row["cell"]), aligned=True
+        )
+        return [("lost candidate draws uncovered, lost reference draws covered", judge(interval))]
+
+    def is_pooled(ctx: Any, row: pd.Series) -> bool:
+        return str(row["property"]) == POOLED_FAMILY
+
+    def is_pair(ctx: Any, row: pd.Series) -> bool:
+        return str(row["property"]) == CANDIDATE_FAMILY
+
+    return pf.FamilyRule(
+        families=frozenset({CANDIDATE_FAMILY, POOLED_FAMILY}),
+        shared="candidate_verdicts",
+        clauses=(
+            pf.coverage_gain_clause(
+                "candidate coverage gain over the reference",
+                floor=PER_CELL_MARGIN,
+                seed=lambda ctx, row: candidate_seed(ctx.record, str(row["cell"])),
+                applies=is_pair,
+                group="pair",
+            ),
+            pf.Clause(
+                "pooled candidate coverage gain over the reference",
+                "S7p",
+                is_pooled,
+                read,
+                candidates,
+                target="passed",
+                imputation=pf.SUPPORT,
+                reads=reads,
+            ),
+        ),
+        group="pair",
+        sources=lambda row, rows: (
+            pooled_sources(row, rows)
+            if str(row["property"]) == POOLED_FAMILY
+            else [(str(row["property"]), str(row["cell"]))]
+        ),
+    )
+
+
+# ------------------------------------------------------------------- red owners and the outcome
+
+#: The roadmap owner of every declared red reading of both studies (``docs/roadmap.md``,
+#: "Red-cell owners"); ``tests/unit/test_few_cluster_floor_design.py`` asserts it is listed.
+RED_OWNER: Final[str] = "X54-cluster-floor"
+#: A red positive cell below its family's floor whose withheld and lost draws explain it: the
+#: withheld-and-lost share above :data:`AVAILABILITY_SHARE`, the shown-only exact interval
+#: holding 0.95 and the SE-ratio interval holding 1.
+AVAILABILITY_READING: Final[str] = "below floor (availability)"
+#: Any other red positive cell below its family's floor.
+FINITE_SAMPLE_READING: Final[str] = "below floor (finite-sample)"
+#: A red IID control below its family's floor: four to nine clusters cannot show the
+#: IID-to-cluster SE ratio below 0.80 (plan 5.1).
+CONTROL_READING: Final[str] = "control power"
+#: A red at or above the anchor whose recorded diagnosis (:data:`NO_DEFECT_DIAGNOSES`) finds no
+#: defect, cited against the pilot's predictive family figure.
+CHANCE_READING: Final[str] = "finite-sample (plug-in sizing)"
+#: A red ``few_cluster_candidate`` or pooled row: the candidate is not non-inferior to (A)
+#: there, which the part (c) decision reads (rules 4 and 5).
+CANDIDATE_READING: Final[str] = "candidate not non-inferior"
+READINGS: Final[tuple[str, ...]] = (
+    AVAILABILITY_READING,
+    FINITE_SAMPLE_READING,
+    CONTROL_READING,
+    CHANCE_READING,
+    CANDIDATE_READING,
+)
+#: The withheld-and-lost share above which a red reads as availability.
+AVAILABILITY_SHARE: Final[float] = 0.03
+#: Recorded no-defect diagnoses of reds at or above an anchor, by ``family/cell``; empty at the
+#: declaration, so such a red is a defect suspect until a diagnosis is recorded here.
+NO_DEFECT_DIAGNOSES: Final[dict[str, str]] = {}
+#: The study's family name and the package's floor family (``FLOOR_FAMILY_NAMES`` keys of
+#: :data:`cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`), where they differ (m7).
+PACKAGE_FAMILIES: Final[dict[str, str]] = {
+    "tmle_in_sample": "tmle_in_sample",
+    "tmle_stacked": "tmle_stacked",
+    "tmle_fold_evaluated": "tmle_fold_evaluated",
+    "drtmle_known": "drtmle_cross_fitted_known_mechanism",
+    "ltmle_in_sample": "ltmle_in_sample",
+    "ltmle_cross_fitted": "ltmle_cross_fitted",
+}
+#: The (C) status the package ships for each compared floor family (``Outcome.jackknife``
+#: before any reason): the jackknife is an option on the four families part (c) compares, and
+#: the post-run test fails until a committed run that changes a status changes this map too.
+SHIPPED_JACKKNIFE: Final[dict[str, str]] = {
+    "tmle_in_sample": "option",
+    "tmle_stacked": "option",
+    "ltmle_in_sample": "option",
+    "ltmle_cross_fitted": "option",
+}
+#: The route of a family whose floor moved down from its anchor.
+LOWERED: Final[str] = "lowered"
+
+
+@dataclasses.dataclass(frozen=True)
+class Route:
+    """The declared reading of one floor family's verdicts (plan 5.8, review M3).
+
+    Parameters
+    ----------
+    family : str
+        The study's family name.
+    floor : int
+        :math:`F_f` under :func:`family_floor`.
+    route : str
+        ``"lowered"``, ``"kept: {count} fails"`` (the count below the anchor fails), or
+        ``"defect suspect: {counts}"`` (counts at or above the anchor fail; diagnosed first).
+    owners : dict
+        Each red ``family/cell`` and ``(RED_OWNER, reading)``, or ``None`` when no reading
+        holds it (a defect suspect).
+    """
+
+    family: str
+    floor: int
+    route: str
+    owners: dict[str, tuple[str, str] | None]
+
+    @property
+    def defect_suspects(self) -> tuple[str, ...]:
+        """The red cells no reading holds."""
+        return tuple(sorted(name for name, owner in self.owners.items() if owner is None))
+
+
+def _contains(row: Mapping[str, Any], low: str, high: str, value: float) -> bool:
+    lo, hi = float(row.get(low, math.nan)), float(row.get(high, math.nan))
+    return bool(lo <= value <= hi)
+
+
+def red_reading(positive: Mapping[str, Any]) -> str:
+    """The below-floor reading of a red positive row (availability or finite-sample)."""
+    requested = float(positive["requested_draws"])
+    kept = float(positive["replicates"])
+    withheld = float(positive["withheld_draws"])
+    share = (withheld + requested - kept) / requested if requested else 0.0
+    if (
+        share > AVAILABILITY_SHARE
+        and _contains(positive, "shown_ci_lower", "shown_ci_upper", 0.95)
+        and _contains(positive, "se_ratio_ci_lower", "se_ratio_ci_upper", 1.0)
+    ):
+        return AVAILABILITY_READING
+    return FINITE_SAMPLE_READING
+
+
+def declared_route(
+    family: str,
+    cells: Mapping[tuple[str, str, int], tuple[Mapping[str, Any], Mapping[str, Any]]],
+    *,
+    anchor: int,
+    diagnoses: Mapping[str, str] | None = None,
+) -> Route:
+    """The route and the red owners of one floor family (plan 5.8, reviews B3 and M3).
+
+    ``cells`` maps ``(configuration, law, count)`` to its positive and control summary rows
+    (each with ``cell``, ``passed`` and the floor readings). The floor is :func:`family_floor`
+    of the per-count passes. A red below the floor is held under :func:`red_reading` (positive)
+    or :data:`CONTROL_READING` (control). A red at or above the anchor makes the route a
+    defect suspect; it is held under :data:`CHANCE_READING` only when ``diagnoses`` (default
+    :data:`NO_DEFECT_DIAGNOSES`) records a no-defect diagnosis for it, and otherwise held by
+    nobody.
+    """
+    diagnoses = NO_DEFECT_DIAGNOSES if diagnoses is None else diagnoses
+    verdicts = {
+        key: bool(positive["passed"]) and bool(control["passed"])
+        for key, (positive, control) in cells.items()
+    }
+    configurations = sorted({key[0] for key in cells})
+    passes = count_passes(verdicts, configurations)
+    floor = family_floor(passes, anchor=anchor)
+    high = sorted(count for count, ok in passes.items() if not ok and count >= anchor)
+    if high:
+        route = f"defect suspect: {', '.join(str(count) for count in high)}"
+    elif floor < anchor:
+        route = LOWERED
+    else:
+        route = f"kept: {max(c for c, ok in passes.items() if not ok)} fails"
+    owners: dict[str, tuple[str, str] | None] = {}
+    for (_, _, count), (positive, control) in sorted(cells.items()):
+        for row, is_control in ((positive, False), (control, True)):
+            if bool(row["passed"]):
+                continue
+            name = f"{FAMILY}/{row['cell']}"
+            if count >= anchor or count >= floor:
+                owners[name] = (RED_OWNER, CHANCE_READING) if name in diagnoses else None
+            elif is_control:
+                owners[name] = (RED_OWNER, CONTROL_READING)
+            else:
+                owners[name] = (RED_OWNER, red_reading(positive))
+    return Route(family, floor, route, owners)
+
+
+def candidate_owners(summary: pd.DataFrame) -> dict[str, tuple[str, str]]:
+    """Every red ``few_cluster_candidate`` and pooled row, held under the candidate reading."""
+    rows = summary.loc[summary["property"].isin([CANDIDATE_FAMILY, POOLED_FAMILY])]
+    red = rows.loc[~rows["property_passed"].astype(bool)]
+    return {
+        f"{family}/{cell}": (RED_OWNER, CANDIDATE_READING)
+        for family, cell in zip(red["property"], red["cell"], strict=True)
+    }
+
+
+@dataclasses.dataclass(frozen=True)
+class Outcome:
+    """The declared consequence for one compared or floor family (plan 5.7 and 5.8).
+
+    Parameters
+    ----------
+    family : str
+        The package's floor family (:data:`PACKAGE_FAMILIES`).
+    floor : int
+        The floor the package ships: :math:`F_f(A)` under the 5.8 rule, or :math:`F_f(C)` when
+        (C) becomes the default (rule 6).
+    route : str
+        The :class:`Route` route.
+    jackknife : str
+        ``"default"``, ``"option"``, ``"refused: {reason}"``, or ``"not compared"``.
+    wang_adopted : bool
+        Whether (B) becomes the default reference (rule 3: it wins every compared family).
+    """
+
+    family: str
+    floor: int
+    route: str
+    jackknife: str
+    wang_adopted: bool
+
+
+def outcomes(routes: Mapping[str, Route], decisions: Mapping[str, Decision]) -> dict[str, Outcome]:
+    """Fold each family's route and part (c) decision into its declared outcome (M3).
+
+    (B) is adopted only when it wins every compared family (rule 3). (C) becomes a family's
+    default when it wins there (rule 4), and that family's floor is then its admissibility
+    count (rule 6); an admissible (C) that does not win ships as an option; an inadmissible
+    (C) is refused with the measured reason (rule 5).
+    """
+    wang = bool(decisions) and all(d.winner == WANG_ARM for d in decisions.values())
+    out = {}
+    for family, route in routes.items():
+        decision = decisions.get(family)
+        floor = route.floor
+        if decision is None:
+            status = "not compared"
+        elif decision.admissible.get(JACKKNIFE_ARM) is None:
+            status = f"refused: {decision.reasons.get(JACKKNIFE_ARM, 'not admissible')}"
+        elif decision.winner == JACKKNIFE_ARM:
+            status = "default"
+            floor = int(decision.admissible[JACKKNIFE_ARM] or floor)
+        else:
+            status = "option"
+        out[family] = Outcome(PACKAGE_FAMILIES[family], floor, route.route, status, wang)
+    return out
+
+
+def declared_outcome(
+    summary_a: pd.DataFrame,
+    rows_a: pd.DataFrame,
+    summary_b: pd.DataFrame,
+    rows_b: pd.DataFrame,
+) -> dict[str, Outcome]:
+    """The declared outcome of every floor family of S-a and S-b, from their summaries and rows.
+
+    Rule 3 reads both studies' decisions together, so the two are folded at once.
+    """
+    from tests.studies import few_cluster_floor_ltmle_properties as sb
+    from tests.studies import few_cluster_floor_tmle_properties as sa
+
+    routes = {**sa.routes(summary_a), "ltmle_cross_fitted": sb.route(summary_b)}
+    decisions = {
+        **sa.decisions(summary_a, rows_a),
+        "ltmle_cross_fitted": sb.decision(summary_b, rows_b),
+    }
+    return outcomes(routes, decisions)
 
 
 # ------------------------------------------------------------------------------------ sizing
@@ -895,15 +1512,18 @@ def sizing_inputs(positive: Mapping[str, Any], control: Mapping[str, Any]) -> di
     def sd(row: Mapping[str, Any], low: str, high: str) -> float:
         return float((float(row[high]) - float(row[low])) / (2.0 * _Z99))
 
+    # The requested draws, not the kept rows: a lost draw is a miss in the all-draw coverage,
+    # so the hits and the pilot size both count it (review m2).
+    requested = float(positive["requested_draws"])
     return {
         "coverage": float(positive["all_draw_coverage"]),
-        "hits": float(positive["all_draw_coverage"]) * float(positive["replicates"]),
+        "hits": float(positive["all_draw_coverage"]) * requested,
         "standardized_bias": float(positive["standardized_bias"]),
         "ratio": float(control["paired_se_ratio"]),
         "ratio_sd": sd(control, "paired_se_ratio_ci_lower", "paired_se_ratio_ci_upper"),
         "se_ratio": float(positive["se_ratio"]),
         "se_ratio_sd": sd(positive, "se_ratio_ci_lower", "se_ratio_ci_upper"),
-        "pilot_draws": float(positive["replicates"]),
+        "pilot_draws": requested,
     }
 
 
