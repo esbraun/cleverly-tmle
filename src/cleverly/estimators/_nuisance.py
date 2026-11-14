@@ -730,6 +730,11 @@ class NuisanceEstimates:
     #: regression at that level (X11 (j)), so each level has its own.  Empty on every
     #: other fit, whose one :attr:`regimes` serves every level.  :meth:`at_level` swaps it.
     regimes_by_level: dict[float, RegimeSet] = field(default_factory=dict)
+    #: The one-based folds whose training rows held a single value of a binary outcome, so
+    #: that the fold's outcome regression is that value and no learner ran there
+    #: (:class:`ConstantFit`).  On a per-arm regression a fold counts when any arm's model
+    #: is constant.  Empty on an in-sample fit, which never takes the rule.
+    outcome_constant_folds: tuple[int, ...] = ()
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
         """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
@@ -1638,6 +1643,7 @@ def _fit_outcome_by_arm(
     only: Sequence[int] | None = None,
     companion_rows: IntArray | None = None,
     fold_plug_in_rules: bool = False,
+    constant_folds: list[int] | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold outcome regressions with one learner per treatment arm.
 
@@ -1693,6 +1699,10 @@ def _fit_outcome_by_arm(
         no ``companion_rows`` and every fold.  With an intermediate variable the rule is
         taken at every level ``z`` the queries name, from the models at :math:`(a, z)`, and
         returned under ``_rule_arm_key(z)`` (X11 (j)).
+    constant_folds : list of int or None
+        When given, an arm's model in a fold whose training rows of that arm hold one value
+        of the binary target is that value (:class:`ConstantFit`), and the one-based fold is
+        appended, once per arm that took the rule, as :func:`cross_fit_companion` does.
 
     Returns
     -------
@@ -1781,6 +1791,7 @@ def _fit_outcome_by_arm(
             n_jobs=n_jobs,
             remedy=remedy,
             only=only,
+            constant_folds=constant_folds,
             companion_reduce=reduce,
         )
         per_arm[arm] = predictions
@@ -2552,6 +2563,7 @@ def fit_nuisances(
     companion_estimates: CompanionEstimates | None = None
     fold_rules: np.ndarray | None = None
     fold_rules_by_level: dict[float, np.ndarray] = {}
+    outcome_constant: list[int] | None = None
     if not fit_outcome:
         # The outcome-free path of an estimator that weights the observed outcomes
         # (`AdaptiveIPTW`): no outcome learner runs, and every outcome accessor raises.
@@ -2625,6 +2637,12 @@ def fit_nuisances(
                 _pooled_rule_arm, arms=tuple(arms), levels=tuple(levels)
             )
         outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
+        # A cross-fitted binary outcome whose training fold holds one value predicts that
+        # value there, as the longitudinal recursion does (``ConstantFit``).  An in-sample fit
+        # does not take the rule: a whole-sample arm with one value withholds its interval
+        # through the constant-cell status instead.
+        if outcome_task == "classification" and not folds.is_single:
+            outcome_constant = []
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
             by_arm_queries = {"observed": ArmQuery(_arm_codes_by_row(data, data.treatment))}
@@ -2650,6 +2668,7 @@ def fit_nuisances(
                 companion_queries=by_arm_companion,
                 n_jobs=n_jobs,
                 fold_plug_in_rules=fold_plug_in_rules,
+                constant_folds=outcome_constant,
             )
         else:
             outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
@@ -2665,6 +2684,7 @@ def fit_nuisances(
                 groups=groups,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
+                constant_folds=outcome_constant,
                 companion_reduce=pooled_reduce,
                 stack_predictions=dose_nodes is not None,
             )
@@ -2734,6 +2754,7 @@ def fit_nuisances(
         outcome_probes={key: outcome_out[f"probe:{key}"] for key in probes},
         fold_plug_in_rules=fold_rules,
         fold_plug_in_rules_by_level=fold_rules_by_level,
+        outcome_constant_folds=tuple(sorted(set(outcome_constant or ()))),
     )
 
 
@@ -2826,6 +2847,10 @@ def fit_inner_designs(
     (``_fit_outcome_by_arm``): each inner model of arm ``a`` trains on the rows of arm
     ``a`` outside the two left-out folds.
 
+    A binary outcome whose rows outside a pair take one value is predicted at that value,
+    as a production fold's is (:class:`ConstantFit`).  The mechanism regression keeps its
+    refusal: a complement that lacks an arm is a positivity failure, not a constant target.
+
     **Cost is ``K(K-1)/2`` extra fits of each primary learner**, paid once at the initial
     fit.  Each pair's model trains on the rows the former once-per-ordered-pair loop gave
     both of its fits, sorted the same way, and predicts the same row batches, so a learner
@@ -2873,6 +2898,11 @@ def fit_inner_designs(
         for _ in range(folds.n_folds)
     ]
     by_row = _arm_codes_by_row(data, data.treatment)
+    # A leave-two-out complement whose binary outcome takes one value predicts it, as the
+    # production folds do.  The mechanism regression does not take the rule: a complement
+    # without an arm is a positivity failure there, and predicting a probability of one for
+    # the other arm would only move the failure into an infinite inverse weight.
+    constant: list[int] | None = [] if nuisance.outcome_task == "classification" else None
     for fold in range(folds.n_folds - 1):
         without = assignment != fold
         later = tuple(range(fold + 1, folds.n_folds))
@@ -2917,6 +2947,7 @@ def fit_inner_designs(
                 left_out=fold,
                 only=later,
                 companion_rows=own,
+                constant_folds=constant,
             )
         else:
             regression, at_own, _ = cross_fit_companion(
@@ -2932,6 +2963,7 @@ def fit_inner_designs(
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
+                constant_folds=constant,
                 only=later,
             )
         for position, other in enumerate(later):

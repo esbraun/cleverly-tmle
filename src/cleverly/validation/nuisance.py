@@ -77,6 +77,7 @@ __all__ = [
     "SPREAD_NO_PARAMETERS",
     "SPREAD_SINGLE_DRAW",
     "SPREAD_UNAVAILABLE_DRAWS",
+    "TMLE_CONSTANT_TARGET_IN_FOLD",
     "NuisanceDiagnostics",
     "NuisanceModelReport",
     "RepeatSpreadRow",
@@ -99,6 +100,14 @@ NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact
 
 #: The fit is an AdaptiveIPTW fit, which weights the observed outcomes and fits none.
 NO_OUTCOME_REGRESSION = "AdaptiveIPTW fits no outcome regression"
+
+#: A training fold of a cross-fitted fit held one value, 0 or 1, of the binary outcome while
+#: the sample did not.  That fold's outcome regression is the value, so the fold fitted no
+#: learner and its held-out rows start the targeting step there.  The point-treatment twin of
+#: :data:`~cleverly.validation.longitudinal.LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`.
+TMLE_CONSTANT_TARGET_IN_FOLD = (
+    "a training fold holds the same 0 or 1 outcome, its regression is that value"
+)
 
 #: The fit drew the cross-fitting split once, so there is no between-draw spread. Not a
 #: fault: it is the ordinary state of an ordinary fit.
@@ -185,6 +194,11 @@ class NuisanceModelReport:
         The loss the Super Learner scored ``learner_risks`` under (``"mse"`` or
         ``"neg_log_likelihood"``), or ``None`` without a Super Learner or when its fits
         disagree.
+    fold_omission : str or None, default=None
+        Why some folds fitted no learner for this model, for example
+        :data:`TMLE_CONSTANT_TARGET_IN_FOLD`. ``None`` when every fold fitted one.
+    omitted_folds : tuple of int, default=()
+        The one-based folds ``fold_omission`` applies to. Empty when it is ``None``.
     """
 
     name: str
@@ -196,6 +210,8 @@ class NuisanceModelReport:
     calibration_omission: str | None = None
     evaluation: EvaluationBasis | None = None
     learner_loss: str | None = None
+    fold_omission: str | None = None
+    omitted_folds: tuple[int, ...] = ()
 
     def row(self) -> list[str]:
         """Return this model's metrics as one row of the diagnostics table.
@@ -1029,18 +1045,23 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     if outcome_omission is not None:
         pass
     elif data.family == "binomial":
-        models.append(
-            _binary_report(
-                "outcome",
-                nuisance.outcome.observed,
-                data.outcome,
-                data.weights,
-                nuisance.diagnostics.get("outcome"),
-                mask=outcome_rows,
-                folds=folds,
-                cluster=data.cluster,
-            )
+        report = _binary_report(
+            "outcome",
+            nuisance.outcome.observed,
+            data.outcome,
+            data.weights,
+            nuisance.diagnostics.get("outcome"),
+            mask=outcome_rows,
+            folds=folds,
+            cluster=data.cluster,
         )
+        if nuisance.outcome_constant_folds:
+            report = replace(
+                report,
+                fold_omission=TMLE_CONSTANT_TARGET_IN_FOLD,
+                omitted_folds=nuisance.outcome_constant_folds,
+            )
+        models.append(report)
     else:
         models.append(
             _continuous_report(

@@ -1024,6 +1024,36 @@ intercept-only mechanism, the per-arm fit returns the truth to $10^{-10}$ and th
 misses it by the exact targeting limit of its regression. A spy on the study's own fits checks
 that each arm's regression reads only that arm's rows and the covariates.
 
+### A fold with one outcome value
+
+A cross-fitted outcome regression of a binary outcome whose training rows in one fold all hold 0,
+or all hold 1, is that value in the fold, and no learner runs there. One is the maximum-likelihood
+probability of the value the rows hold. A standard classifier refuses such a target, and a
+penalized one returns a value short of it. The targeting step then moves a prediction of 0 or 1
+from its probability bound (`alpha`), as it does any prediction. This is the point-treatment form
+of the longitudinal rule in
+[a node with no event](longitudinal-tmle.md#a-node-with-no-event).
+
+| regression | result |
+| --- | --- |
+| the pooled outcome regression | not reached. A training complement without both outcome classes is refused before any learner, as [weights, strata, and clusters](#weights-strata-and-clusters) states |
+| the per-arm outcome regression (`outcome_by_arm=True`), one arm's training rows in a fold | that arm's regression in the fold is the value |
+| the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, the rows outside a pair of folds | that pair's regression is the value |
+| a treatment-mechanism regression | not read by this rule. A complement without an arm is a positivity failure, and the fit keeps its refusal |
+| an in-sample fit | not read by this rule. An arm whose observed outcomes hold one value withholds the interval through the `constant_arm_cell_plugin` status ([inference status](inference.md#inference-status)) |
+
+A constant fold changes no status. A sample arm whose outcomes hold one value takes
+`constant_arm_cell_plugin` with or without the rule. The nuisance report of the outcome model
+names `TMLE_CONSTANT_TARGET_IN_FOLD` in `fold_omission` and the one-based folds in
+`omitted_folds`, and the full summary adds a line for them. The model's row stays and reads
+every fold's predictions. The leave-two-out regressions are not reported, because the report reads
+the production predictions.
+
+`tests/unit/test_constant_target_in_fold.py` builds a fold of one value for the per-arm and the
+leave-two-out regressions and checks the predictions, the report and the status. Its mutation
+removes the rule and sees the classifier's two-class error return. A second control passes the
+rule to the treatment-mechanism regression and sees the pinned refusal change.
+
 ### Treatment-mechanism covariates
 
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset $W_g$ of the
