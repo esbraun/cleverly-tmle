@@ -703,16 +703,19 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
         for key in _judge(study, moved, by_key):
             smallest.setdefault(key, factor)
 
-    refit = _refit_reading(
-        study,
-        by_key,
-        z,
-        needed=sorted({group.key for group in widened} | set(unpaired)),
-        exact={key for key in pairs if key not in out_of_scope_keys},
+    needs_refit = bool(smallest) or bool(unpaired)
+    refit = (
+        _refit_reading(
+            study,
+            by_key,
+            z,
+            needed=sorted({group.key for group in widened} | set(unpaired)),
+            exact={key for key in pairs if key not in out_of_scope_keys},
+        )
+        if needs_refit
+        else RefitReading("", [], [])
     )
-    disposition, reason = _disposition(
-        slug, bool(mover_flips), bool(smallest) or bool(unpaired), refit
-    )
+    disposition, reason = _disposition(slug, bool(mover_flips), needs_refit, refit)
     return {
         "study": slug,
         "disposition": disposition,
