@@ -86,6 +86,7 @@ learned-rule-contrast
 learned-rule-arms
 learned-rule-optimal-value
 learned-rule-intermediate
+learned-rule-optimal-compositions
 learned-regimen-ltmle
 conditional-projection
 ep-cate

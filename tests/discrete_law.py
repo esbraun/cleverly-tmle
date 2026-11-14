@@ -381,6 +381,13 @@ def functional(probs: Any, estimand: str) -> Any:
     if estimand == f"ey_optimal_rule[{LEARNED_RULE_LABEL}]":
         best = np.argmax(np.real(q), axis=1)
         return (p_w * q[np.arange(q.shape[0]), best]).sum()
+    # The contrast of the optimal value with a known regime (X11 (f3)): the best-arm value
+    # above minus the static arm mean, both functionals of the same law.
+    if estimand.startswith("ate_optimal_rule["):
+        optimal, known = estimand[len("ate_optimal_rule[") : -1].split(" vs ")
+        return functional(p, f"ey_optimal_rule[{optimal}]") - functional(
+            p, f"ey_known_regime[{known}]"
+        )
 
     # beta = M^-1 b, the h-weighted least-squares projection of the counterfactual means
     # onto m(a, W; beta), written straight off the normal equations:
@@ -467,6 +474,9 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
         f"ate_learned_rule[{LEARNED_RULE_LABEL} vs {label}]" for label in KNOWN_REGIME_ARMS
     ),
     "ey_optimal_rule": (f"ey_optimal_rule[{LEARNED_RULE_LABEL}]",),
+    "ate_optimal_rule": tuple(
+        f"ate_optimal_rule[{LEARNED_RULE_LABEL} vs {label}]" for label in KNOWN_REGIME_ARMS
+    ),
     "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
     "ate_ipsi": tuple(
         f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
@@ -547,6 +557,7 @@ TRUTH = {
         *PER_ARM_NAMES["ey_known_regime"],
         *PER_ARM_NAMES["ate_learned_rule"],
         *PER_ARM_NAMES["ey_optimal_rule"],
+        *PER_ARM_NAMES["ate_optimal_rule"],
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
         *PER_ARM_NAMES["ey_rr_tilt"],
