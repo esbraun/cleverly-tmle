@@ -37,6 +37,7 @@ from tests.unit import _mtp_route_kinds as kinds
 
 sequential = importlib.import_module("cleverly.longitudinal.sequential")
 sdr_module = importlib.import_module("cleverly.longitudinal.sdr")
+longitudinal_module = importlib.import_module("cleverly.longitudinal.estimator")
 
 POINT = [name for name in kinds.FITS if not name.startswith("mtp/panel/")]
 PANEL = [name for name in kinds.FITS if name.startswith("mtp/panel/")]
@@ -452,3 +453,74 @@ def test_w16_a_static_plan_with_a_binding_trim_is_unchanged(
     fixed = fit()
     _shipped(monkeypatch)
     assert fit() == fixed
+
+
+# ------------------------------------------------------------------ a categorical node first
+
+
+def _categorical_first(estimator: type, ratio: str) -> Any:
+    """A binary node 1 and a continuous MTP node 2, the panel the cumulative curve keeps.
+
+    The bound reaches node 1's categorical factor, so the curve bounds the cumulative
+    mechanism rather than sweeping ``ratio_trim=``; it binds once it passes the smallest
+    node-1 propensity.
+    """
+    frame = panel_law.sample_continuous(800, 0)
+    frame["A1"] = (frame["A1"] > frame["A1"].median()).astype(int)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator(
+            {"s0": (1, panel_law.NATURAL), "s1": (1, panel_law.UP)},
+            reference="s0",
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=2000),
+            n_folds=1 if estimator is LTMLE else 2,
+            ratio=ratio,
+            simultaneous=False,
+            random_state=0,
+            g_bounds=(0.01, 1.0),
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W"],
+            time_varying=[[], ["L2"]],
+            continuous_treatment=["A2"],
+        )
+
+
+def _cumulative_curve_moves(result: Any) -> list[str]:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            frame = longitudinal_truncation_curve(result, [0.01, 0.3, 0.5])
+    except CapabilityError as error:
+        return [f"the curve refused the bounds, not the cumulative bound: {error}"]
+    if "lower_bound" not in frame.columns:
+        return [f"the curve swept {sorted(frame.columns)}, not the cumulative bound"]
+    rows = frame[frame["estimand"] == "ey_regimen[s1]"].set_index("lower_bound")
+    found = []
+    if abs(float(rows.loc[0.01, "delta_from_fitted"])) > 1e-10:
+        found.append("the fitted bound does not reproduce the fit")
+    if not int(rows.loc[0.5, "truncated_score_cells"]) > 0:
+        found.append("the bound of 0.5 truncates no cell")
+    if not abs(float(rows.loc[0.5, "delta_from_fitted"])) > 1e-4:
+        found.append(f"the bound of 0.5 moves the estimate {rows.loc[0.5, 'delta_from_fitted']}")
+    return found
+
+
+@pytest.mark.parametrize("ratio", ["density", "classifier"])
+@pytest.mark.parametrize("estimator", [LTMLE, SDR], ids=["LTMLE", "SDR"])
+def test_w15_the_cumulative_curve_of_a_categorical_node_moves_the_estimate(
+    estimator: type, ratio: str
+) -> None:
+    result = _categorical_first(estimator, ratio)
+    assert result.config.ratio_route.route == ratio
+    assert _cumulative_curve_moves(result) == []
+
+
+def test_w15_a_curve_sent_to_the_trim_sweep_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation: the panel taken for one whose bound reaches no factor."""
+    monkeypatch.setattr(longitudinal_module, "_bound_reaches_a_factor", lambda result: False)
+    found = _cumulative_curve_moves(_categorical_first(LTMLE, "classifier"))
+    assert found and "not the cumulative bound" in found[0]
