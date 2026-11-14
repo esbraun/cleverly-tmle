@@ -155,7 +155,9 @@ from ..inference.cluster import (
 )
 from ..inference.cluster_jackknife import (
     CLUSTER_VARIANCES,
+    JACKKNIFE_TRUNCATION_REFUSAL,
     jackknife_estimates,
+    jackknife_fit,
     jackknife_fold_refusal,
     jackknife_learner,
     jackknife_learner_refusal,
@@ -10548,6 +10550,8 @@ def longitudinal_truncation_refusal(result: Any) -> Refusal | None:
 
         return DRIFT_TRUNCATION_REFUSAL
     estimator = getattr(result.config, "estimator", None)
+    if jackknife_fit(result):
+        return JACKKNIFE_TRUNCATION_REFUSAL
     if estimator == "gcomp":
         return GCOMP_TRUNCATION_REFUSAL
     if estimator == "parametric_gformula":

@@ -1867,6 +1867,12 @@ def influence(
             "the influence curve leaves out; the reported variance adds a bound on that term, "
             "so this curve is not the reported variance."
         )
+    if getattr(estimate, "jackknife", None) is not None:
+        found.append(
+            "This fit reports the delete-one-cluster jackknife variance "
+            "(cluster_variance='jackknife'), which refits every model once per cluster, so "
+            "this curve is not the reported variance."
+        )
     if str(estimate.scale) == "ratio":
         found.append("Influence values are on the log scale.")
     found.extend(_core.estimate_interval(estimate, label).notes)

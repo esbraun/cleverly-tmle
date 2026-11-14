@@ -4299,6 +4299,11 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "error, and its lower side is the point bound of the learned rules' value. "
             "{alternative}"
         ),
+        "limits_withheld_jackknife": (
+            "No one-sided limits or limit robustness value: the fit reports the "
+            "delete-one-cluster jackknife variance, and the limits would read the influence "
+            "curves, which do not carry it. {alternative}"
+        ),
         "limits_withheld_zero": (
             "No one-sided limits or limit robustness value: the bias scale is zero on this "
             "fit, and a zero scale has no standard error."

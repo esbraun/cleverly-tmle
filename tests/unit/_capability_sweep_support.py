@@ -68,6 +68,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, Refusal
 from cleverly.interventions import Incremental, ModifiedPolicy, Shift, Static
 from cleverly.learners import make_folds
+from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -1122,6 +1123,59 @@ def fit_few_clusters() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
 
 
+def fit_tmle_jackknife() -> Any:
+    """The 20-cluster in-sample fit of ``few_clusters`` with the cluster jackknife variance."""
+    frame, _ = make_clustered(n=200, cluster_size=10, seed=7)
+    estimator = TMLE(**linear_in_sample(cluster_variance="jackknife"))
+    return estimator.fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+def fit_tmle_jackknife_stacked() -> Any:
+    """The same frame, cross-fitted over 5 folds of 4 clusters, with the cluster jackknife."""
+    frame, _ = make_clustered(n=200, cluster_size=10, seed=7)
+    estimator = TMLE(
+        **linear_in_sample(
+            cross_fit=True, n_folds=5, q_bounds=(-25.0, 25.0), cluster_variance="jackknife"
+        )
+    )
+    return estimator.fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+def _fit_ltmle_jackknife(n_folds: int) -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)`` in 20 clusters of 20 units."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    frame["site"] = np.arange(len(frame)) // 20
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=n_folds,
+        random_state=5,
+        simultaneous=False,
+        cluster_variance="jackknife",
+    )
+    return estimator.fit(
+        frame,
+        outcome="Y",
+        treatment=["A1", "A2"],
+        baseline=["W1", "W2"],
+        time_varying=[[], ["L2"]],
+        censoring=["C1", "C2"],
+        id="site",
+    )
+
+
+def fit_ltmle_jackknife() -> Any:
+    """The in-sample clustered LTMLE fit with the cluster jackknife variance."""
+    return _fit_ltmle_jackknife(1)
+
+
+def fit_ltmle_jackknife_cross_fitted() -> Any:
+    """The clustered LTMLE fit cross-fitted over 5 folds, with the cluster jackknife."""
+    return _fit_ltmle_jackknife(5)
+
+
 def fit_fold_targeted_repeated() -> Any:
     """A fold-targeted, fold-evaluated two-fold fit repeated over two draws.
 
@@ -2154,6 +2208,10 @@ KINDS: dict[str, Kind] = {
     "ltmle_boundary_node": _kind(fit_ltmle_boundary_node, *_READ, *_POINT),
     # The iterated-mean path, clustered: the same rows run on the supplemented horizons.
     "ltmle_boundary_node_iterated": _kind(fit_ltmle_boundary_node_iterated, *_READ, *_POINT),
+    # X54 (c): the clustered LTMLE fit with the cluster jackknife variance. The truncation
+    # replay reads the influence-curve variance at each bound, so its row refuses by name.
+    "ltmle_jackknife": _kind(fit_ltmle_jackknife, *_READ, "refute"),
+    "ltmle_jackknife_cross_fitted": _kind(fit_ltmle_jackknife_cross_fitted, *_READ, "refute"),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
     # Each policy is targeted by its own weighted walk, which no truncation replay
@@ -2206,6 +2264,13 @@ KINDS: dict[str, Kind] = {
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
+    # X54 (c): the delete-one-cluster jackknife variance, in sample and stacked. The rows that
+    # read an interval built from the influence curves refuse it by name: the truncation curve
+    # and the marginal bounds; the omitted-variable rows answer with point bounds only.
+    "tmle_jackknife": _kind(fit_tmle_jackknife, *_READ, "refute", *_BOUND, "benchmark"),
+    "tmle_jackknife_stacked": _kind(
+        fit_tmle_jackknife_stacked, *_READ, "refute", *_BOUND, "benchmark"
+    ),
     # The fold-evaluated report averages over folds, so the E-value reads no ratio interval.
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
@@ -2531,8 +2596,13 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
-        frozenset({"incremental", "incremental+missing"}),
-        _RAISED.format("truncation_curve") + r"the propensity g is \*inside\* the estimand",
+        # A jackknife fit's curve would read the influence-curve variance (X54 (c)).
+        frozenset(
+            {"incremental", "incremental+missing", "tmle_jackknife", "tmle_jackknife_stacked"}
+        ),
+        _RAISED.format("truncation_curve")
+        + r"(the propensity g is \*inside\* the estimand|"
+        + r"the truncation curve re-targets the fitted nuisances)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -2554,6 +2624,8 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle_jackknife",
+                "ltmle_jackknife_cross_fitted",
                 "ltmle_known_sample_weights",
                 "ltmle_mtp_censored",
                 "sdr_mtp_censored",

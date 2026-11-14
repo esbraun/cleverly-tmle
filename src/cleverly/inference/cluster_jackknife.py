@@ -63,11 +63,13 @@ from ..learners.crossfit import Folds
 __all__ = [
     "CLUSTER_VARIANCES",
     "JACKKNIFE_LEARNER_REFUSAL",
+    "JACKKNIFE_TRUNCATION_REFUSAL",
     "ClusterVariance",
     "JackknifeCovariance",
     "JackknifeVariance",
     "jackknife_covariance",
     "jackknife_estimates",
+    "jackknife_fit",
     "jackknife_fold_refusal",
     "jackknife_learner",
     "jackknife_learner_refusal",
@@ -107,6 +109,37 @@ JACKKNIFE_FOLD_REFUSAL: Final[str] = (
     "{held} positive-mass cluster(s), so a refit would lose that fold and change the estimator "
     "it is meant to resample."
 )
+
+
+#: Why no truncation curve runs on a ``cluster_variance="jackknife"`` fit.
+JACKKNIFE_TRUNCATION_REFUSAL: Final[Refusal] = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "the truncation curve re-targets the fitted nuisances at each bound and reads each "
+    "point's influence-curve variance, while this fit reports the delete-one-cluster "
+    "jackknife variance, which would need one refit per cluster at every bound.",
+    alternative=(
+        "Refit with cluster_variance='influence_curve' for the curve, or refit at each bound "
+        "you need with g_bounds= and the jackknife."
+    ),
+    roadmap="F28",
+)
+
+
+def jackknife_fit(result: Any) -> bool:
+    """Whether ``result`` reports the delete-one-cluster jackknife variance.
+
+    Parameters
+    ----------
+    result : TMLEResult or LongitudinalResult
+        A fitted result.
+
+    Returns
+    -------
+    bool
+        ``True`` when an estimate carries a jackknife record.
+    """
+    estimates = getattr(result, "estimates", None) or {}
+    return any(getattr(item, "jackknife", None) is not None for item in estimates.values())
 
 
 def jackknife_learner_refusal(what: str) -> Refusal:

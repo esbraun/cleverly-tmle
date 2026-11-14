@@ -104,6 +104,7 @@ from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, ref
 from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..exceptions import CapabilityError
 from ..inference.cluster import cluster_reference_df, influence_variance
+from ..inference.cluster_jackknife import jackknife_fit
 from ..inference.delta import reference_quantile
 from ..utils.frames import emit_frame
 
@@ -456,6 +457,16 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             f"the bounds read a continuous or a binary outcome; this fit's family is "
             f"{data.family!r}.",
             alternative=NO_ALTERNATIVE,
+        )
+    if jackknife_fit(result):
+        return Refusal(
+            RefusalReason.INFERENCE_GAP,
+            "the bound's interval is built from its influence curve, and this fit reports the "
+            "delete-one-cluster jackknife variance (cluster_variance='jackknife'), which the "
+            "curve does not carry, so at Gamma = 1 the set interval would not be the fit's "
+            "interval.",
+            alternative="Refit with cluster_variance='influence_curve' for the bounds.",
+            roadmap="F28",
         )
     status = result.inference_status
     status = status() if callable(status) else status

@@ -149,6 +149,7 @@ from ..estimators.iptw import OPERATION_REFUSALS
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference
 from ..inference.cluster import influence_variance
+from ..inference.cluster_jackknife import jackknife_fit
 from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
 from ..interventions.base import RegimeSet
@@ -1861,6 +1862,11 @@ def _elements_for(
         max_bias_upper = float(np.sqrt(sigma2 * nu2_upper))
         psi_nu2 = None
         limit_refusal = _OPTIMAL_RULE_LIMIT_REFUSAL
+    if limit_refusal is None and jackknife_fit(result):
+        # The limits carry the influence curves of the estimate and the bias, and this fit
+        # reports the delete-one-cluster jackknife variance instead (X54 (c)).
+        psi_nu2 = None
+        limit_refusal = _JACKKNIFE_LIMIT_REFUSAL
     max_bias = float(np.sqrt(sigma2 * nu2))
     # The square-root delta method requires a positive product. At sigma2=0 the
     # point bound is still defined, but its ordinary influence curve is not.
@@ -1935,6 +1941,23 @@ _LEARNED_RULE_LIMIT_REFUSAL = MechanismRefusal(
     alternative="Read the point bounds and the point robustness value, which stay available.",
     reason=RefusalReason.INFERENCE_GAP,
     roadmap="X11",
+)
+
+
+#: Why the bound of a ``cluster_variance="jackknife"`` fit has no confidence limit (X54 (c)).
+_JACKKNIFE_LIMIT_REFUSAL = MechanismRefusal(
+    key="jackknife",
+    text=(
+        "cluster_variance='jackknife': the confidence limits of a bias-adjusted bound carry "
+        "the influence curves of the estimate and of the bias, and this fit reports the "
+        "delete-one-cluster jackknife variance, which no derivation here carries to the bound."
+    ),
+    alternative=(
+        "Read the point bounds and the point robustness value, which stay available, or "
+        "refit with cluster_variance='influence_curve' for the limits."
+    ),
+    reason=RefusalReason.INFERENCE_GAP,
+    roadmap="F28",
 )
 
 

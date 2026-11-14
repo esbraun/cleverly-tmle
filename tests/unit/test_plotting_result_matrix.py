@@ -392,6 +392,10 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
+    # X54 (c): the delete-one-cluster jackknife variance. The interval plots read the
+    # jackknife interval, and influence() says its curve is not the reported variance.
+    "point_tmle_jackknife": sweep.fit_tmle_jackknife,
+    "ltmle_jackknife": sweep.fit_ltmle_jackknife_cross_fitted,
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -410,6 +414,30 @@ NOT_FITS = {
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
 #: names, or the refusal's class and first five words.
 EXPECTED: dict[str, dict[str, str]] = {
+    "point_tmle_jackknife": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_jackknife": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "ltmle_mtp_censored": {
         "forest": "draws",
         "curve": "CapabilityError: this fit has one end-of-study",
@@ -931,6 +959,23 @@ def test_influence_says_the_curve_is_not_a_supplemented_variance(fits: Any) -> N
     assert not any(phrase in note for note in plotting.notes(plain))
     plt.close(supplemented)
     plt.close(plain)
+
+
+@_SHARED
+@pytest.mark.parametrize("family", ["point_tmle_jackknife", "ltmle_jackknife"])
+def test_influence_says_the_curve_is_not_the_jackknife_variance(fits: Any, family: str) -> None:
+    result = fits(family)
+    estimates = getattr(result, "estimates", result)
+    name = next(iter(estimates))
+    assert estimates[name].variance_source == "jackknife"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        figure = plotting.influence(result, name=name)
+    assert any(
+        "delete-one-cluster jackknife" in note and "not the reported variance" in note
+        for note in plotting.notes(figure)
+    )
+    plt.close(figure)
 
 
 @_SHARED
