@@ -598,6 +598,11 @@ class HazardInputs:
         only the person-nodes at risk whose observed prefix some slot carries, the ones
         whose residual enters a score or the loss, and ``inverse`` and ``q`` run along the
         slots.  ``None`` on every other fit.
+    observed_cells : IntArray or None
+        ``(n, T)`` on a design with a treatment at several nodes: the held-cell key of each
+        unit's observed prefix through the node on the person-nodes at risk, ``-1`` elsewhere.
+        These are the rows :func:`_held_cells` read each cell from, a unit whose observed
+        prefix no slot of its own carries included.  ``None`` on every other fit.
     """
 
     at_risk: BoolArray
@@ -615,6 +620,7 @@ class HazardInputs:
     cells: IntArray | None = None
     prefix: IntArray | None = None
     observed_match: BoolArray | None = None
+    observed_cells: IntArray | None = None
 
     @property
     def n(self) -> int:
@@ -824,6 +830,8 @@ class HazardInputs:
         dropped residuals are the causes held at zero, plus one when the all-cause hazard is
         held at one.
         """
+        if self.cells is not None and self.cells.ndim == 3:
+            return self._multinode_boundary_cells(regimen, horizon)
         if self.cells is None:
             keys = self.observed
             read = np.any(self.q[regimen] > 0.0, axis=0)
@@ -839,6 +847,30 @@ class HazardInputs:
                 if not (empty or full):
                     continue
                 rows = self.at_risk[:, k] & (keys == level) & (self.weights > 0.0)
+                cells.append(
+                    BoundaryCell(k + 1, rows, 1.0 if full and not empty else 0.0, empty + full)
+                )
+        return tuple(cells)
+
+    def _multinode_boundary_cells(self, regimen: int, horizon: int) -> tuple[BoundaryCell, ...]:
+        """:meth:`boundary_cells` on a design with a treatment at several nodes.
+
+        The key of a slot depends on the node, so the cells ``regimen`` reads at node ``k``
+        are the keys of the slots it puts mass on there, as :meth:`constant_nodes` reads
+        them.  A cell's rows are the units at risk at the node whose observed prefix has the
+        cell's key, the rows :func:`_held_cells` counted, so ``m`` counts the units the hold
+        was read from.
+        """
+        assert self.cells is not None and self.observed_cells is not None
+        owned = self.q[regimen] > 0.0  # (n, U)
+        cells: list[BoundaryCell] = []
+        for k in range(min(horizon, self.n_times)):
+            for key in np.unique(self.cells[:, k, :][owned]):
+                empty = int(np.sum(self.empty[k, key]))
+                full = bool(self.full[k, key])
+                if not (empty or full):
+                    continue
+                rows = (self.observed_cells[:, k] == key) & (self.weights > 0.0)
                 cells.append(
                     BoundaryCell(k + 1, rows, 1.0 if full and not empty else 0.0, empty + full)
                 )
@@ -1601,6 +1633,7 @@ def _path_inputs(
         cells=slots.cells,
         prefix=slots.prefix,
         observed_match=slots.observed_match,
+        observed_cells=np.where(at_risk, slots.observed_cells, -1),
     )
 
 

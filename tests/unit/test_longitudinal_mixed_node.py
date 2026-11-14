@@ -606,6 +606,12 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 #: mixed node's entry.  The entry raises ``CapabilityError`` on any read, so a reader missed
 #: here fails closed; the list makes each one a reviewed decision (review LOW-6).
 _LEVEL_READERS: dict[tuple[str, str], str] = {
+    ("sensitivity/balance_time.py", "_label"): (
+        "called only from longitudinal_cells, after refuse_continuous_nodes"
+    ),
+    ("sensitivity/balance_time.py", "longitudinal_cells.arm_words"): (
+        "after refuse_continuous_nodes refuses a continuous or mixed node"
+    ),
     ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
     ("plotting/_overlap_time.py", "baseline_probability"): (
         "called only from baseline, after its node-1 refusal"

@@ -519,6 +519,9 @@ def _tilt_columns(law: HeldLaw, frame: pd.DataFrame) -> dict[str, Any]:
     ]
     frame["p0"] = 1.0 - frame["p1"]
     columns["treatment_probabilities"] = {"A": {0: "p0", 1: "p1"}}
+    # The law as data weights its support points by their mass, so the declared
+    # probabilities are the weighted population's.
+    columns["mechanism_law"] = "target"
     return columns
 
 

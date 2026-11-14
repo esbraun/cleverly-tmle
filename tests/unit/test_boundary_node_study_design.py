@@ -631,7 +631,10 @@ def test_registered_from_the_rerun_of_this_declaration() -> None:
     assert commit != study.FIRST_DECLARED_RUN["declaration"]
     assert study.STUDY.publication_policy == "reporting"
     assert properties.FAILURE_BOUND == 0.05
-    assert study.STUDY.failure_bound == {"cleverly": 0.05}
+    # The primary bound is every registered study's 0.01 per side (RM39b2); the run lost no
+    # primary replicate, so the 0.05 it ran under decided nothing (provenance-revisions.md).
+    assert study.STUDY.failure_bound == {"cleverly": 0.01}
+    assert manifest["configuration"]["failure_bound"] == {"cleverly": 0.01}
 
 
 def test_the_registered_primary_reds_are_its_declared_readings() -> None:
