@@ -1908,7 +1908,7 @@ control per applicable rule, a docstring example and a render check.
 The plots draw a longitudinal, time-to-event, structural nested mean and adaptive TMLE fit:
 `overlap` per arm or per time point, `learners` and `calibration` per time point and role, and
 the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit still
-refuses three plots, and each refusal names this item:
+refuses four plots, and each refusal names this item:
 
 - `curve`: each arm's risk, or cumulative incidence by cause, with its interval and band at the
   target times only, since a risk between target times is not targeted; the restricted mean

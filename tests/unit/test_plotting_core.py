@@ -790,7 +790,8 @@ def test_overlap_draws_a_longitudinal_fit_per_time_point() -> None:
     result = fit_ltmle()
     fig = overlap(result)
     titles = [axis.get_title(loc="left") for axis in fig.axes]
-    assert titles == [f"Time point {time}" for time in range(1, result.data.n_times + 1)]
+    times = range(1, result.data.n_times + 1)
+    assert titles == [f"{label}, Time point {t}" for label in ("always", "never") for t in times]
     _style_checks(fig)
 
 

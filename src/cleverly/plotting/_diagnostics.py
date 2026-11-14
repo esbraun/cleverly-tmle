@@ -438,11 +438,13 @@ def calibration(
     Raises
     ------
     ValueError
-        When the source holds no probability model with a calibration table, a curve
-        calibration has no finite bin, or ``ax`` is given for more than one panel.
+        When a curve calibration has no finite bin, or ``ax`` is given for more than one
+        panel.
     CapabilityError
-        When the source is a continuous-time survival or adaptive TMLE fit, or the
-        latter's nuisance report, which keep no calibration table.
+        When the source holds no probability model with a calibration table (a
+        ``ValueError`` subclass, for a point and a longitudinal source alike), or is a
+        continuous-time survival or adaptive TMLE fit, or the latter's nuisance report,
+        which keep no calibration table.
     DataError
         When the regimen, horizon or cause is not in a longitudinal report.
 

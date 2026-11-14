@@ -330,18 +330,24 @@ def _refuse_ratio_nodes(result: Any, fit: Any, times: Sequence[int]) -> None:
 
     data = result.data
     for time in times:
-        if data.node_kind(time) != "categorical":
+        kind = data.node_kind(time)
+        if kind != "categorical":
+            held = (
+                "a dose, which has a density"
+                if kind == "continuous"
+                else "a treatment with a dose component, whose dose has a density"
+            )
             raise CapabilityError(
                 f"overlap() draws the probability of the regimen's treatment at each time "
-                f"point; time point {time} holds a dose, which has a density, not a "
-                "probability per arm. weights() draws the weights the fit used.",
+                f"point; time point {time} holds {held}, not a probability per arm. "
+                "weights() draws the weights the fit used.",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
-        kind = _node_kind(fit, time)
-        if kind in _RATIO_KINDS:
+        policy = _node_kind(fit, time)
+        if policy in _RATIO_KINDS:
             raise CapabilityError(
                 f"overlap() draws the probability of the regimen's treatment at each time "
-                f"point; at time point {time} the regimen is {_RATIO_KINDS[kind]}, whose "
+                f"point; at time point {time} the regimen is {_RATIO_KINDS[policy]}, whose "
                 "weight is a ratio of probabilities or densities, not one probability. "
                 "weights() draws the weights the fit used.",
                 reason=RefusalReason.INVALID_DECLARATION,
@@ -364,15 +370,21 @@ def _chosen_nodes(nodes: Sequence[int] | None, count: int) -> list[int]:
     return chosen
 
 
-def _first_regimen(fits: dict[str, Any], regimen: str | None) -> str:
+def _regimens(fits: dict[str, Any], regimen: str | None) -> tuple[list[str], list[str]]:
+    """The regimens to draw: the one named, else every one up to three; and all held."""
     from ..exceptions import DataError
 
-    held = list(dict.fromkeys(fit.regimen.label for fit in fits.values()))
-    if regimen is None:
-        return str(held[0])
-    if regimen not in held:
-        raise DataError(f"the result holds no regimen {regimen!r}; it holds {held}")
-    return regimen
+    held = [str(label) for label in dict.fromkeys(fit.regimen.label for fit in fits.values())]
+    if regimen is not None:
+        if regimen not in held:
+            raise DataError(f"the result holds no regimen {regimen!r}; it holds {held}")
+        return [regimen], held
+    if len(held) > _core.MAX_SERIES:
+        raise DataError(
+            f"the result holds {len(held)} regimens and the figure draws at most "
+            f"{_core.MAX_SERIES}; name one of {held} with regimen="
+        )
+    return held, held
 
 
 def per_node(
@@ -384,71 +396,88 @@ def per_node(
     labels: dict[Any, str] | None,
     time_label: str,
 ) -> Figure:
-    """A longitudinal fit with a treatment at several time points."""
+    """A longitudinal fit with a treatment at several time points.
+
+    One block of panels per regimen, each block one panel per time point (and one more
+    row of retention panels with ``censoring=True``): the population and the probability
+    both depend on the regimen, so none is left out by default.
+    """
     from ..longitudinal.weights import _select
 
     data = result.data
     if censoring and not data.has_censoring:
         raise ValueError("censoring=True draws retention, and this fit declares no censoring")
     fits = result.repeats[0].fits
-    label = _first_regimen(fits, regimen)
-    held = list(dict.fromkeys(fit.regimen.label for fit in fits.values()))
-    fit = _select(fits, label, None, None)
+    drawn_regimens, held = _regimens(fits, regimen)
     times = _chosen_nodes(nodes, data.n_times)
-    _refuse_ratio_nodes(result, fit, times)
+    chosen = [_select(fits, label, None, None) for label in drawn_regimens]
+    for fit in chosen:
+        _refuse_ratio_nodes(result, fit, times)
     mechanism = result.mechanism
-    assignment = np.asarray(fit.assignment, dtype=float)
     weights = np.asarray(data.weights, dtype=float)
     columns = min(len(times), _COLUMNS)
     block = math.ceil(len(times) / columns)
-    fig, axes = _grid(len(times), block, 2 if censoring else 1, columns)
+    per_regimen = block * (2 if censoring else 1)
+    fig, axes = _grid(len(times), per_regimen, len(chosen), columns)
     used: set[int] = set()
-    shown = (labels or {}).get(label, label)
     point = time_label.lower()
-    for index, time in enumerate(times):
-        axis = axes[index]
-        used.add(index)
-        rows = node_population(data, assignment, time)
-        took = np.asarray(data.treatment[:, time - 1] == assignment[:, time - 1], dtype=bool)
-        values = np.asarray(mechanism.treatment[time - 1][label], dtype=float)
-        _mirror(
-            axis,
-            values[rows],
-            weights[rows],
-            took[rows],
-            names=("Took the regimen's treatment", "Took another"),
-            bounds=(),
-        )
-        _panel_title(axis, f"{time_label} {time}")
-        axis.set_xlabel("Probability of the regimen's treatment")
-        axis.set_ylabel("Share of units" if index % columns == 0 else "")
-        if censoring:
-            offset = block * columns + index
-            used.add(offset)
-            retained = np.asarray(mechanism.censoring[time - 1][label], dtype=float)
-            followers = rows & took
+    several = len(chosen) > 1
+    shown = [str((labels or {}).get(label, label)) for label in drawn_regimens]
+    for number, (label, fit, words) in enumerate(zip(drawn_regimens, chosen, shown, strict=True)):
+        assignment = np.asarray(fit.assignment, dtype=float)
+        first = number * per_regimen * columns
+        lead = f"{words}, " if several else ""
+        for index, time in enumerate(times):
+            position = first + index
+            axis = axes[position]
+            used.add(position)
+            rows = node_population(data, assignment, time)
+            took = np.asarray(data.treatment[:, time - 1] == assignment[:, time - 1], dtype=bool)
+            values = np.asarray(mechanism.treatment[time - 1][label], dtype=float)
             _mirror(
-                axes[offset],
-                retained[followers],
-                weights[followers],
-                np.ones(int(followers.sum()), dtype=bool),
-                names=("Took the regimen's treatment", None),
+                axis,
+                values[rows],
+                weights[rows],
+                took[rows],
+                names=("Took the regimen's treatment", "Took another"),
                 bounds=(),
             )
-            _panel_title(axes[offset], f"{time_label} {time}: staying observed")
-            axes[offset].set_xlabel("Probability of staying under observation")
-            axes[offset].set_ylabel("Share of units" if index % columns == 0 else "")
+            _panel_title(axis, f"{lead}{time_label} {time}")
+            axis.set_xlabel("Probability of the regimen's treatment")
+            axis.set_ylabel("Share of units" if index % columns == 0 else "")
+            if censoring:
+                offset = first + block * columns + index
+                used.add(offset)
+                retained = np.asarray(mechanism.censoring[time - 1][label], dtype=float)
+                followers = rows & took
+                _mirror(
+                    axes[offset],
+                    retained[followers],
+                    weights[followers],
+                    np.ones(int(followers.sum()), dtype=bool),
+                    names=("Took the regimen's treatment", None),
+                    bounds=(),
+                )
+                _panel_title(axes[offset], f"{lead}{time_label} {time}: staying observed")
+                axes[offset].set_xlabel("Probability of staying under observation")
+                axes[offset].set_ylabel("Share of units" if index % columns == 0 else "")
     drawn = _drop_unused(fig, axes, used)
     predictions = _predictions(int(getattr(result.config, "n_folds", 1)))
     _core.figure_header(
         fig,
         "Treatment probability at each time point",
-        f"Regimen {shown}, units still on it at each {point}; {predictions.lower()}",
+        f"Regimen {', '.join(shown)}: units still on it at each {point}; {predictions.lower()}",
         key_sources=drawn,
     )
     found = _repeats_note(len(result.repeats))
-    if len(held) > 1:
-        found.append(f"The figure draws regimen {shown}; pass regimen= for another of {held}.")
+    if several:
+        found.append(
+            "Each block of panels is one regimen, named in its panel titles; regimen= draws one."
+        )
+    elif len(held) > 1:
+        found.append(
+            f"The figure draws regimen {shown[0]}, as regimen= asked; the fit holds {held}."
+        )
     found.append(
         f"Each panel holds the units whose history up to that {point} is observed, followed "
         f"the regimen and is event-free; above, those who then took the regimen's treatment, "
@@ -456,8 +485,8 @@ def per_node(
     )
     if censoring:
         found.append(
-            "The lower panels draw each unit's probability of staying under observation after "
-            f"the {point}, among those who took the regimen's treatment there."
+            "The retention panels draw each unit's probability of staying under observation "
+            f"after the {point}, among those who took the regimen's treatment there."
         )
     found.append(
         "The fit's g_bounds limit the cumulative product of these probabilities over time "
@@ -468,6 +497,11 @@ def per_node(
 
 
 # ------------------------------------------------------------------- structural nested mean
+
+
+def structural_margin(config: Any) -> float:
+    """The distance from 0 and 1 that the fit's ``extreme_share`` counts."""
+    return float(config.positivity_margin)
 
 
 def structural(result: Any, *, nodes: Sequence[int] | None, time_label: str) -> Figure:
@@ -488,7 +522,7 @@ def structural(result: Any, *, nodes: Sequence[int] | None, time_label: str) -> 
             + ".",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    margin = float(config.positivity_margin)
+    margin = structural_margin(config)
     panels = [(time, column) for time in times for column in range(config.nodes[time - 1].d)]
     columns = min(len(panels), _COLUMNS)
     block = math.ceil(len(panels) / columns)
@@ -520,14 +554,18 @@ def structural(result: Any, *, nodes: Sequence[int] | None, time_label: str) -> 
     )
     found = [
         f"Dotted lines mark the margin {margin:g} from 0 and 1 that diagnostics.extreme_share "
-        "counts; the share beyond each is printed at its foot.",
+        "counts; the share of units beyond each is printed at its foot. On a two-level time "
+        "point the two shares add up to its extreme_share.",
         "The fit uses these probabilities to centre the treatment in its estimating equation, "
         "not as inverse weights, so no weight limit applies.",
     ]
     if any(config.nodes[time - 1].d > 1 for time in times):
         found.append(
             "A time point with more than two levels has one panel per level other than the "
-            "reference, that level against the rest."
+            "reference, that level against the rest. Its printed shares are per level: "
+            "extreme_share also counts the reference level's probability and counts a unit "
+            "once however many of its levels are near 0 or 1, so the shares need not add up "
+            "to it."
         )
     _core.add_notes(fig, found)
     return fig

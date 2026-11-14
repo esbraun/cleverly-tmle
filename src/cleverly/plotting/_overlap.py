@@ -212,8 +212,9 @@ def overlap(
         a fit with a treatment at several time points, words for each regimen keyed by its
         label.
     regimen : str or None, default=None
-        On a fit with a treatment at several time points, the regimen whose treatment is
-        drawn; the first the result holds when omitted.
+        On a fit with a treatment at several time points, the one regimen to draw; every
+        regimen of the result, one block of panels each, when omitted. A result with more
+        than three regimens needs it.
     nodes : sequence of int or None, default=None
         On a fit with a treatment at several time points, the time points to draw, counted
         from one; every one when omitted.
@@ -259,8 +260,9 @@ def overlap(
         or for a continuous-time survival fit, whose probabilities this plot does not
         draw yet.
     DataError
-        When the treatment is continuous, which has no probability per arm, or the regimen,
-        a time point, the horizon or the cause is not in the result.
+        When the treatment is continuous, which has no probability per arm; when the
+        regimen, a time point, the horizon or the cause is not in the result; or when a fit
+        over time holds more than three regimens and ``regimen`` is omitted.
     ValueError
         When ``censoring=True`` and the fit has no censoring, or a keyword for a fit over
         time is given for one that is not.

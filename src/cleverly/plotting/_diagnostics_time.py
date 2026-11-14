@@ -54,7 +54,7 @@ def role_words(role: str) -> str:
 
 
 class Chosen:
-    """The rows of one longitudinal report to draw, with the outcome coordinates chosen."""
+    """The rows of one longitudinal report to draw, with the coordinates chosen."""
 
     def __init__(
         self,
@@ -63,48 +63,69 @@ class Chosen:
         regimens: list[str],
         horizon: int | None,
         cause: str | None,
+        causes: list[str],
     ) -> None:
         self.rows = rows
         self.regimen = regimen
         self.regimens = regimens
         self.horizon = horizon
         self.cause = cause
+        self.causes = causes
+
+    def title(self, role: str) -> str:
+        """A role in words, with its cause on a fit with several causes."""
+        words = role_words(role)
+        return f"{words}, cause {self.cause}" if self.cause_specific(role) else words
+
+    def cause_specific(self, role: str) -> bool:
+        """Whether the drawn rows of ``role`` belong to the chosen cause alone."""
+        return len(self.causes) > 1 and any(
+            row.cause is not None for row in self.rows if str(row.role) == role
+        )
 
     def notes(self) -> list[str]:
-        """What the outcome rows are, and how to choose others."""
+        """Which regimen and cause are drawn, and how to choose others."""
+        found = []
+        if len(self.causes) > 1:
+            found.append(
+                f"The models of each cause are drawn for cause {self.cause}; pass cause= for "
+                f"another of {self.causes}. Models shared by every cause are always drawn."
+            )
         if self.regimen is None:
-            return []
+            return found
         where = f"regimen {self.regimen}"
         if self.horizon is not None:
             where += f", horizon {self.horizon}"
         if self.cause is not None:
             where += f", cause {self.cause}"
-        found = [f"The outcome regressions drawn are those of {where}."]
+        found.append(f"The outcome regressions drawn are those of {where}.")
         if len(self.regimens) > 1:
             found.append(f"Pass regimen= for another of {self.regimens}.")
         return found
 
 
 def choose_rows(report: Any, regimen: str | None, horizon: int | None, cause: str | None) -> Chosen:
-    """The mechanism rows, and the outcome rows of one regimen, horizon and cause.
+    """The rows of one regimen, horizon and cause, with the models every regimen shares.
 
-    The defaults are the first regimen, the first cause and the largest horizon, as
-    :func:`~cleverly.longitudinal.node_weights` takes for the horizon and cause.
+    The defaults are the first regimen, the first cause and the largest horizon; the cause
+    and horizon defaults are the ones :func:`~cleverly.longitudinal.node_weights` takes. A
+    model of one cause (the hazard of that cause on a competing-risks fit) is drawn only for
+    the chosen cause, so two causes' models never share a panel.
     """
     from ..exceptions import DataError
 
     rows = list(report.rows)
+    causes = [str(name) for name in dict.fromkeys(row.cause for row in rows) if name is not None]
+    if cause is not None and cause not in causes:
+        raise DataError(f"the report holds no cause {cause!r}; it holds {causes}")
+    chosen_cause = cause if cause is not None else (causes[0] if causes else None)
+    rows = [row for row in rows if row.cause is None or row.cause == chosen_cause]
     outcome = [row for row in rows if row.regimen is not None]
     regimens = [str(label) for label in dict.fromkeys(row.regimen for row in outcome)]
     if regimen is not None and regimen not in regimens:
         raise DataError(f"the report holds no regimen {regimen!r}; it holds {regimens}")
     label = regimen if regimen is not None else (regimens[0] if regimens else None)
     pool = [row for row in outcome if row.regimen == label]
-    causes = list(dict.fromkeys(row.cause for row in pool))
-    if cause is not None and cause not in causes:
-        raise DataError(f"the regimen {label!r} has no cause {cause!r}; it has {causes}")
-    chosen_cause = cause if cause is not None else (causes[0] if causes else None)
-    pool = [row for row in pool if row.cause == chosen_cause]
     horizons = sorted({int(row.horizon) for row in pool if row.horizon is not None})
     if horizon is not None and horizon not in horizons:
         raise DataError(f"the regimen {label!r} has no horizon {horizon!r}; it has {horizons}")
@@ -112,7 +133,7 @@ def choose_rows(report: Any, regimen: str | None, horizon: int | None, cause: st
     if horizons:
         pool = [row for row in pool if row.horizon == chosen_horizon]
     mechanism = [row for row in rows if row.regimen is None]
-    return Chosen(mechanism + pool, label, regimens, chosen_horizon, chosen_cause)
+    return Chosen(mechanism + pool, label, regimens, chosen_horizon, chosen_cause, causes)
 
 
 def _by_role(rows: Sequence[Any]) -> dict[str, list[Any]]:
@@ -218,7 +239,7 @@ def node_learners(
         top.set_ylim(0.0, 1.12)
         top.set_ylabel("Ensemble weight")
         top.set_xticks(list(span))
-        _panel_title(top, role_words(role))
+        _panel_title(top, chosen.title(role))
         loss = getattr(members[0].model, "learner_loss", None)
         bottom.set_ylabel("Cross-validated risk" + (f" ({_loss_words(loss)})" if loss else ""))
         bottom.set_xticks(list(span))
@@ -290,6 +311,7 @@ def node_calibration(
         and len(row.model.calibration.get("n", ()))
     ]
     if not rows:
+        # The point path's refusal, word for word: the report holds no table to draw.
         raise CapabilityError(
             "no nuisance model here reports a calibration table of predicted probabilities",
             reason=RefusalReason.INVALID_DECLARATION,
@@ -317,7 +339,7 @@ def node_calibration(
     point = time_label.lower()
     for position, member in layout:
         _probability_panel(axes[position], member.model, _core.PALETTE[0], low, high)
-        _panel_title(axes[position], f"{role_words(member.role)}, {point} {member.time}")
+        _panel_title(axes[position], f"{chosen.title(member.role)}, {point} {member.time}")
     for index, axis in enumerate(axes):
         if index not in used:
             fig.delaxes(axis)
@@ -338,7 +360,8 @@ def node_calibration(
         fig,
         drawn,
         "Calibration at each time point",
-        f"Observed rate against mean predicted probability, by model and {point}; {basis}",
+        f"Observed rate against mean predicted probability, by model and {point}; {basis}"
+        + (f"; regimen {chosen.regimen}" if chosen.regimen is not None else ""),
         [*found, *chosen.notes()],
         owned=True,
     )
@@ -414,7 +437,7 @@ def selection_paths(selections: dict[tuple[str, int], Any]) -> Figure:
             )
             axis.xaxis.set_major_locator(FixedLocator(list(steps)))
             axis.set_xticklabels(
-                [selection._label(index) for index in range(len(risk))],
+                list(selection.move_labels),
                 rotation=30,
                 ha="right",
                 fontsize=_core.TICK_SIZE - 1.0,

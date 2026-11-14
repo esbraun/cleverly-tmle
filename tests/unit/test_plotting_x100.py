@@ -189,12 +189,41 @@ def structural() -> Any:
             treatment_learner=GLM(family="binomial"),
             n_folds=2,
             random_state=0,
+            positivity_margin=0.2,
         ).fit(
             frame,
             outcome="Y",
             treatment=["A1", "A2"],
             baseline=["W1", "W2"],
             time_varying=[[], ["L2"]],
+        )
+    )
+
+
+@pytest.fixture(scope="module")
+def two_causes() -> Any:
+    """A competing-risks hazard fit whose hazard of each cause has its own Super Learner."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=3, causes=2)
+    library = SuperLearner(
+        library=[("logit", _logistic()), ("ridge_logit", _logistic(C=0.05))],
+        task="classification",
+        n_folds=3,
+    )
+    design = TimeToEvent(
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=("W1", "W2"),
+        grid=(1, 2, 3),
+        causes={1: "one", 2: "two"},
+    )
+    return _quiet(
+        lambda: CausalStudy(frame, design=design).estimate(
+            RegimeMean({"arm1": 1, "arm0": 0}, horizons=(3,)),
+            survival_model="hazard",
+            outcome_learner=library,
+            treatment_learner=_logistic(),
+            cross_fit=False,
         )
     )
 
@@ -382,14 +411,48 @@ def test_each_time_point_mirrors_the_units_at_risk_by_whether_they_took_it(
     assert np.sum(rows & ~took & (g < 0.3)) >= 1
     assert np.sum(rows & ~took) > 10
     assert not np.array_equal(rows, fit.steps[1].trained_on)
-    fig = _draw(drawn, plotting.overlap, stacked)
+    fig = _draw(drawn, plotting.overlap, stacked, regimen="always")
     panels = _panels(fig)
     assert len(panels) == stacked.data.n_times
     for time, panel in enumerate(panels, start=1):
         _, at_risk, took_t = _deviators(stacked, "always", time)
         _check_mirror(panel, stacked.mechanism.treatment[time - 1]["always"], took_t, at_risk)
         assert _markers(panel) == []
-    assert any("pass regimen=" in note for note in plotting.notes(fig))
+    assert any("as regimen= asked" in note for note in plotting.notes(fig))
+
+
+def test_per_node_overlap_draws_every_regimen_by_default(stacked: Any, drawn: list[Figure]) -> None:
+    """Both the population and the probability change with the regimen: none is left out."""
+    fig = _draw(drawn, plotting.overlap, stacked)
+    panels = _panels(fig)
+    titles = [panel.get_title(loc="left") for panel in panels]
+    assert titles == [
+        f"{label}, Time point {time}" for label in ("always", "never") for time in (1, 2)
+    ]
+    for panel, (label, time) in zip(
+        panels, [(label, time) for label in ("always", "never") for time in (1, 2)], strict=True
+    ):
+        _, rows, took = _deviators(stacked, label, time)
+        _check_mirror(panel, stacked.mechanism.treatment[time - 1][label], took, rows)
+
+
+def test_per_node_overlap_needs_regimen_beyond_three() -> None:
+    frame, _ = make_longitudinal(n=300, seed=0)
+    plans = {"both": [1, 1], "neither": [0, 0], "first": [1, 0], "second": [0, 1]}
+    result = _quiet(
+        lambda: LTMLE(
+            plans,
+            n_folds=1,
+            outcome_learner=LinearRegression(),
+            treatment_learner=_logistic(),
+            censoring_learner=_logistic(),
+        ).fit(frame, **COLUMNS)
+    )
+    with pytest.raises(ValueError, match="regimen="):
+        plotting.overlap(result)
+    fig = plotting.overlap(result, regimen="first")
+    assert len(_panels(fig)) == 2
+    plt.close(fig)
 
 
 def test_reading_the_training_rows_fails_the_per_node_check(
@@ -402,7 +465,7 @@ def test_reading_the_training_rows_fails_the_per_node_check(
         return fit.steps[time - 1].trained_on
 
     monkeypatch.setattr(_overlap_time, "node_population", wrong)
-    fig = _draw(drawn, plotting.overlap, stacked, nodes=[2])
+    fig = _draw(drawn, plotting.overlap, stacked, regimen="always", nodes=[2])
     _, rows, took = _deviators(stacked, "always", 2)
     with pytest.raises(AssertionError):
         _check_mirror(_panels(fig)[0], stacked.mechanism.treatment[1]["always"], took, rows)
@@ -422,7 +485,7 @@ def test_the_retention_panels_draw_each_nodes_probability_over_its_followers(
 
 
 def test_overlap_nodes_selects_panels_and_checks_them(stacked: Any, drawn: list[Figure]) -> None:
-    fig = _draw(drawn, plotting.overlap, stacked, nodes=[2])
+    fig = _draw(drawn, plotting.overlap, stacked, regimen="never", nodes=[2])
     assert [ax.get_title(loc="left") for ax in _panels(fig)] == ["Time point 2"]
     with pytest.raises(DataError, match="time points 1 to 2"):
         plotting.overlap(stacked, nodes=[3])
@@ -543,9 +606,33 @@ def test_structural_overlap_draws_class_probabilities_with_the_margin(
         values = structural.diagnostics.class_probabilities[time - 1][:, 0]
         _check_mirror(panel, values, codes == 1.0, np.isfinite(codes))
         assert sorted(_markers(panel)) == pytest.approx([margin, 1.0 - margin])
-        shares = [float(text.split("%")[0].lstrip("<")) for text in _tail_texts(panel)]
-        assert len(shares) == 2
+    _check_tail_shares(fig, structural)
     assert any("extreme_share" in note for note in plotting.notes(fig))
+
+
+def _check_tail_shares(fig: Figure, result: Any) -> None:
+    """On a two-level node, the printed shares beyond the margin add up to extreme_share."""
+    shares = result.diagnostics.extreme_share
+    # Witness: a node with a share well away from zero, so a wrong margin moves the sum.
+    assert max(shares) > 0.1
+    for panel, share in zip(_panels(fig), shares, strict=True):
+        printed = [float(text.split("%")[0].lstrip("<")) for text in _tail_texts(panel)]
+        assert len(printed) == 2
+        assert sum(printed) == pytest.approx(100.0 * share, abs=0.11)
+
+
+def test_reading_another_margin_fails_the_structural_share_check(
+    structural: Any, drawn: list[Figure], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation control: lines at a margin the summary does not count print other shares."""
+
+    def wrong(config: Any) -> float:
+        return float(config.positivity_margin) / 2.0
+
+    monkeypatch.setattr(_overlap_time, "structural_margin", wrong)
+    fig = _draw(drawn, plotting.overlap, structural)
+    with pytest.raises(AssertionError):
+        _check_tail_shares(fig, structural)
 
 
 def test_a_structural_dose_node_refuses_overlap() -> None:
@@ -599,7 +686,8 @@ def _check_marked(fig: Figure, selections: dict[tuple[str, int], Any]) -> None:
         (line,) = [item for item in ax.get_lines() if item.get_gid() == "cleverly-ctmle-risk"]
         np.testing.assert_array_equal(line.get_ydata(), selection.cv_risk)
         labels = [tick.get_text() for tick in ax.get_xticklabels()]
-        assert labels == [selection._label(index) for index in range(len(selection.moves))]
+        assert labels == list(selection.move_labels)
+        assert labels[0] == "M0" and len(labels) == len(selection.moves)
 
 
 def test_the_survival_selection_path_marks_the_selected_position(
@@ -717,3 +805,70 @@ def test_adaptive_learners_and_calibration_refuse_with_a_true_reason(adaptive: A
             plot(adaptive)
         assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert caught.value.refusal.roadmap is None
+
+
+# --------------------------------------------------------------------------- competing causes
+
+
+def _cause_rows(result: Any, cause: str) -> list[Any]:
+    return [
+        row
+        for row in result.diagnostics.nuisance_models().rows
+        if row.role == "hazard" and row.cause == cause and row.model.learner_weights
+    ]
+
+
+def _check_cause_bars(fig: Figure, rows: list[Any]) -> None:
+    (top,) = [ax for ax in fig.axes if ax.get_title(loc="left").startswith("Hazard model")]
+    bars = [patch for patch in top.patches if patch.get_gid() == "cleverly-learner-weight"]
+    assert len(bars) == sum(len(row.model.learner_weights) for row in rows)
+    drawn_heights = _learner_bars(top)
+    for row in rows:
+        for name, weight in row.model.learner_weights.items():
+            assert drawn_heights[(float(row.time), name)] == pytest.approx(weight)
+
+
+def test_node_learners_draw_one_cause_of_a_competing_risks_fit(
+    two_causes: Any, drawn: list[Figure]
+) -> None:
+    one, two = _cause_rows(two_causes, "one"), _cause_rows(two_causes, "two")
+    # Witness: each cause has its own hazard model at each node, with other weights.
+    assert len(one) == len(two) > 0
+    assert any(
+        dict(a.model.learner_weights) != pytest.approx(dict(b.model.learner_weights))
+        for a, b in zip(one, two, strict=True)
+    )
+    fig = _draw(drawn, plotting.learners, two_causes)
+    _check_cause_bars(fig, one)
+    assert any(ax.get_title(loc="left") == "Hazard model, cause one" for ax in fig.axes)
+    assert any("pass cause=" in note for note in plotting.notes(fig))
+    other = _draw(drawn, plotting.learners, two_causes, cause="two")
+    _check_cause_bars(other, two)
+
+
+def test_merging_the_causes_fails_the_competing_risks_check(
+    two_causes: Any, drawn: list[Figure], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation control: a reader that keeps every cause's hazard rows draws two models as one."""
+    original = _diagnostics_time.choose_rows
+
+    def merged(report: Any, regimen: Any, horizon: Any, cause: Any) -> Any:
+        chosen = original(report, regimen, horizon, cause)
+        shared = [row for row in chosen.rows if row.role != "hazard"]
+        chosen.rows = shared + [row for row in report.rows if row.role == "hazard"]
+        return chosen
+
+    monkeypatch.setattr(_diagnostics_time, "choose_rows", merged)
+    fig = _draw(drawn, plotting.learners, two_causes)
+    with pytest.raises(AssertionError):
+        _check_cause_bars(fig, _cause_rows(two_causes, "one"))
+
+
+def test_node_calibration_names_the_cause_of_each_hazard_panel(
+    two_causes: Any, drawn: list[Figure]
+) -> None:
+    fig = _draw(drawn, plotting.calibration, two_causes, cause="two")
+    titles = [ax.get_title(loc="left") for ax in fig.axes if ax.get_title(loc="left")]
+    assert len(titles) == len(set(titles))
+    hazard = [title for title in titles if title.startswith("Hazard model")]
+    assert hazard == [f"Hazard model, cause two, time point {time}" for time in (1, 2, 3)]

@@ -108,9 +108,10 @@ fig = overlap(result)
 
 The upper panel shows each trial patient's predicted chance of the treatment, by the arm they got.
 The lower panel shows every row's estimated chance of being a trial row, trial rows above the axis
-and external rows below. The dotted line at 0.01 is the floor the warning checks, with the share
-of external rows below it printed at its foot. These are the chances before the fit adjusts the
-trial-membership model, and `cleverly.plotting.notes(fig)` says so.
+and external rows below. The dash-dotted line at 0.01 is the floor the warning checks, with the
+share of external rows below it printed at its foot. The dotted lines are the limits the fit puts on
+both chances. These are the chances before the fit adjusts the trial-membership model, and
+`cleverly.plotting.notes(fig)` says so.
 
 ## Compare with the trial alone
 
