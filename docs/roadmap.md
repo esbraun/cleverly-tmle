@@ -942,7 +942,7 @@ own contract, witnesses and registered study before it ships, as the learned-rul
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f). The 2021 correction (DOI 10.1214/20-AOS2031) repairs the proof of Lemma 6 and strengthens the step from (C6) to (C7), Theorem 7 and the sufficient conditions for (C4) and (C5) to almost-sure versions, so this part reads the paper with it | published support |
-| (f3) the value of the optimal rule with weights, with strata, beside known regimes, in sample, with an intermediate, and its sensitivity analyses | `estimands=["ey_optimal_rule"]` with `weights=`, `strata=`, `interventions=`, `reference=`, `cross_fit=False` or `intermediate=`, and the omitted-variable bound and `simulated_confounding` of such a fit | under `weights=` no witness covers the regret, and the fit would target the optimum over the weighted population. A stratum value, a contrast and a level of the intermediate add the regret to a claim that no witness checks. The in-sample fit adds the regret of the full-sample rule to condition C5a. Both analyses hold the fold rules fixed, and confounding also moves which rule is optimal | natural extension |
+| (f3) the sensitivity analyses of the value of the optimal rule | the omitted-variable bound and `simulated_confounding` of a fit of `estimands=["ey_optimal_rule"]`, under every composition it admits | both analyses hold the fold rules fixed, and confounding also moves which rule is optimal. The bound needs an upper side over every rule, and the replay needs to relearn the rule in each cell | natural extension |
 | (j2) rule learners with an intermediate | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` with `intermediate=` | the shipped pseudo-outcome does not read $Z$. The rule at $Z = z$ needs $1\{Z = z\}(2A - 1)/(g\,q)\,(Y - \bar Q(A, z, W)) + \bar Q(1, z, W) - \bar Q(0, z, W)$, the first-node loss of Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Section 4, under the static later rule, and its own exact witness | natural extension |
 | (j4) the placebo and the simulated confounding of a level of a learned-rule fit with an intermediate | `refute(..., tests=("placebo",))` on the learned-rule value, a known-regime value beside it or a stratum alias, with `intermediate=`; `simulated_confounding` of `LearnedRuleValue(intermediate=z)` | the placebo permutes $A$ alone, so every rule's value at level $z$ is $E_W E(Y \mid Z = z, W)$, not $E[Y]$. That reference needs its own outcome regression of $Y$ on $(Z, W)$, which no refit reads, and a witness on a law where $Z$ moves $Y$ given $W$. The replay would freeze the rules learned at the level and flip the treatment or the intermediate, which needs a witness that a frozen rule at a level reproduces the fit and moves with the latent | natural extension |
 
@@ -1057,8 +1057,8 @@ the in-sample fit, fold targeting, several splits, weights, clusters, more than 
 regimes beside the rule and a known $g$ read experimental. Rule learners with an intermediate are
 part (j2). On the method layer `LearnedRuleValue(intermediate=z)` with
 `PointTreatment(intermediate=...)` fits the same engine fit and reports level $z$ (part (j3)). The
-placebo and the simulated confounding of a level are part (j4). The value of the optimal rule with an intermediate joins
-part (f3), and the bound joins part (n2).
+placebo and the simulated confounding of a level are part (j4). The value of the optimal rule at a level runs too, and the
+bound joins part (n2).
 
 The value of the optimal rule, part (f), now ships
 ([the value of the optimal rule](technical-reference/point-treatment-tmle.md#learned-rules)).
@@ -1079,9 +1079,11 @@ $O_P(1/n)$ there (mean 0.00138, about 0.09 estimate SDs), and a learner whose li
 the optimal rule misses $\Psi_{d_0}$ (coverage 0.09 at n = 2,500). An estimated $g$, a rule
 learner, clusters, several splits, fold targeting, the stacked report and more than two arms
 read experimental, and the study reports the estimated-$g$ cell and a partially exceptional law
-with no claim. Weights, strata, known regimes, the in-sample fit and the two sensitivity analyses
-that hold the rules fixed are part (f3). The online estimator that holds at an exceptional law is
-part (f2b).
+with no claim. Weights (the optimal value of the weighted population), strata (each stratum's
+optimal value), known regimes (the contrasts `ate_optimal_rule`), the in-sample fit and an
+intermediate held at a level run too, experimental until a study registers them. The two
+sensitivity analyses that hold the rules fixed are part (f3). The online estimator that holds at
+an exceptional law is part (f2b).
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).

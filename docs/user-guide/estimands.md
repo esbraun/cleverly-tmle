@@ -383,9 +383,11 @@ probabilities instead, or the fit uses clusters, several splits or a rule learne
 No setting tells cleverly whether the outcome model learned the true pattern of benefit, or whether
 the benefit is zero for many people. In the study, an outcome model that missed the pattern gave
 an interval that contained the best value in 9% of samples, and a setting where the benefit was
-zero for 60% of people gave 91%. The fit refuses `weights=`, `strata=`, the in-sample fit, an intermediate held at a value and a
-comparison with a fixed policy, and the omitted-variable bound and `simulated_confounding` refuse
-on its fit. Each refusal names the fit that runs instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
+zero for 60% of people gave 91%. The fit takes `weights=` (then the answer is the best rule's
+value in the population the weights describe), `strata=` (the best rule's value inside each
+group), the in-sample fit and an intermediate held at a value, each marked experimental. The
+omitted-variable bound and `simulated_confounding` refuse on its fit and name the fit that runs
+instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
 To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`
@@ -407,7 +409,9 @@ The three rows are marked supported when the treatment has two options, the fit 
 cross-fitting with one split and the rule comes from the outcome model, with no weights, clusters
 or strata. Otherwise they
 are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
-its message names this spelling.
+its message names this spelling. Adding `estimands=["ey_optimal_rule"]` to the same `TMLE` call
+compares the best rule's value with the fixed policy instead, reported as
+`ate_optimal_rule[learned rule vs always 1]` and marked experimental.
 
 To learn a rule while holding a yes-or-no variable that the treatment affects (an intermediate,
 such as whether a patient took a follow-up dose) at one of its values, declare the variable with
