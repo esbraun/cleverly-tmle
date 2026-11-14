@@ -49,8 +49,9 @@ __all__ = [
 
 #: Which variance an estimate reports: the curve's, the policy-weighted one under
 #: ``variance="policy_weighted"``, or the curve's plus the boundary-node supplement
-#: (:mod:`cleverly.inference.node_variance`).
-VarianceSource = Literal["influence_curve", "policy_weighted", "boundary_node"]
+#: (:mod:`cleverly.inference.node_variance`), or the delete-one-cluster jackknife variance
+#: (:mod:`cleverly.inference.cluster_jackknife`).
+VarianceSource = Literal["influence_curve", "policy_weighted", "boundary_node", "jackknife"]
 
 #: A policy-weighted variance at or below this multiple of the influence-curve variance is
 #: treated as degenerate, and the estimate keeps the influence-curve variance.

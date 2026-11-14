@@ -37,8 +37,10 @@ __all__ = [
     "FEW_CLUSTER_THRESHOLD",
     "FLOOR_FAMILY_NAMES",
     "HELD_OUT_SCALE",
+    "JACKKNIFE_REFIT_STATUS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
     "NO_CONSTANT_ARM_BANDS",
+    "NO_JACKKNIFE_BANDS",
     "NO_KNOWN_REGIME_BANDS",
     "NO_LOGIT_RANGE_BANDS",
     "NO_SIMULTANEOUS_BANDS",
@@ -80,6 +82,7 @@ InferenceStatus = Literal[
     "few_cluster_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "jackknife_refit_plugin",
     "low_dose_support_plugin",
     "working_model_projection",
     "constant_arm_cell_plugin",
@@ -305,6 +308,14 @@ NO_T_REFERENCE_BANDS: Final[str] = (
     f"fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass or because it is "
     "averaged over cross-fitting folds, and no source gives a band calibrated to a t "
     "reference, so the fit reports one-at-a-time intervals only."
+)
+
+#: The line a result summary prints when a fit with ``cluster_variance="jackknife"`` and 40 or
+#: more clusters skips its default band (X54 part (c)). Below 40 the t reference skips it first.
+NO_JACKKNIFE_BANDS: Final[str] = (
+    "No simultaneous bands: the estimates of this fit report the delete-one-cluster jackknife "
+    "variance, which the influence curves behind a band's multiplier draws do not carry, so "
+    "the fit reports one-at-a-time intervals only."
 )
 
 #: The line a result summary prints when a learned-rule fit with known regimes skips its
@@ -828,6 +839,40 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
             code=RefusalReason.INVALID_DECLARATION,
         ),
+        "jackknife_refit_plugin": StatusRecord(
+            plain_reason=(
+                "The cluster jackknife refits the analysis once with each cluster left out, and "
+                "at least one of those refits failed or gave no interval for this estimate, so "
+                "no jackknife standard error is available."
+            ),
+            reason=(
+                "A fit with cluster_variance='jackknife' reports no confidence interval, no "
+                "p-value and no standard error for an estimate whose leave-one-cluster-out "
+                "refit raised an error or withheld that estimate's interval on at least one "
+                "cluster, because the jackknife variance needs every refit. The fit's warning "
+                "and the estimate's jackknife record (failed_refits, failures) name each "
+                "cluster and what happened. The point estimate stands. The plug-in standard "
+                "error of the influence curve remains as a diagnostic under plugin_std_error "
+                "and plugin_interval. F28 in docs/roadmap.md holds the finite-sample limits of "
+                "clustered intervals."
+            ),
+            assessment_note=(
+                "the reported curve is a jackknife-refit diagnostic: no confidence interval or "
+                "p-value is available for an estimate whose leave-one-cluster-out refit failed, "
+                "and F28 in the roadmap holds the finite-sample limits of clustered intervals"
+            ),
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap of a fit whose jackknife "
+                "refit failed"
+            ),
+            diagnostic_noun="jackknife-refit plug-in diagnostic",
+            reopened_by="F28",
+            alternative=(
+                "Fit with the default cluster_variance='influence_curve', or collect more "
+                "clusters so that no leave-one-cluster-out sample loses an arm or a level."
+            ),
+            code=RefusalReason.INFERENCE_GAP,
+        ),
         "constant_arm_cell_plugin": StatusRecord(
             plain_reason=(
                 "One treatment group in this estimate's subgroup shows a single outcome value "
@@ -1019,6 +1064,7 @@ PARAMETER_STATUSES: Final[frozenset[str]] = frozenset(
     {
         CONSTANT_NODE_STATUS,
         "stack_failure_plugin",
+        "jackknife_refit_plugin",
         "constant_arm_cell_plugin",
         "out_of_range_plugin",
     }
@@ -1046,6 +1092,11 @@ UNREPORTED_INTERVAL_STATUSES: Final[frozenset[str]] = frozenset(
 #: one sample (:mod:`cleverly.estimators._oat_stack`). A parameter status, like
 #: :data:`CONSTANT_NODE_STATUS`.
 STACK_FAILURE_STATUS: Final = "stack_failure_plugin"
+
+#: The status of an estimate of a ``cluster_variance="jackknife"`` fit whose
+#: leave-one-cluster-out refit raised or withheld it (:mod:`cleverly.inference.cluster_jackknife`).
+#: A parameter status.
+JACKKNIFE_REFIT_STATUS: Final = "jackknife_refit_plugin"
 
 
 def supplies_inference(status: str) -> bool:

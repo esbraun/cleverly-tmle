@@ -243,6 +243,20 @@ BOUNDARY_NODE_BAND_REFUSAL = Refusal(
     ),
 )
 
+#: Why no band covers an estimate whose variance is the cluster jackknife's (X54 part (c)).
+JACKKNIFE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() draws its multiplier process from the influence curves, and an "
+    "estimate of a cluster_variance='jackknife' fit reports the leave-one-cluster-out "
+    "variance, which the curves do not carry, so the band's critical value would not match "
+    "the pointwise intervals.",
+    alternative=(
+        "Report the pointwise intervals, or refit with cluster_variance='influence_curve' for "
+        "a band."
+    ),
+    roadmap="F28",
+)
+
 #: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
 KNOWN_REGIME_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
@@ -993,6 +1007,8 @@ def _checked_items(
         raise CapabilityError.from_refusal(POLICY_VARIANCE_BAND_REFUSAL)
     if any(estimate.node is not None for _, estimate in items):
         raise CapabilityError.from_refusal(BOUNDARY_NODE_BAND_REFUSAL)
+    if any(estimate.jackknife is not None for _, estimate in items):
+        raise CapabilityError.from_refusal(JACKKNIFE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

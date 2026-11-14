@@ -107,6 +107,7 @@ from .._typing import (
     StoppingRule,
 )
 from .._warnings import FitWarning, records_fit
+from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
 from ..data.known_mechanism import (
     MechanismLaw,
@@ -151,6 +152,16 @@ from ..inference.cluster import (
     cluster_reference_df,
     influence_covariance,
     influence_variance,
+)
+from ..inference.cluster_jackknife import (
+    CLUSTER_VARIANCES,
+    jackknife_estimates,
+    jackknife_fold_refusal,
+    jackknife_learner,
+    jackknife_learner_refusal,
+    leave_one_cluster_out,
+    positive_mass_clusters,
+    refit_folds,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
@@ -247,6 +258,7 @@ from ..utils.bounds import (
     policy_scale_refusal,
     resolve_cumulative_g_bounds,
 )
+from ..utils.parallel import map_parallel
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from .baselines import (
     IPW_NORMALIZATIONS,
@@ -4993,6 +5005,9 @@ class _SequentialEstimator:
     isotonic: bool = False
     #: The declared node bounds.  Only :class:`LTMLE` takes them.
     node_bounds: Mapping[Any, Any] | None = None
+    #: The variance of a clustered fit, ``"influence_curve"`` or ``"jackknife"``. Only
+    #: :class:`LTMLE` takes it.
+    cluster_variance: str = "influence_curve"
 
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
@@ -5173,6 +5188,14 @@ class _SequentialEstimator:
             ratio_trim=self.ratio_trim,
         )
         self._validate_variance()
+        if self.cluster_variance not in CLUSTER_VARIANCES:
+            raise ValueError(
+                f"cluster_variance must be one of {list(CLUSTER_VARIANCES)}; got "
+                f"{self.cluster_variance!r}"
+            )
+        refusal = self._jackknife_configuration_refusal()
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "msm= and reference= cannot be combined. reference= names the regimen "
@@ -5182,6 +5205,171 @@ class _SequentialEstimator:
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
             )
+
+    def _jackknife_configuration_refusal(self) -> Refusal | None:
+        """The R5 refusal ``cluster_variance="jackknife"`` meets in the configuration alone.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal, or ``None`` under the default variance and for a configuration the
+            jackknife covers.
+        """
+        if self.cluster_variance != "jackknife":
+            return None
+        engine = getattr(self, "_support_engine", (self._estimator,))[0]
+        if engine != "tmle":
+            names = {
+                "sdr": "the SDR recursion, whose pseudo-outcomes are not a GLM's",
+                "ipsi": "an incremental propensity-score intervention",
+            }
+            return jackknife_learner_refusal(names.get(engine, f"the {engine} construction"))
+        if self.repeats != 1:
+            return jackknife_learner_refusal(
+                "a repeated split, whose median over splits no leave-one-out refit reproduces"
+            )
+        if self.variance != "influence_curve" or self.n_bootstrap:
+            other = "n_bootstrap" if self.n_bootstrap else f"variance={self.variance!r}"
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"cluster_variance='jackknife' and {other} both replace the influence-curve "
+                "variance, so the fit would report two variances for one interval.",
+                alternative=(
+                    "Choose one variance: the default variance= and n_bootstrap=0, or "
+                    "cluster_variance='influence_curve'."
+                ),
+            )
+        return None
+
+    def _jackknife_data_refusal(self, data: LongitudinalData, learned: object) -> Refusal | None:
+        """The R5 refusal ``cluster_variance="jackknife"`` meets on ``data``, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared data.
+        learned : object
+            The learned regimen, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal, or ``None`` when the jackknife covers the fit.
+        """
+        if self.cluster_variance != "jackknife":
+            return None
+        if data.cluster is None:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                "cluster_variance='jackknife' leaves out one cluster at a time, and the data "
+                "declare no clusters.",
+                alternative="Pass id= to the fit, or use the default cluster variance.",
+            )
+        if learned is not None:
+            return jackknife_learner_refusal(
+                "a learned regimen, which every refit would learn again"
+            )
+        if data.has_continuous_node:
+            return jackknife_learner_refusal(
+                "a continuous treatment node, whose density-ratio nuisance is not a GLM"
+            )
+        known = set(_known_factors(data))
+        decisions = [
+            data.decision_name(time)
+            for time in range(1, data.n_times + 1)
+            if not data.is_held_node(time)
+        ]
+        roles: list[tuple[str, Any]] = [("outcome", self.outcome_learner)]
+        if any(name not in known for name in decisions):
+            roles.append(("treatment", self.treatment_learner))
+        if data.censoring_names and any(name not in known for name in data.censoring_names):
+            roles.append(("censoring", self.censoring_learner))
+        if data.is_competing:
+            roles.append(("competing", self.competing_learner))
+        for role, learner in roles:
+            if not jackknife_learner(learner):
+                name = "the default library" if learner is None else type(learner).__name__
+                return jackknife_learner_refusal(f"the {role} learner {name}")
+        return None
+
+    def _jackknife(
+        self,
+        data: LongitudinalData,
+        estimates: dict[str, ParameterEstimate],
+        draw: tuple[Folds, int | None],
+        classification: Classification | None,
+    ) -> dict[str, ParameterEstimate]:
+        """The estimates with the delete-one-cluster jackknife variance.
+
+        Refits once per positive-mass cluster with that cluster's units removed, on the
+        drawn split less those units and with the same seed, so no split is redrawn. A refit
+        that raises is recorded with its error, never ignored, and a
+        :class:`~cleverly.exceptions.DataWarning` names the clusters whose refit failed.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared data of the full fit.
+        estimates : dict of str to ParameterEstimate
+            The full fit's estimates.
+        draw : tuple of Folds and int or None
+            The full fit's split and seed.
+        classification : Classification or None
+            The fit's support classification, read for an estimate a failed refit withholds.
+
+        Returns
+        -------
+        dict of str to ParameterEstimate
+            :func:`~cleverly.inference.cluster_jackknife.jackknife_estimates` of the refits.
+        """
+        assert data.cluster is not None
+        weights = data.weights if data.is_weighted else None
+        codes = positive_mass_clusters(data.cluster, weights)
+        if codes.size < 2 or not any(item.supplies_inference for item in estimates.values()):
+            return estimates
+        folds, seed = draw
+        refitter = copy.copy(self)
+        refitter.cluster_variance = "influence_curve"
+        refitter.n_jobs = 1
+        cluster = data.cluster
+
+        def one(code: int) -> tuple[int, dict[str, ParameterEstimate] | None, str]:
+            keep = leave_one_cluster_out(cluster, code)
+            try:
+                with _suppressed():
+                    result = refitter.refit(
+                        data.subset(keep),
+                        frozen_folds=(refit_folds(folds, keep),),
+                        frozen_seeds=(seed,),
+                    )
+            except Exception as error:  # recorded on the estimate, never ignored
+                return code, None, f"{type(error).__name__}: {str(error)[:80]}"
+            return code, dict(result.estimates), ""
+
+        refits = map_parallel(one, [int(code) for code in codes], n_jobs=self.n_jobs)
+        out = jackknife_estimates(
+            estimates,
+            refits,
+            support_of=lambda status: support_for(classification, status, kind=None),
+        )
+        failed = sorted(
+            {
+                code
+                for item in out.values()
+                if item.jackknife is not None
+                for code in item.jackknife.failed_refits
+            }
+        )
+        if failed:
+            _warn(
+                f"cluster_variance='jackknife': the refit without cluster(s) {failed} raised "
+                "or withheld an estimate, so the estimates that read it withhold their "
+                "interval (status 'jackknife_refit_plugin'). result[name].jackknife.failures "
+                "says what happened.",
+                DataWarning,
+                stacklevel=3,
+            )
+        return out
 
     def _validate_variance(self) -> None:
         """Refuse an unknown ``variance=`` and each setting the policy-weighted variance refuses."""
@@ -5835,6 +6023,9 @@ class _SequentialEstimator:
         refuse_ambiguous_node_declaration(prepared.known_mechanisms, prepared.weights)
         self._refuse_unweighted_tilt(prepared)
         self._refuse_prepared(prepared)
+        refusal = self._jackknife_data_refusal(prepared, learned)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         if learned is not None:
             refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
@@ -5973,6 +6164,21 @@ class _SequentialEstimator:
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
         if draws is None:
             draws = self._draws(prepared)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            # The jackknife holds the drawn split fixed, after the fold count was reduced to
+            # the cluster count, so every fold must keep a positive-mass cluster after any one
+            # removal. The check reads the drawn labels, before any learner.
+            for folds, _ in draws:
+                if folds.is_single:
+                    continue
+                refusal = jackknife_fold_refusal(
+                    prepared.cluster,
+                    prepared.weights if prepared.is_weighted else None,
+                    folds.assignment,
+                    folds.n_folds,
+                )
+                if refusal is not None:
+                    raise CapabilityError.from_refusal(refusal)
         # One seed for every multiplier draw, fixed before any fold draw.
         multiplier_seed = self._multiplier_seed()
         scaler = self._scaler(prepared)
@@ -6132,6 +6338,8 @@ class _SequentialEstimator:
             else median_estimates(with_precedent_status([r.estimates for r in repeats]))
         )
         _warn_parameter_statuses(estimates, repeats[0].replay_recipe.boundary_reach)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            estimates = self._jackknife(prepared, dict(estimates), draws[0], classification)
         if self._estimator in _RANGE_CAUSE and parameter_index is not None:
             # Without a working model every draw files each name under the same
             # (regimen, cause, horizon) index, so draw 0's index gives each level's horizon.
@@ -6141,7 +6349,11 @@ class _SequentialEstimator:
             }
             _warn_parameter_space(estimates, ranges, estimator=self._estimator)
         with phase("inference"):
-            if repeated and self.isotonic:
+            if any(estimate.jackknife is not None for estimate in estimates.values()):
+                # The multiplier draws read the influence curves, which do not carry the
+                # jackknife variance, so no band matches the pointwise intervals.
+                bands = None
+            elif repeated and self.isotonic:
                 # Each draw projects its levels, and the median of non-decreasing curves is
                 # non-decreasing.  The limits of a median band have no projection rule: the
                 # rule of Westling et al. (2020, Theorem 1 (iv)) is for one estimator, and
@@ -8036,6 +8248,21 @@ class LTMLE(_SequentialEstimator):
         needs an exact or known ratio, or, with a learned ratio, a consistent outcome model.
         The registered study ``mtp-policy-variance`` measures it, and an estimate reads
         ``supported`` only where a support row licenses the option.
+    cluster_variance : {"influence_curve", "jackknife"}
+        The variance of a clustered fit's estimates. ``"influence_curve"`` (default) is the
+        cluster-robust variance of the influence curve. ``"jackknife"`` refits the whole
+        estimator once per cluster with that cluster's rows removed, every node's nuisances
+        refitted and the targeting redone, on the drawn split less those rows, and reports the
+        delete-one-cluster jackknife variance with the same Student t reference
+        (:mod:`cleverly.inference.cluster_jackknife`). A boundary-node supplement is added to
+        it. It needs ``id=``, GLM nuisances (``LogisticRegression``, ``LinearRegression``,
+        :class:`~cleverly.learners.GLM`, a Super Learner of those, or a declared mechanism),
+        ``repeats=1``, no bootstrap, the default ``variance``, no learned regimen and no
+        continuous node, and, when cross-fitted, a split whose every fold holds two clusters
+        after the fold count is reduced to the cluster count. Anything else raises
+        :class:`~cleverly.exceptions.CapabilityError` before any learner. The fit costs one
+        refit per cluster and builds no simultaneous band. The option is experimental until
+        its validation study is registered.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -8089,9 +8316,11 @@ class LTMLE(_SequentialEstimator):
         hazard_pooling: str = "node",
         node_bounds: Mapping[Any, Any] | None = None,
         variance: str = "influence_curve",
+        cluster_variance: str = "influence_curve",
         **refused: Any,
     ) -> None:
         self.node_bounds = node_bounds
+        self.cluster_variance = cluster_variance
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol

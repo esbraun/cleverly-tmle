@@ -87,6 +87,7 @@ from .cluster import (
     influence_variance,
     stacked_second_moment_variance,
 )
+from .cluster_jackknife import JackknifeCovariance, JackknifeVariance
 from .delta import (
     Transform,
     log_odds_ratio_influence,
@@ -1085,6 +1086,14 @@ class ParameterEstimate:
         node supplement with the fit's shared per-unit loadings
         (:class:`~cleverly.inference.node_variance.NodeVariance`). :attr:`variance` is then
         their sum, and the interval and test read it. ``None`` on every other estimate.
+    jackknife : JackknifeVariance or None
+        On an estimate of a fit with ``cluster_variance="jackknife"``, the delete-one-cluster
+        jackknife record: the fit's shared covariance of its reported estimates, this
+        estimate's gradient over them, its influence-curve variance and the clusters whose
+        refit failed (:class:`~cleverly.inference.cluster_jackknife.JackknifeVariance`).
+        :attr:`variance` is then the jackknife variance, plus the boundary-node supplement
+        when :attr:`node` is set, and the interval and test read it on the curve's own scale
+        and reference. ``None`` on every other estimate.
 
     Attributes
     ----------
@@ -1179,6 +1188,7 @@ class ParameterEstimate:
     bounds: tuple[float, float] | None = None
     policy: PolicyVariance | None = None
     node: NodeVariance | None = None
+    jackknife: JackknifeVariance | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     range_interval: bool = False
@@ -1190,9 +1200,12 @@ class ParameterEstimate:
 
         ``"policy_weighted"`` only under ``variance="policy_weighted"``, when that variance
         is usable and larger than the influence-curve variance. ``"boundary_node"`` when the
-        estimate carries the boundary-node supplement (:attr:`node`). ``"influence_curve"``
-        otherwise.
+        estimate carries the boundary-node supplement (:attr:`node`). ``"jackknife"`` when it
+        carries a jackknife record (:attr:`jackknife`), with or without the supplement.
+        ``"influence_curve"`` otherwise.
         """
+        if self.jackknife is not None:
+            return "jackknife"
         if self.node is not None:
             return "boundary_node"
         return "influence_curve" if self.policy is None else self.policy.source
@@ -1696,7 +1709,9 @@ class ParameterEstimate:
         is not used), on the outcome's scale before any interval map. An estimate with the
         boundary-node supplement adds ``variance_source`` (``"boundary_node"``),
         ``influence_curve_std_err`` and ``boundary_node_std_err``, the square root of the
-        supplement alone.
+        supplement alone. An estimate with a jackknife record adds ``variance_source``
+        (``"jackknife"``), ``influence_curve_std_err`` and ``jackknife_std_err`` (``nan`` when
+        a refit failed), and ``jackknife_failed_refits``, the count of failed refits.
 
         Returns
         -------
@@ -1727,6 +1742,15 @@ class ParameterEstimate:
             row["variance_source"] = self.variance_source
             row["influence_curve_std_err"] = float(np.sqrt(max(self.node.influence_variance, 0.0)))
             row["boundary_node_std_err"] = float(np.sqrt(self.node.node_variance))
+        if self.jackknife is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = float(
+                np.sqrt(max(self.jackknife.influence_variance, 0.0))
+            )
+            jackknife = self.jackknife.jackknife_variance
+            usable = bool(np.isfinite(jackknife) and jackknife >= 0)
+            row["jackknife_std_err"] = float(np.sqrt(jackknife)) if usable else float("nan")
+            row["jackknife_failed_refits"] = len(self.jackknife.failed_refits)
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
@@ -2015,6 +2039,9 @@ def make_estimate(
     gradient: FloatArray | None = None,
     node: NodeLoadings | None = None,
     node_gradient: FloatArray | None = None,
+    jackknife: JackknifeCovariance | None = None,
+    jackknife_gradient: FloatArray | None = None,
+    jackknife_failed: Sequence[int] = (),
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -2086,6 +2113,17 @@ def make_estimate(
     node_gradient : ndarray or None, default=None
         ``(L,)`` the estimate's gradient on its inference scale with respect to the levels
         of ``node``, given with ``node``.
+    jackknife : JackknifeCovariance or None, default=None
+        The fit's jackknife covariance of its reported estimates, for an estimate derived from
+        estimates of a ``cluster_variance="jackknife"`` fit. The stored variance is then
+        ``jackknife.quadratic(jackknife_gradient)``, plus the node supplement with ``node``.
+        Only the ``"centered"`` rule takes it.
+    jackknife_gradient : ndarray or None, default=None
+        ``(k,)`` the estimate's gradient on its inference scale with respect to the reported
+        estimates of ``jackknife``, given with ``jackknife``.
+    jackknife_failed : sequence of int, default=()
+        The clusters whose refit failed for an input; the estimate then keeps its curve
+        variance and the inputs' withheld status.
 
     Returns
     -------
@@ -2097,6 +2135,24 @@ def make_estimate(
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     record: PolicyVariance | None = None
     supplement: NodeVariance | None = None
+    jackknife_record: JackknifeVariance | None = None
+    if jackknife is not None or jackknife_gradient is not None:
+        if jackknife is None or jackknife_gradient is None:
+            raise ValueError("a jackknife variance needs jackknife and jackknife_gradient")
+        if covariance_rule != "centered":
+            raise ValueError(
+                "the jackknife variance replaces the centred curve variance only; got "
+                f"covariance_rule={covariance_rule!r}"
+            )
+        lam = np.asarray(jackknife_gradient, dtype=float).reshape(-1)
+        if lam.size != len(jackknife.names):
+            raise ValueError(
+                f"jackknife_gradient has {lam.size} entries and the jackknife covariance has "
+                f"{len(jackknife.names)} estimates"
+            )
+        jackknife_record = JackknifeVariance(
+            jackknife, lam, influence_variance(ic, cluster), tuple(jackknife_failed)
+        )
     if node is not None or node_gradient is not None:
         if node is None or node_gradient is None:
             raise ValueError("a boundary-node supplement needs node and node_gradient")
@@ -2127,6 +2183,10 @@ def make_estimate(
             "covariance_rule must be 'centered', 'second_moment' or 'policy_weighted'; got "
             f"{covariance_rule!r}"
         )
+    if jackknife_record is not None and not jackknife_record.failed_refits:
+        variance = jackknife_record.jackknife_variance + (
+            0.0 if supplement is None else supplement.node_variance
+        )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
     inference = bounded_status(inference, float(psi), bounds)
     return ParameterEstimate(
@@ -2146,6 +2206,7 @@ def make_estimate(
         bounds=bounds,
         policy=record,
         node=supplement,
+        jackknife=jackknife_record,
         rule_widened=rule_widened,
         outcome_family=outcome_family,
         range_interval=range_interval,

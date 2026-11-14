@@ -909,6 +909,10 @@ def point_key(
         "patience": getattr(estimator, "patience", None) is not None,
         "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
+    if getattr(estimator, "cluster_variance", "influence_curve") == "jackknife":
+        # The delete-one-cluster jackknife is another variance of the interval (X54 (c)). No
+        # registered row lists it, so the fit reads experimental until its study registers.
+        options["cluster_variance"] = "jackknife"
     if method == "drtmle":
         for name in ("guard", "reduction", "update_order", "randomized"):
             options[name] = getattr(estimator, name)
@@ -1118,6 +1122,13 @@ def longitudinal_key(
                 "later_covariates",
                 estimator.survival_model == "hazard"
                 and any(getattr(data, "time_varying_names", ())[1:]),
+            ),
+            # The delete-one-cluster jackknife (X54 (c)). No registered row lists it, so the
+            # fit reads experimental until its study registers.
+            *(
+                (("cluster_variance", "jackknife"),)
+                if getattr(estimator, "cluster_variance", "influence_curve") == "jackknife"
+                else ()
             ),
         ),
     )
