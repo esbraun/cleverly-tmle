@@ -1934,17 +1934,11 @@ control per applicable rule, a docstring example and a render check.
 
 The plots draw a longitudinal, time-to-event, structural nested mean and adaptive TMLE fit:
 `overlap` per arm or per time point, `learners` and `calibration` per time point and role, and
-the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit still
-refuses four plots, and each refusal names this item:
-
-- `curve`: each arm's risk, or cumulative incidence by cause, with its interval and band at the
-  target times only, since a risk between target times is not targeted; the restricted mean
-  survival and time lost at the restricted horizons;
-- `overlap` and `weights`: each row's treatment probability and its probability of staying
-  uncensored up to each target time, and the weights that invert their product. The fit does
-  not keep these arrays yet; storing them, with a test that the estimates do not move, comes
-  first;
-- `learners`: the hazard and treatment library selections the fit keeps in `result.record`.
+the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit draws
+`overlap`, `weights` and `learners` from its record. It still refuses `curve`, and the refusal
+names this item: each arm's risk, or cumulative incidence by cause, with its interval and band at
+the target times only, since a risk between target times is not targeted; the restricted mean
+survival and time lost at the restricted horizons.
 
 Acceptance: the plot result matrix (`tests/unit/test_plotting_result_matrix.py`) draws each cell
 this item names, structural tests read each figure's artists against the fit's stored numbers, and
