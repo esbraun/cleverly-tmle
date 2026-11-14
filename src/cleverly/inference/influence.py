@@ -2018,8 +2018,9 @@ def make_estimate(
         Significance level of the interval.
     log_psi : float or None, default=None
         The estimate on the log scale, for a ratio only.
-    covariance_rule : {"centered", "second_moment", "policy_weighted", "switched"}, default="centered"
-        ``"centered"`` stores :func:`~cleverly.inference.influence_variance`.
+    covariance_rule : str, default="centered"
+        One of the four rules below. ``"centered"`` stores
+        :func:`~cleverly.inference.influence_variance`.
         ``"second_moment"`` stores
         :func:`~cleverly.inference.cluster.stacked_second_moment_variance` and refuses a
         cluster. ``"policy_weighted"`` stores the larger of the centred variance and
