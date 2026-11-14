@@ -1046,7 +1046,7 @@ def fit_gformula() -> Any:
     )
 
 
-def fit_continuous_survival() -> Any:
+def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
@@ -1068,11 +1068,21 @@ def fit_continuous_survival() -> Any:
     )
     return ContinuousSurvivalTMLE(
         [0.5, 1.0],
+        restricted_horizons=restricted_horizons,
         cross_fit=False,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
         random_state=0,
     ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+
+
+def fit_continuous_survival_restricted() -> Any:
+    """The continuous-time fit above with a restricted horizon at its last target time.
+
+    The walk also targets each arm's restricted mean time lost to each cause, so the fit
+    reports restricted means and their influence curves beside the risks.
+    """
+    return fit_continuous_survival(restricted_horizons=(1.0,))
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -1244,7 +1254,11 @@ KINDS: dict[str, Kind] = {
     "ipw": _kind(fit_ipw, "nuisance_models", "support", *_POINT),
     # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
     "gformula": _kind(fit_gformula, "nuisance_models", "support", "refute"),
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, refits=False),
+    # The E-value reads the risk ratio of the pair of risks the sweep names.
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, "evalue", refits=False),
+    "continuous_survival+restricted": _kind(
+        fit_continuous_survival_restricted, *_READ, "evalue", refits=False
+    ),
 }
 
 
@@ -1260,7 +1274,9 @@ def _first_estimand(result: Any) -> Any:
     if getattr(result, "assessment_family", None) == "continuous_survival":
         index = result._risk_index()
         first, (arm, *place) = next(iter(index.items()))
-        other = next(name for name, key in index.items() if key[0] != arm and list(key[1:]) == place)
+        other = next(
+            name for name, key in index.items() if key[0] != arm and list(key[1:]) == place
+        )
         return (first, other)
     return next(iter(result.estimates))
 
