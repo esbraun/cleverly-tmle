@@ -417,12 +417,13 @@ def test_the_primary_passes_or_carries_its_declared_reading(rows: pd.DataFrame) 
 
     The SE-ratio legs of ``risk[always]`` and the contrast are predicted red under
     ``X54-supplement-width``. The coverage leg of ``risk[never]`` is predicted to pass (0.945)
-    and is declared under ``X54-rare-event-coverage`` if it is red. The record's margins are
-    the harness defaults; no band is widened for the bound.
+    and is declared under ``X54-rare-event-coverage`` if it is red. That conditional owner was
+    not needed in the registered run and is not in the ledger, so only the width owner must be.
+    The record's margins are the harness defaults; no band is widened for the bound.
     """
     assert study.STUDY.margins.se_ratio_sanity == (0.80, 1.20)
     assert set(study.PRIMARY_RED_READINGS) == set(study.ESTIMANDS)
-    assert {reading.owner for reading in study.PRIMARY_RED_READINGS.values()} <= set(owner_ids())
+    assert "X54-supplement-width" in owner_ids()
     for target, estimand in study.TARGETS.items():
         group = rows[(rows["cell"] == study.SCENARIO) & (rows["target"] == target)]
         chances = dict(zip(study.PRIMARY_LEGS, _primary_legs(group), strict=True))

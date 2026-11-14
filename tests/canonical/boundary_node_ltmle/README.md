@@ -29,6 +29,11 @@ on the control's firing draws against a diagnostic arm, not the positive-control
 draw counts as a firing miss of both arms. The control cell lost no draws, so the verdict and
 every committed number are unchanged.
 
+The declaration also named a conditional owner, `X54-rare-event-coverage`, for the `risk[never]`
+coverage leg if it went red. That leg passed (0.941), so the owner was declared and not needed,
+and the roadmap's red-cell table does not list it. `regenerate.py` and
+`PRIMARY_RED_READINGS` keep the declaration as written.
+
 The ungated reading `width_ratio_to_oracle` in `properties.csv` has a defect: its median is not
 NaN-aware, so it reads NaN in a cell with a withheld draw (interior_n100, `always` and the
 contrast). The fixed formula is the median, over firing draws where both standard errors are
