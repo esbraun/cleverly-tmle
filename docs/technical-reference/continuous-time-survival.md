@@ -99,16 +99,16 @@ weights raised to the positivity floor (`bounded_share`), the pairs below it at 
 (`last_time_floor_share`), the pairs held by the walk (`frozen_share`), and the random times at
 which the score equation also holds (`off_grid_share`).
 
-The record also stores three readings of the positivity condition, for overlap plots and the
-support diagnostic below. `treatment_probability` holds each row's $\hat\pi(1 \mid L_i)$, the
-probability of the treated arm, with shape `(n,)`. `censoring_survival` holds
-$\hat S_c(t_k \mid A_i, L_i)$, the probability of remaining uncensored through each target time
-under the arm the row received, with shape `(n, n_target_times)`. Both are predicted out of fold
-when the fit is cross-fitted, in sample otherwise, and stored as fitted, before any bound. The
-weights bound the product $\hat\pi \hat S_c(u^-)$ and never $\hat\pi$ alone, and
-`positivity_floor` records that bound. `arm` holds each row's received arm, `0` for the reference
-arm and `1` for the treated arm. No estimate reads these arrays; storing them left every estimate
-of a fixed fit bit-identical.
+The record also stores the factors of the positivity condition, for overlap plots and the
+support diagnostic below. `p1` holds each row's $\hat\pi(1 \mid L_i)$, the probability of the
+treated arm, with shape `(n,)`. `retention_before` holds $\hat S_c(t_k^- \mid a, L_i)$, the
+probability of remaining uncensored just before each target time had the row received arm $a$,
+with shape `(2, n, n_target_times)` and the arms in the order of `arms`. Both are predicted out of
+fold when the fit is cross-fitted, in sample otherwise, and stored as fitted, before any bound.
+The weights bound the product $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ for both arms and
+never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` holds each row's
+received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
+arrays, and storing them left every estimate of a fixed fit bit-identical.
 
 ## Assessment
 
@@ -118,7 +118,7 @@ Each diagnostic that runs reads the record and the influence curves and refits n
 
 | operation | status | what it reads, or why it refuses |
 | --- | --- | --- |
-| `diagnostics.support()` | runs, `completed`; `warning` when the floor raised more than 1% of the followed cells | the quantiles of $\hat\pi(1 \mid L)$ overall and by arm, its tail shares, the Kish ratio of $1 / \hat\pi(A \mid L)$ in each arm, the quantiles of $\hat S_c(t_k \mid A, L)$ at each target time, `bounded_share` (which grades the row on the point support report's 1% and 5% truncation tiers), `last_time_floor_share` and `frozen_share` |
+| `diagnostics.support()` | runs, `completed`; `warning` when the floor raised more than 1% of the followed cells | the quantiles of $\hat\pi(1 \mid L)$ overall and by arm, its tail shares, the Kish ratio of $1 / \hat\pi(A \mid L)$ in each arm, the quantiles of $\hat S_c(t_k^- \mid A, L)$ at each target time, `bounded_share` (which grades the row on the point support report's 1% and 5% truncation tiers), `last_time_floor_share` and `frozen_share` |
 | `diagnostics.score_equations()` | runs, `passed` or `failed` | each target's $\lvert P_n D^* \rvert / \hat\sigma$ against the walk's cutoff, the steps and halvings; an explicit `tolerance` is refused, because the cutoff is the fit's own stopping rule |
 | `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
 | `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
@@ -136,8 +136,8 @@ Each refusal is a `CapabilityError` carrying the record its row declares. The fr
 point-treatment attribute. `tests/unit/test_continuous_survival_assessment.py` checks every row and
 every refusal, and that `influence()` reads each estimate's influence curve. Its witnesses are a
 failed walk that fails the score row, a binding floor that warns on the support row, and a
-censoring model that depends on the arm. Under that model the stored censoring survival matches
-the received arm and differs from the other arm's. The capability sweep
+censoring model that depends on the arm. Under that model each arm's stored censoring survival
+matches the model's prediction under that arm, and the two arms differ. The capability sweep
 (`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its
 call agrees.
 

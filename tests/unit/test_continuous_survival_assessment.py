@@ -7,7 +7,7 @@ capability row declares the same record, so ``assess()`` reports each refusal an
 raises.
 
 The witnesses guard components that could vanish without any exact check noticing: the
-received arm of the stored censoring survival, the orientation of the stored treatment
+arm axis of the stored censoring survival, the orientation of the stored treatment
 probability, the score gate, the support gate, and the free functions' own refusals, which
 still name the item when a capability row is lost.
 """
@@ -96,22 +96,23 @@ def test_support_reads_the_treatment_and_censoring_fits(result: Any) -> None:
     report = result.diagnostics.support()
     record = result.record
     assert isinstance(report, ContinuousSurvivalSupport)
-    assert report.n == result.n == record.treatment_probability.shape[0]
+    assert report.n == result.n == record.p1.shape[0]
     assert set(report.propensity_quantiles) == {"overall", *result.arms}
     overall = report.propensity_quantiles["overall"]
-    assert overall[0.0] == pytest.approx(record.treatment_probability.min())
-    assert overall[1.0] == pytest.approx(record.treatment_probability.max())
+    assert overall[0.0] == pytest.approx(record.p1.min())
+    assert overall[1.0] == pytest.approx(record.p1.max())
     assert set(report.censoring_quantiles) == set(result.horizons)
+    received = record.retention_before[record.arm, np.arange(result.n)]
     for k, time in enumerate(result.horizons):
-        assert report.censoring_quantiles[time][0.0] == pytest.approx(
-            record.censoring_survival[:, k].min()
-        )
-    # Remaining uncensored through a later time is no more likely than through an earlier one.
-    assert np.all(np.diff(record.censoring_survival, axis=1) <= 0)
+        assert report.censoring_quantiles[time][0.0] == pytest.approx(received[:, k].min())
+    # Both arms, every row, every target time; uncensored up to a later time is no likelier.
+    assert record.retention_before.shape == (2, result.n, len(result.horizons))
+    assert np.all(np.diff(record.retention_before, axis=-1) <= 0)
+    assert np.all((record.retention_before > 0) & (record.retention_before <= 1))
     for label in result.arms:
         ratio = report.effective_sample_size[label]["ratio"]
         assert 0.0 < ratio <= 1.0
-    assert report.positivity_floor == record.positivity_floor > 0
+    assert report.weight_floor == record.weight_floor > 0
     assert report.bounded_share == record.bounded_share
     assert report.severity == "adequate"
 
@@ -287,8 +288,8 @@ def test_the_stored_probabilities_are_the_received_arms(monkeypatch: pytest.Monk
     """A nonzero witness of the arm each stored array is read under.
 
     The treatment probability is a known function, so a swap of the arms of ``pi`` moves it
-    exactly. Censoring depends on the arm, so the censoring survival under the other arm
-    differs from the stored one by far more than rounding.
+    exactly. Censoring depends on the arm, so the stored censoring survival of each arm
+    differs from the other arm's by far more than rounding, and a swap of the arm axis fails.
     """
     from cleverly.survival import engine
 
@@ -310,21 +311,26 @@ def test_the_stored_probabilities_are_the_received_arms(monkeypatch: pytest.Monk
             random_state=0,
         ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
     record = fit.record
-    np.testing.assert_array_equal(record.treatment_probability, known)
+    np.testing.assert_array_equal(record.p1, known)
     np.testing.assert_array_equal(record.arm, frame["A"].to_numpy())
 
-    # The censoring survival recomputed from the stored censoring model, under each arm.
+    # S_c(t_k-) recomputed from the stored censoring model, over the observed times before
+    # each target, under each arm.
     time = frame["time"].to_numpy()
     grid = np.unique(time[time <= horizons[-1]])
-    index = np.searchsorted(grid, horizons, side="right") - 1
-    a = frame["A"].to_numpy()
+    before = np.searchsorted(grid, horizons, side="left")
 
-    def survival(arm: np.ndarray) -> np.ndarray:
-        X = np.column_stack([arm.astype(float), frame["W"].to_numpy()])
+    def survival(arm: int) -> np.ndarray:
+        X = np.column_stack([np.full(time.size, float(arm)), frame["W"].to_numpy()])
         cumulative = record.censoring.model.cumulative_hazard(X, grid)
         jumps = np.diff(np.concatenate([np.zeros((X.shape[0], 1)), cumulative], axis=1), axis=1)
-        return np.cumprod(1.0 - np.clip(jumps, 0.0, 1.0), axis=1)[:, index]
+        steps = np.concatenate([np.ones((X.shape[0], 1)), 1.0 - np.clip(jumps, 0.0, 1.0)], axis=1)
+        return np.cumprod(steps, axis=1)[:, before]
 
-    np.testing.assert_allclose(record.censoring_survival, survival(a), rtol=1e-12)
-    other = survival(1 - a)
-    assert np.max(np.abs(record.censoring_survival - other)) > 0.05
+    for arm in (0, 1):
+        np.testing.assert_allclose(record.retention_before[arm], survival(arm), rtol=1e-12)
+    # The arms differ, so a swap of axis 0 cannot pass the check above.
+    assert np.max(np.abs(record.retention_before[1] - record.retention_before[0])) > 0.05
+    # The floor is the resolved default the weights applied, 5 / (sqrt(n) log n).
+    n = len(frame)
+    assert record.weight_floor == 5.0 / (np.sqrt(n) * np.log(n))

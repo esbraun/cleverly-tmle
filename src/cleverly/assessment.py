@@ -3711,14 +3711,14 @@ def _continuous_survival_item(operation: str, report: Any) -> AssessmentItem:
     if operation == "support":
         overall = report.propensity_quantiles["overall"]
         floors = (
-            f"floor {report.positivity_floor:.3g} on pi(a | L) S_c(u- | a, L) raised "
+            f"floor {report.weight_floor:.3g} on pi(a | L) S_c(u- | a, L) raised "
             f"{report.bounded_share:.1%} of the followed cells"
         )
         censoring = min(min(values.values()) for values in report.censoring_quantiles.values())
         ess = min(values["ratio"] for values in report.effective_sample_size.values())
         detail = (
             f"P(treated | L) in [{overall[0.0]:.3g}, {overall[1.0]:.3g}]; smallest "
-            f"S_c(t | A, L) at a target time {censoring:.3g}; {floors}; "
+            f"S_c(t- | A, L) at a target time {censoring:.3g}; {floors}; "
             f"{report.last_time_floor_share:.1%} of (unit, arm) pairs below it at the last "
             f"target time; minimum effective-sample-size ratio {ess:.1%}"
         )

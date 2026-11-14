@@ -40,7 +40,7 @@ class ContinuousSurvivalSupport:
 
     The clever covariate of arm :math:`a` divides by
     :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` at every time :math:`u` up to the
-    target, bounded below by :attr:`positivity_floor`. The report summarizes both factors as
+    target, bounded below by :attr:`weight_floor`. The report summarizes both factors as
     fitted and the share of cells the floor raised.
 
     Parameters
@@ -64,8 +64,8 @@ class ContinuousSurvivalSupport:
         ratio (``"ratio"``).
     censoring_quantiles : dict of float to dict of float to float
         For each target time, quantiles of each row's estimated probability of remaining
-        uncensored through it under its received arm, :math:`\\hat S_c(t_k \\mid A, L)`.
-    positivity_floor : float
+        uncensored just before it under its received arm, :math:`\\hat S_c(t_k^- \\mid A, L)`.
+    weight_floor : float
         The lower bound the targeting weights applied to
         :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)`.
     bounded_share : float
@@ -88,7 +88,7 @@ class ContinuousSurvivalSupport:
     tail_mass: dict[float, dict[str, float]]
     effective_sample_size: dict[str, dict[str, float]]
     censoring_quantiles: dict[float, dict[float, float]]
-    positivity_floor: float
+    weight_floor: float
     bounded_share: float
     last_time_floor_share: float
     frozen_share: float
@@ -228,8 +228,10 @@ def support_report(result: ContinuousSurvivalResult) -> ContinuousSurvivalSuppor
         The report.
     """
     record = result.record
-    p1 = np.asarray(record.treatment_probability, dtype=float)
+    p1 = np.asarray(record.p1, dtype=float)
     arm = np.asarray(record.arm)
+    # Each row's censoring survival just before each target time, under its received arm.
+    received_retention = np.asarray(record.retention_before)[arm, np.arange(arm.size)]
     received = np.where(arm == 1, p1, 1.0 - p1)
     labels = result.arms
     quantiles = {"overall": _quantiles(p1)}
@@ -251,10 +253,9 @@ def support_report(result: ContinuousSurvivalResult) -> ContinuousSurvivalSuppor
         },
         effective_sample_size=ess,
         censoring_quantiles={
-            time: _quantiles(record.censoring_survival[:, k])
-            for k, time in enumerate(result.horizons)
+            time: _quantiles(received_retention[:, k]) for k, time in enumerate(result.horizons)
         },
-        positivity_floor=float(record.positivity_floor),
+        weight_floor=float(record.weight_floor),
         bounded_share=float(record.bounded_share),
         last_time_floor_share=float(record.last_time_floor_share),
         frozen_share=float(record.frozen_share),
