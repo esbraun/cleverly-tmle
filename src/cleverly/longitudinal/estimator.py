@@ -384,23 +384,21 @@ SDR_REFUSED_SETTINGS: tuple[str, ...] = (
 #: Why a baseline estimator refuses cross-fitting.  ``{estimator}`` is the class name, which
 #: :func:`baseline_cross_fit_refusal` fills in.
 _BASELINE_CROSS_FIT_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.API_REDIRECTION,
     "{estimator} fits in sample. Its interval is the stacked estimating equation of in-sample "
     "parametric fits. With a data-adaptive learner neither baseline has a root-n result, in "
     "sample or cross-fitted, and cross-fitting does not remove the first-order bias of a "
     "plug-in or IPW estimate.",
     alternative="Pass n_folds=1, or for a cross-fitted analysis fit LTMLE or SDR.",
-    roadmap="F35",
 )
 #: Why a baseline estimator refuses repeated cross-fitting.  ``{estimator}`` is the class
 #: name, which :func:`baseline_repeats_refusal` fills in.
 _BASELINE_REPEATS_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.API_REDIRECTION,
     "{estimator} fits in sample, so repeats above 1 has no split to draw again. Its interval "
     "is the stacked estimating equation of one in-sample parametric fit, and no source gives "
     "the split-adjusted median variance of Chernozhukov et al. (2018, Definition 3.3) for it.",
     alternative="Pass repeats=1, or for a repeated cross-fit fit LTMLE or SDR.",
-    roadmap="F35",
 )
 #: Why a baseline estimator refuses a working model over regimens.
 BASELINE_MSM_REFUSAL = Refusal(
@@ -560,8 +558,8 @@ def baseline_repeats_refusal(estimator: str) -> Refusal:
     Returns
     -------
     Refusal
-        An :attr:`~cleverly.exceptions.RefusalReason.IMPLEMENTATION_GAP` record that F35 in
-        ``docs/roadmap.md`` tracks.
+        An :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` record that names LTMLE
+        and SDR.
     """
     return replace(
         _BASELINE_REPEATS_REFUSAL,
@@ -607,11 +605,10 @@ GFORMULA_CATEGORICAL_TILT_REFUSAL = Refusal(
 )
 #: Why the parametric g-formula refuses a vector treatment node with a dose component.
 GFORMULA_MIXED_NODE_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.API_REDIRECTION,
     "the parametric g-formula has no joint model of a vector treatment node with a dose "
     "component. It draws one natural treatment column per node.",
     alternative="Fit LTMLE or SDR, which read a mixed node through its joint policy.",
-    roadmap="X73",
 )
 #: Why a truncation curve refuses a parametric g-formula result.
 GFORMULA_TRUNCATION_REFUSAL = Refusal(
@@ -633,8 +630,8 @@ def baseline_cross_fit_refusal(estimator: str) -> Refusal:
     Returns
     -------
     Refusal
-        An :attr:`~cleverly.exceptions.RefusalReason.IMPLEMENTATION_GAP` record that F35 in
-        ``docs/roadmap.md`` tracks.
+        An :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` record that names LTMLE
+        and SDR.
     """
     return replace(
         _BASELINE_CROSS_FIT_REFUSAL,
@@ -1114,15 +1111,11 @@ def repeated_outcome_refusal(name: str) -> Refusal:
     kinds = sorted(_REPEATED_OUTCOME_NAMES.get(kind, kind) for kind in REPEATED_OUTCOME_KINDS)
     listed = kinds[0] if len(kinds) == 1 else f"{', '.join(kinds[:-1])} and {kinds[-1]}"
     verb = "s" if len(kinds) == 1 else ""
-    refusal = replace(
+    return replace(
         REPEATED_OUTCOME_REFUSAL,
         condition=REPEATED_OUTCOME_REFUSAL.condition.format(name=name),
         alternative=str(REPEATED_OUTCOME_REFUSAL.alternative).format(kinds=listed, verb=verb),
     )
-    if name in ("SequentialGComputation", "SequentialIPW", "ParametricGFormula"):
-        # The baselines' reduction is its own item.
-        return replace(refusal, roadmap="X71")
-    return refusal
 
 
 def refuse_repeated_outcome(estimator: str, name: str) -> None:
@@ -9134,7 +9127,7 @@ class ParametricGFormula(_Baseline):
 
     Notes
     -----
-    A repeated outcome is refused: roadmap row X71 tracks it.  The simulation draws come from a
+    A repeated outcome is refused; LTMLE, SDR and IPSI fit one.  The simulation draws come from a
     counter-based Philox generator keyed by ``random_state``, so a fit repeats exactly.
 
     A declared treatment mechanism at a tilt node, or at a modified-treatment-policy node
