@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X71, X73, X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X71, X73, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -147,7 +147,6 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X35](#x35-efficient-known-score-att-and-atc) Efficient known-score ATT and ATC | 3 | published support; pending source read | the shipped known treatment mechanism |
 | [X5](#x5-natural-and-interventional-mediation-effects) Natural and interventional mediation effects | 5 | published support; pending source read | target-specific identification and evidence |
 | [X2](#x2-replicate-weight-designs) Replicate-weight designs | 5 | source audit | weighted-law variance construction |
 | [X7](#x7-two-phase-and-outcome-dependent-sampling) Two-phase and outcome-dependent sampling | 5 | published support; pending source read | observed-data likelihood and influence correction |
@@ -737,32 +736,6 @@ its red cells.
 Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
 another replicate design only after a source audit matches its construction to this package's
 weighted-law estimands and inference conventions.
-
-### X35. Efficient known-score ATT and ATC
-
-On data that declares its treatment mechanism, the shipped ATT divides by $g_0$ and reports the
-treated mean of $\bar Q^*_1-\bar Q^*_0$. That curve is not the efficient one when the propensity
-score is known. Hahn (1998) gives a smaller ATT bound for a known score than for an unknown one.
-
-By the remainder algebra of the
-[known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
-section, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has the smaller curve.
-The ATC is the mirror image. No pinned comparator implements it. R `tmle` and the `tmle3`
-`Param_ATT` both fluctuate $g$, so their ATT has the unknown-score curve.
-
-| item | contract |
-| --- | --- |
-| base result | Hahn (1998), *Econometrica* 66(2):315–331, Theorems 1 and 2. [References](references.md) records that only the abstract was read. Read Theorem 2 first-hand before the row starts |
-| step | the g-weighted plug-in at $g_n=g_0$, with the remainder algebra of the shipped known-mechanism ATT |
-| estimator choice | an option on the known-mechanism ATT and ATC. The shipped treated-mean form stays the default |
-| comparator | none. The study cells compare with the truth only |
-
-Acceptance:
-
-- an exact-law test of the curve of the g-weighted plug-in;
-- a variance witness: on a law where the score carries information, the reported standard error is
-  below the standard error of the shipped form;
-- truth-only registered study cells.
 
 ### X36. Projected variance for AdaptiveIPTW with a declared parametric mechanism
 
