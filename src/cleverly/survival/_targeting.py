@@ -16,6 +16,27 @@ Each target is a weighted sum of one arm's cause-:math:`j` incidence over the gr
 its grid position, and a restricted mean time lost up to :math:`\tau` has the weights
 :math:`\Delta_m(\tau) = \min(u_{m+1}, \tau) - u_m` for :math:`u_m \le \tau` (X6 part (c)).
 Targets are ordered arm-major, then cause, then weight row: ``p = (a * J + j) * Q + q``.
+
+The clever covariate of a target with weights :math:`\omega` holds the conditional quotient
+
+.. math::
+
+    H_j(u_k) = \frac{\sum_{m \ge k} \omega_m \{F_j(u_m) - F_j(u_k)\}}{S(u_k)}
+    = \sum_{s > k} W(u_s)\, \frac{S(u_{s-1})\, d\Lambda_j(u_s)}{S(u_k)},
+    \qquad W(u_s) = \sum_{m \ge s} \omega_m,
+
+the second form by :math:`F_j(u_m) - F_j(u_k) = \sum_{k < s \le m} S(u_{s-1})\,
+d\Lambda_j(u_s)` and a swap of the sums.  The first form differences two cumulative sums near
+one and divides by a survival that can be :math:`10^{-20}` where a fitted hazard extrapolates,
+so it loses every digit; the second sums the incidence increments themselves after
+:math:`u_k`, each carrying the factor :math:`S(u_{s-1}) \le S(u_k)`, so numerator and survival
+share one scale and nothing is differenced (``_after``).  With :math:`\omega \ge 0` every
+term is non-negative and :math:`0 \le H_j \le \sum_m \omega_m`, a conditional risk.  The
+score sums :math:`\sum_k r(u_k) H_j(u_k)` over the residual ratio :math:`r = \sum_l w
+(dN_l - Y d\Lambda_l) / S`, which the same swap gives as :math:`\sum_s W(u_s)\, S(u_{s-1})
+d\Lambda_j(u_s) \sum_{k < s} r(u_k)`: every product there pairs a :math:`1 / S(u_k)` with a
+:math:`S(u_{s-1}) \le S(u_k)`.  Both forms need :math:`S` in the normal range of double
+precision, which the engine checks (``engine.SURVIVAL_UNDERFLOW``).
 """
 
 from __future__ import annotations
@@ -32,8 +53,9 @@ Norm = Literal["covariance", "variance", "euclidean"]
 #: Each diagonal entry of the held covariance is floored at this share of the largest one, so
 #: a target with a tiny influence-curve variance cannot dominate the direction.
 SIGMA_FLOOR: Final = 1e-8
-#: A step that takes some unit's survival at the last target time below this is rejected: the
-#: clever covariate divides by the survival, and its quotient loses every digit there.
+#: A step that takes some unit's survival at the last target time below this, or below the
+#: initial fit's own smallest survival when that is lower, is rejected, so the walk never drives
+#: a survival towards zero that the initial fit kept away from it.
 WALK_SURVIVAL_FLOOR: Final = 1e-8
 #: The smallest step before the walk stops unconverged.
 MIN_STEP: Final = 1e-8
@@ -145,10 +167,43 @@ def curves(dlam: FloatArray) -> tuple[FloatArray, FloatArray]:
         ``(2, J, n, M)`` :math:`F_j(u_m) = \\sum_{u \\le u_m} S(u^-)\\, d\\Lambda_j(u)`.
     """
     survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
-    before = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
-    incidence = before[:, None] * dlam
+    incidence = _before(survival)[:, None] * dlam
     np.cumsum(incidence, axis=-1, out=incidence)
     return survival, incidence
+
+
+def _before(survival: FloatArray) -> FloatArray:
+    """``S(u_m^-)``: the survival just before each grid time, from ``S(u_m)``."""
+    return np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
+
+
+def _after(x: FloatArray) -> FloatArray:
+    r""":math:`\sum_{s > k} x_s` at each grid position :math:`k`, along the last axis."""
+    out = np.zeros_like(x)
+    out[..., :-1] = np.cumsum(x[..., :0:-1], axis=-1)[..., ::-1]
+    return out
+
+
+def conditional_risk(survival: FloatArray, dlam_cause: FloatArray, tail: FloatArray) -> FloatArray:
+    r"""The quotient :math:`H_j(u_k)` of the clever covariate, without cancellation.
+
+    Parameters
+    ----------
+    survival : ndarray
+        ``(..., M)`` :math:`S(u_m)`.
+    dlam_cause : ndarray
+        ``(..., M)`` :math:`d\Lambda_j(u_m)`, broadcastable against ``survival``.
+    tail : ndarray
+        ``(..., M)`` :math:`W(u_m) = \sum_{m' \ge m} \omega_{m'}`, broadcastable.
+
+    Returns
+    -------
+    ndarray
+        :math:`\sum_{s > k} W(u_s) S(u_{s-1}) d\Lambda_j(u_s) / S(u_k)`, which equals
+        :math:`\{\sum_{m \ge k} \omega_m F_j(u_m) - W(u_k) F_j(u_k)\} / S(u_k)` (module
+        docstring).
+    """
+    return _after(tail * _before(survival) * dlam_cause) / survival
 
 
 @dataclass(frozen=True)
@@ -209,16 +264,20 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
         np.subtract(problem.events, weighted, out=weighted)
         weighted *= problem.weight[a][None]
         weighted *= mask[None]  # (J, n, M)
-        total = weighted.sum(axis=0)
-        ratio = total / survival[a]
-        cum_ratio = np.cumsum(ratio, axis=1)
+        # R(u_s^-) = sum_{k < s} r(u_k), the residual ratio cumulated strictly before u_s.
+        ratio = weighted.sum(axis=0) / survival[a]
+        ratio_before = np.zeros_like(ratio)
+        np.cumsum(ratio[:, :-1], axis=1, out=ratio_before[:, 1:])
+        before = _before(survival[a])
         for j in range(J):
-            # Each target's score part is the weighted sum over the grid of the point
-            # targets' parts, sum_m w_m {N_j(u_m) - F_j(u_m) R(u_m) + C_j(u_m)}, with R and C
-            # the cumulated ratios; a unit row picks one grid position exactly.
-            cum_own = np.cumsum(weighted[j], axis=1)
-            cum_own -= incidence[a, j] * cum_ratio
-            cum_own += np.cumsum(incidence[a, j] * ratio, axis=1)
+            # Each target's score part is sum_k {W(u_k) w (dN_j - Y dLam_j)(u_k) - r(u_k)
+            # H_j(u_k)}, which the swap of the module docstring writes as the weighted sum over
+            # the grid of the cumulated sum_{s <= u_m} {w (dN_j - Y dLam_j)(u_s) - S(u_s^-)
+            # dLam_j(u_s) R(u_s^-)}; a unit row picks one grid position exactly.
+            increment = before * dlam[a, j]
+            increment *= ratio_before
+            np.subtract(weighted[j], increment, out=increment)
+            cum_own = np.cumsum(increment, axis=1)
             block = slice((a * J + j) * Q, (a * J + j + 1) * Q)
             parts[:, block] = cum_own @ rows
             plugins[:, block] = incidence[a, j] @ rows
@@ -227,13 +286,17 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
     return Evaluation(psi, parts.mean(axis=0), influence, survival, incidence)
 
 
-def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> FloatArray:
+def _direction(
+    problem: Problem, evaluation: Evaluation, v: FloatArray, dlam: FloatArray
+) -> FloatArray:
     r"""``(2, J, n, M)`` the combined clever covariate :math:`\sum_p v_p c_p(u, a, L_i)`.
 
     A target with grid weights :math:`\omega_m` has the clever covariate
     :math:`1\{l = j\} W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) - W(u) F_j(u)\} / S(u)`,
-    :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  Both sums are
-    reverse cumulative sums over time, so a step costs :math:`O(JnM)` for any weights.
+    :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  The quotient is
+    :func:`conditional_risk` of the combined weights, a reverse cumulative sum over time, so a
+    step costs :math:`O(JnM)` for any weights.  ``dlam`` holds the hazard jumps ``evaluation``
+    was computed at.
     """
     J, Q = problem.n_causes, problem.n_rows
     n, M = problem.at_risk.shape
@@ -241,11 +304,11 @@ def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> Float
     for a in (0, 1):
         # The weight each grid point carries for cause j: sum_q v_(a,j,q) w_(q,m).
         own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
-        weighted_f = evaluation.incidence[a] * own[:, None, :]  # (J, n, M)
         own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W(u)
-        weighted_f = np.cumsum(weighted_f[:, :, ::-1], axis=2)[:, :, ::-1]
-        shared = (weighted_f - evaluation.incidence[a] * own[:, None, :]).sum(axis=0)
-        shared = shared / evaluation.survival[a]
+        survival = evaluation.survival[a]
+        shared = np.zeros((n, M))
+        for j in range(J):
+            shared += conditional_risk(survival, dlam[a, j], own[j][None, :])
         for l in range(J):
             out[a, l] = problem.weight[a] * (own[l][None, :] - shared)
     return out
@@ -436,7 +499,7 @@ def walk(
         if length == 0.0:
             converged = True
             break
-        direction = _direction(problem, evaluation, weighted / length)
+        direction = _direction(problem, evaluation, weighted / length, current)
         if tilt == "factual":
             direction = direction * factual
         if frozen.any():
@@ -511,11 +574,6 @@ def default_cutoff(n: int) -> float:
 _PV_BLOCK_CELLS: Final = 6_000_000
 
 
-def _before(survival: FloatArray) -> FloatArray:
-    """``S(u_m^-)``: the survival just before each grid time, from ``S(u_m)``."""
-    return np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
-
-
 def _multinomial_moment(clever: FloatArray, dlam: FloatArray, rho: FloatArray) -> FloatArray:
     r"""``(P, P)`` :math:`\sum_{i,m} \rho\, V(u_m)_{pq}` for one arm and one block of units.
 
@@ -566,7 +624,6 @@ def _martingale_block(
     J, Q = problem.n_causes, problem.n_rows
     n, M = problem.at_risk.shape
     survival = evaluation.survival[a]
-    incidence = evaluation.incidence[a]
     # W_q(u_m) = sum over m' >= m of the row's weights, the same for every unit.
     tail = np.cumsum(problem.target_weights[:, ::-1], axis=1)[:, ::-1]  # (Q, M)
     out = np.zeros((J * Q, J * Q))
@@ -578,11 +635,10 @@ def _martingale_block(
         rho = rho * (1.0 if reach is None else reach[a][rows])
         clever = np.empty((J, J * Q, rho.shape[0], M))
         for j in range(J):
-            f = incidence[j][rows]  # (b, M)
-            # G_q(u) = {sum_{m' >= m} w_q F_j(u_m') - W_q(u) F_j(u)} / S(u)
-            weighted = f[None] * problem.target_weights[:, None, :]  # (Q, b, M)
-            weighted = np.cumsum(weighted[:, :, ::-1], axis=2)[:, :, ::-1]
-            shared = (weighted - tail[:, None, :] * f[None]) / survival[rows][None]
+            # G_q(u) = {sum_{m' >= m} w_q F_j(u_m') - W_q(u) F_j(u)} / S(u), (Q, b, M)
+            shared = conditional_risk(
+                survival[rows][None], dlam[a, j][rows][None], tail[:, None, :]
+            )
             cols = slice(j * Q, (j + 1) * Q)
             for l in range(J):
                 clever[l, cols] = -shared

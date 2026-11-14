@@ -207,7 +207,7 @@ def test_the_weighted_direction_is_the_sum_over_grid_points() -> None:
     problem, dlam = _problem((3.0,), TAUS, hazard_by=(0,))
     evaluation = evaluate(problem, dlam)
     v = np.random.default_rng(0).normal(size=problem.n_targets)
-    direction = _targeting._direction(problem, evaluation, v)
+    direction = _targeting._direction(problem, evaluation, v, dlam)
     np.testing.assert_allclose(direction, _brute_direction(problem, evaluation, v), atol=1e-12)
     # Mutation: dropping W(u) F_j(u) from the reverse sum moves the direction far.
     mutated = _brute_direction(problem, evaluation, v, drop_own_f=True)
@@ -256,10 +256,10 @@ def test_a_restricted_mean_left_out_of_the_direction_stays_unsolved(
     original = _targeting._direction
     left_out = _rmtl_targets(problem)
 
-    def without(problem: Problem, evaluation: Any, v: np.ndarray) -> np.ndarray:
+    def without(problem: Problem, evaluation: Any, v: np.ndarray, dlam: np.ndarray) -> np.ndarray:
         kept = v.copy()
         kept[left_out] = 0.0
-        return original(problem, evaluation, kept)
+        return original(problem, evaluation, kept, dlam)
 
     monkeypatch.setattr(_targeting, "_direction", without)
     result = walk(problem, dlam, cutoff=1e-7, max_steps=2_000)
@@ -289,6 +289,26 @@ def _fit(restricted: tuple[float, ...] = (1.5,), causes: bool = True) -> Any:
             arms={"control": 0, "treated": 1},
             reference="control",
         ).fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+
+
+#: Estimates and standard errors of ``_fit()`` before the clever covariate's quotient was
+#: computed without cancellation (parent of that change); every survival there stays far from
+#: zero, so the stable form must reproduce them up to library rounding.
+RECORDED = {
+    "cif_regimen[control, death @ t=1]": (0.09787623191311985, 0.020183014215883834),
+    "cif_regimen[treated, relapse @ t=0.5]": (0.07983061022969518, 0.020705287385061243),
+    "ate_regimen[treated vs control, death @ t=1]": (-0.046159024993418604, 0.027795305230947337),
+    "rmtl_regimen[control, relapse @ t=1.5]": (0.2335706969007289, 0.03774927003794807),
+    "rmtl_regimen[treated, death @ t=1.5]": (0.06196292929052488, 0.02112449184002268),
+    "rmtl_regimen[treated vs control, death @ t=1.5]": (-0.05955262315622592, 0.03172464850638993),
+}
+
+
+def test_the_stable_quotient_reproduces_the_fit_where_the_survival_is_ordinary() -> None:
+    fit = _fit()
+    for name, (psi, std_error) in RECORDED.items():
+        assert fit[name].psi == pytest.approx(psi, rel=1e-7, abs=1e-9), name
+        assert fit[name].std_error == pytest.approx(std_error, rel=1e-6), name
 
 
 def test_the_fit_reports_and_targets_every_restricted_mean() -> None:

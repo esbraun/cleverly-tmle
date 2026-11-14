@@ -62,8 +62,10 @@ def _gap(text: str) -> CapabilityError:
 
 
 ROADMAP: Final = "roadmap X6"
-#: An initial survival at or below this before the last time a target reads is refused.
-SURVIVAL_FLOOR: Final = 1e-12
+#: An initial survival below this before the last time a target reads is refused: the clever
+#: covariate's quotient is a conditional risk computed on the survival's own scale, which
+#: double precision holds only above its smallest normal numbers.
+SURVIVAL_UNDERFLOW: Final = 1e-250
 #: Off-grid times drawn for the diagnostic of item 10 Table 4.
 OFF_GRID_TIMES: Final = 100
 
@@ -653,12 +655,13 @@ class ContinuousSurvivalTMLE:
                 "horizons, or a smaller library."
             )
         survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
-        if np.any(survival[..., -1] <= SURVIVAL_FLOOR):
+        if np.any(survival[..., -1] < SURVIVAL_UNDERFLOW):
             raise DataError(
-                "The initial survival reaches zero before the last time a target reads (the "
-                "last target time or restricted horizon) for some unit and arm, so the clever "
-                "covariate divides by zero. The estimator needs the survival bounded away from "
-                "zero there; choose an earlier last target time or restricted horizon."
+                f"The initial survival falls below {SURVIVAL_UNDERFLOW:.0e} before the last time "
+                "a target reads (the last target time or restricted horizon) for some unit and "
+                "arm, beyond the range in which double precision holds the clever covariate's "
+                "conditional risks. Choose an earlier last target time or restricted horizon, "
+                "or a hazard library that does not extrapolate so far."
             )
         retention = np.cumprod(1.0 - np.clip(dgam, 0.0, 1.0), axis=-1)
         retention_before = np.concatenate([np.ones((2, n, 1)), retention[..., :-1]], axis=-1)
