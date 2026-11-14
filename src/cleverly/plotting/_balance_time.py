@@ -24,6 +24,7 @@ from . import _core
 from ._strips import fit_height, strip_figure
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
     from ..sensitivity.balance_time import BalanceOverTime, TimeBalanceRow
@@ -356,8 +357,9 @@ def _notes(summary: BalanceOverTime, diagnostic: str) -> list[str]:
     found = [
         "The differences are descriptive: they carry no interval or test, and a small "
         "difference on the covariates listed does not show balance on covariates that were "
-        "not. Each is divided by the pooled standard deviation of the two groups in the "
-        "stratum before weighting.",
+        "not. Each is divided by a spread read in the stratum before weighting: the square "
+        "root of the mean of the two groups' variances, or, for units whose status is known "
+        "against their whole arm, the arm's standard deviation.",
         words,
     ]
     if summary.limits is not None:
@@ -420,9 +422,13 @@ def _trellis(
     )
     total = max((r.person_time_weighted for r in rows), default=1.0) or 1.0
     first_axis = None
+    shared: Axes | None = None
+    lowest: dict[int, Axes] = {}
     for i, row_node in enumerate(down):
         for j, column_node in enumerate(across):
-            axis = fig.add_subplot(grid[i + 1, j])
+            # One x scale for every panel, so the dots compare across cells.
+            axis = fig.add_subplot(grid[i + 1, j], sharex=shared)
+            shared = shared if shared is not None else axis
             _core.style_axes(axis)
             exposure_node, covariate_node = (
                 (column_node, row_node) if feedback else (row_node, column_node)
@@ -481,10 +487,11 @@ def _trellis(
                 fontsize=_core.TICK_SIZE,
                 color=_core.INK,
             )
-            if i == len(down) - 1:
-                axis.set_xlabel("Standardized difference after weighting")
+            lowest[j] = axis
             if first_axis is None:
                 first_axis = axis
+    for axis in lowest.values():
+        axis.set_xlabel("Standardized difference after weighting")
     _core.header(
         head,
         title or "Covariate balance over time",
