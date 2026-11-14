@@ -2406,6 +2406,15 @@ and the estimators that read the density only resolve to the binned density inst
 the result keeps, and the warning of an isolated dose cluster on the classifier route. This route fits no density, so the support report gives
 `min_density` and `unsupported` as `None` and says that they are not measured.
 
+The study that will gate this default, `mtp-density-tails`, is declared and has not run yet. It
+gates the classifier route's interval calibration on two laws: G, a Gaussian dose with an
+unbounded ratio, and T, the same dose truncated with a capped shift. S is a dose with Student-t
+tails of 5 degrees of freedom, whose influence curve has an infinite fourth moment. Its SE ratio
+then spreads more widely than the calibration rule's sizing allows at any feasible replicate
+count.
+The study therefore reports calibration on S as a reading with no verdict, and makes no gated
+claim for it ([`tests/studies/canonical_mtp_density_tails.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/studies/canonical_mtp_density_tails.py)).
+
 Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
 class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
 inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gateaux_rr_tilt.py`
