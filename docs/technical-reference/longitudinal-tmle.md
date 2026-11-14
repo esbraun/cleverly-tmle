@@ -753,7 +753,7 @@ gives the ratio at a continuous node, and the discrete formula gives it at a cat
 
 | node kind | how to declare it | ratio |
 | --- | --- | --- |
-| continuous dose | `LTMLE.fit(..., continuous_treatment=["A1", "A2"])` | a pooled-hazard density with `density_bins` bins, or `ratio="classifier"` |
+| continuous dose | `LTMLE.fit(..., continuous_treatment=["A1", "A2"])` | the stacked classifier by default, or a pooled-hazard density with `density_bins` bins under `ratio="density"`. [The density-ratio route](scope-and-refusals.md#density-ratio-route) gives the default rule |
 | categorical | the default | the discrete formula over the fitted mechanism |
 | vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
 | mixed vector, with categorical and continuous columns | a list of columns as one entry of `treatment=`, with a column of the list in `continuous_treatment=` | the joint ratio of a `JointPolicy`: a chain-rule density with `ratio="density"`, or `ratio="classifier"`. See [vector nodes with a continuous component](#vector-nodes-with-a-continuous-component) |
@@ -820,7 +820,7 @@ Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023,
 arXiv v4, 2006.01366v4) needs the density ratios to stay bounded. That holds for a capped shift on
 a bounded dose and for a policy held below a declared support's upper end. An uncapped shift on an
 unbounded dose has an unbounded ratio and lies outside that theorem. When efficiency matters,
-use `ratio="classifier"` with a flexible classifier, or set `density_bins=` higher.
+keep the default classifier route with a flexible classifier, or pass `ratio="density"` with a higher `density_bins=`.
 
 `regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
 `regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.
@@ -1800,8 +1800,8 @@ reaches the same option through a `CausalStudy`. `IPSI` refuses the option with
 | zero pattern | an entry is zero when the unit is not at risk at node $t$, is censored at $t$, or has zero intervention density at $t$. Node $t$ alone decides it. A unit that leaves a static plan at node 1 and takes the plan's arm at node 2 has a positive entry at node 2 | `density_ratios.R:55-61` (`followed`) |
 | threshold | $Q_q$, the type-7 quantile of all $n \times T$ entries, zeros included. A cross-fitted fit trims the pooled out-of-fold matrix once | `utils.R:41-42`, `density_ratios.R:21` |
 | trimmed ratio | $\tilde R_t = \prod_{s \le t} \min(r_s, Q_q)$ | `eif.R:8-15` |
-| composition with `g_bounds` | the clever covariate is $\mathrm{num}_t / \mathrm{bound}(\mathrm{num}_t / \tilde R_t)$, with $\mathrm{num}_t$ the running product of $\pi_s$. On a row whose ratios the trim never moved, this is the untrimmed clever covariate for every bound pair | not in `lmtp`, which has no bound |
-| SDR weight | $W_{t,s}$ is the product of $\min(r_k, Q_q)$ for $k = t..s$, through the same bound composition. Every cross-fitted fold trims its own mechanism's ratios at the pooled $Q_q$ | `eif.R` (`compute_weights`) |
+| composition with `g_bounds` | the clever covariate is $\mathrm{num}_t / \mathrm{bound}(\mathrm{num}_t / \tilde R_t)$, with $\mathrm{num}_t$ the running product of $\pi_s$. On a row whose ratios the trim never moved, this is the untrimmed clever covariate for every bound pair. On a trimmed row of a plan with a policy node, only the lower limit applies: the policy density sits in the numerator there, so the implied mechanism exceeds one, and an upper limit would restore the untrimmed weight | not in `lmtp`, which has no bound |
+| SDR weight | $W_{t,s}$ is the product of $\min(r_k, Q_q)$ for $k = t..s$, through the same bound composition, with the same lower-limit-only rule on a trimmed row of a policy plan. Every cross-fitted fold trims its own mechanism's ratios at the pooled $Q_q$ | `eif.R` (`compute_weights`) |
 
 The trim changes the fitted estimator, not the estimand. A trim that binds keeps a fixed share of
 the ratios at every sample size. The remainder therefore keeps a term of the size of the
@@ -1833,6 +1833,17 @@ drop the zeros from the quantile, trim per fold, drop the censoring factor, or z
 truth, and the trimmed fit moves away from it. The same file checks every SDR partial weight against
 $\prod_{k=t}^{s} \min(r_k, Q_q)$, in sample and in each of three folds. A weight that ignores
 the trim, and a threshold from one fold's rows, each fail that check.
+
+`tests/unit/test_mtp_route_operations.py` fits `LTMLE` and `SDR` on a continuous-node panel on
+both routes and checks that a binding trim moves the estimate. A mutation that restores the upper
+limit on trimmed rows fails it, and a static plan is unchanged under that mutation.
+
+On a fit with a modified treatment policy regimen, `longitudinal_truncation_curve()` sweeps
+`ratio_trim=` rather than the cumulative bound. Each row replays the retained draw at one
+quantile at the fitted `g_bounds=`, and reports `ratio_trim`, `psi`, `trimmed_share` and the
+inference status of that replay. A row whose trim binds reads `trimmed_ratio_plugin`. The row at
+the fitted quantile must reproduce the fitted estimate. The baseline estimators and `IPSI` refuse
+this curve with their `ratio_trim=` refusals.
 
 The SDR threshold reads every row, so a fold's transform depends on its held-out rows through
 one number. A continuous node's bin edges read the held-out rows in the same way

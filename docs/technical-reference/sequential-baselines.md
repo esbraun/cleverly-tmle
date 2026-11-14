@@ -165,7 +165,7 @@ treatment.
 | `hazard_pooling="pooled"` | both | `CapabilityError`. Each baseline fits its own node models. `LTMLE` and `SDR` fit a pooled hazard |
 | an odds tilt with an estimated mechanism | both | `CapabilityError`. Fit `IPSI` |
 | a modified treatment policy | IPW | `CapabilityError`. IPW of a shifted law needs a density ratio |
-| `ratio=`, `density_bins=` | IPW | `CapabilityError` |
+| `ratio="classifier"`, `density_bins=` | IPW | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | g-computation | `CapabilityError`. The scale moves with the sample extremes. Declare `q_bounds=`, or pass `GLM(family="gaussian")` |
 | `longitudinal_truncation_curve` | g-computation | `CapabilityError`. `g_bounds` does not move the estimate |
 | a prediction through a `GLM` column that the followers alias | g-computation | `DataError`. The column has no coefficient, so the prediction assumes that the column has no effect |

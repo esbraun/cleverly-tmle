@@ -461,7 +461,6 @@ policies = (Shift(0.0, cap=None), Shift(0.25, cap=4.0), Shift(0.5, cap=4.0))
 result = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),
     method=quick,
-    density_bins=40,
     random_state=5,
 )
 ```
@@ -472,22 +471,53 @@ observed dose and the policy assigns a dose above that maximum.
 
 The correction step needs, for each row, how much more or less common the policy dose is than
 the dose the row received: a ratio of two densities of the dose given the covariates. By default
-the fit estimates that density on a grid of dose intervals. `density_bins` sets their number, and
-the fit adds narrower intervals where the doses thin out. It then draws a smooth curve through the
-interval probabilities, so even a small shift changes the ratio. The estimate is only as good as
-the treatment learner behind it, so pass a flexible one, such as gradient boosting. A simple
-parametric learner can fit the narrow outer intervals poorly.
+the fit learns that ratio directly. It stacks each observed row with its policy copy, the
+treatment learner learns to tell the two apart, and the ratio comes from its predicted odds.
+
+The learner also sees, for each row, whether the policy moved its dose and whether the moved dose stays
+inside the observed or declared range, so a cap or a piecewise policy is learned where it holds the
+dose. This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
+recorded on many rows, such as zero. The result's summary prints the route it used and why
+(`Policy ratio`). A learner that reads its input columns by position can set the class attribute
+`policy_steps = "omit"` to receive the plain design.
+
+The fit warns, with a `DataWarning` that names the range, when a few doses sit far from the rest
+beyond an empty stretch of the dose. The learned odds can smooth over such a cluster, so pass
+`ratio="density"` there. In the design study the warning fired on every sample of 20,000 rows of
+a dose with such a cluster, and on 12 of 20 samples of 2,000. It never fired on two smooth doses in
+80 samples, and once in 40 samples of a heavy-tailed dose. A cluster of one or two doses is not
+reported. `cleverly.learners.isolated_dose_clusters` runs the same check on any column of doses.
+
+With `ratio="density"` the fit estimates the density on a grid of dose intervals instead.
+`density_bins` sets their number, and setting it also selects this route. The fit adds narrower
+intervals where the doses thin out, then draws a smooth curve through the interval probabilities,
+so even a small shift changes the ratio. The estimate is only as good as the treatment learner
+behind it, so pass a flexible one, such as gradient boosting. A simple parametric learner can fit
+the narrow outer intervals poorly.
+
+```python
+density_fit = dose_study.estimate(
+    ModifiedTreatmentPolicyEffect(policies),
+    method=quick,
+    ratio="density",
+    density_bins=40,
+    random_state=5,
+)
+```
+
+The fit also uses the density route when it reads no policy ratio, as a dose-response curve does,
+beside a declared treatment mechanism, and with an estimator that only reads a density. The
+[resolution table](../technical-reference/scope-and-refusals.md#density-ratio-route) lists
+which route each fit takes.
 
 When the possible doses depend on the covariates, declare that range with
 `Support(lower, upper)` from `cleverly.interventions`, where each bound is a number or a function
-of the covariates. Pass it as `treatment_support=` to `PointTreatment` or to `TMLE.fit`. Without
-it the fit cannot tell a hard limit from doses that are merely rare, and it spreads density past
-the limit, which distorts the ratio near it.
+of the covariates. Pass it as `treatment_support=` to `PointTreatment` or to `TMLE.fit`.
 
-With `ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
-policy copy, and the ratio comes from its predicted odds. This route fits no density. Like the
-default, it accepts doses that a declared `dose_atoms=` marks as recorded on many rows, such as
-zero.
+On the density route it lets the fit tell a hard limit from doses that are merely rare. Without it the fit
+spreads density past the limit, which distorts the ratio near it. On the default route the declared
+range tells the learner where a moved dose leaves the support. Without it the fit uses the range of
+the doses it trains on.
 [Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
 states both routes.
 

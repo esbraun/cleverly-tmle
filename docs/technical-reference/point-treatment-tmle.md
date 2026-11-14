@@ -1263,8 +1263,8 @@ $g^d/g$, and the plug-in reads the observed treatment. A declared $g_0$ is the d
 $g_n=g_0$. The remainder is a product of the ratio error and the outcome error, so it is zero.
 The shipped curve at $(\bar Q_\infty,g_0)$ is therefore exact. The fit evaluates the discrete formula at the
 declaration. `tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the fit
-whose learner returns $g_0$, at two and three arms. `ratio="classifier"` learns the ratio, so it
-is refused beside a declaration.
+whose learner returns $g_0$, at two and three arms. An explicit `ratio="classifier"` learns the ratio, so it
+is refused beside a declaration, and the default `ratio=None` resolves to the density route.
 
 **Weights.** With `weights=`, the declaration is the mechanism of the weight-tilted law. That law's
 mechanism equals the design mechanism when the weights depend on $W$ only, as survey and transport
@@ -1306,7 +1306,7 @@ rows.
 | --- | --- | --- |
 | `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects or fits the mechanism, and the declaration leaves nothing to select or fit |
 | a continuous treatment | `CapabilityError` | the declaration gives arm probabilities, and a dose has a conditional density |
-| `policies=` with `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
+| `policies=` with an explicit `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
 | `treatment_delta=` | `CapabilityError` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, which equals the design mechanism only when recording is independent of treatment given $W$ |
 | `screen_treatment=True` | `ValueError` | the screen selects covariates for the treatment learner, which the declaration replaces |
 | `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on an evaluation frame, or pass a `CausalData` companion that declares its own |
@@ -2397,9 +2397,13 @@ treatment. `RiskRatioTilt` reports on its own axis, `ey_rr_tilt` and `ate_rr_til
 levels 0 and 1. A randomized policy reports one mean. That mean and its influence curve are the
 mixtures of the branch means and curves, with the known probabilities as weights.
 
-`ratio="classifier"` replaces the density with the stacked classification of Section 5.4 of
-Díaz et al. (2023). The treatment learner classifies an observed row against its policy copy,
-and the ratio is the odds $u / (1 - u)$. This route fits no density, so the support report gives
+On a continuous or vector dose the default `ratio=None` resolves to `ratio="classifier"`, which
+replaces the density with the stacked classification of Section 5.4 of Díaz et al. (2023). The
+treatment learner classifies an observed row against its policy copy, and the ratio is the odds
+$u / (1 - u)$. `ratio="density"`, a set `density_bins=`, a learner that declares `bin_design`,
+and the estimators that read the density only resolve to the binned density instead.
+[The density-ratio route](scope-and-refusals.md#density-ratio-route) gives every rule, the record
+the result keeps, and the warning of an isolated dose cluster on the classifier route. This route fits no density, so the support report gives
 `min_density` and `unsupported` as `None` and says that they are not measured.
 
 Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
@@ -2421,7 +2425,7 @@ Besides the refusals of a dose or a policy outside it, it drives the reading: ea
 cut at its own bounds and the density is zero outside them, so a support edge that moves with the
 covariates is not read as a thin tail (`tests/unit/test_density_reconstruction.py`, W9). Where few
 bins cover a region in which the density changes fast, the reading's discretisation error enters
-the ratio. Set `density_bins=` higher there, or use `ratio="classifier"` with a flexible
+the ratio. Set `density_bins=` higher there, or use the classifier route with a flexible
 classifier. The ratio enters the clever covariate unnormalised: the fit does not
 divide by its sample mean, so it is not the self-normalised weighting of Haneuse and Rotnitzky
 (2013), which is a different estimator.
@@ -2601,8 +2605,9 @@ the same data read as a scalar dose, where that reading exists
 | assessment and sensitivity rows | the capability table of a vector fit equals that of a scalar dose fit. A truncation row equals the refit at its bound. The simulated common-cause surface takes one strength axis for each component. The placebo permutes whole component rows | `tests/unit/test_point_vector_assessment.py`, `tests/unit/test_vector_simulated_confounding.py` |
 | `CausalStudy` | `PointTreatment(treatment=[...], continuous_treatment=[...])` with `ModifiedTreatmentPolicy`. `ModelSpec(ratio=...)` selects the route, and `density_bins` reaches the density route | `tests/unit/test_vector_study_spine.py` |
 
-`ModelSpec(ratio="classifier")` and the shortcut `ratio="classifier"` on a method reach both the
-point and the longitudinal engine. A study refuses `ratio="classifier"` where it estimates no
+`ModelSpec(ratio=...)` and the shortcut `ratio=` on a method reach both the
+point and the longitudinal engine, and the default `None` resolves per fit as an estimator does. A
+study refuses an explicit `ratio="classifier"` where it estimates no
 policy ratio, such as an `ATE`, a declared mechanism, `DRTMLEMethod`, `CollaborativeTMLEMethod`
 and `IPSIMethod`. Each refusal runs before any learner.
 
