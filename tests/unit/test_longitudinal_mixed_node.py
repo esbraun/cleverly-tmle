@@ -555,6 +555,9 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "has_set_dose"): "is_continuous_node raises at a mixed node",
     ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
     ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
+    ("longitudinal/hazard_backward.py", "_multinode_slots"): (
+        "after refuse_multinode_time_varying: every node categorical (H22)"
+    ),
     ("longitudinal/ratio_trim.py", "node_ratio_entries"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
@@ -651,12 +654,22 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/hazard.py", "_codes_of"): "after refuse_multinode_design: categorical nodes",
+    ("longitudinal/hazard.py", "_current_level_designs"): (
+        "after refuse_multinode_time_varying: categorical nodes (H22)"
+    ),
+    ("longitudinal/hazard.py", "fit_hazards"): (
+        "reads the level sets under current_levels only, after refuse_multinode_time_varying: "
+        "categorical nodes (H22)"
+    ),
     ("longitudinal/hazard.py", "_path_structure"): (
         "after refuse_multinode_design: categorical nodes"
     ),
     ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
     ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
     ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
+    ("longitudinal/hazard_backward.py", "_multinode_slots"): (
+        "after refuse_multinode_time_varying: categorical nodes (H22)"
+    ),
     ("longitudinal/learned.py", "learned_regimen_record"): (
         "after refuse_learned_regimen_data: two categorical binary nodes"
     ),
