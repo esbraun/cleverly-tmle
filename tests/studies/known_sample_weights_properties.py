@@ -1,29 +1,32 @@
 """Property families of ``known-mechanism-sample-weights`` (Fix-16 plan section 7), and verdicts.
 
 The cells are fixed before any run.  Each stream is one law at one size; one draw of a stream
-is fitted once per fit, and every cell of the stream reads those fits, so the gated cell, the
-control and the reporting cell of one size always share their draw:
+is fitted once per fit, and every cell of the stream reads those fits, so the cells of one size
+always share their draw.  The shared draws are the paired design of
+``docs/development/method-benchmarking.md`` ("fixed shared seeds so methods see identical draws
+and paired controls merge by replication index"): each control's paired difference reads them.
 
-=========================================  ==========  =========  ==========  ================
-cell                                       role        stream     fit         rule
-=========================================  ==========  =========  ==========  ================
-``interval_calibration/<label>__correctly  positive    label      gated       shared
-_specified``                                                                  calibration
-                                                                              rule, with the
-                                                                              derived controls
-``sample_bias/<label>``                    positive    label      gated       bias inside
-                                                                              0.25 SD
-``target_reading_control/sw_n<n>``         control     ``sw_n``   control     bias beyond
-                                                                              0.25 SD
-``sample_misspecified/sw_n<n>``            reported    ``sw_n``   reporting   none
-=========================================  ==========  =========  ==========  ================
+=========================================  ==========  ===========  ======================
+cell                                       role        fit          rule
+=========================================  ==========  ===========  ======================
+``interval_calibration/<label>__correctly  positive    correct      shared calibration
+_specified``                                                        rule, with the derived
+                                                                    controls
+``sample_bias/<label>``                    positive    correct      bias inside 0.25 SD
+``target_reading_control/<label>``         control     ``target``   bias beyond 0.25 SD
+``sample_misspecified/<label>``            positive    outcome      bias inside 0.25 SD
+                                                       wrong
+``tilt_misspecified/sw_n4000``             positive    tilt wrong   bias inside 0.25 SD
+``both_misspecified/sw_n4000``             control     both wrong   bias beyond 0.25 SD
+=========================================  ==========  ===========  ======================
 
 The labels are ``sw_n1000``, ``sw_n4000``, ``sw_n16000`` (law SW, point TMLE) and ``lw_n4000``
-(law LW, LTMLE).  The gated fit of a point label is ``sample_correct``, its control
-``target_main`` and its reporting fit ``sample_main``
-(:data:`tests.studies.known_sample_weights_law.SETTINGS`); the gated fit of ``lw_n4000`` is
-:func:`~tests.studies.known_sample_weights_law.fit_longitudinal`.  Every point cell reads the
-ATE and the longitudinal cells read the regimen contrast.
+(law LW, LTMLE).  The fits are named in :data:`FITS`
+(:data:`tests.studies.known_sample_weights_law.SETTINGS` and
+:data:`~tests.studies.known_sample_weights_law.LW_SETTINGS`).  On law SW the control and the
+outcome-wrong positive use the main-terms outcome regression; on law LW they use the
+intercept-only node-one regression.  Every point cell reads the ATE and the longitudinal cells
+read the regimen contrast.
 
 **Rules.**
 
@@ -31,23 +34,28 @@ ATE and the longitudinal cells read the regimen contrast.
   (:func:`~tests.studies.evidence.property_verdicts.calibration_verdicts`) with the derived
   ``shrunken_se_control`` and ``noise_control``; the noise arm adds one unit of the exact SD of
   the gated fit's curve (:data:`EFFICIENCY_SD`).  The study claims no efficiency band.
-- ``sample_bias`` and ``target_reading_control`` read
-  :func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`: a positive's 99% interval
-  of the standardized bias inside the 0.25 margin, a control's wholly beyond it.
-- ``sample_misspecified`` is reported, with
-  :data:`~tests.studies.evidence.property_verdicts.DIAGNOSTIC_ROLE`.
+- Every other family reads
+  :func:`~tests.studies.evidence.property_verdicts.bias_role_verdicts`: a positive's 99%
+  interval of the standardized bias inside the 0.25 margin, a control's wholly beyond it.  Their
+  rows publish the SE ratio and coverage too, ungated: with one nuisance wrong the shipped
+  interval is not claimed.
+
+``sample_misspecified`` is the study's direct witness of the tilt: with the outcome regression
+wrong, only a correct tilted mechanism removes the bias, and a reverted or broken tilt shows as
+bias there.  ``tilt_misspecified`` witnesses the other half of the double robustness, and
+``both_misspecified`` shows that its wrong tilt sits on a term that matters.
 
 Each control row also publishes, ungated, its exact-law bias (``exact_bias``,
-:func:`~tests.studies.known_sample_weights_law.control_limit`) and the mean paired difference of
-the control and the reporting cell on the same draws over the control's SD
-(``paired_difference_over_sd``): the part of the control's bias that the ``"sample"`` reading
-removes with the same misspecified outcome regression (plan rev 2.1 item 1, review m5).
+:data:`EXACT_CONTROL_BIAS`) and the mean paired difference of the control and its partner on
+the same draws over the control's SD (``paired_difference_over_sd``, :data:`CONTROL_PAIRS`): the
+part of the control's bias that the partner's one correct nuisance removes (plan rev 2.1 item
+1, review m5).
 
 **Smoke gate.**  :func:`smoke_findings` fits the first draws of every stream in this process and
 returns every finding; ``python -m tests.studies.known_sample_weights_properties smoke`` exits
 non-zero on any.  A finding is a cell without its rows, a non-finite estimate or standard error,
-a ``"sample"`` fit that reads its mechanism as known, a ``"target"`` fit that does not, or an
-LTMLE fit that records a known factor.
+a ``"sample"`` fit that reads its mechanism as known (point) or records a known factor
+(LTMLE), or a ``"target"`` fit that does not read both as declared.
 
 A replication that raises is not redrawn; the failure accounting of
 ``docs/development/method-benchmarking.md`` applies at :data:`FAILURE_BOUND`.
@@ -77,7 +85,6 @@ from tests.studies.evidence.properties import (
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
-    DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     bias_role_rule,
     bias_role_verdicts,
@@ -85,7 +92,6 @@ from tests.studies.evidence.property_verdicts import (
     calibration_derived,
     calibration_verdicts,
     finish,
-    reported_verdicts,
 )
 from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
@@ -107,10 +113,8 @@ SIZES: dict[str, int] = {
 #: from the committed 8,000-draw pilot (``tests/studies/known_sample_weights_pilot.csv``) by the
 #: rule the design test recomputes: the smallest common multiple of 400 at which the product of
 #: every gated cell's pass probability is at least 0.95, each read at the measured SE ratio,
-#: coverage, bias and per-draw SE-ratio spread (kurtosis and SE spread) and averaged over the
-#: pilot's own noise.  At 4,000 that predictive product is 0.962 and the plug-in product 0.991;
-#: the n = 1,000 calibration cell binds (0.975
-#: predictive, 0.993 plug-in).
+#: coverage, bias and per-draw SE-ratio spread, with the SE ratio's interval scaled on the log
+#: scale, and averaged over the pilot's own noise.  See the design test for the values.
 REPLICATES: dict[str, int] = {
     "sw_n1000": 4_000,
     "sw_n4000": 4_000,
@@ -128,18 +132,41 @@ EFFICIENCY_SD: dict[str, float] = {
 }
 DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
 
-#: The control's exact-law ATE bias on law SW, at every size (the design test pins it).
-EXACT_CONTROL_BIAS = -0.033047
-
 CALIBRATION = "interval_calibration"
 BIAS_FAMILY = "sample_bias"
 CONTROL_FAMILY = "target_reading_control"
-REPORTED_FAMILY = "sample_misspecified"
-#: The gated bias families and the family that states no verdict.
-BIAS_FAMILIES = (BIAS_FAMILY, CONTROL_FAMILY)
-REPORTED_FAMILIES = (REPORTED_FAMILY,)
+OUTCOME_WRONG_FAMILY = "sample_misspecified"
+TILT_WRONG_FAMILY = "tilt_misspecified"
+BOTH_WRONG_FAMILY = "both_misspecified"
+#: The gated bias families, read by role.
+BIAS_FAMILIES = (
+    BIAS_FAMILY,
+    CONTROL_FAMILY,
+    OUTCOME_WRONG_FAMILY,
+    TILT_WRONG_FAMILY,
+    BOTH_WRONG_FAMILY,
+)
+#: The label of the tilt-wrong pair.
+TILT_LABEL = "sw_n4000"
 #: The summary columns this study adds.
 EXTRA_COLUMNS = ("exact_bias", "paired_difference_over_sd")
+
+#: Each control's exact-law bias (the design test pins them against
+#: :func:`~tests.studies.known_sample_weights_law.control_limit`,
+#: :func:`~tests.studies.known_sample_weights_law.both_wrong_limit` and
+#: :func:`~tests.studies.known_sample_weights_law.lw_control_limit`); the SW control's is the
+#: same at every size.
+EXACT_CONTROL_BIAS: dict[tuple[str, str], float] = {
+    **{(CONTROL_FAMILY, label): -0.033047 for label in POINT_LABELS},
+    (CONTROL_FAMILY, LONGITUDINAL_LABEL): 0.455021,
+    (BOTH_WRONG_FAMILY, TILT_LABEL): -0.034797,
+}
+#: Each control's partner on the same draws: the fit with the same wrong nuisance and the
+#: other one correct.
+CONTROL_PAIRS: dict[tuple[str, str], str] = {
+    **{(CONTROL_FAMILY, label): OUTCOME_WRONG_FAMILY for label in CALIBRATION_LABELS},
+    (BOTH_WRONG_FAMILY, TILT_LABEL): OUTCOME_WRONG_FAMILY,
+}
 
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
@@ -156,9 +183,10 @@ class Cell:
     label : str
         The stream label.
     role : str
-        ``positive``, ``control`` or the diagnostic role.
+        ``positive`` or ``control``.
     fit : str
-        A key of :data:`~tests.studies.known_sample_weights_law.SETTINGS`, or ``"ltmle"``.
+        A key of :data:`~tests.studies.known_sample_weights_law.SETTINGS` or
+        :data:`~tests.studies.known_sample_weights_law.LW_SETTINGS`.
     """
 
     family: str
@@ -177,19 +205,27 @@ class Cell:
         return f"{self.family}/{self.name}"
 
 
+#: Each label's fits: ``(correct, control, outcome wrong)``.
+FITS: dict[str, tuple[str, str, str]] = {
+    **dict.fromkeys(POINT_LABELS, ("sample_correct", "target_main", "sample_main")),
+    LONGITUDINAL_LABEL: ("ltmle_sample", "ltmle_target_flat", "ltmle_sample_flat"),
+}
+
+
 def _cells() -> tuple[Cell, ...]:
     cells = []
     for label in CALIBRATION_LABELS:
-        gated = "ltmle" if label == LONGITUDINAL_LABEL else "sample_correct"
+        correct, control, outcome_wrong = FITS[label]
         cells += [
-            Cell(CALIBRATION, label, "positive", gated),
-            Cell(BIAS_FAMILY, label, "positive", gated),
+            Cell(CALIBRATION, label, "positive", correct),
+            Cell(BIAS_FAMILY, label, "positive", correct),
+            Cell(CONTROL_FAMILY, label, "control", control),
+            Cell(OUTCOME_WRONG_FAMILY, label, "positive", outcome_wrong),
         ]
-    for label in POINT_LABELS:
-        cells += [
-            Cell(CONTROL_FAMILY, label, "control", "target_main"),
-            Cell(REPORTED_FAMILY, label, DIAGNOSTIC_ROLE, "sample_main"),
-        ]
+    cells += [
+        Cell(TILT_WRONG_FAMILY, TILT_LABEL, "positive", "tilt_wrong"),
+        Cell(BOTH_WRONG_FAMILY, TILT_LABEL, "control", "both_wrong"),
+    ]
     return tuple(cells)
 
 
@@ -218,9 +254,7 @@ def draw(label: str, seed: int) -> pd.DataFrame:
 
 def fit_one(label: str, frame: pd.DataFrame, fit: str) -> Any:
     """One fit of one draw: the single result (point) or the longitudinal result."""
-    if fit == "ltmle":
-        return law.fit_longitudinal(frame)
-    return law.fit(frame, fit)
+    return law.fit_named(frame, fit)
 
 
 def estimate_of(label: str, result: Any) -> Any:
@@ -402,28 +436,27 @@ def _cell_rows(rows: pd.DataFrame, family: str, cell: str) -> pd.DataFrame:
 
 
 def control_columns(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Publish each control's exact-law bias and its paired difference with the reporting cell."""
-    for label in POINT_LABELS:
-        mask = (summary["property"] == CONTROL_FAMILY) & (summary["cell"] == label)
+    """Publish each control's exact-law bias and its paired difference with its partner."""
+    for (family, label), partner in CONTROL_PAIRS.items():
+        mask = (summary["property"] == family) & (summary["cell"] == label)
         if int(mask.sum()) != 1:
-            raise ValueError(f"{CONTROL_FAMILY}/{label} is not one summary row")
-        control = _cell_rows(rows, CONTROL_FAMILY, label).set_index("replicate")["estimate"]
-        reporting = _cell_rows(rows, REPORTED_FAMILY, label).set_index("replicate")["estimate"]
+            raise ValueError(f"{family}/{label} is not one summary row")
+        control = _cell_rows(rows, family, label).set_index("replicate")["estimate"]
+        reporting = _cell_rows(rows, partner, label).set_index("replicate")["estimate"]
         shared = control.index.intersection(reporting.index)
         difference = control.loc[shared] - reporting.loc[shared]
-        summary.loc[mask, "exact_bias"] = EXACT_CONTROL_BIAS
+        summary.loc[mask, "exact_bias"] = EXACT_CONTROL_BIAS[(family, label)]
         summary.loc[mask, "paired_difference_over_sd"] = float(difference.mean()) / float(
             control.std(ddof=1)
         )
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The calibration rule and its controls, the bias rule by role, the reporting cells."""
+    """The calibration rule and its controls, and the bias rule by role."""
     summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=EXTRA_COLUMNS, rate_labels=())
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=None)
     bias_role_verdicts(summary, families=BIAS_FAMILIES)
     control_columns(summary, rows)
-    reported_verdicts(summary, families=REPORTED_FAMILIES)
     return finish(summary, rates)
 
 
@@ -434,7 +467,7 @@ PROPERTY_RULES = (bias_role_rule(BIAS_FAMILIES),)
 
 def gated_cells() -> tuple[str, ...]:
     """The ``family/cell`` names whose red verdict gates the study, derived controls included."""
-    fitted = tuple(cell.key for cell in CELLS if cell.role != DIAGNOSTIC_ROLE)
+    fitted = tuple(cell.key for cell in CELLS)
     return (*fitted, *(name for names in DERIVED_CELLS.values() for name in names))
 
 
@@ -461,10 +494,13 @@ def _mechanism_findings(label: str, frame: pd.DataFrame) -> tuple[list[str], dic
             warnings.simplefilter("ignore")
             result = fit_one(label, frame, fit)
         seconds[fit] = time.perf_counter() - start
-        if fit == "ltmle":
-            if tuple(result.config.known_factors):
+        if fit in law.LW_SETTINGS:
+            reading = law.LW_SETTINGS[fit][0]
+            expected_factors = () if reading == "sample" else ("A1", "A2")
+            if tuple(result.config.known_factors) != expected_factors:
                 findings.append(
-                    f"{label}/{fit}: records known factors {result.config.known_factors}"
+                    f"{label}/{fit}: records known factors {result.config.known_factors}, "
+                    f"expected {expected_factors}"
                 )
             continue
         expected = "known" if law.SETTINGS[fit].reading == "target" else "estimated"

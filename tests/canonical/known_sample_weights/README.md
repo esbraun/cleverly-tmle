@@ -4,7 +4,9 @@ This study measures `mechanism_law="sample"`: a weighted fit that declares the t
 mechanism of the rows as drawn estimates the mechanism of the weight-tilted law from the
 declaration and a weighted classification, and counts it as estimated (Fix-16 plan sections 2.2,
 3 and 7). It reads point TMLE on law SW at n = 1,000, 4,000 and 16,000, LTMLE on the two-node
-law LW at n = 4,000, and the old `"target"` reading as a control. It has no comparator.
+law LW at n = 4,000, and the old `"target"` reading as a control. With one nuisance misspecified
+(the outcome regression, or on SW the tilt classifier) it checks that the `"sample"` estimate stays
+unbiased, and with both wrong that it does not. It has no comparator.
 
 | file | role |
 | --- | --- |

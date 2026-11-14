@@ -17,16 +17,25 @@ family                              cells
                                     and the correct main-terms tilt classifier, five-fold
                                     cross-fit, ATE, at n = 1,000, 4,000 and 16,000; law LW,
                                     LTMLE ``"sample"`` with correct regressions and tilt
-                                    classifiers, the regimen contrast at n = 4,000: 4 gated
+                                    classifiers, five-fold cross-fit with declared outcome
+                                    bounds, the regimen contrast at n = 4,000: 4 gated
                                     positives, each with the derived ``shrunken_se_control``
                                     and ``noise_control``
 ``sample_bias``                     the same fits: gated positives, bias inside the margin
-``target_reading_control``          law SW, ``"target"`` (the old reading, dividing by
-                                    ``g_0``) with the main-terms outcome regression, on the
-                                    draws of each ``sample_bias`` point cell: gated controls,
-                                    bias beyond the margin
-``sample_misspecified``             law SW, ``"sample"`` with the main-terms outcome
-                                    regression, on the same draws: reported
+``target_reading_control``          ``"target"`` (the old reading, dividing by the
+                                    declaration) with the main-terms outcome regression (SW)
+                                    or an intercept-only node-one regression (LW), on the
+                                    draws of each ``sample_bias`` cell: gated controls, bias
+                                    beyond the margin
+``sample_misspecified``             ``"sample"`` with the same misspecified regression, on the
+                                    same draws: gated positives, bias inside the margin, the
+                                    direct witness of the tilt (calibration published,
+                                    ungated)
+``tilt_misspecified``               law SW at n = 4,000, ``"sample"`` with the correct outcome
+                                    regression and a tilt classifier that drops ``W1``: a
+                                    gated positive, bias inside the margin
+``both_misspecified``               the same wrong tilt with the main-terms outcome
+                                    regression: a gated control, bias beyond the margin
 ==================================  ==========================================================
 
 **No comparator.**  No external package implements the tilted mechanism from a declaration;
@@ -84,8 +93,10 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for kind in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
     "sample_bias": CALIBRATION_LABELS,
-    "target_reading_control": POINT_LABELS,
-    "sample_misspecified": POINT_LABELS,
+    "target_reading_control": CALIBRATION_LABELS,
+    "sample_misspecified": CALIBRATION_LABELS,
+    "tilt_misspecified": ("sw_n4000",),
+    "both_misspecified": ("sw_n4000",),
 }
 
 STUDY = StudyRecord(
@@ -146,11 +157,17 @@ CONFIGURATION = {
         "correct": "unpenalized logistic GLM on (A, W1, A W1, W1^2, W2), by Newton",
         "main": "unpenalized logistic GLM on (A, W1, W2), by Newton (misspecified)",
         "LW": "weighted least squares on each node's follower design (correct)",
+        "LW_flat": "the weighted mean at node one (misspecified), least squares at node two",
     },
-    "tilt_classifier": "unpenalized main-terms logistic GLM on the node's design, by Newton",
+    "tilt_classifier": {
+        "correct": "unpenalized main-terms logistic GLM on the node's design, by Newton",
+        "w2": "unpenalized logistic GLM on W2 alone, by Newton (misspecified: drops W1)",
+    },
     "point_fits": {name: vars(setting) for name, setting in law.SETTINGS.items()},
+    "ltmle_fits": {name: list(setting) for name, setting in law.LW_SETTINGS.items()},
     "point_cross_fit": f"{law.N_FOLDS} folds",
     "ltmle_folds": law.LW_FOLDS,
+    "ltmle_q_bounds": list(law.LW_Q_BOUNDS),
     "estimands": list(law.ESTIMANDS),
     "ltmle_estimands": list(law.LONGITUDINAL_ESTIMANDS),
     "g_bounds": list(law.G_BOUNDS),

@@ -4,7 +4,7 @@ Every declared number of :mod:`tests.studies.canonical_known_sample_weights` and
 :mod:`tests.studies.known_sample_weights_properties` is checked here: the exact truths of both
 laws (law SW's from :math:`\\bar Q_w` and from :math:`\\bar Q_0`, with a guard on a weight that
 reads ``Y``), the tilt, the Kish effective sample sizes, the exact SDs that size the noise arms,
-the control's exact-law bias and its power, the replication counts and their family-wise pass
+the controls' exact-law biases and their power, the misspecified fits' limits, the replication counts and their family-wise pass
 probability from the committed pilot (``tests/studies/known_sample_weights_pilot.csv``), the
 smoke gate, and the red-cell reading.
 """
@@ -59,7 +59,11 @@ def block_of(label: str) -> str:
 
 
 def gated_fit(label: str) -> str:
-    return "ltmle_sample" if label == properties.LONGITUDINAL_LABEL else "sample_correct"
+    return properties.FITS[label][0]
+
+
+def control_fit(family: str, label: str) -> str:
+    return next(c.fit for c in properties.CELLS if (c.family, c.label) == (family, label))
 
 
 # ------------------------------------------------------------------------ the declaration
@@ -74,6 +78,7 @@ class TestTheDeclaration:
         assert study.LONGITUDINAL_N == 4_000
         assert law.WEIGHT_COEFFICIENTS == (0.4, 0.5, 0.15)
         assert (law.G_BOUNDS, law.MAX_ITER, law.TOL, law.N_FOLDS) == ((0.01, 0.99), 100, 1e-10, 5)
+        assert (law.LW_FOLDS, law.LW_Q_BOUNDS, law.LW_G_BOUNDS) == (5, (-25.0, 25.0), (1e-4, 1.0))
 
     def test_the_seeds_are_the_study_s_own(self) -> None:
         seeds = {
@@ -103,9 +108,11 @@ class TestTheDeclaration:
             assert roles[("interval_calibration", f"{label}__correctly_specified")] == "positive"
             assert roles[("interval_calibration", f"{label}__noise_control")] == "control"
             assert roles[("sample_bias", label)] == "positive"
-        for label in properties.POINT_LABELS:
             assert roles[("target_reading_control", label)] == "control"
-            assert roles[("sample_misspecified", label)] == property_verdicts.DIAGNOSTIC_ROLE
+            assert roles[("sample_misspecified", label)] == "positive"
+        assert roles[("tilt_misspecified", "sw_n4000")] == "positive"
+        assert roles[("both_misspecified", "sw_n4000")] == "control"
+        assert property_verdicts.DIAGNOSTIC_ROLE not in set(roles.values())
 
     def test_each_size_has_its_own_stream_and_its_cells_share_it(self) -> None:
         keys = properties.payloads(budget=3)
@@ -115,22 +122,31 @@ class TestTheDeclaration:
         assert set(seeds) == set(properties.CALIBRATION_LABELS)
         flat = [seed for values in seeds.values() for seed in values]
         assert len(set(flat)) == len(flat)
-        # One key fills every cell of its label: the gated cell, the control and the
-        # reporting cell of a size read one draw.
-        for label in properties.POINT_LABELS:
+        # One key fills every cell of its label: the correct fit, the control and the
+        # misspecified fits of a size read one draw (the paired design).
+        for label in properties.CALIBRATION_LABELS:
             names = properties.cells_of(((label, 0, 1),))
             assert f"target_reading_control/{label}" in names
             assert f"sample_misspecified/{label}" in names
             assert f"sample_bias/{label}" in names
+        names = properties.cells_of((("sw_n4000", 0, 1),))
+        assert {"tilt_misspecified/sw_n4000", "both_misspecified/sw_n4000"} <= set(names)
 
     def test_the_point_fits_read_the_declared_settings(self) -> None:
         assert {cell.fit for cell in properties.CELLS if cell.family == "sample_bias"} == {
             "sample_correct",
-            "ltmle",
+            "ltmle_sample",
         }
         assert law.SETTINGS["sample_correct"] == law.Setting("sample", "correct")
         assert law.SETTINGS["target_main"] == law.Setting("target", "main")
         assert law.SETTINGS["sample_main"] == law.Setting("sample", "main")
+        assert law.SETTINGS["tilt_wrong"] == law.Setting("sample", "correct", "w2")
+        assert law.SETTINGS["both_wrong"] == law.Setting("sample", "main", "w2")
+        assert law.LW_SETTINGS == {
+            "ltmle_sample": ("sample", "linear"),
+            "ltmle_target_flat": ("target", "intercept"),
+            "ltmle_sample_flat": ("sample", "intercept"),
+        }
 
 
 # ------------------------------------------------------------------------------ law SW
@@ -191,6 +207,21 @@ class TestLawSW:
         outside = (g_w < law.G_BOUNDS[0]) | (g_w > law.G_BOUNDS[1])
         assert at.mean(outside) < 1e-6
 
+    def test_the_w2_only_tilt_is_a_constant_and_wrong(self) -> None:
+        """The population W2-only fit under the ``v`` law is ``P_v(A = 1)``, which misses ``r``."""
+        at = law.grid()
+        design = np.concatenate([at.w2, at.w2])[:, None]
+        target = np.concatenate([np.ones_like(at.w1), np.zeros_like(at.w1)])
+        mass = np.concatenate(
+            [at.weight * law.weight(1.0, at.w1), at.weight * law.weight(0.0, at.w1)]
+        )
+        beta = law.newton_logistic(design, target, mass)
+        assert beta[1] == pytest.approx(0.0, abs=1e-10)
+        assert expit(beta[0]) == pytest.approx(law.w2_only_tilt(), abs=1e-12)
+        assert at.mean((law.tilt(at.w1) - law.w2_only_tilt()) ** 2) > 1e-2
+        learner = law.W2OnlyLogistic().fit(np.column_stack([at.w1, at.w2]), at.w1 > 0)
+        assert learner.beta_.shape == (2,)
+
     def test_the_noise_arm_reads_the_exact_curve_sd(self) -> None:
         for label in properties.POINT_LABELS:
             assert properties.EFFICIENCY_SD[label] == pytest.approx(
@@ -229,6 +260,46 @@ class TestLawLW:
         np.testing.assert_allclose(law.lw_tilted_first(x), bayes, rtol=0, atol=1e-14)
         assert np.max(np.abs(law.lw_tilted_first(x) - g)) > 0.1
 
+    def test_the_treatment_bounds_never_bind(self) -> None:
+        """Each follower's cumulative product, declared and tilted, sits above the lower bound."""
+        frame = law.draw_longitudinal(4_000_000, MC_SEED + 5)
+        l0, a1, l1 = (frame[c].to_numpy() for c in ("L0", "A1", "L1"))
+        g2 = law.lw_g2(l1)
+        for first in (law.lw_g1(l0), law.lw_tilted_first(l0)):
+            for arm in (0.0, 1.0):
+                follows = a1 == arm
+                product = np.where(arm == 1.0, first * g2, (1.0 - first) * (1.0 - g2))
+                assert float(product[follows].min()) > 3.0 * law.LW_G_BOUNDS[0]
+
+    def test_the_outcome_bounds_are_never_reached(self) -> None:
+        """M3: the declared ``q_bounds`` sit beyond every draw, so they leave the estimand alone."""
+        assert law.lw_outcome_tail_bound() < 1e-30
+        frame = law.draw_longitudinal(1_000_000, MC_SEED + 3)
+        assert float(frame["Y"].abs().max()) < 0.6 * law.LW_Q_BOUNDS[1]
+
+    def test_the_control_limit_matches_a_monte_carlo_hajek_mean(self) -> None:
+        """The intercept-only node-one fit is a Hajek mean of ``Q2`` over ``A1 = a``.
+
+        ``"target"`` weights by ``w / g1`` and lands on :func:`lw_control_limit`; ``"sample"``
+        weights by ``w / g1w`` and lands on the truth.
+        """
+        frame = law.draw_longitudinal(2_000_000, MC_SEED + 4)
+        l0, a1, l1, w = (frame[c].to_numpy() for c in ("L0", "A1", "L1", "wt"))
+        limit, truth = law.lw_control_limit(), law.longitudinal_truth()
+        for name, arm in law.PLANS.items():
+            a = float(arm)
+            follows = a1 == a
+            q2 = law.lw_q2(l0, a, l1, a)
+            g1 = np.where(a == 1.0, law.lw_g1(l0), 1.0 - law.lw_g1(l0))
+            g1w = np.where(a == 1.0, law.lw_tilted_first(l0), 1.0 - law.lw_tilted_first(l0))
+            for fitted, expected in ((g1, limit), (g1w, truth)):
+                weights = follows * w / fitted
+                value = float(np.sum(weights * q2) / np.sum(weights))
+                assert value == pytest.approx(expected[f"ey_regimen[{name}]"], abs=0.01)
+        assert limit["bias"] == pytest.approx(
+            properties.EXACT_CONTROL_BIAS[("target_reading_control", "lw_n4000")], abs=1e-6
+        )
+
     def test_the_kish_ratio_clears_the_floor(self) -> None:
         assert law.longitudinal_kish_ratio() >= KISH_FLOOR
         assert reading("lw_4000", "ltmle_sample")["kish"] >= KISH_FLOOR
@@ -240,10 +311,25 @@ class TestLawLW:
         )
 
 
-# ------------------------------------------------------------------------- the control
-class TestTheControl:
-    def test_the_exact_bias_is_declared(self) -> None:
-        assert law.control_limit()["bias"] == pytest.approx(properties.EXACT_CONTROL_BIAS, abs=1e-6)
+# ------------------------------------------------------------------------ the controls
+CONTROLS = tuple(properties.EXACT_CONTROL_BIAS)
+
+
+class TestTheControls:
+    def test_the_exact_biases_are_declared(self) -> None:
+        for label in properties.POINT_LABELS:
+            assert law.control_limit()["bias"] == pytest.approx(
+                properties.EXACT_CONTROL_BIAS[("target_reading_control", label)], abs=1e-6
+            )
+        assert law.both_wrong_limit()["bias"] == pytest.approx(
+            properties.EXACT_CONTROL_BIAS[("both_misspecified", "sw_n4000")], abs=1e-6
+        )
+        assert law.lw_control_limit()["bias"] == pytest.approx(
+            properties.EXACT_CONTROL_BIAS[("target_reading_control", "lw_n4000")], abs=1e-6
+        )
+        assert set(CONTROLS) == {
+            (c.family, c.label) for c in properties.CELLS if c.role == "control"
+        }
 
     def test_the_main_terms_regression_is_wrong_and_the_correct_one_is_not(self) -> None:
         beta = law.main_terms_limit()
@@ -251,26 +337,31 @@ class TestTheControl:
         fitted = expit(beta[0] + beta[1] + beta[2] * at.w1 + beta[3] * at.w2)
         assert at.mean((fitted - law.qbar0(1.0, at.w1, at.w2)) ** 2) > 1e-3
 
-    @pytest.mark.parametrize("label", properties.POINT_LABELS)
-    def test_the_pilot_reads_the_exact_bias(self, label: str) -> None:
-        row = reading(block_of(label), "target_main")
+    @pytest.mark.parametrize(("family", "label"), CONTROLS)
+    def test_the_pilot_reads_the_exact_bias(self, family: str, label: str) -> None:
+        row = reading(block_of(label), control_fit(family, label))
         error = float(row["sd"]) / np.sqrt(float(row["draws"]))
-        assert row["bias"] == pytest.approx(properties.EXACT_CONTROL_BIAS, abs=5 * error + 0.003)
+        exact = properties.EXACT_CONTROL_BIAS[(family, label)]
+        assert row["bias"] == pytest.approx(exact, abs=5 * error + 0.1 * abs(exact))
 
-    @pytest.mark.parametrize("label", properties.POINT_LABELS)
-    def test_the_control_is_powered(self, label: str) -> None:
+    @pytest.mark.parametrize(("family", "label"), CONTROLS)
+    def test_the_control_is_powered(self, family: str, label: str) -> None:
         """The exact bias over the pilot's SD (its 99% upper limit) clears the margin."""
-        row = reading(block_of(label), "target_main")
+        row = reading(block_of(label), control_fit(family, label))
         draws = float(row["draws"])
         sd_upper = float(row["sd"]) * (1.0 + 2.576 / np.sqrt(2.0 * (draws - 1)))
-        gap = abs(properties.EXACT_CONTROL_BIAS) / sd_upper
+        gap = abs(properties.EXACT_CONTROL_BIAS[(family, label)]) / sd_upper
         power = sizing.bias_discriminated_probability(MARGINS, gap, properties.REPLICATES[label])
         assert power >= CONTROL_POWER
 
-    def test_the_reporting_cell_removes_most_of_the_control_s_bias(self) -> None:
-        for label in ("sw_n4000", "sw_n16000"):
-            control = reading(block_of(label), "target_main")
-            assert control["paired_difference_over_sd"] < -0.5
+    def test_the_partner_removes_most_of_the_control_s_bias(self) -> None:
+        """The paired difference: the one correct nuisance takes the control's bias away."""
+        for family, label in CONTROLS:
+            if label == "sw_n1000":
+                continue
+            row = reading(block_of(label), control_fit(family, label))
+            assert abs(row["paired_difference_over_sd"]) > 0.5
+            assert np.sign(row["paired_difference_over_sd"]) == np.sign(row["bias"])
 
 
 # --------------------------------------------------------------------------- the pilot
@@ -295,33 +386,35 @@ class TestThePilot:
 def family_parts(replicates: dict[str, int], *, predictive: bool) -> dict[str, float]:
     """Each gated cell's pass probability at the declared replications."""
     parts: dict[str, float] = {}
-    for label in properties.CALIBRATION_LABELS:
-        r = replicates[label]
-        row = reading(block_of(label), gated_fit(label))
-        if predictive:
-            parts[f"interval_calibration/{label}"] = pilot.predictive_calibration_pass(
-                MARGINS, r, row
+    for cell in properties.CELLS:
+        r = replicates[cell.label]
+        row = reading(block_of(cell.label), cell.fit)
+        if cell.family == "interval_calibration":
+            parts[cell.key] = (
+                pilot.predictive_calibration_pass(MARGINS, r, row)
+                if predictive
+                else pilot.calibration_cell_pass(
+                    MARGINS, r, row["se_ratio"], row["coverage"], row["ratio_spread"]
+                )
             )
-            parts[f"sample_bias/{label}"] = pilot.predictive_bias_pass(MARGINS, r, row)
+            for ratio in (properties.SHRUNKEN_SE_FACTOR, 1.0 / np.sqrt(2.0)):
+                parts[f"derived/{cell.label}/{ratio:.3f}"] = sizing.calibration_control_probability(
+                    MARGINS, r, ratio
+                )
+        elif cell.role == "positive":
+            parts[cell.key] = (
+                pilot.predictive_bias_pass(MARGINS, r, row)
+                if predictive
+                else float(
+                    sizing.bias_equivalent_probability(MARGINS, float(row["bias_over_sd"]), r)
+                )
+            )
         else:
-            parts[f"interval_calibration/{label}"] = pilot.calibration_cell_pass(
-                MARGINS, r, row["se_ratio"], row["coverage"], row["ratio_spread"]
+            parts[cell.key] = (
+                pilot.predictive_control_pass(MARGINS, r, row)
+                if predictive
+                else sizing.bias_discriminated_probability(MARGINS, float(row["bias_over_sd"]), r)
             )
-            parts[f"sample_bias/{label}"] = float(
-                sizing.bias_equivalent_probability(MARGINS, float(row["bias_over_sd"]), r)
-            )
-        for ratio in (properties.SHRUNKEN_SE_FACTOR, 1.0 / np.sqrt(2.0)):
-            parts[f"derived/{label}/{ratio:.3f}"] = sizing.calibration_control_probability(
-                MARGINS, r, ratio
-            )
-    for label in properties.POINT_LABELS:
-        row = reading(block_of(label), "target_main")
-        r = replicates[label]
-        parts[f"target_reading_control/{label}"] = (
-            pilot.predictive_control_pass(MARGINS, r, row)
-            if predictive
-            else sizing.bias_discriminated_probability(MARGINS, float(row["bias_over_sd"]), r)
-        )
     return parts
 
 
@@ -351,7 +444,13 @@ class TestTheSizes:
     def test_each_calibration_cell_reads_above_ninety_percent(self) -> None:
         parts = family_parts(properties.REPLICATES, predictive=False)
         for label in properties.CALIBRATION_LABELS:
-            assert parts[f"interval_calibration/{label}"] >= 0.90, label
+            assert parts[f"interval_calibration/{label}__correctly_specified"] >= 0.90, label
+
+    def test_the_family_covers_every_gated_cell(self) -> None:
+        parts = family_parts(properties.REPLICATES, predictive=False)
+        fitted = {name for name in parts if not name.startswith("derived/")}
+        assert fitted == {cell.key for cell in properties.CELLS}
+        assert len(parts) == len(properties.gated_cells())
 
     def test_the_derived_controls_fail_with_certainty(self) -> None:
         for label in properties.CALIBRATION_LABELS:
@@ -362,7 +461,7 @@ class TestTheSizes:
                 assert probability > DERIVED_POWER
 
     def test_the_spread_rule_reduces_to_the_shared_one(self) -> None:
-        """With normal estimates and an exact SE the SE half is the shared approximation's."""
+        """With normal estimates and an exact SE the SE half is near the shared approximation's."""
         for r in (800, 2_400):
             shared = float(sizing.calibration_pass(MARGINS, r, np.array([1.0]), coverage=0.95)[0])
             ours = pilot.calibration_cell_pass(MARGINS, r, 1.0, 0.95, 1.0 / np.sqrt(2.0))
@@ -379,19 +478,20 @@ class TestTheSizes:
 
     def test_the_budget(self) -> None:
         seconds = {
-            (label, fit if fit != "ltmle_sample" else "ltmle"): float(
-                reading(block_of(label), fit)["seconds"]
-            )
+            (label, fit): float(reading(block_of(label), fit)["seconds"])
             for label in properties.CALIBRATION_LABELS
-            for fit in pilot.BLOCKS[block_of(label)][2]
+            for fit in properties.fits_of(label)
         }
+        assert {fit for (label, fit) in seconds if label == "sw_n4000"} == set(
+            pilot.BLOCKS["sw_4000"][2]
+        )
         assert properties.cpu_hours(seconds) == pytest.approx(DECLARED_CPU_HOURS, abs=0.05)
 
 
 #: The plug-in and predictive family-wise pass probabilities at the declared replications.
-DECLARED_FAMILY_PASS = (0.991, 0.962)
+DECLARED_FAMILY_PASS = (0.988, 0.956)
 #: The fit CPU-hours of the declared run at the pilot's mean seconds per fit.
-DECLARED_CPU_HOURS = 0.43
+DECLARED_CPU_HOURS = 0.65
 
 
 # ---------------------------------------------------------------------------- the smoke
@@ -405,15 +505,12 @@ def test_the_smoke_gate_passes() -> None:
 
 # ------------------------------------------------------------------ the red-cell reading
 class TestTheRedCellReading:
-    def test_the_gated_cells_are_every_cell_that_is_not_reported(self) -> None:
+    def test_every_declared_cell_is_gated(self) -> None:
         declared = {
-            f"{family}/{cell}"
-            for family, cells in study.PROPERTY_CELLS.items()
-            if family not in properties.REPORTED_FAMILIES
-            for cell in cells
+            f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
         }
         assert set(properties.gated_cells()) == declared
-        assert len(declared) == 4 * 3 + 4 + 3
+        assert len(declared) == 4 * 3 + 4 * 3 + 2
 
     def test_no_gated_cell_reads_an_inadmissible_red(self) -> None:
         """The declared red-cell reading, applied mechanically.

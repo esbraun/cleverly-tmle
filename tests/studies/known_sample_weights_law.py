@@ -54,9 +54,22 @@ regression the LTMLE fits is linear within the regimen's followers (the node-two
 every tilt classifier is a correct main-terms logistic on the node's history.  The regimen
 means under :math:`P_w` are closed-form given :math:`E_w[L_0]` (:func:`longitudinal_truth`).
 
+Law LW's weight does not read :math:`A_2`, so its tilt sits at node one only
+(:math:`r_2 = 1/2`); an error in how the node-two factor composes shows in this study only
+through the SE ratio, and the fast tier's unit tests cover node two.  The LTMLE fits cross-fit
+in five folds with the declared outcome bounds :data:`LW_Q_BOUNDS`, which no draw reaches
+(:func:`lw_outcome_tail_bound`), so the bounds leave the estimand unchanged.
+
+**Misspecified fits.**  The point fits misspecify the outcome regression by its main terms
+(``outcome="main"``) and the tilt classifier by dropping :math:`W_1` (``tilt="w2"``,
+:class:`W2OnlyLogistic`, which misses the slope of :math:`r`).  The ``"sample"`` reading is
+doubly robust: either correct nuisance gives a consistent estimate, and both wrong do not.  The
+LW fits misspecify the node-one regression as an intercept (:class:`InterceptOnly`).
+
 **Exact-law quantities.**  :func:`control_limit` solves the population targeting step of the
 ``"target"`` fit with the main-terms outcome regression on :math:`P_w`, which gives the control's
-exact bias.  :func:`point_influence_sd` is the standard deviation of the shipped curve
+exact bias; :func:`both_wrong_limit` solves the same step with the population W2-only tilt, and
+:func:`lw_control_limit` gives the LW control's limit in closed form.  :func:`point_influence_sd` is the standard deviation of the shipped curve
 :math:`(w / \bar w) D^*(\bar Q_0, g_w)` at the truth, the asymptotic SD of the correct
 ``"sample"`` fit, and :func:`longitudinal_influence_sd` is the same for the LTMLE contrast, by a
 fixed-seed Monte Carlo.
@@ -381,6 +394,34 @@ class LinearOLS(BaseEstimator, RegressorMixin):
         return np.asarray(self.beta_[0] + x @ self.beta_[1:])
 
 
+class W2OnlyLogistic(MainTermsLogistic):
+    """The misspecified tilt classifier: a main-terms logistic on ``W2`` alone.
+
+    It reads the last design column only.  The tilt ``r`` has a ``W1`` slope and no ``W2``
+    term, so its population fit is the constant ``P_v(A = 1)`` (:func:`w2_only_tilt`).
+    """
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> W2OnlyLogistic:
+        super().fit(np.asarray(design, dtype=float)[:, -1:], target, sample_weight)
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        return super().predict_proba(np.asarray(design, dtype=float)[:, -1:])
+
+
+class InterceptOnly(BaseEstimator, RegressorMixin):
+    """The misspecified LW node-one regression: the weighted mean of its target."""
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> InterceptOnly:
+        y = np.asarray(target, dtype=float)
+        w = np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight, dtype=float)
+        self.mean_ = float(np.average(y, weights=w))
+        return self
+
+    def predict(self, design: Any) -> np.ndarray:
+        return np.full(len(np.asarray(design)), self.mean_)
+
+
 # ---------------------------------------------------------------------------- point fits
 @dataclass(frozen=True)
 class Setting:
@@ -392,18 +433,26 @@ class Setting:
         ``"sample"`` or ``"target"``, passed as ``mechanism_law=``.
     outcome : str
         ``"correct"`` or ``"main"`` (:func:`outcome_features`).
+    tilt : str
+        ``"correct"`` (:class:`MainTermsLogistic`) or ``"w2"`` (:class:`W2OnlyLogistic`); a
+        ``"target"`` fit fits no tilt and reads ``"correct"``.
     """
 
     reading: str
     outcome: str
+    tilt: str = "correct"
 
 
-#: The point fits.  ``sample_correct`` is the gated cell, ``target_main`` the control (the old
-#: reading with the misspecified outcome regression) and ``sample_main`` the reporting cell.
+#: The point fits.  ``sample_correct`` has both nuisances correct; ``target_main`` is the old
+#: reading with the main-terms outcome regression (the control); ``sample_main`` misspecifies
+#: the outcome regression, ``tilt_wrong`` the tilt classifier, and ``both_wrong`` both (the
+#: control of ``tilt_wrong``).
 SETTINGS = {
     "sample_correct": Setting("sample", "correct"),
     "target_main": Setting("target", "main"),
     "sample_main": Setting("sample", "main"),
+    "tilt_wrong": Setting("sample", "correct", "w2"),
+    "both_wrong": Setting("sample", "main", "w2"),
 }
 
 
@@ -412,7 +461,10 @@ def fit(frame: pd.DataFrame, name: str, *, random_state: int = 0) -> Any:
     from cleverly.estimators import TMLE
 
     setting = SETTINGS[name]
-    treatment = MainTermsLogistic() if setting.reading == "sample" else DeclaredOnly()
+    if setting.reading == "target":
+        treatment: Any = DeclaredOnly()
+    else:
+        treatment = W2OnlyLogistic() if setting.tilt == "w2" else MainTermsLogistic()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return (
@@ -454,23 +506,36 @@ def main_terms_limit(points: Points | None = None) -> np.ndarray:
     return newton_logistic(np.vstack(design), np.concatenate(target), np.concatenate(mass))
 
 
-def control_limit(points: Points | None = None) -> dict[str, float]:
-    """The ``"target"`` fit's limit with the main-terms outcome regression, on ``P_w``.
+def w2_only_tilt() -> float:
+    """The population fit of :class:`W2OnlyLogistic`: ``P_v(A = 1) = E w(1, W) / sum_a``.
 
-    The fit divides by ``g0``.  For each arm the targeting step solves
+    Under the ``v``-weighted law ``P_v(A = a, W) \\propto p(W) w(a, W)``, which reads
+    ``W2`` nowhere, so the ``W2`` coefficient is zero and the fit is this constant.
+    """
+    at = grid()
+    one, zero = at.mean(weight(1.0, at.w1)), at.mean(weight(0.0, at.w1))
+    return one / (one + zero)
+
+
+def misspecified_limit(mechanism: Callable[[Points], Any], points: Points | None = None) -> dict:
+    """The limit of a fit with the main-terms outcome regression and a fixed mechanism, on ``P_w``.
+
+    For each arm the targeting step solves
     :math:`E_{P_w}[1\\{A = a\\} H_a (Y - \\operatorname{expit}(\\operatorname{logit} \\bar Q
-    + \\epsilon H_a))] = 0` with :math:`H_a = 1 / g_0(a \\mid W)`, and the arm mean is the
-    :math:`P_w`-mean of the targeted regression.  Returns the arm means, the ATE and its bias.
+    + \\epsilon H_a))] = 0` with :math:`H_a = 1 / m(a \\mid W)`, ``m`` the mechanism the fit
+    divides by, and the arm mean is the :math:`P_w`-mean of the targeted regression.
+    ``mechanism`` maps the points to ``m(1 | W)``.  Returns the arm means, the ATE and its bias.
     """
     at = grid() if points is None else points
     beta = main_terms_limit(at)
+    fitted_one = np.asarray(mechanism(at), dtype=float)
     mass_w = 0.0
     for arm in (0.0, 1.0):
         mass_w = mass_w + (g0(at.w2) if arm == 1.0 else 1.0 - g0(at.w2)) * weight(arm, at.w1)
     means: dict[float, float] = {}
     for arm in (0.0, 1.0):
         g = g0(at.w2) if arm == 1.0 else 1.0 - g0(at.w2)
-        clever = 1.0 / g
+        clever = 1.0 / (fitted_one if arm == 1.0 else 1.0 - fitted_one)
         start = expit(beta[0] + beta[1] * arm + beta[2] * at.w1 + beta[3] * at.w2)
         q0 = qbar0(arm, at.w1, at.w2)
         mass = g * weight(arm, at.w1)
@@ -485,6 +550,22 @@ def control_limit(points: Points | None = None) -> dict[str, float]:
         means[arm] = at.mean(mass_w * star) / at.mean(mass_w)
     ate = means[1.0] - means[0.0]
     return {"ey1": means[1.0], "ey0": means[0.0], "ate": ate, "bias": ate - truth()["ate"]}
+
+
+def control_limit(points: Points | None = None) -> dict[str, float]:
+    """The ``"target"`` fit's limit with the main-terms outcome regression: it divides by ``g0``."""
+    return misspecified_limit(lambda at: g0(at.w2), points)
+
+
+def both_wrong_limit(points: Points | None = None) -> dict[str, float]:
+    """The ``both_wrong`` fit's limit: main-terms outcome, tilt ``g0 r~ / sum`` with constant ``r~``."""
+    r = w2_only_tilt()
+
+    def tilted(at: Points) -> Any:
+        g = g0(at.w2)
+        return g * r / (g * r + (1.0 - g) * (1.0 - r))
+
+    return misspecified_limit(tilted, points)
 
 
 # ------------------------------------------------------------------------------- law LW
@@ -508,10 +589,16 @@ LW_WEIGHT_COEFFICIENTS = WEIGHT_COEFFICIENTS
 LW_OUTCOME_COEFFICIENTS = (0.5, 0.4, 0.5, 0.6, 0.5, 0.3)
 #: ``(L0, A1)`` coefficients of ``E[L1 | L0, A1]``.
 LW_COVARIATE_COEFFICIENTS = (0.5, 0.5)
-#: The LTMLE fits in sample (``n_folds=1``): a cross-fitted fit of a continuous outcome needs a
-#: declared outcome support, which a normal outcome does not have.  Every learner is parametric.
-LW_FOLDS = 1
-LW_G_BOUNDS = (0.01, 1.0)
+#: The LTMLE fits cross-fit in five folds.  A cross-fitted fit of a continuous outcome needs a
+#: declared outcome support: :data:`LW_Q_BOUNDS` sits about 13 SD from the mean of ``Y``, no
+#: draw reaches it (:func:`lw_outcome_tail_bound`), so it leaves the estimand unchanged.
+LW_FOLDS = 5
+LW_Q_BOUNDS = (-25.0, 25.0)
+#: The treatment bounds of the LTMLE fits.  They bound each cumulative product of node factors,
+#: and the declared ones reach below 0.01 on about one follower in 10^7 (the ``"target"`` fit
+#: refuses a declared product outside the bounds), the tilted ones below 0.001; the lower bound
+#: sits under both, so it never binds (the design test checks).
+LW_G_BOUNDS = (1e-4, 1.0)
 #: The Monte Carlo draws and seed of :func:`longitudinal_influence_sd`.
 INFLUENCE_DRAWS = 4_000_000
 INFLUENCE_SEED = 2026111416
@@ -653,19 +740,71 @@ def longitudinal_influence_sd(draws: int = INFLUENCE_DRAWS, seed: int = INFLUENC
     return float(curve.std())
 
 
-def fit_longitudinal(frame: pd.DataFrame, *, random_state: int = 0) -> Any:
-    """The gated LTMLE ``"sample"`` fit of law LW: correct regressions and tilt classifiers."""
+def lw_outcome_tail_bound() -> float:
+    r"""An upper bound on :math:`P(|Y| > \max |q|)` under law LW, ``q`` :data:`LW_Q_BOUNDS`.
+
+    With :math:`L_1 = 0.5 L_0 + 0.5 A_1 + \eta` and the outcome noise :math:`\varepsilon`,
+    :math:`|Y| \le 1.3 |L_0| + 1.5 + 0.6 |\eta| + |\varepsilon|`, and by Cauchy-Schwarz
+    :math:`1.3 |L_0| + 0.6 |\eta| + |\varepsilon| \le \sqrt{3.05}\, \chi_3` for the
+    independent standard normals, so the bound is a :math:`\chi^2_3` tail.
+    """
+    from scipy.stats import chi2
+
+    reach = min(abs(LW_Q_BOUNDS[0]), abs(LW_Q_BOUNDS[1])) - 1.5
+    return float(chi2.sf((reach / np.sqrt(3.05)) ** 2, 3))
+
+
+def lw_control_limit() -> dict[str, float]:
+    r"""The limit of ``ltmle_target_flat``: ``"target"`` with the intercept-only node-one regression.
+
+    The node-two regression is correct, so its fluctuation vanishes in the limit.  At node one
+    an intercept-only initial fit makes the logistic intercept shift a constant, which solves the
+    weighted score :math:`\sum w (1\{A_1 = a\} / g_1(a \mid L_0)) (Q_2 - Q_1^*) = 0` over the
+    followers: a Hajek mean of :math:`Q_2` with weight :math:`w / g_1`.  Its limit is
+    :math:`E[w(L_0, a) Q_1(L_0, a, a)] / E[w(L_0, a)]` with :math:`L_0 \sim N(0, 1)`: the mean
+    of a function linear in :math:`L_0` under :math:`L_0 \sim N(c_a, 1)`, with :math:`c_a` the
+    ``L0`` slope of :math:`\log w(L_0, a)`.  Under ``"sample"`` the same weight is
+    :math:`w / g_{1w} \propto E[w \mid L_0] / g_1`, which gives the truth instead.
+    """
+    _, caw, c1 = LW_WEIGHT_COEFFICIENTS
+    out = {}
+    for name, arm in PLANS.items():
+        shift = c1 + caw * float(arm)
+        out[f"ey_regimen[{name}]"] = float(lw_q1(shift, float(arm), float(arm)))
+    out[CONTRAST] = out["ey_regimen[always]"] - out["ey_regimen[never]"]
+    out["bias"] = out[CONTRAST] - longitudinal_truth()[CONTRAST]
+    return out
+
+
+#: The LTMLE fits: ``(reading, node-one regression)``.  ``ltmle_sample`` has every nuisance
+#: correct; ``ltmle_target_flat`` is the old reading with the intercept-only node-one
+#: regression (the control) and ``ltmle_sample_flat`` the ``"sample"`` reading with it.
+LW_SETTINGS: dict[str, tuple[str, str]] = {
+    "ltmle_sample": ("sample", "linear"),
+    "ltmle_target_flat": ("target", "intercept"),
+    "ltmle_sample_flat": ("sample", "intercept"),
+}
+
+
+def fit_longitudinal(
+    frame: pd.DataFrame, name: str = "ltmle_sample", *, random_state: int = 0
+) -> Any:
+    """Fit the named LTMLE setting on one sample of law LW (five-fold cross-fit)."""
     from cleverly.longitudinal import LTMLE
 
+    reading, node_one = LW_SETTINGS[name]
+    treatment = MainTermsLogistic() if reading == "sample" else DeclaredOnly()
+    pseudo = LinearOLS() if node_one == "linear" else InterceptOnly()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return LTMLE(
             PLANS,
             reference=REFERENCE_PLAN,
             outcome_learner=LinearOLS(),
-            pseudo_learner=LinearOLS(),
-            treatment_learner=MainTermsLogistic(),
+            pseudo_learner=pseudo,
+            treatment_learner=treatment,
             n_folds=LW_FOLDS,
+            q_bounds=LW_Q_BOUNDS,
             g_bounds=LW_G_BOUNDS,
             simultaneous=False,
             max_iter=MAX_ITER,
@@ -676,5 +815,10 @@ def fit_longitudinal(frame: pd.DataFrame, *, random_state: int = 0) -> Any:
             **LONGITUDINAL_COLUMNS,
             weights="wt",
             treatment_probabilities=NODE_PROBABILITIES,
-            mechanism_law="sample",
+            mechanism_law=reading,
         )
+
+
+def fit_named(frame: pd.DataFrame, name: str) -> Any:
+    """Fit any named setting: a point fit (:data:`SETTINGS`) or an LTMLE fit (:data:`LW_SETTINGS`)."""
+    return fit_longitudinal(frame, name) if name in LW_SETTINGS else fit(frame, name)

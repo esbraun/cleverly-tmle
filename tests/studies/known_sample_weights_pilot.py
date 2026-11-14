@@ -1,23 +1,22 @@
 """The pilot of ``known-mechanism-sample-weights`` (Fix-16 plan section 7, rev 2.1 items 1 and 2).
 
 Before the declaration every gated cell is read on :data:`DRAWS` pilot draws at its declared n,
-learners and fit, with the control and the reporting cell on the same draws as the gated point
-cell of each size.  The draws come from :data:`PILOT_SEED`, a stream no study draws from, and
-each draw is fitted by :mod:`tests.studies.known_sample_weights_law` exactly as the property
-phase fits it.
+learners and fit, with every cell of a size on the same draws.  The draws come from
+:data:`PILOT_SEED`, a stream no study draws from, and each draw is fitted by
+:mod:`tests.studies.known_sample_weights_law` exactly as the property phase fits it.
 
 The committed summary :data:`SUMMARY` holds one row per pilot cell: the draws, the coverage of
 the shipped interval, the bias against the exact truth, the SD of the estimates, the
 standardized bias, the mean reported SE and the SE ratio, the kurtosis of the estimates, the
 coefficient of variation of the reported SE, the per-draw spread of the log SE ratio
 (:func:`ratio_spread`), the mean Kish effective sample size over n, and the mean seconds per
-fit.  The control row also carries the mean paired difference of the control and the reporting
-cell on the same draws, over the control's SD.  The design test reads the summary
+fit.  Each control row also carries the mean paired difference of the control and its partner
+(:data:`PAIRS`) on the same draws, over the control's SD.  The design test reads the summary
 (``tests/unit/test_known_sample_weights_design.py``).
 
 Run ``python -m tests.studies.known_sample_weights_pilot run --block B --start S --draws D --out
-FILE`` once per block of draws, and ``python -m tests.studies.known_sample_weights_pilot summarize
-FILE...`` to write the summary.  The per-draw rows are not committed.
+FILE [--fits F ...]`` once per block of draws (``--fits`` adds fits to draws already fitted), and
+``python -m tests.studies.known_sample_weights_pilot summarize FILE...`` to write the summary.  The per-draw rows are not committed.
 """
 
 from __future__ import annotations
@@ -42,12 +41,22 @@ DRAWS = 8_000
 PILOT_SEED = 2026111431
 SUMMARY = Path(__file__).with_name("known_sample_weights_pilot.csv")
 
-#: Each pilot block: ``(law, n, fits)``, the fits made on one draw.  A point block fits the
-#: gated cell, the control and the reporting cell on the same draw.
+#: Each pilot block: ``(law, n, fits)``, the fits made on one draw.  A block fits every cell
+#: of its size on the same draw: the correct fit, the control and the outcome-wrong fit, and at
+#: n = 4,000 the tilt-wrong pair.
 POINT_FITS = ("sample_correct", "target_main", "sample_main")
+TILT_FITS = ("tilt_wrong", "both_wrong")
 BLOCKS: dict[str, tuple[str, int, tuple[str, ...]]] = {
-    **{f"sw_{n}": ("SW", n, POINT_FITS) for n in (1_000, 4_000, 16_000)},
-    "lw_4000": ("LW", 4_000, ("ltmle_sample",)),
+    "sw_1000": ("SW", 1_000, POINT_FITS),
+    "sw_4000": ("SW", 4_000, (*POINT_FITS, *TILT_FITS)),
+    "sw_16000": ("SW", 16_000, POINT_FITS),
+    "lw_4000": ("LW", 4_000, tuple(law.LW_SETTINGS)),
+}
+#: Each control fit and its partner on the same draws (the paired difference).
+PAIRS = {
+    "target_main": "sample_main",
+    "both_wrong": "sample_main",
+    "ltmle_target_flat": "ltmle_sample_flat",
 }
 
 
@@ -63,9 +72,10 @@ def kish(weights: np.ndarray) -> float:
     return float(weights.sum() ** 2 / np.sum(weights**2) / len(weights))
 
 
-def records(block: str, draw: int) -> list[dict[str, Any]]:
-    """Every pilot row of one draw of one block."""
+def records(block: str, draw: int, only: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+    """Every pilot row of one draw of one block, or of the fits ``only`` names."""
     name, n, fits = BLOCKS[block]
+    fits = fits if only is None else tuple(fit for fit in fits if fit in only)
     seed = pilot_seed(block, draw)
     if name == "SW":
         frame = law.draw(n, seed)
@@ -77,10 +87,8 @@ def records(block: str, draw: int) -> list[dict[str, Any]]:
     out = []
     for cell in fits:
         start = time.perf_counter()
-        if name == "SW":
-            estimate = law.fit(frame, cell)["ate"]
-        else:
-            estimate = law.fit_longitudinal(frame)[law.CONTRAST]
+        result = law.fit_named(frame, cell)
+        estimate = result["ate"] if name == "SW" else result[law.CONTRAST]
         seconds = time.perf_counter() - start
         std_error, low, high = reported_inference(estimate)
         out.append(
@@ -100,9 +108,9 @@ def records(block: str, draw: int) -> list[dict[str, Any]]:
     return out
 
 
-def run(block: str, start: int, draws: int, out: Path) -> None:
+def run(block: str, start: int, draws: int, out: Path, only: tuple[str, ...] | None = None) -> None:
     """Fit draws ``start`` to ``start + draws - 1`` of one block and write their rows."""
-    rows = [row for draw in range(start, start + draws) for row in records(block, draw)]
+    rows = [row for draw in range(start, start + draws) for row in records(block, draw, only)]
     pd.DataFrame(rows).to_parquet(out, index=False)
 
 
@@ -156,13 +164,14 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
     summary = pd.DataFrame(out)
     for block in summary["block"].unique():
         cells = rows.loc[rows["block"] == block]
-        if "target_main" not in set(cells["cell"]):
-            continue
         wide = cells.pivot(index="draw", columns="cell", values="estimate")
-        difference = wide["target_main"] - wide["sample_main"]
-        mask = (summary["block"] == block) & (summary["cell"] == "target_main")
-        sd = float(summary.loc[mask, "sd"].iloc[0])
-        summary.loc[mask, "paired_difference_over_sd"] = float(difference.mean()) / sd
+        for control, partner in PAIRS.items():
+            if control not in wide.columns:
+                continue
+            difference = wide[control] - wide[partner]
+            mask = (summary["block"] == block) & (summary["cell"] == control)
+            sd = float(summary.loc[mask, "sd"].iloc[0])
+            summary.loc[mask, "paired_difference_over_sd"] = float(difference.mean()) / sd
     return summary
 
 
@@ -173,20 +182,24 @@ _WEIGHTS = _WEIGHTS / _WEIGHTS.sum()
 
 
 def se_half_pass(margins: Margins, replicates: int, ratio: float, spread: float) -> float:
-    """P(the 99% interval of the SE ratio lies inside the calibration band).
+    """P(the 99% interval of the SE ratio lies inside the calibration band), on the log scale.
 
-    The estimated ratio is normal with relative SD ``spread / sqrt(R)`` (:func:`ratio_spread`
-    measured on the pilot, which carries the kurtosis of the estimates and the spread of the
-    reported SE), and the bootstrap interval has half-width ``z_{0.995}`` of that.
-    :func:`tests.studies.repeated_sizing.calibration_pass` is the special case
-    ``spread = 1 / sqrt(2)`` with an exact SE.
+    The log of the estimated ratio is normal about ``log ratio`` with SD ``spread / sqrt(R)``
+    (:func:`ratio_spread` measured on the pilot, which carries the kurtosis of the estimates
+    and the spread of the reported SE), and the interval is the estimate times
+    ``exp(+-z_{0.995} spread / sqrt(R))``, so its width scales with the estimated ratio.  The
+    log form is the conservative variant of design review m2.
     """
     low, high = margins.calibration_se_ratio
     z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
-    scale = ratio * spread / np.sqrt(replicates)
+    scale = spread / np.sqrt(replicates)
     half = z * scale
+    centre = np.log(ratio)
     return max(
-        float(norm.cdf((high - half - ratio) / scale) - norm.cdf((low + half - ratio) / scale)),
+        float(
+            norm.cdf((np.log(high) - half - centre) / scale)
+            - norm.cdf((np.log(low) + half - centre) / scale)
+        ),
         0.0,
     )
 
@@ -214,7 +227,7 @@ def calibration_cell_pass(
 def predictive_calibration_pass(margins: Margins, replicates: int, row: pd.Series) -> float:
     """:func:`calibration_cell_pass` averaged over the pilot noise of the ratio and coverage.
 
-    The true ratio is normal about the pilot's with relative SD ``ratio_spread / sqrt(D)`` and
+    The log of the true ratio is normal about the pilot's with SD ``ratio_spread / sqrt(D)`` and
     the true coverage normal about the pilot's with its binomial SD, independently.
     """
     draws = int(row["draws"])
@@ -223,7 +236,7 @@ def predictive_calibration_pass(margins: Margins, replicates: int, row: pd.Serie
         float(row["coverage"]),
         float(row["ratio_spread"]),
     )
-    ratios = ratio * (1.0 + spread / np.sqrt(draws) * _NODES)
+    ratios = ratio * np.exp(spread / np.sqrt(draws) * _NODES)
     coverages = np.clip(coverage + np.sqrt(coverage * (1.0 - coverage) / draws) * _NODES, 0.0, 1.0)
     se = np.array([se_half_pass(margins, replicates, r, spread) for r in ratios])
     cover = np.array([coverage_half_pass(margins, replicates, c) for c in coverages])
@@ -251,11 +264,13 @@ def main(argv: list[str] | None = None) -> None:
     runner.add_argument("--start", type=int, required=True)
     runner.add_argument("--draws", type=int, required=True)
     runner.add_argument("--out", type=Path, required=True)
+    runner.add_argument("--fits", nargs="+", default=None)
     summary = commands.add_parser("summarize")
     summary.add_argument("files", type=Path, nargs="+")
     arguments = parser.parse_args(argv)
     if arguments.command == "run":
-        run(arguments.block, arguments.start, arguments.draws, arguments.out)
+        only = None if arguments.fits is None else tuple(arguments.fits)
+        run(arguments.block, arguments.start, arguments.draws, arguments.out, only)
         return
     rows = pd.concat([pd.read_parquet(path) for path in arguments.files], ignore_index=True)
     rows = rows.drop_duplicates(["block", "cell", "draw"])
