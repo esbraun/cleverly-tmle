@@ -38,6 +38,7 @@ import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal
 
@@ -225,8 +226,6 @@ class _RLoss:
         scale = np.where(constant | ~(scale > 0.0), 0.0, scale)
         self.usable = np.flatnonzero(scale > 0.0) + self.k
         self.scale = scale[self.usable - self.k]
-        # The penalized columns of x, copied once for every coefficients() call.
-        self.xu = self.x[:, self.usable]
         q, r = np.linalg.qr(self.x[:, : self.k])
         diagonal = np.abs(np.diag(r))
         if self.k and diagonal.min() <= _RANK_TOLERANCE * max(diagonal.max(), 1e-300):
@@ -238,6 +237,15 @@ class _RLoss:
         self.lambda_max = (
             float(np.max(np.abs(self.z.T @ self.y))) / self.total if self.usable.size else 0.0
         )
+
+    @cached_property
+    def xu(self) -> FloatArray:
+        """The penalized columns of ``x``, copied on the first coefficients() call only.
+
+        Built lazily so that the full-row problem holds no copy while the fold problems are
+        solved; it is the same copy, values and layout, that each call used to make.
+        """
+        return self.x[:, self.usable]
 
     def grid(self) -> FloatArray:
         n, p = self.basis.shape
@@ -624,14 +632,17 @@ def select_working_model(
     if grid.size > 1:
         for fold in np.unique(assignment):
             held = assignment == fold
+            sub = _RLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
             # Sliced once per fold: only the KKT residual of the final solution is read, so
             # the fold paths compute none.
             basis_held, multiplier_held = basis[held], multiplier[held]
             response_held = response[held]
-            sub = _RLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
             for k, coef in enumerate(sub.path(grid)):
                 fitted = multiplier_held * (basis_held @ coef)
                 loss[k] += float(np.sum((response_held - fitted) ** 2))
+            # Released before the next fold's problem is built, so the peak stays where the
+            # replaced code had it.
+            del sub, basis_held, multiplier_held, response_held
     risk = loss / problem.total
     index = int(np.flatnonzero(risk == risk.min())[0])
     penalty = float(grid[index])

@@ -11,6 +11,7 @@ replace the reference and these tests with the evidence that change needs.
 from __future__ import annotations
 
 import dataclasses
+import tracemalloc
 from collections.abc import Callable
 from typing import Any
 
@@ -201,6 +202,13 @@ def _problem(
         basis[:, 2:] = np.round(basis[:, 2:])
     inner = rng.integers(0, folds, n)
     inner[:folds] = np.arange(folds)
+    if kind == "fold-indicator":
+        # With two folds, a column that marks fold 1 varies on every row but is constant on
+        # each fold's training rows. The fold paths then hold no penalized column, every
+        # penalty scores the same, and the risk minimum ties at all 100 penalties.
+        indicator = (inner == 1).astype(float)
+        basis = np.column_stack([np.ones(n), indicator])
+        response = multiplier * (0.5 * indicator) + rng.normal(size=n)
     return basis, multiplier, response, k, inner
 
 
@@ -209,6 +217,7 @@ CASES = [(kind, k, 5) for kind in KINDS for k in (1, 2)] + [
     ("ordinary", 1, 2),
     ("ordinary", 2, 10),
     ("no-usable-column", 1, 5),
+    ("fold-indicator", 1, 2),
 ]
 
 
@@ -239,23 +248,48 @@ def test_the_witness_fixtures_choose_an_interior_penalty_on_a_varying_risk() -> 
     assert interior >= 5
 
 
-def test_a_stale_fold_slice_fails_the_equivalence() -> None:
-    # Deliberate mutation: score each fold on the previous fold's held rows.
-    basis, multiplier, response, k, inner = _problem("ordinary", 1)
-    problem = atmle._RLoss(basis, multiplier, response, k)
-    grid = problem.grid()
+def test_one_witness_fixture_ties_the_risk_minimum() -> None:
+    selection = _reference_select(*_problem("fold-indicator", 1, folds=2))
+    assert selection.grid.size == atmle._N_LAMBDA
+    assert np.count_nonzero(selection.risk == selection.risk.min()) > 1
+
+
+def _mutant_risk(problem: Problem, *, slices_once: bool) -> np.ndarray:
+    """The cross-validated risk, with the held slices of fold 0 reused for every fold."""
+    basis, multiplier, response, k, inner = problem
+    full = atmle._RLoss(basis, multiplier, response, k)
+    grid = full.grid()
     loss = np.zeros(grid.size)
-    folds = np.unique(inner)
-    for position, fold in enumerate(folds):
+    first = inner == 0
+    for fold in np.unique(inner):
         held = inner == fold
-        stale = inner == folds[position - 1]
+        scored = first if slices_once else held
         sub = atmle._RLoss(basis[~held], multiplier[~held], response[~held], k)
         for j, coef in enumerate(sub.path(grid)):
-            loss[j] += float(
-                np.sum((response[stale] - multiplier[stale] * (basis[stale] @ coef)) ** 2)
-            )
-    reference = _reference_select(basis, multiplier, response, k, inner)
-    assert not np.array_equal(loss / problem.total, reference.risk)
+            fitted = multiplier[scored] * (basis[scored] @ coef)
+            loss[j] += float(np.sum((response[scored] - fitted) ** 2))
+    return loss / full.total
+
+
+def test_the_equivalence_sees_the_defects_hoisting_could_introduce() -> None:
+    # Deliberate mutations of the three changes, each of which the exact comparison must
+    # detect on an ordinary fixture: held slices taken once before the fold loop, the final
+    # path stopped one penalty short, and a path that drops its warm start.
+    problem = _problem("ordinary", 1)
+    reference = _reference_select(*problem)
+    assert np.array_equal(_mutant_risk(problem, slices_once=False), reference.risk)
+    assert not np.array_equal(_mutant_risk(problem, slices_once=True), reference.risk)
+
+    basis, multiplier, response, k, _ = problem
+    full = atmle._RLoss(basis, multiplier, response, k)
+    index = int(np.flatnonzero(reference.grid == reference.penalty)[0])
+    assert index > 0
+    assert np.array_equal(full.path(reference.grid[: index + 1])[-1], reference.coef)
+    assert not np.array_equal(full.path(reference.grid[:index])[-1], reference.coef)
+
+    warm = full.path(reference.grid)
+    cold = [full.path(reference.grid[j : j + 1])[-1] for j in range(reference.grid.size)]
+    assert any(not np.array_equal(a, b) for a, b in zip(warm, cold, strict=True))
 
 
 def test_both_refuse_the_same_way_below_the_kkt_tolerance(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -328,9 +362,12 @@ def test_a_selection_computes_one_kkt_residual_and_slices_each_fold_twice(
     assert len(counting.masks) == 2 * folds
 
 
-def test_the_penalized_columns_are_copied_once_per_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_penalized_columns_are_copied_once_per_problem() -> None:
     basis, multiplier, response, k, _ = _problem("ordinary", 1)
     problem = atmle._RLoss(basis, multiplier, response, k)
+    # Built on the first coefficients() call only, so the full-row problem holds no copy
+    # while the fold problems are solved.
+    assert "xu" not in vars(problem)
     fresh = problem.x[:, problem.usable]
     # The stored copy has the values and the memory layout of the per-call copy it replaced.
     assert np.array_equal(problem.xu, fresh)
@@ -340,6 +377,20 @@ def test_the_penalized_columns_are_copied_once_per_problem(monkeypatch: pytest.M
     problem.x = np.full_like(problem.x, np.nan)
     for left, right in zip(problem.path(problem.grid()[:10]), expected, strict=True):
         assert np.array_equal(left, right)
+
+
+def test_a_selection_allocates_no_more_than_the_replaced_code() -> None:
+    problem = _problem("ordinary", 1, n=4000, columns=40)
+
+    def peak(select: Callable[..., Selection]) -> int:
+        tracemalloc.start()
+        try:
+            select(*problem)
+            return tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+    assert peak(select_working_model) <= peak(_reference_select)
 
 
 # --- the public fit ---------------------------------------------------------------------------
