@@ -1617,6 +1617,10 @@ targeting-curves,simultaneous_coverage,joint coverage below nominal,se_low
 targeting-curves,simultaneous_coverage,joint coverage in calibration band,se_low
 targeting-curves,type_i_error,coverage floor,coverage/0.5
 targeting-curves,type_i_error,rejection ceiling,rejection/0.1
+tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,deflated variance ratio below band,none
+tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,paired iid/cluster se ratio under its ceiling,none
+tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,shown coverage in band,coverage/0.99
+tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,variance ratio in band,se/1.25
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05
