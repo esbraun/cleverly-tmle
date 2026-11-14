@@ -723,7 +723,9 @@ class CurveDiagnostics:
         max_memory_bytes : int or None
             The most memory the half-sample draws may add above the arrays already held, in
             bytes; ``None`` uses the memory available now.  The draws run in blocks sized to
-            it, and a request whose single draw would exceed it is refused before the refits.
+            it, and a request whose setup, outputs and one draw would exceed it is refused
+            before the refits.  The score is not known before the refit, so this check
+            bounds its tie count by the evaluation rows.
             It bounds the draws only, not the refits, and never lowers ``n_half_samples``.
 
         Returns
@@ -837,6 +839,7 @@ class CurveDiagnostics:
             grid=grid_,
             edges=check_groups(groups, grid_),
             max_memory_bytes=max_memory_bytes,
+            ties_bounded=True,
         )
         frame = self._frame(data)
         refit = estimator.refit(data.subset(train), random_state=seed)

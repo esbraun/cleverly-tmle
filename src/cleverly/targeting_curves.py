@@ -56,6 +56,7 @@ __all__ = [
     "BLOCK_BYTES",
     "DEFAULT_GRID",
     "DRAW_BYTES_FACTOR",
+    "GENERAL_DRAW_BYTES_FACTOR",
     "TARGETING_ATOM_SHARE",
     "TARGETING_BOOTSTRAP_REFUSAL",
     "TARGETING_MEASURED",
@@ -428,10 +429,15 @@ BLOCK_BYTES: Final = 64 * 1024**2
 #: peak, which the unit tests check on fixtures at both ends of the block size.
 DRAW_BYTES_FACTOR: Final = 2.0
 
+#: The factor of the general route (``cut="fixed"``, ``tie_rule="at_or_above"``), which only
+#: the mutation controls reach: its per-cut arrays cost less per draw in a large block than
+#: in a block of one, and the model takes the block of one.
+GENERAL_DRAW_BYTES_FACTOR: Final = 2.5
+
 #: Bytes per evaluation row and per tie block of one draw, by route: the ``(b, n)`` row
 #: temporaries and the ``(b, K)`` block temporaries.  ``"general"`` grows with the cut count
 #: ``Q`` and the edge count ``E``: ``c_K = base + per_cut * Q + per_edge * E``.  Calibrated
-#: by ``tracemalloc`` (``tests/unit/test_targeting_curves.py``, the byte-model tests).
+#: by ``tracemalloc`` (``tests/unit/test_targeting_curve_memory.py``).
 _ROW_BYTES: Final[Mapping[str, float]] = {"shipped": 13.0, "fixed_ranks": 13.0, "general": 13.0}
 _BLOCK_BYTES_PER_TIE: Final[Mapping[str, tuple[float, float, float]]] = {
     "shipped": (76.0, 0.0, 0.0),
@@ -543,6 +549,7 @@ def check_draw_memory(
     grid: Sequence[float],
     edges: Sequence[float],
     max_memory_bytes: int | None,
+    ties_bounded: bool = False,
 ) -> None:
     """Refuse, before any fit, half-sample draws that cannot fit one draw at a time.
 
@@ -567,6 +574,9 @@ def check_draw_memory(
         Group-effect edges.
     max_memory_bytes : int or None
         The budget, or ``None`` for the memory available now.
+    ties_bounded : bool
+        Whether ``blocks`` is the row count standing in for a score not yet known, which the
+        refusal then says.
 
     Raises
     ------
@@ -582,8 +592,16 @@ def check_draw_memory(
     check_memory_budget(
         fixed + per_draw,
         max_memory_bytes=budget,
-        what="The targeting curve's half-sample draws, one draw at a time,",
-        factor=DRAW_BYTES_FACTOR,
+        what=(
+            "The targeting curve's half-sample draws, one draw at a time"
+            + (
+                " and with the score's tie count bounded by the evaluation rows, since the "
+                "score is not known before the refit,"
+                if ties_bounded
+                else ","
+            )
+        ),
+        factor=DRAW_BYTES_FACTOR * (3.0 if ties_bounded else 1.0),
     )
 
 
@@ -679,7 +697,8 @@ def half_sample_draws(
     max_memory_bytes : int or None
         The most memory the draws may add above the arrays already held; ``None`` uses the
         memory available now, and no check runs where the platform reports none.  It caps the
-        block size and refuses a request whose one-draw block would exceed it; it never lowers
+        block size and refuses a request whose setup, outputs and one draw would exceed it; it
+        never lowers
         the number of draws.  Caller ``masks`` are never refused.
 
     Returns
@@ -689,8 +708,10 @@ def half_sample_draws(
 
     Raises
     ------
+    DataError
+        For a ``max_memory_bytes`` that is not a positive integer or ``None``.
     MethodConfigurationError
-        When even one draw at a time is predicted to exceed the memory budget.
+        When the setup, the outputs and one draw are predicted to exceed the memory budget.
     """
     budget_arg = check_max_memory_bytes(max_memory_bytes)
     gamma = evaluation.targeted if scores == "targeted" else evaluation.one_step
@@ -749,7 +770,7 @@ def half_sample_draws(
             fixed + per_draw,
             max_memory_bytes=budget_arg,
             what="The half-sample draws, one draw at a time,",
-            factor=DRAW_BYTES_FACTOR,
+            factor=GENERAL_DRAW_BYTES_FACTOR if route == "general" else DRAW_BYTES_FACTOR,
         )
     else:
         budget = available_memory() if budget_arg is None else budget_arg
@@ -1353,8 +1374,11 @@ def targeting_fit(
     CapabilityError
         For ``target_weights=True`` or a declared stopping rule on the ATE fit.
     DataError
-        For a score with a non-finite value, a grid or group declaration off its rules, or a
-        targeting step that does not converge.
+        For a score with a non-finite value, a grid or group declaration off its rules, a
+        ``max_memory_bytes`` that is not a positive integer or ``None``, or a targeting step
+        that does not converge.
+    MethodConfigurationError
+        When the half-sample draws are predicted to exceed the memory budget.
     """
     check_targeting_spec(fit.config.targeting_spec)
     check_max_memory_bytes(max_memory_bytes)
@@ -1883,6 +1907,14 @@ def control_values(
     -------
     dict
         By score name, ``(quantity, q)`` to ``(point, standard error)``.
+
+    Raises
+    ------
+    DataError
+        If the curve keeps no evaluation rows, or for a ``max_memory_bytes`` that is not a
+        positive integer or ``None``.
+    MethodConfigurationError
+        When the draws are predicted to exceed the memory budget.
     """
     evaluation = curve.evaluation
     if evaluation is None:

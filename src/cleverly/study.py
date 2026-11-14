@@ -5723,7 +5723,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         max_memory_bytes : int or None
             The most memory the half-sample draws may add above the arrays already held, in
             bytes; ``None`` uses the memory available now.  The draws run in blocks sized to
-            it, and a request whose single draw would exceed it is refused before the ATE fit.
+            it, and a request whose setup, outputs and one draw would exceed it is refused
+            before the ATE fit.
             It bounds the draws only, not the ATE fit, and never lowers ``n_half_samples``.
         **overrides : Any
             Settings of the ATE fit, as :meth:`estimate` takes them.
@@ -5800,17 +5801,6 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             scores[compare] = self._external_score(compare, compare_computed_from, score_kind)
         data = self._study.data
         assert isinstance(data, CausalData)
-        grid_ = check_grid(grid)
-        check_draw_memory(
-            n=data.n,
-            units=data.n if data.cluster is None else int(np.unique(data.cluster).size),
-            blocks=max(int(np.unique(np.asarray(values)).size) for values in scores.values()),
-            scores=len(scores),
-            draws=int(n_half_samples),
-            grid=grid_,
-            edges=check_groups(groups, grid_),
-            max_memory_bytes=max_memory_bytes,
-        )
         pair = _resolve_pair(
             EffectModification(
                 Constant(),
@@ -5829,6 +5819,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             kwargs["random_state"] = random_state
         estimator = TMLE(**kwargs)
         check_targeting_settings(estimator)
+        grid_ = check_grid(grid)
+        check_draw_memory(
+            n=data.n,
+            units=data.n if data.cluster is None else int(np.unique(data.cluster).size),
+            blocks=max(int(np.unique(np.asarray(values)).size) for values in scores.values()),
+            scores=len(scores),
+            draws=int(n_half_samples),
+            grid=grid_,
+            edges=check_groups(groups, grid_),
+            max_memory_bytes=max_memory_bytes,
+        )
         fit = estimator.fit(data).single()
         return targeting_fit(
             fit,
