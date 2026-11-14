@@ -72,7 +72,9 @@ checks of the fit.
 
 To see a result instead of reading its table, draw it with `cleverly.plotting`: the
 [plot results](../examples/plots.ipynb) tutorial draws the estimate, the overlap and balance checks,
-and the sensitivity analyses.
+and the sensitivity analyses. The overlap, learner and calibration plots also draw a fit over time, one
+panel per time point, and a fit that borrows external rows; [Plotting](../api/plotting.md) lists
+which results each plot draws.
 
 ## Run the assessment battery
 

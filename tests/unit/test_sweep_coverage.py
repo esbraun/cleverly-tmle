@@ -106,11 +106,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "family:blips",
         ),
     ),
-    **_exempt(
-        "the continuous-time survival result has no assessment facades",
-        "X101",
-        ("result:ContinuousSurvivalResult",),
-    ),
 }
 
 

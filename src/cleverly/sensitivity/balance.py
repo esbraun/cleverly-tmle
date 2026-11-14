@@ -606,5 +606,5 @@ def _refuse_sequential(result: Any) -> None:
         f"it does not yet weigh {what}.",
         reason=RefusalReason.IMPLEMENTATION_GAP,
         alternative=NO_ALTERNATIVE,
-        roadmap="X100",
+        roadmap="X103",
     )
