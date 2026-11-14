@@ -31,6 +31,7 @@ from cleverly import (
     CausalStudy,
     IncrementalEffect,
     LongitudinalTreatment,
+    MSMProjection,
     ParametricGFormulaMethod,
     RegimeContrast,
     RegimeMean,
@@ -58,7 +59,7 @@ from cleverly.datasets import (
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, Refusal
-from cleverly.interventions import Incremental, Shift
+from cleverly.interventions import Incremental, ModifiedPolicy, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -849,6 +850,58 @@ def fit_hazard_one_step() -> Any:
     return _fit_point_survival(survival_model="hazard", targeting="one_step")
 
 
+def _hazard_msm_design(label: Any, horizon: int, frame: Any) -> Any:
+    """The working model ``logit m = b0 + b1 a + b2 t`` over the two arms' horizon cells."""
+    n = len(frame)
+    arm = 1.0 if str(label) == "a1" else 0.0
+    return np.column_stack([np.ones(n), np.full(n, arm), np.full(n, float(horizon))])
+
+
+def fit_hazard_msm() -> Any:
+    """The one-step hazard fit projected onto a working model over its cells (X70 (d))."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    model = MSM(design=_hazard_msm_design, terms=("1", "a", "t"), design_kind="known", link="logit")
+    return study.identify(MSMProjection(model, regimens={"a1": 1, "a0": 0})).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
+def _one_level_up(a: Any, history: Any) -> Any:
+    """``d(a) = min(a + 1, 2)`` on the three arms."""
+    return np.minimum(np.asarray(a, dtype=float) + 1.0, 2.0)
+
+
+def fit_hazard_mtp() -> Any:
+    """A modified treatment policy on three arms against arm 0, on the hazard path (X70 (c))."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4, arms=3)
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    up = ModifiedPolicy("up", apply=_one_level_up, policy_kind="known")
+    return study.identify(RegimeContrast(regimens={"up": up, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_isotonic() -> Any:
     """The iterated-mean fit with its curve projected."""
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
@@ -1077,6 +1130,10 @@ KINDS: dict[str, Kind] = {
     "ltmle": _kind(fit_ltmle, *_READ, *_POINT),
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
+    "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
+    # Each policy is targeted by its own weighted walk, which no truncation replay
+    # rebuilds (H25), so the truncation row reads unavailable.
+    "ltmle_hazard_mtp": _kind(fit_hazard_mtp, *_READ, "refute"),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),

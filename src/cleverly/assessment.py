@@ -994,6 +994,24 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
+    if family == "longitudinal":
+        from .longitudinal.estimator import hazard_mtp_replay
+
+        # A hazard fit targets each modified treatment policy by its own weighted walk,
+        # which the truncation replay does not rebuild (H25).
+        walk = hazard_mtp_replay(result)
+        if walk is not None:
+            rows = tuple(
+                replace(
+                    row,
+                    available=False,
+                    status=AssessmentStatus.UNAVAILABLE,
+                    refusal=walk,
+                )
+                if row.operation == "truncation_curve"
+                else row
+                for row in rows
+            )
     if (
         family == "point"
         and result.data.treatment_kind == "continuous"

@@ -42,7 +42,7 @@ class NodeWeights:
         The nodes, from one.
     node_kinds : tuple of str
         What decided the arm at each node: ``"label"``, ``"rule"``, ``"policy"``,
-        ``"tilt"`` or ``"mtp"``.
+        ``"tilt"``, ``"mtp"``, or ``"held"`` at a later node of a held design.
     used : ndarray of shape (n, T)
         The weight the fit used: the data's weight times the clever covariate, ``nan`` for
         a unit that is not a follower at that node.

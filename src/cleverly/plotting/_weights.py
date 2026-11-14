@@ -25,8 +25,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 #: Nodes whose weight is the data's weight over the cumulative probability alone, so the
 #: bound on that probability caps it. A policy or modified-treatment node divides a varying
-#: numerator by it, and a tilt node's factor is never bounded.
-_CAPPED_KINDS = ("label", "rule")
+#: numerator by it, and a tilt node's factor is never bounded. A held node repeats the
+#: baseline decision and adds no treatment factor.
+_CAPPED_KINDS = ("label", "rule", "held")
 #: Plain words for each node kind whose weight the limit does not cap, as the note names it.
 _UNCAPPED_WORDS = {
     "policy": "a policy that gives each treatment a set probability",
