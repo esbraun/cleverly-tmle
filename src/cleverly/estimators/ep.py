@@ -53,7 +53,11 @@ from .._typing import FloatArray, IntArray
 from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
-from ..effect_modification import EffectModification, modifier_frame
+from ..effect_modification import (
+    EffectModification,
+    effect_modification_ep_refusal,
+    modifier_frame,
+)
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..learners._fitting import clone_learner, fit_learner, seed_unset
 from ..learners.parametric import logistic_newton
@@ -1126,11 +1130,15 @@ class EPEstimator:
         Raises
         ------
         CapabilityError
-            If a fixed or scheduled size exceeds the family's largest member, or a basis
-            reads an undeclared domain or level (R3).
+            If the data hold a missing treatment or baseline strata (R7-ep-mt,
+            R7-ep-strata), a fixed or scheduled size exceeds the family's largest member,
+            or a basis reads an undeclared domain or level (R3).
         DataError
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
+        data_refusal = effect_modification_ep_refusal(data)
+        if data_refusal is not None:
+            raise CapabilityError.from_refusal(data_refusal)
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
         for size in self.sizes(data.n):
             refusal = size_refusal(size, self.effect_modification.basis, data.n)

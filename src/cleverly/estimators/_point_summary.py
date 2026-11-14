@@ -646,6 +646,7 @@ _GROUP_WORDS = {
     "mtp": "the shifted-treatment mean",
     "effect_modification": "the conditional-contrast projection",
     "effect_modification_ratio": "the log-ratio conditional-contrast projection",
+    "effect_modification_ratio_strata": "the log-ratio conditional-contrast projection by stratum",
 }
 
 

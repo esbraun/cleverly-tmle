@@ -1144,6 +1144,7 @@ EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
         "mtp": "shifted-treatment mean",
         "effect_modification": "conditional-contrast projection",
         "effect_modification_ratio": "log-ratio conditional-contrast projection",
+        "effect_modification_ratio_strata": "log-ratio conditional-contrast projection by stratum",
     }
 )
 

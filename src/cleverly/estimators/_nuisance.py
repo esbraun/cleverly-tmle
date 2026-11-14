@@ -60,6 +60,7 @@ from ._mechanism_fit import MechanismFit, describe_mechanism
 from .direct_effect import check_level
 
 if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
+    from ..inference.influence import ParameterEstimate
     from .reduced import MissingOutcomeReducedSet, ReducedSet
 
 __all__ = [
@@ -956,6 +957,12 @@ class RepeatFit:
         median.  The per-arm outcome-adaptive :class:`~cleverly.CTMLE` with the stacked
         curve also keeps the draw's curve and its shipped standard error.  Empty only on a
         draw built by hand.
+    projection : mapping of str to ParameterEstimate or None, default=None
+        On a conditional contrast's projection fit, this draw's own estimate of every
+        coefficient name, marginal and stratum, with its influence curve.  The repeated
+        fit's joint quantities read them: :meth:`~cleverly.estimators.base.TMLEResult.covariance`
+        by the matrix rule, the heterogeneity test, and the curve and band computed per draw
+        (P1 plan 2.3).  ``None`` on every other fit.
     """
 
     nuisance: NuisanceEstimates
@@ -963,6 +970,7 @@ class RepeatFit:
     psi: Mapping[str, float] = field(default_factory=dict)
     seed: int | None = None
     inference: Mapping[str, DrawInference] = field(default_factory=dict)
+    projection: Mapping[str, ParameterEstimate] | None = None
 
     @property
     def folds(self) -> Folds:

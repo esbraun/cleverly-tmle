@@ -32,10 +32,11 @@ from .effect_modification import (
     EffectModification,
     EffectModificationSet,
     effect_modification_data_refusal,
+    effect_modification_ep_refusal,
 )
 from .estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, TMLEResult
 from .estimators import iptw as iptw_estimator
-from .estimators._strata import check_stratified_targets
+from .estimators._strata import check_stratified_projection_rank, check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
 from .exceptions import (
     CapabilityError,
@@ -4271,6 +4272,28 @@ SCORE_SCHEME_REFUSAL = Refusal(
 )
 
 
+#: Why the assessment refuses a missing treatment, which the projection admits in sample.
+SCORE_MISSING_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The score assessment fits one pooled fluctuation over the ATE fit's mechanism, and its "
+    "composite form is not built.",
+    alternative=(
+        "Assess the score on the rows with a recorded treatment if it is missing completely at "
+        "random, or fit the projection with model= declared."
+    ),
+    roadmap="X98",
+)
+
+#: Why the assessment refuses baseline strata, which the projection admits.
+SCORE_STRATA_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The score assessment fits one pooled fluctuation over every row, and its form with one "
+    "block per baseline stratum is not built.",
+    alternative="Declare the study without strata= to assess the score on every row.",
+    roadmap="X98",
+)
+
+
 def _check_score_settings(estimator: Any) -> None:
     """Refuse the ATE fit's settings the score assessment cannot honour, before any learner."""
     spec = estimator.targeting_spec()
@@ -4308,7 +4331,8 @@ def _refuse_conditional_contrast(
 
     The compositions outside P1 (R7) and a modifier outside the adjustment set (R6).  A
     declared basis is then evaluated on the rows, which checks the domains, the levels,
-    the pair of arms and the rank of the Gram matrix without fitting anything.
+    the pair of arms and the rank of the Gram matrix, in every baseline stratum too
+    (R7-strata-rank), without fitting anything.
     """
     refusal = effect_modification_data_refusal(data)
     if refusal is not None:
@@ -4324,7 +4348,7 @@ def _refuse_conditional_contrast(
         )
     spec = _effect_modification_spec(estimand, data)
     if spec is not None:
-        EffectModificationSet.evaluate(spec, data)
+        check_stratified_projection_rank(EffectModificationSet.evaluate(spec, data), data)
 
 
 def _matches_registered_point_identification(
@@ -5484,6 +5508,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 )
         data = self._study.data
         assert isinstance(data, CausalData)
+        if data.has_missing_treatment:
+            raise CapabilityError.from_refusal(SCORE_MISSING_TREATMENT_REFUSAL)
+        if data.has_strata:
+            raise CapabilityError.from_refusal(SCORE_STRATA_REFUSAL)
         chosen = estimand.scale if scale is None else scale
         if chosen not in ("difference", "log_ratio"):
             raise DataError(f"scale must be 'difference' or 'log_ratio'; got {chosen!r}")
@@ -5931,10 +5959,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 out.append(MethodAvailability("tmle", tmle_refusal is None, tmle_refusal))
             elif record.name == "ep":
                 model = estimand.model
-                refused = isinstance(model, Sieve) and model.chosen_by_cv
-                out.append(
-                    MethodAvailability("ep", not refused, EP_CV_MODEL_REFUSAL if refused else None)
+                data = None if self._study is None else self._study.data
+                ep_refusal = (
+                    effect_modification_ep_refusal(data) if isinstance(data, CausalData) else None
                 )
+                if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
+                    ep_refusal = EP_CV_MODEL_REFUSAL
+                out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
             else:
                 out.append(
                     MethodAvailability(

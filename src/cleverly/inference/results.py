@@ -1314,6 +1314,7 @@ def attach_bootstrap(
     diagnostic: bool = False,
     classification: Classification | None = None,
     interval: BootstrapInterval = "percentile",
+    experimental_reason: str | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -1338,6 +1339,10 @@ def attach_bootstrap(
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
         clusters when the bootstrap resamples clusters.
+    experimental_reason : str or None, default=None
+        The sentence a summary whose support reads experimental gives as its reason, in place
+        of the generic one.  The point-treatment TMLE passes the reason of a cross-fitted
+        bootstrap (roadmap F2); ``None`` keeps the generic reason.
 
     Returns
     -------
@@ -1368,14 +1373,15 @@ def attach_bootstrap(
             )
         else:
             drawn = bootstrap.interval(name, alpha)
+        support = support_for(classification, estimate.inference, estimate.reference_df, kind=kind)
+        if experimental_reason is not None and support.label == "experimental":
+            support = replace(support, reason=experimental_reason)
         return replace(
             drawn,
             diagnostic=diagnostic,
             below_floor=below_floor,
             cluster_floor=cluster_floor,
-            support=support_for(
-                classification, estimate.inference, estimate.reference_df, kind=kind
-            ),
+            support=support,
         )
 
     estimates = {

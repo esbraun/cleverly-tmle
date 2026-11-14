@@ -138,7 +138,6 @@ from ..effect_modification import (
     EffectModification,
     EffectModificationSet,
     effect_modification_data_refusal,
-    effect_modification_gap,
     log_ratio_scale_refusal,
 )
 from ..exceptions import (
@@ -214,6 +213,7 @@ from ..inference.multiplier import (
     check_band_reference,
     constant_arm_members,
     known_regime_estimates,
+    median_bands,
     out_of_range,
     simultaneous_bands,
 )
@@ -306,6 +306,7 @@ from ._nuisance import (
 from ._option_support import point_option_conditions
 from ._strata import (
     absent_arm_error,
+    check_stratified_projection_rank,
     check_stratified_targets,
     embed_stratum_curve,
     fold_evaluated_strata_refusal,
@@ -337,6 +338,8 @@ from .composite import (
 from .direct_effect import check_level
 from .targeting import (
     DEFAULT_MAX_OUTER,
+    REPORTED_GROUP,
+    STRATIFIED_RATIO_GROUP,
     ProjectionFluctuation,
     ReductionSpec,
     TargetingSpec,
@@ -396,6 +399,25 @@ def _is_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
         natural-course mean.
     """
     return data.has_missing_outcome and tuple(estimands) == (NATURAL_COURSE_TARGET,)
+
+
+def _claim_names(
+    produced: Mapping[str, ParameterEstimate],
+    claimed: Mapping[str, ParameterEstimate],
+    group: str,
+) -> None:
+    """Refuse a name that a second fluctuation group would produce over the first one's.
+
+    Every reported name comes from exactly one group.  Without this check a later group
+    would replace an earlier group's estimate in the report silently, and which fluctuation
+    a name was read from would depend on the order the groups ran in.
+    """
+    clash = sorted(set(produced) & set(claimed))
+    if clash:
+        raise RuntimeError(
+            f"the {group!r} fluctuation produces {clash}, which an earlier group already "
+            "reported; each name must come from exactly one fluctuation"
+        )
 
 
 def _is_joint_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
@@ -562,6 +584,15 @@ _SUPER_LEARNER_INNER_SPLIT_RULE = (
     "The {role} learner is a package SuperLearner with a classification task, and its "
     "inner stratified split needs at least two rows in each class of its target in each "
     "training complement."
+)
+
+#: Why the full-refit bootstrap of a cross-fitted point-treatment fit reads experimental
+#: (roadmap F2).  ``attach_bootstrap`` gives it as the reason of each experimental summary.
+CROSS_FITTED_BOOTSTRAP_REASON = (
+    "The bootstrap redraws the cross-fitting split, and a resample can put copies of one row "
+    "in a training fold and its validation fold. No read source gives the bootstrap law of a "
+    "cross-fitted estimator (roadmap F2); the registered full-refit bootstrap study measured "
+    "the cross-fitted ATE's percentile interval with SE ratios of 1.17 to 1.33."
 )
 
 #: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal
@@ -2422,6 +2453,7 @@ class TMLE:
                     psi={name: value.psi for name, value in estimates.items()},
                     seed=seed,
                     inference=draw_record,
+                    projection=None if self.effect_modification is None else dict(estimates),
                 )
             )
             details.append(detail)
@@ -2533,7 +2565,11 @@ class TMLE:
             # band reads the mean curves as it reads the curves of one split. A learned-rule
             # fit reaches here with several estimates only with baseline strata, because
             # the band of a known-regime value or contrast is skipped above.
-            if self.learned_rule is None:
+            # A repeated projection fit takes the longitudinal engine's repeated band: each
+            # draw's critical value from its own curves, their median around the median
+            # estimates (``median_bands``, P1 plan 2.3).
+            repeated_projection = self.effect_modification is not None and len(repeats) > 1
+            if self.learned_rule is None and not repeated_projection:
                 refuse_after_repeats(
                     self.repeats,
                     operation="simultaneous=True",
@@ -2541,15 +2577,23 @@ class TMLE:
                     reason=RefusalReason.INFERENCE_GAP,
                     alternative=_REPEATED_BANDS_ALTERNATIVE,
                 )
-            bands = simultaneous_bands(
-                banded,
-                alpha=self.alpha_sig,
-                n_replicates=self.n_multiplier,
-                kind=self.multiplier_kind,
-                random_state=self.random_state,
-                cluster=data.cluster,
-                band_scale=self.band_scale,  # type: ignore[arg-type]
-                band_reference=self.band_reference,  # type: ignore[arg-type]
+            band_options: dict[str, Any] = {
+                "alpha": self.alpha_sig,
+                "n_replicates": self.n_multiplier,
+                "kind": self.multiplier_kind,
+                "random_state": self.random_state,
+                "cluster": data.cluster,
+                "band_scale": self.band_scale,
+                "band_reference": self.band_reference,
+            }
+            bands = (
+                median_bands(
+                    [repeat.projection for repeat in repeats if repeat.projection is not None],
+                    banded,
+                    **band_options,
+                )
+                if repeated_projection
+                else simultaneous_bands(banded, **band_options)
             )
             result = replace(
                 result,
@@ -2582,6 +2626,11 @@ class TMLE:
                 bootstrap,
                 diagnostic=self._bootstrap_diagnostic(data),
                 classification=classification,
+                experimental_reason=(
+                    None
+                    if classification is None or "in_sample" in classification.key.splitting
+                    else CROSS_FITTED_BOOTSTRAP_REASON
+                ),
             )
 
         if classification is not None:
@@ -4035,13 +4084,12 @@ class TMLE:
     def _refuse_effect_modification_settings(self) -> None:
         """Refuse the settings a conditional contrast's projection does not compose with.
 
-        Each is an ``IMPLEMENTATION_GAP`` of P1 in ``docs/roadmap.md`` (R7 of the P1 plan),
-        or a keyword that names a different parameter axis.
+        Each is a keyword that names a different parameter axis.
 
         Raises
         ------
         CapabilityError
-            For another axis keyword, ``repeats`` above 1, or the bootstrap.
+            For another axis keyword.
         ValueError
             For ``reference=``, which the declared pair replaces.
         """
@@ -4061,10 +4109,6 @@ class TMLE:
                 "contrast declares its pair on the EffectModification (treatment=, "
                 "reference=); drop reference= here."
             )
-        if int(self.repeats) > 1:
-            raise CapabilityError.from_refusal(effect_modification_gap("repeats above 1"))
-        if int(self.n_bootstrap) > 0:
-            raise CapabilityError.from_refusal(effect_modification_gap("the full-refit bootstrap"))
 
     def _check_incremental(self, data: CausalData) -> None:
         """Refuse what an incremental fit has no derivation for.
@@ -4436,6 +4480,10 @@ class TMLE:
             if self.effect_modification is None
             else EffectModificationSet.evaluate(self.effect_modification, data)
         )
+        if contrast is not None:
+            # Here and not in the preflight, so every repeat and every bootstrap replicate
+            # meets the rule on its own rows (R7-strata-rank of the P1 plan).
+            check_stratified_projection_rank(contrast, data)
         # A data-tuned cap is fitted here, on the realised split and before any learner
         # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
         tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
@@ -5102,9 +5150,9 @@ class TMLE:
         groups: list[TargetGroup] = (
             ["natural_course"]
             if _is_natural_course(data, requested)
-            else ["natural_course", *self._groups(requested)]
+            else ["natural_course", *self._groups(requested, data)]
             if joint
-            else self._groups(requested)
+            else self._groups(requested, data)
         )
         # The joint route solves the natural-course fluctuation first and holds its mean
         # for the ``mean`` context, which reports every estimate of the fit.
@@ -5138,11 +5186,30 @@ class TMLE:
                 # A log-ratio conditional contrast has a clever covariate that reads its
                 # own coefficients, so the covariate and the projection are solved for
                 # together. Nothing about the nuisances moves, which is why this returns
-                # two values where the mechanism alternation returns three. Such a
-                # contrast refuses strata=, so there is no stratified form.
+                # two values where the mechanism alternation returns three. Under strata=
+                # two groups run on the same nuisances: this unstratified one, which reports
+                # the marginal names, and the stratified one, whose block s reads stratum s's
+                # coefficients and which reports the stratum names (P1 plan 2.2).
                 submodel, fluctuation = self._solve_projection(
                     data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
+                if group == STRATIFIED_RATIO_GROUP:
+                    assert fluctuation.projection is not None
+                    targeting_submodel = submodel
+                    # The one-block covariate whose names and width the stratum readers
+                    # split the stratified covariate by.
+                    submodel = build_submodel(
+                        data,
+                        nuisance,
+                        REPORTED_GROUP[group],
+                        bounds=bounds,
+                        nuisance_bound=(
+                            self.nuisance_bound if nuisance_bound is None else nuisance_bound
+                        ),
+                        msm_beta=fluctuation.projection.beta[
+                            : nuisance.effect_modification.n_terms
+                        ],
+                    )
             else:
                 submodel = self._submodel(
                     data,
@@ -5192,25 +5259,35 @@ class TMLE:
                         data, nuisance, submodel, targeting_submodel, fluctuation
                     )
                 continue
-            pooled = self._estimates_for(
-                data,
-                targeted,
-                group,
-                submodel,
-                fluctuation,
-                requested,
-                level,
-                reference,
-                natural_course=natural_course if group == "mean" else None,
+            # Each name comes from exactly one group. Under strata= on the log ratio the
+            # unstratified group reports only the marginal names and the stratified group only
+            # the stratum names; every other group reports both from one fluctuation.
+            pooled = (
+                {}
+                if group == STRATIFIED_RATIO_GROUP
+                else self._estimates_for(
+                    data,
+                    targeted,
+                    group,
+                    submodel,
+                    fluctuation,
+                    requested,
+                    level,
+                    reference,
+                    natural_course=natural_course if group == "mean" else None,
+                )
             )
+            _claim_names(pooled, pooled_report, group)
             pooled_report.update(pooled)
             marginal_names = tuple(pooled)
-            if data.has_strata:
+            if data.has_strata and not (
+                group == "effect_modification_ratio" and STRATIFIED_RATIO_GROUP in groups
+            ):
                 assert targeting_submodel is not None
                 stratified, codes = self._stratum_estimates(
                     data,
                     targeted,
-                    group,
+                    REPORTED_GROUP.get(group, group),
                     submodel,
                     targeting_submodel,
                     fluctuation,
@@ -5220,6 +5297,7 @@ class TMLE:
                     natural_course=natural_course_strata if group == "mean" else None,
                 )
                 stratum_of.update(codes)
+                _claim_names(stratified, pooled_report, group)
                 pooled.update(stratified)
                 pooled_report.update(stratified)
             group_indices = (
@@ -5369,13 +5447,19 @@ class TMLE:
         )
 
     @staticmethod
-    def _groups(estimands: Sequence[str]) -> list[TargetGroup]:
+    def _groups(estimands: Sequence[str], data: CausalData | None = None) -> list[TargetGroup]:
         """Which fluctuations must be fit to cover the requested estimands.
 
         Each estimand family gets its own targeting step, because each has its own
         efficient influence function and therefore its own score equation to solve.
+        A log-ratio conditional contrast on data with baseline strata adds the stratified
+        fluctuation of its stratum names right after its own group, which then reports
+        only the marginal names (P1 plan 2.2).
         """
-        return groups_for(estimands)
+        groups = groups_for(estimands)
+        if data is not None and data.has_strata and "effect_modification_ratio" in groups:
+            groups.insert(groups.index("effect_modification_ratio") + 1, STRATIFIED_RATIO_GROUP)
+        return groups
 
     def targeting_spec(self) -> TargetingSpec:
         """The targeting settings this estimator would use, as one object.

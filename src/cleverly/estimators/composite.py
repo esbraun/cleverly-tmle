@@ -444,8 +444,9 @@ _SUPPORTED_COMPOSITIONS = (
     "A missing treatment is "
     "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
     "and DRTMLE fits and, for point estimates, per-arm outcome-adaptive CTMLE fits, and "
-    "for regime means and arm-indexed MSM coefficients on in-sample "
-    "TMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}."
+    "for regime means, arm-indexed MSM coefficients and the projection coefficients of a "
+    "ConditionalContrast on in-sample TMLE fits, through the composite indicator "
+    "Delta_A * Delta * 1{A = a}."
 )
 #: The same sentence for an AdaptiveIPTW fit, which cross-fits the arm means and fits its
 #: regime means in sample.
@@ -678,7 +679,7 @@ def missing_treatment_design_refusal(
             code=RefusalReason.IMPLEMENTATION_GAP,
             roadmap="F27",
         )
-    if axis not in ("arm", "regime", "msm"):
+    if axis not in ("arm", "regime", "msm", "effect_modification"):
         return _message(
             data,
             f"{identification} A {axis} target reads P(A | W).",
