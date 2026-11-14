@@ -1317,17 +1317,15 @@ def _weighted_auc(predicted: FloatArray, actual: FloatArray, weights: FloatArray
     w_sorted = weights[order]
 
     # Mid-ranks so ties contribute 0.5, matching the usual AUC convention.
-    ranks = np.empty(p_sorted.shape[0], dtype=float)
+    # A tie block is a run of equal adjacent predictions; each NaN is its own block, since
+    # NaN equals nothing.
     cumulative = np.cumsum(w_sorted)
-    start = 0
-    while start < p_sorted.shape[0]:
-        stop = start
-        while stop + 1 < p_sorted.shape[0] and p_sorted[stop + 1] == p_sorted[start]:
-            stop += 1
-        below = cumulative[start - 1] if start > 0 else 0.0
-        block = cumulative[stop] - below
-        ranks[start : stop + 1] = below + 0.5 * block
-        start = stop + 1
+    size = p_sorted.shape[0]
+    starts = np.flatnonzero(np.concatenate(([True], p_sorted[1:] != p_sorted[:-1])))
+    stops = np.append(starts[1:], size) - 1
+    below = np.concatenate(([0.0], cumulative))[starts]
+    block = cumulative[stops] - below
+    ranks = np.repeat(below + 0.5 * block, stops - starts + 1)
 
     weight_positive = w_sorted[y_sorted].sum()
     weight_negative = w_sorted[~y_sorted].sum()

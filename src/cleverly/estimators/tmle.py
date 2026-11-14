@@ -7151,27 +7151,32 @@ def _coefficients_on_constant_cells(
     _, first, label = np.unique(signature[rows], axis=0, return_index=True, return_inverse=True)
     label = np.asarray(label).reshape(-1)
     terms = design.shape[-1]
-
-    def constant(pattern: int, arms: Sequence[float]) -> bool:
-        members = rows[label == pattern]
-        for arm in arms:
-            cell = members[qualifying[members] & (treatment[members] == arm)]
-            if cell.size and np.unique(outcome[cell]).size == 1:
-                return True
-        return False
+    if contrast is not None and first.size > terms:
+        # Each projection pattern is one cell, so more patterns than terms pools cells and the
+        # loop below could only end in the empty answer. Leaving here skips its scan of every
+        # row per pattern, which is quadratic for a continuous modifier.
+        return frozenset()
 
     cells: list[FloatArray] = []
     flags: list[bool] = []
     for pattern, row in enumerate(rows[first]):
         if contrast is not None:
             cells.append(design[row])
-            flags.append(constant(pattern, contrast.pair))
+            flags.append(
+                _pattern_has_constant_cell(
+                    rows[label == pattern], contrast.pair, outcome, treatment, qualifying
+                )
+            )
             continue
         assert msm is not None
         for position, arm in enumerate(msm.arms):
             if weights[row, position] > 0.0:
                 cells.append(design[row, position])
-                flags.append(constant(pattern, (arm,)))
+                flags.append(
+                    _pattern_has_constant_cell(
+                        rows[label == pattern], (arm,), outcome, treatment, qualifying
+                    )
+                )
         if len(cells) > terms:
             return frozenset()
     if len(cells) != terms or not any(flags):
@@ -7183,6 +7188,40 @@ def _coefficients_on_constant_cells(
     reads = np.abs(inverse) > 1e-10 * np.abs(inverse).max()
     hit = np.asarray(flags, dtype=bool)
     return frozenset(float(j) for j in range(terms) if bool(np.any(reads[j] & hit)))
+
+
+def _pattern_has_constant_cell(
+    members: IntArray,
+    arms: Sequence[float],
+    outcome: FloatArray,
+    treatment: FloatArray,
+    qualifying: BoolArray,
+) -> bool:
+    """Whether a modifier pattern's qualifying rows show one outcome value in one of ``arms``.
+
+    Parameters
+    ----------
+    members : ndarray
+        Row indices of the pattern.
+    arms : sequence of float
+        The treatment codes whose cells to check.
+    outcome : ndarray
+        ``(m,)`` outcomes.
+    treatment : ndarray
+        ``(m,)`` treatment codes.
+    qualifying : ndarray
+        ``(m,)`` booleans, the rows of positive weight with an observed outcome.
+
+    Returns
+    -------
+    bool
+        ``True`` when some arm's cell is non-empty and constant.
+    """
+    for arm in arms:
+        cell = members[qualifying[members] & (treatment[members] == arm)]
+        if cell.size and np.unique(outcome[cell]).size == 1:
+            return True
+    return False
 
 
 def _carry_cell_status(
