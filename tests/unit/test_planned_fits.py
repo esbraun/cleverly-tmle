@@ -9,11 +9,12 @@ the preview and show the comparison then fails.
 
 from __future__ import annotations
 
+import copy
 import importlib
 import inspect
 import warnings
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -22,8 +23,21 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 
 import cleverly
-from cleverly import ATE, CausalStudy, PlannedFits, PointTreatment
+from cleverly import (
+    ATE,
+    AdaptiveTMLEMethod,
+    CausalStudy,
+    ConditionalContrast,
+    CrossFitting,
+    ModelSpec,
+    PlannedFits,
+    PointTreatment,
+    SuperLearner,
+    TrialATE,
+    TrialWithExternalData,
+)
 from cleverly import _planned_fits as planned_module
+from cleverly.bases import Modifiers, Sieve
 from cleverly.datasets import (
     make_cde,
     make_clustered,
@@ -32,9 +46,15 @@ from cleverly.datasets import (
     make_multi_arm,
     make_shift_dose,
 )
-from cleverly.estimators import TMLE
+from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.exceptions import CapabilityError
-from cleverly.interventions import Incremental, LearnedRule, Shift, SupportBoundary
+from cleverly.interventions import (
+    Incremental,
+    JointPolicy,
+    LearnedRule,
+    Shift,
+    SupportBoundary,
+)
 from cleverly.msm import MSM
 from tests import law_q_point as lawp
 from tests.unit import _planned_fits_support as support
@@ -81,17 +101,18 @@ def _engine(
     frame: pd.DataFrame,
     columns: dict[str, Any],
     mutate: Callable[[pytest.MonkeyPatch], None] | None = None,
+    engine: type[TMLE] = TMLE,
 ) -> support.Witness:
     """The engine's preview and its fit on the same arguments, with fresh learners each."""
 
     def preview() -> PlannedFits:
         if mutate is None:
-            return TMLE(**settings())._planned_fits(frame, **columns)
+            return engine(**settings())._planned_fits(frame, **columns)
         with pytest.MonkeyPatch.context() as patch:
             mutate(patch)
-            return TMLE(**settings())._planned_fits(frame, **columns)
+            return engine(**settings())._planned_fits(frame, **columns)
 
-    return support.witness(preview, lambda: TMLE(**settings()).fit(frame, **columns))
+    return support.witness(preview, lambda: engine(**settings()).fit(frame, **columns))
 
 
 # ----------------------------------------------------------------- the route matrix
@@ -193,6 +214,57 @@ class _NoWeightLinear(Ridge):
         ]
     )
 
+
+def _vector_frame(n: int = 300) -> pd.DataFrame:
+    """A binary flag and a continuous dose, jointly the treatment."""
+    rng = np.random.default_rng(0)
+    w = rng.normal(size=n)
+    flag = (rng.uniform(size=n) < 0.5).astype(float)
+    dose = w + flag + rng.normal(size=n)
+    return pd.DataFrame({"W": w, "F": flag, "D": dose, "Y": w + 0.3 * dose + rng.normal(size=n)})
+
+
+VECTOR_COLUMNS = {
+    "outcome": "Y",
+    "treatment": ["F", "D"],
+    "covariates": ["W"],
+    "continuous_treatment": ["D"],
+}
+RULE_COLUMNS = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
+RULE_MODIFIERS = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
+
+
+def _dose_up() -> list[Any]:
+    return [JointPolicy("dose up", components={"D": Shift(0.5, cap=None)}, policy_kind="known")]
+
+
+def _ep_rule(sieve: Sieve) -> Callable[[], dict[str, Any]]:
+    def settings() -> dict[str, Any]:
+        rule = LearnedRule(
+            loss="ep",
+            modifiers=RULE_MODIFIERS,
+            sieve=sieve,
+            learner=support.linear("learned_rule"),
+        )
+        return _plain(learned_rule=rule)
+
+    return settings
+
+
+def _nested_ensemble() -> Any:
+    """A Super Learner whose library holds a Super Learner of ten folds."""
+    inner = SuperLearner(
+        library=[
+            (name, support.logistic(f"treatment_learner:inner/{name}")) for name in ("a", "b")
+        ],
+        n_folds=10,
+    )
+    outer = support.ensemble("treatment_learner", names=("c",), n_folds=3)
+    outer.library = [("inner", inner), *list(outer.library or ())]
+    return outer
+
+
+RARE_COLUMNS = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
 
 DOSE_COLUMNS = {"outcome": "Y", "treatment": "A", "treatment_kind": "continuous"}
 TUNED_COLUMNS = {
@@ -344,6 +416,31 @@ ROUTES: dict[
         lambda: make_cde(n=200, seed=3)[0],
         {"outcome": "Y", "treatment": "A", "intermediate": "Z"},
     ),
+    "vector_classifier": (
+        lambda: _plain(policies=_dose_up(), ratio="classifier"),
+        _vector_frame,
+        VECTOR_COLUMNS,
+    ),
+    "vector_density": (
+        lambda: _plain(policies=_dose_up(), density_bins=4),
+        _vector_frame,
+        VECTOR_COLUMNS,
+    ),
+    "learned_rule_ep_fixed": (
+        _ep_rule(Sieve.default(RULE_MODIFIERS, max_size=3, size=2)),
+        lambda: _rule_frame(300),
+        RULE_COLUMNS,
+    ),
+    "learned_rule_ep_cv": (
+        _ep_rule(Sieve.default(RULE_MODIFIERS, max_size=2)),
+        lambda: _rule_frame(300),
+        RULE_COLUMNS,
+    ),
+    "nested_super_learner": (
+        lambda: _plain(treatment_learner=_nested_ensemble()),
+        lambda: support.rare_class_frame(n=240, rare=14),
+        RARE_COLUMNS,
+    ),
 }
 
 
@@ -442,6 +539,616 @@ def test_the_folds_are_one_draw_without_a_seed() -> None:
     assert plan.total_fits == 6
 
 
+def test_a_nested_super_learner_caps_its_own_folds() -> None:
+    plan = _route("nested_super_learner").plan
+    (row,) = [row for row in plan.rows if row.role == "treatment_learner"]
+    names = dict(row.by_candidate)
+    # Uncapped, the inner Super Learner fits each candidate (10 + 1) times per outer fit.
+    assert names["inner/a"] < row.fits * (3 + 1) * (10 + 1)
+
+
+# ----------------------------------------------------------------- the variant engines
+
+ATE_ONLY = ("ate",)
+SELECTION = {"estimands": ATE_ONLY, "selection_folds": 3, "selection_inner_folds": 2}
+THREE_SETS = [["W1"], ["W1", "W2"], ["W1", "W2", "W3", "W4"]]
+REDUCED = {
+    **PLAIN,
+    "reduced_outcome_learner": "LinearRegression",
+    "reduced_treatment_learner": "LogisticRegression",
+    "reduced_mechanism_residual_learner": "LinearRegression",
+    "preorder": "LogisticRegression",
+}
+
+
+def _ctmle(**overrides: Any) -> Callable[[], dict[str, Any]]:
+    selector = overrides.get("strategy", "greedy") not in ("oat", "derivative")
+    base = SELECTION if selector else {"estimands": ATE_ONLY}
+    return lambda: _plain(**{**base, **overrides})
+
+
+def _drtmle(**overrides: Any) -> Callable[[], dict[str, Any]]:
+    return lambda: _plain(estimands=ATE_ONLY, **overrides)
+
+
+def _iptw(**overrides: Any) -> Callable[[], dict[str, Any]]:
+    def settings() -> dict[str, Any]:
+        values = _plain(**{"estimands": ATE_ONLY, **overrides})
+        for name in ("q_bounds", "simultaneous", "intermediate_learner"):
+            values.pop(name, None)
+        return values
+
+    return settings
+
+
+def _strata_frame() -> pd.DataFrame:
+    return _linear_frame().assign(S=lambda f: (f["W2"] > 0).astype(int))
+
+
+def _missing_frame() -> pd.DataFrame:
+    return make_missing_outcome(n=240, seed=4)[0]
+
+
+MISSING = {"outcome": "Y", "treatment": "A", "delta": "Delta"}
+STRATA = {**COLUMNS, "covariates": [*COVARIATES, "S"], "strata": ["S"]}
+
+#: name -> (engine, settings factory, frame factory, columns, check keywords)
+VARIANT_ROUTES: dict[
+    str,
+    tuple[
+        type[TMLE],
+        Callable[[], dict[str, Any]],
+        Callable[[], pd.DataFrame],
+        dict[str, Any],
+        dict[str, Any],
+    ],
+] = {
+    "ctmle_greedy": (CTMLE, _ctmle(), _linear_frame, COLUMNS, {}),
+    "ctmle_greedy_patience": (CTMLE, _ctmle(patience=1), _linear_frame, COLUMNS, {}),
+    "ctmle_greedy_patience_at_length": (CTMLE, _ctmle(patience=5), _linear_frame, COLUMNS, {}),
+    "ctmle_greedy_by_arm": (CTMLE, _ctmle(outcome_by_arm=True), _linear_frame, COLUMNS, {}),
+    "ctmle_greedy_missing": (
+        CTMLE,
+        _ctmle(cross_fit=False),
+        _missing_frame,
+        MISSING,
+        {},
+    ),
+    "ctmle_ordered": (
+        CTMLE,
+        _ctmle(strategy="ordered", preorder="partial_correlation"),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_ordered_patience": (
+        CTMLE,
+        _ctmle(strategy="ordered", preorder="partial_correlation", patience=1),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_ordered_logistic": (
+        CTMLE,
+        _ctmle(strategy="ordered"),
+        _linear_frame,
+        COLUMNS,
+        {"engine_role": "preorder"},
+    ),
+    "ctmle_discrete": (
+        CTMLE,
+        _ctmle(strategy="discrete", candidates=THREE_SETS),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_discrete_patience": (
+        CTMLE,
+        _ctmle(strategy="discrete", candidates=THREE_SETS, patience=1),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_lasso": (CTMLE, _ctmle(strategy="lasso"), _linear_frame, COLUMNS, {}),
+    "ctmle_learners": (
+        CTMLE,
+        _ctmle(
+            strategy="learners",
+            treatment_candidates=[support.logistic("treatment_learner", C=0.1)],
+        ),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_learners_patience": (
+        CTMLE,
+        _ctmle(
+            strategy="learners",
+            treatment_candidates=[support.logistic("treatment_learner", C=0.1)],
+            patience=1,
+        ),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_derivative": (
+        CTMLE,
+        _ctmle(
+            strategy="derivative",
+            treatment_candidates=[
+                support.logistic("treatment_learner"),
+                support.logistic("treatment_learner", C=0.1),
+            ],
+        ),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_derivative_lasso": (
+        CTMLE,
+        _ctmle(strategy="derivative"),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_oat_per_arm": (CTMLE, _ctmle(strategy="oat"), _linear_frame, COLUMNS, {}),
+    "ctmle_oat_shared": (
+        CTMLE,
+        _ctmle(strategy="oat", oat_design="shared"),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_oat_in_sample": (
+        CTMLE,
+        _ctmle(strategy="oat", cross_fit=False),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_oat_by_arm": (
+        CTMLE,
+        _ctmle(strategy="oat", outcome_by_arm=True),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_oat_missing": (CTMLE, _ctmle(strategy="oat"), _missing_frame, MISSING, {}),
+    "ctmle_oat_strata": (CTMLE, _ctmle(strategy="oat"), _strata_frame, STRATA, {}),
+    "ctmle_selection_folds_cap": (
+        CTMLE,
+        _ctmle(treatment_learner=support.ensemble("treatment_learner", n_folds=10)),
+        lambda: support.rare_class_frame(n=240, rare=14),
+        RARE_COLUMNS,
+        {},
+    ),
+    "ctmle_unseeded": (
+        CTMLE,
+        _ctmle(
+            random_state=None,
+            treatment_learner=support.ensemble("treatment_learner", n_folds=3),
+        ),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "ctmle_bootstrap": (CTMLE, _ctmle(n_bootstrap=2), _linear_frame, COLUMNS, {}),
+    "drtmle_foldwise": (DRTMLE, _drtmle(), _linear_frame, COLUMNS, {}),
+    "drtmle_pooled": (DRTMLE, _drtmle(reduced_crossfit="pooled"), _linear_frame, COLUMNS, {}),
+    "drtmle_cap_1": (DRTMLE, _drtmle(max_outer=1), _linear_frame, COLUMNS, {}),
+    "drtmle_cap_2": (DRTMLE, _drtmle(max_outer=2), _linear_frame, COLUMNS, {}),
+    "drtmle_cap_3": (DRTMLE, _drtmle(max_outer=3), _linear_frame, COLUMNS, {}),
+    "drtmle_reduced_learners": (
+        DRTMLE,
+        _drtmle(
+            max_outer=1,
+            reduced_outcome_learner=support.linear("reduced_outcome_learner"),
+            reduced_treatment_learner=support.logistic("reduced_treatment_learner"),
+            reduced_mechanism_residual_learner=support.linear("reduced_mechanism_residual_learner"),
+        ),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "drtmle_bivariate_g": (
+        DRTMLE,
+        _drtmle(reduction="bivariate", guard=("g",)),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "drtmle_no_guard": (DRTMLE, _drtmle(guard=()), _linear_frame, COLUMNS, {}),
+    "drtmle_in_sample": (DRTMLE, _drtmle(cross_fit=False), _linear_frame, COLUMNS, {}),
+    "drtmle_composite": (DRTMLE, _drtmle(cross_fit=False), _missing_frame, MISSING, {}),
+    "drtmle_randomized_missing": (
+        DRTMLE,
+        _drtmle(cross_fit=False, randomized=True),
+        _missing_frame,
+        MISSING,
+        {},
+    ),
+    "drtmle_strata": (DRTMLE, _drtmle(), _strata_frame, STRATA, {}),
+    "drtmle_by_arm": (DRTMLE, _drtmle(outcome_by_arm=True), _linear_frame, COLUMNS, {}),
+    "drtmle_bootstrap": (
+        DRTMLE,
+        _drtmle(n_bootstrap=2, max_outer=2),
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "iptw_cross_fit": (AdaptiveIPTW, _iptw(), _linear_frame, COLUMNS, {}),
+    "iptw_at_max_iter": (AdaptiveIPTW, _iptw(tol=0.0, max_iter=2), _linear_frame, COLUMNS, {}),
+    "iptw_in_sample": (AdaptiveIPTW, _iptw(cross_fit=False), _linear_frame, COLUMNS, {}),
+    "iptw_reduced_learner": (
+        AdaptiveIPTW,
+        lambda: {
+            **_iptw()(),
+            "outcome_learner": None,
+            "reduced_outcome_learner": support.linear("reduced_outcome_learner"),
+        },
+        _linear_frame,
+        COLUMNS,
+        {},
+    ),
+    "iptw_missing_outcome": (
+        AdaptiveIPTW,
+        _iptw(estimands=("ate", "ey_obs")),
+        _missing_frame,
+        MISSING,
+        {},
+    ),
+    "iptw_strata": (AdaptiveIPTW, _iptw(), _strata_frame, STRATA, {}),
+    "iptw_binary_outcome": (AdaptiveIPTW, _iptw(), _constant_arm_frame, COLUMNS, {}),
+    "iptw_known_mechanism": (
+        AdaptiveIPTW,
+        _iptw(),
+        lambda: _known_weighted()[0],
+        {**_known_weighted()[1], "mechanism_law": "target"},
+        {},
+    ),
+}
+
+
+def _variant(
+    name: str, mutate: Callable[[pytest.MonkeyPatch], None] | None = None
+) -> support.Witness:
+    engine, settings, frame, columns, _ = VARIANT_ROUTES[name]
+    return _engine(settings, frame(), columns, mutate, engine)
+
+
+@pytest.mark.parametrize("name", sorted(VARIANT_ROUTES))
+def test_the_preview_counts_the_fits_of_each_variant_route(name: str) -> None:
+    check = VARIANT_ROUTES[name][4]
+    support.check(_variant(name), plain=REDUCED, **check)
+
+
+@pytest.mark.parametrize("name", sorted(VARIANT_ROUTES))
+def test_the_variant_preview_fits_nothing(name: str) -> None:
+    engine, settings, frame, columns, _ = VARIANT_ROUTES[name]
+    data = frame()
+
+    def never() -> dict[str, Any]:
+        values = settings()
+        for role in (*ROLES, "reduced_outcome_learner", "reduced_treatment_learner"):
+            if values.get(role) is not None:
+                values[role] = NeverFit()
+        if values.get("treatment_candidates"):
+            values["treatment_candidates"] = [NeverFit() for _ in values["treatment_candidates"]]
+        return values
+
+    NeverFit.calls = 0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        plan = engine(**never())._planned_fits(data, **columns)
+    assert NeverFit.calls == 0
+    assert plan.total_fits > 0
+
+
+def _reached(found: support.Witness) -> None:
+    """Every row's upper bound equals the fit's count: the forcing fixture reached it."""
+    for role, fits in support.totals(found.plan).items():
+        assert support.realized_fits(found.counts, role) == fits, role
+
+
+@pytest.mark.parametrize("cap", [1, 2, 3])
+def test_a_small_reduction_cap_is_reached(cap: int) -> None:
+    found = _variant(f"drtmle_cap_{cap}")
+    assert not found.plan.exact
+    for repeat in found.result.single().repeats:
+        assert repeat.fluctuations["mean"].reduction.exit_reason == "cap"
+    _reached(found)
+    assert {name: steps for name, steps, _, _ in found.plan.searches} == {
+        "DR-TMLE reduction rounds": cap
+    }
+
+
+def test_the_reduced_learners_fall_back_to_the_primary_fields() -> None:
+    roles = {row.role for row in _variant("drtmle_cap_1").plan.rows}
+    assert roles == {"treatment_learner", "outcome_learner"}
+    roles = {row.role for row in _variant("drtmle_reduced_learners").plan.rows}
+    assert {
+        "reduced_outcome_learner",
+        "reduced_treatment_learner",
+        "reduced_mechanism_residual_learner",
+    } <= roles
+
+
+def test_the_adaptive_iptw_update_cap_is_reached() -> None:
+    found = _variant("iptw_at_max_iter")
+    assert found.result.single().repeats[0].fluctuations["mean"].failure == "max_iter_reached"
+    _reached(found)
+
+
+def test_a_patience_at_the_path_length_reaches_the_bound() -> None:
+    found = _variant("ctmle_greedy_patience_at_length")
+    assert not found.plan.exact
+    _reached(found)
+    assert _variant("ctmle_greedy").plan.exact
+
+
+def test_a_patience_stop_is_bracketed() -> None:
+    found = _variant("ctmle_greedy_patience")
+    rows = [row for row in found.plan.rows if row.role == "treatment_learner"]
+    assert all(row.bound == "upper" for row in rows)
+    assert support.realized_fits(found.counts, "treatment_learner") < sum(r.fits for r in rows)
+
+
+def test_a_greedy_path_fits_p_times_p_plus_one_over_two_sets_per_branch() -> None:
+    plan = _variant("ctmle_greedy").plan
+    full = [row for row in plan.rows if "analysis sample" in row.scope]
+    folds = [
+        row for row in plan.rows if "per selection fold" in row.scope and "propens" in row.scope
+    ]
+    # Four covariates: 10 sets, cross-fitted over 3 outer folds, and over 2 + 1 nested fits
+    # in each of 3 selection folds.
+    assert sum(row.fits for row in full) == 10 * 3
+    assert sum(row.fits for row in folds) == 10 * 3 * 3
+
+
+def test_the_selection_folds_cap_the_inner_folds() -> None:
+    found = _variant("ctmle_selection_folds_cap")
+    rows = [row for row in found.plan.rows if row.role == "treatment_learner"]
+    fits = sum(row.fits for row in rows)
+    candidates = sum(row.candidate_fits for row in rows)
+    assert candidates < fits * 2 * (10 + 1)
+
+
+# ----------------------------------------------------------------- the study routes
+
+
+def _ep_frame() -> pd.DataFrame:
+    return _rule_frame(300)
+
+
+def _ep_effect(frame: pd.DataFrame, domain: tuple[float, float] = (-1.0, 1.0)) -> Any:
+    study = CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+    )
+    return study.identify(ConditionalContrast(Modifiers(["W1"], domains={"W1": domain})))
+
+
+def _ep(**overrides: Any) -> Callable[[], dict[str, Any]]:
+    def settings() -> dict[str, Any]:
+        return {
+            "outcome_learner": support.linear("outcome_learner"),
+            "treatment_learner": support.logistic("treatment_learner"),
+            "n_folds": 3,
+            "random_state": 0,
+            "q_bounds": BOUNDS,
+            **overrides,
+        }
+
+    return settings
+
+
+EP_MODIFIERS = Modifiers(["W1"], domains={"W1": (-1.0, 1.0)})
+
+
+def _trial_frame(n: int = 240, *, external_treated: bool = True, missing: bool = False) -> Any:
+    rng = np.random.default_rng(0)
+    s = rng.binomial(1, 0.5, n)
+    w = rng.normal(size=n)
+    a = rng.integers(0, 2, n)
+    if not external_treated:
+        a = np.where(s == 0, 0, a)
+    y = a + w + 0.5 * (1 - s) + rng.normal(size=n)
+    frame = pd.DataFrame({"Y": y, "A": a, "W": w, "S": s, "R": rng.binomial(1, 0.9, n)})
+    if missing:
+        frame.loc[frame["R"] == 0, "Y"] = np.nan
+    return frame
+
+
+def _trial_effect(frame: pd.DataFrame, missing: bool = False) -> Any:
+    design = TrialWithExternalData(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W",),
+        source="S",
+        missingness="R" if missing else None,
+    )
+    return CausalStudy(frame, design=design).identify(TrialATE("trial"))
+
+
+def _atmle(
+    form: str = "cv", *, cross_fit: bool = True, random_state: int | None = 0
+) -> Callable[[], dict[str, Any]]:
+    def settings() -> dict[str, Any]:
+        method = AdaptiveTMLEMethod(
+            form=form,  # type: ignore[arg-type]
+            models=ModelSpec(
+                outcome_learner=support.linear("outcome_learner"),
+                treatment_learner=support.logistic("treatment_learner"),
+                missingness_learner=support.logistic("missingness_learner"),
+            ),
+            source_learner=support.logistic("source_learner"),
+            cross_fitting=CrossFitting(n_folds=3, learner_folds=3, enabled=cross_fit),
+        ).with_overrides(random_state=random_state)
+        return {"method": method}
+
+    return settings
+
+
+STUDY_PLAIN = {**PLAIN, "final_learner": "LinearRegression", "source_learner": "LogisticRegression"}
+
+#: name -> (effect factory, method name or None, settings factory)
+STUDY_ROUTES: dict[str, tuple[Callable[[], Any], str | None, Callable[[], dict[str, Any]]]] = {
+    "ep_fixed": (
+        lambda: _ep_effect(_ep_frame()),
+        "ep",
+        _ep(
+            sieve=Sieve.default(EP_MODIFIERS, max_size=3, size=2),
+            final_learner=support.linear("final_learner"),
+        ),
+    ),
+    "ep_cv": (
+        lambda: _ep_effect(_ep_frame()),
+        "ep",
+        _ep(
+            sieve=Sieve.default(EP_MODIFIERS, max_size=3),
+            final_learner=support.linear("final_learner"),
+        ),
+    ),
+    "ep_cv_least_squares": (
+        lambda: _ep_effect(_ep_frame()),
+        "ep",
+        _ep(sieve=Sieve.default(EP_MODIFIERS, max_size=2)),
+    ),
+    "ep_cv_inner_cap": (
+        lambda: _ep_effect(support.rare_class_frame(n=240, rare=14), (-6.0, 6.0)),
+        "ep",
+        _ep(
+            sieve=Sieve.default(Modifiers(["W1"], domains={"W1": (-6.0, 6.0)}), max_size=2),
+            treatment_learner=support.ensemble("treatment_learner", n_folds=10),
+        ),
+    ),
+    "atmle_cv": (lambda: _trial_effect(_trial_frame()), None, _atmle()),
+    "atmle_pooled": (lambda: _trial_effect(_trial_frame()), None, _atmle("pooled")),
+    "atmle_pooled_in_sample": (
+        lambda: _trial_effect(_trial_frame()),
+        None,
+        _atmle("pooled", cross_fit=False),
+    ),
+    "atmle_controls_only": (
+        lambda: _trial_effect(_trial_frame(external_treated=False)),
+        None,
+        _atmle(),
+    ),
+    "atmle_missing_outcome": (
+        lambda: _trial_effect(_trial_frame(missing=True), missing=True),
+        None,
+        _atmle(),
+    ),
+    "atmle_unseeded": (lambda: _trial_effect(_trial_frame()), None, _atmle(random_state=None)),
+}
+
+
+def _study_route(
+    name: str, mutate: Callable[[pytest.MonkeyPatch], None] | None = None
+) -> support.Witness:
+    effect_factory, method, settings = STUDY_ROUTES[name]
+    effect = effect_factory()
+
+    def call(action: Callable[..., Any]) -> Any:
+        values = settings()
+        named = values.pop("method", method)
+        return action(named, **values)
+
+    def preview() -> PlannedFits:
+        if mutate is None:
+            return cast("PlannedFits", call(effect.planned_fits))
+        with pytest.MonkeyPatch.context() as patch:
+            mutate(patch)
+            return cast("PlannedFits", call(effect.planned_fits))
+
+    return support.witness(preview, lambda: call(effect.estimate))
+
+
+@pytest.mark.parametrize("name", sorted(STUDY_ROUTES))
+def test_the_preview_counts_the_fits_of_each_study_route(name: str) -> None:
+    found = _study_route(name)
+    assert found.plan.exact
+    support.check(found, plain=STUDY_PLAIN)
+
+
+def test_the_ep_inner_cap_binds() -> None:
+    plan = _study_route("ep_cv_inner_cap").plan
+    rows = [row for row in plan.rows if row.role == "treatment_learner" and "inner" in row.scope]
+    fits = sum(row.fits for row in rows)
+    assert sum(row.candidate_fits for row in rows) < fits * 2 * (10 + 1)
+
+
+def test_the_ep_final_learner_fits_once_per_size_and_fold_then_once() -> None:
+    plan = _study_route("ep_cv").plan
+    final = sum(row.fits for row in plan.rows if row.role == "final_learner")
+    assert final == 3 * 3 + 1
+    assert {name: steps for name, steps, _, _ in plan.searches} == {"EP sieve sizes": 3}
+
+
+def test_the_atmle_lambda_path_fits_no_learner() -> None:
+    plan = _study_route("atmle_cv").plan
+    ((name, _, early, fits),) = plan.searches
+    assert "penalty path" in name and not early and fits == 0
+    # Three outer folds and three pairs, five fits per call.
+    assert plan.total_fits == (3 + 3) * 5
+
+
+def test_the_study_previews_fit_nothing() -> None:
+    effect = _ep_effect(_ep_frame())
+    NeverFit.calls = 0
+    plan = effect.planned_fits(
+        "ep",
+        outcome_learner=NeverFit(),
+        treatment_learner=NeverFit(),
+        final_learner=NeverFit(),
+        sieve=Sieve.default(EP_MODIFIERS, max_size=2),
+        n_folds=3,
+        random_state=0,
+        q_bounds=BOUNDS,
+    )
+    assert NeverFit.calls == 0 and plan.total_fits > 0
+    method = AdaptiveTMLEMethod(
+        models=ModelSpec(outcome_learner=NeverFit(), treatment_learner=NeverFit()),
+        cross_fitting=CrossFitting(n_folds=3, learner_folds=3),
+    ).with_overrides(random_state=0)
+    plan = _trial_effect(_trial_frame()).planned_fits(method=method)
+    assert NeverFit.calls == 0 and plan.total_fits > 0
+
+
+def _no_final_learner(patch: pytest.MonkeyPatch) -> None:
+    """Preview as if no final learner were declared: the EP final-learner term drops out."""
+    from cleverly.estimators import ep as ep_module
+
+    original = ep_module.EPEstimator._planned_fits
+
+    def without(self: Any, data: Any) -> Any:
+        copied = copy.copy(self)
+        copied.final_learner = None
+        return original(copied, data)
+
+    patch.setattr(ep_module.EPEstimator, "_planned_fits", without)
+
+
+def _inner_on_outer_rows(patch: pytest.MonkeyPatch) -> None:
+    """Preview each fold's inner fit on every row instead of the fold's training rows."""
+    from cleverly.data.causal_data import CausalData
+
+    patch.setattr(CausalData, "subset", lambda self, rows: self)
+
+
+STUDY_MUTATIONS: dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None]]] = {
+    "the EP final-learner term": ("ep_cv", _no_final_learner),
+    "the inner counts on the fold's own rows": ("ep_cv_inner_cap", _inner_on_outer_rows),
+}
+
+
+@pytest.mark.parametrize("label", sorted(STUDY_MUTATIONS))
+def test_each_study_mutation_fails_its_fixture(label: str) -> None:
+    name, mutate = STUDY_MUTATIONS[label]
+    found = _study_route(name, mutate)
+    with pytest.raises(AssertionError):
+        support.check(found, plain=STUDY_PLAIN)
+
+
 # ----------------------------------------------------------------- the default library
 
 
@@ -512,13 +1219,6 @@ def test_the_record_prints_and_converts(study: CausalStudy) -> None:
     frame = plan.to_frame(backend="pandas")
     assert list(frame["fits"]) == [row.fits for row in plan.rows]
     assert repr(plan).startswith("PlannedFits(")
-
-
-def test_an_unpriced_engine_says_so() -> None:
-    from cleverly.estimators import CTMLE
-
-    with pytest.raises(NotImplementedError, match="phase 2"):
-        CTMLE(**_plain())._planned_fits(_linear_frame(), **COLUMNS)
 
 
 def test_the_preview_draws_no_shared_random_numbers() -> None:

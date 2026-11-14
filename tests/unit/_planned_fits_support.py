@@ -267,6 +267,7 @@ def check(
     *,
     plain: Mapping[str, str | None] | None = None,
     outside: tuple[str, ...] = ("tuner",),
+    engine_role: str | None = None,
 ) -> None:
     """Assert every comparison of the module docstring on one witness.
 
@@ -282,10 +283,20 @@ def check(
         Labels whose learners are not among :data:`BASES`, so the class-wide guard does not
         see them; their fits join the class-wide total only for the comparison with the
         preview.
+    engine_role : str or None
+        A role whose learner the engine builds itself, so no label counts it: its realized
+        fits are the class-wide fits no label claims.
     """
     plain = dict(plain or {})
     plan = found.plan
-    counts = found.counts
+    counts = Counter(found.counts)
+    if engine_role is not None:
+        claimed = sum(
+            value
+            for label, value in counts.items()
+            if not label.endswith("#ensemble") and label not in outside
+        )
+        counts[engine_role] = sum(found.class_wide.values()) - claimed
     assert not [m for m in found.warnings if "dropping learner" in m], found.warnings
     _check_diagnostics(found.result)
     priced = role_rows(plan)
