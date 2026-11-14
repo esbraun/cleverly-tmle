@@ -1,0 +1,423 @@
+"""The adaptive TMLE working-model selection is bitwise the implementation it replaced (X106 E1).
+
+``select_working_model`` used to slice each inner fold's held rows, copy the penalized columns
+and compute a Karush-Kuhn-Tucker residual once per penalty. It now does each once, and the
+arithmetic of every float that feeds a comparison (the risk minimum, the KKT acceptance) is
+unchanged. The reference below is the pre-change code, frozen; every test compares against it
+with exact equality, never a tolerance. If the selection's arithmetic changes on purpose,
+replace the reference and these tests with the evidence that change needs.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from collections.abc import Callable
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+import scipy.linalg
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+import cleverly.estimators.atmle as atmle
+from cleverly import (
+    AdaptiveTMLEMethod,
+    CapabilityError,
+    CausalStudy,
+    CrossFitting,
+    ModelSpec,
+    TrialATE,
+    TrialWithExternalData,
+)
+from cleverly.estimators.atmle import (
+    LassoSolution,
+    Selection,
+    kkt_residual,
+    lasso_solutions,
+    penalty_grid,
+    select_working_model,
+)
+
+
+class _ReferenceRLoss:
+    """``_RLoss`` as it was before X106 E1 (cleverly-tmle ``ace81996``)."""
+
+    def __init__(self, basis: Any, multiplier: Any, response: Any, n_unpenalized: int) -> None:
+        self.basis = np.asarray(basis, dtype=float)
+        self.multiplier = np.asarray(multiplier, dtype=float)
+        self.response = np.asarray(response, dtype=float)
+        self.k = int(n_unpenalized)
+        self.x = self.multiplier[:, None] * self.basis
+        weights = self.multiplier**2
+        self.total = float(np.sum(weights))
+        if not self.total > 0.0:
+            raise ValueError("the R-loss lasso needs a nonzero multiplier on some row")
+        penalized = self.basis[:, self.k :]
+        center = (weights @ penalized) / self.total
+        scale = np.sqrt((weights @ (penalized - center) ** 2) / self.total)
+        informative = weights > 0.0
+        constant = np.ptp(penalized[informative], axis=0) == 0.0
+        scale = np.where(constant | ~(scale > 0.0), 0.0, scale)
+        self.usable = np.flatnonzero(scale > 0.0) + self.k
+        self.scale = scale[self.usable - self.k]
+        q, r = np.linalg.qr(self.x[:, : self.k])
+        diagonal = np.abs(np.diag(r))
+        if self.k and diagonal.min() <= atmle._RANK_TOLERANCE * max(diagonal.max(), 1e-300):
+            raise ValueError("the unpenalized working-model columns are collinear on these rows")
+        self.q, self.r = q, r
+        self.y = self.response - q @ (q.T @ self.response)
+        z = self.x[:, self.usable]
+        self.z = (z - q @ (q.T @ z)) / self.scale
+        self.lambda_max = (
+            float(np.max(np.abs(self.z.T @ self.y))) / self.total if self.usable.size else 0.0
+        )
+
+    def grid(self) -> np.ndarray:
+        n, p = self.basis.shape
+        if self.lambda_max == 0.0:
+            return np.array([0.0])
+        ratio = 1e-4 if n >= p else 1e-2
+        grid = self.lambda_max * np.exp(np.linspace(0.0, np.log(ratio), atmle._N_LAMBDA))
+        grid[0] = self.lambda_max
+        return np.asarray(grid, dtype=float)
+
+    def coefficients(self, standardized: np.ndarray) -> np.ndarray:
+        coef = np.zeros(self.basis.shape[1])
+        coef[self.usable] = standardized / self.scale
+        if self.k:
+            rest = self.response - self.x[:, self.usable] @ coef[self.usable]
+            coef[: self.k] = scipy.linalg.solve_triangular(self.r, self.q.T @ rest)
+        return coef
+
+    def kkt(self, coef: np.ndarray, penalty: float) -> float:
+        gradient = self.x.T @ (self.x @ coef - self.response) / self.total
+        values = [float(np.max(np.abs(gradient[: self.k]))) if self.k else 0.0]
+        if self.usable.size:
+            standardized = gradient[self.usable] / self.scale
+            beta = coef[self.usable]
+            nonzero = beta != 0.0
+            if np.any(nonzero):
+                values.append(
+                    float(np.max(np.abs(standardized[nonzero] + penalty * np.sign(beta[nonzero]))))
+                )
+            if np.any(~nonzero):
+                values.append(
+                    float(np.max(np.maximum(np.abs(standardized[~nonzero]) - penalty, 0)))
+                )
+        return max(values)
+
+    def tolerance(self) -> float:
+        return atmle.KKT_TOLERANCE * (self.lambda_max if self.lambda_max > 0.0 else 1.0)
+
+    def solve(self, grid: np.ndarray) -> list[LassoSolution]:
+        values = np.asarray(grid, dtype=float)
+        if values.size > 1 and np.any(np.diff(values) >= 0.0):
+            raise ValueError("the penalty grid must be strictly decreasing")
+        if np.any(values < 0.0):
+            raise ValueError("penalties must be non-negative")
+        out: list[LassoSolution] = []
+        gram = self.z.T @ self.z / self.total
+        linear = self.z.T @ self.y / self.total
+        standardized = np.zeros(self.usable.size)
+        for lam in values:
+            if self.usable.size and lam > 0.0:
+                standardized = atmle._lasso(gram, linear, float(lam), standardized)
+            elif self.usable.size:
+                standardized = np.linalg.lstsq(self.z, self.y, rcond=None)[0]
+            coef = self.coefficients(standardized)
+            out.append(LassoSolution(float(lam), coef, self.kkt(coef, float(lam))))
+        return out
+
+
+def _reference_select(
+    basis: Any, multiplier: Any, response: Any, n_unpenalized: int, inner: Any
+) -> Selection:
+    """``select_working_model`` as it was before X106 E1."""
+    problem = _ReferenceRLoss(basis, multiplier, response, n_unpenalized)
+    grid = problem.grid()
+    assignment = np.asarray(inner, dtype=np.int64)
+    loss = np.zeros(grid.size)
+    if grid.size > 1:
+        for fold in np.unique(assignment):
+            held = assignment == fold
+            sub = _ReferenceRLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
+            for k, solution in enumerate(sub.solve(grid)):
+                fitted = multiplier[held] * (basis[held] @ solution.coef)
+                loss[k] += float(np.sum((response[held] - fitted) ** 2))
+    risk = loss / problem.total
+    index = int(np.flatnonzero(risk == risk.min())[0])
+    solution = problem.solve(grid[: index + 1])[-1]
+    if not solution.kkt <= problem.tolerance():
+        raise CapabilityError(
+            f"The working-model lasso did not reach its optimality tolerance at penalty "
+            f"{solution.penalty:.3g}: the Karush-Kuhn-Tucker residual is {solution.kkt:.3g}, "
+            f"above {problem.tolerance():.3g}. The declared dictionary is too collinear or too "
+            "large for these rows.",
+            reason=atmle.RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Pass a smaller or less collinear basis=, for example a transformer with fewer "
+                "knots and no pairwise products."
+            ),
+        )
+    selected = np.union1d(
+        np.arange(problem.k, dtype=np.int64),
+        np.flatnonzero(solution.coef[problem.k :] != 0.0).astype(np.int64) + problem.k,
+    )
+    return Selection(solution.penalty, selected, solution.coef, grid, risk, solution.kkt)
+
+
+# --- fixtures ---------------------------------------------------------------------------------
+
+Problem = tuple[np.ndarray, np.ndarray, np.ndarray, int, np.ndarray]
+
+
+def _problem(
+    kind: str, k: int, *, folds: int = 5, n: int = 400, columns: int = 12, seed: int = 0
+) -> Problem:
+    rng = np.random.default_rng([seed, k, folds, sum(map(ord, kind))])
+    w = rng.normal(size=(n, columns - 2))
+    a = rng.binomial(1, 0.5, n).astype(float)
+    basis = np.column_stack([np.ones(n), a, w])
+    multiplier = a - 0.5 + 0.1 * rng.normal(size=n)
+    signal = 0.8 * w[:, 0] - 0.5 * w[:, 1] + 0.3 * w[:, 2]
+    response = multiplier * signal + rng.normal(size=n)
+    if kind == "collinear":
+        basis[:, 3] = basis[:, 2] + 1e-8 * rng.normal(size=n)
+    elif kind == "rare":
+        event = rng.random(n) < 0.02
+        response = np.where(event, 1.0, 0.0) - 0.02 + 0.01 * multiplier * signal
+    elif kind == "constant-column":
+        basis[:, 4] = 3.0
+    elif kind == "zero-multiplier":
+        multiplier[rng.random(n) < 0.3] = 0.0
+        response = multiplier * signal + rng.normal(size=n)
+    elif kind == "no-usable-column":
+        # Every penalized column is constant, so lambda_max is 0 and the grid is [0].
+        basis[:, k:] = 3.0
+    elif kind == "flat-risk":
+        # Pure noise: the held-out risk is flat near lambda_max, so the minimum can tie.
+        response = rng.normal(size=n)
+        basis[:, 2:] = np.round(basis[:, 2:])
+    inner = rng.integers(0, folds, n)
+    inner[:folds] = np.arange(folds)
+    return basis, multiplier, response, k, inner
+
+
+KINDS = ("ordinary", "collinear", "rare", "constant-column", "zero-multiplier", "flat-risk")
+CASES = [(kind, k, 5) for kind in KINDS for k in (1, 2)] + [
+    ("ordinary", 1, 2),
+    ("ordinary", 2, 10),
+    ("no-usable-column", 1, 5),
+]
+
+
+def _assert_same(left: Selection, right: Selection) -> None:
+    assert left.penalty == right.penalty
+    for name in ("selected", "coef", "grid", "risk"):
+        a, b = getattr(left, name), getattr(right, name)
+        assert a.dtype == b.dtype and a.shape == b.shape, name
+        assert np.array_equal(a, b, equal_nan=True), name
+    assert left.kkt == right.kkt
+
+
+@pytest.mark.parametrize(("kind", "k", "folds"), CASES)
+def test_the_selection_equals_the_reference_bit_for_bit(kind: str, k: int, folds: int) -> None:
+    problem = _problem(kind, k, folds=folds)
+    _assert_same(select_working_model(*problem), _reference_select(*problem))
+
+
+def test_the_witness_fixtures_choose_an_interior_penalty_on_a_varying_risk() -> None:
+    # A defect that scores a fold on the wrong rows only shows where the risk varies and the
+    # minimum is interior; at least one fixture must have both.
+    interior = 0
+    for kind, k, folds in CASES:
+        selection = _reference_select(*_problem(kind, k, folds=folds))
+        index = int(np.flatnonzero(selection.grid == selection.penalty)[0])
+        if np.ptp(selection.risk) > 0.0 and 0 < index < selection.grid.size - 1:
+            interior += 1
+    assert interior >= 5
+
+
+def test_a_stale_fold_slice_fails_the_equivalence() -> None:
+    # Deliberate mutation: score each fold on the previous fold's held rows.
+    basis, multiplier, response, k, inner = _problem("ordinary", 1)
+    problem = atmle._RLoss(basis, multiplier, response, k)
+    grid = problem.grid()
+    loss = np.zeros(grid.size)
+    folds = np.unique(inner)
+    for position, fold in enumerate(folds):
+        held = inner == fold
+        stale = inner == folds[position - 1]
+        sub = atmle._RLoss(basis[~held], multiplier[~held], response[~held], k)
+        for j, coef in enumerate(sub.path(grid)):
+            loss[j] += float(
+                np.sum((response[stale] - multiplier[stale] * (basis[stale] @ coef)) ** 2)
+            )
+    reference = _reference_select(basis, multiplier, response, k, inner)
+    assert not np.array_equal(loss / problem.total, reference.risk)
+
+
+def test_both_refuse_the_same_way_below_the_kkt_tolerance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(atmle, "KKT_TOLERANCE", 0.0)
+    problem = _problem("ordinary", 1)
+    with pytest.raises(CapabilityError) as shipped:
+        select_working_model(*problem)
+    with pytest.raises(CapabilityError) as reference:
+        _reference_select(*problem)
+    assert str(shipped.value) == str(reference.value)
+    assert shipped.value.refusal == reference.value.refusal
+
+
+@pytest.mark.parametrize(("kind", "k"), [("ordinary", 1), ("collinear", 2), ("rare", 1)])
+def test_the_public_lasso_helpers_equal_the_reference(kind: str, k: int) -> None:
+    basis, multiplier, response, k, _ = _problem(kind, k)
+    grid = penalty_grid(basis, multiplier, response, k)
+    assert np.array_equal(grid, _ReferenceRLoss(basis, multiplier, response, k).grid())
+    shipped = lasso_solutions(basis, multiplier, response, k, grid)
+    reference = _ReferenceRLoss(basis, multiplier, response, k).solve(grid)
+    assert len(shipped) == len(reference)
+    for left, right in zip(shipped, reference, strict=True):
+        assert left.penalty == right.penalty and left.kkt == right.kkt
+        assert np.array_equal(left.coef, right.coef)
+        assert kkt_residual(basis, multiplier, response, k, left) == right.kkt
+
+
+def test_consecutive_selections_share_no_state() -> None:
+    first = _problem("ordinary", 1, seed=1)
+    second = _problem("collinear", 2, folds=3, seed=2, n=300, columns=9)
+    third = (first[0], first[1], first[2] + 1.0, 1, np.roll(first[4], 7))
+    for problem in (first, second, third, first):
+        _assert_same(select_working_model(*problem), _reference_select(*problem))
+
+
+# --- deterministic work guards ----------------------------------------------------------------
+
+
+class _CountingArray(np.ndarray):
+    """An array that counts the boolean-mask row slices taken of it."""
+
+    masks: list[int]
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, np.ndarray) and key.dtype == bool:
+            self.masks.append(1)
+        return np.asarray(super().__getitem__(key))
+
+
+def test_a_selection_computes_one_kkt_residual_and_slices_each_fold_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    basis, multiplier, response, k, inner = _problem("ordinary", 1)
+    calls: list[int] = []
+    original = atmle._RLoss.kkt
+
+    def counted(self: Any, coef: np.ndarray, penalty: float) -> float:
+        calls.append(1)
+        return original(self, coef, penalty)
+
+    monkeypatch.setattr(atmle._RLoss, "kkt", counted)
+    counting = basis.view(_CountingArray)
+    counting.masks = []
+    selection = select_working_model(counting, multiplier, response, k, inner)
+    folds = np.unique(inner).size
+    assert selection.grid.size == atmle._N_LAMBDA
+    # The replaced code computed one residual per solution and sliced each fold's held rows
+    # once per penalty: about 100 * (folds + 1) residuals and 100 * folds slices.
+    assert len(calls) == 1
+    assert len(counting.masks) == 2 * folds
+
+
+def test_the_penalized_columns_are_copied_once_per_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    basis, multiplier, response, k, _ = _problem("ordinary", 1)
+    problem = atmle._RLoss(basis, multiplier, response, k)
+    fresh = problem.x[:, problem.usable]
+    # The stored copy has the values and the memory layout of the per-call copy it replaced.
+    assert np.array_equal(problem.xu, fresh)
+    assert problem.xu.strides == fresh.strides
+    # coefficients() reads only the stored copy: poisoning x leaves the path unchanged.
+    expected = problem.path(problem.grid()[:10])
+    problem.x = np.full_like(problem.x, np.nan)
+    for left, right in zip(problem.path(problem.grid()[:10]), expected, strict=True):
+        assert np.array_equal(left, right)
+
+
+# --- the public fit ---------------------------------------------------------------------------
+
+
+def _frame(n: int, seed: int) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    s = rng.binomial(1, 0.5, n)
+    w = rng.normal(size=(n, 2))
+    a = np.where(s == 1, rng.binomial(1, 0.5, n), rng.binomial(1, 0.3, n))
+    y = 1.0 + a + w[:, 0] + 0.5 * (1 - s) * (1 + a) * (1 + w[:, 1]) + rng.normal(size=n)
+    return pd.DataFrame({"Y": y, "A": a, "W1": w[:, 0], "W2": w[:, 1], "S": s})
+
+
+def _public_fit(frame: pd.DataFrame, form: str) -> Any:
+    method = AdaptiveTMLEMethod(
+        form=form,  # type: ignore[arg-type]
+        models=ModelSpec(
+            outcome_learner=LinearRegression(), treatment_learner=LogisticRegression()
+        ),
+        cross_fitting=CrossFitting(n_folds=3, learner_folds=3),
+    ).with_overrides(random_state=11)
+    design = TrialWithExternalData(outcome="Y", treatment="A", adjustment=["W1", "W2"], source="S")
+    return CausalStudy(frame, design=design).identify(TrialATE(population="trial")).estimate(method)
+
+
+def _same(left: Any, right: Any) -> bool:
+    """Exact equality through dataclasses, sequences, mappings and arrays."""
+    if dataclasses.is_dataclass(left) and not isinstance(left, type):
+        return type(left) is type(right) and all(
+            _same(getattr(left, f.name), getattr(right, f.name)) for f in dataclasses.fields(left)
+        )
+    if isinstance(left, np.ndarray):
+        return (
+            isinstance(right, np.ndarray)
+            and left.dtype == right.dtype
+            and np.array_equal(left, right, equal_nan=left.dtype.kind in "fc")
+        )
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(_same(left[k], right[k]) for k in left)
+    if isinstance(left, (list, tuple)):
+        return len(left) == len(right) and all(
+            _same(a, b) for a, b in zip(left, right, strict=True)
+        )
+    if isinstance(left, float) and np.isnan(left):
+        return isinstance(right, float) and np.isnan(right)
+    if hasattr(left, "__dict__") and not isinstance(left, type):
+        # A fitted transformer or learner: equal when its fitted state is.
+        return type(left) is type(right) and _same(vars(left), vars(right))
+    return bool(left == right)
+
+
+@pytest.mark.parametrize("form", ["cv", "pooled"])
+def test_a_public_fit_is_unchanged_when_the_reference_selects(
+    form: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frame = _frame(600, seed=3)
+    shipped = _public_fit(frame, form).fit
+    select: Callable[..., Selection] = _reference_select
+    monkeypatch.setattr(atmle, "select_working_model", select)
+    reference = _public_fit(frame, form).fit
+    assert _same(shipped, reference)
+
+
+def test_the_public_comparison_sees_a_one_column_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Deliberate mutation: a selection that drops its last column or a selection of only the unpenalized columns that adds one, must change the fit, so the
+    # exact comparison above has something to detect.
+    frame = _frame(600, seed=3)
+    shipped = _public_fit(frame, "cv").fit
+
+    def changed(*args: Any) -> Selection:
+        selection = _reference_select(*args)
+        n_unpenalized = args[3]
+        if selection.selected.size > n_unpenalized:
+            selected = selection.selected[:-1]
+        else:
+            selected = np.append(selection.selected, n_unpenalized)
+        return dataclasses.replace(selection, selected=selected)
+
+    monkeypatch.setattr(atmle, "select_working_model", changed)
+    assert not _same(shipped, _public_fit(frame, "cv").fit)

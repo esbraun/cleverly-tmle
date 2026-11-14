@@ -225,6 +225,8 @@ class _RLoss:
         scale = np.where(constant | ~(scale > 0.0), 0.0, scale)
         self.usable = np.flatnonzero(scale > 0.0) + self.k
         self.scale = scale[self.usable - self.k]
+        # The penalized columns of x, copied once for every coefficients() call.
+        self.xu = self.x[:, self.usable]
         q, r = np.linalg.qr(self.x[:, : self.k])
         diagonal = np.abs(np.diag(r))
         if self.k and diagonal.min() <= _RANK_TOLERANCE * max(diagonal.max(), 1e-300):
@@ -251,7 +253,7 @@ class _RLoss:
         coef = np.zeros(self.basis.shape[1])
         coef[self.usable] = standardized / self.scale
         if self.k:
-            rest = self.response - self.x[:, self.usable] @ coef[self.usable]
+            rest = self.response - self.xu @ coef[self.usable]
             coef[: self.k] = scipy.linalg.solve_triangular(self.r, self.q.T @ rest)
         return coef
 
@@ -275,13 +277,14 @@ class _RLoss:
     def tolerance(self) -> float:
         return KKT_TOLERANCE * (self.lambda_max if self.lambda_max > 0.0 else 1.0)
 
-    def solve(self, grid: FloatArray) -> list[LassoSolution]:
+    def path(self, grid: FloatArray) -> list[FloatArray]:
+        """The original-scale coefficients at each penalty, warm-started down the grid."""
         values = np.asarray(grid, dtype=float)
         if values.size > 1 and np.any(np.diff(values) >= 0.0):
             raise ValueError("the penalty grid must be strictly decreasing")
         if np.any(values < 0.0):
             raise ValueError("penalties must be non-negative")
-        out: list[LassoSolution] = []
+        out: list[FloatArray] = []
         gram = self.z.T @ self.z / self.total
         linear = self.z.T @ self.y / self.total
         standardized = np.zeros(self.usable.size)
@@ -290,9 +293,15 @@ class _RLoss:
                 standardized = _lasso(gram, linear, float(lam), standardized)
             elif self.usable.size:
                 standardized = np.linalg.lstsq(self.z, self.y, rcond=None)[0]
-            coef = self.coefficients(standardized)
-            out.append(LassoSolution(float(lam), coef, self.kkt(coef, float(lam))))
+            out.append(self.coefficients(standardized))
         return out
+
+    def solve(self, grid: FloatArray) -> list[LassoSolution]:
+        values = np.asarray(grid, dtype=float)
+        return [
+            LassoSolution(float(lam), coef, self.kkt(coef, float(lam)))
+            for lam, coef in zip(values, self.path(values), strict=True)
+        ]
 
 
 def _lasso_objective(gram: FloatArray, linear: FloatArray, penalty: float, c: FloatArray) -> float:
@@ -615,13 +624,19 @@ def select_working_model(
     if grid.size > 1:
         for fold in np.unique(assignment):
             held = assignment == fold
+            # Sliced once per fold: only the KKT residual of the final solution is read, so
+            # the fold paths compute none.
+            basis_held, multiplier_held = basis[held], multiplier[held]
+            response_held = response[held]
             sub = _RLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
-            for k, solution in enumerate(sub.solve(grid)):
-                fitted = multiplier[held] * (basis[held] @ solution.coef)
-                loss[k] += float(np.sum((response[held] - fitted) ** 2))
+            for k, coef in enumerate(sub.path(grid)):
+                fitted = multiplier_held * (basis_held @ coef)
+                loss[k] += float(np.sum((response_held - fitted) ** 2))
     risk = loss / problem.total
     index = int(np.flatnonzero(risk == risk.min())[0])
-    solution = problem.solve(grid[: index + 1])[-1]
+    penalty = float(grid[index])
+    coef = problem.path(grid[: index + 1])[-1]
+    solution = LassoSolution(penalty, coef, problem.kkt(coef, penalty))
     if not solution.kkt <= problem.tolerance():
         raise CapabilityError(
             f"The working-model lasso did not reach its optimality tolerance at penalty "
