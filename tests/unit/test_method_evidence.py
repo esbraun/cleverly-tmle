@@ -2292,8 +2292,9 @@ class TestNegativeControls:
         ):
             # ``mtp-policy-variance``: its truth rows are tail-size twins, declared to pass on
             # bias and the coverage floor under the union-model SE screen, so an inflated SE
-            # is not their failure.  Their SE calibration is the study's interval-calibration
-            # twins, which the property tests gate.
+            # is not their failure.  The SE calibration of the p4 and atom twins is gated by the
+            # study's interval-calibration twins; the pricing twins' SE ratio is published and
+            # gated nowhere, as the declaration states (Fix-5 plan 6.0).
             pytest.skip("the truth rows declare the union-model SE screen")
         baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
             "implementation"

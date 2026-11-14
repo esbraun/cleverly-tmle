@@ -2467,11 +2467,13 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ),
     ("G39.ltmle.tau5", "wald"): (
         "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
+        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration). "
+        "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     ("G39.sdr.tau5", "wald"): (
         "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration)."
+        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration). "
+        "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
     # band; stochastic-categorical-ltmle's primary band cell, which BAND_CELLS maps here, passes.
@@ -2857,7 +2859,8 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
         "the 5,600-row twin reads coverage 0.945 to 0.947 and SE ratio 0.983 to 1.003",
     ),
     "G39.ltmle.tau5": (
-        "X39-below-tail-size: the price_up rows are gated at n = 5,000 by a margin of 72 rows. "
+        "X39-below-tail-size: the price_up rows are gated at n = 5,000 by a margin of at least "
+        "72 rows. "
         "The up_oracle_tau5 calibration cell is read by its 4,000-row twin: coverage 0.944, SE "
         "ratio 0.984 (0.962 to 1.006). The up_learned_classifier_tau5 cell is a lower bound on "
         "its tail size; its reporting twin reads coverage 0.941, SE ratio 0.978",
@@ -2872,7 +2875,8 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
         "below the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
         "coverage 0.951 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.024)",
         "X40: the p4_sdr cell at n = 4,000 reads coverage 0.936 and SE ratio 0.920 (0.891 to "
-        "0.950), below its tail size. The p4 rows at n = 5,000 read an RMS ratio interval that "
+        "0.950), below its tail size; its 104,400-row twin reads SE ratio 0.990 (0.963 to 1.020) "
+        "and coverage 0.946. The p4 rows at n = 5,000 read an RMS ratio interval that "
         "contains 1, so the committed shortfall reads as chance. With the default SuperLearner "
         "pseudo learner the interval covers 0.944 (0.925 to 0.960), SE ratio 0.948 (0.905 to "
         "0.996)",

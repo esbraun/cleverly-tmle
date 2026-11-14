@@ -233,7 +233,7 @@ the `p5` contrast twins cover 0.947 and 0.951 with SE ratios of 1.009 and 0.991,
 On the
 `p4` rows of this study's primary configuration, the `p4` Wald rows read an RMS ratio interval that
 contains 1, so the shortfall above reads as chance, and `variance="policy_weighted"` reads
-conservative with coverage of 0.965 to 0.972.
+conservative with coverage of 0.965 to 0.972 under the oracle hazard.
 
 ## Measured values and declared margins
 

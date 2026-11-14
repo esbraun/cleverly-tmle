@@ -5612,7 +5612,8 @@ class _SequentialEstimator:
         policy_available = (
             self.variance == "influence_curve"
             and any(plan.has_mtp for plan in plans)
-            and not self._policy_variance_setting_conflicts()
+            # ``simultaneous=True`` is the default and the advice names ``False``.
+            and not set(self._policy_variance_setting_conflicts()) - {"simultaneous"}
             and not _policy_variance_design_conflicts(
                 prepared,
                 learned=learned is not None,

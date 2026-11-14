@@ -169,7 +169,7 @@ class TestTheWarning:
             warn_sparse_influence(self._report(20), cross_fitted=False, policy_available=True)
         text = str(record[0].message)
         assert "variance='policy_weighted'" in text
-        assert "0.980 to 0.983" in text and "BCa interval 0.908 to 0.923" in text
+        assert "0.980 to 0.985" in text and "BCa interval 0.908 to 0.923" in text
         assert "n_bootstrap" not in text and "bootstrap_interval" not in text
 
     def test_control_a_cross_fitted_fit_keeps_its_advice_over_the_option(self) -> None:

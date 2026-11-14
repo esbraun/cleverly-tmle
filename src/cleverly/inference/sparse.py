@@ -416,11 +416,13 @@ _POLICY_IN_USE_NOTE = (
 #: (``mtp-policy-variance``) and the BCa reading of the Fix-5 probes, which is no better than
 #: the Wald interval here, so the advice does not name the bootstrap.
 _POLICY_VARIANCE_ADVICE = (
-    "For a modified treatment policy, variance='policy_weighted' adds a standard error that "
-    "reads the density ratio at each row's policy dose and reports the larger of the two. It "
-    "is validated only on the configurations its support label names; on the five-node price "
-    "rows it covers 0.980 to 0.983 where the Wald interval covers 0.911 to 0.929 and the BCa "
-    "interval 0.908 to 0.923. See result.diagnostics.influence()."
+    "For a modified treatment policy, variance='policy_weighted' (with simultaneous=False) "
+    "adds a standard error that reads the density ratio at each row's policy dose and reports "
+    "the larger of the two. It is validated only on the configurations its support label "
+    "names, with an exact or known ratio or, for a learned ratio, a correct outcome model. On "
+    "the five-node price rows of its study it covers 0.980 to 0.985, where the default interval "
+    "covers 0.918 to 0.937 and the BCa interval 0.908 to 0.923. See "
+    "result.diagnostics.influence()."
 )
 #: The advice of an in-sample fit whose bootstrap no registered study measures.
 _UNMEASURED_ADVICE = (

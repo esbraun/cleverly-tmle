@@ -381,15 +381,18 @@ bootstrap warns too, because the percentile interval keeps the skew. A fit with 
 The bootstrap is opt in. A fit never turns it on.
 
 A policy that shifts a continuous dose, such as a price cut, is different: the bootstrap does not
-help there. On the five-period price plan of the
-[pricing study](../technical-reference/method-evidence/mtp-pricing.md), the BCa interval covers
-about 91% to 92% of the time, no better than the Wald interval.
+help there. On the five-period price plan of the pricing study, the BCa interval covers about 91%
+to 92% of the time, no better than the Wald interval
+([measured here](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
 
-Pass `variance="policy_weighted"` instead. It also works out the standard error from every row at the dose the policy would set, and
-reports the larger of that and the usual one. The interval is never narrower than the default, and
-a few extreme rows no longer make it too narrow, but it can be wider than it needs to be. Its
-coverage holds when the treatment model's density ratio is known exactly, or, when that ratio is
-learned, when the outcome model is right.
+Pass `variance="policy_weighted"` instead, with `n_folds=1` and `simultaneous=False`. The fit
+weights each row by its density ratio: how much more likely the policy makes that row's dose than
+the observed treatment pattern does. The option also works out the standard error from every row
+at the dose the policy would set, and reports the larger of that and the usual one. The interval is
+never narrower than the default, and it no longer runs too narrow when a sample happens to miss the
+rare rows with extreme weights, but it can be wider than it needs to be. Its coverage is never
+below the default's, and it is close to nominal in large samples when the density ratio is known
+exactly or, when the ratio is learned, when the outcome model is right.
 [The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
 states which fits it refuses and what it was validated against.
 

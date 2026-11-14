@@ -70,12 +70,12 @@ A Wald reading is gated only at an $n$ of at least twice the tail size of its qu
 [`mtp-policy-variance`](mtp-policy-variance.md) study runs a gated twin of each at the first
 multiple of 400 above the rule. The five-node `price_down` rows are far below it; their twins at
 72,800 and 73,600 rows cover 0.929 to 0.945 and pass the floor, and on these rows
-`variance="policy_weighted"` covers 0.980 to 0.983.
+`variance="policy_weighted"` covers 0.980 to 0.983 with the exact ratio.
 
 The three-node `price_down` rows are below it
 at 5,000 (twice the tail size is at most 5,324); their 5,600-row twins cover 0.945 to 0.955 with
-an SE ratio of 0.983 to 1.029. The five-node `price_up` rows are gated at 5,000 by a margin of 72
-rows. The `up_oracle_tau5` cell's 4,000-row twin reads coverage 0.944 and an SE ratio of 0.984
+an SE ratio of 0.983 to 1.029. The five-node `price_up` rows are gated at 5,000 by a margin of at
+least 72 rows. The `up_oracle_tau5` cell's 4,000-row twin reads coverage 0.944 and an SE ratio of 0.984
 (0.962 to 1.006). The `up_learned_classifier_tau5` cell's tail size is known only as a lower bound
 for a learned ratio, so its twin reports: coverage 0.941, SE ratio 0.978.
 

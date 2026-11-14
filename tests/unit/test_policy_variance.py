@@ -388,16 +388,21 @@ def test_an_option_fit_with_few_driving_rows_warns_with_the_note() -> None:
         estimator.fit(frame, outcome="Y", **pricing.roles(5))
 
 
-def test_a_default_fit_the_option_accepts_is_advised_to_use_it() -> None:
-    """The ``"available"`` advice of plan 4.4 reaches a default in-sample MTP fit."""
+@pytest.mark.parametrize("simultaneous", [False, True])
+def test_a_default_fit_the_option_accepts_is_advised_to_use_it(simultaneous: bool) -> None:
+    """The ``"available"`` advice of plan 4.4 reaches a default in-sample MTP fit.
+
+    ``simultaneous=True`` is the estimator's default, and the advice names ``False``, so a fit
+    left at that default is advised too.
+    """
     frame = common.sample(1500, 11, 5)
-    estimator = LTMLE(common.regimens(pricing.LABELS, 5), **_settings())
+    estimator = LTMLE(common.regimens(pricing.LABELS, 5), **_settings(simultaneous=simultaneous))
     with pytest.warns(SparseInfluenceWarning) as caught:
         estimator.fit(frame, outcome="Y", **pricing.roles(5))
     text = " ".join(
         str(w.message) for w in caught if issubclass(w.category, SparseInfluenceWarning)
     )
-    assert "variance='policy_weighted' adds a standard error" in text
+    assert "variance='policy_weighted' (with simultaneous=False) adds a standard error" in text
     assert "bootstrap_interval='bca'" not in text
 
 

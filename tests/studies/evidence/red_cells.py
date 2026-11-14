@@ -722,7 +722,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.  The
     # ``lmtp`` twins fit the same samples and pass the exactness gate, so they read the same
-    # shortfall and share the owner.  Fix 3 closed the owner with ``variance="policy_weighted"``
+    # shortfall and share the owner.  The heavy-weight fix closed the owner with ``variance="policy_weighted"``
     # (``mtp-policy-variance``); the rows stay red as standing records of the default interval.
     "mtp-pricing-calibration": (
         *_keys(
@@ -750,7 +750,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             ),
         ),
     ),
-    # The ``reporting`` SDR arm of plan p4.  Fix 3 closed the owner with
+    # The ``reporting`` SDR arm of plan p4.  The heavy-weight fix closed the owner with
     # ``variance="policy_weighted"`` (``mtp-policy-variance``); the cell stays as a standing record.
     "X40-sdr-heavy-ratios": (
         *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),

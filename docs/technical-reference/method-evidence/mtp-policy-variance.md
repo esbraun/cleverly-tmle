@@ -220,12 +220,15 @@ the floor met reads `conservative`. The coverage-floor control multiplies the re
 on the option cells and 0.65 on the twins, and must fail the floor. The inflated-SE control
 multiplies it by 1.40 and must leave the clause. Every control fails as designed.
 
-The readings the support labels quote:
+The readings the support labels quote. Every option cell reads an exact or known ratio, except the
+learned-classifier rows, which report; with a learned ratio the coverage claim also needs a correct
+outcome model.
 
 - The five-node option rows read `conservative`: SE ratio 1.113 to 1.145 with lower ends 1.086 to
   1.120, coverage 0.980 to 0.983. In the lowest quartile of the reported SE their coverage is 0.953
   to 0.958, where the default interval covers 0.69 to 0.76. The default Wald rows of the same fits
-  cover 0.911 to 0.929.
+  cover 0.911 to 0.929 on the identity scale they were run on; the shipped range-logit interval of
+  the two level rows covers 0.922 (`LTMLE`) and 0.937 (`SDR`) on the same rows.
 - The two-node option rows read `calibrated`: SE ratio 0.992 to 1.019, coverage 0.945 to 0.954.
   There the option widens the interval by about 1% on average, so these rows show what the option
   costs on a light-tailed law, not a property of the policy-weighted variance.

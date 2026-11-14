@@ -93,3 +93,33 @@ def test_the_page_prints_the_table(contrast: pd.DataFrame) -> None:
             f"({row.ci_lower:.3f}, {row.ci_upper:.3f}) | {row.reading} |"
         )
         assert line in page, line
+
+
+def _range(values: pd.Series) -> str:
+    low, high = f"{values.min():.3f}", f"{values.max():.3f}"
+    return low if low == high else f"{low} to {high}"
+
+
+def test_the_policy_notes_quote_the_committed_option_rows() -> None:
+    """Each licence note's SE-ratio and coverage ranges are the committed option rows' own."""
+    from cleverly._support_rows import POLICY_NOTES
+
+    published = pd.read_csv(ARTIFACTS / "properties.csv")
+    option = published.loc[published["cell"].str.endswith("__option")]
+
+    def rows(*prefixes: str) -> pd.DataFrame:
+        return option.loc[option["cell"].str.startswith(prefixes)]
+
+    expected = {
+        "G39.ltmle.tau5": rows("pricing_ltmle_tau5__"),
+        "G39.sdr.tau5": rows("pricing_sdr_tau5__"),
+        "G39.ltmle.tau2": rows("pricing_ltmle_tau2__"),
+        "G39.sdr.tau2": rows("pricing_sdr_tau2__"),
+        "G10.continuous": rows("p4_ltmle__", "boundaries_ltmle_p4__"),
+        "G24.mtp.in_sample": rows("p4_sdr__", "boundaries_sdr_p4__"),
+    }
+    for row_id, frame in expected.items():
+        (note,) = POLICY_NOTES[row_id]
+        assert f"SE ratio {_range(frame['se_ratio'])}" in note, (row_id, note)
+        assert f"coverage {_range(frame['coverage'])}" in note, (row_id, note)
+        assert "conservative" in note if (frame["se_ratio_ci_upper"] > 1.07).any() else True

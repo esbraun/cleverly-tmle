@@ -2347,12 +2347,13 @@ cause is the variance estimate, not the estimator. Its relative SD is large, and
 the error: a sample that holds none of the rare large-ratio rows reports a small standard error and
 also tends to miss.
 
-On the five-node `price_down` plan of `mtp-pricing` at n = 5,000 the default
+On the five-node `price_down` plan of `mtp-pricing` at n = 5,000 the identity Wald interval
 covers 0.911 to 0.929 and, in the quarter of samples with the smallest standard error, 0.69 to 0.76
-([`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)). A Wald interval with the
-Monte Carlo SD in place of the reported one would cover about 0.95. The percentile, BCa and
-bootstrap-t intervals do no better there: the BCa interval covers 0.908 to 0.923
-(`tests/diagnostics/fix5_heavy_ratios/probe1.csv`), so it is not validated for these fits.
+([`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)). On the same rows the shipped
+range-logit interval of the two level rows covers 0.922 (`LTMLE`) and 0.937 (`SDR`). The
+percentile and BCa intervals do no better: the BCa interval covers 0.908 to 0.923, and the
+equal-tailed bootstrap-t at most 0.937 (`tests/diagnostics/fix5_heavy_ratios/probe1.csv`), so
+neither is validated for these fits.
 Each study gates a Wald reading only at an $n$ of at least twice the tail size of its quantity
 (`X39-below-tail-size` in the [roadmap](../roadmap.md)). In that regime the default twins of these
 rows pass the 0.90 floor.
@@ -2379,13 +2380,16 @@ holds when each $e_t$ has conditional mean zero, as at the truth.
 $\hat\sigma^2_{pw}$ replaces each
 conditional mean by a boosted-tree regression of depth 5, fitted on the observed $(A_t, H_t)$ and
 evaluated at the policy dose, with the fit's own $Q$ and $r$. A contrast reads the same recursion
-on the product of the two plans' residuals. For a linear functional $\lambda$ of the levels the
+on the product of the two plans' residuals, with one plan's ratio evaluated at the other's
+policy dose. For a linear functional $\lambda$ of the levels the
 variance is $\max(\lambda^\top \hat\Sigma_{IC} \lambda, \lambda^\top \hat\Sigma_{pw} \lambda)$. A
 non-finite or non-positive $\hat\sigma^2_{pw}$ takes the influence-curve value, and
 `variance_source` records which one each estimate reports.
 When the default interval is on the
 range-logit scale, the option keeps that scale and widens the half-width to
-$\max(\text{default half-width}, z\,\widehat{SE}_{pw})$ on it.
+$\max(\text{default half-width}, z\,\widehat{SE}_{pw})$ on it; under a Student t reference the
+half-width is $\max(t_\nu \widehat{SE}_{IC}, z\,\widehat{SE}_{pw})$, so the degrees of freedom never
+apply to the policy-weighted variance.
 
 The guarantee needs no condition on the variance regressions: $\hat\sigma \ge \hat\sigma_{IC}$ in
 every sample, so the option's interval contains the default one, and its asymptotic coverage is at
@@ -2398,15 +2402,15 @@ lifts the standard error in the samples where $\hat\sigma_{IC}$ is too small.
 
 The option is refused, before any learner fits, with cross-fitting, `repeats`, clusters, weights,
 right-censoring, a survival or repeated outcome, `msm=`, `simultaneous=True`, `n_bootstrap`,
-`ratio_trim`, a data-tuned cap, a learned or separable regimen, or a node that holds a vector of
-treatments. On a fit with the option, `covariance()` and `simultaneous_bands()` are refused,
+`ratio_trim`, a data-tuned cap, a learned or separable regimen, a treatment held from baseline, or
+a node that holds a vector of treatments. On a fit with the option, `covariance()` and `simultaneous_bands()` are refused,
 because the fit defines the variance of each linear functional as a maximum, which is not a
 covariance matrix. `contrast()`, `ratio()` and a `transform=` read the maximum for their gradient.
 `influence_curves` returns the curves, which do not carry the option's variance.
 
 **What it was validated against.** In [`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)
-the option reads conservative on the five-node `price_down` rows (SE ratio 1.113 to 1.145, coverage
-0.980 to 0.983, and 0.953 to 0.958 in the lowest standard-error quartile), and on plan `p4` of law B
+with an exact ratio the option reads conservative on the five-node `price_down` rows (SE ratio
+1.113 to 1.145, coverage 0.980 to 0.983, and 0.953 to 0.958 in the lowest standard-error quartile), and on plan `p4` of law B
 (1.047 to 1.084, coverage 0.965 to 0.972). It reads calibrated at two nodes (0.992 to 1.019), where
 it widens the interval by about 1%. The support rows `G39.*.tau2`, `G39.*.tau5`, `G10.continuous`
 and `G24.mtp.in_sample` license it; at three nodes it stays experimental, because that
