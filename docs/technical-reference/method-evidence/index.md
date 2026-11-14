@@ -160,6 +160,7 @@ adaptive-iptw-pairing
 adaptive-tmle-trial
 adaptive-tmle-selective
 known-node-mechanisms-ltmle
+known-mechanism-sample-weights
 sequential-baselines
 structural-nested-mean
 parametric-gformula
