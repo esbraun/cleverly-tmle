@@ -107,6 +107,7 @@ def weights(
     repeat: int = 1,
     labels: dict[str, str] | None = None,
     time_label: str = "Time point",
+    counterfactual: bool = False,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -134,13 +135,23 @@ def weights(
     received; :func:`~cleverly.plotting.notes` counts the units still followed with a weight of zero
     at each time point, and the boxes describe the other weights.
 
+    A continuous-time survival fit draws one panel: at each target time :math:`t`, each unit's
+    weight :math:`1 / (\\hat\\pi(a \\mid L)\\hat S_c(t^- \\mid a, L))` for each arm, the inverse
+    of the probability of the arm times the probability of staying uncensored just before
+    :math:`t`, before the fit's floor. No weight the fit gives the unit up to that time is
+    larger. Each box holds the units given that arm, or with ``counterfactual=True`` the units
+    given the other arm. The dotted line is the largest weight the floor allows. The fit keeps
+    no follow-up times, so no effective sample size is drawn.
+
     Parameters
     ----------
-    result : LongitudinalResult
-        A fitted inverse-weighting or targeted longitudinal result.
+    result : LongitudinalResult or ContinuousSurvivalResult
+        A fitted inverse-weighting or targeted longitudinal result, or a continuous-time
+        survival fit.
     regimens : sequence of str or None, default=None
         The labels of the regimens to draw, at most three, in the order given; every
-        regimen of the result, up to three, when omitted.
+        regimen of the result, up to three, when omitted. On a continuous-time survival fit,
+        the arm labels.
     horizon : int or None, default=None
         The horizon of a curve fit; the largest when omitted.
     cause : str or None, default=None
@@ -151,6 +162,9 @@ def weights(
         Words for each regimen, keyed by its label.
     time_label : str, default="Time point"
         Words for a node on the x axis.
+    counterfactual : bool, default=False
+        On a continuous-time survival fit, draw each arm's weight over the units given the
+        other arm: the weight each would carry under the arm it did not receive.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -171,17 +185,20 @@ def weights(
     Returns
     -------
     Figure
-        Two panels with a shared x axis.
+        Two panels with a shared x axis; one for a continuous-time survival fit.
 
     Raises
     ------
     CapabilityError
-        When the result is not a longitudinal fit, or is a g-computation or parametric
-        g-formula fit, which has no weights.
+        When the result is not a longitudinal or continuous-time survival fit, or is a
+        g-computation or parametric g-formula fit, which has no weights.
     DataError
         When the result holds more than three regimens and ``regimens`` is omitted, when
         ``regimens`` is a single string, empty, repeats a label or names more than three,
         or when a regimen, the cause, the horizon or the repeat is not in the result.
+    ValueError
+        When ``counterfactual=True`` is given for a longitudinal fit, or ``horizon``,
+        ``cause`` or ``repeat`` for a continuous-time survival fit.
 
     See Also
     --------
@@ -194,7 +211,8 @@ def weights(
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes say which horizon and repeat
     are drawn, where no limit line applies and why, and how many units carry a weight of
-    zero.
+    zero. For a continuous-time survival fit they say which units each box holds and how the
+    share beyond the floor differs from the fit's own bounded share.
 
     Examples
     --------
@@ -226,20 +244,25 @@ def weights(
     'Weights over time'
     >>> plt.close(fig)
     """
-    from .._refusal import NO_ALTERNATIVE, RefusalReason
+    from .._refusal import RefusalReason
     from ..exceptions import CapabilityError, DataError
     from ..longitudinal.estimator import LongitudinalResult
     from ..longitudinal.weights import node_weights
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(result, ContinuousSurvivalResult):
-        raise CapabilityError(
-            "weights() does not yet draw a continuous-time survival fit's weights, the inverse "
-            "of each row's treatment probability times its probability of staying uncensored "
-            "over time.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=NO_ALTERNATIVE,
-            roadmap="X100",
+        from . import _continuous
+
+        return _continuous.weights(
+            result,
+            regimens=regimens,
+            horizon=horizon,
+            cause=cause,
+            repeat=repeat,
+            labels=labels,
+            time_label=time_label,
+            counterfactual=counterfactual,
+            title=title or None,
         )
     if not isinstance(result, LongitudinalResult):
         point_fit = hasattr(result, "nuisance") and hasattr(result, "repeats")
@@ -253,6 +276,11 @@ def weights(
             )
             + ".",
             reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if counterfactual:
+        raise ValueError(
+            "counterfactual= draws a continuous-time survival fit's weights under the arm "
+            "each unit did not receive; a longitudinal fit's weights follow each regimen"
         )
     repeats = result.repeats
     if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= len(repeats):

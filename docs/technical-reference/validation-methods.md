@@ -447,6 +447,7 @@ the table.
 | `LONGITUDINAL_CLASSIFIER_RATIO` | `treatment` at a continuous node | the classifier ratio route fits no density |
 | `LONGITUDINAL_KNOWN_MECHANISM` | `treatment` or `censoring` at one node | the data declares the node's factor known, so the fit read the declaration and no learner ran |
 | `LONGITUDINAL_CONSTANT_TARGET` | `outcome` or `pseudo_outcome` at one node | every follower held 0, such as no event at the node, or every follower held 1. The regression is that value and no learner ran |
+| `LONGITUDINAL_CONTINUATION_NOT_SCORED` | `continuation` at each node before the last horizon, by regimen and cause | on a hazard fit with covariates after baseline, the regression of the future is a hazard curve fitted on soft events from the targeted later nodes, with no observed label to score it against |
 | `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD` | `outcome` or `pseudo_outcome` at one node | one or more training folds held 0, or held 1, while the sample did not. Those folds fitted no learner, and `folds` names them. The node's model row stays |
 
 `to_frame()` starts with the row identity, evaluation, loss, model name, and model kind. It then
