@@ -77,6 +77,31 @@ def panel_dose() -> Any:
     return kinds.fit_panel(None).data
 
 
+def discrete_dose() -> CausalData:
+    """A three-level discrete dose: a policy on it reads the propensity, not a density ratio."""
+    rng = np.random.default_rng(3)
+    n = 400
+    w = rng.normal(size=n)
+    a = rng.integers(0, 3, n).astype(float)
+    y = 1.0 + 0.5 * a + w + rng.normal(size=n)
+    frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+    return CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"])
+
+
+def categorical_panel() -> Any:
+    """Two categorical nodes of :data:`tests.studies.longitudinal_mtp_common.CATEGORICAL_LAW`."""
+    from cleverly.longitudinal import LongitudinalData
+
+    frame = panel_law.CATEGORICAL_LAW.sample(400, 5)
+    return LongitudinalData.from_frame(
+        frame,
+        outcome="Y",
+        treatment=["A1", "A2"],
+        baseline=["W"],
+        time_varying=[[], ["L2"]],
+    )
+
+
 def declared_mechanism() -> CausalData:
     frame = known.point_frame()
     return CausalData.from_frame(
@@ -108,6 +133,25 @@ TABLE: dict[str, tuple[Callable[[], Any], str, str, str]] = {
         "point",
         DENSITY,
         route_module.BIN_DESIGN,
+    ),
+    # A policy on a discrete dose or on categorical nodes reads the propensity: no dose.
+    "TMLE discrete dose": (
+        lambda: TMLE(policies=[Shift(1.0, cap=2.0)]),
+        "discrete",
+        DENSITY,
+        route_module.NO_DOSE,
+    ),
+    "LTMLE categorical": (
+        lambda: LTMLE(panel_law.categorical_regimens()),
+        "categorical",
+        DENSITY,
+        route_module.NO_DOSE,
+    ),
+    "SDR categorical": (
+        lambda: SDR(panel_law.categorical_regimens()),
+        "categorical",
+        DENSITY,
+        route_module.NO_DOSE,
     ),
     # The dose-response readers and the continuous MSM read a density, not a policy ratio.
     "TMLE no policy": (lambda: TMLE(), "point", DENSITY, route_module.NO_DOSE),
@@ -174,7 +218,13 @@ def table_mismatches(datasets: dict[str, Any]) -> list[str]:
 
 @pytest.fixture(scope="module")
 def datasets(point_dose: CausalData, panel_dose: Any) -> dict[str, Any]:
-    return {"point": point_dose, "panel": panel_dose, "declared": declared_mechanism()}
+    return {
+        "point": point_dose,
+        "panel": panel_dose,
+        "declared": declared_mechanism(),
+        "discrete": discrete_dose(),
+        "categorical": categorical_panel(),
+    }
 
 
 def test_w13_each_estimator_class_resolves_its_route(datasets: dict[str, Any]) -> None:
@@ -195,6 +245,23 @@ def test_w13_a_resolution_that_always_reads_the_classifier_fails(
     for name in ("TMLE density_bins", "TMLE bin_design", "TMLE declared mechanism"):
         assert f"{name}:" in found
     for name in ("SurvivalCTMLE", "SurvivalDRTMLE", "SequentialIPW", "LTMLE density_bins"):
+        assert f"{name}:" in found
+
+
+def test_w13_a_resolution_blind_to_the_dose_kind_fails(
+    datasets: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation control: every policy fit read as a policy on a dose sends the discrete rows to
+    the classifier, which moves a discrete fit's estimate."""
+    real = route_module.resolve_ratio
+
+    def dose_blind(ratio: Any, *, policy_dose: bool, **options: Any) -> Any:
+        return real(ratio, policy_dose=True, **options)
+
+    for module in (tmle_module, longitudinal_module):
+        monkeypatch.setattr(module, "resolve_ratio", dose_blind)
+    found = " ".join(table_mismatches(datasets))
+    for name in ("TMLE discrete dose", "LTMLE categorical", "SDR categorical"):
         assert f"{name}:" in found
 
 
