@@ -388,7 +388,13 @@ def final_stage(
         contrast = debiased.contrast
         if learner is not None:
             assert values is not None
-            fitted = fit_learner(clone_learner(learner), _learner_input(values), contrast, w)
+            # Unit weights are no weights. Passing them changes no fit, but it sends
+            # scikit-learn's histogram booster through weighted-percentile binning, which
+            # doubles its cost (tests/unit/test_learned_rule_ep_declared_design.py).
+            unit = bool(np.all(w == 1.0))
+            fitted = fit_learner(
+                clone_learner(learner), _learner_input(values), contrast, None if unit else w
+            )
             return None, fitted
         root = np.sqrt(w)
         beta = np.linalg.lstsq(design * root[:, None], contrast * root, rcond=None)[0]

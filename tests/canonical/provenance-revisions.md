@@ -597,3 +597,17 @@ for 3,000, 2,000 or 1,200 replicates (0 of 23, 38 and 72 rows pass). The records
 the `reporting` policy, so the run published these rows either way. The declaration moves no
 row and no verdict: it keeps the reference's own truth rows out of the red-cell ledger, as it
 does for every study that carries one, and the exact parity gates stay the comparator's claim.
+
+## Unit weights dropped from the EP final learner
+
+`final_stage` in `src/cleverly/estimators/ep.py` now passes no `sample_weight` to a declared
+final learner when every observation weight is 1. With a weight vector, scikit-learn's
+histogram gradient booster bins through its weighted percentile; without one, it bins through
+`np.percentile` with the `averaged_inverted_cdf` method, which gives the same bin edges at unit
+weights, and its gradients and hessians are the same sums of ones. The edit therefore changes
+no fit of `ep-cate`'s greedy learner or of `learned-rule-ep`, whose manifests record `ep.py`.
+The evidence: `tests/unit/test_learned_rule_ep_declared_design.py` checks equal predictions
+of the declared booster with unit weights and with none, and a probe of the declared `L`
+curve at n = 4,000 and n = 16,000 found the estimate, the standard error, every fold rule and
+every fold value equal under both, while the fit took 14 s against 32 s and 32 s against
+52 s. Weighted fits pass their weights as before.
