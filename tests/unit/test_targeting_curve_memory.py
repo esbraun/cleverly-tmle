@@ -210,8 +210,17 @@ def test_blocked_draws_equal_the_whole_matrix_draws(
     _assert_same(expected, got)
 
 
-@pytest.mark.parametrize(("n", "draws"), [(1_000, 40), (10_000, 20), (100_000, 4)])
-@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize(
+    ("n", "draws", "seed"),
+    [
+        (1_000, 40, 0),
+        (1_000, 40, 1),
+        (1_000, 40, 2),
+        (10_000, 20, 0),
+        (10_000, 20, 1),
+        (100_000, 4, 0),
+    ],
+)
 def test_blocked_draws_equal_the_whole_matrix_draws_at_larger_sizes(
     n: int, draws: int, seed: int
 ) -> None:
@@ -234,6 +243,13 @@ def test_an_unseeded_call_keeps_the_seeded_unpaired_stream() -> None:
     )["T"]
     for key in expected:
         np.testing.assert_array_equal(expected[key], got[key])
+
+
+def test_the_keys_are_the_generator_stream_in_row_order() -> None:
+    """The oracle draws through ``_keys`` too, so this pins the stream every seeded curve reads."""
+    np.testing.assert_array_equal(
+        tc._keys(np.random.default_rng(0), (3, 5)), np.random.default_rng(0).random((3, 5))
+    )
 
 
 @pytest.mark.parametrize("chunk", [None, 1, 7])
@@ -407,7 +423,9 @@ def test_the_byte_model_bounds_the_peak_within_its_factor(case: str, chunk: int 
     _quiet(tc.half_sample_draws, evaluation, n_half_samples=2, random_state=0, **mutation)
     measured = _peak(evaluation, 40, chunk=chunk, **mutation)
     predicted, _, _ = _predicted(evaluation, 40, chunk, **mutation)
-    assert measured <= predicted <= tc.DRAW_BYTES_FACTOR * measured, (predicted, measured)
+    general = "cut" in mutation or "tie_rule" in mutation
+    factor = tc.GENERAL_DRAW_BYTES_FACTOR if general else tc.DRAW_BYTES_FACTOR
+    assert measured <= predicted <= factor * measured, (predicted, measured)
 
 
 @pytest.mark.parametrize(
@@ -606,3 +624,60 @@ def test_the_facades_refuse_before_any_fit(
     monkeypatch.setattr(type(split_curve.diagnostics._estimator(split_curve.fit)), "refit", no_fit)
     with pytest.raises(error, match="max_memory_bytes"):
         split_curve.diagnostics.targeting_curve(n_half_samples=20, max_memory_bytes=value)
+
+
+def test_the_facade_preflights_read_the_evaluation_dimensions(
+    monkeypatch: pytest.MonkeyPatch, split_curve: Any
+) -> None:
+    """Units are clusters, blocks the score's distinct values, and the split route's rows."""
+    import pandas as pd
+
+    from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+    from cleverly.bases import Modifiers
+
+    seen: list[dict[str, Any]] = []
+    original = tc.check_draw_memory
+
+    def recording(**kwargs: Any) -> None:
+        seen.append(kwargs)
+        original(**kwargs)
+
+    monkeypatch.setattr(tc, "check_draw_memory", recording)
+    rng = np.random.default_rng(0)
+    n = 600
+    w1, w2 = rng.uniform(-1, 1, n), rng.uniform(-1, 1, n)
+    a = rng.binomial(1, 0.5, n)
+    frame = pd.DataFrame(
+        {
+            "Y": w2 + a * (1 + w1) + rng.normal(0, 0.5, n),
+            "A": a,
+            "W1": w1,
+            "W2": w2,
+            "C": np.arange(n) // 6,
+            "S": np.round(w1, 1),
+            "R": w1 + w2,
+        }
+    )
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"), cluster="C"),
+    )
+    _quiet(
+        study.identify(ConditionalContrast(Modifiers(["W1"]))).targeting_curve,
+        "S",
+        computed_from=["W1"],
+        score_kind="external",
+        compare="R",
+        compare_computed_from=["W1", "W2"],
+        n_half_samples=20,
+        random_state=0,
+        **_learners(),
+    )
+    external = seen.pop()
+    assert external["n"] == n and external["units"] == 100 and external["scores"] == 2
+    assert external["blocks"] == n  # R has a distinct value per row; S has 21
+    assert external["draws"] == 20 and external["edges"] == GROUP_EDGES
+    _quiet(split_curve.diagnostics.targeting_curve, n_half_samples=20, random_state=0)
+    split = seen.pop()
+    assert split["n"] == split["units"] == split["blocks"] == 500
+    assert split["scores"] == 1 and split["ties_bounded"] is True

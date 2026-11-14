@@ -410,12 +410,13 @@ per-draw differences.
 
 **Memory.** The draws are made and reduced in blocks of about 64 MiB (`BLOCK_BYTES`), or one
 draw when a single draw takes more, so memory grows with the evaluation rows and not with
-$B \times n$. Each draw's keys, ranks and sums read only its own row of the random stream, so
-the block size never changes a draw: a seeded curve is the same whatever the blocks.
-`max_memory_bytes=` on both routes and on `control_values` caps what the draws add above the
-arrays already held; `None` uses the memory available now. It sets the block size and never
-lowers $B$, and a request whose single draw would exceed it raises `MethodConfigurationError`
-before the ATE fit. It does not bound the ATE fit or the pooled fluctuation.
+$B \times n$. Each draw's keys, ranks and sums depend on that draw's keys alone, which come from
+the random stream in draw order, so the block size never changes a draw. `max_memory_bytes=` on
+both routes and on `control_values` caps what the draws add above the arrays already held;
+`None` uses the memory available now. It sets the block size and never lowers $B$. A request
+whose setup, outputs and one draw would exceed it raises `MethodConfigurationError` before any
+fit (before the refits on the split route, which bounds the score's ties by the rows); it does
+not bound the fits or the pooled fluctuation.
 
 **Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
 a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
