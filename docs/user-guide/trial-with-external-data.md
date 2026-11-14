@@ -98,6 +98,20 @@ ones, so the effect is extrapolated there and the fit warns. For the trial effec
 information only. The last note says how many terms the fit used to describe the effect and the
 bias, and `result.working_models` lists them for each of the five groups of rows that the fit holds out in turn. The terms are named by your adjustment columns, such as `age` and `A*age`.
 
+To see the note on the external rows as a picture, plot the predicted chances:
+
+```python
+from cleverly.plotting import overlap
+
+fig = overlap(result)
+```
+
+The upper panel shows each trial patient's predicted chance of the treatment, by the arm they got.
+The lower panel shows every row's estimated chance of being a trial row, trial rows above the axis
+and external rows below. The dotted line at 0.01 is the floor the warning checks, with the share
+of external rows below it printed at its foot. These are the chances before the fit adjusts the
+trial-membership model, and `cleverly.plotting.notes(fig)` says so.
+
 ## Compare with the trial alone
 
 The reason to borrow external data is a narrower interval, so check that it narrowed. Fit the

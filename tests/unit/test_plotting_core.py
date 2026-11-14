@@ -784,12 +784,14 @@ def test_overlap_says_when_the_predictions_are_in_sample(binary_fit: Any, missin
     assert "In-sample" in (_core.subtitle_text(overlap(missing_fit).axes[0]) or "")
 
 
-def test_overlap_refuses_a_longitudinal_fit() -> None:
-    from cleverly.exceptions import CapabilityError
+def test_overlap_draws_a_longitudinal_fit_per_time_point() -> None:
     from tests.unit._capability_sweep_support import fit_ltmle
 
-    with pytest.raises(CapabilityError, match="point-treatment"):
-        overlap(fit_ltmle())
+    result = fit_ltmle()
+    fig = overlap(result)
+    titles = [axis.get_title(loc="left") for axis in fig.axes]
+    assert titles == [f"Time point {time}" for time in range(1, result.data.n_times + 1)]
+    _style_checks(fig)
 
 
 # ----------------------------------------------------------------------- forest, more cases

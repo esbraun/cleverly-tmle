@@ -70,3 +70,30 @@ The results that have one natural figure also draw it with `plot()`:
 `LongitudinalResult.plot()` draws its curve over time with `curve`, or the estimates with
 `forest` when the fit has no curve, and `EffectCurveResult.plot()` draws the conditional effect
 over a modifier with `curve`.
+
+## Fits over time and with external data
+
+`overlap`, `learners` and `calibration` also draw fits whose treatment is set at more than one
+time point, or whose rows come from a trial and an external source.
+
+- A survival fit of a treatment given once at baseline draws, in `overlap`, each person's
+  predicted chance of each arm. The fit's probability limits apply to the product of that chance
+  and the chance of staying in follow-up, so `overlap(result, censoring=True)` adds that product
+  for each plan, with the limit drawn. A collaborative fit draws each arm's selected treatment
+  model, and `learners` draws each arm's path of added terms with the chosen one marked.
+- A fit with a treatment at several time points draws one panel per time point. `overlap`
+  shows the chance of the plan's treatment among the units still following the plan, split by
+  whether they then took it; `censoring=True` adds each time point's chance of staying in the
+  study. `learners` stacks each model's Super Learner weights by time point, and `calibration`
+  draws each probability model at each time point. `regimen=`, `nodes=`, `horizon=` and
+  `cause=` choose what is drawn. An incremental or modified treatment policy has no single
+  chance to draw, so `overlap` refuses it and `weights` draws its weights.
+- A structural nested mean fit draws, in `overlap`, each time point's chance of each treatment
+  level, with the margin from 0 and 1 that its positivity summary counts.
+- An adaptive fit with external data draws, in `overlap`, each trial patient's chance of
+  treatment and each row's chance of being a trial row, with the floor its positivity warning
+  checks. Its nuisance report keeps learner names only, so `learners` and `calibration` refuse.
+
+A continuous-time survival fit does not yet draw `curve`, `overlap`, `weights` or `learners`,
+and covariate balance over time is not drawn for any fit over time. Each refusal names the
+[roadmap](../roadmap.md) item that tracks it.
