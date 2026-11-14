@@ -100,7 +100,8 @@ class InfluenceRow:
     variance_source : str
         Which variance the estimate's interval reads: ``"influence_curve"``, or
         ``"policy_weighted"`` under ``variance="policy_weighted"`` when that variance is the
-        larger. The measures above always read the influence curve.
+        larger, or ``"boundary_node"`` when the estimate adds the boundary-node supplement.
+        The measures above always read the influence curve.
 
     Attributes
     ----------
@@ -167,7 +168,7 @@ class InfluenceReport:
         sources = [row.variance_source for row in self.rows]
         return {
             source: sources.count(source) / len(sources)
-            for source in ("influence_curve", "policy_weighted")
+            for source in ("influence_curve", "policy_weighted", "boundary_node")
         }
 
     def __getitem__(self, name: str) -> InfluenceRow:

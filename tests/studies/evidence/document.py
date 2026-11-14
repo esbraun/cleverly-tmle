@@ -412,6 +412,28 @@ def measured(row: Any) -> str:
                 f"lower bound {render(float(row.gain_lower))}"
             )
         return measured
+    if family == "boundary_node":
+        # ``boundary-node-ltmle``: a supplemented row is judged on its bias and, where gated,
+        # its firing coverage or all-draw coverage; the control on its two paired clauses on
+        # the firing draws; a reported arm prints its all-draw and firing coverage.
+        firing = (
+            f"firing coverage {_interval(row.firing_ci_lower, row.firing_ci_upper)} "
+            f"on {int(row.firing_draws)} draws"
+        )
+        if row.role == "control":
+            return (
+                f"{firing}; gained {int(row.mcnemar_gained)}, lost {int(row.mcnemar_lost)}, "
+                f"McNemar lower {render(float(row.mcnemar_lower))}; oracle gained "
+                f"{int(row.oracle_gained)}, lost {int(row.oracle_lost)}, lower "
+                f"{render(float(row.oracle_gain_lower))}"
+            )
+        coverage = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        if row.role == "positive":
+            return (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, margin "
+                f"{render(float(row.bias_margin))}; {coverage}; {firing}"
+            )
+        return f"{coverage}; {firing}"
     if family in _POLICY_VARIANCE_FAMILIES:
         # ``mtp-policy-variance``: an option row is judged on its coverage floor and its SE-ratio
         # clause, a control on one of the two, and a reported row reads both, so every row

@@ -175,6 +175,56 @@ def _time_to_event() -> Any:
     )
 
 
+def _boundary_node() -> Any:
+    """The hazard curve fit with no event in ``arm1`` at node 2, which adds the supplement."""
+    frame, design = _point_survival()
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    return CausalStudy(frame, design=design).estimate(
+        RegimeMean({"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4)),
+        outcome_learner=_logistic(),
+        treatment_learner=_logistic(),
+        survival_model="hazard",
+        cross_fit=False,
+    )
+
+
+def _boundary_node_iterated() -> Any:
+    """The clustered iterated-mean curve fit with no event in ``arm1`` at node 2."""
+    frame, _ = _point_survival()
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    frame["site"] = np.arange(len(frame)) // 10
+    design = TimeToEvent(
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=("W1", "W2"),
+        grid=(1, 2, 3, 4),
+        cluster="site",
+    )
+    return CausalStudy(frame, design=design).estimate(
+        RegimeMean({"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4)),
+        outcome_learner=_logistic(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=_logistic(),
+        cross_fit=False,
+    )
+
+
+def _boundary_node_bootstrap() -> Any:
+    """The supplemented hazard curve fit with a full-refit bootstrap."""
+    frame, design = _point_survival()
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    return CausalStudy(frame, design=design).estimate(
+        RegimeMean({"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4)),
+        outcome_learner=_logistic(),
+        treatment_learner=_logistic(),
+        survival_model="hazard",
+        cross_fit=False,
+        n_bootstrap=19,
+        random_state=0,
+    )
+
+
 def _survival_method(method: Any) -> Callable[[], Any]:
     def fit() -> Any:
         frame, design = _point_survival()
@@ -315,6 +365,9 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_known_score": sweep.fit_known_score,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
+    "time_to_event_boundary_node": _boundary_node,
+    "time_to_event_boundary_node_iterated": _boundary_node_iterated,
+    "time_to_event_boundary_node_bootstrap": _boundary_node_bootstrap,
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
     "time_to_event_drtmle": _survival_method(DRTMLEMethod()),
     "continuous_survival": _continuous_survival,
@@ -440,6 +493,42 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "time_to_event_boundary_node": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "time_to_event_boundary_node_iterated": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "time_to_event_boundary_node_bootstrap": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "draws",
     },
     "time_to_event_ctmle": {
         "forest": "draws",
@@ -784,6 +873,38 @@ def test_calibration_does_not_call_a_hazard_library_a_continuous_outcome(fits: A
 
 
 @_SHARED
+def test_the_curve_draws_a_supplemented_interval_and_names_the_band_gap(fits: Any) -> None:
+    """A boundary-node estimate: the curve draws its own interval and says the band skips it."""
+    result = fits("time_to_event_boundary_node")
+    name = "risk_regimen[arm1 @ t=2]"
+    estimate = result.estimates[name]
+    assert estimate.node is not None
+    # The supplement widens the interval past the curve's own, so a plot that redrew the
+    # interval from the influence curve alone would miss these limits.
+    assert estimate.variance > float(np.var(estimate.influence_curve)) / estimate.n
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fig = plotting.curve(result)
+    drawn = [
+        vertex
+        for collection in fig.axes[0].collections
+        if collection.get_gid() == "cleverly-interval"
+        for path in collection.get_paths()
+        for vertex in path.vertices
+        if 2.0 <= vertex[0] < 3.0
+    ]
+    heights = {round(float(y), 9) for _, y in drawn}
+    low, high = estimate.ci
+    assert round(float(low), 9) in heights
+    assert round(float(high), 9) in heights
+    gap = [note for note in plotting.notes(fig) if "boundary-node variance" in note]
+    assert len(gap) == 1
+    assert name in gap[0]
+    assert "risk_regimen[arm1 @ t=1]" not in gap[0]
+    plt.close(fig)
+
+
+@_SHARED
 def test_a_hazard_working_model_draws_its_coefficients_not_curves(fits: Any) -> None:
     """X70 (d): the plot of a hazard MSM fit is the forest of its terms, never a curve."""
     result = fits("hazard_msm")
@@ -794,6 +915,43 @@ def test_a_hazard_working_model_draws_its_coefficients_not_curves(fits: Any) -> 
     assert len(fig.axes) == 1
     assert sorted(labels) == sorted(result.estimates)
     plt.close(fig)
+
+
+@_SHARED
+def test_influence_says_the_curve_is_not_a_supplemented_variance(fits: Any) -> None:
+    result = fits("time_to_event_boundary_node")
+    phrase = "so this curve is not the reported variance"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        supplemented = plotting.influence(result, name="risk_regimen[arm1 @ t=2]")
+        plain = plotting.influence(result, name="risk_regimen[arm1 @ t=1]")
+    assert any(
+        "node with no event" in note and phrase in note for note in plotting.notes(supplemented)
+    )
+    assert not any(phrase in note for note in plotting.notes(plain))
+    plt.close(supplemented)
+    plt.close(plain)
+
+
+@_SHARED
+def test_the_bootstrap_of_a_supplemented_estimate_draws_as_a_named_diagnostic(fits: Any) -> None:
+    """A row resample keeps the flagged node's one value: the plot and the band say so."""
+    result = fits("time_to_event_boundary_node_bootstrap")
+    reason = "every resample of rows keeps the flagged node's one value"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        supplemented = plotting.bootstrap(result, name="risk_regimen[arm1 @ t=2]")
+        plain = plotting.bootstrap(result, name="risk_regimen[arm1 @ t=1]")
+        curve = plotting.curve(result, band="bootstrap")
+    assert any(reason in note for note in plotting.notes(supplemented))
+    assert not any(reason in note for note in plotting.notes(plain))
+    assert "risk_regimen[arm1 @ t=2]" not in result.bootstrap_band.bands
+    assert any(
+        "nor a row resample carries" in note and "risk_regimen[arm1 @ t=2]" in note
+        for note in plotting.notes(curve)
+    )
+    for fig in (supplemented, plain, curve):
+        plt.close(fig)
 
 
 @_SHARED
