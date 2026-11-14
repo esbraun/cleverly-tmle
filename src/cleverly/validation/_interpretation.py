@@ -36,7 +36,7 @@ import numpy as np
 
 from .._inference_status import supplies_inference
 from .._trial_family import refuse_augmented_trial
-from ..data.known_mechanism import divides_by_declaration
+from ..data.known_mechanism import divided_treatment_at, divides_by_declaration
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -351,9 +351,10 @@ def _longitudinal_learners(estimator: Any, data: Any) -> tuple[Any, ...]:
     and the natural-treatment models.
     """
     method = type(estimator).__name__
-    known = data.known_mechanisms
-    fits_treatment = known is None or not all(
-        known.treatment_at(time) is not None
+    # A declaration read in the sample beside weights fits its tilt with the treatment
+    # learner, so only a declaration the fit divides by at every node drops the learner.
+    fits_treatment = not all(
+        divided_treatment_at(data, time) is not None
         for time in range(1, data.n_times + 1)
         if not data.is_held_node(time)
     )
@@ -403,7 +404,6 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     estimator = result.estimator
     estimate = result[estimand]
     n = int(data.n)
-    known = data.known_mechanisms
     learners = tuple(
         learner_fingerprint(learner, n) for learner in _longitudinal_learners(estimator, data)
     )
@@ -425,7 +425,11 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
         learners=learners,
         cross_fitting=f"folds={folds}" if folds > 1 else "off",
         inference=str(estimate.inference),
-        known_mechanism=bool(known is not None and known.declares_treatment),
+        known_mechanism=any(
+            divided_treatment_at(data, time) is not None
+            for time in range(1, data.n_times + 1)
+            if not data.is_held_node(time)
+        ),
         n=n,
         covariates_per_row=float(width) / max(1, n),
         min_event_count=_longitudinal_event_count(data),

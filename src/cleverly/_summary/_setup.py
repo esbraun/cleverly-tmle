@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..data.known_mechanism import divides_by_declaration
+from ..data.known_mechanism import (
+    divided_censoring_at,
+    divided_treatment_at,
+    divides_by_declaration,
+)
 from . import (
     Cell,
     Detail,
@@ -269,13 +273,34 @@ def _longitudinal_header(design: Any, data: Any) -> tuple[list[tuple[str, str]],
         (vocabulary.TIME_POINTS, str(data.n_times)),
     ]
     right.extend(_followed_facts(data))
-    if getattr(data, "known_mechanisms", None) is not None:
+    if _divides_by_node_declaration(data):
         right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
     clusters = clusters_fact(data)
     if clusters is not None:
         right.append((vocabulary.CLUSTERS, clusters))
     right.extend(weights_facts(data))
     return [*left, *right], len(left)
+
+
+def _divides_by_node_declaration(data: Any) -> bool:
+    """Whether a longitudinal fit divides by a declared treatment factor at some node.
+
+    A declaration read in the sample beside weights is the input of an estimated factor,
+    so it does not make the treatment model known.  A fit that declares only retention
+    reads as known when it divides by that declaration at some node.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return False
+    nodes = range(1, data.n_times + 1)
+    if known.declares_treatment:
+        return any(
+            not data.is_held_node(time) and divided_treatment_at(data, time) is not None
+            for time in nodes
+        )
+    return bool(data.censoring_names) and any(
+        divided_censoring_at(data, time) is not None for time in nodes
+    )
 
 
 def _named(value: Any) -> tuple[str, ...]:

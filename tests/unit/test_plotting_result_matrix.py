@@ -308,6 +308,10 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "effect_curve": _effect_curve,
     "dose_response": _dose_response,
     "structural_nested_mean": _structural_nested_mean,
+    # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
+    # plot answers as it does on an estimated-mechanism fit of the same kind.
+    "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
+    "ltmle_known_sample": sweep.fit_ltmle_known_sample_weights,
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -455,6 +459,30 @@ EXPECTED: dict[str, dict[str, str]] = {
         "learners": "TypeError: learners() cannot read the nuisance",
         "calibration": "CapabilityError: no nuisance model here reports",
         "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "point_tmle_known_sample": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_known_sample": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
 }

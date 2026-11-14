@@ -21,6 +21,7 @@ from .data.known_mechanism import (
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
     MechanismLaw,
     check_mechanism_law,
+    divided_treatment_at,
     probability_columns,
 )
 from .data.treatment_covariates import (
@@ -1139,6 +1140,27 @@ def _held_censoring(data: LongitudinalData) -> dict[float, str] | None:
     return held or None
 
 
+def _held_law(data: LongitudinalData) -> MechanismLaw | None:
+    """The ``mechanism_law`` a prepared container's declarations carry, or ``None``."""
+    known = data.known_mechanisms
+    return None if known is None else known.law
+
+
+def _check_node_law(design: Any) -> None:
+    """Refuse a longitudinal design's ``mechanism_law`` that is malformed or reads nothing."""
+    check_mechanism_law(design.mechanism_law)
+    if (
+        design.mechanism_law is not None
+        and design.treatment_probabilities is None
+        and design.censoring_probabilities is None
+    ):
+        raise DataError(
+            f"{type(design).__name__}(mechanism_law=) says how treatment_probabilities= and "
+            "censoring_probabilities= are read beside weights, and this design declares "
+            "neither. Drop mechanism_law=, or declare the probabilities."
+        )
+
+
 def _held_node_columns(
     data: LongitudinalData,
 ) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...] | None:
@@ -1216,6 +1238,16 @@ class LongitudinalTreatment:
         The known retention probabilities (a tuple of pairs is also accepted): each censoring
         column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
         censoring learner.
+    mechanism_law : {"target", "sample"} or None
+        How the declared probabilities are read beside a non-constant ``weights`` column,
+        where they are required unless their every value is 0 or 1.  ``"target"``: they hold
+        in the population the weights restore (randomization before sampling, or weights
+        that read the baseline covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the treatment
+        or later data, so at each declared node the fit estimates the weight-tilted
+        probabilities from them with the node's learner and counts the node as estimated.
+        :meth:`cleverly.longitudinal.LTMLE.fit` states the condition its interval then
+        needs.  It needs ``treatment_probabilities`` or ``censoring_probabilities``.
     markov_order : int or None
         A statistical-model restriction of order ``k``.  Every nuisance model at node ``t``
         reads the baseline covariates and the last ``k + 1`` nodes only.  The estimand does
@@ -1264,11 +1296,13 @@ class LongitudinalTreatment:
     continuous_treatment: Sequence[str] | Mapping[str, Any] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    mechanism_law: MechanismLaw | None = None
     markov_order: int | None = None
     dose_atoms: Mapping[str, Sequence[float]] | None = None
     eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
+        _check_node_law(self)
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         check_markov_order(self.markov_order)
         continuous = self.continuous_treatment
@@ -1357,6 +1391,7 @@ class LongitudinalTreatment:
             censoring_probabilities=(
                 None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
             ),
+            mechanism_law=self.mechanism_law,
             dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
             eliminate=self.eliminate,
         )
@@ -1450,6 +1485,7 @@ class LongitudinalTreatment:
                 self.censoring_probabilities,
                 _held_censoring_columns(data),
             ),
+            ("mechanism_law", self.mechanism_law, _held_law(data)),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -1540,6 +1576,16 @@ class TimeToEvent:
         that holds the probability of still being observed after it, given the treatment
         received, the covariates and being event-free and observed through it.  The fit then
         divides by these probabilities at that time and fits no censoring learner there.
+    mechanism_law : {"target", "sample"} or None
+        How the declared probabilities are read beside a non-constant ``weights`` column,
+        where they are required unless their every value is 0 or 1.  ``"target"``: they hold
+        in the population the weights restore (randomization before sampling, or weights
+        that read the baseline covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the treatment
+        or later data, so at each declared node the fit estimates the weight-tilted
+        probabilities from them with the node's learner and counts the node as estimated.
+        :meth:`cleverly.longitudinal.LTMLE.fit` states the condition its interval then
+        needs.  It needs ``treatment_probabilities`` or ``censoring_probabilities``.
 
     Attributes
     ----------
@@ -1578,8 +1624,10 @@ class TimeToEvent:
     dose_atoms: Sequence[float] = ()
     eliminate: Sequence[str] = ()
     censoring_probabilities: Mapping[float, str] | None = None
+    mechanism_law: MechanismLaw | None = None
 
     def __post_init__(self) -> None:
+        _check_node_law(self)
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         if self.censoring_probabilities is not None:
@@ -1719,6 +1767,7 @@ class TimeToEvent:
             ),
             eliminate=self.eliminate,
             censoring_probabilities=self.censoring_probabilities,
+            mechanism_law=self.mechanism_law,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
@@ -1728,6 +1777,7 @@ class TimeToEvent:
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment_probabilities", self.treatment_probabilities, held_columns),
             ("censoring_probabilities", self.censoring_probabilities, _held_censoring(data)),
+            ("mechanism_law", self.mechanism_law, _held_law(data)),
             ("time", self.time, data.time_name),
             ("event", self.event, data.event_name),
             ("treatment", (self.treatment,), tuple(data.treatment_names)),
@@ -1830,6 +1880,16 @@ class LongPanel:
         the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
+    mechanism_law : {"target", "sample"} or None
+        How the declared probabilities are read beside a non-constant ``weights`` column,
+        where they are required unless their every value is 0 or 1.  ``"target"``: they hold
+        in the population the weights restore (randomization before sampling, or weights
+        that read the baseline covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the treatment
+        or later data, so at each declared node the fit estimates the weight-tilted
+        probabilities from them with the node's learner and counts the node as estimated.
+        :meth:`cleverly.longitudinal.LTMLE.fit` states the condition its interval then
+        needs.  It needs ``treatment_probabilities`` or ``censoring_probabilities``.
     eliminate : sequence of str
         The competing causes to prevent, by label.  The estimand is then the risk of each
         remaining cause had the named causes been prevented (Young et al. 2020): their events
@@ -1875,11 +1935,13 @@ class LongPanel:
     continuous_treatment: bool = False
     treatment_probabilities: Mapping[Any, str] | None = None
     censoring_probabilities: str | None = None
+    mechanism_law: MechanismLaw | None = None
     treatment_support: Any = None
     dose_atoms: Sequence[float] = ()
     eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
+        _check_node_law(self)
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         if (self.outcome is None) == (self.event is None):
@@ -1949,6 +2011,7 @@ class LongPanel:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
             censoring_probabilities=self.censoring_probabilities,
+            mechanism_law=self.mechanism_law,
             eliminate=self.eliminate,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
@@ -1992,6 +2055,7 @@ class LongPanel:
                 self.censoring_probabilities,
                 layout.censoring_probabilities,
             ),
+            ("mechanism_law", self.mechanism_law, _held_law(data)),
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
@@ -6060,10 +6124,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ipsi, ipsi_reason = (False, IPSI_POLICY_REFUSAL) if declares_mtp(regimens) else (True, None)
         if not declares_tilt(regimens):
             return True, None, True, None, ipsi, ipsi_reason
-        known = getattr(data, "known_mechanisms", None)
         n_times = getattr(data, "n_times", 0)
-        declared = known is not None and all(
-            known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+        # A declaration read in the sample beside weights is estimated, so it fixes no tilt.
+        declared = getattr(data, "known_mechanisms", None) is not None and all(
+            divided_treatment_at(data, time) is not None for time in tilt_nodes(regimens, n_times)
         )
         return (
             declared,
@@ -6120,10 +6184,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         regimens = self.functional.interventions
         if declares_tilt(regimens):
             data = getattr(self._study, "data", None)
-            known = getattr(data, "known_mechanisms", None)
             n_times = getattr(data, "n_times", 0)
-            declared = known is not None and all(
-                known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+            declared = getattr(data, "known_mechanisms", None) is not None and all(
+                divided_treatment_at(data, time) is not None
+                for time in tilt_nodes(regimens, n_times)
             )
             if not declared:
                 return False, BASELINE_TILT_REFUSAL, False, BASELINE_TILT_REFUSAL

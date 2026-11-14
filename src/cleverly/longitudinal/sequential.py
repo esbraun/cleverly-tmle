@@ -130,6 +130,12 @@ import numpy as np
 from .._refusal import Refusal
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
+from ..data.known_mechanism import (
+    divided_censoring_at,
+    divided_treatment_at,
+    tilted_censoring_at,
+    tilted_treatment_at,
+)
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions, fit_mixed_density
@@ -1093,7 +1099,7 @@ def preflight_mechanism_support(
 
     The first node is checked at any level count, the later ones only from three levels
     up.  :func:`_check_categorical_fold_support` says why the two differ.  A node whose
-    mechanism the data declares known fits no learner and is not checked.
+    declared mechanism the fit divides by fits no learner and is not checked.
 
     A mixed node on the density route fits :math:`g_C`, one multinomial over the observed
     cells of its categorical components (:func:`_mixed_node_density`).  A training fold
@@ -1112,12 +1118,12 @@ def preflight_mechanism_support(
     ratio : {"density", "classifier"}
         The route a mixed node's ratio takes.
     """
-    known = data.known_mechanisms
     for time in range(1, data.n_times + 1):
         if data.is_held_node(time):
             continue
-        if known is not None and known.treatment_at(time) is not None:
-            # A declared node fits no learner, so no training fold can lack a level there.
+        if divided_treatment_at(data, time) is not None:
+            # A divided declaration fits no learner, so no training fold can lack a level
+            # there.  A declaration read in the sample fits its tilt classifier.
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         if data.node_kind(time) == "mixed":
@@ -1340,6 +1346,23 @@ def fit_mechanism(
     on rows that are not at risk are never read; :func:`preflight_known_mechanisms` checks
     the rows that are.
 
+    A declaration read in the sample beside weights that tilt the law
+    (``mechanism_law="sample"``) is not divided by.  The tilted factor is
+    :math:`P_w(A_t = a \mid H_t) \propto g_{0,t}(a \mid H_t)\, E[w \mid A_t = a, H_t]` by
+    Bayes' rule, and :math:`E[w \mid A_t = a, H_t]` is proportional over ``a`` to
+    :math:`\hat r_t(a \mid H_t)`, the treatment learner's classification of :math:`A_t` on the
+    history with weights :math:`v = w / g_{0,t}(A_t \mid H_t)`.  :math:`\hat r_t` is fitted on
+    the same rows, folds and cluster groups as an estimated factor, with :math:`v` zero off
+    the risk set and rescaled to mean one on each training fold, and predicted at each
+    plan's history as an estimated factor is.  The node's factor is
+    :math:`g_{0,t} \hat r_t / \sum_a g_{0,t} \hat r_t`, with :math:`g_{0,t}` read at the
+    observed row as for a divided declaration.  A declared retention composes the same way
+    with the censoring learner's classification of the retention on :math:`(H_t, A_t)`, with
+    weights ``w`` over the declared probability of what each row did, normalised over the
+    two outcomes.  Such a node is estimated: it is not in ``known_treatment_nodes`` or
+    ``known_censoring_nodes``, it is not pooled, and a kept model is the classifier wrapped
+    in :class:`TiltedNodeModel`.
+
     ``fit_rows`` restricts every learner to those rows, with ``folds`` the single in-sample
     fold, and the fitted models still predict every row.  That is one outer training fold's
     own mechanism, which the cross-fitted sequentially doubly robust recursion reads at its
@@ -1384,7 +1407,6 @@ def fit_mechanism(
     densities: dict[tuple[int, str], ConditionalDensity | MixedDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
-    known = data.known_mechanisms
     known_treatment_nodes: list[int] = []
     known_censoring_nodes: list[int] = []
     treatment_models: list[Any] = []
@@ -1425,8 +1447,26 @@ def fit_mechanism(
             treatment.append({plan.label: np.ones(data.n) for plan in plans})
             treatment_observed.append(np.zeros((data.n, 0)))
             treatment_diagnostics.append(())
-        elif known is not None and known.treatment_at(time) is not None:
-            declared = _filled_matrix(known.treatment_at(time))
+        elif tilted_treatment_at(data, time) is not None:
+            _categorical_node(
+                data,
+                plans,
+                time,
+                at_risk,
+                fit_at,
+                np.nan_to_num(data.node_codes(time), nan=0.0),
+                treatment,
+                treatment_observed,
+                treatment_diagnostics,
+                numerators,
+                treatment_learner=treatment_learner,
+                folds=folds,
+                n_jobs=n_jobs,
+                models=node_models,
+                declared=_filled_matrix(tilted_treatment_at(data, time)),
+            )
+        elif divided_treatment_at(data, time) is not None:
+            declared = _filled_matrix(divided_treatment_at(data, time))
             rows = np.arange(data.n)
             treatment.append(
                 {plan.label: declared[rows, plan.arm(time).astype(np.int64)] for plan in plans}
@@ -1511,14 +1551,16 @@ def fit_mechanism(
         if not data.censoring_names:
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
             continue
-        if known is not None and known.censoring_at(time) is not None:
-            retention = np.nan_to_num(np.asarray(known.censoring_at(time), dtype=float), nan=1.0)
+        divided = divided_censoring_at(data, time)
+        tilted = tilted_censoring_at(data, time)
+        if divided is not None:
+            retention = np.nan_to_num(np.asarray(divided, dtype=float), nan=1.0)
             censoring.append({plan.label: retention for plan in plans})
             censoring_observed.append(retention)
             censoring_diagnostics.append(())
             known_censoring_nodes.append(time)
             censoring_models.append(None)
-        elif pooled is not None:
+        elif pooled is not None and tilted is None:
             censoring.append(pooled.by_plan[time])
             censoring_observed.append(pooled.observed[time])
             censoring_diagnostics.append(pooled.diagnostics)
@@ -1537,6 +1579,7 @@ def fit_mechanism(
                 n_jobs=n_jobs,
                 keep_models=keep_models,
                 key="observed_censoring",
+                declared=tilted,
             )
             censoring.append(factor.by_plan)
             censoring_observed.append(factor.observed)
@@ -1635,17 +1678,36 @@ def _retention_factor(
     n_jobs: int,
     keep_models: bool,
     key: str,
+    declared: FloatArray | None = None,
 ) -> _Retention:
     """Fit one retention factor at ``time`` on the rows ``fit_at``, out of fold.
 
     When no eligible row left (``target`` false), the factor is exactly one and no learner
     is fitted: the learner would see a constant target, which a standard classifier refuses.
     This is the first node of every default integer grid.
+
+    ``declared`` is a declared retention read in the sample beside weights.  The learner
+    then classifies the retention with weights ``w`` over the declared probability of what
+    each row did, and the factor is ``r0 r / (r0 r + (1 - r0)(1 - r))`` with ``r0`` the
+    declaration at the observed row and ``r`` the classifier at each plan's history
+    (:func:`fit_mechanism`).  With no eligible row leaving, the classifier's limit is one and
+    so is the factor.
     """
     ones = np.ones(data.n)
     if _retains_every_eligible_unit(data, fit_at, target):
         return _Retention({plan.label: ones for plan in plans}, ones, (), None, True, ())
     stayed = np.where(fit_at, target.astype(float), 0.0)
+    weights = data.weights
+    declared_retention = None
+    if declared is not None:
+        declared_retention = np.nan_to_num(np.asarray(declared, dtype=float), nan=1.0)
+        weights = _tilt_weights(
+            data,
+            np.where(np.asarray(target, dtype=bool), declared_retention, 1.0 - declared_retention),
+            fit_at,
+            f"censoring_probabilities at {data.censoring_names[time - 1]!r} gives probability "
+            "0 to what {count} at-risk unit(s) did",
+        )
     designs = {
         plan.label: data.history_design(time, treatment=plan.values, include_current=True)
         for plan in plans
@@ -1662,7 +1724,7 @@ def _retention_factor(
             learner,
             data.history_design(time, include_current=True),
             stayed,
-            data.weights,
+            weights,
             folds,
             task="classification",
             predict_designs=prediction_designs,
@@ -1672,16 +1734,78 @@ def _retention_factor(
             n_jobs=n_jobs,
             constant_folds=constant_folds,
             models=models,
+            mean_one_weights=declared is not None,
         )
+    model = models[0] if models else None
+    if declared_retention is not None:
+        predictions = {
+            name: _composed_retention(declared_retention, values)
+            for name, values in predictions.items()
+        }
+        model = None if model is None else TiltedNodeModel(model)
     observed = np.asarray(predictions.pop(observed_key), dtype=float)
     return _Retention(
         predictions,
         observed,
         tuple(diagnostics),
-        models[0] if models else None,
+        model,
         False,
         tuple(sorted(constant_folds)),
     )
+
+
+@dataclass(frozen=True)
+class TiltedNodeModel:
+    """The kept classifier of a node whose declaration is read in the sample.
+
+    The node's factor is the declaration composed with this classifier
+    (:func:`fit_mechanism`), not the classifier's prediction, so a reader of a kept GLM
+    factor's coefficients, such as the stacked equations of sequential IPW, does not read
+    it as the factor's model.
+
+    Parameters
+    ----------
+    classifier : object
+        The fitted classifier of the tilt.
+    """
+
+    classifier: Any
+
+
+def _tilt_weights(
+    data: LongitudinalData, chance: FloatArray, fit_at: BoolArray, contradiction: str
+) -> FloatArray:
+    """The weights ``w / chance`` of a tilt classifier on ``fit_at``, zero elsewhere.
+
+    ``chance`` is the declared probability of what each row did at the node.  A zero on a
+    training row is a unit the declaration says could not have done what it did.
+    """
+    impossible = fit_at & (chance <= 0.0)
+    if np.any(impossible):
+        raise DataError(
+            contradiction.format(count=int(np.count_nonzero(impossible)))
+            + "; the data contradicts the declared mechanism"
+        )
+    weights = np.asarray(data.weights, dtype=float)
+    return np.where(fit_at, weights / np.where(fit_at, chance, 1.0), 0.0)
+
+
+def _composed(declared: FloatArray, ratio: FloatArray) -> FloatArray:
+    """``declared * ratio`` normalised over the levels of each row.
+
+    A row whose product is zero at every level keeps the declaration, which is then
+    one-hot on a level the classifier gives no mass, and the tilt cannot move it.
+    """
+    product = np.asarray(declared, dtype=float) * np.asarray(ratio, dtype=float)
+    total = product.sum(axis=1, keepdims=True)
+    return np.where(total > 0.0, product / np.where(total > 0.0, total, 1.0), declared)
+
+
+def _composed_retention(declared: FloatArray, ratio: FloatArray) -> FloatArray:
+    """The tilted retention ``r0 r / (r0 r + (1 - r0)(1 - r))``, ``r0`` where it is 0 / 0."""
+    stayed = declared * ratio
+    total = stayed + (1.0 - declared) * (1.0 - ratio)
+    return np.where(total > 0.0, stayed / np.where(total > 0.0, total, 1.0), declared)
 
 
 def _pooled_competing(
@@ -1784,13 +1908,16 @@ def preflight_known_mechanisms(
     Four checks, in order.  A declared value must be finite on every row at risk at its
     node.  A declared probability of zero for the arm an at-risk unit took, or a declared
     retention of zero for a unit that stayed, is refused, because the unit's data
-    contradicts it.  A regimen that the declared design cannot identify is refused: see
+    contradicts it; so is a retention of one for a unit that left, at a retention read in
+    the sample beside weights, whose classifier divides by it.  These checks hold under both
+    readings of ``mechanism_law``, since the tilt changes probabilities and not support.  A
+    regimen that the declared design cannot identify is refused: see
     :func:`_refuse_unidentified_regimens`.  And the running product of the declared factors
     on every row that follows a plan must lie inside ``bounds``: truncating a known product
     moves the estimate with no variance reason.  An odds tilt node's factor is never bounded,
     so it is not part of that product.  With estimated factors beside declared
     ones, the product is over the declared factors alone, and the estimated factors keep
-    the shipped truncation.
+    the shipped truncation; a declaration read in the sample is not in the product.
 
     Parameters
     ----------
@@ -1856,6 +1983,16 @@ def preflight_known_mechanisms(
                     f"{int(np.count_nonzero(stayed))} unit(s) that stayed under observation; "
                     "the data contradicts the declared mechanism"
                 )
+            # A tilted retention divides each unit's weight by the declared probability of
+            # what it did, so a unit that left where the declaration says it stays is refused
+            # here, before its classifier.
+            left = observed & ~passed & (np.nan_to_num(values) >= 1.0)
+            if tilted_censoring_at(data, time) is not None and np.any(left):
+                raise DataError(
+                    f"censoring_probabilities at {name!r} gives retention probability 1 to "
+                    f"{int(np.count_nonzero(left))} unit(s) that left; the data contradicts "
+                    "the declared mechanism"
+                )
     _refuse_unidentified_regimens(data, plans)
     refusal = known_product_refusal(data, plans, bounds)
     if refusal is not None:
@@ -1871,7 +2008,8 @@ def known_product_refusal(
     inside ``bounds``, because truncating a known product moves the estimate with no
     variance reason.  An odds tilt node's factor is never bounded, so it is not part of that
     product.  With estimated factors beside declared ones, the product is over the declared
-    factors alone, and the estimated factors keep the shipped truncation.
+    factors alone, and the estimated factors keep the shipped truncation.  A declaration
+    read in the sample beside weights enters an estimated factor and is not in the product.
 
     :func:`preflight_known_mechanisms` raises this refusal for the fit's ``g_bounds``.
     :func:`~cleverly.longitudinal.estimator.longitudinal_truncation_curve` raises it for
@@ -1892,20 +2030,21 @@ def known_product_refusal(
         The refusal, or ``None`` when the panel declares no factor or every declared product
         lies inside ``bounds``.
     """
-    known = data.known_mechanisms
-    if known is None:
+    if data.known_mechanisms is None:
         return None
     lower, upper = bounds
     for plan in plans:
         masks = plan.masks(data)
         running = np.ones(data.n)
         for time in range(1, data.n_times + 1):
-            declared = None if data.is_held_node(time) else known.treatment_at(time)
+            # A declaration read in the sample is the input of an estimated factor, which
+            # the bounds truncate as any estimate, so it stays out of the product too.
+            declared = None if data.is_held_node(time) else divided_treatment_at(data, time)
             # An odds tilt's factor is never bounded, so it stays out of the product.
             if declared is not None and not plan.is_tilt_node(time):
                 filled = _filled_matrix(declared)
                 running = running * filled[np.arange(data.n), plan.arm(time).astype(np.int64)]
-            retention = known.censoring_at(time) if data.censoring_names else None
+            retention = divided_censoring_at(data, time) if data.censoring_names else None
             if retention is not None:
                 running = running * np.nan_to_num(np.asarray(retention, dtype=float), nan=1.0)
             rows = masks.following(time)
@@ -2054,6 +2193,7 @@ def _categorical_node(
     folds: Folds,
     n_jobs: int,
     models: list[Any] | None = None,
+    declared: FloatArray | None = None,
 ) -> None:
     r"""One categorical node's multinomial mechanism, and its policy nodes' numerators.
 
@@ -2062,17 +2202,30 @@ def _categorical_node(
     \sum_e p(e) \sum_s 1\{d_e(s, H_t) = A_t\}\, g(s \mid H_t)`, read from the same
     out-of-fold multinomial the denominator selects from.  It is not bounded; the bound
     applies to the running denominator, as for a known policy's :math:`q`.
+
+    ``declared`` is a declaration read in the sample beside weights: the multinomial is then
+    the tilt classifier, fitted with weights ``w / declared(A_t | H_t)``, and every
+    prediction is composed with the declaration (:func:`fit_mechanism`).
     """
     designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
     observed_key = _internal_prediction_key(tuple(designs), "observed_treatment")
     prediction_designs = {**designs, observed_key: data.history_design(time)}
+    weights = data.weights
+    if declared is not None:
+        weights = _tilt_weights(
+            data,
+            declared[np.arange(data.n), arm.astype(np.int64)],
+            fit_at,
+            f"treatment_probabilities at node {data.decision_name(time)!r} gives probability 0 "
+            "to the arm that {count} at-risk unit(s) took",
+        )
     with phase("mechanism_fit"):
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
         probabilities, diagnostics = cross_fit_predictions(
             treatment_learner,
             data.history_design(time),
             arm,
-            data.weights,
+            weights,
             folds,
             task="classification",
             predict_designs=prediction_designs,
@@ -2082,7 +2235,14 @@ def _categorical_node(
             classes=classes,
             n_jobs=n_jobs,
             models=models,
+            mean_one_weights=declared is not None,
         )
+    if declared is not None:
+        probabilities = {
+            name: _composed(declared, values) for name, values in probabilities.items()
+        }
+        if models:
+            models[0] = TiltedNodeModel(models[0])
     treatment_observed.append(np.asarray(probabilities.pop(observed_key), dtype=float))
     treatment_diagnostics.append(tuple(diagnostics))
     rows = np.arange(data.n)

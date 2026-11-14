@@ -785,3 +785,154 @@ def test_w12_a_reading_recorded_without_weights_takes_its_route_once_weighted() 
     assert not divides_by_declaration(tilted)
     result = _tmle(estimands=BINARY_TARGETS).fit(tilted).single()
     _assert_exact(result, _tilted_truth(frame))
+
+
+# ------------------------------------------------------------------- plots and operations
+
+
+def _sample_study() -> CausalStudy:
+    """A study whose design reads the declaration in the sample, with a score column."""
+    frame = _frame("treatment")
+    frame["S"] = frame["W1"] + 0.5 * frame["W2"]
+    design = PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2"),
+        weights="w",
+        treatment_probabilities=_columns(2),
+        mechanism_law="sample",
+    )
+    return CausalStudy(frame, design=design)
+
+
+def _sample_settings(**settings: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "outcome_learner": _wrong_outcome(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "cross_fit": False,
+        "simultaneous": False,
+        "random_state": 0,
+    }
+    base.update(settings)
+    return base
+
+
+def _sample_coverage(n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Rows of the exact law drawn with replacement, with ``Psi(P_w)`` as the truth."""
+    frame = _frame("treatment")
+    rows = np.random.default_rng(seed).integers(0, len(frame), size=n)
+    return frame.iloc[rows].reset_index(drop=True), _tilted_truth(frame)
+
+
+def test_sample_plots() -> None:
+    """Plan section 6: every plot draws on a ``"sample"`` fit, or its input made from one."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from cleverly import ConditionalContrast, plotting
+    from cleverly.bases import Linear, Modifiers
+    from cleverly.validation.simulation import CoverageStudy
+    from tests.unit._capability_sweep_support import fit_ltmle_known_sample_weights
+
+    study = _sample_study()
+    stacked = SuperLearner(
+        [LogisticRegression(max_iter=1000), law.WeightedCellClassifier()],
+        task="classification",
+    )
+    result = study.identify(ATE()).estimate(
+        **_sample_settings(treatment_learner=stacked, n_bootstrap=20)
+    )
+    assert result.data.known_treatment.law == "sample"
+    repeated = study.identify(ATE()).estimate(
+        **_sample_settings(cross_fit=True, n_folds=2, repeats=2)
+    )
+    longitudinal = fit_ltmle_known_sample_weights()
+    contrast = study.identify(ConditionalContrast(Modifiers(["W1"]), model=Linear(["W1"])))
+    effect = contrast.estimate(**_sample_settings()).effect_curve()
+    curve = contrast.targeting_curve(
+        "S",
+        computed_from=["W1", "W2"],
+        score_kind="external",
+        n_half_samples=20,
+        **_sample_settings(),
+    )
+    coverage = CoverageStudy(
+        dgp=_sample_coverage,
+        estimator=lambda: TMLE(**_sample_settings()),
+        n=600,
+        n_replicates=3,
+        estimands=("ate",),
+        fit_kwargs={
+            **ROLES,
+            "weights": "w",
+            "treatment_probabilities": _columns(2),
+            "mechanism_law": "sample",
+        },
+        seed=1,
+    ).run()
+    figures = {
+        "overlap": plotting.overlap(result),
+        "balance": plotting.balance(result),
+        "influence": plotting.influence(result),
+        "learners": plotting.learners(result),
+        "calibration": plotting.calibration(result),
+        "forest": plotting.forest(result),
+        "curve": plotting.curve(effect),
+        "bootstrap": plotting.bootstrap(result),
+        "repeats": plotting.repeats(repeated),
+        "weights": plotting.weights(longitudinal),
+        "targeting": plotting.targeting(curve),
+        "zipper": plotting.zipper(coverage),
+        "confounding": plotting.confounding(result.sensitivity.contour()),
+        "sensitivity": plotting.sensitivity(result.diagnostics.truncation_curve()),
+    }
+    assert isinstance(plotting.notes(figures["forest"]), tuple)
+    for name, figure in figures.items():
+        assert figure.axes, name
+        plt.close(figure)
+
+
+def test_sample_operations() -> None:
+    """Plan section 6: one call for each operation the earlier tests do not reach.
+
+    The benchmark refuses: a refit without the covariates would still divide by the
+    declaration that reads them.  ``variable_importance`` takes no declaration, so the
+    reading never reaches it.
+    """
+    from cleverly import ConditionalContrast
+    from cleverly.bases import Linear, Modifiers
+    from cleverly.effect_curves import score_assessment
+    from cleverly.sensitivity import missingness_tilt
+
+    study = _sample_study()
+    result = study.identify(ATE()).estimate(**_sample_settings())
+    single = result.single() if hasattr(result, "single") else result
+    frame = _frame("treatment")
+    with pytest.raises(CapabilityError, match="would still divide by the declared mechanism"):
+        result.sensitivity.benchmark("W1")
+    assert result.diagnostics.refute(
+        tests=("random_common_cause",), n_replicates=2, random_state=0
+    ).tests
+    assert len(result.sensitivity.marginal_bounds().to_frame())
+    assert result.sensitivity.evalue() is not None
+    scores = {"S": (frame["W1"] + 0.5 * frame["W2"]).to_numpy(dtype=float)}
+    assert score_assessment(single, single.data, scores).to_frame() is not None
+    curve = (
+        study.identify(ConditionalContrast(Modifiers(["W1"]), model=Linear(["W1"])))
+        .estimate(**_sample_settings())
+        .effect_curve()
+    )
+    assert np.all(np.isfinite(curve.predict({"W1": np.array([0.0, 1.0])})))
+    frame["Delta"] = 1.0
+    frame.loc[frame.index[::7], "Delta"] = 0.0
+    frame.loc[frame["Delta"] == 0.0, "Y"] = np.nan
+    missing = _fit(
+        frame,
+        "sample",
+        _tmle(estimands=("ate",), missingness_learner=LogisticRegression(max_iter=1000)),
+        delta="Delta",
+    )
+    tilt = missingness_tilt(missing, gamma=[0.5, 2.0])
+    assert len(tilt.to_frame()) == 2

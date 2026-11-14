@@ -1577,6 +1577,32 @@ pins the refusal, the flat curve and the estimated-censoring case.
 | a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
 | a continuous node | refused. A known density is not supported |
 
+**Weights.** A weighted fit estimates the regimen mean in the tilted law
+$dP_w = w\,dP/E[w]$ and divides by that law's node factors. At a treatment node Bayes' rule gives
+$P_w(A_t=a\mid H_t) \propto g_{0,t}(a\mid H_t)\,E[w\mid A_t=a,H_t]$, and a retention node is the
+same with $C_t$ given $(H_t, A_t)$. Beside non-constant weights a declared node therefore needs
+`mechanism_law=`, as in the [point case](point-treatment-tmle.md#known-treatment-mechanism). A
+node whose every declared value is 0 or 1, such as a retention of one for every unit still
+observed, is the same law under both readings and needs none, and constant weights tilt nothing.
+
+| `mechanism_law` | at each declared node with a value in $(0,1)$ |
+| --- | --- |
+| `"target"` | the fit divides by the declaration, and everything above holds in $P_w$ |
+| `"sample"` | the fit estimates the tilted factor as the normalised product of the declaration and the node learner's classification on the rows at risk, with weights $w$ over the declared probability of what each row did, normalised to mean one in each training fold. A treatment factor reads both at each plan's history. A retention factor reads the classifier at each plan's history and the declaration at the observed row |
+
+A `"sample"` node is an estimated factor: it is not a known factor in
+`LongitudinalConfig.known_factors`, the support key or the summary, and `g_bounds` truncates it
+like any estimate. The remainder is then the ordinary product of the factor errors and the outcome
+errors, so the interval holds when both are consistent at a product rate faster than
+$n^{-1/2}$, and the fit is not efficient in the model in which the declaration is known. The node
+learner must accept `sample_weight`. `LTMLE` refuses an odds tilt (`Incremental`) at a
+`"sample"` node, because it reads a tilt as a known policy only from a declaration it divides by;
+`IPSI` estimates that tilt with its mechanism term. The parametric g-formula draws the natural
+treatment at a `"sample"` node from the same product. `tests/unit/test_known_mechanism_weights_longitudinal.py`
+checks LTMLE, SDR and IPSI against a longhand g-formula on $P_w$ on the censored SMART law with a
+weight that reads $L_0$, $A_1$, $C_1$ and $L_1$, with mutation controls for the training rows,
+`fit_rows`, the plan history of the retention and the declared factor.
+
 The nuisance report shows `LONGITUDINAL_KNOWN_MECHANISM` in place of each declared node's row.
 `LongitudinalConfig.known_factors` names the declared treatment and censoring columns, and the
 summary prints them on one line.

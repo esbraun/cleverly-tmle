@@ -67,6 +67,8 @@ omission, justifies it. `randomized=True` does not give the fit the allocation p
 treatment mechanism is still estimated. A trial that records its allocation probabilities declares
 them with `treatment_probabilities=`, and every method that accepts the design then divides by them
 ([known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)).
+With `weights=` as well, the design also names `mechanism_law=`
+([known chances beside weights](user-guide/data-design.md#known-chances-beside-weights)).
 
 Each public object keeps one responsibility:
 

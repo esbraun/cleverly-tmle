@@ -107,6 +107,69 @@ trial = CausalStudy(
 gives the forms, the curves and the refusals. `LongitudinalTreatment` takes the same declaration
 per node ([known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms)).
 
+### Known chances beside weights
+
+With `weights=`, the fit estimates the effect in the population the weights describe, so it needs
+the chance of treatment in that population. The weights can change that chance when they depend on
+the treatment or the outcome. A design that declares chances beside weights that are not all
+equal must therefore say which population the chances describe, with `mechanism_law=`. Without it,
+the fit refuses before it fits any model.
+
+Pass `mechanism_law="target"` when the declared chances already hold in the weighted population.
+That is the case when the treatment was randomized before the sampling that the weights undo, as in
+a case-cohort study drawn from a trial: the trial randomized everyone, then measured a subsample,
+and the weights restore the whole trial. It is also the case when the weights depend only on the
+adjustment columns. The fit then divides by the declared chances, as on unweighted data:
+
+```python
+case_cohort = CausalStudy(
+    frame.assign(p_control=0.5, p_treated=0.5),
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2"),
+        weights="sampling_weight",
+        treatment_probabilities={0: "p_control", 1: "p_treated"},
+        mechanism_law="target",
+    ),
+)
+```
+
+Pass `mechanism_law="sample"` when the declared chances hold in the rows you have, and the weights
+were built afterwards from something the treatment can affect. A non-response weight is the usual
+example: everyone was randomized, people answered the follow-up survey at rates that differ by
+arm, and the weight scales up those who answered. The fit then learns how the weights shift the
+chances, by a classification of the treatment that starts from the declared chances, and treats
+the result as an estimated treatment model:
+
+```python
+non_response = CausalStudy(
+    frame.assign(p_control=0.5, p_treated=0.5),
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2"),
+        weights="sampling_weight",
+        treatment_probabilities={0: "p_control", 1: "p_treated"},
+        mechanism_law="sample",
+    ),
+)
+```
+
+The two readings give different guarantees. With `"target"`, the interval holds even when the
+outcome model is wrong. With `"sample"`, the estimate is still consistent when either the outcome
+model or the treatment learner is right, but the interval holds only when both are close to the
+truth, as for any estimated treatment model. The treatment learner must accept `sample_weight`. The
+`"sample"` fit also does not use the declared chances as efficiently as a method built for known
+chances could.
+
+When the weights depend on the outcome, the weighted population is a causal target
+only if the weights describe how that population was sampled, with known sampling fractions.
+[Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+gives the formulas, and
+[known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) gives
+the same choice at each node of a `LongitudinalTreatment`, `TimeToEvent` or `LongPanel` design.
+
 ## Missing outcomes and missing treatments
 
 Declare each missingness role with a 0/1 indicator column. The column is 1 where the value is

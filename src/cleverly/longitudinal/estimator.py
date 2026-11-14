@@ -106,6 +106,15 @@ from .._typing import (
 )
 from .._warnings import FitWarning, records_fit
 from .._warnings import warn as _warn
+from ..data.known_mechanism import (
+    MechanismLaw,
+    divided_censoring_at,
+    divided_treatment_at,
+    refuse_ambiguous_node_declaration,
+    tilted_censoring_at,
+    tilted_treatment_at,
+    unweighted_tilt_refusal,
+)
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -198,6 +207,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .collaborative import SurvivalSelection
     from .drift import DriftRecord
 from .._summary import Detail, Summary, check_detail
+from ..interventions.learned import _unweighted_member
 from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import seed_unset, supports_sample_weight
 from ..learners.crossfit import (
@@ -254,6 +264,7 @@ from .gformula import (
     plan_node,
     resolve_covariates,
     run_gformula,
+    tilted_natural,
 )
 from .hazard import (
     HazardAlgorithm,
@@ -1514,15 +1525,18 @@ def _replay_recipe(
 
 
 def _known_factors(data: LongitudinalData) -> tuple[str, ...]:
-    """The treatment and censoring columns whose factor ``data`` declares known."""
-    known = data.known_mechanisms
-    if known is None:
+    """The treatment and censoring columns whose declared factor the fit divides by.
+
+    A declaration read in the sample beside weights that tilt the law is not one: its
+    factor is estimated from it (:func:`~cleverly.data.known_mechanism.tilted_treatment_at`).
+    """
+    if data.known_mechanisms is None:
         return ()
     names: list[str] = []
     for time in range(1, data.n_times + 1):
-        if not data.is_held_node(time) and known.treatment_at(time) is not None:
+        if not data.is_held_node(time) and divided_treatment_at(data, time) is not None:
             names.append(data.decision_name(time))
-        if data.censoring_names and known.censoring_at(time) is not None:
+        if data.censoring_names and divided_censoring_at(data, time) is not None:
             names.append(data.censoring_names[time - 1])
     return tuple(names)
 
@@ -5064,7 +5078,8 @@ class _SequentialEstimator:
         A targeted fit translates a plan whose every tilt node has a declared treatment
         mechanism into a known stochastic policy: :math:`q_t` is then a fixed function of
         the history (Kennedy 2019, Section 3.3), so the plan is an F1 policy plan.  A tilt
-        node with an estimated mechanism is refused.
+        node with an estimated mechanism is refused, and so is a node whose declaration is
+        read in the sample beside weights, since its tilted mechanism is estimated.
 
         Parameters
         ----------
@@ -5083,16 +5098,16 @@ class _SequentialEstimator:
         CapabilityError
             When a tilt node's treatment mechanism is estimated.
         """
-        known = data.known_mechanisms
         out = []
         for plan in plans:
             if not plan.has_tilt:
                 out.append(plan)
                 continue
             nodes = [time for time in range(1, data.n_times + 1) if plan.is_tilt_node(time)]
-            if known is None or any(known.treatment_at(time) is None for time in nodes):
+            declared = {time: divided_treatment_at(data, time) for time in nodes}
+            if any(values is None for values in declared.values()):
                 raise CapabilityError.from_refusal(LTMLE_TILT_REFUSAL)
-            propensity = {time: _filled_matrix(known.treatment_at(time)) for time in nodes}
+            propensity = {time: _filled_matrix(values) for time, values in declared.items()}
             out.append(replace(plan.with_tilts(propensity), node_factors=()))
         return tuple(out)
 
@@ -5187,6 +5202,47 @@ class _SequentialEstimator:
                     f"Fit without {name}.",
                     reason=gap,
                 )
+
+    def _refuse_unweighted_tilt(self, data: LongitudinalData) -> None:
+        """Refuse a tilt classifier whose fit would drop its weights, before any learner.
+
+        Under ``mechanism_law="sample"`` beside weights, a declared node's classifier is
+        fitted with weights ``w`` over the declared probability, and without them it returns
+        the declaration itself, so the fit would divide by its square.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+
+        Raises
+        ------
+        MethodConfigurationError
+            For a treatment or censoring learner, or a member of its library, whose fit
+            takes no ``sample_weight``, at a node that needs it.
+        """
+        nodes = range(1, data.n_times + 1)
+        roles = []
+        if any(
+            not data.is_held_node(time) and tilted_treatment_at(data, time) is not None
+            for time in nodes
+        ):
+            roles.append(self.treatment_learner)
+        if data.censoring_names and any(
+            tilted_censoring_at(data, time) is not None for time in nodes
+        ):
+            roles.append(
+                self.treatment_learner if self.censoring_learner is None else self.censoring_learner
+            )
+        for learner in roles:
+            if learner is None:
+                # The default library and the GLM default both take weights.
+                continue
+            member = _unweighted_member(
+                resolve_learner(learner, task="classification", n_folds=self.learner_folds)
+            )
+            if member is not None:
+                raise MethodConfigurationError.from_refusal(unweighted_tilt_refusal(member))
 
     def _refuse_prepared(self, data: LongitudinalData) -> None:
         """Refuse a prepared panel this estimator cannot fit, before any regimen is resolved.
@@ -5446,6 +5502,7 @@ class _SequentialEstimator:
         continuous_treatment: Sequence[str] | Mapping[str, DeclaredSupport | None] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
         eliminate: Sequence[str] = (),
         **refused: Any,
@@ -5521,6 +5578,23 @@ class _SequentialEstimator:
         censoring_probabilities : array-like, mapping, or None
             The known retention probabilities, as for
             :meth:`LongitudinalData.from_frame`.  A declared node fits no censoring learner.
+            Beside non-constant ``weights`` either declaration needs ``mechanism_law``,
+            unless its every value is 0 or 1.
+        mechanism_law : {"target", "sample"} or None
+            How the declarations are read beside non-constant ``weights``, where they are
+            required, since a weighted fit divides by the treatment and retention
+            probabilities of the weight-tilted population.  ``"target"``: the declared
+            probabilities hold in that population (randomization before sampling, or
+            weights that read the baseline covariates only), and the fit divides by them as
+            above.  ``"sample"``: they hold in the rows as drawn and the weights may read the
+            treatment or later data.  At each declared node the fit then divides by the
+            declaration times a classification of the node by ``treatment_learner`` or
+            ``censoring_learner``, fitted on the rows at risk with weights ``w`` over the
+            declared probability of what each row did, normalised over the levels.  Such a
+            node counts as estimated: the interval needs the outcome regressions and those
+            classifiers consistent at a product rate, an odds tilt at the node is refused
+            here (``IPSI`` fits it), and the classifiers must take ``sample_weight``.  See
+            :mod:`cleverly.data.known_mechanism`.
         dose_atoms : mapping of str to sequence of float, or None
             The declared atoms of each continuous dose, as for
             :meth:`LongitudinalData.from_frame`: the doses with a recorded point mass.
@@ -5570,8 +5644,13 @@ class _SequentialEstimator:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            mechanism_law=mechanism_law,
             dose_atoms=dose_atoms,
         ).eliminating(eliminate)
+        # A container built by hand can carry node declarations beside weights with no
+        # reading, and a tilted node's classifier is defined by its weights.
+        refuse_ambiguous_node_declaration(prepared.known_mechanisms, prepared.weights)
+        self._refuse_unweighted_tilt(prepared)
         self._refuse_prepared(prepared)
         if learned is not None:
             refuse_learned_regimen_data(prepared)
@@ -6685,6 +6764,7 @@ class _SequentialEstimator:
         continuous_treatment: Sequence[str] | Mapping[str, Any] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
@@ -6722,6 +6802,13 @@ class _SequentialEstimator:
                 return data.with_known_mechanisms(
                     treatment_probabilities=treatment_probabilities,
                     censoring_probabilities=censoring_probabilities,
+                    mechanism_law=mechanism_law,
+                )
+            if mechanism_law is not None:
+                raise ValueError(
+                    "mechanism_law= at fit reads the treatment_probabilities= or "
+                    "censoring_probabilities= passed beside it, and this call passes neither. "
+                    "A declaration on the LongitudinalData carries its own mechanism_law."
                 )
             return data
         if outcome is None or treatment is None or baseline is None:
@@ -6744,6 +6831,7 @@ class _SequentialEstimator:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            mechanism_law=mechanism_law,
             dose_atoms=dose_atoms,
         )
 
@@ -9253,6 +9341,7 @@ class ParametricGFormula(_Baseline):
         if data.markov_order is not None:
             raise CapabilityError(refusal=GFORMULA_MARKOV_REFUSAL)
         declared_natural(data, plans)
+        tilted_natural(data, plans)
         for plan in plans:
             for node in range(1, data.n_times + 1):
                 # A held node repeats the baseline treatment: the plan declares node 1 only.
@@ -9565,14 +9654,15 @@ class _BoundReplay:
 
 
 def _mechanism_declared(data: LongitudinalData) -> bool:
-    """Whether every treatment and censoring factor of ``data`` is declared known."""
-    known = data.known_mechanisms
-    if known is None:
+    """Whether the fit divides by a declared factor at every treatment and censoring node."""
+    if data.known_mechanisms is None:
         return False
     nodes = range(1, data.n_times + 1)
-    if not all(known.treatment_at(time) is not None for time in nodes):
+    if not all(divided_treatment_at(data, time) is not None for time in nodes):
         return False
-    return not data.censoring_names or all(known.censoring_at(time) is not None for time in nodes)
+    return not data.censoring_names or all(
+        divided_censoring_at(data, time) is not None for time in nodes
+    )
 
 
 def _refit_bound(

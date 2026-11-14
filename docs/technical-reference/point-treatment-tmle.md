@@ -1266,9 +1266,49 @@ declaration. `tests/unit/test_known_treatment_mechanism.py` checks that the fit 
 whose learner returns $g_0$, at two and three arms. `ratio="classifier"` learns the ratio, so it
 is refused beside a declaration.
 
-**Weights.** With `weights=`, the declaration is the mechanism of the weight-tilted law. That law's
-mechanism equals the design mechanism when the weights depend on $W$ only, as survey and transport
-weights do. The declaration is the analyst's assertion, as the array itself is.
+**Weights.** A weighted fit estimates the parameter of the tilted law $dP_w = w\,dP/E[w]$
+(see the module docstring of `cleverly.data.weighting`) and divides by that law's mechanism. By Bayes' rule
+
+$$
+P_w(A=a\mid W) = \frac{g_0(a\mid W)\,m(a,W)}{\sum_{a'} g_0(a'\mid W)\,m(a',W)},
+\qquad m(a,W) = E[w\mid A=a,W],
+$$
+
+which equals $g_0$ when $w$ depends on $W$ only. A declaration beside non-constant weights
+therefore has two readings that the data cannot tell apart, and `mechanism_law=` names one. Without
+it the fit refuses before any learner. Constant weights tilt nothing, so they need no reading.
+
+| `mechanism_law` | the declaration is | the fit |
+| --- | --- | --- |
+| `"target"` | the tilted law's mechanism: randomization before sampling, as in a case-cohort subsample of a trial whose weights undo the subsampling, or weights that read $W$ only | divides by it. Every claim above holds, with $P_w$ in place of $P_0$ |
+| `"sample"` | the mechanism of the rows as drawn, which the weights may tilt because they read $A$ or $Y$ | estimates $\hat g_w(a\mid W) \propto g_0(a\mid W)\,\hat r(a\mid W)$, where $\hat r$ is the treatment learner's classification of $A$ on $W$ with weights $v = w/g_0(A\mid W)$, normalised to mean one in each training fold |
+
+The `"sample"` route rests on $P_v(A=a\mid W) = m(a,W)/\sum_{a'}m(a',W)$, so the normalised
+product is $P_w(A=a\mid W)$ for any positive $g_0$. The result is an estimated mechanism, and the
+fit is an ordinary estimated-mechanism TMLE. Its remainder is
+$P_w\{(\hat g_w-g_w)/\hat g_w\,(\bar Q-\bar Q_{w})\}$, so the estimate is consistent when either
+$\hat r$ or the outcome regression is, and the interval holds when both are consistent and the
+product of their errors is $o_P(n^{-1/2})$. The fit is not efficient in the smaller model in which
+$g_0$ is known: the declaration enters only as an offset of the classifier, and no projection onto
+that model is taken. `TMLEConfig.treatment_mechanism` reads `"estimated"`, the support key carries
+no `known_mechanism` qualifier, and every reader below treats the fit as estimated. The treatment
+learner must accept `sample_weight`, or the fit refuses before any learner, because an unweighted
+classifier returns the sample shares and the product would be $g_0^2$ normalised.
+
+Both readings are exact on a case-cohort sample of a trial whose design mechanism is declared
+(`tests/unit/test_known_mechanism_weights.py`, W3), since the `"sample"` product equals $P_w$ for
+any positive $g_0$. The choice decides what the interval needs: `"target"` needs nothing of the
+outcome regression, and `"sample"` needs the classifier and the regression consistent. Use
+`"target"` when the randomization happened before the sampling that the weights undo.
+
+The causal reading needs one more condition when the weight reads $Y$. The tilted parameter
+$E_w[\bar Q_w(a,W)]$ is computed from $P_w$, and it equals a counterfactual mean of the target
+population only when the weights describe how that population was sampled. A weight that reads
+the outcome, such as an outcome-dependent sampling weight, keeps the reading only when the
+sampling fractions are known (see the module docstring of `cleverly.data.weighting`).
+
+A treatment learner given `treatment_covariates=` is refused beside a declaration in both readings,
+so the classifier always sees the whole adjustment set.
 
 **Bounds.** Truncating a known mechanism moves the estimate with no variance reason. Before any
 learner, the fit checks each declared value against every bound pair it uses. These are the
@@ -1292,12 +1332,12 @@ rows.
 | reader | declared mechanism |
 | --- | --- |
 | `n_bootstrap=` and the subset refutation | carried. Each replicate reads the declared values of the rows it drew |
-| the placebo refutation | dropped, because a permuted treatment has a mechanism of its own. The refit estimates it, and the report says so. The permuted treatment is independent of $W$, so the re-estimated null stays centred |
+| the placebo refutation | dropped, because a permuted treatment has a mechanism of its own. The refit estimates it, and the report says so. The permuted treatment is independent of $W$, so the re-estimated null stays centred. When the placebo data declare the arm shares of the original treatment, they read as `"target"` beside weights, because the placebo treatment is independent of $(W, w)$ |
 | simulated confounding | carried as the flipped mechanism. The flip of strength $s$ is independent of $W$, so the flipped treatment's mechanism is $g_s(a\mid W)=(1-s)\,g_0(a\mid W)+s\,g_0(1-a\mid W)$. Each cell declares $g_s$, and its refit fits no treatment learner |
 | `random_common_cause`, measurement error and the negative-control outcome | carried |
 | replay and `refit` | carried. A refit of a known-mechanism fit reproduces it bit for bit |
 | `retarget`, the truncation curve, the MNAR tilt, and the omitted-variable bound | read the cached declared mechanism |
-| the omitted-variable `benchmark` | refused. A declared mechanism does not change when a covariate is dropped |
+| the omitted-variable `benchmark` | refused. A declared mechanism does not change when a covariate is dropped. Under `mechanism_law="sample"` it is refused too, because a refit without the covariates would still divide by the declaration that reads them |
 | `variable_importance` | not carried. Each candidate is a different treatment with no declaration |
 
 **Refusals.** Each of these refuses before any learner.

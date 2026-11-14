@@ -539,6 +539,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
     ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "ModelBook.natural_law"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator.__init__"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator._modified"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator._set_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",

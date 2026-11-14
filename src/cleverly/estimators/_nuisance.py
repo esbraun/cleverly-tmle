@@ -1005,6 +1005,7 @@ def cross_fit_predictions(
     constant_folds: list[int] | None = None,
     models: list[Any] | None = None,
     only: Sequence[int] | None = None,
+    mean_one_weights: bool = False,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
 
@@ -1045,6 +1046,9 @@ def cross_fit_predictions(
         The folds to fit, in any order.  ``None`` fits every fold.  The rows of a fold that
         is not fitted come back ``NaN``.  :func:`fit_inner_designs` passes it so that each
         leave-two-out pair of folds is fitted once.
+    mean_one_weights:
+        Rescale the weights of each fit's training rows to mean one, as
+        :func:`cross_fit_companion` describes.
 
     Returns
     -------
@@ -1069,6 +1073,7 @@ def cross_fit_predictions(
         constant_folds=constant_folds,
         models=models,
         only=only,
+        mean_one_weights=mean_one_weights,
     )
     return predictions, diagnostics
 

@@ -396,7 +396,8 @@ def placebo_known_mechanisms(data: Any, kernel: MarkovKernel, placebo: FloatArra
     A fit that declared a node's treatment mechanism keeps that node declared on the placebo
     law, with the kernel's probability of each level given the drawn previous treatment. A
     refit that re-estimated it would be another configuration of the estimator. Censoring
-    declarations are unchanged, because the placebo does not move censoring.
+    declarations are unchanged, because the placebo does not move censoring. Beside weights
+    the declarations carry the reading :func:`_placebo_law` gives.
 
     Parameters
     ----------
@@ -430,4 +431,29 @@ def placebo_known_mechanisms(data: Any, kernel: MarkovKernel, placebo: FloatArra
         law = kernel.node_law(time, previous)
         law[np.isnan(placebo[:, time - 1])] = np.nan
         nodes.append(law)
-    return replace(known, treatment=tuple(nodes), source="array", treatment_columns=())
+    return replace(
+        known,
+        treatment=tuple(nodes),
+        source="array",
+        treatment_columns=(),
+        law=_placebo_law(data),
+    )
+
+
+def _placebo_law(data: Any) -> Any:
+    """The ``mechanism_law`` of the placebo law's declarations.
+
+    The placebo trajectory is drawn from the kernel independently of every unit's covariates,
+    outcome, censoring and weight, so the weight-tilted law of each placebo node given its
+    history is the kernel's law: ``"target"``.  The censoring declarations are carried
+    unchanged, and one reading covers both factors, so a retention read in the sample beside
+    weights keeps ``"sample"``; the placebo nodes are then estimated from the kernel's law,
+    which Bayes' rule makes consistent for the same tilted law.
+    """
+    from ..data.known_mechanism import tilted_censoring_at
+
+    if data.censoring_names and any(
+        tilted_censoring_at(data, time) is not None for time in range(1, data.n_times + 1)
+    ):
+        return "sample"
+    return "target"

@@ -75,7 +75,7 @@ container that `LongitudinalTreatment` builds from a wide frame. The reshape end
 | `times=` | every decision time, in time order. Omit it when the times are numbers, dates or durations, and the reader sorts them | the node order |
 | `cluster=` | an account or store identifier, constant within a customer | `id=` of the cluster contract |
 | `weights=` | a unit-level probability weight | `weights=` |
-| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row | `"column@t"` |
+| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row. Beside `weights=`, also pass `mechanism_law=` ([data design](data-design.md#known-chances-beside-weights)) | `"column@t"` |
 
 Declare exactly one of `outcome=` and `event=`. One customer trajectory is one observation for the
 inference model. Repeated rows of one customer add no independent observations. Declare
@@ -841,7 +841,7 @@ reason.
 | use one tilt per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
 | tilt one node and fix another | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
 | tilt a node with three levels | `Incremental({"high": 2.0, "low": 0.5})`. A scalar there is refused before any learner, and so is a key that is not a level of the node |
-| declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy |
+| declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy. Beside weights, `LTMLE` reads it as one only with `mechanism_law="target"`; with `"sample"` it refuses and `IPSI` estimates the tilt |
 
 A level can leave the outcome range, because the estimate is an average of influence-function
 values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also be non-monotone
