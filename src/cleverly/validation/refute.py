@@ -4647,7 +4647,9 @@ def _placebo_data(
     recorded = data.treatment_recorded if data.has_missing_treatment else slice(None)
     shares = np.asarray([float(np.mean(treatment[recorded] == code)) for code in data.arm_codes])
     values = np.tile(shares, (replaced.n, 1))
-    return replace(replaced, known_treatment=KnownMechanism(values, "array"))
+    # The placebo treatment is independent of (W, A, Y), so E[w | A', W] = E[w | W] and the
+    # shares are the mechanism of the weight-tilted law too, whatever the weights read.
+    return replace(replaced, known_treatment=KnownMechanism(values, "array", law="target"))
 
 
 def _on_draw(error: CleverlyError, label: str) -> CleverlyError:

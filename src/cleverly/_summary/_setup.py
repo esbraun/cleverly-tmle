@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..data.known_mechanism import divides_by_declaration
 from . import (
     Cell,
     Detail,
@@ -229,7 +230,7 @@ def _point_header(design: Any, data: Any) -> tuple[list[tuple[str, str]], int]:
         right.append(share)
     elif arm_table(data) is None:
         left.append(share)
-    if getattr(data, "known_treatment", None) is not None:
+    if divides_by_declaration(data):
         right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
     clusters = clusters_fact(data)
     if clusters is not None:

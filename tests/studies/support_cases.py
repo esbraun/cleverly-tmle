@@ -306,6 +306,9 @@ def _roles(data: pd.DataFrame, **flags: bool) -> dict[str, Any]:
         roles["treatment_probabilities"] = {
             float(index): column for index, column in enumerate(levels)
         }
+        if "w" in data:
+            # The declared probabilities are the tilted law's mechanism (the shipped reading).
+            roles["mechanism_law"] = "target"
     if flags.get("dose"):
         roles["treatment_kind"] = "continuous"
     return roles

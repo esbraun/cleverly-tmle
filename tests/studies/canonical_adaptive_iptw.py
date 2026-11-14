@@ -489,6 +489,7 @@ def fit_wt(frame: pd.DataFrame, n: int, seed: int, *, known: bool) -> Any:
     }
     if known:
         arguments["treatment_probabilities"] = known_mechanism("wt", frame)
+        arguments["mechanism_law"] = "target"
     return estimator.fit(frame, **arguments).single()
 
 

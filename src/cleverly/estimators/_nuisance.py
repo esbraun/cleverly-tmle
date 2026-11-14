@@ -33,6 +33,8 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..data.known_mechanism import divides_by_declaration
+from ..data.weighting import effective_sample_size
 from ..exceptions import CapabilityError, DataError, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
@@ -71,6 +73,7 @@ __all__ = [
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
+    "TiltedPropensity",
     "Truncation",
     "UnfittedOutcome",
     "UnfittedPropensity",
@@ -303,6 +306,20 @@ class KnownPropensity(Propensity):
     A DR-TMLE fit with the ``"Q"`` guard fluctuates the mechanism along equation (9).  The
     fluctuated mechanism is a plain :class:`Propensity`, because it is no longer the
     declared one.
+    """
+
+
+@dataclass(frozen=True)
+class TiltedPropensity(Propensity):
+    r"""The weight-tilted mechanism estimated from a declaration read in the sample.
+
+    A marker subclass for ``mechanism_law="sample"`` beside non-constant weights.  The
+    values are :math:`\hat g_w \propto g_0 \hat r`, the declared design mechanism times a
+    classification of the treatment with weights :math:`w / g_0(A \mid W)`, so they are an
+    estimate, and :attr:`NuisanceEstimates.treatment_mechanism` reads ``"estimated"``.  The
+    type records that the declaration entered the estimate, which the constructions that
+    reuse a declared mechanism in every fold must not meet; they refuse it before any
+    learner and assert it where they would read it.
     """
 
 
@@ -1082,6 +1099,7 @@ def cross_fit_companion(
     only: Sequence[int] | None = None,
     companion_reduce: CompanionReduce | None = None,
     stack_predictions: bool = False,
+    mean_one_weights: bool = False,
 ) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -1117,6 +1135,11 @@ def cross_fit_companion(
     reduction that keeps less than the predictions keeps the worker from handing ``K`` full
     float slabs back to the parent.
 
+    ``mean_one_weights=True`` rescales the weights of each fit's training rows to mean one.
+    A penalised learner's loss is not invariant to the weight scale, so weights that are
+    not observation weights (the tilt weights of a declaration read in the sample) keep the
+    regularisation the observation weights get.
+
     Returns ``(predictions, companion, diagnostics)``.  With no companion designs the first
     and last are what :func:`cross_fit_predictions` returns and the middle is empty; that
     path is the production one and is bit for bit what it was.
@@ -1147,7 +1170,11 @@ def cross_fit_companion(
         value = one_value(rows)
         if value is not None:
             return ConstantFit(value)
-        return fit_on_rows(learner, design, target, weights, rows, task, groups)
+        row_weights = weights
+        if mean_one_weights:
+            row_weights = np.array(weights, dtype=float, copy=True)
+            row_weights[rows] = row_weights[rows] / float(np.mean(row_weights[rows]))
+        return fit_on_rows(learner, design, target, row_weights, rows, task, groups)
 
     def predict(model: Learner, matrix: FloatArray) -> FloatArray:
         if isinstance(model, ConstantFit):
@@ -2209,6 +2236,16 @@ def fit_nuisances(
     declaration and marked known, so that its targeting solves no mechanism equation.  A
     discrete modified treatment policy is evaluated at the declaration, as at a fitted
     mechanism.  A companion's propensity is the companion's own declaration in every fold.
+    A declaration read in the sample (``mechanism_law="sample"``) beside non-constant
+    weights is not divided by.  The treatment learner classifies the treatment on the
+    mechanism covariates with weights :math:`v = w / g_0(A \\mid W)`, normalised to mean one
+    on each training fold, on the same folds and cluster groups as an estimated mechanism.
+    Its out-of-fold prediction :math:`\\hat r` gives the tilted mechanism
+    :math:`\\hat g_w = g_0 \\hat r / \\sum_a g_0 \\hat r`, a :class:`TiltedPropensity`, since
+    :math:`P_v(A = a \\mid W) \\propto E[w \\mid A = a, W]` and Bayes' rule gives
+    :math:`P_w(A = a \\mid W) \\propto g_0(a \\mid W) E[w \\mid A = a, W]`.  An incremental tilt
+    and a discrete policy are then evaluated at :math:`\\hat g_w` as at an estimated
+    mechanism, with the mechanism term.
 
     Two keywords serve a policy with a data-tuned cap (X40 part (e)).  ``policy_by_fold``
     gives, per outer fold, the policies that fold's classifier stacks on the classifier
@@ -2371,6 +2408,44 @@ def fit_nuisances(
         if policies:
             policy_set = PolicySet.evaluate(
                 tuple(policies), data, density, reference=policy_reference
+            )
+    elif fit_treatment and data.known_treatment is not None and not divides_by_declaration(data):
+        # mechanism_law="sample" beside weights: the declaration holds in the rows as drawn,
+        # and the fit divides by the tilted mechanism, estimated from it by Bayes' rule.
+        # The preflight refuses a companion and a missing treatment here.
+        assert companion is None and recorded is None
+        declared = np.asarray(data.known_treatment.values, dtype=float)
+        at_arm = declared[
+            np.arange(data.n), np.searchsorted(np.asarray(arms), np.asarray(data.treatment))
+        ]
+        tilt = np.asarray(data.weights, dtype=float) / at_arm
+        ratio, _, propensity_diagnostics = cross_fit_companion(
+            treatment_model,
+            data.mechanism_covariates,
+            data.treatment,
+            tilt,
+            folds,
+            task="classification",
+            predict_designs={"g": data.mechanism_covariates},
+            companion_designs={},
+            groups=groups,
+            clip=(0.0, 1.0),
+            classes=arms,
+            n_jobs=n_jobs,
+            mean_one_weights=True,
+        )
+        product = declared * ratio["g"]
+        propensity = TiltedPropensity(product / product.sum(axis=1, keepdims=True), arms)
+        if propensity_diagnostics:
+            diagnostics["propensity"] = propensity_diagnostics
+        diagnostics["tilt_effective_n"] = effective_sample_size(tilt)
+        if incremental:
+            ipsi_set = IPSISet.evaluate(
+                tuple(incremental), data, propensity.values, reference=incremental_reference
+            )
+        if policies:
+            policy_set = PolicySet.evaluate(
+                tuple(policies), data, propensity=propensity.values, reference=policy_reference
             )
     elif fit_treatment and data.known_treatment is not None:
         # The design's mechanism, read from the data.  No learner runs, so there are no
@@ -2859,6 +2934,9 @@ def fit_inner_designs(
     observed = np.asarray(data.observed, dtype=bool)
     held = [folds.test_index(fold) for fold in range(folds.n_folds)]
 
+    # A tilted mechanism is an estimate that read the declaration, and DRTMLE refuses it
+    # before any learner (``KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL``), so no slab refits one here.
+    assert not isinstance(nuisance.propensity, TiltedPropensity)
     known = isinstance(nuisance.propensity, KnownPropensity)
     # Every slab starts as a copy of the production arrays, which are its own-fold values.
     # The pair loop below overwrites every other fold's rows.
@@ -3014,6 +3092,9 @@ def fit_fold_mechanisms(
     recorded = data.treatment_recorded if data.has_missing_treatment else None
     fill = data.arm_codes[0] if recorded is not None else None
     eligible = np.ones(data.n, dtype=bool) if recorded is None else np.asarray(recorded, bool)
+    # AdaptiveIPTW refuses a tilted mechanism before any learner
+    # (``KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL``), so no slab refits one here.
+    assert not isinstance(nuisance.propensity, TiltedPropensity)
     estimated_treatment = (
         treatment_learner is not None
         and nuisance.fits_treatment

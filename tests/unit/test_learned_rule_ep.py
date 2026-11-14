@@ -366,6 +366,7 @@ def exact_fit(**rule: Any) -> Any:
         weights="w",
         id="c",
         treatment_probabilities={1.0: "p1", 0.0: "p0"},
+        mechanism_law="target",
     ).single()
 
 
@@ -406,6 +407,7 @@ class TestWc1TheFoldCurveIsTheConditionalEffect:
             weights="w",
             id="c",
             treatment_probabilities={1.0: "p1", 0.0: "p0"},
+            mechanism_law="target",
         )
         at_zero = population()["V"].to_numpy() == 0
         assert law.rule_of(plug_in.single())[at_zero].all()

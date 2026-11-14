@@ -36,6 +36,7 @@ from ._inference_status import (
     supplies_inference,
 )
 from ._refusal import Refusal
+from .data.known_mechanism import divides_by_declaration
 
 __all__ = [
     "DEFAULT_BAND_OPTION",
@@ -596,9 +597,7 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
     families = {
         "outcome_learner_family": learner_family(estimator.outcome_learner),
         "treatment_learner_family": (
-            "known"
-            if data.known_treatment is not None
-            else learner_family(estimator.treatment_learner)
+            "known" if divides_by_declaration(data) else learner_family(estimator.treatment_learner)
         ),
     }
     rule = estimator.learned_rule
@@ -779,7 +778,7 @@ def point_key(
     qualifiers = set()
     if data.has_strata:
         qualifiers.add("strata")
-    if data.known_treatment is not None:
+    if divides_by_declaration(data):
         qualifiers.add("known_mechanism")
     if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
         # Unequal sizes that depend on the outcome put a ratio bias in the fold-evaluated point,

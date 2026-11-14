@@ -48,7 +48,7 @@ from .._refusal import Refusal, RefusalReason
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
 from .._typing import BoolArray, FloatArray
-from ..data.known_mechanism import moved_known_values_refusal
+from ..data.known_mechanism import divides_by_declaration, moved_known_values_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..data.weighting import (
     ScoreLoadRow,
@@ -1521,7 +1521,12 @@ def truncation_curve(
     # is refused.  The fitted pairs passed the fit's own check.
     # The fit's own source decides: the declaration on the data, not the stored propensity,
     # which a guarded DR-TMLE may replace with its fluctuated mechanism.
-    declared = None if mechanism else result.data.known_treatment
+    # A declaration read in the sample beside weights is not what the fit divided by.
+    declared = (
+        result.data.known_treatment
+        if not mechanism and divides_by_declaration(result.data)
+        else None
+    )
     known = declared is not None
     canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:

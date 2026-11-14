@@ -19,6 +19,8 @@ from .data.causal_data import _vector_components
 from .data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
+    MechanismLaw,
+    check_mechanism_law,
     probability_columns,
 )
 from .data.treatment_covariates import (
@@ -518,7 +520,17 @@ class PointTreatment:
         probabilities in place of an estimate, and the columns are not adjustment
         covariates.  A design names columns, so the array forms of
         :meth:`cleverly.TMLE.fit` are refused here.  ``CollaborativeTMLEMethod`` is
-        unavailable on such a design, because there is no mechanism to select.
+        unavailable on such a design, because there is no mechanism to select.  Beside a
+        non-constant ``weights`` column it needs ``mechanism_law``.
+    mechanism_law : {"target", "sample"} or None
+        How ``treatment_probabilities`` is read beside non-constant weights, where it is
+        required.  ``"target"``: the probabilities hold in the population the weights
+        restore (randomization before sampling, as in a case-cohort subsample of a trial,
+        or weights that read the covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the
+        treatment, so the fit estimates the weight-tilted mechanism from them with the
+        treatment learner and counts it as estimated.  :meth:`cleverly.TMLE.fit` states
+        the condition its interval then needs.  It needs ``treatment_probabilities``.
     treatment_adjustment : sequence of str or None
         The adjustment columns that the treatment mechanism reads, a subset of
         ``adjustment``.  ``None`` reads all of them.  The outcome regression and every
@@ -603,12 +615,20 @@ class PointTreatment:
     outcome_family: Family = "auto"
     treatment_missingness: str | None = None
     treatment_probabilities: Any = None
+    mechanism_law: MechanismLaw | None = None
     treatment_adjustment: Sequence[str] | None = None
     continuous_treatment: Sequence[str] = field(default_factory=tuple)
     treatment_support: Any = None
     dose_atoms: Sequence[float] | Mapping[str, Sequence[float]] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
+        check_mechanism_law(self.mechanism_law)
+        if self.mechanism_law is not None and self.treatment_probabilities is None:
+            raise DataError(
+                "PointTreatment(mechanism_law=) says how treatment_probabilities= is read "
+                "beside weights, and this design declares no treatment_probabilities. Drop "
+                "mechanism_law=, or declare the probabilities."
+            )
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
         object.__setattr__(self, "dose_atoms", _point_atoms(self.dose_atoms))
@@ -729,6 +749,7 @@ class PointTreatment:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
+            mechanism_law=self.mechanism_law,
             treatment_covariates=self.treatment_adjustment,
         ).with_dose_declarations(self.treatment_support, _declared_atoms(self.dose_atoms))
 
@@ -798,6 +819,13 @@ class PointTreatment:
             raise DataError(
                 f"the supplied CausalData declares treatment_probabilities={held!r}, but this "
                 f"design declares treatment_probabilities={declared!r}; build the data from "
+                "this design, or correct the design"
+            )
+        held_law = None if data.known_treatment is None else data.known_treatment.law
+        if held_law != self.mechanism_law:
+            raise DataError(
+                f"the supplied CausalData declares mechanism_law={held_law!r}, but this "
+                f"design declares mechanism_law={self.mechanism_law!r}; build the data from "
                 "this design, or correct the design"
             )
         # ``outcome_family`` is inferred when the design does not state one, so only a

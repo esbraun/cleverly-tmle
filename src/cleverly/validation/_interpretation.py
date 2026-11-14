@@ -36,6 +36,7 @@ import numpy as np
 
 from .._inference_status import supplies_inference
 from .._trial_family import refuse_augmented_trial
+from ..data.known_mechanism import divides_by_declaration
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -277,8 +278,11 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
     n = int(data.n)
     # Only a learner that the fit runs enters the fingerprint: a declared known mechanism
     # fits no treatment learner, and a fully observed outcome fits no missingness learner.
+    # A declaration read in the sample beside weights fits the treatment learner as the
+    # tilt classifier.
+    known = divides_by_declaration(data)
     used = ["outcome_learner"]
-    if data.known_treatment is None:
+    if not known:
         used.append("treatment_learner")
     if not bool(np.all(data.observed)):
         used.append("missingness_learner")
@@ -306,7 +310,7 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         learners=learners,
         cross_fitting=cross_fitting,
         inference=str(estimate.inference),
-        known_mechanism=data.known_treatment is not None,
+        known_mechanism=known,
         n=n,
         covariates_per_row=float(data.covariates.shape[1]) / max(1, n),
         min_event_count=min_events,
