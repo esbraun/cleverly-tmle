@@ -524,7 +524,8 @@ class WaldTest:
         statistic and p-value 0. On ``"mover"`` and ``"skew_t"`` the interval is asymmetric,
         so the p-value inverts it: it is the largest ``alpha`` at which the null still lies inside
         the level ``1 - alpha`` interval, and the statistic is ``Phi^-1(1 - p/2)`` with the
-        sign of the estimate minus the null.
+        sign of the estimate minus the null. The p-value's floor of ``1e-15`` caps that
+        statistic at about 8.03, so far from the null read the p-value, not the statistic.
     """
 
     name: str
@@ -1341,10 +1342,14 @@ class ParameterEstimate:
 
         An unclustered estimate of a continuous outcome with no transform, no t reference and
         a scale other than a ratio, whose :attr:`effective_df` and :attr:`acceleration` are
-        known.
+        known. An estimate that also takes the range-logit scale keeps it, as
+        :attr:`interval_scale` reads the range-logit scale first: no builder sets
+        :attr:`bounds` on a continuous outcome, but a copy made with ``dataclasses.replace``
+        can, and its interval, test and scale then agree.
         """
         if (
             self.transform is not None
+            or self._range_scale() is not None
             or self.scale == "ratio"
             or self.outcome_family != "gaussian"
             or self.n_clusters < self.n

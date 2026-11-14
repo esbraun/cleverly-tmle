@@ -528,6 +528,9 @@ def implied_correlation(
     if not (minuend_variance > 0.0 and subtrahend_variance > 0.0):
         return float("nan")
     covariance = (minuend_variance + subtrahend_variance - difference_variance) / 2.0
+    # The clip guards a hand-built call. On a shipped estimate it binds at most at round-off:
+    # ``with_components`` records the arms only when the difference's curve is the difference
+    # of theirs, so the three variances come from one covariance matrix and ``|r| <= 1``.
     return float(np.clip(covariance / np.sqrt(minuend_variance * subtrahend_variance), -1.0, 1.0))
 
 

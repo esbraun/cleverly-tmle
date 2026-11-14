@@ -449,3 +449,232 @@ def test_the_default_is_the_interval_study_two_measured(label: str) -> None:
             construction, construction
         )
         assert estimate.ci == pytest.approx((low, high), rel=1e-10, abs=1e-12), cell.name
+
+
+# ------------------------------------------------------------------------ m5: one scale
+
+
+def test_a_bounded_continuous_copy_keeps_one_scale() -> None:
+    """A hand-built copy with ``bounds`` (0, 1) on a continuous estimate takes the range-logit
+    scale for its scale, its interval and its test alike."""
+    estimate = replace(_gaussian(21, psi=0.4), bounds=(0.0, 1.0))
+    assert estimate.interval_scale == "range_logit"
+    low, high = estimate.ci
+    expected = _range_logit_limits(estimate.psi, estimate.std_error, 0.05)
+    assert (low, high) == pytest.approx(expected, rel=1e-12)
+    assert estimate.wald_test(null=estimate.psi).pvalue == pytest.approx(1.0)
+
+
+def test_dropping_the_range_check_splits_the_scale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: without the range check the interval is the skew-widened t again
+    while the scale still reads range-logit, and the test of the estimate itself rejects."""
+    estimate = replace(_gaussian(21, psi=0.4), bounds=(0.0, 1.0))
+    expected = estimate.ci
+    mutate(
+        monkeypatch,
+        influence_module,
+        influence_module.ParameterEstimate,
+        "_skew_reference",
+        [("or self._range_scale() is not None\n", "")],
+    )
+    broken = replace(estimate)
+    assert broken.interval_scale == "range_logit"
+    assert broken.ci != pytest.approx(expected, rel=1e-6)
+    assert broken.wald_test(null=broken.psi).pvalue < 1e-6
+
+
+# ------------------------------------------------------------------------ M3: model means and curves
+
+
+def _skewed_levels(seed: int, n: int = 400) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+    a = rng.integers(0, 3, n).astype(float)
+    y = 0.5 * a + 0.3 * w + rng.lognormal(0.0, 0.9, n)
+    return pd.DataFrame({"A": a, "W": w, "Y": y})
+
+
+@pytest.fixture(scope="module")
+def msm_fit() -> Any:
+    from cleverly import MSMProjection
+    from cleverly.msm import MSM
+
+    study = CausalStudy(
+        _skewed_levels(22), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+    )
+    return study.identify(MSMProjection(MSM.linear())).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        random_state=0,
+    )
+
+
+def _hand_level_intervals(fit: Any) -> list[tuple[float, float, float]]:
+    """Each level's skew-widened t of ``phi' IC``, built from the coefficients alone."""
+    from cleverly.inference import curve_acceleration, satterthwaite_df, skew_widened_ci
+
+    msm = fit.nuisance.msm
+    names = [name for name in fit.estimates if name.startswith("msm[")]
+    estimates = [fit.estimates[name] for name in names]
+    beta = np.array([e.psi for e in estimates])
+    covariance = np.asarray(fit.covariance(names), dtype=float)
+    curves = np.column_stack([np.asarray(e.influence_curve, dtype=float) for e in estimates])
+    out = []
+    for phi in np.asarray(msm.design, dtype=float)[0]:
+        curve = curves @ phi
+        rows = curve != 0.0
+        acceleration = curve_acceleration(curve, rows=rows, centered=True)
+        low, high = skew_widened_ci(
+            float(phi @ beta),
+            float(np.sqrt(phi @ covariance @ phi)),
+            0.05,
+            df=max(satterthwaite_df(curve, rows=rows, centered=True), 5.0),
+            acceleration=acceleration,
+        )
+        out.append((low, high, acceleration))
+    return out
+
+
+def test_the_working_model_means_read_the_skew_widened_t(msm_fit: Any) -> None:
+    from cleverly.msm import working_model_means
+
+    means = working_model_means(msm_fit)
+    assert means.lower is not None and means.upper is not None
+    intercept = msm_fit.estimates["msm[(intercept)]"]
+    assert intercept.interval_scale == "skew_t"
+    # Level 0 is the intercept itself, so its interval is the intercept's own.
+    assert (means.lower[0], means.upper[0]) == pytest.approx(intercept.ci, rel=1e-12)
+    hand = _hand_level_intervals(msm_fit)
+    for j, (low, high, acceleration) in enumerate(hand):
+        assert abs(acceleration) > 0.005, "nonzero witness: the widening must act"
+        assert (means.lower[j], means.upper[j]) == pytest.approx((low, high), rel=1e-12)
+        centre = float(means.estimate[j])
+        assert abs((centre - means.lower[j]) - (means.upper[j] - centre)) > 1e-4
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        (
+            "acceleration=curve_acceleration(curve, rows=rows, centered=centered),",
+            "acceleration=0.0,",
+        ),
+        (
+            "acceleration=curve_acceleration(curve, rows=rows, centered=centered),",
+            "acceleration=-curve_acceleration(curve, rows=rows, centered=centered),",
+        ),
+        (
+            'if all(estimate.interval_scale == "skew_t" for estimate in estimates):',
+            "if False:",
+        ),
+    ],
+    ids=["no-widening", "sign", "gate"],
+)
+def test_a_broken_model_mean_widening_is_caught(
+    msm_fit: Any, monkeypatch: pytest.MonkeyPatch, edit: tuple[str, str]
+) -> None:
+    from cleverly import msm as msm_module
+
+    hand = _hand_level_intervals(msm_fit)
+    mutate(monkeypatch, msm_module, msm_module, "working_model_means", [edit])
+    means = msm_module.working_model_means(msm_fit)
+    assert means.lower is not None and means.upper is not None
+    assert any(
+        (means.lower[j], means.upper[j]) != pytest.approx((low, high), rel=1e-9)
+        for j, (low, high, _) in enumerate(hand)
+    )
+
+
+def _curve_fit(binary: bool) -> Any:
+    from cleverly import ConditionalContrast
+    from cleverly.bases import Linear, Modifiers
+
+    rng = np.random.default_rng(23)
+    n = 600
+    w = rng.uniform(0.0, 2.0, n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-(w - 1.0))))
+    if binary:
+        y = rng.binomial(1, 1 / (1 + np.exp(-(0.4 * a * w + 0.5 * w - 1.0)))).astype(float)
+    else:
+        y = a * (0.5 + 0.4 * w) + 0.3 * w + rng.lognormal(0.0, 0.9, n)
+    frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+    study = CausalStudy(frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)))
+    contrast = ConditionalContrast(Modifiers(["W"], domains={"W": (0.0, 2.0)}), model=Linear(["W"]))
+    return study.identify(contrast).estimate(
+        outcome_learner=LogisticRegression() if binary else LinearRegression(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=False,
+        random_state=0,
+    )
+
+
+@pytest.fixture(scope="module")
+def curve_fit() -> Any:
+    return _curve_fit(binary=False)
+
+
+ROWS = {"W": np.array([0.1, 1.0, 1.9])}
+
+
+def _hand_curve_rows(curve: Any) -> list[tuple[float, float, float]]:
+    from cleverly.inference import curve_acceleration, satterthwaite_df, skew_widened_ci
+
+    model = curve.model
+    estimate, se = model.predict(ROWS), model.std_error(ROWS)
+    influence = np.asarray(model.influence, dtype=float) @ np.asarray(model.design(ROWS)).T
+    out = []
+    for i in range(len(estimate)):
+        column = influence[:, i]
+        rows = column != 0.0
+        acceleration = curve_acceleration(column, rows=rows, centered=True)
+        low, high = skew_widened_ci(
+            float(estimate[i]),
+            float(se[i]),
+            0.05,
+            df=max(satterthwaite_df(column, rows=rows, centered=True), 5.0),
+            acceleration=acceleration,
+        )
+        out.append((low, high, acceleration))
+    return out
+
+
+def test_an_effect_curve_row_reads_the_skew_widened_t(curve_fit: Any) -> None:
+    curve = curve_fit.effect_curve(random_state=0)
+    assert curve.model.skew_widened()
+    frame = curve.predict(ROWS, interval=True)
+    for i, (low, high, acceleration) in enumerate(_hand_curve_rows(curve)):
+        assert abs(acceleration) > 0.003, "nonzero witness: the widening must act"
+        assert (frame["ci_lower"][i], frame["ci_upper"][i]) == pytest.approx((low, high), rel=1e-12)
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        ("acceleration=acceleration,", "acceleration=0.0,"),
+        ("acceleration=acceleration,", "acceleration=-acceleration,"),
+        ("if not self.skew_widened():", "if True:"),
+    ],
+    ids=["no-widening", "sign", "gate"],
+)
+def test_a_broken_curve_widening_is_caught(
+    curve_fit: Any, monkeypatch: pytest.MonkeyPatch, edit: tuple[str, str]
+) -> None:
+    from cleverly import effect_curves
+
+    curve = curve_fit.effect_curve(random_state=0)
+    hand = _hand_curve_rows(curve)
+    mutate(monkeypatch, effect_curves, effect_curves.ProjectionCurve, "interval", [edit])
+    low, high = curve.model.interval(ROWS)
+    assert any(
+        (low[i], high[i]) != pytest.approx((h_low, h_high), rel=1e-9)
+        for i, (h_low, h_high, _) in enumerate(hand)
+    )
+
+
+def test_a_binary_curve_keeps_the_symmetric_half_width() -> None:
+    curve = _curve_fit(binary=True).effect_curve(random_state=0)
+    assert not curve.model.skew_widened()
+    low, high = curve.model.interval(ROWS)
+    centre = curve.model.predict(ROWS)
+    np.testing.assert_allclose(centre - low, high - centre, rtol=1e-12)

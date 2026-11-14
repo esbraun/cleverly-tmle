@@ -3,8 +3,10 @@ r"""Fitted conditional effect curves, their intervals, and the assessment of a f
 A projection TMLE of a :class:`cleverly.ConditionalContrast` reports coefficients
 :math:`\hat\beta` of a declared basis :math:`\varphi(V)`.  The curve
 :math:`v \mapsto \varphi(v)^\top\hat\beta` is linear in :math:`\hat\beta`, so its influence
-curve at a point is :math:`\varphi(v)^\top D_\beta`, its pointwise interval is Wald, and a
-band over a declared finite grid is the shipped multiplier band of those curves (see
+curve at a point is :math:`\varphi(v)^\top D_\beta`.  Its pointwise interval is the skew-widened
+t of that curve on an unclustered continuous outcome and Wald otherwise, and a band over a
+declared finite grid is the shipped multiplier band of those curves, symmetric, so it need not
+contain a skew-widened pointwise interval (see
 ``docs/technical-reference/conditional-effects.md``).  :class:`EffectCurveResult` holds that
 curve, predicts it at new rows, and saves and loads like every result.
 
