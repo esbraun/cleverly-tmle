@@ -577,6 +577,13 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "reads the declared known-mechanism tuple, not a node column"
     ),
     ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
+    ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
+    ("plotting/_overlap_time.py", "per_node"): (
+        "after _refuse_ratio_nodes refuses a non-categorical node"
+    ),
+    ("plotting/_overlap_time.py", "selected_probability"): (
+        "survival CTMLE only, after survival_design_refusal refuses a non-categorical node"
+    ),
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
     ("validation/refute.py", "_LongitudinalGenerated.draw"): (
         "after _held_parameter refuses a mixed node"
@@ -594,6 +601,10 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 #: mixed node's entry.  The entry raises ``CapabilityError`` on any read, so a reader missed
 #: here fails closed; the list makes each one a reviewed decision (review LOW-6).
 _LEVEL_READERS: dict[tuple[str, str], str] = {
+    ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
+    ("plotting/_overlap_time.py", "baseline_probability"): (
+        "called only from baseline, after its node-1 refusal"
+    ),
     ("data/causal_data.py", "CausalData.arm_label"): "point CausalData; refuses a vector first",
     ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
         "after survival_design_refusal refuses a non-categorical node"

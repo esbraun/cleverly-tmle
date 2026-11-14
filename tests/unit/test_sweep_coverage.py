@@ -90,11 +90,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         ),
     ),
     **_exempt(
-        "the continuous-time survival result has no assessment facades",
-        "X101",
-        ("result:ContinuousSurvivalResult",),
-    ),
-    **_exempt(
         "a fitted method with no kind",
         "Fix-15",
         (
@@ -110,12 +105,10 @@ UNSWEPT: Mapping[str, Exemption] = {
         (
             "engine:collaborative_tmle/derivative/None",
             "engine:collaborative_tmle/discrete/None",
-            "engine:collaborative_tmle/greedy",
             "engine:collaborative_tmle/greedy/None",
             "engine:collaborative_tmle/lasso/None",
             "engine:collaborative_tmle/learners/None",
             "engine:collaborative_tmle/oat/per_arm/parametric_stack",
-            "engine:drtmle/univariate",
             "engine:snmm",
         ),
     ),
@@ -130,7 +123,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "family:blips",
             "family:competing",
             "family:learned",
-            "family:msm",
             "family:repeated",
             "family:separable",
             "family:stochastic",
@@ -157,7 +149,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "missing:eliminated",
             "splitting:fold_targeted_evaluated",
             "splitting:repeated",
-            "treatment:3",
             "treatment:6",
             "treatment:arms4",
             "treatment:mixed",

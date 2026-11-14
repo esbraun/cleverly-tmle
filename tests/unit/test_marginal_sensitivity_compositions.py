@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators._nuisance import tilt_missingness
 from cleverly.exceptions import CapabilityError
@@ -109,10 +110,17 @@ def test_each_arm_reads_its_indicator_odds(three_arm: Any) -> None:
     assert abs(wrong.value - up.value) > 1e-3
 
 
-def test_a_multi_arm_default_is_the_first_reported_contrast(three_arm: Any) -> None:
-    bounds = marginal_sensitivity_bounds(three_arm, 1.0)
-    first = next(name for name in three_arm.estimates if name.startswith("ate["))
-    assert bounds.estimand == first
+def test_a_multi_arm_default_leaves_the_choice_to_the_caller(three_arm: Any) -> None:
+    """Fix-15: no contrast is picked on the caller's behalf; the facade defers instead."""
+    contrasts = [name for name in three_arm.estimates if name.startswith("ate[")]
+    assert len(contrasts) >= 2
+    with pytest.raises(ValueError, match="pass estimand="):
+        marginal_sensitivity_bounds(three_arm, 1.0)
+    row = three_arm.sensitivity.capability("marginal_bounds")
+    assert row.status is AssessmentStatus.DEFERRED
+    assert "estimand" in row.requires_arguments
+    bounds = marginal_sensitivity_bounds(three_arm, 1.0, estimand=contrasts[0])
+    assert bounds.estimand == contrasts[0]
 
 
 def test_a_multi_arm_effect_on_the_treated_is_refused(three_arm: Any) -> None:

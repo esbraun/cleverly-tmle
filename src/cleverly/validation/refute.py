@@ -86,6 +86,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import (
+    continuous_survival_refusal,
+    is_continuous_survival,
+    refuse_continuous_survival,
+)
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import augmented_trial_refusal, is_augmented_trial, refuse_augmented_trial
@@ -1997,6 +2002,8 @@ def refute_refusal(
     """
     if is_augmented_trial(result):
         return augmented_trial_refusal("refute", "refutation")
+    if is_continuous_survival(result):
+        return continuous_survival_refusal("refute")
     try:
         requested = _validated_tests(
             tests,
@@ -5049,6 +5056,7 @@ def refute(
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
     refuse_augmented_trial(result, "refute", "refutation")
+    refuse_continuous_survival(result, "refute")
     # The malformed arguments first, and the refusals of a well-formed request after them.
     # Every refusal is decided before any refit, so a mixed call does not pay for placebo
     # fits and only then discover that its outcome process has no effect derivation. The
