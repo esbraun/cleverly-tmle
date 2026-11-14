@@ -109,6 +109,11 @@ continuous-time survival TMLE.
 - `overlap()`, `weights()` and `learners()` draw a continuous-time survival fit.
   `overlap(censoring=True)` adds the product of the treatment and staying-uncensored
   probabilities before a chosen time. ([#663](https://github.com/esbraun/cleverly-tmle/pull/663))
+- `curve()` draws a continuous-time survival fit at its target times: each arm's level above,
+  the difference below, one column per cause, with interval bars and band brackets. Restricted
+  means carry pointwise intervals only, since the band covers risks and their differences.
+  `ContinuousSurvivalResult.plot()` calls it.
+  ([#674](https://github.com/esbraun/cleverly-tmle/pull/674))
 - `influence()` draws a continuous-time survival fit, and `repeats()` draws a cross-fitted
   longitudinal fit with `repeats=2` or more.
   ([#649](https://github.com/esbraun/cleverly-tmle/pull/649))
