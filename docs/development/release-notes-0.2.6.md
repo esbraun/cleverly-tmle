@@ -36,6 +36,12 @@ continuous-time survival TMLE.
 
 ### Longitudinal and survival
 
+- `covariate_balance(result)` now checks balance over time on longitudinal, discrete-time and
+  continuous-time survival fits (Jackson, 2016). At each treatment time it compares covariates
+  across treatment within strata of earlier treatment, before and after the fit's weights, and adds
+  feedback and censoring checks. It returns `BalanceOverTime` (rows are `TimeBalanceRow`), with a
+  summary, and `cleverly.plotting.balance(..., view="summary" | "panels", nodes=...)` draws it.
+  ([#678](https://github.com/esbraun/cleverly-tmle/pull/678))
 - `ContinuousSurvivalTMLE(restricted_horizons=...)` targets each arm's restricted mean time lost
   to every cause, and `ContinuousSurvivalResult` gains `curve`, `rmst`, `rmtl`, `contrast`, `ratio`
   and `to_dict`. Restricted means take an interval on the logit scale of (0, τ). The registered
