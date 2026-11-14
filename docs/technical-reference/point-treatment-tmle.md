@@ -2419,10 +2419,10 @@ and at a declared support. The default `density_bins=None` grows the core count 
 `treatment_support=Support(lower, upper)` declares the support of the dose given the covariates.
 Besides the refusals of a dose or a policy outside it, it drives the reading: each row's bins are
 cut at its own bounds and the density is zero outside them, so a support edge that moves with the
-covariates is not read as a thin tail (`tests/unit/test_density_reconstruction.py`, W9). A coarse
-count inflates the influence curve where the tail bins are wide, so the intervals are
-conservative. When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
-`density_bins=` higher. The ratio enters the clever covariate unnormalised: the fit does not
+covariates is not read as a thin tail (`tests/unit/test_density_reconstruction.py`, W9). Where few
+bins cover a region in which the density changes fast, the reading's discretisation error enters
+the ratio. Set `density_bins=` higher there, or use `ratio="classifier"` with a flexible
+classifier. The ratio enters the clever covariate unnormalised: the fit does not
 divide by its sample mean, so it is not the self-normalised weighting of Haneuse and Rotnitzky
 (2013), which is a different estimator.
 

@@ -812,8 +812,9 @@ estimate. A learner copies its design, so the peak can be a multiple of the tabl
 
 Two consequences follow. When the outcome regression is wrong, the density's error enters the bias
 at first order, so double robustness through the density alone needs a ratio error of
-$o(n^{-1/2})$. When the outcome regression is right, a coarse count inflates the influence curve,
-and the intervals are conservative.
+$o(n^{-1/2})$. When the outcome regression is right, the density's error does not bias the
+estimate at first order. The Wald variance then reads the influence curve at the fitted ratio,
+which need not be the efficient one.
 
 Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023,
 arXiv v4, 2006.01366v4) needs the density ratios to stay bounded. That holds for a capped shift on
