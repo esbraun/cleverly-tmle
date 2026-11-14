@@ -536,6 +536,9 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
+    ("longitudinal/estimator.py", "_observed_cumulative"): (
+        "after refuse_multinode_design: every node categorical (H22, H21)"
+    ),
     ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
     ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.models"): "after GFORMULA_MIXED_NODE_REFUSAL",
@@ -635,6 +638,10 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "_Simulator._policy_density"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/hazard.py", "_codes_of"): "after refuse_multinode_design: categorical nodes",
+    ("longitudinal/hazard.py", "_path_structure"): (
+        "after refuse_multinode_design: categorical nodes"
+    ),
     ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
     ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
     ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
@@ -644,7 +651,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/learned.py", "refuse_learned_regimen_data"): (
         "refuses a node that is not categorical before reading its levels"
     ),
-    ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
+    ("longitudinal/regimen.py", "DynamicRegimen._density_on"): "categorical policy node",
     ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_plan"): "a tilt at a mixed node is refused first",
