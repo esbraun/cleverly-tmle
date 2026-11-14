@@ -49,6 +49,8 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 UNPRINTED_DECIMALS = {
     # The mean density ratio of the shown dose configuration, quad_rboost40.
     "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
+    # The earlier printed weight of 1.03 is gone with the smooth reading; the sweep still says it.
+    "1.03": f"smallest mean of the mean density ratio, quad_rboost40 (uncapped, 1.031): {_DOSE}",
     # The density comparison, same quadratic Q.
     "1.01": f"largest mean density ratio, quad_oracle320 (+1.0 uncapped): {_DOSE}",
     "1.00": f"smallest mean density ratio, quad_oracle320 (+0.5 capped, 1.002): {_DOSE}",
@@ -286,7 +288,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert support["current practice"].ess_ratio == pytest.approx(1.0)
     capped = support["+0.5 capped at 5"]
     assert 0.015 < capped.capped_fraction < 0.035
-    assert 0.60 < capped.ess_ratio < 0.75
+    assert 0.70 < capped.ess_ratio < 0.85
     # The printed widths: the +1.0 interval is wider than either +0.5 interval.
     frame = namespace["shift_result"].to_frame().set_index("estimand")
     width = frame["ci_upper"] - frame["ci_lower"]
@@ -302,11 +304,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert models.treatment_learner.get_params()["max_depth"] == 2
     assert models.treatment_learner.get_params()["l2_regularization"] == 1.0
     assert models.outcome_learner.get_params()["polynomialfeatures__degree"] == 2
-    # On this draw the estimated density keeps less than the true density ratio, for both
-    # shifts.
-    assert 0.15 < support["+1.0 uncapped"].ess_ratio < np.exp(-1.0)
-    assert support["+0.5 uncapped"].ess_ratio < np.exp(-0.25)
-    # The histogram reports zeros at assigned doses outside its fitted bin range.
+    # On this draw the estimated density keeps more than the true density ratio, for both
+    # shifts: "43.0% (36.8% with the true density)".
+    assert np.exp(-1.0) < support["+1.0 uncapped"].ess_ratio < 0.55
+    assert support["+0.5 uncapped"].ess_ratio > np.exp(-0.25)
+    # The density reports zeros at assigned doses outside its fitted bin range.
     # These counts describe this seeded output, not population positivity.
     assert {name: row.unsupported for name, row in support.items()} == {
         "current practice": 0,
@@ -315,15 +317,15 @@ def check(namespace: dict[str, Any]) -> None:
         "+1.0 uncapped": 3,
     }
     assert tuple(item.name for item in namespace["shift_assessment"].attention) == ("support",)
-    # The mean ratio: reference 1 for every shift of a normal intensity. "The estimated ratio
-    # runs 3% to 8% high on average, and most for +1.0." Current practice reads exactly 1
-    # (control); each moving shift reads above it (nonzero witness). In sample the one
+    # The mean ratio: reference 1 for every shift of a normal intensity. "With a correct density
+    # the weights average 1; here they run a little low", most for +1.0. Current practice reads
+    # exactly 1 (control); each moving shift reads below it (nonzero witness). In sample the one
     # per-fold value equals the overall mean.
     assert support["current practice"].mean_ratio == pytest.approx(1.0)
     means = {name: support[name].mean_ratio for name in ("+0.5 capped at 5", "+0.5 uncapped")}
     means["+1.0 uncapped"] = support["+1.0 uncapped"].mean_ratio
-    assert all(1.02 < value < 1.09 for value in means.values())
-    assert means["+1.0 uncapped"] == max(means.values())
+    assert all(0.93 < value < 0.998 for value in means.values())
+    assert means["+1.0 uncapped"] == min(means.values())
     for name in support:
         assert support[name].fold_mean_ratio == (support[name].mean_ratio,)
 
@@ -549,4 +551,4 @@ def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
     # The nudge and raise surfaces: the flip moves each estimate down, by the stored amounts.
     stored = stored_output(NOTEBOOK, "sensitivity-other")
     assert "nudge: movement -6.4 standard errors" in stored
-    assert "raise: movement -0.9 standard errors" in stored
+    assert "raise: movement -1.1 standard errors" in stored
