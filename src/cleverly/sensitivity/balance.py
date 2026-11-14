@@ -568,6 +568,15 @@ def _refuse_sequential(result: Any) -> None:
     from ..longitudinal.estimator import LongitudinalResult
     from ..survival.result import ContinuousSurvivalResult
 
+    if isinstance(result, LongitudinalResult) and result.config.estimator in (
+        "gcomp",
+        "parametric_gformula",
+    ):
+        raise CapabilityError(
+            "covariate_balance weighs the covariates by a fit's treatment model; a "
+            "g-computation or parametric g-formula fit estimates none.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     if isinstance(result, LongitudinalResult):
         what = (
             "a longitudinal fit, whose weights multiply a treatment and a censoring model "
@@ -578,9 +587,16 @@ def _refuse_sequential(result: Any) -> None:
             "a continuous-time survival fit, whose weights also carry a censoring model over time"
         )
     elif not hasattr(result, "nuisance"):
+        from ..estimators.dose_response import DoseResponseResult
+
+        why = (
+            "a dose-response fit has a continuous treatment, which has no groups to compare"
+            if isinstance(result, DoseResponseResult)
+            else f"this {type(result).__name__} holds no such model"
+        )
         raise CapabilityError(
             "covariate_balance weighs the covariates by a point-treatment fit's treatment "
-            f"model; this {type(result).__name__} holds no such model.",
+            f"model; {why}.",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     else:

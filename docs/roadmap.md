@@ -1920,9 +1920,9 @@ item:
   mean fit, one panel per time point, each with the probability of staying under observation;
 - `weights` for a continuous-time survival fit, whose weights invert each row's treatment
   probability times its probability of staying uncensored over time;
-- `learners` and `calibration` for a longitudinal fit (one choice per node and role), a
-  continuous-time survival fit (its hazard and treatment library selections) and an adaptive
-  TMLE fit, and the collaborative selection path of a time-to-event TMLE;
+- `learners` and `calibration` for a longitudinal fit (one choice per node and role) and an
+  adaptive TMLE fit, `learners` for a continuous-time survival fit (its hazard and treatment
+  library selections), and the collaborative selection path of a time-to-event TMLE;
 - `balance` (covariate balance) for a longitudinal and a continuous-time survival fit, whose
   weights carry a treatment and a censoring model over time. Its estimand needs a source read
   first.
