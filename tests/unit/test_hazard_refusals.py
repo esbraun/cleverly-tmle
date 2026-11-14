@@ -101,8 +101,9 @@ def test_h2_a_covariate_after_baseline_beside_several_treatment_nodes_is_refused
     message = (
         "survival_model='hazard' on a design with a treatment at several nodes models the event "
         "and censoring hazards given the treatment history and the baseline covariates. This "
-        "fit declares covariates measured after baseline (L2), and hazard targeting with such "
-        "covariates on a design with a treatment at several nodes is not built. X70 in "
+        "fit declares time-varying covariates (L2), and hazard targeting with time-varying "
+        "covariates on a design with a treatment at several nodes is not built, a block at node "
+        "1 included. X70 in "
         "docs/roadmap.md tracks this. LTMLE with survival_model='iterated_mean' adjusts for "
         "them, and isotonic=True makes its curve monotone. If one baseline treatment is held "
         "over every node, declare treatment='A'."
