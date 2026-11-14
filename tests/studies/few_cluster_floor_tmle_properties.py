@@ -262,7 +262,12 @@ def sizing(summary: pd.DataFrame) -> dict[str, floor.FamilySizing]:
 
 
 def synthetic_columns(cell: Any, rng: Any) -> dict[str, Any]:
-    """The extra columns of a synthetic row for the property differential: a shown interval."""
+    """The extra columns of a synthetic row: a shown interval.
+
+    For the property differential once the record joins it. It is not a subject before the
+    run: its synthetic rows at the declared budget hold about four million rows here, more
+    than the fast tier can summarize.
+    """
     del rng
     _, clusters = cell.dgp
     return {

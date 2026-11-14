@@ -1991,11 +1991,3 @@ known-mechanism-sample-weights,sample_bias,bias equivalent,bias
 known-mechanism-sample-weights,sample_misspecified,bias equivalent,bias
 known-mechanism-sample-weights,target_reading_control,bias discriminated,shift/0.7
 known-mechanism-sample-weights,tilt_misspecified,bias equivalent,bias
-tests.studies.few_cluster_floor_ltmle_properties,few_cluster_reference,bias equivalent,bias
-tests.studies.few_cluster_floor_ltmle_properties,few_cluster_reference,coverage floor,se_low
-tests.studies.few_cluster_floor_ltmle_properties,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
-tests.studies.few_cluster_floor_ltmle_properties,few_cluster_reference,paired positive se ratio at most the sanity ceiling,se_high
-tests.studies.few_cluster_floor_tmle_properties,few_cluster_reference,bias equivalent,bias
-tests.studies.few_cluster_floor_tmle_properties,few_cluster_reference,coverage floor,se_low
-tests.studies.few_cluster_floor_tmle_properties,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
-tests.studies.few_cluster_floor_tmle_properties,few_cluster_reference,paired positive se ratio at most the sanity ceiling,se_high
