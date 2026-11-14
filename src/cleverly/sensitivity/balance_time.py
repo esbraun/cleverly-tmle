@@ -397,6 +397,7 @@ class BalanceOverTime:
             raise CapabilityError(
                 f"This fit reports no {diagnostic} balance: {reasons[diagnostic]}.",
                 reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Read the fit's confounding and censoring rows instead.",
             )
         if diagnostic not in self.diagnostics:
             allowed = ", ".join(repr(name) for name in self.diagnostics)
