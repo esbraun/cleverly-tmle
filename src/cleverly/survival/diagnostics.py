@@ -446,7 +446,8 @@ def continuous_truncation_curve(
     The curve keeps the initial hazard jumps alive through every walk, one extra
     ``(2, J, n, M)`` array over the fit's peak memory, and also keeps the ``(2, n, M)``
     weight product that the fit frees before its walk: about 600 MB at n = 4,000 with two
-    causes.  The memory check counts both, against the fit's ``max_memory_bytes``.
+    causes.  The memory check counts both, against the fit's ``max_memory_bytes``, or the
+    memory available when that is ``None``.
     """
     from ..utils.frames import emit_frame
     from .result import MEASURED_DEFAULTS

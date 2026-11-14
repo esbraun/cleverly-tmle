@@ -283,8 +283,22 @@ def test_the_budget_changes_no_result() -> None:
     for name, estimate in plain.estimates.items():
         other = budgeted.estimates[name]
         assert (estimate.psi, estimate.std_error) == (other.psi, other.std_error)
-    assert plain.record.standardized_score == budgeted.record.standardized_score
-    assert plain.record.steps == budgeted.record.steps
+    for field in (
+        "standardized_score",
+        "steps",
+        "initial_psi",
+        "bounded_share",
+        "frozen_share",
+        "off_grid_share",
+    ):
+        assert getattr(plain.record, field) == getattr(budgeted.record, field)
+
+
+def test_the_copied_constants_match_their_sources() -> None:
+    from cleverly.inference import multiplier
+
+    assert engine.OFF_GRID_TIMES == _memory.OFF_GRID
+    assert 2 * multiplier._BLOCK_BYTES == _memory.BAND_BUFFER
 
 
 def test_every_replay_reads_the_fit_s_budget() -> None:
@@ -328,6 +342,7 @@ def test_a_study_refusal_spells_the_estimator_call_that_reproduces_it(
     text = str(caught.value)
     assert "cleverly.survival.ContinuousSurvivalTMLE((1.0, 2.0), " in text
     assert "simultaneous=True" in text and "max_memory_bytes=..." in text
+    assert "With this seed it returns the result this study would." in text
     call = text.split("cleverly.survival.ContinuousSurvivalTMLE(", 1)[1].split(".fit_data(", 1)[0]
     call = call[: call.rindex(")")].replace("max_memory_bytes=...", "max_memory_bytes=2**62")
     direct = _quiet(lambda: eval(f"ContinuousSurvivalTMLE({call})").fit_data(study.data))

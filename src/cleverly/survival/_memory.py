@@ -38,18 +38,19 @@ from dataclasses import dataclass
 from typing import Final
 
 from ..exceptions import MethodConfigurationError
+from ..inference.multiplier import _BLOCK_BYTES
 from ..utils.memory import available_memory
 
 #: Bytes of one float64.
 F8: Final = 8
-#: The target footprint of the band's multiplier buffer (``inference.multiplier._BLOCK_BYTES``)
-#: with its packed draw beside it.
-BAND_BUFFER: Final = 2 * (32 << 20)
+#: The band's multiplier buffer with its packed draw beside it.
+BAND_BUFFER: Final = 2 * _BLOCK_BYTES
 #: Allocations no array shape accounts for (small arrays, Python objects, a learner's fit),
 #: with a margin.  It keeps the prediction an upper bound at small ``n`` and is negligible where
 #: the guard can refuse.
 FIXED: Final = 4 << 20
-#: Random times of the off-grid diagnostic (:data:`~cleverly.survival.engine.OFF_GRID_TIMES`).
+#: Random times of the off-grid diagnostic, ``engine.OFF_GRID_TIMES``; the engine imports this
+#: module, so a test pins the two equal.
 OFF_GRID: Final = 100
 
 
@@ -152,7 +153,15 @@ def peak_bytes(
     A = int(n) * M  # cells of one (n, M) array
     JA = J * A
     P = 2 * J * int(rows)
-    small = FIXED + F8 * int(n) * (int(covariates) + 4) * 3 + F8 * P * P * 4
+    # The last two terms: the (2, n, K) retention at the targets and the (Q, M) target weights,
+    # which live from the curves phase on.
+    small = (
+        FIXED
+        + F8 * int(n) * (int(covariates) + 4) * 3
+        + F8 * P * P * 4
+        + 16 * int(n) * int(rows)
+        + F8 * int(rows) * M
+    )
     influence = F8 * int(n) * P  # one (n, P) float array
     fold = F8 * int(fold_size) * M * (4 if stratified_learner else 3)
     # A truncation curve also keeps the first replay's estimates and record beside each walk.
@@ -178,7 +187,7 @@ def peak_bytes(
         "nuisance": 16 * JA + 16 * A + fold,
         "curves": 16 * JA + 80 * A,
         "indicators": 16 * JA + 18 * A + 2 * JA,
-        "weights": 16 * JA + JA + 45 * A,
+        "weights": 16 * JA + JA + 49 * A,
         "walk": max(trial, direction, tilt),
         "off_grid": off_grid,
         "band": walk_held + current + band,
@@ -228,8 +237,9 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
         f"{_gib(budget)}, {source}. Its arrays hold every unit at every grid time for both arms, "
         "so they grow as n x M; M counts every distinct observed time up to the last target "
         "time or restricted horizon, so an earlier last time shrinks it. Nothing was fitted. "
-        "The prediction may exceed the true peak by about 10% and does not count a user "
-        "learner's own memory, and the available memory is read at one instant."
+        "The prediction may exceed the true peak by about 10% when the walk takes a step, and "
+        "by up to about 20% when the initial fit already meets the stopping rule; it does not "
+        "count a user learner's own memory, and the available memory is read at one instant."
     )
     alternative = (
         "Pass max_memory_bytes= to ContinuousSurvivalTMLE to set the budget yourself, higher "
@@ -242,7 +252,20 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
 
 
 def largest_fold(folds: object, n: int) -> int:
-    """The size of the largest group of equal labels in ``folds``, or ``n`` when it is ``None``."""
+    """The size of the largest group of equal labels in ``folds``.
+
+    Parameters
+    ----------
+    folds : array-like or None
+        One fold label per unit.
+    n : int
+        Units, returned when ``folds`` is ``None``.
+
+    Returns
+    -------
+    int
+        The most units one prediction fold covers.
+    """
     import numpy as np
 
     if folds is None:

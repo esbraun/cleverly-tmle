@@ -6839,10 +6839,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 + [f"{key}={value!r}" for key, value in settings.items()]
                 + ["max_memory_bytes=..."]
             )
+            seeded = settings.get("random_state") is not None
             alternative = (
-                f"{error.refusal.alternative} On a study, fit the same estimator directly: "
-                f"cleverly.survival.ContinuousSurvivalTMLE({spelled}).fit_data(study.data) "
-                "returns the result this study would."
+                f"{error.refusal.alternative} On a study, fit the same estimator directly, with "
+                "these settings (an object shown by its printed form is passed as itself): "
+                f"cleverly.survival.ContinuousSurvivalTMLE({spelled}).fit_data(study.data). "
+                + (
+                    "With this seed it returns the result this study would."
+                    if seeded
+                    else "Without random_state each fit draws its own seed; set it to "
+                    "reproduce a study's result."
+                )
             )
             spelled_error = ContinuousSurvivalMemoryError(
                 refusal=replace(error.refusal, alternative=alternative)
