@@ -125,8 +125,11 @@ TAIL_ROWS = 20
 #: at most about ``1e-12`` of the row's mass; the floor sits a factor of 100 above that.
 _ACTIVE_FLOOR = 1e-10
 
-#: The knots of a row are iterated until no knot moves by more than this, in log units.
-_KNOT_TOLERANCE = 1e-10
+#: The knots of a row are iterated until no knot moves by more than this, in log units.  The
+#: iteration contracts slowly on steep rows, so the stopping step is far above the error
+#: left: at ``1e-12`` an exponential law is read to about ``1e-13`` on ordinary slopes and
+#: ``4e-12`` where ``|s w|`` reaches 21 (``tests/unit/test_density_reconstruction.py``).
+_KNOT_TOLERANCE = 1e-12
 
 #: The most passes of the knot iteration.  A row still moving at the cap keeps its capped
 #: iterate; segment masses are exact either way, because each segment is rescaled after.
