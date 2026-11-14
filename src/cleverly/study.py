@@ -110,6 +110,7 @@ from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
 from .protocol import StudyProtocol, protocol_summary_lines
 from .provenance import fingerprint_array
 from .survival import ContinuousSurvivalResult, ContinuousSurvivalTMLE
+from .survival._memory import ContinuousSurvivalMemoryError
 from .survival.data import ContinuousSurvivalData, continuous_kwargs, static_arms
 from .targets import TARGETS
 from .targets.base import (
@@ -6822,13 +6823,32 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
         functional = self.functional
-        engine = ContinuousSurvivalTMLE(
-            functional.horizons or (),
-            arms=functional.interventions,
-            reference=functional.reference,
+        settings = {
+            "arms": functional.interventions,
+            "reference": functional.reference,
             **continuous_kwargs(method),
-        )
-        return engine.fit_data(data)
+        }
+        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
+        try:
+            return engine.fit_data(data)
+        except ContinuousSurvivalMemoryError as error:
+            # The facade has no memory setting; spell the engine call that reproduces this fit,
+            # so a user can set the budget there.
+            spelled = ", ".join(
+                [repr(tuple(functional.horizons or ()))]
+                + [f"{key}={value!r}" for key, value in settings.items()]
+                + ["max_memory_bytes=..."]
+            )
+            alternative = (
+                f"{error.refusal.alternative} On a study, fit the same estimator directly: "
+                f"cleverly.survival.ContinuousSurvivalTMLE({spelled}).fit_data(study.data) "
+                "returns the result this study would."
+            )
+            spelled_error = ContinuousSurvivalMemoryError(
+                refusal=replace(error.refusal, alternative=alternative)
+            )
+            spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
+            raise spelled_error from error
 
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
