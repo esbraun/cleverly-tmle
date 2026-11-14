@@ -261,11 +261,16 @@ from .hazard import (
     check_hazard_node_bounds,
     fit_hazards,
     hazard_bounds,
+    hazard_mtp_replay_refusal,
     level_plans,
+    mtp_inputs,
+    mtp_slots,
     project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
+    refuse_separable_mtp,
     target_hazard_msm,
+    target_mtp,
     target_regimens,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
@@ -3713,6 +3718,73 @@ def _run_hazard(
         fit, empty without one.
     """
     pairs = [mechanism.cumulative_with_unbounded(data, level, g_bounds) for level in levels]
+    node_scale = hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,))
+    stop = None if stopping == "relative" else StopContext(data.cluster, 1.0)
+    walked = [plan for plan in plans if plan.has_mtp]
+    if walked:
+        # Each modified treatment policy is targeted by its own weighted walk (X70 part
+        # (c)), and the other regimens by the shared walk.  The separable and working-model
+        # refusals (H20, H19) keep a policy away from those two branches.
+        assert not separable and msm is None
+        shared = [plan for plan in plans if not plan.has_mtp]
+        by_label: dict[str, dict[str, RegimenFit]] = {}
+        if shared:
+            shared_fits, _ = _run_hazard(
+                data,
+                shared,
+                levels,
+                mechanism,
+                initial,
+                horizons=horizons,
+                g_bounds=g_bounds,
+                alpha=alpha,
+                algorithm=algorithm,
+                max_iter=max_iter,
+                tol=tol,
+                step_size=step_size,
+                node_bounds=node_bounds,
+                stopping=stopping,
+                step_bound=step_bound,
+                step_search=step_search,
+                iterate=iterate,
+            )
+            for key, fit in shared_fits.items():
+                by_label.setdefault(fit.regimen.label, {})[key] = fit
+        for plan in walked:
+            cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
+            inputs = mtp_inputs(
+                data,
+                plan,
+                mtp_slots(data, plan),
+                cumulative[1],
+                [pair[1] for pair in pairs],
+                alpha=alpha,
+                node_bounds=node_scale,
+            )
+            walk = target_mtp(
+                data,
+                plan,
+                initial,
+                inputs,
+                cumulative,
+                node_ratio=node_ratios(data, plan, mechanism),
+                horizons=horizons,
+                algorithm=algorithm,
+                max_iter=max_iter,
+                tol=tol,
+                step_size=step_size,
+                stopping=stopping,
+                stop=stop,
+                step_bound=step_bound,
+                step_search=step_search,
+                iterate=iterate,
+            )
+            by_label[plan.label] = {
+                _fit_key(label, cause, horizon, True): fit
+                for (label, cause, horizon), fit in walk.items()
+            }
+        # Report order: regimen-outer, as the shared walk files its fits.
+        return {key: fit for plan in plans for key, fit in by_label[plan.label].items()}, ()
     rows = np.arange(data.n)
     observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
     unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
@@ -3736,8 +3808,6 @@ def _run_hazard(
             _fit_key(label, cause, horizon, True): fit
             for (label, cause, horizon), fit in targeted.items()
         }, ()
-    node_scale = hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,))
-    stop = None if stopping == "relative" else StopContext(data.cluster, 1.0)
     if msm is not None:
         # R-i3 refuses node_bounds= beside msm= at construction.
         assert node_scale is None
@@ -5529,6 +5599,9 @@ class _SequentialEstimator:
             )
         )
         if separable:
+            # A modified treatment policy meets the hazard refusal that names its own walk
+            # (H20) before the companion check.
+            refuse_separable_mtp(regimens)
             refuse_separable_companions(regimens)
         if prepared.reports_curve:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
@@ -5550,7 +5623,11 @@ class _SequentialEstimator:
         # Before any rule is evaluated and before any learner: a hazard fit and a projection
         # read only the design and the regimen declarations to refuse.
         refuse_hazard_design(
-            prepared, regimens, survival_model=self.survival_model, isotonic=self.isotonic
+            prepared,
+            regimens,
+            survival_model=self.survival_model,
+            isotonic=self.isotonic,
+            msm=self.msm is not None,
         )
         reference = self._reference(regimens)
         # The declared support and the declared atoms of each continuous dose, and the
@@ -5644,7 +5721,14 @@ class _SequentialEstimator:
         bounds = resolve_cumulative_g_bounds(self.g_bounds)
         horizons = self._horizons(prepared)
         if self.hazard_pooling == "pooled":
-            refuse_pooled_designs(prepared)
+            refuse_pooled_designs(
+                prepared,
+                mtp=(
+                    [plan.label for plan in plans if plan.has_mtp]
+                    if self.survival_model == "hazard"
+                    else ()
+                ),
+            )
         # Every draw is realized and preflighted before the first learner of any draw, so a
         # split that cannot be fitted is refused before any fitting time is spent.
         masks = prepared.regimen_masks(prepared.treatment)
@@ -5950,6 +6034,9 @@ class _SequentialEstimator:
             # A separable fit fits its declared first cause first, so the second cause's
             # pseudo-hazard is its hazard among those free of the first.
             cause_order=(None if not separable else (separable[0].first, 1 - separable[0].first)),
+            slots=tuple(
+                slots for plan in plans if (slots := mtp_slots(prepared, plan)) is not None
+            ),
         )
         # A hazard replay refits no learner, so the learner audit does not apply to it.
         replay_recipe = replace(
@@ -6087,8 +6174,10 @@ class _SequentialEstimator:
         )
         hazard = self.survival_model == "hazard"
         # A hazard fit reads the censoring factors at every level of the baseline treatment,
-        # so the shared mechanism fit is evaluated at one static plan per level as well.
-        levels = level_plans(prepared) if hazard else ()
+        # so the shared mechanism fit is evaluated at one static plan per level as well.  A
+        # continuous or mixed baseline node has no levels: its regimens are modified
+        # treatment policies, each weighted at its own plan.
+        levels = level_plans(prepared) if hazard and prepared.node_kind(1) == "categorical" else ()
         treatment_learner = resolve_learner(
             self.treatment_learner,
             task="classification",
@@ -9531,6 +9620,11 @@ def _refit_bound(
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     recipe = draw.replay_recipe
+    if recipe.hazard is not None:
+        walked = [plan.label for plan in recipe.plans if plan.has_mtp]
+        if walked:
+            # Before any targeting: each policy had its own weighted walk (H25).
+            raise CapabilityError.from_refusal(hazard_mtp_replay_refusal(walked[0]))
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     if recipe.hazard is not None and draw.initial_hazards is not None:
