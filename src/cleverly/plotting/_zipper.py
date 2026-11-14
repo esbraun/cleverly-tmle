@@ -85,6 +85,7 @@ def zipper(
     *,
     estimand: str | Sequence[str] | None = None,
     labels: dict[str, str] | None = None,
+    max_intervals: int | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -112,6 +113,13 @@ def zipper(
         The estimands to draw, one panel each; every estimand of the study when omitted.
     labels : dict or None, default=None
         Words for each estimand, keyed by its alias.
+    max_intervals : int or None, default=None
+        The most intervals each panel draws, at least 2; every interval when omitted. With
+        a large study the lines merge and the exported file grows with every replication; a
+        number draws that many intervals at evenly spaced places in the sorted order, both
+        ends included, each at its own height. The coverage in the subtitle and the counts
+        in the notes still use every replication, and the notes give how many intervals
+        were drawn and how many of them miss.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -152,7 +160,8 @@ def zipper(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes count the intervals that miss
-    below and above the true value and say which estimates are experimental.
+    below and above the true value, say which estimates are experimental, and, with
+    ``max_intervals``, how many intervals were drawn and how many of those miss.
 
     Examples
     --------
@@ -183,6 +192,7 @@ def zipper(
     """
     from .._summary._estimates import plain_support_reason
 
+    limit = _core.display_limit(max_intervals, "max_intervals", 2)
     names = (
         list(study.summaries)
         if estimand is None
@@ -196,6 +206,7 @@ def zipper(
     coverage: list[str] = []
     found: list[str] = []
     experimental: dict[str, list[str]] = {}
+    thinned: list[str] = []
     for axis, name in zip(axes, names, strict=False):
         records = [record for record in study.replications if record.estimand == name]
         ratio = _on_log_scale(study.summaries[name])
@@ -203,9 +214,18 @@ def zipper(
         order = np.argsort(place["centre"], kind="stable")
         height = np.arange(1, len(order) + 1)
         low, high, hit = place["low"][order], place["high"][order], place["covered"][order]
+        if limit is not None and len(order) > limit:
+            # Evenly spaced places in the sorted order, both ends kept, at their own heights.
+            kept = np.unique(np.rint(np.linspace(0.0, len(order) - 1.0, limit)).astype(int))
+            shown_label = (labels or {}).get(name, name)
+            thinned.append(
+                f"{shown_label}: {int(np.sum(~hit[kept]))} of the {kept.size} drawn intervals "
+                f"miss, {int(np.sum(~hit))} of {len(order)} in the study."
+            )
+            height, low, high, hit = height[kept], low[kept], high[kept], hit[kept]
         # Thin lines once there are more replications than the panel has room for, so
         # neighbouring intervals stay apart rather than merging into a block.
-        width = min(1.2, 180.0 / max(len(order), 1))
+        width = min(1.2, 180.0 / max(len(height), 1))
         for mask, color, text, gid in (
             (hit, _core.PALETTE[0], "Covers the true value", "cleverly-zipper-covered"),
             (~hit, _core.PALETTE[1], "Misses the true value", "cleverly-zipper-missed"),
@@ -278,6 +298,12 @@ def zipper(
         )
     if study.n_failed:
         found.append(f"{study.n_failed} replications failed and are not drawn.")
+    if thinned:
+        found.append(
+            f"Drawn: at most {limit} intervals per panel, evenly spaced in the sorted order "
+            "(both ends kept); the coverage and the counts above use every replication. "
+            + " ".join(thinned)
+        )
     _core.add_notes(fig, found)
     fit_height(fig, axes, columns, _PANEL[1])
     return fig
