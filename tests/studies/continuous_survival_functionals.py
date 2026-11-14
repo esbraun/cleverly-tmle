@@ -59,7 +59,7 @@ PILOT_REPLICATES = 3_200
 #: The placeholder until the pilot is committed; then the shared primary rule's count from it
 #: (:func:`tests.studies.continuous_survival_functionals_pilot.primary_count`).
 PENDING_REPLICATES = 0
-PRIMARY_REPLICATES = PENDING_REPLICATES
+PRIMARY_REPLICATES = 14_800
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01

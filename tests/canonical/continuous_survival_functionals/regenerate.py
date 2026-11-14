@@ -7,11 +7,11 @@ and replicate counts are those of :mod:`tests.studies.continuous_survival_functi
 properties module, declared from X6 plan rev 2, section 5.4, and checked by
 ``tests/unit/test_continuous_survival_functionals_design.py``.
 
-Sizes.  The pilot (``python -m tests.studies.continuous_survival_functionals_pilot``, 800 draws
-of the primary fit on its own stream) writes ``continuous_survival_functionals_pilot.csv.gz``.
-The primary count is the shared primary rule's count from it (about 6,000 to 7,200 at the
-registered study's coverages); until it is committed the count is the placeholder 0 and this
-script refuses a declared run.  The calibration cell of the RMST difference takes 3,200
+Sizes.  The pilot (``python -m tests.studies.continuous_survival_functionals_pilot``, 3,200
+draws of the primary fit on its own stream, extended from 800 when the first draws read a
+plug-in calibration pass probability of 0.54) writes ``continuous_survival_functionals_pilot.csv.gz``.
+The primary count is the shared primary rule's count from it: 14,800, set by the treated arm's
+risk of cause 2 at t = 1.12, whose pilot coverage (0.917) sits near the 0.90 floor.  The calibration cell of the RMST difference takes 3,200
 replicates by the at-target rule, checked against the pilot's SE ratio; the targeting-necessity
 reading takes 1,000 risk-only fits of the primary draws.  All fits are at n = 1,000.
 
@@ -24,9 +24,9 @@ reads the shipped interval: range-logit for a risk on (0, 1) and for an RMTL or 
 second phase that waits for the band thread's PR 2.
 
 Budget.  One fit at n = 1,000 with the restricted horizon took 6.4 to 6.7 s on one core (two
-draws, 4 and 5 walk steps), against 5.8 to 5.9 s without it.  At 6.5 s: pilot 800 fits
-(1.4 CPU-h), primary 6,000 to 7,200 (10.8 to 13.0), calibration 3,200 (5.8) and necessity 1,000
-(1.8): about 20 to 22 CPU-h, 30 to 33 with a 1.5 margin, so 8 h on 4 cores.  Cloud.
+draws, 4 and 5 walk steps), against 5.8 to 5.9 s without it.  At 6.5 s: pilot 3,200 fits
+(5.8 CPU-h, done), primary 14,800 (26.7), calibration 3,200 (5.8) and necessity 1,000 (1.8):
+about 34 CPU-h, 52 with a 1.5 margin, so about 13 h on 4 cores.  Cloud.
 
 Red-cell readings (declared before any run).  The record is ``gated``, so any red verdict fails
 the run.  A red that the diagnosis finds is not a defect follows the route of

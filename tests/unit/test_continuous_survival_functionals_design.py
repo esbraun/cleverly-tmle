@@ -202,11 +202,15 @@ def test_the_pilot_draws_from_its_own_stream() -> None:
 def test_the_pilot_sizes_from_rows_like_its_own() -> None:
     # Synthetic rows in the pilot's columns, calibrated and unbiased, so the rule runs end to
     # end: the bias clause at the 0.2 margin needs at least 6,000.
+    # Each target's errors are rescaled to mean 0 and SD exactly 0.01, so the plug-in SE ratio
+    # is 1 by construction rather than by the luck of one seed.
     rng = np.random.default_rng(0)
+    draws = rng.normal(size=(study.PILOT_REPLICATES, len(functionals.GATED)))
+    draws = (draws - draws.mean(axis=0)) / draws.std(axis=0, ddof=1) * 0.01
     rows = []
     for replicate in range(study.PILOT_REPLICATES):
-        for name in functionals.GATED:
-            error = rng.normal(0.0, 0.01)
+        for column, name in enumerate(functionals.GATED):
+            error = float(draws[replicate, column])
             rows.append(
                 {
                     "replicate": replicate,

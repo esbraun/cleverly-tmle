@@ -51,7 +51,8 @@ difference at the median and upper quartile, each cause's risk ratio there on th
 at $\tau$ the RMTL of each arm and cause, the RMST of each arm and their differences. Each row
 takes the primary rule: coverage above 0.90, the SE ratio inside (0.8, 1.2) and the bias within
 0.2 SD. The pilot of 3,200 draws on its own stream sets the count by the shared primary rule
-before the run, about 6,000 to 7,200 at the registered study's coverages.
+before the run: 14,800, because the treated arm's risk of cause 2 at $t = 1.12$ covered 0.917
+in the pilot, near the 0.90 floor.
 
 ## Agreement with the canonical implementation
 
