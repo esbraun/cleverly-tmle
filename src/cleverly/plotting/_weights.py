@@ -10,6 +10,7 @@ covariates the reader knows.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -588,6 +589,23 @@ def _balance_object(source: Any) -> Any:
     return covariate_balance(source)
 
 
+def _largest_differences(summary: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Each covariate's largest finite absolute difference before and after weighting.
+
+    One pass over the rows (a categorical covariate's levels, every panel); 0.0 when none is
+    finite. The keys keep the covariates' order of first appearance.
+    """
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    for row in summary.rows:
+        for found, attribute in ((before, "smd_unweighted"), (after, "smd_weighted")):
+            value = getattr(row, attribute)
+            current = found.setdefault(row.covariate, 0.0)
+            if np.isfinite(value) and abs(value) > current:
+                found[row.covariate] = abs(value)
+    return before, after
+
+
 def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int]:
     """The covariates to draw, in drawing order from the top, and how many are left out.
 
@@ -596,18 +614,9 @@ def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int
     covariates with the largest difference before or after weighting. Drawn rows are sorted
     by their largest difference before weighting.
     """
-    covariates = list(dict.fromkeys(row.covariate for row in summary.rows))
-
-    def largest(name: str, attribute: str) -> float:
-        values = [
-            abs(getattr(row, attribute))
-            for row in summary.rows
-            if row.covariate == name and np.isfinite(getattr(row, attribute))
-        ]
-        return max(values, default=0.0)
-
-    before = {name: largest(name, "smd_unweighted") for name in covariates}
-    after = {name: largest(name, "smd_weighted") for name in covariates}
+    before, after = _largest_differences(summary)
+    covariates = list(before)
+    position = {name: index for index, name in enumerate(covariates)}
     kept = [name for name in covariates if after[name] > summary.threshold]
     if covariates:
         kept.append(max(covariates, key=lambda name: after[name]))
@@ -619,9 +628,34 @@ def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int
     chosen = set(kept)
     order = sorted(
         (name for name in covariates if name in chosen),
-        key=lambda name: (-before[name], covariates.index(name)),
+        key=lambda name: (-before[name], position[name]),
     )
     return order, len(covariates) - len(order)
+
+
+def _paged_covariates(summary: Any, max_covariates: int, page: int) -> tuple[list[str], int, int]:
+    """One page of covariates in drawing order, the number of pages, and the flagged count.
+
+    Every covariate is ranked: those above the threshold after weighting first, largest
+    difference after weighting first, then the rest by the larger of their differences
+    before and after, ties in covariate order. A page holds ``max_covariates`` ranks and is
+    drawn sorted by the difference before weighting, as the unpaged figure is.
+    """
+    before, after = _largest_differences(summary)
+    covariates = list(before)
+    position = {name: index for index, name in enumerate(covariates)}
+    flagged = [name for name in covariates if after[name] > summary.threshold]
+    flagged_set = set(flagged)
+    ranked = sorted(flagged, key=lambda name: (-after[name], position[name])) + sorted(
+        (name for name in covariates if name not in flagged_set),
+        key=lambda name: (-max(before[name], after[name]), position[name]),
+    )
+    pages = max(1, math.ceil(len(ranked) / max_covariates))
+    if page > pages:
+        raise ValueError(f"page must be at most {pages}, the number of pages; got {page}")
+    on_page = ranked[(page - 1) * max_covariates : page * max_covariates]
+    order = sorted(on_page, key=lambda name: (-before[name], position[name]))
+    return order, pages, len(flagged)
 
 
 @_core.labelled
@@ -629,6 +663,7 @@ def balance(
     source: Any,
     *,
     max_covariates: int = 30,
+    page: int | None = None,
     treatment_label: str | None = None,
     labels: dict[str, str] | None = None,
     diagnostic: str | None = None,
@@ -672,7 +707,15 @@ def balance(
         the default estimand, or a longitudinal or survival result.
     max_covariates : int, default=30
         The most covariates to draw. Every covariate above the threshold after weighting is
-        drawn, then those with the largest difference before or after weighting.
+        drawn, then those with the largest difference before or after weighting. With
+        ``page``, the number on each page; the last page may hold fewer.
+    page : int or None, default=None
+        The page of covariates to draw, starting at 1. Covariates are ranked, those above the
+        threshold after weighting first, and each page holds ``max_covariates`` of them, so
+        every covariate can be drawn on some page; on a fit over time each panel is paged
+        the same way. Every difference and the subtitle still read all covariates, and the
+        notes give the page and the number of pages. When omitted, one figure as described
+        under ``max_covariates``.
     treatment_label : str or None, default=None
         Words for the treatment in the subtitle and the panel titles, such as ``"Offer"``
         (read ``"Offer = 1 vs Offer = 0"``); its column name when omitted.
@@ -713,12 +756,14 @@ def balance(
     ------
     CapabilityError
         When the fit estimated no treatment mechanism or no weights, or ``diagnostic`` names
-        a check the fit omits, such as feedback on a survival fit.
+        a check the fit omits, such as feedback on a survival fit, or ``view="panels"`` is
+        asked of a continuous-time survival fit, which has no strata.
     DataError
         When the treatment, or a treatment node of a fit over time, is continuous.
     ValueError
-        When ``max_covariates`` is less than one, ``diagnostic``, ``view`` or ``nodes``
-        names something the report does not have, or one of them is given for a
+        When ``max_covariates`` is less than one, ``page`` is not a whole number from 1 to
+        the number of pages or is given with ``view="panels"``, ``diagnostic``, ``view`` or
+        ``nodes`` names something the report does not have, or one of them is given for a
         point-treatment fit.
 
     See Also
@@ -731,7 +776,7 @@ def balance(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes give the standardized
-    difference and the weights used, and name the covariates not drawn.
+    difference and the weights used, and name the covariates not drawn or the page drawn.
 
     Examples
     --------
@@ -766,6 +811,7 @@ def balance(
         raise ValueError(f"max_covariates must be an integer of at least 1; got {max_covariates!r}")
     if max_covariates < 1:
         raise ValueError(f"max_covariates must be at least 1; got {max_covariates!r}")
+    page = _core.display_limit(page, "page", 1)
     from ..sensitivity.balance_time import BalanceOverTime
     from ._balance_time import check_point_keywords, draw
 
@@ -780,6 +826,7 @@ def balance(
             treatment_label=treatment_label,
             labels=labels,
             title=title or None,
+            page=page,
         )
     check_point_keywords(diagnostic, view, nodes)
     contrasts = summary.contrasts
@@ -790,7 +837,10 @@ def balance(
             return contrast
         return contrast.replace(f"{summary.treatment} = ", f"{treatment_label} = ")
 
-    shown, hidden = _shown_covariates(summary, max_covariates)
+    if page is None:
+        shown, hidden = _shown_covariates(summary, max_covariates)
+    else:
+        shown, pages, flagged = _paged_covariates(summary, max_covariates, page)
     columns = min(len(contrasts), 3)
     panel_height = 0.27 * len(shown) + 0.45
     longest = max(len((labels or {}).get(name, name)) for name in shown)
@@ -911,7 +961,15 @@ def balance(
     rest = rest_text(summary, "panel")
     if rest is not None:
         found.append(rest)
-    if hidden:
+    if page is not None:
+        first = (page - 1) * max_covariates + 1
+        total = len(dict.fromkeys(row.covariate for row in summary.rows))
+        found.append(
+            f"Page {page} of {pages}: covariates ranked {first} to {first + len(shown) - 1} "
+            f"of {total}, covariates above the threshold after weighting first ({flagged} "
+            "above it in all)."
+        )
+    elif hidden:
         found.append(
             f"{hidden} covariates are not drawn. Every covariate above the threshold after "
             "weighting is drawn, then those with the largest difference before or after."

@@ -723,6 +723,21 @@ def measured(row: Any) -> str:
             f"{measured}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "fold_variance_calibration":
+        # ``few-cluster-fold-variance``: a positive or deflated row reads its shown coverage,
+        # all-draw coverage and variance-ratio lower end (the positive rule); the IID control
+        # its median paired IID/cluster SE ratio; a diagnostic arm the same three readings.
+        if str(row.cell).endswith("__iid_t_control"):
+            return (
+                f"median paired IID/cluster SE ratio {render(float(row.paired_median_ratio))}, "
+                f"{_interval(row.paired_median_ci_lower, row.paired_median_ci_upper)}"
+            )
+        return (
+            f"shown coverage {_interval(row.shown_ci_lower, row.shown_ci_upper)}, "
+            f"all-draw coverage {_interval(row.all_draw_ci_lower, row.all_draw_ci_upper)}, "
+            f"variance ratio {render(float(row.variance_ratio))}, "
+            f"{_interval(row.variance_ratio_ci_lower, row.variance_ratio_ci_upper)}"
+        )
     if family == "bootstrap_coverage":
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family == "variance_direction":

@@ -526,8 +526,10 @@ class InitialHazards:
         other fit.
     observed : FloatArray or None
         ``(n, T, J)`` the hazards at each unit's observed treatment on a fit whose baseline
-        node is continuous or mixed, which has no levels.  ``None`` on a categorical node,
-        where the observed level of ``hazards`` holds them.
+        node is continuous or mixed, which has no levels, and on a fit with a treatment at
+        several nodes, whose level axis holds treatment paths that an observed path need not
+        follow.  ``None`` on a held categorical node, where the observed level of ``hazards``
+        holds them.
     """
 
     hazards: FloatArray
@@ -1344,8 +1346,8 @@ def fit_hazards(
     slots : sequence of MTPSlots
         The slots of each modified treatment policy at a continuous or mixed baseline node.
         Every slot is predicted from the same fit, at :func:`slot_design`, and the observed
-        treatment is predicted at the fit's own design.  ``"pooled"`` is refused beside one
-        (H24).
+        treatment is predicted at the fit's own design, as it is on a multi-node design
+        without slots.  ``"pooled"`` is refused beside one (H24).
     fit_rows : BoolArray or None
         ``(n,)`` the rows every regression may train on, ``None`` for every row.  An outer
         fold's untargeted backward pass of a fit with covariates after baseline trains on its
@@ -1374,7 +1376,11 @@ def fit_hazards(
     slot_hazards = {
         entry.label: np.zeros((data.n, data.n_times, entry.n_slots, n_causes)) for entry in slots
     }
-    observed = np.zeros((data.n, data.n_times, n_causes)) if slots else None
+    # The hazards at each unit's observed treatment, which the nuisance report scores: on a
+    # continuous or mixed baseline node there are no levels, and on a multi-node design the
+    # level axis holds path plans, which a unit's observed path need not follow.
+    observes = bool(slots) or is_multinode(data)
+    observed = np.zeros((data.n, data.n_times, n_causes)) if observes else None
     no_events: list[tuple[int, int]] = []
     diagnostics: list[tuple[object, ...]] = []
     for time in range(1, data.n_times + 1):
@@ -1386,6 +1392,7 @@ def fit_hazards(
         slot_keys = _slot_predictions(data, time, slots, design, predict)
         earlier = np.zeros(data.n, dtype=bool)
         taken = np.zeros((data.n, len(levels)))
+        observed_taken = np.zeros(data.n)
         slot_taken = {label: np.zeros((data.n, len(keys))) for label, keys in slot_keys.items()}
         # Filed by cause index, so the nuisance report reads cause order whatever the fit
         # order.
@@ -1432,9 +1439,16 @@ def fit_hazards(
                 )
                 slot_hazards[label][:, time - 1, :, cause] = slot_rho * (1.0 - slot_taken[label])
                 slot_taken[label] = slot_taken[label] + slot_hazards[label][:, time - 1, :, cause]
-            if observed is not None:
+            if slots:
                 # Slot 0 of every policy is the observed treatment.
+                assert observed is not None
                 observed[:, time - 1, cause] = slot_hazards[slots[0].label][:, time - 1, 0, cause]
+            elif observed is not None:
+                observed_rho = (
+                    np.zeros(data.n) if predictions is None else predictions[_OBSERVED_SLOT]
+                )
+                observed[:, time - 1, cause] = observed_rho * (1.0 - observed_taken)
+                observed_taken = observed_taken + observed[:, time - 1, cause]
             earlier = earlier | (target > 0)
         diagnostics.extend(node_diagnostics[cause] for cause in range(n_causes))
     return InitialHazards(
@@ -1456,10 +1470,11 @@ def _slot_predictions(
     """Add each policy slot's design at node ``time`` to ``predict``; the keys by policy.
 
     The observed slot reads the fit's own design, so its prediction is the out-of-fold fit
-    at the observed treatment.  A key never clashes with a level plan's label.
+    at the observed treatment.  A multi-node design predicts it too, without slots, for the
+    hazards at the observed treatment path.  A key never clashes with a level plan's label.
     """
     out: dict[str, tuple[str, ...]] = {}
-    if slots:
+    if slots or is_multinode(data):
         predict[_OBSERVED_SLOT] = design
     for entry in slots:
         keys = [_OBSERVED_SLOT]

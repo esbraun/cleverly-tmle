@@ -110,6 +110,7 @@ from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
 from .protocol import StudyProtocol, protocol_summary_lines
 from .provenance import fingerprint_array
 from .survival import ContinuousSurvivalResult, ContinuousSurvivalTMLE
+from .survival._memory import ContinuousSurvivalMemoryError
 from .survival.data import ContinuousSurvivalData, continuous_kwargs, static_arms
 from .targets import TARGETS
 from .targets.base import (
@@ -5682,6 +5683,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         n_half_samples: int = 2000,
         alpha: float = 0.05,
         random_state: int | None = None,
+        max_memory_bytes: int | None = None,
         **overrides: Any,
     ) -> Any:
         """How much treating by an external priority score first gains over treating at random.
@@ -5719,6 +5721,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             The intervals hold at ``1 - alpha``, and the band jointly over the grid.
         random_state : int or None
             Seed of the ATE fit's folds and of the draws.
+        max_memory_bytes : int or None
+            The most memory the half-sample draws may add above the arrays already held, in
+            bytes; ``None`` uses the memory available now.  The draws run in blocks sized to
+            it, and a request whose setup, outputs and one draw would exceed it is refused
+            before the ATE fit.
+            It bounds the draws only, not the ATE fit, and never lowers ``n_half_samples``.
         **overrides : Any
             Settings of the ATE fit, as :meth:`estimate` takes them.
 
@@ -5733,6 +5741,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             If the estimand is not a :class:`ConditionalContrast` bound to a study, a score is
             not declared external (R13), or the fit repeats its cross-fitting split, targets
             by fold, evaluates by fold or bootstraps.
+        MethodConfigurationError
+            If one half-sample draw at a time is predicted to exceed the memory budget.
 
         Examples
         --------
@@ -5770,6 +5780,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .effect_modification import _resolve_pair
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
+            check_draw_memory,
+            check_grid,
+            check_groups,
             check_targeting_settings,
             targeting_fit,
         )
@@ -5807,6 +5820,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             kwargs["random_state"] = random_state
         estimator = TMLE(**kwargs)
         check_targeting_settings(estimator)
+        grid_ = check_grid(grid)
+        check_draw_memory(
+            n=data.n,
+            units=data.n if data.cluster is None else int(np.unique(data.cluster).size),
+            blocks=max(int(np.unique(np.asarray(values)).size) for values in scores.values()),
+            scores=len(scores),
+            draws=int(n_half_samples),
+            grid=grid_,
+            edges=check_groups(groups, grid_),
+            max_memory_bytes=max_memory_bytes,
+        )
         fit = estimator.fit(data).single()
         return targeting_fit(
             fit,
@@ -5819,6 +5843,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             alpha=alpha,
             random_state=random_state,
             route="external",
+            max_memory_bytes=max_memory_bytes,
         )
 
     def available_methods(self) -> MethodAvailabilities:
@@ -6822,13 +6847,39 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
         functional = self.functional
-        engine = ContinuousSurvivalTMLE(
-            functional.horizons or (),
-            arms=functional.interventions,
-            reference=functional.reference,
+        settings = {
+            "arms": functional.interventions,
+            "reference": functional.reference,
             **continuous_kwargs(method),
-        )
-        return engine.fit_data(data)
+        }
+        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
+        try:
+            return engine.fit_data(data)
+        except ContinuousSurvivalMemoryError as error:
+            # The facade has no memory setting; spell the engine call that reproduces this fit,
+            # so a user can set the budget there.
+            spelled = ", ".join(
+                [repr(tuple(functional.horizons or ()))]
+                + [f"{key}={value!r}" for key, value in settings.items()]
+                + ["max_memory_bytes=..."]
+            )
+            seeded = settings.get("random_state") is not None
+            alternative = (
+                f"{error.refusal.alternative} On a study, fit the same estimator directly, with "
+                "these settings (an object shown by its printed form is passed as itself): "
+                f"cleverly.survival.ContinuousSurvivalTMLE({spelled}).fit_data(study.data). "
+                + (
+                    "With this seed it returns the result this study would."
+                    if seeded
+                    else "Without random_state each fit draws its own seed; set it to "
+                    "reproduce a study's result."
+                )
+            )
+            spelled_error = ContinuousSurvivalMemoryError(
+                refusal=replace(error.refusal, alternative=alternative)
+            )
+            spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
+            raise spelled_error from error
 
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)

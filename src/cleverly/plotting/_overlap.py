@@ -69,19 +69,25 @@ def _mirror(
     names: tuple[str, str | None],
     bounds: Sequence[Limit],
     peak: float | None = None,
+    counts: Sequence[Any] | None = None,
 ) -> float:
     """One arm's probability, rows of that arm above the axis and the rest below.
 
-    With no second name only the rows ``inside`` are drawn, above the axis.
+    With no second name only the rows ``inside`` are drawn, above the axis. ``counts`` are
+    the two groups' weighted histogram counts over the plot's bins when the caller has them
+    already (rows ``inside`` first), so they are not computed twice.
     """
     edges = np.linspace(0.0, 1.0, _BINS + 1)
     total = float(weights.sum())
     groups = [(1.0, inside, names[0], _core.PALETTE[0])]
     if names[1] is not None:
         groups.append((-1.0, ~inside, names[1], _core.PALETTE[1]))
-    for sign, mask, name, color in groups:
-        counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
-        share = sign * counts / total if total > 0.0 else counts * 0.0
+    for index, (sign, mask, name, color) in enumerate(groups):
+        if counts is None:
+            group_counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
+        else:
+            group_counts = counts[index]
+        share = sign * group_counts / total if total > 0.0 else group_counts * 0.0
         ax.bar(
             edges[:-1],
             share,
@@ -314,7 +320,7 @@ def overlap(
     'Predicted probability of A = 1'
     >>> plt.close(fig)
     """
-    from ..sensitivity.positivity import positivity_report
+    from ..sensitivity.positivity import _refuse_unreportable
     from ._overlap_time import over_time
 
     drawn = over_time(
@@ -345,7 +351,8 @@ def overlap(
             "regimen=, nodes=, censoring=, horizon= and cause= apply to a fit over time; this "
             f"{type(result).__name__} fits its treatment once"
         )
-    positivity_report(result)  # the report's own refusals: no mechanism, a continuous dose
+    # The support report's own refusals (no mechanism, a continuous dose), without building it.
+    _refuse_unreportable(result)
     data = result.data
     name = treatment_label or str(data.treatment_name)
     propensity = result.repeats[0].nuisance.propensity
@@ -385,13 +392,17 @@ def overlap(
     edges = np.linspace(0.0, 1.0, _BINS + 1)
     weights = weights_all[recorded]
     peak = 0.0
+    panels = []
     for arm in shown:
         raw = raw_all[recorded, propensity.column_for(arm)]
         inside = treatment[recorded] == arm
+        counts = []
         for mask in (inside, ~inside):
-            counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
-            peak = max(peak, float(counts.max(initial=0.0)) / float(weights.sum()))
-    for axis, arm in zip(axes, shown, strict=True):
+            group_counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
+            counts.append(group_counts)
+            peak = max(peak, float(group_counts.max(initial=0.0)) / float(weights.sum()))
+        panels.append(counts)
+    for axis, arm, counts in zip(axes, shown, panels, strict=True):
         raw = raw_all[recorded, propensity.column_for(arm)]
         inside = treatment[recorded] == arm
         rest = group(arms[0]) if binary else "Units in every other arm"
@@ -403,6 +414,7 @@ def overlap(
             names=(group(arm), rest),
             bounds=bounds,
             peak=peak,
+            counts=counts,
         )
         axis.set_ylabel("Share of units")
         axis.set_xlabel(axis_words(arm))

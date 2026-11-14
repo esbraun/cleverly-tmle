@@ -15,11 +15,13 @@ Every number drawn is one the report holds; nothing is refitted.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from ..exceptions import CapabilityError, RefusalReason
 from . import _core
 from ._strips import fit_height, strip_figure
 
@@ -135,6 +137,7 @@ def draw(
     treatment_label: str | None,
     labels: dict[str, str] | None,
     title: str | None,
+    page: int | None = None,
 ) -> Figure:
     """Draw a balance over time.
 
@@ -156,6 +159,8 @@ def draw(
         Words for each covariate.
     title : str or None
         The title, or the plot's own.
+    page : int or None, default=None
+        The page of each panel's ranked covariates to draw, ``max_covariates`` to a page.
 
     Returns
     -------
@@ -168,13 +173,22 @@ def draw(
     rows = summary.rows_of(chosen)
     if view == "panels":
         if summary.family == "continuous_survival":
-            raise ValueError(
+            raise CapabilityError(
                 "view='panels' draws one dot per stratum of earlier treatments, and a "
-                "continuous-time fit has none; use view='summary'."
+                "continuous-time fit has none.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Draw the averaged comparisons with view='summary'.",
+            )
+        if page is not None:
+            raise CapabilityError(
+                "page= pages the covariates of the summary view; view='panels' draws every "
+                "covariate, so it has no pages",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="omit page=, or draw view='summary' with page=",
             )
         return _trellis(summary, chosen, rows, nodes, labels, title)
     return _summary_view(
-        summary, chosen, rows, nodes, max_covariates, treatment_label, labels, title
+        summary, chosen, rows, nodes, max_covariates, treatment_label, labels, title, page
     )
 
 
@@ -193,6 +207,7 @@ def _summary_view(
     treatment_label: str | None,
     labels: dict[str, str] | None,
     title: str | None,
+    page: int | None = None,
 ) -> Figure:
     from ..sensitivity.balance_time import averages
 
@@ -208,6 +223,7 @@ def _summary_view(
         strata.setdefault((row.exposure, row.contrast, row.covariate), []).append(row.smd_weighted)
     hidden = 0
     shown_by_panel: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    ranked_by_panel: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for panel, members in by_panel.items():
         unweighted = {m["covariate"]: _absolute(m["smd_unweighted"]) for m in members}
         weighted = {m["covariate"]: _absolute(m["smd_weighted"]) for m in members}
@@ -217,10 +233,26 @@ def _summary_view(
         )
         above = [m for m in ranked if weighted[m["covariate"]] > summary.threshold]
         rest = [m for m in ranked if m not in above]
+        ranked_by_panel[panel] = above + rest
         chosen = (above + rest)[: max(max_covariates, len(above))]
         hidden += len(members) - len(chosen)
         order = [m for m in members if m in chosen]
         shown_by_panel[panel] = order
+    empty: list[tuple[str, str]] = []
+    pages = max(
+        (math.ceil(len(ranked) / max_covariates) for ranked in ranked_by_panel.values()),
+        default=1,
+    )
+    unpaged = dict(shown_by_panel)
+    if page is not None:
+        if page > pages:
+            raise ValueError(f"page must be at most {pages}, the number of pages; got {page}")
+        start = (page - 1) * max_covariates
+        for panel, ranked in ranked_by_panel.items():
+            on_page = ranked[start : start + max_covariates]
+            shown_by_panel[panel] = [m for m in by_panel[panel] if m in on_page]
+            if not on_page:
+                empty.append(panel)
     columns = min(len(panels), _COLUMNS) or 1
     tallest = max((len(v) for v in shown_by_panel.values()), default=1)
     panel_height = 0.27 * tallest + 0.45
@@ -303,6 +335,18 @@ def _summary_view(
             color=_core.INK,
         )
         axis.set_ylim(-0.7, max(len(members), 1) - 0.3)
+        if not members and page is not None:
+            axis.text(
+                0.5,
+                0.5,
+                "No covariates on this page",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                fontsize=_core.TICK_SIZE,
+                color=_core.SECONDARY_INK,
+                gid="cleverly-balance-empty-page",
+            )
         axis.grid(False)
         axis.grid(True, axis="x", color=_core.GRID, linewidth=0.8)
         axis.set_xlabel("Absolute standardized mean difference")
@@ -315,6 +359,10 @@ def _summary_view(
         )
     for axis in axes[len(panels) :]:
         axis.set_axis_off()
+    if page is not None:
+        # The note counts the strata of the unpaged selection, as the figure without pages
+        # does, so a page changes no note but its own.
+        opposite = _opposite(unpaged, strata)
     finite = [g for g in groups if np.isfinite(g["smd_weighted"])]
     worst = max(finite, key=lambda g: abs(g["smd_weighted"])) if finite else None
     pieces = [DIAGNOSTIC_WORDS[diagnostic]]
@@ -338,7 +386,22 @@ def _summary_view(
             f"{opposite} strata differ after weighting in the direction opposite to their "
             "covariate's average, which the average offsets."
         )
-    if hidden:
+    if page is not None:
+        first = (page - 1) * max_covariates + 1
+        last = page * max_covariates
+        none = (
+            "; "
+            + ", ".join(_said(f"{e}: {c}", summary, treatment_label) for e, c in empty)
+            + (" has" if len(empty) == 1 else " have")
+            + " none on this page"
+            if empty
+            else ""
+        )
+        found.append(
+            f"Page {page} of {pages}: each panel's covariates ranked {first} to {last}, "
+            f"covariates above the threshold after weighting first{none}."
+        )
+    elif hidden:
         found.append(
             f"{hidden} covariate rows are not drawn. Every covariate above the threshold after "
             "weighting is drawn, then those with the largest difference before or after."
@@ -346,6 +409,23 @@ def _summary_view(
     _core.add_notes(fig, found)
     fit_height(fig, axes, columns, panel_height)
     return fig
+
+
+def _opposite(
+    shown_by_panel: dict[tuple[str, str], list[dict[str, Any]]],
+    strata: dict[tuple[str, str, str], list[float]],
+) -> int:
+    """The strata that differ after weighting opposite to their drawn covariate's average."""
+    count = 0
+    for panel, members in shown_by_panel.items():
+        for m in members:
+            values = [
+                v for v in strata.get((panel[0], panel[1], m["covariate"]), []) if np.isfinite(v)
+            ]
+            if len(values) > 1:
+                sign = np.sign(m["smd_weighted"]) if np.isfinite(m["smd_weighted"]) else 0.0
+                count += sum(1 for v in values if sign and np.sign(v) == -sign)
+    return count
 
 
 def _notes(summary: BalanceOverTime, diagnostic: str) -> list[str]:

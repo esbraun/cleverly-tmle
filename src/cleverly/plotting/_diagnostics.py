@@ -1601,7 +1601,9 @@ def bootstrap(
 # --------------------------------------------------------------------------- influence
 
 
-def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarray, np.ndarray, str]:
+def _concentration(
+    influence_curve: Any, cluster: Any = None
+) -> tuple[np.ndarray, np.ndarray, str, np.ndarray]:
     """The cumulative share of the centred sum of squares carried by the top units.
 
     Units are the rows, or the clusters when ``cluster`` is given, in which case the
@@ -1611,7 +1613,8 @@ def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarra
     the numerator of the reported variance.
 
     Returns the fraction of units taken (``0, 1/m, ..., 1``, largest squared value first),
-    the share of the sum of squares those units carry, and ``"rows"`` or ``"clusters"``.
+    the share of the sum of squares those units carry, ``"rows"`` or ``"clusters"``, and the
+    units' influence values (the cluster sums on a clustered fit), which the Kish count reads.
     """
     from ..inference.bootstrap import cluster_sums
 
@@ -1630,7 +1633,29 @@ def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarra
     count = squares.size
     fraction = np.concatenate([[0.0], np.arange(1, count + 1) / count])
     share = np.concatenate([[0.0], np.cumsum(squares) / total])
-    return fraction, share, "rows" if cluster is None else "clusters"
+    return fraction, share, "rows" if cluster is None else "clusters", values
+
+
+def _line_points(
+    fraction: np.ndarray, share: np.ndarray, top: int, limit: int | None
+) -> np.ndarray:
+    """The indices of the points the concentration line is drawn through.
+
+    Every point when ``limit`` is ``None`` or not below the point count. Otherwise points
+    spread evenly along the line's length: both coordinates rise from 0 to 1, so the length
+    from the origin, measured as ``|dx| + |dy|``, is ``fraction + share``. Both ends and the
+    top-share point are always kept. The curve is concave, so between two kept points it lies
+    above their chord by at most the rise in length between them, ``2 / (limit - 4)``.
+    """
+    count = fraction.size - 1
+    if limit is None or limit >= count + 1:
+        return np.arange(count + 1)
+    length = fraction + share
+    # The total can fall a rounding error below 2, so the last target is clipped to the end.
+    spread = np.minimum(
+        np.searchsorted(length, np.linspace(0.0, 2.0, limit - 3), side="left"), count
+    )
+    return np.unique(np.concatenate([spread, [0, top, count]]))
 
 
 def _top_words(top: int, count: int, unit: str) -> tuple[str, str]:
@@ -1650,6 +1675,7 @@ def influence(
     *,
     name: str | None = None,
     cluster: Any = None,
+    max_points: int | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -1684,6 +1710,13 @@ def influence(
     cluster : array-like or None, default=None
         Cluster codes, one per row. A fit supplies its own; a bare estimate from a
         clustered fit needs them.
+    max_points : int or None, default=None
+        The most points the line is drawn through, at least 16; every point when omitted.
+        With a large data set this keeps the figure and its exported file small. The ranking,
+        the top share and the Kish count still use every unit; only the drawn line is thinned,
+        through points spread evenly along its length that always include both ends and the
+        top-share point, and it stays within ``2 / (max_points - 4)`` of the exact curve on the
+        axes' unit scale. The notes give the number of points drawn.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -1725,8 +1758,9 @@ def influence(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes say the curve is descriptive,
-    whether influence values are summed within clusters, and when the curve is not the
-    reported variance.
+    whether influence values are summed within clusters, when the curve is not the
+    reported variance, and how many points the line passes through when ``max_points``
+    thins it.
 
     Examples
     --------
@@ -1777,17 +1811,19 @@ def influence(
             f"{label} comes from a clustered fit ({estimate.n_clusters} clusters in "
             f"{estimate.n} rows); pass the fitted result, or cluster= with one code per row"
         )
-    fraction, share, units = _concentration(estimate.influence_curve, cluster)
+    limit = _core.display_limit(max_points, "max_points", 16)
+    fraction, share, units, unit_values = _concentration(estimate.influence_curve, cluster)
     count = fraction.size - 1
     top = max(1, math.ceil(0.01 * count - 1e-12))
+    drawn = _line_points(fraction, share, top, limit)
     top_share = float(share[top])
     unit = "cluster" if units == "clusters" else "row"
     headline, point_label = _top_words(top, count, unit)
     fig, axis = _core.figure_for(ax, figsize=(5.2, 5.6))
     _diagonal(axis, 0.0, 1.0, label="Even spread")
     (curve,) = axis.plot(
-        fraction,
-        share,
+        fraction[drawn],
+        share[drawn],
         color=_core.PALETTE[0],
         linewidth=2.0,
         zorder=3,
@@ -1829,11 +1865,11 @@ def influence(
     subtitle = (
         f"{_core.estimand_words(label)}: {headline} {_percent(top_share)} of the squared influence"
     )
-    from ..inference.sparse import influence_row
+    from ..inference.influence import kish_count
 
-    kish = influence_row(
-        label, np.asarray(estimate.influence_curve, dtype=float), cluster=cluster
-    ).kish
+    # The count influence_row reports, read off the unit values already grouped and checked
+    # above (a zero spread was refused there), without its other moments.
+    kish = kish_count(unit_values)
     found = [
         "Descriptive: a measure of how the stored influence values are spread; "
         "no interval is drawn. Values are centred at their mean, as the variance centres them.",
@@ -1841,6 +1877,11 @@ def influence(
     ]
     if units == "clusters":
         found.append("Share of clusters: influence values are summed within each cluster first.")
+    if drawn.size < fraction.size:
+        found.append(
+            f"Line drawn through {drawn.size} of {fraction.size} points, chosen evenly along its "
+            f"length; the ranking, the top share and the Kish count use every {unit}."
+        )
     if result is not None:
         draws = len(getattr(result, "repeats", ()))
         if draws > 1:

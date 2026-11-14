@@ -206,6 +206,15 @@ predicted rates, in small steps, until the risks satisfy the equations that make
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
 about ten seconds at 1,000 people.
 
+The fit's memory grows with the number of people times the number of distinct event and
+censoring times up to the last horizon, so when times rarely repeat it grows with the square of
+the number of people. With one kind of event, 100,000 people and a last horizon that covers most
+follow-up times, it would need about 1 TB. Before fitting anything, the fit predicts how much
+memory it needs and stops with an error when that is more than the machine has free; on macOS,
+which does not report free memory, it checks only a limit you set. The error spells the
+`ContinuousSurvivalTMLE` call that runs the same fit, whose `max_memory_bytes=` sets the limit,
+as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
 competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
