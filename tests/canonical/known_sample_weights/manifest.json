@@ -1,0 +1,169 @@
+{
+  "schema_version": 2,
+  "study": "A declared treatment mechanism beside sample-reading weights",
+  "slug": "known-mechanism-sample-weights",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "26b53828ea78573357ee5e88296065a97704c6cf",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 4000,
+    "seed": 20261641,
+    "resampling_seed": 20261642,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "SW": [
+        "ate",
+        "ey1",
+        "ey0"
+      ]
+    },
+    "construction": "point TMLE and LTMLE on weighted data with treatment_probabilities= and mechanism_law='sample' (tilted mechanism g0 r / sum g0 r, r the treatment learner fitted with sample weights w / g0); the control reads mechanism_law='target'",
+    "law_SW": "W1 ~ N(0, 1), W2 ~ Bern(0.5); g0(1 | W) = 0.3 + 0.4 W2 (declared); Y ~ Bern(expit(-1 + A + W1 + 1.5 A W1 - W1^2 / 2 + 0.5 W2)); w = exp(0.4 A + 0.5 A W1 + 0.15 W1), so r(1 | W) = expit(0.4 + 0.5 W1)",
+    "law_LW": "L0 ~ N(0, 1); A1 ~ Bern(expit(0.4 L0)) (declared); L1 ~ N(0.5 L0 + 0.5 A1, 1); A2 ~ Bern(expit(-0.2 + 0.6 L1)) (declared); Y = 0.5 L0 + 0.4 A1 + 0.5 A1 L0 + 0.6 L1 + 0.5 A2 + 0.3 A1 A2 + N(0, 1); w = exp(0.4 A1 + 0.5 A1 L0 + 0.15 L0)",
+    "outcome_learners": {
+      "correct": "unpenalized logistic GLM on (A, W1, A W1, W1^2, W2), by Newton",
+      "main": "unpenalized logistic GLM on (A, W1, W2), by Newton (misspecified)",
+      "LW": "weighted least squares on each node's follower design (correct)",
+      "LW_flat": "the weighted mean at node one (misspecified), least squares at node two"
+    },
+    "tilt_classifier": {
+      "correct": "unpenalized main-terms logistic GLM on the node's design, by Newton",
+      "w2": "unpenalized logistic GLM on W2 alone, by Newton (misspecified: drops W1)"
+    },
+    "point_fits": {
+      "sample_correct": {
+        "reading": "sample",
+        "outcome": "correct",
+        "tilt": "correct"
+      },
+      "target_main": {
+        "reading": "target",
+        "outcome": "main",
+        "tilt": "correct"
+      },
+      "sample_main": {
+        "reading": "sample",
+        "outcome": "main",
+        "tilt": "correct"
+      },
+      "tilt_wrong": {
+        "reading": "sample",
+        "outcome": "correct",
+        "tilt": "w2"
+      },
+      "both_wrong": {
+        "reading": "sample",
+        "outcome": "main",
+        "tilt": "w2"
+      }
+    },
+    "ltmle_fits": {
+      "ltmle_sample": [
+        "sample",
+        "linear"
+      ],
+      "ltmle_target_flat": [
+        "target",
+        "intercept"
+      ],
+      "ltmle_sample_flat": [
+        "sample",
+        "intercept"
+      ]
+    },
+    "point_cross_fit": "5 folds",
+    "ltmle_folds": 5,
+    "ltmle_q_bounds": [
+      -25.0,
+      25.0
+    ],
+    "estimands": [
+      "ate",
+      "ey1",
+      "ey0"
+    ],
+    "ltmle_estimands": [
+      "ey_regimen[always]",
+      "ey_regimen[never]",
+      "ate_regimen[always vs never]"
+    ],
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "ltmle_g_bounds": [
+      0.0001,
+      1.0
+    ],
+    "max_iter": 100,
+    "tol": 1e-10,
+    "simultaneous_intervals": false,
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_known_sample_weights.py": "d4f82619fefcb124b606b777d43d0d729d1d5469f7b6aae68b27001b5a92ec29",
+    "tests/studies/known_sample_weights_properties.py": "39f889dc66b171c8b06effc42bb095ef28feb580e47f0616faf27ac356c82497",
+    "tests/studies/known_sample_weights_law.py": "8380ee1d1c27f5514a578cf4efd9459f12ea9485c23feedfcc8449dd2a6694db",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "src/cleverly/data/known_mechanism.py": "61657466f95d0bdce32e93d8a62108cb61410ca81f843f7646e0c9b885bb8c2e",
+    "src/cleverly/estimators/_nuisance.py": "68f70c9e3b4a8dd2456ac3068ad702883cb381ec2a6f4698fa5579aa1aeb41c0",
+    "src/cleverly/estimators/tmle.py": "e534e0ed317cbd7f6f1a51220853827a831c8dde45846737a27ef585011f1e18",
+    "src/cleverly/longitudinal/sequential.py": "f824463b217741120d4170e20920646c105a90d6769ec5c8628e2e786958a011",
+    "src/cleverly/longitudinal/estimator.py": "edd2f147a081bfa456be75478a02e3a886ff1a7196b70a6e044802cc11d0700d",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "199adf79f65fd274b084f1ea3a92223bba47d6c232bd2e7c1b4bbc0711329839",
+    "summary.csv": "df31fb6d43d5966359f03ad9df32d7dedc836845587db52ba28515431a134994",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "93f07f050975fb1e985dfa748a6614b761bc9dab4583768ceb95670cdba14f31",
+    "property-replicates.parquet": "b45c18ed2f0e9b23e14dfbf9cef7dbeecc5f4fb71d73589631d23910f99c8591",
+    "properties.csv": "c6b02a00042b42c92059c71eb789a50d6932ab095ee57ae3130a126809142c46"
+  }
+}
