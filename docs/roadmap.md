@@ -71,7 +71,7 @@ tier is the one the legend lists.
 | 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
 | 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
-| 5 | further estimands and designs, in this order: X5, X2, X7 |
+| 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
 
 The readiness labels are defined under
@@ -92,6 +92,7 @@ The readiness labels are defined under
 | --- | --- | --- | --- |
 | [X77](#x77-censored-data-for-continuous-price-policies) Censored data for continuous price policies | 3 | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor |
 | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) Data-tuned policies beyond the shipped tuned caps | 3 | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies |
+| [X99](#x99-history-dependent-treatment-effects-by-targeted-estimation) History-dependent treatment effects by targeted estimation | 5 | source audit: no targeted estimator of these effects has been read here | the shipped `LTMLE` sequential regression; the shipped `StructuralNestedMean` defines the target |
 | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) Settings of the stacked and natural-course contracts | 6 | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) |
 | [X78](#x78-bounded-node-fits-under-a-working-model) Bounded node fits under a working model | 6 | the bounded form of a pooled fluctuation is not written | the shipped `node_bounds=` and `msm=` of `LTMLE` |
 
@@ -1486,6 +1487,27 @@ Acceptance: the registered cells, and a support case in `tests/studies/support_c
 
 `LTMLE` refuses `node_bounds=` beside `msm=` (R-i3). A working model over regimens pools one
 fluctuation across the regimens, and that fluctuation has no bounded form yet.
+
+### X99. History-dependent treatment effects by targeted estimation
+
+`StructuralNestedMean` reports how the effect of the treatment at node $t$ varies with the history
+up to $t$, as the coefficients of a linear blip model, by g-estimation. No targeted estimator in
+the package reports that effect. A working model over regimens, `LTMLE(msm=...)`, describes
+contrasts between whole regimens, not the effect at one node given the history that led to it.
+The owner asked for a targeted form on 2026-11-14.
+
+| part | what to add | what it needs |
+| --- | --- | --- |
+| (a) | a targeted estimator of the blip at node $t$, the effect of the node-$t$ treatment given the history with later treatment held at the reference, as a projection on declared history features | a published targeted or efficient-influence-curve construction for this parameter, read first-hand, with its identification and remainder conditions |
+| (b) | its interval and its registered study, with `StructuralNestedMean` on the same law as a related comparison where the blip model holds | part (a) |
+
+The target is the projection of the blip on the declared features, so it stays defined when the
+linear blip model is wrong. A source that targets only the coefficients of a correct blip model
+covers a smaller claim, and the contract states which one ships.
+
+Acceptance: a source audit that names the base result, exact-law checks of the influence curve
+with a nonzero witness for each history feature, a mutation control that drops the later-node
+terms, and a registered study.
 
 ### X80. Ratio trimming on the hazard path
 
