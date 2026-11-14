@@ -4634,16 +4634,17 @@ class PolicySet:
                     and component.name in mapping
                     and component.name in parts.densities
                 ):
-                    # Only the rows whose dose this policy changes: a gated map leaves
-                    # the others alone, and they say nothing about the bin width.  A dose
-                    # whose every row holds a declared atom fits no density to resolve.
-                    changed = shifted[:, c, index] != setup.natural[:, index]
-                    if not changed.any():
+                    # The share counts only the rows whose dose this policy changes: a
+                    # gated map leaves the others alone, and they say nothing about the
+                    # bin width.  Every row is passed, because each row reads its own
+                    # segments.  A dose whose every row holds a declared atom fits no
+                    # density to resolve.
+                    if not np.any(shifted[:, c, index] != setup.natural[:, index]):
                         continue
                     warn_if_flat(
                         parts.densities[component.name],
-                        shifted[changed, c, index],
-                        setup.natural[changed, index],
+                        shifted[:, c, index],
+                        setup.natural[:, index],
                         component=component.name,
                     )
             warn_unsupported_values(policy.name, parts, c + 1, moved[:, c], setup.where)

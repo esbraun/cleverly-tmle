@@ -1040,6 +1040,9 @@ class ConditionalDensity:
         density ratio carries no information from the density (for a shift it is exactly
         one there, for ``Scale(c)`` it is ``1 / c``).
 
+        Each row's segments are its own, so the arrays hold every row of the density, in
+        its order; rows the policy leaves alone are not counted.
+
         Parameters
         ----------
         shifted : ndarray
@@ -1052,9 +1055,19 @@ class ConditionalDensity:
         float
             The share among rows whose dose moves; one when no dose moves, since a policy
             that moves nobody is invisible however the density reads.
+
+        Raises
+        ------
+        ValueError
+            If the arrays do not hold one value per row of the density.
         """
         moved_to = np.asarray(shifted, dtype=float).reshape(-1)
         a = np.asarray(observed, dtype=float).reshape(-1)
+        if moved_to.size != self.n or a.size != self.n:
+            raise ValueError(
+                f"flat_fraction reads each row's own segments, so it needs one dose per row "
+                f"of the density ({self.n}), not {moved_to.size} and {a.size}."
+            )
         moved = moved_to != a
         if not moved.any():
             return 1.0
@@ -1890,7 +1903,7 @@ def warn_if_flat(
     knows its own resolution, but only an intervention knows how far it means to move.  The
     share is :meth:`ConditionalDensity.flat_fraction`.
 
-    ``component`` names the dose of a vector node.  Its caller passes only the rows whose
+    ``component`` names the dose of a vector node.  The share counts only the rows whose
     dose the policy changes, so a gated map is not charged for the rows it leaves alone, and
     the message names the dose rather than the clever covariate: another component of the
     node can move on the same row, so that row's ratio need not be one.
@@ -1912,6 +1925,7 @@ def warn_if_flat(
         The flat share.
     """
     flat = density.flat_fraction(shifted, observed)
+    changed = int(np.count_nonzero(np.asarray(shifted, dtype=float) != np.asarray(observed)))
     if flat > _FLAT_WARNING:
         grid = f"({density.n_bins} bins over [{density.edges[0]:.3g}, {density.edges[-1]:.3g}])"
         if not np.any(np.asarray(shifted, dtype=float) != np.asarray(observed, dtype=float)):
@@ -1933,7 +1947,7 @@ def warn_if_flat(
             )
         else:
             message = (
-                f"the policy changes {component!r} on {np.size(shifted)} rows, and keeps "
+                f"the policy changes {component!r} on {changed} rows, and keeps "
                 f"{flat:.1%} of them inside one flat bin of its estimated density {grid}: an "
                 "empty bin, a bin with almost no mass, or an isolated bin, where the density "
                 f"is read as constant. On those rows the density of {component!r} cannot tell "

@@ -869,6 +869,24 @@ def test_w8_the_flat_share_counts_rows_kept_in_flat_bins() -> None:
     assert exact.flat_fraction(a + 1e-6, a) == 0.0
 
 
+def test_w8_the_flat_share_reads_each_moved_row_on_its_own_segments() -> None:
+    """Rows 0 to 4 isolate bin 2 between floored neighbours and rows 5 to 9 do not, so a
+    move inside bin 2 is flat on the first half only.  Only the moved rows are counted."""
+    p = np.full((10, 6), 1.0 / 6.0)
+    p[:5, [1, 3]] = 1e-12
+    density = ConditionalDensity(
+        p / p.sum(axis=1, keepdims=True), np.arange(7.0), np.ones(6, dtype=bool)
+    )
+    observed = np.full(10, 2.3)
+    assert density.flat_fraction(observed + 0.1, observed) == 0.5
+    late = observed + np.where(np.arange(10) >= 5, 0.1, 0.0)
+    early = observed + np.where(np.arange(10) < 5, 0.1, 0.0)
+    assert density.flat_fraction(late, observed) == 0.0
+    assert density.flat_fraction(early, observed) == 1.0
+    with pytest.raises(ValueError, match="one dose per row"):
+        density.flat_fraction(late[5:], observed[5:])
+
+
 # ------------------------------------------------------------------ W9
 
 
