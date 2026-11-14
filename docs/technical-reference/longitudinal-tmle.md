@@ -1964,6 +1964,70 @@ sums no risk curve.
 | BCa and band scope | A BCa interval needs the `bootstrap_bca` kind, and the bootstrap band needs the `bootstrap_band` kind. The rows `G46` list `bootstrap_bca` for ten single-fold rows: `G46.tmle.binary_k3`, `binary_k4`, `binary_k5`, `categorical_k3`, `categorical_k4` and `categorical_k5`, and `G46.sdr.sdr_binary_k3`, `sdr_binary_k4`, `sdr_binary_k5` and `sdr_categorical_k5`. Six of them, the rows of three and four decisions, license BCa for plans without a known stochastic node only. The study gates no BCa row of a stochastic plan there. `G46.sdr.sdr_categorical_k3` and `sdr_categorical_k4` are Wald-only, and the learned-mechanism rows list `point` only. The rows list `bootstrap_band` for the three-level `LTMLE` row `G46.tmle.categorical_k5`, and `band` for `G46.tmle.binary_k5`. The three long-horizon studies measured these kinds. Each study gates a BCa interval only where its Wald interval does not gate, that is where $n$ is below twice the exact-law tail size $n_\kappa$. Where the Wald row gates, the BCa row reports. A row checks the plan family, and it does not check $n$, the learners or the quantity. A fit at another $n$ or on another quantity reads as the row, and the first note of the row states the sizes at which the study gates each interval. A cross-fitted fit, an MSM fit and the `SDR` bootstrap band carry the label `experimental`. A fit outside every `G46` row carries it too, such as a clustered fit. R `ltmle` 1.3-0 and R `lmtp` 1.5.5 match the long-horizon point estimates and standard errors on the cells their exact gates cover, so the comparators check the fit and not these interval kinds: neither fits a bootstrap. `SparseInfluenceWarning` fires on an unclustered Wald fit when the relative standard deviation of the variance estimate exceeds 0.125. A fit with a percentile bootstrap warns too, because its first interval is the Wald one, and a fit with `bootstrap_interval="bca"` does not. `result.diagnostics.influence()` is a direct call and is not part of `run_all()`. With `id=` it reports the cluster-level measures. The study set that threshold after it read the pilots |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
 
+## Covariate balance over time
+
+`covariate_balance(result)` on a longitudinal, discrete-time survival or IPSI fit returns a
+`BalanceOverTime`: the time-varying diagnostics of Jackson (2016, Table 1) computed from the fit's
+own first-repeat treatment and censoring probabilities. It is descriptive and carries no interval.
+For a diagnostic, an exposure node $t$, a covariate node $t_c$, a history stratum $h$ and a
+covariate $C$, each row is
+
+$$
+Q_{h} = M_{a'} - M_{a''}, \qquad
+M_a = \frac{\sum_i w_i\,\mathbb 1\{A_{it} = a, H_i = h\}\,C_i}{\sum_i w_i\,\mathbb 1\{A_{it} = a, H_i = h\}},
+$$
+
+with $w_i = b_i$ (the observation weight) in the unweighted column and $w_i = b_i W_i$ in the
+weighted one. $a''$ is the reference arm and each other arm is an $a'$. The standardized column
+divides both differences by $s_h = \sqrt{(v_{a',h} + v_{a'',h})/2}$, the unweighted variances in the
+stratum (Table 1, footnote a); a stratum with $s_h = 0$ or one row in an arm has no standardized
+value.
+
+| diagnostic | Jackson | compares | within | rows | $W_i$ |
+| --- | --- | --- | --- | --- | --- |
+| `"confounding"` | Diagnostics 1 and 3 | $W, L_1, \dots, L_t$ across $A_t$ | $\bar A_{t-1}$ | at risk before $A_t$: uncensored, and event-free on a survival fit, through $t-1$ | $1 / \mathrm{bound}(\prod_{s \le t} g_s \prod_{s < t} c_s)$ |
+| `"feedback"` | Diagnostic 2a | $L_t$ across an earlier $A_s$, $s < t$ | $\bar A_{s-1}$ | at risk before node $t$ | $1 / (g_s\, \mathrm{bound}(\prod_{u < t} c_u))$ |
+| `"censoring"` | censoring as an exposure | $W, L_1, \dots, L_t$ across staying after $t$ and leaving at $t$ | $\bar A_t$ | at risk before $C_t$ | the confounding weight through $g_t$, times one over the probability of the unit's own censoring outcome at $t$ |
+
+$g_s$ is the fitted probability of the observed arm at node $s$ given the observed history, and
+$c_s$ the fitted probability of staying observed after $s$; `bound` clips the product into
+`g_bounds`, as the fit bounds its cumulative prefix. Jackson's Diagnostic 3 reweights treatment
+alone among the uncensored. The retention factors before $A_t$ move the reference population to
+the one without censoring, the population of the fit's estimand, and leave the expected difference
+at zero: once $1/g_t$ makes $A_t$ independent of the past, a factor fixed before $A_t$ multiplies
+both arms' cell means alike. After $A_s$ in the feedback diagnostic, the retention factors select
+on $A_s$ and do move the expectation.
+
+Jackson weights with stabilized weights. Their numerators depend on the treatment history alone,
+which is fixed inside a cell $(H = h, A_t = a)$, so the cell means are the same with the
+unstabilized inverse probabilities the report uses. The stabilized weights enter only the
+person-time $N_h$, the stratum's summed weight, with the empirical frequency of each observed
+treatment among the units at risk as numerator. `average(over=...)` gives the $N$-weighted signed
+averages of Table 2 over the history, over history and time, or over everything; the unweighted
+and weighted columns average with their own $N$, and a stratum with no standardized value leaves
+the standardized average. Strata with only one arm present are counted in `dropped`, as Section 7
+of the paper allows.
+
+A fit that eliminates competing causes uses the composite retention ($c_s$ times the competing
+factor) in every prefix and the composite risk set. Each removal is its own exposure: the
+`"censoring"` row at $t$ reads the censoring node alone with its own factor, and a row whose
+exposure reads `eliminated <cause> at t` reads the competing event with its factor, among the units
+that passed the censoring node, with the censoring factor of $t$ in the prefix.
+
+A survival fit omits `"feedback"`: its later covariates exist only on units free of the event, so
+a difference across an earlier treatment mixes the treatment's effect on the covariate with its
+effect on survival. A held baseline treatment is an exposure at its first node only. A continuous
+or mixed treatment node raises `DataError`. The strata are every observed treatment history, as in
+the paper, not only the histories a regimen follows, because balance is a property of the
+treatment and censoring models; the regimen does not enter. A collaborative fit's summary notes that
+its treatment model is the selection, so covariates the selection left out are not expected to
+balance.
+
+`tests/unit/test_balance_over_time.py` computes a ten-unit report by hand, and checks each
+diagnostic at large $n$ on laws where the true probabilities give zero imbalance and a wrong factor
+gives a nonzero one: the cumulative treatment factors, the retention prefix, the feedback
+retention, the censoring outcome's own factor, and the pairing of the eliminated-cause factors.
+
 ## Variations
 
 | option | what it does |

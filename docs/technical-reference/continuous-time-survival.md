@@ -217,6 +217,29 @@ witnesses and mutation controls of the stored estimator, the refutation and the 
 another seed moves a cross-fitted estimate, an unseeded SAGA treatment learner breaks the replay
 unless the fit seeds it, and the curve and refutation controls listed in the validation reference.
 
+### Covariate balance
+
+`covariate_balance(result)` returns a `BalanceOverTime` with three diagnostics, each over the
+baseline covariates $W$, unweighted and weighted, with no interval. The general definitions and
+the averages are in [covariate balance over time](longitudinal-tmle.md#covariate-balance-over-time).
+
+| diagnostic | rows | compares | weight |
+| --- | --- | --- | --- |
+| `"confounding"` | every unit | the arms | $1 / \hat\pi(A \mid L)$, the point-treatment ATE weight |
+| `"joint"`, at each $t_k$ | units whose status at $t_k$ is known: an event of any cause at $\tilde T \le t_k$, or $\tilde T \ge t_k$ | the arms | $1 / \max(\hat\pi(A \mid L)\,\hat S_c(\min(\tilde T, t_k)^- \mid A, L), \text{floor})$ |
+| `"censoring"`, at each $t_k$ and arm $a$ | the arm's status-known units against the whole arm | known against all | $1 / \hat S_c(\min(\tilde T, t_k)^- \mid a, L)$ on the known units |
+
+For a continuous all-cause $T$, $E[\mathbb 1\{\text{known}\} / S_c(\min(\tilde T, t_k)^-) \mid A, L]
+= P(T \le t_k \mid A, L) + P(T \ge t_k \mid A, L) = 1$, so under correct models both weighted
+differences are zero in expectation. The `"joint"` row is the weighted population the risk at
+$t_k$ stands on, but it is an arm contrast and cannot see a censoring-model error that shifts both
+arms alike; the `"censoring"` row can. Its standardized column divides by the arm's unweighted
+standard deviation. A unit with an event before $t_k$ reads $\hat S_c(\tilde T^-)$ from
+`record.retention_at_time`; the others read `record.retention_before`. A result built by hand with
+no data is refused, and there is no feedback diagnostic, because the fit has no covariates after
+baseline. `tests/unit/test_balance_over_time.py` checks both rows at large $n$ under the true
+censoring model and under one that ignores $W$.
+
 ## What is refused
 
 | request | why |
