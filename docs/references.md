@@ -2743,7 +2743,9 @@ support a shipped claim. Each item states the remaining source work.
   paper. Cited by roadmap item X5.
 - Rytgaard, Gerds & van der Laan (2022), [*Continuous-time targeted minimum loss-based estimation
   of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
-  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap items X6 and X70.
+  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. The hazard fit with a treatment at several
+  nodes is the discrete-time case of its Theorem 1, display (19), with remainder display (13) and
+  Theorem 2. Cited by roadmap items X6 and X70.
 - Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
   continuously distributed time-to-event outcomes by targeted maximum likelihood
   estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI

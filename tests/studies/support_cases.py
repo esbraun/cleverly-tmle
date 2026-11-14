@@ -2814,6 +2814,31 @@ def _hazard_mtp_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _hazard_multinode_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-multinode`` (X70 part (a)): ``G62``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_multinode", "hazard-multinode"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G62.{row}",
+            slug,
+            label,
+            f"{module}.py:508",
+            module,
+            lambda study: study.law_of(label).draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("three_node", "base"),
+        case("four_node", "four"),
+        case("msm", "msm"),
+    )
+
+
 def _hazard_time_varying_cases() -> tuple[RowCase, ...]:
     """The cases of ``hazard-time-varying`` (X70 part (b1)): ``G63.held``.
 
@@ -3422,6 +3447,7 @@ CASES: tuple[RowCase, ...] = (
     *_survival_dr_tmle_cases(),
     *_hazard_msm_cases(),
     *_hazard_mtp_cases(),
+    *_hazard_multinode_cases(),
     *_hazard_time_varying_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),

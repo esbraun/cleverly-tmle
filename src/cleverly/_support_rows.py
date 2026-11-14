@@ -5493,7 +5493,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
 #: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``),
 #: the working model over the hazard curve (``G60``), a modified treatment policy on the
-#: hazard path (``G61``) and hazards with covariates after baseline (``G63``).
+#: hazard path (``G61``), hazards with a treatment at several nodes (``G62``) and hazards with
+#: covariates after baseline (``G63``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5982,6 +5983,91 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_multinode_rows() -> tuple[SupportRow, ...]:
+    """Hazards with a treatment at several nodes of ``hazard-multinode`` (X70 part (a)): ``G62``.
+
+    ``LTMLE`` with ``survival_model="hazard"`` on a design whose binary treatment is decided at
+    every node, with baseline covariates only, enumerates the treatment paths of its regimens as
+    slots.  The key reads the unheld treatment axis.  The regimen rows name
+    ``targeting="iterative"``: the study's one-step walk over regimen curves is a reported,
+    ungated family, so a one-step regimen fit matches no row.  The working model needs the
+    one-step walk (H14).  The rows were added because every declared verdict passed: 51 of 51
+    primary tests and 39 of 39 property cells with a verdict (calibration with its controls on
+    three fit labels, the simultaneous band on two laws, robustness with an all-wrong control
+    and a node-only hazard learner, targeting necessity, the root-n rate and power).  Four fits that
+    held a prefix cell were recorded as lost replicates, inside the failure bound.  The numbers
+    are the committed results (``tests/canonical/hazard_multinode``).
+    """
+    slug = ["hazard-multinode"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a binary treatment at every node "
+        "logistic in W and the previous arm, dropout and a logistic event hazard in W and the "
+        "last two arms, one cause. Correctly specified low-dimensional logistic learners at "
+        "n = 2,000, one fold, g_bounds = 1e-3; a wrong hazard learner, a node-only hazard "
+        "learner or wrong mechanisms only in the robustness cells. Cross-fitting, competing "
+        "causes, more than two treatment levels, observation weights, clusters, node_bounds, a "
+        "flexible learner and the one-step walk over regimen curves rest on "
+        "tests/unit/test_hazard_multinode.py. A fit that holds a prefix cell reports no "
+        "interval. No comparator: no maintained package targets discrete-time hazards over "
+        "treatment paths."
+    )
+    common: dict[str, Any] = {"outcome_kind": "survival", "survival_model": "hazard"}
+    return (
+        long_row(
+            "G62.three_node",
+            slug,
+            regimens=("static", "stochastic"),
+            treatment=("2",) * 3,
+            targeting="iterative",
+            kinds=_LONG_BAND,
+            cells=["base_contrast", "base_rule", "base_policy", "base_stay"],
+            limits=[
+                "Three nodes, regimens always, never, a known rule of W, a known policy that "
+                "reads the previous arm, and a draw at node 1 then kept. The primary rows read "
+                "coverage 0.934 to 0.955 over 2,400 draws, the calibration cells SE ratio 0.993 "
+                "to 1.004 over 5,198, and the max-t band over every risk and contrast joint "
+                "coverage 0.941.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G62.four_node",
+            slug,
+            regimens=("static", "stochastic"),
+            treatment=("2",) * 4,
+            targeting="iterative",
+            kinds=_LONG_BAND,
+            cells=["four_contrast", "four_policy"],
+            limits=[
+                "Four nodes, regimens always, never and a known policy over 16 paths. The "
+                "primary rows read coverage 0.940 to 0.961 over 2,400 draws, the calibration "
+                "cells SE ratio 0.985 and 0.999 over 5,200, and the max-t band over every risk "
+                "and contrast joint coverage 0.948.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G62.msm",
+            slug,
+            msm=True,
+            treatment=("2",) * 3,
+            targeting="one_step",
+            cells=["msm_dose", "msm_dose_W1"],
+            limits=[
+                "The logit working model (1, d, t, d W1) over the eight static paths of the "
+                "three-node law, with d the cumulative dose through t and uniform cell weights. "
+                "The primary rows read coverage 0.947 to 0.954 over 2,400 draws and the "
+                "calibration cells SE ratio 0.985 and 0.997 over 5,200; no band is validated "
+                "on this fit.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 def _hazard_time_varying_rows() -> tuple[SupportRow, ...]:
     """Hazards with covariates after baseline of ``hazard-time-varying`` (X70 (b1)): ``G63``.
 
@@ -6221,6 +6307,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_survival_dr_tmle_rows(),
         *_hazard_msm_rows(),
         *_hazard_mtp_rows(),
+        *_hazard_multinode_rows(),
         *_hazard_time_varying_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
@@ -6604,6 +6691,9 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     # hazard_mtp_properties: each fit label's band over every risk and contrast of both curves.
     "G61.levels": (_band("hazard_mtp", "levels_curve"),),
     "G61.density": (_band("hazard_mtp", "gaussian_density_curve"),),
+    # hazard_multinode_properties: each regimen fit label's band over every risk and contrast.
+    "G62.three_node": (_band("hazard_multinode", "base_curve"),),
+    "G62.four_node": (_band("hazard_multinode", "four_curve"),),
     # hazard_time_varying_properties: each fit label's band over every risk and contrast.
     "G63.held.in_sample": (_band("hazard_time_varying", "one_cause_curve"),),
     "G63.held.competing": (_band("hazard_time_varying", "competing_curve"),),

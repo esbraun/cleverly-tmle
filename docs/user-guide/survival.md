@@ -406,7 +406,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point. The treatment can be categories, or a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, or a treatment with categories at each time point when no covariate is measured after baseline. A baseline treatment can also be a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit uses `pseudo_learner` only when the
@@ -484,8 +484,34 @@ moves everyone up one treatment level.
 gives the exact estimand, the settings it refuses, and its checks.
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points, with or without covariates after
-baseline. Each message points to the default model, which fits those designs.
+The hazard model refuses a treatment at several time points together with a covariate measured
+after baseline. Its message points to the default model, which fits that design.
+
+A treatment with categories at each time point also fits on the hazard model, when no covariate
+is measured after baseline. A plan can fix the treatment at each time point, follow a rule that
+reads the baseline covariates, or draw the treatment with known probabilities that may depend on
+the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
+follow. A plan that draws at many time points has many sequences, and a fit whose predicted
+memory use passes 2 GiB is refused before any model is fitted.
+
+If a trial design fixes the
+treatment probabilities, you can pass them for the first time point only, as a mapping from the
+first treatment column to its levels, such as
+`treatment_probabilities={"A1": {0: "p0", 1: "p1"}}` with one probability column per level. An
+array that covers every time point is refused, even with the later columns left empty
+([H26 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+The fit
+estimates the probabilities of later treatment and of dropout, because it needs them along
+sequences that nobody followed.
+
+The
+[multi-node hazard study](../technical-reference/method-evidence/hazard-multinode.md)
+measures this fit with a yes-or-no treatment at three and at four time points, one event type and
+no cross-fitting, under the default `targeting="iterative"`. Those fits are labelled `supported`.
+Fits outside that, including the same regimens with `targeting="one_step"`, are labelled
+`experimental`.
+[A treatment at several nodes on the hazard path](../technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
+gives the exact estimand and its checks.
 
 A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
 model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.

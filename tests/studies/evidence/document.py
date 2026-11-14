@@ -971,8 +971,9 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
-    if family == "iterated_mean_difference":
-        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+    if family in {"iterated_mean_difference", "one_step_walk"}:
+        # hazard-msm (X70 part (d)), and hazard-multinode's one-step walk (X70 part (a)):
+        # reported with no verdict.  A paired difference prints its
         # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
         # row the share of draws whose iterated-mean risk curve decreases.
         cell = str(row.cell)
