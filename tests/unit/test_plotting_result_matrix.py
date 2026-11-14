@@ -467,7 +467,7 @@ EXPECTED: dict[str, dict[str, str]] = {
     },
     "continuous_survival": {
         "forest": "draws",
-        "curve": "X100",
+        "curve": "draws",
         "influence": "draws",
         "overlap": "draws",
         "weights": "draws",
@@ -479,7 +479,7 @@ EXPECTED: dict[str, dict[str, str]] = {
     },
     "continuous_survival_restricted": {
         "forest": "draws",
-        "curve": "X100",
+        "curve": "draws",
         "influence": "draws",
         "overlap": "draws",
         "weights": "draws",

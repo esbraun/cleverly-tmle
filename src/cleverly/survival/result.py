@@ -1349,6 +1349,34 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             f"causes={len(self.causes)}, times={len(self.horizons)})"
         )
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot each arm's risk and their difference at the target times.
+
+        Each estimate is drawn at its target time with its interval and, when the fit holds
+        one, its simultaneous band. Nothing is drawn between target times, where the fit
+        estimates no risk.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.curve` (``scale=``, ``measure=``, ``band=``,
+            ``cause=``, ``regimens=``, ``labels=``, ``units=``, ``time_label=``,
+            ``truth=`` and ``title=``).
+
+        Returns
+        -------
+        Figure
+            The levels above and their difference below, one column per cause.
+
+        Raises
+        ------
+        CapabilityError
+            When the fit refuses the requested view, with the fit's own reason.
+        """
+        from ..plotting import curve
+
+        return curve(self, **kwargs)
+
     def to_frame(self) -> Any:
         """One row per parameter, in the backend the data arrived in.
 

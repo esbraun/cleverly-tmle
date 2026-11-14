@@ -222,15 +222,20 @@ and the sensitivity analyses for an unmeasured confounder do not run on this fit
 lists each with its reason. The one exception is the E-value of a risk ratio, which runs when you
 name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder) shows.
 
-The plots draw the same checks from what the fit kept:
+The plots draw the risks and the same checks from what the fit kept:
 
 ```python
-from cleverly.plotting import learners, overlap, weights
+from cleverly.plotting import curve, learners, overlap, weights
 
+curve(exact_risks)
 overlap(exact_risks, censoring=True)
 weights(exact_risks)
 learners(exact_risks)
 ```
+
+`curve` draws each plan's risk of each event, one column per event, and the difference below.
+Each risk is a point at a time in `horizons=` with its 95% interval, and nothing is drawn between
+those times, because the fit estimates no risk there.
 
 `overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
 for each arm, the chance of that arm times the chance of staying in follow-up just before the last
