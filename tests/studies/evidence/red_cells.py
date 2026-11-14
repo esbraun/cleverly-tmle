@@ -862,6 +862,7 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "adaptive-tmle-trial": "the control and efficiency verdicts of controls.csv",
     "adaptive-tmle-selective": "the K6 control verdicts of controls.csv, which pass",
     "survival-ctmle": "the RMSE ratio gate against hazard LTMLE with the full treatment model",
+    "mtp-policy-variance": "the coverage-floor controls of the tail-size twins in coverage-controls.csv",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.

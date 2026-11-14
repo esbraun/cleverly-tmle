@@ -46,7 +46,7 @@ item names.
 | ---: | --- | --- |
 | 1 | simultaneous bands that cover below their level | the remaining cells of `band-finite-sample`, and the band cell of `strata-boundary-mean` |
 | 2 | Wald intervals in small strata and sparse arms | `X8-drtmle-small-stratum`, `F3-difference-near-bound`, `F3-skewed-continuous` |
-| 3 | heavy inverse weights | done on 2026-11-14: `variance="policy_weighted"` on `LTMLE` and `SDR`, validated by [`mtp-policy-variance`](technical-reference/method-evidence/mtp-policy-variance.md). `X40-sdr-heavy-ratios` and `mtp-pricing-calibration` stay as standing records |
+| 3 | heavy inverse weights | `X40-sdr-heavy-ratios`, `mtp-pricing-calibration`. Done on 2026-11-14 by the policy-weighted variance option ([study](technical-reference/method-evidence/mtp-policy-variance.md)); both stay as standing records |
 | 4 | study-design faults, re-declared at each study's next regeneration | `F1-power-design`, `RM18-ordinary-weighted`, `RM18-boundary`, `X82-short-study-sanity`, `adaptive-iptw-composite-l3` |
 
 The `composite-high-arm`, `F4-calibration-draws`, `X8-logit-small-stratum` and
