@@ -550,6 +550,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "has_set_dose"): "is_continuous_node raises at a mixed node",
     ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
+    ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
     ("longitudinal/ratio_trim.py", "node_ratio_entries"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
@@ -577,6 +578,13 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "reads the declared known-mechanism tuple, not a node column"
     ),
     ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
+    ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
+    ("plotting/_overlap_time.py", "per_node"): (
+        "after _refuse_ratio_nodes refuses a non-categorical node"
+    ),
+    ("plotting/_overlap_time.py", "selected_probability"): (
+        "survival CTMLE only, after survival_design_refusal refuses a non-categorical node"
+    ),
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
     ("validation/refute.py", "_LongitudinalGenerated.draw"): (
         "after _held_parameter refuses a mixed node"
@@ -594,6 +602,10 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 #: mixed node's entry.  The entry raises ``CapabilityError`` on any read, so a reader missed
 #: here fails closed; the list makes each one a reviewed decision (review LOW-6).
 _LEVEL_READERS: dict[tuple[str, str], str] = {
+    ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
+    ("plotting/_overlap_time.py", "baseline_probability"): (
+        "called only from baseline, after its node-1 refusal"
+    ),
     ("data/causal_data.py", "CausalData.arm_label"): "point CausalData; refuses a vector first",
     ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
         "after survival_design_refusal refuses a non-categorical node"
@@ -636,6 +648,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
     ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
+    ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
     ("longitudinal/learned.py", "learned_regimen_record"): (
         "after refuse_learned_regimen_data: two categorical binary nodes"
     ),

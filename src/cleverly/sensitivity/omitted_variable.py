@@ -129,12 +129,14 @@ from typing import TYPE_CHECKING, Any, ParamSpec, cast
 import numpy as np
 from scipy import optimize
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._inference_status import InferenceStatus, is_labelled
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES, projection_sensitivity_refusal
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..estimators.composite import composite_state
 from ..estimators.ctmle import (
     CTMLEDerivativeFit,
@@ -919,6 +921,7 @@ def sensitivity_elements(
         positive.
     """
     refuse_augmented_trial(result, "sensitivity_elements", "bound")
+    refuse_continuous_survival(result, "sensitivity_elements")
     _resolved_nu2_estimator(nu2_estimator)
     draw = _draw_index(result, repeat)
     refusal = fit_wide_bound_refusal(result)
@@ -1411,6 +1414,8 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             ),
             roadmap="X11",
         )
+    if stem in ("att", "atc") and known_score_fit(result):
+        raise CapabilityError.from_refusal(known_score_reader_refusal("the omitted-variable bound"))
     if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
@@ -2681,6 +2686,7 @@ def omitted_variable_bounds(
     fit that selects nothing, the same statement covers it.
     """
     refuse_augmented_trial(result, "omitted_variable_bounds", "bound")
+    refuse_continuous_survival(result, "omitted_variable_bounds")
     _one_sided_quantile(level)
     if benchmark is not None:
         cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
@@ -3270,6 +3276,7 @@ def benchmark(
         checked before the refit runs.
     """
     refuse_augmented_trial(result, "benchmark", "bound")
+    refuse_continuous_survival(result, "benchmark")
     names = _benchmark_names(result, covariates)
     estimator = result.estimator
     if estimator is None:
@@ -3414,6 +3421,7 @@ def robustness_value(
         ``nu^2`` that is not positive.
     """
     refuse_augmented_trial(result, "robustness_value", "bound")
+    refuse_continuous_survival(result, "robustness_value")
     draws = _bound_draws(
         result,
         estimand,
@@ -3515,6 +3523,7 @@ def contour_data(
         ``nu^2`` that is not positive.
     """
     refuse_augmented_trial(result, "contour_data", "bound")
+    refuse_continuous_survival(result, "contour_data")
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")
     draws = _bound_draws(

@@ -1131,6 +1131,9 @@ def cross_fit_companion(
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
     if not mask.any():
         raise ValueError("no rows are eligible for fitting this nuisance model")
+    # An outcome regression only. A treatment mechanism passes ``classes`` and is refused here;
+    # the binary recording and missingness mechanisms pass none, so their callers must not
+    # pass ``constant_folds``: a mechanism fold with one value is a positivity failure.
     if constant_folds is not None and (classes is not None or task != "classification"):
         raise ValueError("constant_folds applies to a binary target with no classes only")
     if models is not None and not folds.is_single:

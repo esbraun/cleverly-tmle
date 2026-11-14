@@ -1643,7 +1643,11 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
-        "folds": "The {model} fitted no learner in fold {folds}: {reason}.",
+        "folds": (
+            "The {model} fitted no learner in fold {folds}: {reason}. Its log loss reads "
+            "those predictions clipped at 1e-12, so each held-out row of the other class "
+            "adds log(1e12), about 27.6, to the row's sum."
+        ),
     }
 )
 MODEL_NOTHING_OMITTED: Final = "The fit reported every model this check reads."
@@ -2073,6 +2077,10 @@ T3_BATTERY_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
+
+#: The battery's label of the nuisance row of a continuous-time survival fit, whose models are
+#: the cause hazards, the censoring hazard and the treatment model.
+CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment models"
 
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(

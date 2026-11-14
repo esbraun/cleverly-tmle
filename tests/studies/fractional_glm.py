@@ -27,7 +27,9 @@ geometrically, so its relative change never meets R's rule.  The learner detects
 directly and scale-free, by Albert and Anderson's (1984) characterization: the target is binary
 on the rows of positive weight and some linear predictor puts every such row strictly on the
 side of its class.  A small linear program decides that (:func:`completely_separated`), so the
-test does not depend on how far IRLS has run.  A fractional target never meets it, and neither
+test does not depend on how far IRLS has run.  The solver works to its own feasibility
+tolerance: a design whose margin is near ``1e-9`` reads as not separated and keeps the deviance
+rule.  A fractional target never meets it, and neither
 does a quasi-complete separation, where some row must lie on the hyperplane; that case keeps the
 deviance rule above.  The last iterate approximates the limiting predictions, and a fit that
 converged before takes the same iterates and stops at the same step.
@@ -168,6 +170,8 @@ def completely_separated(design: np.ndarray, target: np.ndarray, weights: np.nda
     margin of one, so the test is the feasibility of ``s_i x_i' b >= 1`` for every row with
     positive weight, where ``s_i`` is ``+1`` for ``y_i = 1`` and ``-1`` for ``y_i = 0`` and
     ``x_i`` includes the intercept column.  It reads the design and the target, not an iterate.
+    HiGHS decides feasibility to its own tolerance, so a separating margin near ``1e-9`` reads
+    as infeasible.
     A target with a fractional value on such a row is never separated.
 
     Parameters

@@ -275,6 +275,7 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "structural",
         "augmented_trial",
         "effect_modification",
+        "continuous_survival",
     }
     assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == families
     for family in sorted(families):
@@ -787,6 +788,9 @@ def test_the_ambiguous_default_is_read_from_every_routed_signature(point_result)
     # ``evalue`` declares an ``estimand`` and selects for itself from a ``None`` default,
     # which is why the predicate reads the default rather than the parameter's name.
     assert "evalue" in surfaces["sensitivity"] - found["sensitivity"]
+    # ``marginal_bounds`` resolves its ``None`` default to the fit's reported parameter and
+    # defers through its own branch of ``_estimand_candidates`` (Fix-15), not the predicate.
+    assert "marginal_bounds" in surfaces["sensitivity"] - found["sensitivity"]
 
 
 def test_a_sole_eligible_name_reaches_a_keyword_only_estimand_too(att_result) -> None:  # type: ignore[no-untyped-def]

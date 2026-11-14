@@ -308,6 +308,33 @@ def _refuse_learned_rule_splits(result: Any) -> Refusal | None:
     return learned_rule_splits_refusal("simulated_confounding", result.n_repeats)
 
 
+def _refuse_learned_rule_level(result: Any) -> Refusal | None:
+    """Refuse a learned-rule fit at a level of an intermediate (X11 (j), (j3)).
+
+    The frozen replay holds one realized rule per row, and the intermediate axis of the
+    surface flips the intermediate of a controlled direct effect.  At a level of the
+    intermediate the rules were learned from the outcome regression at that level, so a
+    replay would need both, and no witness checks that composition.
+    """
+    if getattr(result.config, "parameter_axis", None) != "learned_rule":
+        return None
+    if not declares_intermediate(result):
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "simulated_confounding of a learned-rule value with the intermediate held at a level "
+        f"(here Z = {result.intermediate_value:g}) is not built. The replay would freeze the "
+        "rules learned at that level and flip the treatment or the intermediate, and no "
+        "witness checks a frozen rule at a level of the intermediate (X11 (j4) in "
+        "docs/roadmap.md).",
+        alternative=(
+            "Replay the learned-rule value on a design without an intermediate, or the "
+            "ControlledDirectEffect of an arm contrast at the level."
+        ),
+        roadmap="X11",
+    )
+
+
 def _refuse_optimal_rule(result: Any) -> Refusal | None:
     """Refuse a fit of the value of the optimal rule (X11 (f3)).
 
@@ -459,6 +486,7 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),
     ("optimal_rule", _refuse_optimal_rule),
+    ("learned_rule_level", _refuse_learned_rule_level),
     ("learned_rule_splits", _refuse_learned_rule_splits),
     ("binary_estimator", _refuse_binary_estimator),
     ("continuous_estimator", _refuse_continuous_estimator),

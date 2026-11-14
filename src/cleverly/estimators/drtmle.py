@@ -147,7 +147,7 @@ clusters.  Continuous treatment and other target groups remain refused by name.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
@@ -156,9 +156,16 @@ from sklearn.base import is_classifier
 
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Preflight
+from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
-from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
-from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
+from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL, known_score_engine_refusal
+from ..exceptions import (
+    CapabilityError,
+    CleverlyError,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -640,6 +647,8 @@ class DRTMLE(TMLE):
         _validate_learner(reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(reduced_treatment_learner, "reduced_treatment_learner")
         _validate_learner(reduced_mechanism_residual_learner, "reduced_mechanism_residual_learner")
+        if kwargs.get("conditional_form", "arm_mean") != "arm_mean":
+            raise MethodConfigurationError.from_refusal(known_score_engine_refusal("DRTMLE"))
         super().__init__(**kwargs)
         self.max_outer = int(max_outer)
         self.guard = tuple(guard)
@@ -687,6 +696,21 @@ class DRTMLE(TMLE):
                 "estimated_weight_plugin" if estimated else "influence_curve",
                 super()._inference_status(data),
             ]
+        )
+
+    def _leave_two_out_super_learner_roles(
+        self, data: CausalData
+    ) -> tuple[tuple[str, Any, BoolArray, FloatArray, Callable[[float], str]], ...]:
+        """The package Super Learner roles a leave-two-out pair refits.
+
+        Only the complete-data route fits the pairs, and it refits the outcome regression
+        and, unless the data declare a known mechanism, the treatment mechanism.
+        """
+        if missing_data_route(self, data) != "complete":
+            return ()
+        refit = {"outcome"} if data.known_treatment is not None else {"outcome", "treatment"}
+        return tuple(
+            role for role in self._super_learner_inner_split_roles(data) if role[0] in refit
         )
 
     def _foldwise(self) -> bool:
@@ -902,7 +926,9 @@ class DRTMLE(TMLE):
             # regressions train inside the stratum, on every training complement.
             refuse_untrainable_stratum_folds(data, folds)
         if self._foldwise():
-            refuse_untrainable_leave_two_out(data, folds)
+            refuse_untrainable_leave_two_out(
+                data, folds, super_learner_roles=self._leave_two_out_super_learner_roles(data)
+            )
         route = missing_data_route(self, data)
         # A declared known mechanism is read off the data by the nuisance fit, which then
         # fits no treatment learner.  The leave-two-out designs reuse it in every fold.

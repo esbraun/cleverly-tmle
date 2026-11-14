@@ -2457,6 +2457,15 @@ class RegimeContrast:
     definition: str = field(default="contrast of each regime against the reference", init=False)
 
 
+def _check_learned_rule_level(owner: str, level: float | None) -> None:
+    """Refuse a held level of the intermediate other than ``None``, ``0.0`` or ``1.0``."""
+    if level is not None and level not in (0.0, 1.0):
+        raise DataError(
+            f"{owner}(intermediate=...) holds a binary intermediate at 0.0 or 1.0, or takes "
+            f"None for a design without one; got {level!r}"
+        )
+
+
 @dataclass(frozen=True)
 class LearnedRuleValue:
     """Request the value of the treatment rules learned inside each training fold.
@@ -2474,10 +2483,18 @@ class LearnedRuleValue:
     the rows (of the weight mass under weights), and reads experimental until its study
     registers.
 
+    With ``intermediate=z`` on a design that declares ``PointTreatment(intermediate=...)``,
+    the binary intermediate is held at ``z``: each fold learns the best treatment given
+    ``Z = z`` from the outcome regression at ``(a, z)``, and the target is the value of those
+    rules with ``Z`` set to ``z``.  The plug-in rule only; a rule learner refuses.
+
     Parameters
     ----------
     rule : LearnedRule
         The rule class, and the label the reported parameter carries.
+    intermediate : float or None
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate is held.
+        Required on a design with an intermediate and refused on one without.
 
     See Also
     --------
@@ -2496,6 +2513,7 @@ class LearnedRuleValue:
     """
 
     rule: LearnedRule = field(default_factory=LearnedRule)
+    intermediate: float | None = None
     name: str = field(default="ey_learned_rule", init=False)
     definition: str = field(
         default=(
@@ -2510,6 +2528,13 @@ class LearnedRuleValue:
             raise DataError(
                 "LearnedRuleValue(rule=...) takes a cleverly.interventions.LearnedRule, not "
                 f"{self.rule!r}"
+            )
+        _check_learned_rule_level("LearnedRuleValue", self.intermediate)
+        if self.intermediate is not None:
+            object.__setattr__(
+                self,
+                "definition",
+                f"{self.definition}, with the intermediate held at {self.intermediate:g}",
             )
 
 
@@ -2540,6 +2565,10 @@ class OptimalRuleValue:
     rule : LearnedRule
         The rule class whose fold rules estimate the optimal rule, and the label the
         reported parameter carries.
+    intermediate : float or None
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate would be held.
+        The value of the optimal rule at a level of the intermediate refuses for now (X11
+        (f3) in ``docs/roadmap.md``).
 
     See Also
     --------
@@ -2555,6 +2584,7 @@ class OptimalRuleValue:
     """
 
     rule: LearnedRule = field(default_factory=LearnedRule)
+    intermediate: float | None = None
     name: str = field(default="ey_optimal_rule", init=False)
     definition: str = field(
         default=(
@@ -2569,6 +2599,13 @@ class OptimalRuleValue:
             raise DataError(
                 "OptimalRuleValue(rule=...) takes a cleverly.interventions.LearnedRule, not "
                 f"{self.rule!r}"
+            )
+        _check_learned_rule_level("OptimalRuleValue", self.intermediate)
+        if self.intermediate is not None:
+            object.__setattr__(
+                self,
+                "definition",
+                f"{self.definition}, with the intermediate held at {self.intermediate:g}",
             )
 
 
@@ -3804,6 +3841,16 @@ def _point_identification(
                 )
             continue
         assumptions.append(item)
+    if direct and axis == "learned_rule":
+        # The learned-rule records carry no two-arm positivity item (C2 states positivity
+        # for every arm), so the positivity of the held level gets its own sentence: the
+        # level's clever covariate divides by q(z | a, W) at every arm a rule can choose.
+        assert level is not None
+        assumptions.append(
+            f"intermediate positivity at {design.intermediate} = {level:g}: "
+            f"P({design.intermediate} = {level:g} | {design.treatment_name} = a, W) >= delta > 0 "
+            "for every arm a almost surely"
+        )
 
     nuisances = (
         [OUTCOME_REGRESSION]
@@ -4149,7 +4196,9 @@ def _point_functional(
         msm=msm,
         effect_modification=projection,
         intermediate=(
-            estimand.intermediate if isinstance(estimand, ControlledDirectEffect) else None
+            estimand.intermediate
+            if isinstance(estimand, (ControlledDirectEffect, *LEARNED_RULE_ESTIMANDS))
+            else None
         ),
         missingness=design.missingness,
         treatment_missingness=design.treatment_missingness,
@@ -4810,21 +4859,30 @@ class ExplicitAdjustmentProvider:
                 )
             if estimand.intermediate not in (0.0, 1.0):
                 raise DataError("the evidenced binary intermediate must be fixed at 0 or 1")
-        elif design.intermediate is not None and isinstance(actual, LEARNED_RULE_ESTIMANDS):
-            # X11 (j) ships on the engine only: ControlledDirectEffect wraps an arm contrast,
-            # and no study estimand holds a learned rule at a level of the intermediate.
-            raise CapabilityError(
-                f"{type(actual).__name__} with PointTreatment(intermediate=...) has no "
-                "spelling on the method layer: ControlledDirectEffect wraps an arm contrast, "
-                "and no study estimand holds the learned rule at a level of the intermediate "
-                "(X11 (j3) in docs/roadmap.md).",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative=(
-                    "TMLE(learned_rule=LearnedRule()).fit(..., intermediate=...) on the engine "
-                    "reports the value of the rules learned at each level of the intermediate."
-                ),
-                roadmap="X11",
-            )
+        elif isinstance(actual, LEARNED_RULE_ESTIMANDS) and (
+            design.intermediate is not None or actual.intermediate is not None
+        ):
+            if design.intermediate is None:
+                raise CapabilityError(
+                    f"{type(actual).__name__}(intermediate={actual.intermediate:g}) holds an "
+                    "intermediate at a level, and this design declares none",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Declare the column with PointTreatment(intermediate=...), or drop "
+                        "intermediate= from the estimand."
+                    ),
+                )
+            if actual.intermediate is None:
+                raise CapabilityError(
+                    f"{type(actual).__name__} on a design with PointTreatment(intermediate=...) "
+                    "needs the level at which the intermediate is held: the fit learns one set "
+                    "of rules per level, from the outcome regression at (a, z)",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        f"Request {type(actual).__name__}(intermediate=0.0) or "
+                        f"{type(actual).__name__}(intermediate=1.0)."
+                    ),
+                )
         elif design.intermediate is not None:
             raise CapabilityError(
                 "a design with intermediate= must identify ControlledDirectEffect explicitly",
@@ -5690,19 +5748,19 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         blocker = (
             Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
+                "no collaborative or doubly robust learned-rule result was reviewed.",
+                alternative="Fit method='tmle'.",
+                roadmap="F27",
+            )
+            if self.functional.axis == "learned_rule"
+            else Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
                 "a controlled direct effect fixes an intermediate variable, and neither "
                 "variant's score is derived for that functional.",
                 alternative="Fit method='tmle'.",
                 roadmap="F5",
             )
             if self.functional.intermediate is not None
-            else Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                "no collaborative or doubly robust learned-rule result was reviewed.",
-                alternative="Fit method='tmle'.",
-                roadmap="F27",
-            )
-            if self.functional.axis == "learned_rule"
             else None
         )
         variants = (

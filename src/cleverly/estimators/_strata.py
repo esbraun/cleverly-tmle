@@ -21,6 +21,7 @@ from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData, arm_share
 from ..exceptions import CapabilityError, DataError
 from ..inference.influence import ParameterEstimate
+from ..learners._fitting import infer_task
 
 __all__ = [
     "FOLD_EVALUATED_STRATA_TARGETS",
@@ -293,7 +294,14 @@ def refuse_untrainable_stratum_folds(
                 )
 
 
-def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
+def refuse_untrainable_leave_two_out(
+    data: CausalData,
+    folds: Any,
+    *,
+    super_learner_roles: Sequence[
+        tuple[str, str | None, BoolArray, FloatArray, Callable[[float], str]]
+    ] = (),
+) -> None:
     """Refuse a foldwise fit whose leave-two-out complements cannot train every arm.
 
     The foldwise DR-TMLE slabs fit the primary regressions once for each unordered pair of
@@ -303,8 +311,12 @@ def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
     and a stratum's reduced regressions for fold ``k`` train on the rows of the fold-``k``
     complement, which :func:`refuse_untrainable_stratum_folds` checks.  A cluster split
     removes whole clusters, so a few-cluster split can empty an arm here while every
-    one-fold complement still holds it.  The check reads the data and the drawn folds only,
-    so it runs after the fold draw and before any learner.
+    one-fold complement still holds it.  A package Super Learner with a classification task
+    also needs two rows of each class of its target outside every pair, because it
+    stratifies its inner split on that target.  The one exception is a binary outcome class
+    with no row outside the pair: the outcome regression there is the one value it holds
+    (``ConstantFit``) and no learner runs.  The check reads the data and the drawn folds
+    only, so it runs after the fold draw and before any learner.
 
     Parameters
     ----------
@@ -312,11 +324,18 @@ def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
         The data of the fit.
     folds : Folds
         The drawn split, with at least three folds.
+    super_learner_roles : sequence of tuple
+        ``(role, task, rows, target, label)`` for each primary regression whose learner is
+        a package :class:`~cleverly.learners.SuperLearner`, as
+        :meth:`~cleverly.TMLE._super_learner_inner_split_roles` resolves it.  Empty by
+        default, which checks the arms only.
 
     Raises
     ------
     ValueError
-        If some arm and pair of folds leave no trainable row outside the pair.
+        If some arm and pair of folds leave no trainable row outside the pair, or if a
+        Super Learner role keeps one row of a class there (or no row, except a binary
+        outcome class).
     """
     from ..learners.crossfit import _POST_DRAW_REMEDY
 
@@ -342,6 +361,28 @@ def refuse_untrainable_leave_two_out(data: CausalData, folds: Any) -> None:
                 "regressions of reduced_crossfit='foldwise' cannot be fitted. "
                 + _POST_DRAW_REMEDY.format(remedy="fit with reduced_crossfit='pooled'")
             )
+    binary = data.family == "binomial"
+    for role, task, rows, target, label in super_learner_roles:
+        sample_classes = np.unique(target[rows])
+        sample_classifies = (task or infer_task(target[rows])) == "classification"
+        for first, second in pairs:
+            outside = (assignment != first) & (assignment != second)
+            values = target[rows & outside]
+            if (task or infer_task(values)) != "classification":
+                continue
+            classes = sample_classes if sample_classifies else np.unique(values)
+            for value in classes:
+                count = int(np.count_nonzero(values == value))
+                if count >= 2 or (count == 0 and role == "outcome" and binary):
+                    continue
+                raise ValueError(
+                    f"folds {first} and {second} leave {count} {label(float(value))} "
+                    f"outside them, so the leave-two-out {role} regression of "
+                    "reduced_crossfit='foldwise' cannot be fitted: its learner is a package "
+                    "SuperLearner, whose inner stratified split needs at least two rows of "
+                    "each class. "
+                    + _POST_DRAW_REMEDY.format(remedy="fit with reduced_crossfit='pooled'")
+                )
 
 
 def check_stratified_msm_design(msm: object, data: CausalData) -> None:

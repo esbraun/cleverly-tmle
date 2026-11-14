@@ -424,6 +424,9 @@ def variable_importance(
         # The status reads the estimand the fit below reports, not the template's own list.
         fitted_estimator = copy(template)
         fitted_estimator.estimands = estimand
+        # A candidate treatment has no declared mechanism, so the known-score ATT and ATC
+        # (which weight by one) do not apply; the candidate fit summarizes over the arm.
+        fitted_estimator.conditional_form = "arm_mean"
         refuse_inference(
             fitted_estimator._inference_status(candidate_data),
             operation="variable_importance()",
@@ -434,6 +437,9 @@ def variable_importance(
     for candidate, (adjustment_set, candidate_data) in prepared.items():
         fitted_estimator = copy(template)
         fitted_estimator.estimands = estimand
+        # A candidate treatment has no declared mechanism, so the known-score ATT and ATC
+        # (which weight by one) do not apply; the candidate fit summarizes over the arm.
+        fitted_estimator.conditional_form = "arm_mean"
         result = fitted_estimator.fit(candidate_data).single()
         fits[candidate] = result
         estimates = [

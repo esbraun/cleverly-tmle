@@ -2250,16 +2250,6 @@ def _data_refusal(
             "(ey_learned_rule), or the value of the optimal rule without intermediate=.",
             "X11",
         )
-    if data.declares_estimated_weights:
-        return _gap(
-            "a learned rule with estimated observation weights (weights_estimated=True) is "
-            "refused. The learned-rule value covers known, fixed weights, and the variance "
-            "of a fit that also estimates its weights is not implemented "
-            f"({_X11.format(part='k2')}).",
-            "Declare the weights known (weights_estimated=False) when they are fixed by the "
-            f"design, or use {_FIXED_RULE}, which takes estimated weights for a fixed rule.",
-            "X11",
-        )
     if data.has_strata and data.cluster is not None:
         return _gap(
             "a learned rule with baseline strata (strata=) and clusters (id=) is refused under "
@@ -2688,14 +2678,13 @@ def refuse_learned_rule_composition(
             ``ey_optimal_rule`` with ``loss="ep"`` and           none, another estimand
             modifiers narrower than ``W`` (R12)
             ``ey_optimal_rule`` with ``intermediate=``           X11 (f3)
-    7       estimated weights, ``weights_estimated=True``        X11 (k2)
-    8       ``strata=`` with clusters, ``id=``                   X28
-    9       ``ey_optimal_rule`` with ``weights=``                X11 (f3)
-    10      ``ey_optimal_rule`` with ``strata=``                 X11 (f3)
-    11      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
-    12      ``n_bootstrap`` above 0                              F27
-    13      ``ey_optimal_rule`` with ``cross_fit=False``         X11 (f3)
-    14      ``loss="blip"`` or ``"ep"`` with ``weights=`` and    none, a declaration
+    7       ``strata=`` with clusters, ``id=``                   X28
+    8       ``ey_optimal_rule`` with ``weights=``                X11 (f3)
+    9       ``ey_optimal_rule`` with ``strata=``                 X11 (f3)
+    10      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
+    11      ``n_bootstrap`` above 0                              F27
+    12      ``ey_optimal_rule`` with ``cross_fit=False``         X11 (f3)
+    13      ``loss="blip"`` or ``"ep"`` with ``weights=`` and    none, a declaration
             a learner whose ``fit`` takes no ``sample_weight``
     ======  ===================================================  ===================
 

@@ -633,12 +633,8 @@ class TestTheRefusals:
         assert in_sample.extra["learned_rule"].scheme == "in_sample"
 
     def test_an_earlier_row_comes_first(self) -> None:
-        """Estimated weights (row 7) and strata with clusters (row 8) refuse before (f3)."""
+        """Strata with clusters (row 7) refuse before (f3)."""
         frame = _weighted_frame().assign(cluster=np.repeat(np.arange(100), 4))
-        _refused(
-            lambda: _never().fit(frame, weights="w", weights_estimated=True, **FIT),
-            "X11 (k2)",
-        )
         _refused(lambda: _never().fit(frame, strata=["W2"], id="cluster", **FIT), "X28")
 
     def test_the_study_refuses_the_data_rows_and_admits_them_for_the_learned_value(self) -> None:
