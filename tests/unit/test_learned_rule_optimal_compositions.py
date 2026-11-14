@@ -22,11 +22,16 @@ The witnesses are the plan's (section 4, PR 2):
 - W-f3w: on the weighted law of the study the quadrature gap
   :math:`\Psi^w_{d_0^w} - \Psi_{d_0}` is 0.0537; under the weight :math:`1 + A Y` the weighted
   optimum :math:`d_0^w` differs from :math:`d_0` on a declared share, its value gap under
-  :math:`P_w` exceeds a declared floor, and the fit's fold rules follow :math:`d_0^w`.
-- W-f3s: the two strata's optimal values differ by a declared margin, and their share mixture
-  is the marginal optimal value.
+  :math:`P_w` exceeds a declared floor, and the fit's fold rules follow :math:`d_0^w`.  With
+  estimated g at n = 40,000 the fitted value under :math:`1 + A Y` lands within 3 standard
+  errors of :math:`\Psi^w_{d_0^w}` and more than 5 above the value of :math:`d_0` under
+  :math:`P_w` (review m1).
+- W-f3s: the fitted stratum values at n = 40,000 land on the two strata's optimal values, whose
+  gap clears 5 standard errors (review m4).  The quadrature margin and the share mixture are
+  checks of the quadrature, true for any rule, and not witnesses of the code.
 - W-f3c: the contrast's oracle is the optimal value minus the known regime's, each fold's curve
-  is its Gateaux derivative, and the learned-rule contrast and the flipped sign fail.
+  is its Gateaux derivative, a curve without its known term is caught, and the fit under
+  ``reference=`` reports minus the contrast, point and curve (review m4).
 - W-f3z: at each level of the intermediate law the value of :math:`d_0^z` exceeds the value of
   the total-effect rule :math:`\arg\max_a \sum_z q_0(z \mid a, w)\bar Q_0(a, z, w)` by a
   declared floor.
@@ -72,6 +77,8 @@ from cleverly.interventions.learned import (
     OPTIMAL_CONTRAST_TARGET,
     OPTIMAL_RULE_SENSITIVITY_REFUSAL,
     OPTIMAL_RULE_TARGET,
+    freeze_learned_rule,
+    frozen_rule_replay,
 )
 from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.omitted_variable import benchmark_refusal, fit_wide_bound_refusal
@@ -98,8 +105,25 @@ WEIGHTED_GAP = 0.0537
 JOINT_C = 1.0
 JOINT_SHARE_FLOOR = 0.3
 JOINT_GAP_FLOOR = 0.025
+#: W-f3w, the fit-level witness (review m1): the rows and seed of the weighted fit under
+#: ``1 + A Y`` with estimated g.  At n = 40,000 the standard error is about 0.003 and the gap
+#: ``Psi^w_{d0^w} - Psi^w_{d0}`` (0.0277) is about 9 of them; one fit costs about 0.4 s.  The
+#: floor is the number of standard errors the estimate must clear above ``Psi^w_{d0}``, and
+#: the bound the most it may sit from ``Psi^w_{d0^w}``.
+JOINT_FIT_N = 40_000
+JOINT_FIT_SEED = 100
+JOINT_FIT_SE_FLOOR = 5.0
+JOINT_FIT_SE_BOUND = 3.0
 #: W-f3s: the floor of the difference of the two strata's optimal values (0.0670).
 STRATA_MARGIN = 0.05
+#: W-f3s, the fit-level witness (review m4): the rows and seed of the stratified fit.  At
+#: n = 40,000 each stratum's standard error is about 0.0047 and the gap of 0.067 is about 10
+#: standard errors of the difference; one fit costs about 0.4 s.  Each stratum estimate must
+#: sit within ``JOINT_FIT_SE_BOUND`` standard errors of its quadrature value, and the fitted
+#: gap must clear ``STRATA_FIT_SE_FLOOR`` standard errors of the difference.
+STRATA_FIT_N = 40_000
+STRATA_FIT_SEED = 200
+STRATA_FIT_SE_FLOOR = 5.0
 #: W-f3z: the floors of the value gap between the level optimum and the total-effect rule at
 #: each level (0.00676 and 0.00426 by quadrature), and of the share on which they differ
 #: (0.166 and 0.134).
@@ -417,11 +441,37 @@ class TestWf3wTheWeightedOptimum:
             treated = float(np.mean(rules[band.to_numpy()] == 1))
             assert low <= treated <= high, treated
 
+    def test_the_fit_lands_on_the_weighted_optimal_value(self) -> None:
+        """Review m1: with estimated g under ``1 + A Y`` the value is ``Psi^w_{d0^w}``.
+
+        Every other weighted value check uses a weight in ``W``, where ``g_w = g0`` and the
+        tilt of the ``W`` marginal is the whole effect of the weight.  Here the weight moves
+        both the rule and the arm regressions, so a normalization that is right for a
+        ``W``-only weight and wrong for this one (for example, weights renormalized within
+        each arm) lands elsewhere.  The unweighted fit on the same rows is the control: it
+        lands near ``Psi_{d0}(P0)``, far below both weighted values.
+        """
+        values = weighted_values(lambda a, y, w1, w2: 1.0 + JOINT_C * a * y)
+        frame = support.law_frame(JOINT_FIT_N, JOINT_FIT_SEED).assign(
+            w=lambda f: 1.0 + JOINT_C * f["A"] * f["Y"]
+        )
+        estimator = support.learned_tmle(estimands=[OPTIMAL_RULE_TARGET])
+        weighted = _quiet(lambda: estimator.fit(frame, weights="w", **FIT).single())
+        estimate = weighted.estimates[OPTIMAL]
+        psi, se = estimate.psi, estimate.std_error
+        assert (psi - values["at_d0"]) / se > JOINT_FIT_SE_FLOOR, (psi, se, values)
+        assert abs(psi - values["weighted"]) / se < JOINT_FIT_SE_BOUND, (psi, se, values)
+        unweighted = _quiet(lambda: estimator.fit(frame, **FIT).single()).estimates[OPTIMAL]
+        assert abs(unweighted.psi - values["unweighted"]) / unweighted.std_error < (
+            JOINT_FIT_SE_BOUND
+        ), (unweighted.psi, values)
+
     def test_the_summary_names_the_weighted_population(self) -> None:
         _, optimal = _pairs("weights")
-        line = optimal.extra["learned_rule"].describe()
+        line = _flat(optimal.extra["learned_rule"].describe())
         assert "the value of the optimal rule of the weighted population (weights=)" in line
-        assert "depend on the treatment and the outcome together" in line
+        assert "depend jointly on the treatment and the outcome" in line
+        assert "equals the design probabilities only when the weights depend on the" in line
 
 
 # ===================================================================== W-f3s
@@ -434,7 +484,35 @@ class TestWf3sTheStrata:
         values = stratum_values()
         assert abs(values[0.0] - values[1.0]) > STRATA_MARGIN, values
 
+    def test_the_fit_lands_on_each_stratum_optimal_value(self) -> None:
+        """Review m4: the stratum estimates land on ``E0[Qbar0(d0(W), W) | W2 = s]``.
+
+        The quadrature checks above hold for any rule; this one reads the fit.  A fit that
+        reported the marginal optimal value (0.577) in each stratum, or swapped the strata,
+        misses both stratum values by many standard errors.
+        """
+        values = stratum_values()
+        result = _quiet(
+            lambda: (
+                support.learned_tmle(estimands=[OPTIMAL_RULE_TARGET])
+                .fit(support.law_frame(STRATA_FIT_N, STRATA_FIT_SEED), strata=["W2"], **FIT)
+                .single()
+            )
+        )
+        low, high = (result.estimates[f"{OPTIMAL}[W2={s}]"] for s in (0.0, 1.0))
+        for estimate, s in ((low, 0.0), (high, 1.0)):
+            assert abs(estimate.psi - values[s]) / estimate.std_error < JOINT_FIT_SE_BOUND, (
+                estimate.psi,
+                values,
+            )
+        gap_se = float(np.hypot(low.std_error, high.std_error))
+        assert (low.psi - high.psi) / gap_se > STRATA_FIT_SE_FLOOR, (low.psi, high.psi)
+        assert abs((low.psi - high.psi) - (values[0.0] - values[1.0])) / gap_se < (
+            JOINT_FIT_SE_BOUND
+        )
+
     def test_the_share_mixture_is_the_marginal_value(self) -> None:
+        """The tower property, true for any rule: a check of the quadrature, not of the fit."""
         values = stratum_values()
         marginal = weighted_values(lambda a, y, w1, w2: 1.0 + 0.0 * w1)["unweighted"]
         assert 0.5 * values[0.0] + 0.5 * values[1.0] == pytest.approx(marginal, abs=1e-12)
@@ -465,6 +543,23 @@ class TestWf3sTheStrata:
             optimal.extra["learned_rule"].describe()
         )
 
+    def test_a_replay_of_a_weighted_stratified_fit_names_both(self) -> None:
+        """Review m5: the replay's summary keeps the weights and the strata."""
+        frame = _weighted_frame(400, 2)
+        optimal = _quiet(
+            lambda: (
+                support.learned_tmle(estimands=[OPTIMAL_RULE_TARGET])
+                .fit(frame, weights="w", strata=["W2"], **FIT)
+                .single()
+            )
+        )
+        replay = frozen_rule_replay(optimal.estimator, freeze_learned_rule(optimal))
+        refit = _quiet(lambda: replay.fit(frame, weights="w", strata=["W2"], **FIT).single())
+        line = _flat(refit.extra["learned_rule"].describe())
+        assert line.startswith("Target: a replay of the frozen fold rules"), line
+        assert "The rows are weighted (weights=)" in line
+        assert "Each stratum of W2 reports the value of the fixed rules" in line
+
     def test_the_targets_are_fold_evaluated_stratum_targets(self) -> None:
         assert {OPTIMAL_RULE_TARGET, OPTIMAL_CONTRAST_TARGET} <= FOLD_EVALUATED_STRATA_TARGETS
 
@@ -476,12 +571,13 @@ EXACT_OPTIMAL = f"ey_optimal_rule[{exact.LEARNED_RULE_LABEL}]"
 
 
 @cache
-def _exact_contrast_fit() -> Any:
+def _exact_contrast_fit(reference: str | None = None) -> Any:
     return (
         TMLE(
             learned_rule=LearnedRule(),
             estimands=[OPTIMAL_RULE_TARGET],
             interventions=[Static(1), Static(0)],
+            reference=reference,
             outcome_learner=OracleOutcome(exact.DiscreteLaw(_exact_law(WRONG_Q))),
             treatment_learner=OracleTreatment(exact.DiscreteLaw(EXACT_PROBS)),
             cross_fit=True,
@@ -495,9 +591,17 @@ def _exact_contrast_fit() -> Any:
     )
 
 
-def _exact_fold_curves(name: str) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+def _flipped(name: str) -> str:
+    """The name ``reference="learned rule"`` gives the contrast ``name``."""
+    optimal, known = name[len("ate_optimal_rule[") : -1].split(" vs ")
+    return f"ate_optimal_rule[{known} vs {optimal}]"
+
+
+def _exact_fold_curves(
+    name: str, reference: str | None = None
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """For each fold: the support point of each row, the fold's unscaled curve, the fold law."""
-    result = _exact_contrast_fit()
+    result = _exact_contrast_fit(reference)
     n = result.data.n
     cells = np.repeat(
         np.arange(len(exact.SUPPORT)), [EXACT_COUNTS[w, a, y] for w, a, y in exact.SUPPORT]
@@ -537,15 +641,33 @@ class TestWf3cTheContrast:
                 exact.eif(contrast), exact.eif(EXACT_OPTIMAL) - exact.eif(known), atol=1e-14
             )
 
-    def test_control_the_learned_rule_contrast_and_the_flipped_sign_fail(self) -> None:
+    def test_the_oracle_of_the_learned_rule_contrast_is_another_number(self) -> None:
         """At the base law every blip is positive, so ``d0`` treats everyone while the fixed
-        rule of the learned-rule oracle does not treat ``w = 1``: the two contrasts differ."""
+        rule of the learned-rule oracle does not treat ``w = 1``: the two truths differ.  This
+        checks the oracle, not the fit."""
         for optimal, learned in zip(
             OPTIMAL_CONTRASTS, exact.PER_ARM_NAMES["ate_learned_rule"], strict=True
         ):
             assert abs(exact.TRUTH[optimal] - exact.TRUTH[learned]) > 1e-2
-        nonzero = exact.TRUTH[OPTIMAL_CONTRASTS[1]]
-        assert abs(nonzero - (-nonzero)) > 1e-2
+
+    @pytest.mark.parametrize("name", OPTIMAL_CONTRASTS)
+    def test_control_the_flipped_fit_is_the_negated_contrast(self, name: str) -> None:
+        """Review m4: the fit under ``reference="learned rule"`` reports minus the contrast.
+
+        Each fold curve of the flipped fit is minus the Gateaux derivative of the unflipped
+        contrast, and it misses the unflipped derivative itself by more than 1e-2, so a fit
+        that dropped the sign on the curve, on the point, or on both fails here.
+        """
+        flipped = _exact_contrast_fit("learned rule")
+        forward = _exact_contrast_fit().estimates[name].psi
+        assert flipped.estimates[_flipped(name)].psi == pytest.approx(-forward, abs=1e-14)
+        gaps = []
+        for cells, raw, probs in _exact_fold_curves(_flipped(name), "learned rule"):
+            for point in np.unique(cells):
+                unflipped = exact.gateaux(name, int(point), probs=probs)
+                np.testing.assert_allclose(raw[cells == point], -unflipped, atol=1e-10, rtol=0)
+                gaps.append(float(np.max(np.abs(raw[cells == point] - unflipped))))
+        assert max(gaps) > 1e-2
 
     def test_the_fit_reports_every_oracle_name(self) -> None:
         names = set(_exact_contrast_fit().estimates)
@@ -703,14 +825,14 @@ class TestWf3nNamesAndWiring:
             ),
             (
                 {"estimands": [OPTIMAL_CONTRAST_TARGET], "interventions": [Static(1)]},
-                "it needs ey_optimal_rule among the estimands",
+                "its own estimands do not name ey_optimal_rule",
             ),
             (
                 {
                     "estimands": ["ey_learned_rule", OPTIMAL_CONTRAST_TARGET],
                     "interventions": [Static(1)],
                 },
-                "it needs ey_optimal_rule among the estimands",
+                "its own estimands do not name ey_optimal_rule",
             ),
             (
                 {"estimands": [OPTIMAL_RULE_TARGET, OPTIMAL_CONTRAST_TARGET]},
@@ -749,7 +871,28 @@ class TestWf3nNamesAndWiring:
                 learned.data, learned.nuisance, estimands=(OPTIMAL_CONTRAST_TARGET,)
             )
         )
-        assert "it needs ey_optimal_rule among the estimands" in _flat(caught)
+        assert caught.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "its own estimands do not name ey_optimal_rule" in _flat(caught)
+
+    @pytest.mark.parametrize(
+        "estimands",
+        [
+            (OPTIMAL_RULE_TARGET,),
+            (OPTIMAL_RULE_TARGET, OPTIMAL_CONTRAST_TARGET),
+        ],
+    )
+    def test_a_learned_fit_retargeted_to_the_optimal_value_refuses(
+        self, estimands: tuple[str, ...]
+    ) -> None:
+        # Review m3: a learned-rule fit retargeted to ey_optimal_rule would return the
+        # learned-rule estimate under the optimal name.  Both requests refuse alike.
+        learned = _quiet(lambda: support.fit(interventions=[Static(1)]))
+        caught = _refused(
+            lambda: learned.estimator.retarget(learned.data, learned.nuisance, estimands=estimands)
+        )
+        assert caught.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "its own estimands do not name ey_optimal_rule" in _flat(caught)
+        assert "needs ey_optimal_rule among" not in _flat(caught)
 
     def test_the_strata_with_clusters_keep_x28(self) -> None:
         frame = support.law_frame().assign(cluster=np.repeat(np.arange(100), 4))

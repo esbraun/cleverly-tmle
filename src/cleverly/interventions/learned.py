@@ -1295,7 +1295,7 @@ class LearnedRuleRecord:
                 "Target: a replay of the frozen fold rules of a fit of the value of the "
                 f"optimal rule. The rules are held fixed and learn nothing, so the estimate "
                 f"is the value of those fixed rules, {report}{splits}. "
-                f"{self._shares(over)}{self._describe_level()}"
+                f"{self._shares(over)}{self._describe_level()}{self._replay_composition()}"
             )
         shown = ""
         if self.scheme != "in_sample":
@@ -1346,14 +1346,32 @@ class LearnedRuleRecord:
             )
         return f"the value of the optimal rule, {best}"
 
+    def _replay_composition(self) -> str:
+        """The weights and strata of a replay of an optimal fit, in words, or ``""``."""
+        out = ""
+        if self.weighted:
+            out += (
+                " The rows are weighted (weights=), so the values are those of the "
+                "population the weights describe."
+            )
+        if self.strata:
+            out += (
+                f" Each stratum of {', '.join(self.strata)} reports the value of the fixed "
+                "rules within the stratum."
+            )
+        return out
+
     def _optimal_composition(self) -> str:
         """The sentences of an optimal fit's weights, strata and known regimes, or ``""``."""
         out = ""
         if self.weighted:
             out += (
-                " The weighted optimal value differs from the unweighted one, and its rule "
-                "differs from the unweighted optimal rule when the weights depend on the "
-                "treatment and the outcome together."
+                " The weighted optimal value differs from the unweighted one. Its rule can "
+                "differ from the unweighted optimal rule when the weights depend jointly on "
+                "the treatment and the outcome, or, with a continuous outcome, on the "
+                "outcome. Supplied treatment probabilities are read as the treatment "
+                "mechanism of the weighted population, which equals the design "
+                "probabilities only when the weights depend on the covariates alone."
             )
         if self.strata:
             out += (
@@ -1931,6 +1949,7 @@ CONTRAST_TARGETS: tuple[str, ...] = (
 #: The names that read the learned column as the value of the learned rules.  A fit of the
 #: value of the optimal rule reports none of them (X11 (f), (f3)).
 _LEARNED_FAMILY: tuple[str, ...] = ("ey_learned_rule", "ate_learned_rule")
+_OPTIMAL_FAMILY: tuple[str, ...] = (OPTIMAL_RULE_TARGET, OPTIMAL_CONTRAST_TARGET)
 
 
 def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, ...]:
@@ -2067,13 +2086,16 @@ def _family_refusal(estimator: Any, requested: Sequence[str]) -> Refusal | None:
                 "of the learned rules and its contrasts ate_learned_rule."
             ),
         )
-    if OPTIMAL_CONTRAST_TARGET not in requested:
+    foreign = [name for name in requested if name in _OPTIMAL_FAMILY]
+    if not foreign:
         return None
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
-        "ate_optimal_rule contrasts the value of the optimal rule with a known regime, and it "
-        "needs ey_optimal_rule among the estimands: without it the fit reports the value of "
-        "the learned rules, whose contrast is ate_learned_rule.",
+        f"{foreign} read the learned column as the value of the optimal rule, and this fit "
+        "reads it as the value of the learned rules: its own estimands do not name "
+        "ey_optimal_rule. A fit of the optimal value is declared with "
+        "estimands=['ey_optimal_rule'], and its contrast with a known regime is "
+        "ate_optimal_rule.",
         alternative=(
             "Request estimands=['ey_optimal_rule', 'ate_optimal_rule'] with interventions=, "
             "or estimands=None for the learned-rule contrasts ate_learned_rule."
