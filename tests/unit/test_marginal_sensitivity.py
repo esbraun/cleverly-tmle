@@ -19,6 +19,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileR
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
+from cleverly.inference import interval_reference
 from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Incremental
 from cleverly.sensitivity import marginal as marginal_module
@@ -541,9 +542,13 @@ def test_the_bounds_widen_with_gamma(which: str, request: Any) -> None:
 def test_the_interval_reads_each_side_curve(binary: Any) -> None:
     bounds = marginal_sensitivity_bounds(binary, 2.0, level=0.9)
     row = bounds.rows[0]
-    z = 1.6448536269514722
-    assert row.lower_limit == pytest.approx(row.lower - z * row.lower_std_error, rel=1e-12)
-    assert row.upper_limit == pytest.approx(row.upper + z * row.upper_std_error, rel=1e-12)
+    # Each limit is the estimate's own interval rule about its end (the ATE of a binary
+    # outcome reads the MOVER multiples), not a normal z on both sides.
+    estimate = binary["ate"]
+    lower = interval_reference(estimate, level=0.9, psi=row.lower, std_error=row.lower_std_error)
+    upper = interval_reference(estimate, level=0.9, psi=row.upper, std_error=row.upper_std_error)
+    assert row.lower_limit == pytest.approx(lower.lower, rel=1e-12)
+    assert row.upper_limit == pytest.approx(upper.upper, rel=1e-12)
     # The ATE side curve is the difference of the arm side curves.
     data = binary.data
     nuisance = binary.repeats[0].nuisance

@@ -18,6 +18,7 @@ import pytest
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome
 from cleverly.exceptions import CapabilityError
+from cleverly.inference import interval_reference
 from cleverly.sensitivity import omitted_variable as ov
 from cleverly.sensitivity.omitted_variable import (
     benchmark,
@@ -96,16 +97,27 @@ class TestTheMedianRule:
 
     @pytest.mark.parametrize("end", ["lower", "upper"])
     def test_each_limit_follows_the_median_rule(
-        self, repeated: Any, single_bounds: list[Any], end: str
+        self, repeated: Any, single_draws: list[Any], single_bounds: list[Any], end: str
     ) -> None:
+        """Each limit spans its estimate's own multiple of the standard error.
+
+        A single draw's ATE reads correlated MOVER, so each side has its own multiple; the
+        combined estimate reads its own rule. ``interval_reference`` at a unit standard error
+        gives each multiple, and the rules here are linear in the standard error.
+        """
         combined = omitted_variable_bounds(repeated, "ate", cf_y=CF, cf_d=CF)
-        quantile = ov._one_sided_quantile(combined.level)
+
+        def multiple(estimate: Any) -> float:
+            unit = interval_reference(estimate, level=combined.level, sided="one", std_error=1.0)
+            return unit.lower_half_width if end == "lower" else unit.upper_half_width
+
         edges = np.array([getattr(bound, end) for bound in single_bounds])
         limits = np.array([getattr(bound, f"ci_{end}") for bound in single_bounds])
-        center, error = median_rule(edges, np.abs(edges - limits) / quantile)
+        multiples = np.array([multiple(draw["ate"]) for draw in single_draws])
+        center, error = median_rule(edges, np.abs(edges - limits) / multiples)
         side = -1.0 if end == "lower" else 1.0
         assert getattr(combined, f"ci_{end}") == pytest.approx(
-            center + side * quantile * error, rel=1e-10
+            center + side * multiple(repeated["ate"]) * error, rel=1e-10
         )
 
     def test_dropping_the_displacement_term_moves_the_limit(

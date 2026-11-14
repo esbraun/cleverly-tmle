@@ -124,6 +124,14 @@ means the null is outside the interval, but a null outside it can have a p-value
 The arms of a TMLE difference are nearly uncorrelated on the registered laws ($r$ about 0.005), and
 $r$ can be large when the covariates strongly predict the outcome.
 
+A sensitivity bound forms its limits about its own end point with its own standard error, under
+the rule of the estimate it bounds. `cleverly.inference.interval_reference` reads that rule at a
+given point, standard error, influence curve and level, and returns the two limits, their
+half-widths and the reference (normal, or t with its degrees of freedom). The omitted-variable
+limits and the marginal sensitivity limits read it, so at no confounding the omitted-variable
+limits are the estimate's `ci`. The helper gives no limits for a withheld interval. A bound of
+such an estimate keeps identity-scale plug-in limits as a diagnostic, which its accessors refuse.
+
 Every other estimate keeps its interval: a working-model coefficient of a binary outcome, a ratio
 or a transformed contrast (normal reference on its own scale), an estimate whose outcome family is
 not recorded, and every clustered estimate, whose reference is [Few clusters](#few-clusters). The

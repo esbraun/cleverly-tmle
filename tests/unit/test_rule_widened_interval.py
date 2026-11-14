@@ -325,7 +325,7 @@ class TestTheSmallSampleReference:
             monkeypatch,
             influence_module,
             influence_module.ParameterEstimate,
-            "_wald_interval",
+            "_interval_limits",
             [("margin=margin * slope,", "margin=margin,")],
         )
         below, _ = half_widths(estimate, estimate.ci)
@@ -434,12 +434,12 @@ class TestTheWitness:
             monkeypatch,
             influence_module,
             influence_module.ParameterEstimate,
-            "_wald_interval",
+            "_interval_limits",
             [
                 (
-                    "low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, "
+                    "low, high = wald_ci(center, self._plugin_std_error(), alpha, df=df, "
                     "margin=margin)\n            return (float(np.exp(low)), float(np.exp(high)))",
-                    "low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)\n"
+                    "low, high = wald_ci(center, self._plugin_std_error(), alpha, df=df)\n"
                     "            return (float(np.exp(low)) - margin, float(np.exp(high)) + margin)",
                 )
             ],
@@ -1122,7 +1122,7 @@ class TestWidenedConsumers:
             omitted_module,
             omitted_module,
             "_limit",
-            [("quantile * error + max(margins)", "quantile * error")],
+            [("margin=max(margins),", "margin=0.0,")],
         )
         with pytest.raises(AssertionError):
             assert_limits_widened(ruled())

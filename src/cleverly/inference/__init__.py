@@ -25,6 +25,7 @@ from .delta import (
 )
 from .influence import (
     BootstrapSummary,
+    IntervalReference,
     ParameterEstimate,
     WaldTest,
     atc_estimate,
@@ -32,6 +33,7 @@ from .influence import (
     constant_outcome_cells,
     counterfactual_means,
     curve_acceleration,
+    interval_reference,
     ipsi_means,
     kish_count,
     make_estimate,
@@ -48,6 +50,7 @@ from .multiplier import SimultaneousBands, multiplier_critical_value, simultaneo
 __all__ = [
     "BootstrapResult",
     "BootstrapSummary",
+    "IntervalReference",
     "ParameterEstimate",
     "SimultaneousBands",
     "Transform",
@@ -66,6 +69,7 @@ __all__ = [
     "implied_correlation",
     "influence_covariance",
     "influence_variance",
+    "interval_reference",
     "ipsi_means",
     "kish_count",
     "log_odds_ratio_influence",

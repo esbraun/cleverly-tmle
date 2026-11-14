@@ -106,6 +106,7 @@ __all__ = [
     "CovarianceRule",
     "ICParts",
     "InferenceStatus",
+    "IntervalReference",
     "OutcomeFamily",
     "ParameterEstimate",
     "Scale",
@@ -122,6 +123,7 @@ __all__ = [
     "curve_acceleration",
     "effect_modification_coefficients",
     "has_t_reference",
+    "interval_reference",
     "ipsi_means",
     "is_labelled",
     "kish_count",
@@ -1533,12 +1535,19 @@ class ParameterEstimate:
         (:attr:`interval_scale` ``"mover"`` and ``"skew_t"``). On either, ``widen`` adds the
         remaining score to each side's half-width.
         """
+        return self._interval_limits(self.alpha, self._residual_margin(widen))
+
+    def _interval_limits(self, alpha: float, margin: float) -> tuple[float, float]:
+        """The interval :meth:`_wald_interval` describes, at level ``1 - alpha``.
+
+        ``margin`` is added to each side's half-width on the inference scale, as the
+        remaining score is. :func:`interval_reference` reads it at other levels and margins.
+        """
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             return (float("nan"), float("nan"))
         center = self.inference_value
         df = self.reference_df
-        margin = self._residual_margin(widen)
-        asymmetric = self._asymmetric_interval(self.alpha, margin)
+        asymmetric = self._asymmetric_interval(alpha, margin)
         if asymmetric is not None:
             return asymmetric
         scale = None if outside_bounds(self.psi, self.bounds) else self._range_scale()
@@ -1547,7 +1556,7 @@ class ParameterEstimate:
             low, high = wald_ci(
                 float(scale.forward(self.psi)),
                 self._plugin_std_error() * slope,
-                self.alpha,
+                alpha,
                 df=None,
                 margin=margin * slope,
             )
@@ -1555,7 +1564,7 @@ class ParameterEstimate:
                 return (float("nan"), float("nan"))
             return (float(scale.inverse(low)), float(scale.inverse(high)))
         if self.transform is not None:
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
+            low, high = wald_ci(center, self._plugin_std_error(), alpha, df=df, margin=margin)
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -1564,9 +1573,9 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
+            low, high = wald_ci(center, self._plugin_std_error(), alpha, df=df, margin=margin)
             return (float(np.exp(low)), float(np.exp(high)))
-        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
+        return wald_ci(center, self._plugin_std_error(), alpha, df=df, margin=margin)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the scale the test is computed on."""
@@ -2219,6 +2228,250 @@ def with_components(
     ):
         return difference
     return replace(difference, components=(minuend, subtrahend))
+
+
+@dataclass(frozen=True)
+class IntervalReference:
+    """The interval rule an estimate ships, read at one point, spread and level.
+
+    Parameters
+    ----------
+    psi : float
+        The point the limits are formed about, on the reported scale.
+    std_error : float
+        The spread the limits read, on the inference scale.
+    lower : float
+        The lower limit, on the reported scale. ``nan`` when the estimate withholds its
+        interval or the point leaves the range its rule needs.
+    upper : float
+        The upper limit, on the reported scale, ``nan`` alike.
+    level : float
+        The coverage level: two-sided for ``sided="two"``, each side's for ``sided="one"``.
+    sided : {"two", "one"}
+        Whether ``(lower, upper)`` is a two-sided interval or two one-sided limits.
+    interval_scale : str
+        The rule the limits follow, as :attr:`~ParameterEstimate.interval_scale` names it:
+        the end point's, which is the estimate's unless the end point's curve leaves the
+        skew-widened rule without an acceleration. ``"mover"`` without components reads the
+        estimate's own MOVER multiples.
+    df : float or None
+        The Student t degrees of freedom the rule reads, or ``None`` for the normal
+        reference: :attr:`~ParameterEstimate.effective_df` on ``"skew_t"``, ``None`` on
+        ``"range_logit"`` and ``"mover"``, and :attr:`~ParameterEstimate.reference_df`
+        otherwise.
+    acceleration : float or None
+        The acceleration the skew-widened rule reads, and ``None`` under any other rule.
+    margin : float
+        What each side adds to its half-width on the inference scale.
+    supplies_inference : bool
+        Whether the estimate supplies inference. ``False`` marks the limits a diagnostic.
+
+    Attributes
+    ----------
+    lower_half_width : float
+    upper_half_width : float
+    reference : str
+    """
+
+    psi: float
+    std_error: float
+    lower: float
+    upper: float
+    level: float
+    sided: Literal["two", "one"]
+    interval_scale: str
+    df: float | None
+    acceleration: float | None
+    margin: float
+    supplies_inference: bool
+
+    @property
+    def lower_half_width(self) -> float:
+        """``psi - lower``, on the reported scale."""
+        return float(self.psi - self.lower)
+
+    @property
+    def upper_half_width(self) -> float:
+        """``upper - psi``, on the reported scale."""
+        return float(self.upper - self.psi)
+
+    @property
+    def reference(self) -> str:
+        """``"normal"``, or ``"t"`` when :attr:`df` is set."""
+        return "normal" if self.df is None else "t"
+
+
+def interval_reference(
+    estimate: ParameterEstimate,
+    *,
+    level: float | None = None,
+    sided: Literal["two", "one"] = "two",
+    psi: float | None = None,
+    std_error: float | None = None,
+    influence_curve: FloatArray | None = None,
+    components: tuple[ParameterEstimate, ParameterEstimate] | None = None,
+    margin: float = 0.0,
+) -> IntervalReference:
+    """Read the interval rule an estimate ships, at another point, spread or level.
+
+    A sensitivity bound forms its limits about its own end point with its own standard
+    error. This helper gives those limits under the rule the estimate's
+    :attr:`~ParameterEstimate.ci` follows, so a bound at no confounding reproduces the shipped
+    interval rather than a normal ``psi +/- z * se`` rebuilt beside it. The rule is the
+    estimate's: its :attr:`~ParameterEstimate.reference_df` (set over the target's rows and
+    clusters), its scale or transform, the range-logit scale of a bounded mean, the
+    skew-widened t of an unclustered continuous outcome, and correlated MOVER for a bounded
+    difference.
+
+    With no ``psi``, ``std_error`` or ``influence_curve`` the limits are the estimate's own
+    plug-in interval at ``level``. Otherwise the end point is the estimate with ``psi`` in
+    place of its point and ``std_error ** 2`` in place of its variance; ``influence_curve``,
+    when given, replaces the curve the skew-widened rule reads its degrees of freedom and
+    acceleration from. Under correlated MOVER the end point needs the two means it is the
+    difference of. Pass them as ``components``; without them, each side keeps the multiple of
+    the standard error that the estimate's own MOVER interval spans on that side.
+
+    An estimate whose status withholds its interval
+    (``"constant_arm_cell_plugin"``, ``"out_of_range_plugin"``) gives ``nan`` limits, as does
+    a range-logit end point on or outside ``(0, 1)``. Any other status gives the plug-in
+    rule, with :attr:`IntervalReference.supplies_inference` ``False`` where the estimate
+    supplies none.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        The estimate whose rule is read.
+    level : float or None, default=None
+        The coverage level. ``None`` takes ``1 - estimate.alpha`` and needs ``sided="two"``.
+    sided : {"two", "one"}, default="two"
+        ``"two"`` for a two-sided interval at ``level``. ``"one"`` for two one-sided limits
+        each at ``level``, which are the two-sided interval at ``2 * level - 1``.
+    psi : float or None, default=None
+        The end point, on the reported scale.
+    std_error : float or None, default=None
+        The end point's standard error, on the inference scale. Required with
+        ``influence_curve``.
+    influence_curve : ndarray or None, default=None
+        The end point's influence curve.
+    components : tuple of ParameterEstimate or None, default=None
+        The two bounded means the end point is the difference of, for correlated MOVER.
+    margin : float, default=0.0
+        What each side adds to its half-width on the inference scale, such as the score a
+        stopping rule leaves.
+
+    Returns
+    -------
+    IntervalReference
+        The limits, the half-widths and the reference they read.
+
+    Raises
+    ------
+    ValueError
+        When ``level`` lies outside ``(0, 1)`` (``[0.5, 1)`` one-sided), ``margin`` is
+        negative, ``influence_curve`` comes without ``std_error``, or ``components`` do not
+        make the end point a MOVER difference.
+
+    See Also
+    --------
+    ParameterEstimate.ci : The interval this reads at the estimate's own point and level.
+    cleverly.sensitivity.omitted_variable_bounds : Reads its limits through this rule.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference import interval_reference, make_estimate
+    >>> curve = np.array([3.0, -1.0, -1.0, -1.0, 2.0, -2.0])
+    >>> estimate = make_estimate(
+    ...     "ey1", 1.0, curve, n=6, rule_widened=False, outcome_family="gaussian"
+    ... )
+    >>> read = interval_reference(estimate)
+    >>> bool(np.allclose((read.lower, read.upper), estimate.ci))
+    True
+    >>> read.interval_scale, read.reference
+    ('skew_t', 't')
+    >>> moved = interval_reference(estimate, psi=2.0, std_error=0.5)
+    >>> moved.lower_half_width < moved.upper_half_width
+    True
+    """
+    if level is None:
+        if sided != "two":
+            raise ValueError("a one-sided reference needs a declared level")
+        level = 1.0 - float(estimate.alpha)
+    level = float(level)
+    if sided == "two":
+        if not 0.0 < level < 1.0:
+            raise ValueError(f"level must lie in (0, 1); got {level!r}")
+        alpha = 1.0 - level
+    elif sided == "one":
+        if not 0.5 <= level < 1.0:
+            raise ValueError(f"a one-sided level must lie in [0.5, 1); got {level!r}")
+        alpha = 2.0 * (1.0 - level)
+    else:
+        raise ValueError(f"sided must be 'two' or 'one'; got {sided!r}")
+    if not (np.isfinite(margin) and margin >= 0.0):
+        raise ValueError(f"margin must be finite and nonnegative; got {margin!r}")
+    if influence_curve is not None and std_error is None:
+        raise ValueError("pass std_error with influence_curve")
+    own = psi is None and std_error is None and influence_curve is None and components is None
+    point = float(estimate.psi) if psi is None else float(psi)
+    rule = estimate.interval_scale
+    if own:
+        endpoint = estimate
+    else:
+        changes: dict[str, Any] = {"psi": point, "components": components}
+        if std_error is not None:
+            changes["variance"] = float(std_error) ** 2
+        if influence_curve is not None:
+            changes["influence_curve"] = np.asarray(influence_curve, dtype=float).reshape(-1)
+        if estimate.scale == "ratio":
+            changes["log_psi"] = math.log(point) if point > 0.0 else float("nan")
+        endpoint = replace(estimate, **changes)
+        if components is not None and endpoint.interval_scale != "mover":
+            raise ValueError(
+                "components must be two bounded means whose difference is the end point; "
+                f"the end point reads the {endpoint.interval_scale!r} interval with them"
+            )
+    spread = endpoint._plugin_std_error()
+    transported = rule == "mover" and endpoint.interval_scale != "mover"
+    if not transported:
+        rule = endpoint.interval_scale
+    df: float | None
+    acceleration: float | None = None
+    nan = float("nan")
+    withheld = estimate.inference in UNREPORTED_INTERVAL_STATUSES
+    if withheld or (rule == "range_logit" and outside_bounds(point, estimate.bounds)):
+        low, high = nan, nan
+    elif transported:
+        # The end point has no means to read: keep each side's multiple of the standard
+        # error that the estimate's own MOVER interval spans at this level.
+        base_low, base_high = estimate._interval_limits(alpha, 0.0)
+        base = estimate._plugin_std_error()
+        if base > 0.0 and np.isfinite(base):
+            low = point - (estimate.psi - base_low) / base * spread - margin
+            high = point + (base_high - estimate.psi) / base * spread + margin
+        else:
+            low, high = nan, nan
+    else:
+        low, high = endpoint._interval_limits(alpha, margin)
+    if rule == "skew_t":
+        df, acceleration = endpoint.effective_df, endpoint.acceleration
+    elif rule in ("range_logit", "mover"):
+        df = None
+    else:
+        df = None if endpoint.reference_df is None else float(endpoint.reference_df)
+    return IntervalReference(
+        psi=point,
+        std_error=spread,
+        lower=float(low),
+        upper=float(high),
+        level=level,
+        sided=sided,
+        interval_scale=rule,
+        df=df,
+        acceleration=acceleration,
+        margin=float(margin),
+        supplies_inference=estimate.supplies_inference,
+    )
 
 
 def make_estimate(

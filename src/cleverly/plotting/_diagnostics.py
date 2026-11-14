@@ -1124,6 +1124,11 @@ def _scale_maps(estimate: Any) -> tuple[Callable[[Any], Any], Callable[[Any], An
     transform = getattr(estimate, "transform", None) if estimate is not None else None
     if transform is not None:
         return transform.forward, transform.inverse, f"the {transform.name} scale"
+    if estimate is not None and getattr(estimate, "interval_scale", None) == "range_logit":
+        # The mean of a binary outcome forms its interval on the logit scale.
+        from scipy.special import expit, logit
+
+        return logit, expit, "the logit scale"
     if estimate is not None and str(estimate.scale) == "ratio":
         return np.log, np.exp, "the log scale"
     return (lambda value: value), (lambda value: value), None
@@ -1167,8 +1172,9 @@ def bootstrap(
     """Plot the bootstrap replicates with a normal curve for comparison.
 
     Use it to see whether the bootstrap distribution is symmetric and bell-shaped on the
-    scale the Wald interval is built on: the log scale for a ratio, the transform's scale
-    for a transformed estimate. When it is skewed or heavy-tailed there, the Wald interval
+    scale the Wald interval is built on: the log scale for a ratio, the logit scale for the
+    mean of a binary outcome, the transform's scale for a transformed estimate. When it is
+    skewed or heavy-tailed there, the Wald interval
     can mislead. The histogram shows the replicates, the curve is a normal density with
     their mean and standard deviation, and the vertical lines mark the limits. Nothing is
     resampled here.

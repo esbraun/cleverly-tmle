@@ -103,6 +103,7 @@ from cleverly.datasets import make_linear_ate
 from cleverly.datasets.synthetic import linear_dgp
 from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError
+from cleverly.inference import interval_reference
 from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from tests.parallel import STUDY_JOBS
@@ -1119,10 +1120,31 @@ def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
     rebuilt = rebuild(result, scenario, token, elements)
     strength_value = bounds.confounding_strength
     psi = np.asarray(elements.psi_nu2, dtype=float)
+    # The limits read the estimate's own interval rule (``interval_reference``) about each
+    # end, with the end's own curve: the skew-widened t of a continuous outcome reads its
+    # degrees of freedom and acceleration there.  Given that curve, each side's half-width is
+    # a fixed multiple of the standard error, which reads the standard error back.
+    estimate = result[name]
+    if estimate.interval_scale not in ("identity", "skew_t", "mover"):
+        raise RuntimeError(f"the limit of {name!r} reads the {estimate.interval_scale!r} rule")
+    curve = np.asarray(estimate.influence_curve, dtype=float)
+    assert elements.psi_max_bias is not None
+    bias_curve = np.asarray(elements.psi_max_bias, dtype=float)
+
+    def unit(end: float, sign: float) -> Any:
+        return interval_reference(
+            estimate,
+            level=bounds.level,
+            sided="one",
+            psi=end,
+            std_error=1.0,
+            influence_curve=curve + sign * bounds.confounding_strength * bias_curve,
+        )
+
     reported = {
         "nu2": _standard_error(psi, result.data.cluster),
-        "lower": (bounds.lower - bounds.ci_lower) / ONE_SIDED,
-        "upper": (bounds.ci_upper - bounds.upper) / ONE_SIDED,
+        "lower": (bounds.lower - bounds.ci_lower) / unit(bounds.lower, -1.0).lower_half_width,
+        "upper": (bounds.ci_upper - bounds.upper) / unit(bounds.upper, 1.0).upper_half_width,
     }
     own = _bound_standard_errors(result, name, elements, rebuilt.curve, strength_value)
     own["nu2"] = _standard_error(rebuilt.curve, result.data.cluster)

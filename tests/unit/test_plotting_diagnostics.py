@@ -762,6 +762,49 @@ def test_v17_bootstrap_of_a_ratio_is_drawn_on_the_log_scale(result: Any) -> None
     assert px[np.argmax(py)] == pytest.approx(float(np.mean(draws)), abs=0.02)
 
 
+def _binary_mean_fit(result: Any, draws: np.ndarray) -> Any:
+    estimate = result["ate"]
+    summary = replace(
+        estimate.bootstrap,
+        draws=draws,
+        ci=tuple(np.quantile(draws, [0.025, 0.975])),
+        std_error=float(np.std(draws, ddof=1)),
+    )
+    mean = replace(estimate, name="ey1", scale="level", psi=0.2, bounds=(0.0, 1.0))
+    return replace(
+        result,
+        estimates={"ey1": replace(mean, bootstrap=summary)},
+        bootstrap=replace(result.bootstrap, draws={"ey1": draws}),
+    )
+
+
+def test_v17_bootstrap_of_a_binary_mean_is_drawn_on_the_logit_scale(result: Any) -> None:
+    """The mean of a binary outcome forms its interval on the logit scale, so the curve is drawn there.
+
+    A logit-normal sample matches its normal curve on that scale. Mutation control: without
+    the bounds the estimate keeps the identity scale and the curve sits at the mean of the
+    draws instead.
+    """
+    from scipy.special import expit, logit
+
+    draws = expit(np.random.default_rng(4).normal(logit(0.2), 0.5, size=400))
+    fitted = _binary_mean_fit(result, draws)
+    assert fitted["ey1"].interval_scale == "range_logit"
+    fig = bootstrap(fitted)
+    ax = fig.axes[0]
+    x, y = _line(ax, "cleverly-bootstrap-normal").get_data()
+    logits = logit(draws)
+    assert x[np.argmax(y)] == pytest.approx(float(np.mean(logits)), abs=0.03)
+    assert _markers(ax) == pytest.approx(sorted(logit(np.quantile(draws, [0.025, 0.975]))))
+    assert "Drawn on the logit scale" in _core.note_text(fig)
+    unbounded = replace(fitted, estimates={"ey1": replace(fitted["ey1"], bounds=None)})
+    assert unbounded["ey1"].interval_scale != "range_logit"
+    plain = bootstrap(unbounded).axes[0]
+    px, py = _line(plain, "cleverly-bootstrap-normal").get_data()
+    assert px[np.argmax(py)] == pytest.approx(float(np.mean(draws)), abs=0.01)
+    assert "logit" not in _core.note_text(plain.figure)
+
+
 def test_v17_a_bare_bootstrap_draws_its_percentile_limits(result: Any) -> None:
     """Mutation control: skewing the replicates moves the limits that are drawn."""
     ax = bootstrap(result.bootstrap, name="ate", level=0.9).axes[0]

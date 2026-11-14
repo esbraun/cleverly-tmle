@@ -148,7 +148,7 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference
 from ..inference.cluster import influence_variance
 from ..inference.delta import one_sided_quantile
-from ..inference.influence import spread_name
+from ..inference.influence import ParameterEstimate, spread_name
 from ..interventions.base import RegimeSet
 from ..interventions.learned import (
     LEARNED_RULE_BENCHMARK_REFUSAL,
@@ -161,6 +161,7 @@ from ..interventions.learned import (
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
+from ._limits import bound_limits
 from ._mechanism_stack import (
     MechanismRefusal,
     configuration_refusal,
@@ -2530,15 +2531,15 @@ def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
     return float(abs(rho) * np.sqrt(cf_y * cf_d / (1.0 - cf_d)))
 
 
-def _one_sided_quantile(level: float, df: int | None = None) -> float:
-    """Validate the one-sided coverage level before computing its reference quantile.
+def _one_sided_quantile(level: float) -> float:
+    """Validate the one-sided coverage level and return its normal quantile.
 
-    ``df`` is the Student t degrees of freedom of the bounded estimate, or ``None`` for the
-    normal reference.
+    The limits themselves read the estimate's own interval rule through
+    :func:`~cleverly.inference.interval_reference`; this checks the level up front.
     """
     if not 0.5 <= level < 1.0:
         raise ValueError(f"level must lie in [0.5, 1); got {level}")
-    return one_sided_quantile(level, df)
+    return one_sided_quantile(level)
 
 
 def _benchmark_strengths(
@@ -2695,7 +2696,6 @@ def omitted_variable_bounds(
     )
     elements = _combined_elements(draws, result)
     estimate = result[estimand]
-    quantile = _one_sided_quantile(level, estimate.reference_df)
     strength = _confounding_strength(cf_y, cf_d, rho)
     psis = np.array([draw.psi for draw in draws])
     scales = np.array([draw.elements.max_bias for draw in draws])
@@ -2711,11 +2711,11 @@ def omitted_variable_bounds(
     ci_lower: float | None = None
     ci_upper: float | None = None
     if elements.psi_max_bias is not None:
-        ci_lower = _limit(draws, result, strength, -1.0, quantile)
-        ci_upper = _limit(draws, result, strength, 1.0, quantile)
+        ci_lower = _limit(draws, result, strength, -1.0, estimate, level)
+        ci_upper = _limit(draws, result, strength, 1.0, estimate, level)
 
     rv, rva = _robustness_values(
-        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate
     )
     return SensitivityBounds(
         estimand=estimand,
@@ -2762,12 +2762,24 @@ def _edge(draws: tuple[_Draw, ...], signed_strength: float) -> float:
 
 
 def _limit(
-    draws: tuple[_Draw, ...], result: TMLEResult, strength: float, side: float, quantile: float
+    draws: tuple[_Draw, ...],
+    result: TMLEResult,
+    strength: float,
+    side: float,
+    estimate: ParameterEstimate,
+    level: float,
 ) -> float:
     """The one-sided limit of the bound at ``strength``, by the median rule.
 
     ``side`` names the end: ``-1`` for the lower bound, which the limit extends downward,
     and ``1`` for the upper.  It is separate from the strength, which can be zero.
+
+    The limit reads the interval rule of the bounded estimate
+    (:func:`~cleverly.inference.interval_reference`) about the bound and its standard error:
+    its t reference, the range-logit scale of a bounded mean, the skew-widened t of a
+    continuous outcome, and the MOVER multiples of a bounded difference.  At zero strength
+    on one draw the two limits are the one-sided limits of the estimate's own interval, so
+    at ``level = 1 - alpha / 2`` they are its :attr:`~cleverly.inference.ParameterEstimate.ci`.
 
     Under a declared stopping rule the limit also adds the absolute mean of the estimate's
     influence curve, the score the targeting left (the margin of
@@ -2785,7 +2797,23 @@ def _limit(
         if draw.widened:
             margins.append(abs(float(np.mean(draw.curve))))
     center, error = _median_rule(np.array(points), np.array(errors))
-    return center + side * (quantile * error + max(margins))
+    curve = None
+    if len(draws) == 1:
+        psi_bias = draws[0].elements.psi_max_bias
+        assert psi_bias is not None and draws[0].curve is not None
+        curve = np.asarray(draws[0].curve, dtype=float) + signed_strength * np.asarray(
+            psi_bias, dtype=float
+        )
+    read = bound_limits(
+        estimate,
+        level=level,
+        sided="one",
+        psi=center,
+        std_error=error,
+        influence_curve=curve,
+        margin=max(margins),
+    )
+    return read.lower if side < 0 else read.upper
 
 
 def _robustness_values(
@@ -2795,7 +2823,7 @@ def _robustness_values(
     rho: float,
     level: float,
     null_hypothesis: float,
-    df: int | None = None,
+    estimate: ParameterEstimate,
 ) -> tuple[float | None, float | None]:
     """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null.
 
@@ -2811,7 +2839,7 @@ def _robustness_values(
     alignment = abs(rho)
     if not 0.0 <= alignment <= 1.0:
         raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
-    quantile = _one_sided_quantile(level, df)
+    _one_sided_quantile(level)
 
     def equal_share(strength: float) -> float:
         assert alignment > 0.0
@@ -2830,7 +2858,7 @@ def _robustness_values(
         return value
 
     def limit_at(strength: float) -> float:
-        return _limit(draws, result, strength, side, quantile)
+        return _limit(draws, result, strength, side, estimate, level)
 
     distance = abs(psi - null_hypothesis)
     if distance == 0.0:
@@ -3424,7 +3452,7 @@ def robustness_value(
     elements = _combined_elements(draws, result)
     estimate = result[estimand]
     rv, rva = _robustness_values(
-        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate
     )
     status = estimate.inference
     values: dict[str, Any] = {"inference": status} if is_labelled(status) else {}
