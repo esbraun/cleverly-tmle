@@ -241,11 +241,11 @@ class OracleHazard(BaseEstimator):  # type: ignore[misc]
         self.edges = edges
         self.law = law
 
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleHazard:  # noqa: N803
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleHazard:
         self.classes_ = np.array([0.0, 1.0])
         return self
 
-    def predict_proba(self, X: Any) -> np.ndarray:  # noqa: N803
+    def predict_proba(self, X: Any) -> np.ndarray:
         design = np.asarray(X, dtype=float)
         e = np.asarray(self.edges, dtype=float)
         index = np.rint(design[:, 2]).astype(int)
@@ -265,7 +265,7 @@ class OracleHazard(BaseEstimator):  # type: ignore[misc]
 class CorrectOutcome(BaseEstimator):  # type: ignore[misc]
     """OLS on ``[1, A, A^2, W1, W2, A W1]``: the true regression's span.  Design ``[A, W1, W2]``."""
 
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CorrectOutcome:  # noqa: N803
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CorrectOutcome:
         self.coef_ = np.linalg.lstsq(self._basis(X), np.asarray(y, dtype=float), rcond=None)[0]
         return self
 
@@ -275,7 +275,7 @@ class CorrectOutcome(BaseEstimator):  # type: ignore[misc]
         a, w1, w2 = x[:, 0], x[:, 1], x[:, 2]
         return np.column_stack([np.ones(a.size), a, a**2, w1, w2, a * w1])
 
-    def predict(self, X: Any) -> np.ndarray:  # noqa: N803
+    def predict(self, X: Any) -> np.ndarray:
         return np.asarray(self._basis(X) @ self.coef_, dtype=float)
 
 
