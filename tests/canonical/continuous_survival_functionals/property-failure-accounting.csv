@@ -1,0 +1,26 @@
+property,cell,role,requested,failed,rate,bound,allowed,leg,complete_case,worst_case,imputation,leg_passed,gate_passed,reason
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,failure bound,6.0,32.0,,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,se ratio in calibration band,0.03415468266596533,0.01968431312828478,"range: SE at min, estimates j=0 at min",True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,coverage in calibration band,0.013999513215200765,0.012085422349879082,support: j=0 covered,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,informative-failure witness,6.404435427469363,0.2648716343143394,replicate 33: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,informative-failure witness,7.5169812496666895,0.5967438948027551,replicate 722: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,informative-failure witness,6.186466065525873,0.2031934877896055,replicate 1638: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,informative-failure witness,7.1993825939321745,0.5087664370695053,replicate 1767: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,informative-failure witness,6.277734708080979,0.2266750156543519,replicate 2065: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__correctly_specified,positive,3200,6,0.001875,0.01,32,informative-failure witness,9.848801936295253,0.9333124608641202,replicate 2499: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,failure bound,6.0,32.0,,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,noise se ratio below band,0.21048616214181215,0.20793070685517157,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,informative-failure witness,6.404435427469363,0.2648716343143394,replicate 33: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,informative-failure witness,7.5169812496666895,0.5967438948027551,replicate 722: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,informative-failure witness,6.186466065525873,0.2031934877896055,replicate 1638: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,informative-failure witness,7.1993825939321745,0.5087664370695053,replicate 1767: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,informative-failure witness,6.277734708080979,0.2266750156543519,replicate 2065: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__noise_control,control,3200,6,0.001875,0.01,32,informative-failure witness,9.848801936295253,0.9333124608641202,replicate 2499: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,failure bound,6.0,32.0,,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,se ratio below band,0.052503226667141245,0.05178998080637598,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,informative-failure witness,6.404435427469363,0.2648716343143394,replicate 33: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,informative-failure witness,7.5169812496666895,0.5967438948027551,replicate 722: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,informative-failure witness,6.186466065525873,0.2031934877896055,replicate 1638: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,informative-failure witness,7.1993825939321745,0.5087664370695053,replicate 1767: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,informative-failure witness,6.277734708080979,0.2266750156543519,replicate 2065: largest absolute standardized value,True,True,within bound
+interval_calibration,rmst_rd__shrunken_se_control,control,3200,6,0.001875,0.01,32,informative-failure witness,9.848801936295253,0.9333124608641202,replicate 2499: largest absolute standardized value,True,True,within bound
