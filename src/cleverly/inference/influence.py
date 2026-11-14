@@ -1166,7 +1166,7 @@ class ParameterEstimate:
     >>> estimate.ci[0] < estimate.ci[1]
     True
     >>> estimate.interval_scale
-    'identity'
+    'skew_t'
 
     The small-sample reference applies a Student t only where the builder records a
     continuous outcome:

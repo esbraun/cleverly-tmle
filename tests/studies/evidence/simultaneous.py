@@ -161,8 +161,9 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
     ``"logit"`` and ``"range_logit"`` read the logit of the estimate's position in its
     ``bounds``, with the standard error carried there by the delta method, which is how the
     package builds that band.  ``"mover"`` and ``"skew_t"``, the asymmetric pointwise
-    intervals, read ``|Phi^-1(1 - p/2)|`` of the test of the truth, which inverts the interval.
-    A zero standard error gives 0 at the truth and infinity
+    intervals, read ``|Phi^-1(1 - p/2)|`` of the test of the truth, which inverts the interval;
+    the plug-in body of the test is read, as the standard error is, so a fit that withholds its
+    inference is still measured. A zero standard error gives 0 at the truth and infinity
     elsewhere: the band of such an estimate is the point.
 
     Raises
@@ -189,7 +190,7 @@ def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
     elif scale in {"mover", "skew_t"}:
         # An asymmetric interval has no single spread; its test inverts it, so the
         # statistic Phi^-1(1 - p/2) is at most z exactly when the interval holds the truth.
-        return abs(float(estimate.wald_test(float(truth)).statistic))
+        return abs(float(estimate._plugin_wald_test(float(truth)).statistic))
     elif scale in {"logit", "range_logit"}:
         if estimate.bounds is None:
             raise ValueError(f"{estimate.name} has no bounds to read on the {scale} scale")
