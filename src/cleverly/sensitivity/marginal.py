@@ -496,7 +496,15 @@ def marginal_estimand_refusal(result: Any, estimand: str | None = None) -> Refus
     """
     if estimand is None and len(default_estimand_candidates(result)) != 1:
         return None
-    return _estimand_refusal(result, _resolve_target(result, estimand))
+    try:
+        target = _resolve_target(result, estimand)
+    except CapabilityError as error:
+        # A target the bound is not derived for (a known-score ATT, a multi-arm conditional
+        # effect) refuses in the call; the row declares the same record.
+        if error.refusal is None:
+            raise
+        return error.refusal
+    return _estimand_refusal(result, target)
 
 
 def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:

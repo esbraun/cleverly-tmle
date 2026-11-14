@@ -68,8 +68,9 @@ The results that have one natural figure also draw it with `plot()`:
 `BootstrapResult.plot()` calls `bootstrap`.
 
 `LongitudinalResult.plot()` draws its curve over time with `curve`, or the estimates with
-`forest` when the fit has no curve, and `EffectCurveResult.plot()` draws the conditional effect
-over a modifier with `curve`.
+`forest` when the fit has no curve, `ContinuousSurvivalResult.plot()` draws its risks at the
+target times with `curve`, and `EffectCurveResult.plot()` draws the conditional effect over a
+modifier with `curve`.
 
 ## Fits over time and with external data
 
@@ -103,6 +104,13 @@ time point, or whose rows come from a trial and an external source.
   that product for each person under the arm they received, or under the other arm with
   `counterfactual=True`. `learners` draws each hazard's and the treatment model's candidates with
   the chosen one marked; a cross-fitted fit keeps the first fold's choices.
+- On the same fit, `curve` draws each arm's risk, or its cumulative incidence of each cause in one
+  column per cause, and their difference below. Each estimate is a point at a time in
+  `horizons=`, with its interval and, when the fit holds one, its simultaneous band. Nothing is
+  drawn between those times, because the fit estimates no risk there.
+  `curve(result, measure="rmst")` or `"rmtl"` draws the restricted means at the times in
+  `restricted_horizons=`. `result.plot()` calls `curve`.
 
-A continuous-time survival fit does not yet draw `curve`, and covariate balance over time is not
-drawn for any fit over time. Each refusal names the [roadmap](../roadmap.md) item that tracks it.
+Covariate balance over time is not drawn for any fit over time, and the refusal names the
+[roadmap](../roadmap.md) item that tracks it. A continuous-time fit's truncation curve carries the
+point-treatment columns, so `sensitivity` draws it.

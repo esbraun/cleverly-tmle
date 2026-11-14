@@ -2289,10 +2289,12 @@ KINDS: dict[str, Kind] = {
     "eliminated": _kind(fit_eliminated, *_READ, *_POINT),
     "separable": _kind(fit_separable, *_READ, *_POINT),
     "learned_regimen": _kind(fit_learned_regimen, *_READ),
-    # The E-value reads the risk ratio of the pair of risks the sweep names.
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, "evalue", refits=False),
+    # The stored estimator refits on the stored data (X101): refute answers through the first
+    # reported estimate, an arm risk, so it runs the noise test. The E-value reads the risk
+    # ratio of the pair of risks the sweep names.
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, *_POINT, "evalue"),
     "continuous_survival+restricted": _kind(
-        fit_continuous_survival_restricted, *_READ, "evalue", refits=False
+        fit_continuous_survival_restricted, *_READ, *_POINT, "evalue"
     ),
 }
 
@@ -2647,13 +2649,17 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule+level",
                 # The value at an intermediate level has no exact placebo null (X11 (j4)).
                 "optimal_rule+intermediate",
+                # The default continuous-time request reads cif_regimen, a risk with no
+                # fixed null, so the placebo declines there (X101).
+                "continuous_survival",
+                "continuous_survival+restricted",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
         # supplied plan no longer meets a default refusal, because ``subset`` keeps the
         # original fold labels, and an MSM coefficient has a placebo reference (X82 A2).
         _RAISED.format("refute")
-        + r"(the placebo refutation|the placebo has no exact null|"
+        + r"(the placebo refutation|the placebo has no (exact|fixed) null|"
         + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value|"
         # A mixed node's placebo meets its missing Markov kernel first (X82).
         + r"the longitudinal placebo has no Markov kernel)",

@@ -4178,6 +4178,13 @@ def boundary_cells(fit: RegimenFit) -> tuple[BoundaryCell, ...]:
         The cells, in time order.
     """
     if fit.hazard_clever is not None:
+        if fit.hazard_constant_nodes and not fit.hazard_boundary:
+            # A hazard fit inside the supplement's reach that flags a node must carry its
+            # cells, or the supplement drops the node's variance without a word.
+            raise AssertionError(
+                f"the hazard fit of {fit.regimen.label!r} at t={fit.horizon} flags the nodes "
+                f"{fit.hazard_constant_nodes} but carries no boundary cell"
+            )
         return fit.hazard_boundary
     cells = []
     for step in fit.steps:

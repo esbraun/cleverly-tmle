@@ -1128,7 +1128,9 @@ failure of the supplement (`tests/canonical/boundary_node_ltmle/regenerate.py`).
 
 The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
 one fold draw, the default variance, and no isotonic projection, fold average, learned rule or
-separable intervention. Every other fit keeps `constant_node_plugin`, and its warning names what
+separable intervention. A hazard fit with covariates measured after baseline is outside it: its
+curve adds at each node the residual of a regression of the future, which no binomial bound
+covers. Every other fit keeps `constant_node_plugin`, and its warning names what
 is missing (`BOUNDARY_NODE_OUT_OF_REACH` in `cleverly._inference_status`).
 
 | output | what it shows |
