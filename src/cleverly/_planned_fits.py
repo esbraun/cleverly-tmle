@@ -820,6 +820,7 @@ class FitCounter:
         *,
         task: Task,
         route_groups: bool = True,
+        stack: int = 1,
     ) -> Count:
         """One fit of ``learner`` on ``rows``.
 
@@ -835,6 +836,9 @@ class FitCounter:
             The fit's task.
         route_groups : bool
             Whether the fit hands the cluster codes to the learner.
+        stack : int
+            How many copies of the units ``target`` and ``rows`` index, block after block, as
+            a fit stacked over nodes does; the cluster codes are tiled to match.
 
         Returns
         -------
@@ -849,7 +853,8 @@ class FitCounter:
             return count_learner(learner, y, nominal=True)
         index = np.asarray(rows)
         y = as_target(np.asarray(target)[index], task) if reads else None
-        routed = _routed_groups(learner, self.groups) if route_groups else None
+        groups = None if self.groups is None else np.tile(self.groups, stack)
+        routed = _routed_groups(learner, groups) if route_groups else None
         return count_learner(
             learner,
             y,
@@ -866,6 +871,7 @@ class FitCounter:
         task: Task,
         fit_mask: BoolArray | None = None,
         constant_skip: bool = False,
+        stack: int = 1,
     ) -> Count:
         """The fits of one nuisance cross-fitted on ``folds``, as :func:`count_cross_fit`.
 
@@ -883,6 +889,10 @@ class FitCounter:
             The rows eligible for training.
         constant_skip : bool
             As :func:`count_cross_fit`.
+        stack : int
+            How many copies of the units ``target`` stacks, block after block, as a pooled
+            fit over nodes does.  ``folds`` then labels the stacked rows, and the weights and
+            cluster codes are tiled to match.
 
         Returns
         -------
@@ -897,9 +907,9 @@ class FitCounter:
             target,
             folds,
             task=task,
-            weights=self.weights,
+            weights=np.tile(self.weights, stack),
             fit_mask=fit_mask,
-            groups=self.groups,
+            groups=None if self.groups is None else np.tile(self.groups, stack),
             constant_skip=constant_skip,
             seed_fixed=self.seed_fixed,
         )

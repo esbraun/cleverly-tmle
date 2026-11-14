@@ -350,7 +350,18 @@ def _check_diagnostics(result: Any) -> None:
             _check_diagnostics(member)
         return
     for repeat in getattr(result, "repeats", ()):
-        for value in repeat.nuisance.diagnostics.values():
+        nuisance = getattr(repeat, "nuisance", None)
+        if nuisance is not None:
+            values: list[Any] = list(nuisance.diagnostics.values())
+        else:
+            # A longitudinal draw: the mechanism's diagnostics, node by node.
+            mechanism = repeat.mechanism
+            values = [
+                *mechanism.treatment_diagnostics,
+                *mechanism.censoring_diagnostics,
+                *mechanism.competing_diagnostics,
+            ]
+        for value in values:
             for item in value if isinstance(value, (list, tuple)) else (value,):
                 failed = getattr(item, "failed", ())
                 assert failed == (), failed

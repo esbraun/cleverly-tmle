@@ -6600,11 +6600,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             return plan_trial_effect(self, self._trial_method(normalized))
         assert self._study is not None
         if isinstance(self._study.data, ContinuousSurvivalData):
-            # TODO(X106 phase 3): the continuous-time survival engine.
-            raise NotImplementedError("TODO(X106 phase 3): continuous survival is not priced")
+            engine, _ = self._continuous_engine(normalized)
+            return engine._planned_fits(self._study.data)
         if self.functional.longitudinal:
-            # TODO(X106 phase 3): the longitudinal and survival engines.
-            raise NotImplementedError("TODO(X106 phase 3): longitudinal fits are not priced")
+            return cast(
+                "PlannedFits",
+                self._longitudinal_engine(normalized)._planned_fits(self._study.data),
+            )
         if isinstance(normalized, EPMethod):
             assert isinstance(self._study.data, CausalData)
             return self._effect_curve_estimator(normalized)._planned_fits(self._study.data)
@@ -6985,12 +6987,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
         functional = self.functional
-        settings = {
-            "arms": functional.interventions,
-            "reference": functional.reference,
-            **continuous_kwargs(method),
-        }
-        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
+        engine, settings = self._continuous_engine(method)
         try:
             return engine.fit_data(data)
         except ContinuousSurvivalMemoryError as error:
@@ -7019,8 +7016,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
             raise spelled_error from error
 
-    def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
-        assert self._study is not None and isinstance(self._study.data, LongitudinalData)
+    def _continuous_engine(
+        self, method: EstimationMethod
+    ) -> tuple[ContinuousSurvivalTMLE, dict[str, Any]]:
+        """The engine :meth:`_estimate_continuous` fits and :meth:`planned_fits` counts."""
+        functional = self.functional
+        settings = {
+            "arms": functional.interventions,
+            "reference": functional.reference,
+            **continuous_kwargs(method),
+        }
+        return ContinuousSurvivalTMLE(functional.horizons or (), **settings), settings
+
+    def _longitudinal_engine(self, method: EstimationMethod) -> Any:
+        """The engine :meth:`_estimate_longitudinal` fits and :meth:`planned_fits` counts."""
         functional = self.functional
         engine: type[Any] = (
             SDR
@@ -7039,13 +7048,18 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, DRTMLEMethod)
             else LTMLE
         )
-        estimator = engine(
+        return engine(
             functional.interventions,
             reference=functional.reference,
             horizons=functional.horizons,
             msm=functional.msm,
             **method.estimator_kwargs(longitudinal=True),
         )
+
+    def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
+        assert self._study is not None and isinstance(self._study.data, LongitudinalData)
+        functional = self.functional
+        estimator = self._longitudinal_engine(method)
         raw = estimator.fit(self._study.data)
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
