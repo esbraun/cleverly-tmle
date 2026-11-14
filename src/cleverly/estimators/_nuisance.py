@@ -2872,7 +2872,7 @@ def classifier_branches(data: CausalData, policies: Sequence[object]) -> int:
     Parameters
     ----------
     data : CausalData
-        The prepared data, with a treatment of one column.
+        The prepared data.
     policies : sequence of object
         The policies the classifier route evaluates, tuned caps expanded.
 
@@ -2881,8 +2881,15 @@ def classifier_branches(data: CausalData, policies: Sequence[object]) -> int:
     int
         The number of policy branches.
     """
-    from ..interventions.policy import _point_discrete_assignments, lazy_frame, policy_branches
+    from ..interventions.policy import (
+        _point_discrete_assignments,
+        _vector_setup,
+        lazy_frame,
+        policy_branches,
+    )
 
+    if data.treatment_kind == "vector":
+        return len(_vector_setup(tuple(policies), data).owners)
     if data.is_continuous_treatment:
         return sum(len(policy_branches(policy)) for policy in policies)
     frame = lazy_frame(
@@ -2911,6 +2918,7 @@ def plan_nuisances(
     screen_threshold: float = 0.1,
     min_retain: int | None = None,
     has_policies: bool = False,
+    policies: Sequence[object] = (),
     classifier_fits: int = 0,
     policy_ratio: str = "density",
     density_bins: int | None = None,
@@ -2946,6 +2954,10 @@ def plan_nuisances(
         The screener's floor.
     has_policies : bool
         Whether the fit declares policies.
+    policies : sequence of object
+        The policies a vector treatment's density route evaluates, as the fit passes them;
+        empty when their tuned caps are not fitted yet, which the density's count does
+        not read.
     classifier_fits : int
         The classifiers per fold of the classifier ratio route: one per policy branch.
     policy_ratio : str
@@ -2975,9 +2987,9 @@ def plan_nuisances(
     from ..learners.density import plan_conditional_density
     from ..learners.density_ratio import plan_classifier_ratio
 
-    if data.treatment_kind == "vector":
-        # TODO(X106 phase 2): the vector-treatment routes (joint density, vector classifier).
-        raise NotImplementedError("TODO(X106 phase 2): vector treatments are not priced yet")
+    vector = data.treatment_kind == "vector"
+    if vector and (not has_policies or not fit_treatment):
+        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
     groups = data.cluster
     recorded = data.treatment_recorded if data.has_missing_treatment else None
     weights = np.asarray(data.weights, dtype=float)
@@ -3012,8 +3024,33 @@ def plan_nuisances(
         if screen_treatment
         else treatment_learner
     )
-    if data.is_continuous_treatment and has_policies and policy_ratio == "classifier":
-        if data.dose_atoms and folds is not None:
+    if vector and data.component_atoms and folds is not None:
+        check_component_atoms(
+            np.asarray(data.treatment_components, dtype=float),
+            tuple(
+                JointComponent(name, levels)
+                for name, levels in zip(data.component_names, data.component_levels, strict=True)
+            ),
+            np.ones(data.n, dtype=bool),
+            data.component_atoms,
+            folds,
+            ratio=policy_ratio,
+        )
+    if vector and policy_ratio != "classifier":
+        out.extend(
+            PlannedRole("treatment_learner", what, count, False)
+            for what, count in plan_vector_treatment(
+                data,
+                treatment_model,
+                folds,
+                policies=policies,
+                density_bins=density_bins,
+                seed_fixed=seed_fixed,
+                nominal_folds=nominal_folds,
+            )
+        )
+    elif vector or (data.is_continuous_treatment and has_policies and policy_ratio == "classifier"):
+        if data.dose_atoms and folds is not None and not vector:
             check_declared_atoms(
                 data.treatment,
                 np.ones(data.n, dtype=bool),
@@ -3645,3 +3682,86 @@ def _retained_covariates(
         sample_weight=data.weights[rows],
     )
     return tuple(name for name, flag in zip(names, keep, strict=True) if flag)
+
+
+def plan_vector_treatment(
+    data: CausalData,
+    learner: Learner,
+    folds: Folds | None,
+    *,
+    policies: Sequence[object],
+    density_bins: int | None,
+    seed_fixed: bool,
+    nominal_folds: int | None,
+) -> list[tuple[str, Any]]:
+    """The fits of a vector treatment's density route, counted without fitting.
+
+    With the policies, :func:`~cleverly.interventions.policy.plan_vector_density` runs their
+    checks and counts the chain rule's factors.  Without them (a learner-backed tuned cap
+    that the fit resolves first), the factors are counted from the observed treatment
+    alone, which is all their count reads.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, with a vector treatment.
+    learner : Learner
+        The resolved treatment learner.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    policies : sequence of object
+        The joint policies, or empty.
+    density_bins : int or None
+        The bin count of each dose.
+    seed_fixed : bool
+        As :func:`~cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        As :func:`plan_nuisances`.
+
+    Returns
+    -------
+    list of tuple
+        ``(what, Count)`` per factor.
+    """
+    from ..interventions.joint_density import (
+        NodeLayout,
+        joint_density_inputs,
+        plan_joint_density,
+    )
+    from ..interventions.policy import component_atom_layout, plan_vector_density
+
+    if policies:
+        return plan_vector_density(
+            policies,
+            data,
+            learner,
+            folds,
+            n_bins=density_bins,
+            seed_fixed=seed_fixed,
+            nominal_folds=nominal_folds,
+        )
+    components = tuple(
+        JointComponent(name, levels)
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+    )
+    layout = NodeLayout(
+        components,
+        np.asarray(data.treatment_components, dtype=float),
+        np.ones(data.n, dtype=bool),
+        lambda extra: None,
+        np.asarray(data.mechanism_covariates, dtype=float),
+        f"treatment {data.treatment_name!r}",
+        component_atom_layout(components, data.component_atoms),
+    )
+    inputs = joint_density_inputs(layout, (), (), n_bins=density_bins)
+    return plan_joint_density(
+        layout,
+        inputs,
+        learner=learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=density_bins,
+        groups=data.cluster,
+        seed_fixed=seed_fixed,
+        nominal_folds=nominal_folds,
+    )

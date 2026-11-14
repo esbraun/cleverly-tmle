@@ -43,13 +43,17 @@ from .atmle import (
     SOURCE_FLOOR,
     AdaptiveTMLEFit,
     WorkingModel,
+    _check_inputs,
+    check_split,
     fit_adaptive_tmle,
     stratified_partition,
 )
 
 if TYPE_CHECKING:
+    from .._planned_fits import PlannedFits
     from ..data.causal_data import CausalData
     from ..inference.delta import Transform
+    from ..learners._fitting import Task
     from ..methods import AdaptiveTMLEMethod
     from ..study import IdentifiedEffect
 
@@ -811,6 +815,150 @@ def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int, observed: Any) ->
         kwargs["n_folds"],
         seed,
     )
+
+
+def plan_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> PlannedFits:
+    """The learner fits :func:`fit_trial_effect` would make, counted without fitting.
+
+    Each call of the nuisance fit trains the treatment learner, the trial-membership learner
+    twice (``pi`` and ``pibar``) and the outcome learner twice, or once with the missingness
+    learner once under missing outcomes.  The pooled form makes one call per outer fold;
+    the cross-validated form adds one per pair of outer folds.  The working models are
+    selected by an in-house lasso, which fits no learner.
+
+    Parameters
+    ----------
+    effect : IdentifiedEffect
+        The identified trial effect, bound to its study.
+    method : AdaptiveTMLEMethod
+        The declared method.
+
+    Returns
+    -------
+    PlannedFits
+        The record.
+    """
+    from .._planned_fits import FitCounter, PlanBuilder
+    from .._summary._learners import learner_name
+    from ..data.causal_data import CausalData
+    from ..study import TrialATE
+
+    study = effect._study
+    assert study is not None
+    data = study.data
+    estimand = effect.estimand
+    assert isinstance(data, CausalData) and data.source is not None
+    assert isinstance(estimand, TrialATE)
+    kwargs = method.estimator_kwargs()
+    declared = kwargs["random_state"]
+    seed = _fresh_seed() if declared is None else int(declared)
+    state: Literal["realized", "outer realized", "one draw"] = (
+        "realized"
+        if declared is not None
+        else "outer realized"
+        if kwargs["split_plan"] is not None
+        else "one draw"
+    )
+    family: Literal["gaussian", "binomial"] = (
+        "binomial" if data.family == "binomial" else "gaussian"
+    )
+    outcome_task: Task = "classification" if family == "binomial" else "regression"
+    inner = kwargs["inner_folds"]
+
+    def resolved(spec: Any, task: Task) -> Any:
+        return resolve_learner(spec, task=task, n_folds=inner, random_state=seed)
+
+    missing = effect.functional.missingness is not None
+    outcome = resolved(kwargs["outcome_learner"], outcome_task)
+    treatment = resolved(kwargs["treatment_learner"], "classification")
+    source = resolved(kwargs["source_learner"], "classification")
+    observing = resolved(kwargs["missingness_learner"], "classification") if missing else None
+    split = _outer_folds(data, kwargs, seed, data.observed if missing else None)
+    y, a, s, _, seen = _check_inputs(
+        data.outcome,
+        data.treatment,
+        data.source.astype(float),
+        data.covariates,
+        data.observed if missing else None,
+    )
+    if kwargs["form"] not in ("cv", "pooled"):
+        raise ValueError(f"form must be 'cv' or 'pooled'; got {kwargs['form']!r}")
+    check_split(split, y.size, kwargs["form"])
+    counter = FitCounter(weights=np.ones(y.size), groups=None, seed_fixed=state == "realized")
+    controls_only = not bool(np.any((s == 0.0) & (a == 1.0)))
+    assignment = np.asarray(split.assignment)
+    every = np.arange(y.size)
+    trains = [
+        every if split.n_folds == 1 else np.flatnonzero(assignment != v)
+        for v in range(split.n_folds)
+    ]
+    pairs = (
+        [
+            np.flatnonzero((assignment != u) & (assignment != v))
+            for u in range(split.n_folds)
+            for v in range(u + 1, split.n_folds)
+        ]
+        if kwargs["form"] == "cv"
+        else []
+    )
+    builder = PlanBuilder()
+    for rows_list, scope in (
+        (trains, "per outer fold"),
+        (pairs, "per pair of outer folds, for the working-model selection"),
+    ):
+        for train in rows_list:
+            members = train[a[train] == 0.0] if controls_only else train
+            builder.add(
+                "treatment_learner",
+                f"treatment mechanism, {scope}",
+                learner_name(kwargs["treatment_learner"]),
+                counter.one(treatment, a, train, task="classification", route_groups=False),
+            )
+            count = counter.one(source, s, members, task="classification", route_groups=False)
+            count.add(counter.one(source, s, train, task="classification", route_groups=False))
+            builder.add(
+                "source_learner" if method.source_learner is not None else "treatment_learner",
+                f"trial membership, with and without the arm, {scope}",
+                learner_name(kwargs["source_learner"]),
+                count,
+            )
+            if seen is None:
+                fits = counter.one(outcome, y, train, task=outcome_task, route_groups=False)
+                builder.add(
+                    "outcome_learner",
+                    f"outcome regression, with and without the arm, {scope}",
+                    learner_name(kwargs["outcome_learner"]),
+                    fits.scaled(2),
+                )
+                continue
+            assert observing is not None
+            builder.add(
+                "outcome_learner",
+                f"outcome regression on the observed rows, {scope}",
+                learner_name(kwargs["outcome_learner"]),
+                counter.one(outcome, y, train[seen[train]], task=outcome_task, route_groups=False),
+            )
+            builder.add(
+                "missingness_learner",
+                f"outcome observed, {scope}",
+                learner_name(kwargs["missingness_learner"]),
+                counter.one(
+                    observing,
+                    seen.astype(float),
+                    train,
+                    task="classification",
+                    route_groups=False,
+                ),
+            )
+    builder.multiply("outer folds", split.n_folds)
+    selections = split.n_folds if kwargs["form"] == "cv" else 1
+    builder.search(
+        "ATMLE working-model penalty path (effect and bias models, per selection)",
+        2 * selections,
+        False,
+        0,
+    )
+    return builder.build(state)
 
 
 def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> AdaptiveTMLEResult:

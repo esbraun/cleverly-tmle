@@ -76,6 +76,7 @@ __all__ = [
     "WorkingUnit",
     "arm_hierarchy",
     "bias_term",
+    "check_split",
     "evaluate",
     "fit_adaptive_tmle",
     "kkt_residual",
@@ -1724,6 +1725,35 @@ def _check_inputs(
     return y, a, s, w, seen
 
 
+def check_split(split: Folds, n: int, form: Form) -> None:
+    """Refuse an outer split that does not cover the rows, or too few folds for ``"cv"``.
+
+    Parameters
+    ----------
+    split : Folds
+        The outer split.
+    n : int
+        The number of rows.
+    form : {"cv", "pooled"}
+        The estimator's form.
+
+    Raises
+    ------
+    ValueError
+        If the split covers another number of rows.
+    MethodConfigurationError
+        If ``form="cv"`` has fewer than three folds.
+    """
+    if split.n != n:
+        raise ValueError(f"the folds cover {split.n} rows; the data hold {n}")
+    if form == "cv" and split.n_folds < 3:
+        raise MethodConfigurationError(
+            "The adaptive CV-TMLE selects each fold's working model with nuisances that read "
+            "neither that fold nor the row's own fold, which needs at least three folds. Use "
+            "n_folds=3 or more, or form='pooled'."
+        )
+
+
 def fit_adaptive_tmle(
     outcome: Any,
     treatment: Any,
@@ -1831,14 +1861,7 @@ def fit_adaptive_tmle(
         if folds is not None
         else stratified_partition(s, y, seen, outcome_family, n_folds, random_state)
     )
-    if split.n != n:
-        raise ValueError(f"the folds cover {split.n} rows; the data hold {n}")
-    if form == "cv" and split.n_folds < 3:
-        raise MethodConfigurationError(
-            "The adaptive CV-TMLE selects each fold's working model with nuisances that read "
-            "neither that fold nor the row's own fold, which needs at least three folds. Use "
-            "n_folds=3 or more, or form='pooled'."
-        )
+    check_split(split, n, form)
     names = None if covariate_names is None else tuple(str(name) for name in covariate_names)
     if names is not None and len(names) != w.shape[1]:
         raise ValueError(f"covariate_names has {len(names)} names for {w.shape[1]} columns")

@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ._summary import Summary
     from ._typing import BoolArray, FloatArray, IntArray, Learner
     from .learners._fitting import Task
@@ -749,6 +751,160 @@ def count_nominal(learner: Learner, target: FloatArray, n_fits: int, *, task: Ta
     return count_learner(learner, y, nominal=True).scaled(n_fits)
 
 
+@dataclass
+class PlanItem:
+    """One row's worth of fits that a variant's search adds, before its scope is set.
+
+    Parameters
+    ----------
+    role : str
+        The row's role.
+    what : str
+        What the fits are, in plain words; the caller adds how often.
+    learner : str
+        The learner's printed name.
+    count : Count
+        The fits.
+    upper : str or None
+        Why the count is an upper bound, or ``None`` when it is exact.
+    min_fits : int or None
+        The fewest fits an upper count can realize.
+    """
+
+    role: str
+    what: str
+    learner: str
+    count: Count
+    upper: str | None = None
+    min_fits: int | None = None
+
+
+class FitCounter:
+    """Counts the fits of a construction on its own rows, realized or at nominal counts.
+
+    The searches of the collaborative, doubly robust and adaptive engines fit learners on
+    rows they choose themselves.  One counter serves the original draw, where each fit
+    reads its training rows, and a bootstrap replicate, where each fit is counted at the
+    learner's nominal counts because the resample is not drawn ahead.
+
+    Parameters
+    ----------
+    weights : ndarray
+        ``(n,)`` the fit weights, which the constant-fold rule reads.
+    groups : ndarray or None
+        Cluster codes.
+    seed_fixed : bool
+        As :func:`count_learner`.
+    nominal : bool
+        Count every fit at the learner's nominal counts, with no constant-fold skip.
+    """
+
+    def __init__(
+        self,
+        *,
+        weights: FloatArray,
+        groups: IntArray | None,
+        seed_fixed: bool = True,
+        nominal: bool = False,
+    ) -> None:
+        self.weights = np.asarray(weights, dtype=float)
+        self.groups = groups
+        self.seed_fixed = seed_fixed
+        self.nominal = nominal
+
+    def one(
+        self,
+        learner: Learner,
+        target: FloatArray | None,
+        rows: IntArray,
+        *,
+        task: Task,
+        route_groups: bool = True,
+    ) -> Count:
+        """One fit of ``learner`` on ``rows``.
+
+        Parameters
+        ----------
+        learner : Learner
+            The resolved learner.
+        target : ndarray or None
+            ``(n,)`` the target on every row; ``None`` when the learner reads none.
+        rows : ndarray of int
+            The training rows.
+        task : {"regression", "classification"}
+            The fit's task.
+        route_groups : bool
+            Whether the fit hands the cluster codes to the learner.
+
+        Returns
+        -------
+        Count
+            The fit and its candidate fits.
+        """
+        from .learners._fitting import as_target
+
+        reads = needs_target(learner) and target is not None
+        if self.nominal:
+            y = as_target(np.asarray(target), task) if reads else None
+            return count_learner(learner, y, nominal=True)
+        index = np.asarray(rows)
+        y = as_target(np.asarray(target)[index], task) if reads else None
+        routed = _routed_groups(learner, self.groups) if route_groups else None
+        return count_learner(
+            learner,
+            y,
+            groups=None if routed is None else routed[index],
+            seed_fixed=self.seed_fixed,
+        )
+
+    def cross(
+        self,
+        learner: Learner,
+        target: FloatArray,
+        folds: Folds,
+        *,
+        task: Task,
+        fit_mask: BoolArray | None = None,
+        constant_skip: bool = False,
+    ) -> Count:
+        """The fits of one nuisance cross-fitted on ``folds``, as :func:`count_cross_fit`.
+
+        Parameters
+        ----------
+        learner : Learner
+            The resolved learner.
+        target : ndarray
+            ``(n,)`` the target.
+        folds : Folds
+            The split.
+        task : {"regression", "classification"}
+            The fit's task.
+        fit_mask : ndarray or None
+            The rows eligible for training.
+        constant_skip : bool
+            As :func:`count_cross_fit`.
+
+        Returns
+        -------
+        Count
+            The fits over the folds.
+        """
+        if self.nominal:
+            fits = 1 if folds.is_single else folds.n_folds
+            return count_nominal(learner, target, fits, task=task)
+        return count_cross_fit(
+            learner,
+            target,
+            folds,
+            task=task,
+            weights=self.weights,
+            fit_mask=fit_mask,
+            groups=self.groups,
+            constant_skip=constant_skip,
+            seed_fixed=self.seed_fixed,
+        )
+
+
 # ----------------------------------------------------------------- building the record
 
 
@@ -770,6 +926,7 @@ class PlanBuilder:
         self._multipliers: dict[str, int] = {}
         self._notes: list[str] = []
         self._unpreviewed: list[str] = []
+        self._searches: dict[str, tuple[int, bool, int]] = {}
 
     def add(
         self,
@@ -831,6 +988,61 @@ class PlanBuilder:
         if text not in self._notes:
             self._notes.append(text)
 
+    def search(self, name: str, maximum: int, stops_early: bool, learner_fits: int) -> None:
+        """Record a candidate search, adding to an earlier entry under the same name.
+
+        Parameters
+        ----------
+        name : str
+            The search, in plain words.
+        maximum : int
+            The most steps it can take, summed over every run.
+        stops_early : bool
+            Whether it can stop before its maximum.
+        learner_fits : int
+            The learner fits its steps make, already counted in the rows.
+        """
+        steps, early, fits = self._searches.get(name, (0, False, 0))
+        self._searches[name] = (steps + int(maximum), early or stops_early, fits + learner_fits)
+
+    def absorb(
+        self,
+        plan: PlannedFits,
+        scope: Callable[[str], str],
+        *,
+        upper: str | None = None,
+        continuous: Callable[[PlannedFitRow], bool] | None = None,
+    ) -> None:
+        """Add every row of another preview, under a new scope.
+
+        Parameters
+        ----------
+        plan : PlannedFits
+            A preview of a fit that runs inside this one.
+        scope : callable
+            Maps a row's scope to the scope it takes here.
+        upper : str or None
+            Why the rows are an upper bound here though exact there, or ``None``.
+        continuous : callable or None
+            With ``upper``, whether a row keeps its fits as its minimum; a row it rejects
+            has minimum 0.  ``None`` keeps every row's own minimum.
+        """
+        cv = {name: folds for name, _, folds in plan.candidates}
+        for row in plan.rows:
+            count = Count(fits=row.fits, candidates=Counter(dict(row.by_candidate)))
+            count.internal_cv = {name: cv.get(name) for name in count.candidates}
+            if row.why:
+                count.upper.append(row.why)
+            low = row.fits if row.min_fits is None else row.min_fits
+            if upper is not None and continuous is not None and not continuous(row):
+                low = 0
+            self.add(row.role, scope(row.scope), row.learner, count, upper=upper, min_fits=low)
+        for text in plan.notes:
+            self.note(text)
+        self.defer(*plan.unpreviewed)
+        for name, maximum, early, fits in plan.searches:
+            self.search(name, maximum, early, fits)
+
     def defer(self, *names: str) -> None:
         """Name checks ``estimate`` runs after the point where the preview stops.
 
@@ -889,6 +1101,9 @@ class PlanBuilder:
             rows=tuple(rows),
             candidates=tuple((name, int(value), cv.get(name)) for name, value in totals.items()),
             multipliers=tuple(self._multipliers.items()),
+            searches=tuple(
+                (name, steps, early, fits) for name, (steps, early, fits) in self._searches.items()
+            ),
             folds=folds,
             unpreviewed=tuple(self._unpreviewed),
             notes=tuple(notes),

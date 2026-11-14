@@ -4571,40 +4571,11 @@ class PolicySet:
         PolicySet
             Every policy evaluated on the data, with the joint factors kept.
         """
-        from .joint_density import (
-            JointBranch,
-            JointEvaluation,
-            NodeLayout,
-            evaluate_joint_density,
-            warn_unsupported_values,
-        )
+        from .joint_density import evaluate_joint_density, warn_unsupported_values
 
-        declared = tuple(policies)
-        if not declared:
-            raise DataError("at least one policy is required")
-        names = tuple(str(getattr(policy, "name", "")) for policy in declared)
-        if len(set(names)) != len(names):
-            raise DataError(f"policy names must be distinct; got {list(names)}")
-        refuse_policy_declarations(declared)
-        setup = _vector_setup(declared, data)
-        shifted = np.stack(setup.assigned, axis=1)
-        count = shifted.shape[1]
-        layout = NodeLayout(
-            setup.components,
-            setup.natural,
-            np.ones(data.n, dtype=bool),
-            setup.frame_with,
-            np.asarray(data.mechanism_covariates, dtype=float),
-            setup.where,
-            component_atom_layout(setup.components, data.component_atoms),
+        declared, names, setup, shifted, layout, branches, evaluations = _vector_density_setup(
+            policies, data
         )
-        branches = [
-            JointBranch(policy.name, mapping, policy.order) for _, policy, mapping in setup.owners
-        ]
-        everything = tuple(range(count))
-        evaluations = [JointEvaluation(setup.natural, everything)] + [
-            JointEvaluation(shifted[:, s], everything) for s in range(count)
-        ]
         parts = evaluate_joint_density(
             layout,
             branches,
@@ -5102,6 +5073,98 @@ def refuse_component_atoms(
         _refuse_undeclared_atoms(
             doses, atoms=declared, moved=moved, bins=bins, where=component.name, component=True
         )
+
+
+def _vector_density_setup(policies: Sequence[object], data: CausalData) -> tuple[Any, ...]:
+    """The node, branches and evaluations of a vector density fit, before any learner.
+
+    :meth:`PolicySet.evaluate_vector_density` and :func:`plan_vector_density` call it, so the
+    preview meets the policies' checks.
+    """
+    from .joint_density import JointBranch, JointEvaluation, NodeLayout
+
+    declared = tuple(policies)
+    if not declared:
+        raise DataError("at least one policy is required")
+    names = tuple(str(getattr(policy, "name", "")) for policy in declared)
+    if len(set(names)) != len(names):
+        raise DataError(f"policy names must be distinct; got {list(names)}")
+    refuse_policy_declarations(declared)
+    setup = _vector_setup(declared, data)
+    shifted = np.stack(setup.assigned, axis=1)
+    count = shifted.shape[1]
+    layout = NodeLayout(
+        setup.components,
+        setup.natural,
+        np.ones(data.n, dtype=bool),
+        setup.frame_with,
+        np.asarray(data.mechanism_covariates, dtype=float),
+        setup.where,
+        component_atom_layout(setup.components, data.component_atoms),
+    )
+    branches = [
+        JointBranch(policy.name, mapping, policy.order) for _, policy, mapping in setup.owners
+    ]
+    everything = tuple(range(count))
+    evaluations = [JointEvaluation(setup.natural, everything)] + [
+        JointEvaluation(shifted[:, s], everything) for s in range(count)
+    ]
+    return declared, names, setup, shifted, layout, branches, evaluations
+
+
+def plan_vector_density(
+    policies: Sequence[object],
+    data: CausalData,
+    learner: Any,
+    folds: Folds | None,
+    *,
+    n_bins: int | None = None,
+    seed_fixed: bool = True,
+    nominal_folds: int | None = None,
+) -> list[tuple[str, Any]]:
+    """The fits :meth:`PolicySet.evaluate_vector_density` makes, counted without fitting.
+
+    Runs the same checks before the first learner: the policies' evaluation and the
+    enumeration of every design
+    (:func:`~cleverly.interventions.joint_density.joint_density_inputs`).
+
+    Parameters
+    ----------
+    policies : sequence of object
+        The joint policies.
+    data : CausalData
+        The prepared data.
+    learner : Any
+        The resolved treatment learner.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    n_bins : int or None
+        The bin count of each dose.
+    seed_fixed : bool
+        As :func:`cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        As :func:`~cleverly.interventions.joint_density.plan_joint_density`.
+
+    Returns
+    -------
+    list of tuple
+        ``(what, Count)`` per factor.
+    """
+    from .joint_density import joint_density_inputs, plan_joint_density
+
+    _, _, _, _, layout, branches, evaluations = _vector_density_setup(policies, data)
+    inputs = joint_density_inputs(layout, branches, evaluations, n_bins=n_bins)
+    return plan_joint_density(
+        layout,
+        inputs,
+        learner=learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=n_bins,
+        groups=data.cluster,
+        seed_fixed=seed_fixed,
+        nominal_folds=nominal_folds,
+    )
 
 
 def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetup:

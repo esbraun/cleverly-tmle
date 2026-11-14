@@ -157,6 +157,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
     from .effect_curves import EffectCurveResult
     from .estimators.atmle_result import AdaptiveTMLEResult
+    from .estimators.ep import EPEstimator
 
 __all__ = [
     "ATC",
@@ -6569,8 +6570,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """
         normalized = self._checked_method(method, overrides)
         if self.functional.axis == "trial":
-            # TODO(X106 phase 2): the adaptive TMLE of a trial pooled with external data.
-            raise NotImplementedError("TODO(X106 phase 2): TrialATE is not priced yet")
+            from .estimators.atmle_result import plan_trial_effect
+
+            return plan_trial_effect(self, self._trial_method(normalized))
         assert self._study is not None
         if isinstance(self._study.data, ContinuousSurvivalData):
             # TODO(X106 phase 3): the continuous-time survival engine.
@@ -6579,8 +6581,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             # TODO(X106 phase 3): the longitudinal and survival engines.
             raise NotImplementedError("TODO(X106 phase 3): longitudinal fits are not priced")
         if isinstance(normalized, EPMethod):
-            # TODO(X106 phase 2): the EP learner of an effect curve.
-            raise NotImplementedError("TODO(X106 phase 2): EP is not priced yet")
+            assert isinstance(self._study.data, CausalData)
+            return self._effect_curve_estimator(normalized)._planned_fits(self._study.data)
         estimator = self._point_engine(normalized)
         return cast("PlannedFits", estimator._planned_fits(self._study.data))
 
@@ -6603,7 +6605,26 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         return normalized
 
     def _estimate_effect_curve(self, method: EPMethod) -> EffectCurveResult:
-        """Fit the EP learner of a conditional contrast (P1 part (b)).
+        """Fit the EP learner of a conditional contrast (P1 part (b))."""
+        assert self._study is not None and isinstance(self._study.data, CausalData)
+        result = self._effect_curve_estimator(method).fit(self._study.data).effect_curve()
+        provenance = result.provenance
+        return replace(
+            result,
+            provenance=(
+                None
+                if provenance is None
+                else replace(
+                    provenance,
+                    protocol_fingerprint=(
+                        None if self.protocol is None else self.protocol.fingerprint
+                    ),
+                )
+            ),
+        )
+
+    def _effect_curve_estimator(self, method: EPMethod) -> EPEstimator:
+        """The EP learner :meth:`_estimate_effect_curve` fits and :meth:`planned_fits` counts.
 
         Every refusal here runs before any learner: two declarations of the basis, a final
         learner beside a declared model or on the log-ratio scale, and a sieve that reads an
@@ -6614,7 +6635,6 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, CausalData)
         estimand = self.estimand
         assert isinstance(estimand, ConditionalContrast)
-        data = self._study.data
         model = estimand.model
         if model is not None and method.sieve is not None:
             raise CapabilityError(
@@ -6645,7 +6665,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             treatment=estimand.treatment,
             reference=estimand.reference,
         )
-        estimator = EPEstimator(
+        return EPEstimator(
             method.estimator_kwargs(),
             spec,
             sieve.size,
@@ -6653,23 +6673,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             final_learner=method.final_learner,
             identified_effect=self,
         )
-        result = estimator.fit(data).effect_curve()
-        provenance = result.provenance
-        return replace(
-            result,
-            provenance=(
-                None
-                if provenance is None
-                else replace(
-                    provenance,
-                    protocol_fingerprint=(
-                        None if self.protocol is None else self.protocol.fingerprint
-                    ),
-                )
-            ),
-        )
 
     def _estimate_trial(self, method: EstimationMethod) -> AdaptiveTMLEResult:
+        from .estimators.atmle_result import fit_trial_effect
+
+        return fit_trial_effect(self, self._trial_method(method))
+
+    def _trial_method(self, method: EstimationMethod) -> AdaptiveTMLEMethod:
+        """The adaptive TMLE method a trial fit runs, refusing any other method."""
         assert self._study is not None and isinstance(self._study.data, CausalData)
         assert isinstance(self.estimand, TrialATE)
         if not isinstance(method, AdaptiveTMLEMethod):
@@ -6680,9 +6691,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Pass method='atmle' or an AdaptiveTMLEMethod.",
             )
-        from .estimators.atmle_result import fit_trial_effect
-
-        return fit_trial_effect(self, method)
+        return method
 
     def _unused_ratio_refusal(self, method: EstimationMethod) -> Refusal | None:
         """Why ``ratio="classifier"`` would change nothing on this fit, or ``None``.

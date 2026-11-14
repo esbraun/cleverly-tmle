@@ -84,6 +84,7 @@ support is fitted in sample instead, with ``cross_fit=False``.
 from __future__ import annotations
 
 import copy
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
@@ -98,7 +99,7 @@ from .._inference_status import (
     InferenceStatus,
     supplies_inference,
 )
-from .._planned_fits import PlanBuilder, PlannedFits
+from .._planned_fits import FitCounter, PlanBuilder, PlanItem, PlannedFits
 from .._summary._learners import learner_name
 from .._support import (
     Classification,
@@ -1880,11 +1881,6 @@ class TMLE:
         a learner is counted, not fitted, and the checks that read its fitted map are left
         to the fit and named in :attr:`~cleverly.PlannedFits.unpreviewed`.
         """
-        if type(self) is not TMLE:
-            # TODO(X106 phase 2): CTMLE, DRTMLE and AdaptiveIPTW count their own searches.
-            raise NotImplementedError(
-                f"TODO(X106 phase 2): {type(self).__name__} is not priced yet"
-            )
         prepared = self._prepare_for_fit(
             data,
             outcome=outcome,
@@ -1910,6 +1906,22 @@ class TMLE:
         engine._defers_learned_tuners = True
         return engine._plan_prepared(prepared)
 
+    def _plan_draws(self, data: Any) -> tuple[tuple[Folds, int], ...]:
+        """The outer draws :meth:`fit` realizes on ``data`` passed with no other argument.
+
+        :class:`~cleverly.estimators.ep.EPEstimator` reads the first draw's folds, which its
+        sieve-size cross-validation splits on.
+        """
+        defaults = {
+            name: parameter.default
+            for name, parameter in inspect.signature(TMLE._planned_fits).parameters.items()
+            if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        }
+        prepared = self._prepare_for_fit(data, **defaults)
+        estimands = self._single_preflight(prepared, None).estimands
+        _, draws, _ = self._draw_preflight(prepared, estimands)
+        return tuple(draws)
+
     def _plan_fold_state(self) -> Literal["realized", "outer realized", "one draw"]:
         """What the counted folds describe: see :attr:`~cleverly.PlannedFits.folds`."""
         if self.random_state is not None or self._frozen_seeds is not None:
@@ -1931,43 +1943,89 @@ class TMLE:
                 "resolve_point_policies",
                 "fit_tuner",
             )
-        if data.treatment_kind == "vector":
-            # TODO(X106 phase 2): the vector-treatment routes (joint density, vector classifier).
-            raise NotImplementedError("TODO(X106 phase 2): vector treatments are not priced yet")
-        if self.learned_rule is not None and self.learned_rule.loss == "ep":
-            # TODO(X106 phase 2): the EP rule learner's inner size selection.
-            raise NotImplementedError("TODO(X106 phase 2): LearnedRule(loss='ep') is not priced")
         if not data.has_intermediate:
-            self._plan_single(data, builder, state)
-        else:
-            estimands = self._intermediate_preflight(data)
-            self._plan_in_sample_tuners(data, builder)
-            builder.multiply("intermediate levels", 2)
-            scaler = self._scaler(data)
-            draws = self._repeat_draws(data, estimands)
-            self._plan_multipliers(data, draws, builder)
-            for folds, seed in draws:
-                self._plan_draw(data, folds, seed, builder, state, fit_treatment=True)
+            self._plan_single(data, builder, state, None)
+            return builder.build(state)
+        estimands = self._intermediate_preflight(data)
+        self._plan_in_sample_tuners(data, builder)
+        builder.multiply("intermediate levels", 2)
+        if not self._shares_nuisances_across_levels():
+            # A variant that chooses its nuisances against a level's targeted loss refits
+            # them per level (:meth:`_shares_nuisances_across_levels`).
             for level in (0.0, 1.0):
-                level_estimands = self._single_preflight(data, level).estimands
-                self._plan_in_sample_tuners(data, builder)
-                config = self._config(data, level_estimands, scaler, draws[0][0])
-                if self.n_bootstrap:
-                    natural = _is_natural_course(data, config.estimands)
-                    self._plan_bootstrap(data, draws, natural, builder)
+                self._plan_single(data, builder, state, level)
+            return builder.build(state)
+        scaler = self._scaler(data)
+        draws = self._repeat_draws(data, estimands)
+        self._plan_multipliers(data, draws, builder)
+        shared = self._config(data, estimands, scaler, draws[0][0])
+        for folds, seed in draws:
+            self._plan_draw(
+                data, folds, seed, builder, state, flags={"fit_treatment": True}, config=shared
+            )
+        for level in (0.0, 1.0):
+            level_estimands = self._single_preflight(data, level).estimands
+            self._plan_in_sample_tuners(data, builder)
+            config = self._config(data, level_estimands, scaler, draws[0][0])
+            if self.n_bootstrap:
+                flags = self._plan_flags(data, config.estimands)
+                self._plan_bootstrap(data, draws, flags, builder, config=config, level=level)
         return builder.build(state)
 
-    def _plan_single(self, data: CausalData, builder: PlanBuilder, state: str) -> None:
-        """The fits of :meth:`_fit_single` with no intermediate."""
-        estimands = self._single_preflight(data, None).estimands
+    def _plan_single(
+        self,
+        data: CausalData,
+        builder: PlanBuilder,
+        state: str,
+        intermediate_value: float | None,
+    ) -> None:
+        """The fits of :meth:`_fit_single` at one level of the intermediate, or with none."""
+        estimands = self._single_preflight(data, intermediate_value).estimands
         self._plan_in_sample_tuners(data, builder)
         _, draws, config = self._draw_preflight(data, estimands)
         self._plan_multipliers(data, draws, builder)
-        natural = _is_natural_course(data, config.estimands)
+        flags = self._plan_flags(data, config.estimands)
         for folds, seed in draws:
-            self._plan_draw(data, folds, seed, builder, state, fit_treatment=not natural)
+            self._plan_draw(
+                data,
+                folds,
+                seed,
+                builder,
+                state,
+                flags=flags,
+                config=config,
+                level=intermediate_value,
+            )
         if self.n_bootstrap:
-            self._plan_bootstrap(data, draws, natural, builder)
+            self._plan_bootstrap(
+                data, draws, flags, builder, config=config, level=intermediate_value
+            )
+
+    def _plan_flags(self, data: CausalData, estimands: Sequence[str]) -> dict[str, bool]:
+        """Which nuisances :meth:`_nuisances` asks :func:`fit_nuisances` for.
+
+        A variant that overrides :meth:`_nuisances` overrides this with the flags it passes.
+        """
+        return {"fit_treatment": not _is_natural_course(data, tuple(estimands))}
+
+    def _plan_extras(
+        self,
+        data: CausalData,
+        folds: Folds,
+        seed: int | None,
+        *,
+        counter: FitCounter,
+        builder: PlanBuilder,
+        config: TMLEConfig,
+        level: float | None,
+    ) -> list[PlanItem]:
+        """The fits a variant's :meth:`_nuisances` and targeting make beyond the nuisances.
+
+        The base estimator makes none.  ``counter`` counts at the realized rows, or at
+        nominal counts in a bootstrap replicate; ``builder`` takes searches and notes.
+        """
+        del data, folds, seed, counter, builder, config, level
+        return []
 
     def _plan_multipliers(
         self, data: CausalData, draws: Sequence[tuple[Folds, int]], builder: PlanBuilder
@@ -2057,15 +2115,16 @@ class TMLE:
 
     def _plan_policies(
         self, data: CausalData, folds: Folds, builder: PlanBuilder, *, scope: str
-    ) -> int:
-        """Count a draw's tuner fits and return its classifier fits per fold.
+    ) -> tuple[int, tuple[object, ...]]:
+        """Count a draw's tuner fits; return its classifier fits per fold and its policies.
 
         A tuner with no learner runs as :meth:`_fit_nuisances` runs it, with each fold's
         map checked.  A learner-backed tuner is counted, and its expanded policies are
-        counted from the declaration.
+        counted from the declaration; the policies returned are then empty, since their
+        maps need the fitted tuner.
         """
         if not self.policies:
-            return 0
+            return 0, ()
         if declares_tuned(self.policies) and learner_backed_tuners(self.policies):
             check_point_tunings(self.policies, data, folds)
             builder.add(
@@ -2075,12 +2134,14 @@ class TMLE:
                 plan_tuner_fits(self.policies, data, folds=folds, in_sample=True),
             )
             expanded = expanded_branches(self.policies, folds)
-            return expanded if self.ratio == "classifier" else 0
+            return (expanded if self.ratio == "classifier" else 0), ()
         tuned = self._tuned_policies(data, folds)
+        policies: tuple[object, ...] = (
+            tuple(self.policies) if tuned is None else tuple(tuned.expanded)
+        )
         if self.ratio != "classifier":
-            return 0
-        policies = tuple(self.policies) if tuned is None else tuned.expanded
-        return classifier_branches(data, policies)
+            return 0, policies
+        return classifier_branches(data, policies), policies
 
     def _plan_draw(
         self,
@@ -2090,13 +2151,15 @@ class TMLE:
         builder: PlanBuilder,
         state: str,
         *,
-        fit_treatment: bool,
+        flags: dict[str, bool],
+        config: TMLEConfig,
+        level: float | None = None,
     ) -> None:
-        """The fits of one draw's :meth:`_fit_nuisances`, its regimes included."""
+        """The fits of one draw's :meth:`_nuisances`, its regimes and searches included."""
         self._msm(data)
         if self.effect_modification is not None:
             EffectModificationSet.evaluate(self.effect_modification, data)
-        classifier_fits = self._plan_policies(data, folds, builder, scope="per repeat")
+        classifier_fits, policies = self._plan_policies(data, folds, builder, scope="per repeat")
         learners = self._plan_learners(data, seed)
         labels = self._plan_labels()
         roles = plan_nuisances(
@@ -2110,12 +2173,13 @@ class TMLE:
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
+            policies=policies,
             classifier_fits=classifier_fits,
             policy_ratio=self.ratio,
             density_bins=self.density_bins,
-            fit_treatment=fit_treatment,
             outcome_by_arm=self.outcome_by_arm,
             seed_fixed=state == "realized",
+            **flags,
         )
         for item in roles:
             builder.add(
@@ -2127,6 +2191,20 @@ class TMLE:
             and self.learned_rule.loss != "plug_in"
         ):
             self._plan_rule(data, folds, seed, builder, state)
+        counter = FitCounter(
+            weights=data.weights, groups=data.cluster, seed_fixed=state == "realized"
+        )
+        for extra in self._plan_extras(
+            data, folds, seed, counter=counter, builder=builder, config=config, level=level
+        ):
+            builder.add(
+                extra.role,
+                f"{extra.what}, per repeat",
+                extra.learner,
+                extra.count,
+                upper=extra.upper,
+                min_fits=extra.min_fits,
+            )
 
     def _plan_rule(
         self, data: CausalData, folds: Folds, seed: int, builder: PlanBuilder, state: str
@@ -2186,6 +2264,9 @@ class TMLE:
                     upper=drawn,
                     min_fits=None if drawn is None or item.continuous else 0,
                 )
+            if rule.loss == "ep":
+                self._plan_ep_rule(inner, inner_folds, fold_seed, fold, builder, fixed)
+                continue
             model = resolve_learner(rule.learner, task=task, random_state=fold_seed)
             groups = inner.cluster if inner.cluster is not None and accepts_groups(model) else None
             if rule.loss == "blip":
@@ -2213,12 +2294,103 @@ class TMLE:
                 min_fits=0,
             )
 
+    def _plan_ep_rule(
+        self,
+        inner: CausalData,
+        inner_folds: Folds,
+        seed: int,
+        fold: int,
+        builder: PlanBuilder,
+        fixed: bool,
+    ) -> None:
+        """The fits of :func:`~cleverly.interventions._rule_learners.ep_fold_curve` in one fold.
+
+        A fixed or scheduled sieve fits its curve once.  A sieve chosen by cross-validation
+        refits the nuisances inside each inner training fold, on a split of
+        ``INNER_FOLDS`` folds seeded by :func:`~cleverly.estimators.ep.refit_seed`, and fits
+        the curve at every size there, then once at the chosen size.  Only a declared final
+        learner fits anything for a curve; the default is least squares on the basis.
+        """
+        from .._planned_fits import count_learner
+        from ..bases import Sieve
+        from ..interventions._rule_learners import INNER_FOLDS, inner_support_refusal
+        from ..learners._fitting import seed_unset
+        from .ep import refit_seed, size_refusal
+
+        rule = self.learned_rule
+        assert rule is not None and rule.modifiers is not None
+        declared = rule.sieve if rule.sieve is not None else Sieve.default(rule.modifiers)
+        family = declared.basis
+        final = None if rule.learner is None else seed_unset(rule.learner, seed)
+        label = learner_name(rule.learner)
+        labels = self._plan_labels()
+        drawn = (
+            None
+            if fixed
+            else "the learned rule's inner folds are drawn from a seed drawn afresh on every "
+            "fit, so they are counted at their nominal counts"
+        )
+
+        def curve(n: int, times: int) -> None:
+            if final is None or times == 0:
+                return
+            builder.add(
+                "learned_rule",
+                "EP rule curve's final learner, per outer fold and repeat",
+                label,
+                count_learner(final, np.linspace(0.0, 1.0, n), seed_fixed=fixed).scaled(times),
+            )
+
+        if not declared.chosen_by_cv:
+            size = int(declared.size_at(inner.n))
+            refusal = size_refusal(size, family, inner.n)
+            if refusal is not None:
+                raise refusal
+            curve(inner.n, 1)
+            return
+        sizes = int(family.max_size)
+        for index, (train, _) in enumerate(inner_folds):
+            refit = refit_seed(seed, index)
+            rows = inner.subset(np.asarray(train))
+            split = random_partition(rows.n, INNER_FOLDS, cluster=rows.cluster, seed=refit)
+            gap = inner_support_refusal(rows, split, loss="ep", fold=fold)
+            if gap is not None:
+                raise DataError(gap)
+            learners = self._plan_learners(rows, refit)
+            roles = plan_nuisances(
+                rows,
+                outcome_learner=cast("Learner", learners["outcome_learner"]),
+                treatment_learner=cast("Learner", learners["treatment_learner"]),
+                missingness_learner=None,
+                intermediate_learner=None,
+                folds=split if fixed else None,
+                screen_treatment=self.screen_treatment,
+                screen_threshold=self.screen_threshold,
+                min_retain=self.min_retain,
+                outcome_by_arm=self.outcome_by_arm,
+                nominal_folds=None if fixed else split.n_folds,
+            )
+            for item in roles:
+                builder.add(
+                    item.role,
+                    f"{item.what}, EP rule's size step, per inner fold, outer fold and repeat",
+                    labels[item.role],
+                    item.count,
+                    upper=drawn,
+                    min_fits=None if drawn is None or item.continuous else 0,
+                )
+            curve(rows.n, sizes)
+        curve(inner.n, 1)
+
     def _plan_bootstrap(
         self,
         data: CausalData,
         draws: Sequence[tuple[Folds, int]],
-        natural: bool,
+        flags: dict[str, bool],
         builder: PlanBuilder,
+        *,
+        config: TMLEConfig,
+        level: float | None,
     ) -> None:
         """The fits of :meth:`_bootstrap_point_estimates` over every replicate, as an upper bound.
 
@@ -2268,12 +2440,13 @@ class TMLE:
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
+            policies=() if declares_tuned(self.policies) else tuple(self.policies),
             classifier_fits=classifier_fits,
             policy_ratio=self.ratio,
             density_bins=self.density_bins,
-            fit_treatment=not natural,
             outcome_by_arm=self.outcome_by_arm,
             nominal_folds=nominal,
+            **flags,
         )
         for item in roles:
             count = item.count.scaled(replicates)
@@ -2285,6 +2458,25 @@ class TMLE:
                 count,
                 upper=why,
                 min_fits=low,
+            )
+        nominal_counter = FitCounter(weights=data.weights, groups=data.cluster, nominal=True)
+        scratch = PlanBuilder()
+        for extra in self._plan_extras(
+            data,
+            draws[0][0],
+            draws[0][1],
+            counter=nominal_counter,
+            builder=scratch,
+            config=config,
+            level=level,
+        ):
+            builder.add(
+                extra.role,
+                f"{extra.what}, per bootstrap replicate and repeat",
+                extra.learner,
+                extra.count.scaled(replicates),
+                upper=why,
+                min_fits=0,
             )
 
     def _prepare_for_fit(self, data: Any, **declarations: Any) -> CausalData:
