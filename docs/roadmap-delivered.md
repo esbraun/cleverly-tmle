@@ -1,11 +1,13 @@
 # Delivered roadmap items
 
-An item leaves the [roadmap](roadmap.md) when it is delivered. Code comments, tests and evidence
-pages still name delivered items by their IDs. The roadmap file at a commit that still held an
-item keeps its full contract, so each row below links that version. The newest removals come first.
+An item leaves the [roadmap](roadmap.md) when it is delivered, or when the owner removes it from the
+plan. Code comments, tests and evidence pages still name delivered items by their IDs. The roadmap
+file at a commit that still held an item keeps its full contract, so each row below links that
+version. The newest removals come first.
 
 | items | what they were | the roadmap that holds them |
 | --- | --- | --- |
+| X71, X72, X73, X74, F35, F36 | removed undelivered on 2026-11-14, because each one adds to an estimator that is not TMLE and no TMLE item needs it: repeated outcomes for sequential g-computation, IPW and the parametric g-formula; static regimen values from structural blips with time-varying features; pooled-over-time and mixed-node parametric g-formula models; `CausalStudy` integration of the structural nested mean model; intervals for the sequential baselines with data-adaptive nuisances; locally efficient g-estimation. Each of these requests that a fit refuses stays refused, and its refusal names `LTMLE` or `SDR` | [commit `709e2207`](https://github.com/esbraun/cleverly-tmle/blob/709e220784a0816941beaebaf2b6f4c133f6cec8/docs/roadmap.md) |
 | X76 | registered studies of the shipped targeting and fitting options: stopping rules, per-arm outcome regressions, patience, treatment-mechanism covariates, ratio trimming, Markov order and a binding isotonic projection, each backing support rows | [commit `c9c8037d`](https://github.com/esbraun/cleverly-tmle/blob/c9c8037d2e1d8b6a336ac325f2e1e67542facdb8/docs/roadmap.md#x76-studies-of-the-targeting-and-fitting-options) |
 | X54 parts (d) and (g) | (d) a fold-evaluated interval at 40 clusters or more: a clustered fold-evaluated estimate takes $t_{J-V}$ at every cluster count, and the [unequal-size study](technical-reference/method-evidence/clustered-unequal-cv-tmle.md) measures it at 40 equal clusters in 10 folds; (g) a calibrated cross-fitted `DRTMLE` cluster variance at 10 to 30 clusters: the IID control reads the paired ratio of the IID SE to the cluster-robust SE, and the regenerated [few-cluster study](technical-reference/method-evidence/clustered-few-cluster-tmle.md) passes every DR-TMLE cell | [commit `f73d3836`](https://github.com/esbraun/cleverly-tmle/blob/f73d3836941d86a90c7fb371a3660380470ffc94/docs/roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | X54 part (f) | a fold-evaluated point at informative unequal cluster sizes: `cv_evaluation=True` now refuses clusters that differ in a requested estimand's denominator mass and redirects to the stacked report. [Clusters of unequal mass](technical-reference/cv-tmle.md#clusters-of-unequal-mass) holds the trigger, the bias and the identity, and the [few-cluster study](technical-reference/method-evidence/clustered-few-cluster-tmle.md) the cells that left its grid | [commit `11367449`](https://github.com/esbraun/cleverly-tmle/blob/11367449e8aef6416e4510defdbbac23ff1177bd/docs/roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
