@@ -1633,6 +1633,11 @@ def _concentration(
     del values
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         kish = kish_count(centred, centered=False)
+    squares = np.sort(centred**2)[::-1]
+    del centred
+    total = float(squares.sum())
+    if total <= 0.0:
+        raise ValueError("the influence values are all equal, so there is no spread to show")
     if not math.isfinite(kish):
         # The fourth powers underflowed or overflowed: |influence| below about 1e-81 or above
         # about 1e77. The count would print as inf or nan, so the plot raises, as the
@@ -1641,11 +1646,6 @@ def _concentration(
             "the influence values are too close to zero or too large for the Kish count to be "
             "computed in floating point; rescale them"
         )
-    squares = np.sort(centred**2)[::-1]
-    del centred
-    total = float(squares.sum())
-    if total <= 0.0:
-        raise ValueError("the influence values are all equal, so there is no spread to show")
     count = squares.size
     fraction = np.concatenate([[0.0], np.arange(1, count + 1) / count])
     share = np.concatenate([[0.0], np.cumsum(squares) / total])
