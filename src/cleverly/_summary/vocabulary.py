@@ -4754,6 +4754,80 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+# --------------------------------------------------------- covariate balance over time (X103)
+
+BALANCE_TIME_TITLE: Final = "Covariate balance over time"
+BALANCE_TIME_TREATMENTS: Final = "Treatments"
+BALANCE_TIME_DIAGNOSTICS: Final = "Checks"
+BALANCE_TIME_COLUMNS: Final[tuple[str, ...]] = (
+    "exposure",
+    "covariate",
+    "before weighting",
+    "after weighting",
+)
+#: The title of each diagnostic's table.
+BALANCE_TIME_DIAGNOSTIC_TITLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "confounding": "Confounding: covariates up to each treatment, across it",
+        "feedback": "Feedback (weights do not remove it): later covariates across each treatment",
+        "censoring": "Censoring: covariates across leaving the study and staying",
+        "joint": "Joint: covariates across the arms among units whose status is known",
+    }
+)
+BALANCE_TIME_DROPPED_TITLE: Final = "Strata with no comparison"
+BALANCE_TIME_DROPPED_LINE: Final = "{diagnostic}, {exposure}: {strata} strata, {units} rows"
+
+#: The notes a balance-over-time summary can print.
+BALANCE_TIME_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "balance_time_descriptive": "note",
+        "balance_time_averaged": "note",
+        "balance_time_bounds": "note",
+        "balance_time_omitted": "note",
+        "balance_time_collaborative": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_TIME_NOTE_CODES})
+
+BALANCE_TIME_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balance_time_descriptive": (
+            "These differences describe the data and the fitted weights and carry no interval "
+            "or test. Each is the mean in the first group minus the mean in the second, within "
+            "the units that share the same earlier treatments, divided by a spread read there "
+            "before weighting: the square root of the mean of the two groups' variances, or, "
+            "for units whose status is known against their whole arm, the arm's standard "
+            "deviation."
+        ),
+        "balance_time_averaged": (
+            "Each row is averaged over the strata of earlier treatments, each stratum counting "
+            "by its size; the averages are of signed differences, so strata that differ in "
+            "opposite directions offset each other. to_frame() holds every stratum."
+        ),
+        "balance_time_bounds": (
+            "Each cumulative probability is kept within [{lower:.3g}, {upper:.3g}] before it is "
+            "inverted; the limits moved {share} of the weighted rows."
+        ),
+        "balance_time_omitted": "This fit reports no {diagnostic} balance: {reason}.",
+        "balance_time_collaborative": "{text}",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **BALANCE_TIME_NOTE_TEXTS})
+
+BALANCE_TIME_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balanced": (
+            "{before} of {total} averaged covariate differences are larger than {threshold} "
+            "before weighting and {after} after."
+        ),
+        "residual": (
+            "{before} of {total} averaged covariate differences are larger than {threshold} "
+            "before weighting and {after} after. The largest left is {worst} at {exposure} "
+            "({size}), so the weights have not made the groups alike on it there."
+        ),
+    }
+)
+
 # ------------------------------------------------- continuous-time survival (X91 part G)
 
 #: The ``checkable`` note of a question on a continuous follow-up time, whose fit reports

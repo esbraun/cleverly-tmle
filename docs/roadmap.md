@@ -162,7 +162,6 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X92](#x92-plots-and-visualizations) Plots of a longitudinal fit, and targeting-curve options | 6 | no new theory | the shipped `cleverly.plotting` and targeting curves |
-| [X103](#x103-covariate-balance-over-time) Covariate balance over time | 3 | source read pending (Jackson 2016) | the shipped `covariate_balance` and longitudinal weights |
 
 ## Future investigations
 
@@ -1944,19 +1943,6 @@ that proof.
 
 Acceptance: structural tests that read the plot's artists, one honesty test with a mutation
 control per applicable rule, a docstring example and a render check.
-
-### X103. Covariate balance over time
-
-`covariate_balance`, and the `balance` plot that draws it, weigh the covariates by a
-point-treatment fit's treatment model. A longitudinal or continuous-time survival fit refuses,
-naming this item: its weights carry a treatment and a censoring model at each time point, so
-balance is a statement per time point among the units still following the regimen, and which
-covariates and weights enter it is a choice the estimand must state. Jackson (2016, Epidemiology
-27(6)) defines covariate balance for time-varying treatments; a first-hand read of that source
-comes before any design.
-
-Acceptance: the estimand is stated from the source, the refusals that name this item draw,
-and a structural test reads the figure against the report's numbers.
 
 ### R1. Nested Riesz engine and initial catalog
 

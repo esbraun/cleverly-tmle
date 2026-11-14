@@ -221,6 +221,8 @@ categorized API tables.
    cleverly.sensitivity.covariate_balance
    cleverly.sensitivity.CovariateBalance
    cleverly.sensitivity.BalanceRow
+   cleverly.sensitivity.BalanceOverTime
+   cleverly.sensitivity.TimeBalanceRow
    cleverly.longitudinal.node_weights
    cleverly.longitudinal.NodeWeights
    cleverly.sensitivity.omitted_variable_bounds

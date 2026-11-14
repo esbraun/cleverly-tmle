@@ -62,7 +62,8 @@ The results that have one natural figure also draw it with `plot()`:
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`, and
 `SensitivityContour.plot()` and `SimulatedConfoundingResult.plot()` call `confounding`.
 `TargetingCurve.plot()` calls `targeting`.
-`CovariateBalance.plot()` calls `balance`, and `StudyResult.plot()` calls `zipper`.
+`CovariateBalance.plot()` and `BalanceOverTime.plot()` call `balance`, and `StudyResult.plot()`
+calls `zipper`.
 `CurveCalibration.plot()` and `NuisanceModelReport.plot()` call `calibration`,
 `SuperLearnerDiagnostics.plot()` and `CTMLESelection.plot()` call `learners`, and
 `BootstrapResult.plot()` calls `bootstrap`.
@@ -111,6 +112,16 @@ time point, or whose rows come from a trial and an external source.
   `curve(result, measure="rmst")` or `"rmtl"` draws the restricted means at the times in
   `restricted_horizons=`. `result.plot()` calls `curve`.
 
-Covariate balance over time is not drawn for any fit over time, and the refusal names the
-[roadmap](../roadmap.md) item that tracks it. A continuous-time fit's truncation curve carries the
-point-treatment columns, so `sensitivity` draws it.
+- `balance` draws a longitudinal, time-to-event or continuous-time survival fit's covariate
+  balance over time, which `covariate_balance` computes. At each treatment time it compares the
+  covariates recorded so far across the treatment, among units with the same earlier treatments,
+  before and after weighting. The default view has one panel per treatment time, each marker a
+  covariate's difference averaged over those groups. `view="panels"` draws each group's difference
+  as a dot, and `diagnostic=` picks the check: `"confounding"`, `"feedback"` (later covariates
+  across an earlier treatment), `"censoring"`, or a continuous-time fit's `"joint"`. A survival
+  fit has no feedback check, because its later covariates exist only for units still free of the
+  event, and a continuous-time fit has no groups of earlier treatments, so it draws the default
+  view only.
+
+A continuous-time fit's truncation curve carries the point-treatment columns, so `sensitivity`
+draws it.

@@ -1613,6 +1613,14 @@ sizes only the cluster sum is the delta-method variance of the row mean
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
   form of `SequentialIPW` rests on `CalcIPTW` in R `ltmle` 1.3-0 and the delta method.
+- Jackson (2016), [*Diagnostics for confounding of time-varying and other joint
+  exposures*](https://doi.org/10.1097/EDE.0000000000000547), *Epidemiology* 27(6):859–869. Read in
+  the author's accepted manuscript (PMC5308856), not the typeset version; the eAppendix is not
+  read. Table 1 defines Diagnostic 1 (prior covariates across the current exposure, within
+  exposure history), Diagnostic 2a (a later covariate across an earlier exposure, weighted by that
+  exposure's weight) and Diagnostic 3 (Diagnostic 1 under the cumulative weights), with censoring
+  treated as another exposure. `covariate_balance` cites it for a fit over time, standardizes each
+  difference, and averages the strata by their size.
 - Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician*
   56(1):29–38. Read in the 2001 preprint (NCSU Mimeo 2528). Section 2 gives the stacked sandwich
   variance of a system of estimating equations. The published page and equation numbers are not
