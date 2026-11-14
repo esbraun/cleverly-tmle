@@ -2073,6 +2073,10 @@ T3_BATTERY_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
 
+#: The battery's label of the nuisance row of a continuous-time survival fit, whose models are
+#: the cause hazards, the censoring hazard and the treatment model.
+CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment models"
+
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {

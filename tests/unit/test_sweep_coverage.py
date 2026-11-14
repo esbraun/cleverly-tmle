@@ -90,11 +90,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         ),
     ),
     **_exempt(
-        "the continuous-time survival result has no assessment facades",
-        "X101",
-        ("result:ContinuousSurvivalResult",),
-    ),
-    **_exempt(
         "a fitted method with no kind",
         "Fix-15",
         (
@@ -132,8 +127,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "family:blips",
             "family:competing",
             "family:learned",
-            "family:msm",
-            "family:mtp",
             "family:repeated",
             "family:separable",
             "family:stochastic",
@@ -161,7 +154,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "splitting:cross_fitted",
             "splitting:fold_targeted_evaluated",
             "splitting:repeated",
-            "treatment:3",
             "treatment:6",
             "treatment:arms4",
             "treatment:mixed",
