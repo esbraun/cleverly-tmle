@@ -360,6 +360,23 @@ def test_an_error_in_the_candidate_is_its_own_miss(monkeypatch):
         study_a.jackknife_rows("tmle_in_sample_known", "equal10", 4, FAILED_REFIT, frame)
 
 
+def test_a_main_fit_data_error_is_a_candidate_error_not_a_refusal(monkeypatch):
+    """m-c1: when the main fit raises a ``DataError`` the (C) row reads ``jackknife_error``;
+    the same error with a main estimate in hand is an R5 refusal (the mutation control)."""
+    frame = _unit_frame(FAILED_REFIT)
+
+    def singular(*args, **kwargs):
+        raise DataError("the treatment GLM's information matrix is singular")
+
+    monkeypatch.setattr(study_a, "jackknife_estimate", singular)
+    (row,) = study_a.jackknife_rows("tmle_in_sample_known", "equal10", 4, FAILED_REFIT, frame)
+    assert row["trigger"] == "jackknife_refused"
+    monkeypatch.setattr(study_a, "fit_estimate", singular)
+    (row,) = study_a.jackknife_rows("tmle_in_sample_known", "equal10", 4, FAILED_REFIT, frame)
+    assert row["trigger"] == "jackknife_error" and row["withheld"] == 1
+    assert row["jackknife_error"].startswith("DataError: the treatment GLM")
+
+
 def test_the_package_glm_refit_never_raises_out_of_the_key(monkeypatch):
     """B1: any exception of the package-GLM refit is recorded on (A)'s row."""
     frame = _unit_frame(FAILED_REFIT)
@@ -884,15 +901,19 @@ def test_the_declaration_reads_the_committed_pilot(study, properties):
 
 
 def test_the_committed_runs_reproduce_the_shipped_floors():
-    """M1: once both runs are committed, the floors, the decisions and the outcome recomputed
-    from their rows are the shipped ``CLUSTER_INTERVAL_FLOORS`` and (C) status."""
+    """M1: once both runs are committed, the floors, the decisions and the outcome read off
+    their committed summaries and rows are the shipped ``CLUSTER_INTERVAL_FLOORS`` and (C)
+    status. The committed ``properties.csv`` is read, not recomputed from about 4.8 million
+    rows; the property differential and the failure accounting tie it to the rows."""
     paths = [_committed(study, "property-replicates.parquet") for study in (study_a, study_b)]
     if not all(paths):
         assert not any(paths), "commit both runs together: rule 3 reads them jointly"
         return
     rows_a, rows_b = (read_rows(path) for path in paths)
-    summary_a = properties_a.summarize_properties(rows_a)
-    summary_b = properties_b.summarize_properties(rows_b)
+    summary_a, summary_b = (
+        pd.read_csv(study.STUDY.artifacts / "properties.csv", keep_default_na=False, na_values=[""])
+        for study in (study_a, study_b)
+    )
     outcomes = floor.declared_outcome(summary_a, rows_a, summary_b, rows_b)
     for outcome in outcomes.values():
         assert CLUSTER_INTERVAL_FLOORS[outcome.family] == outcome.floor

@@ -674,7 +674,9 @@ def candidate_c(
     psi = float("nan") if estimate is None else float(estimate.psi)
     try:
         refit = jackknife_estimate(fit, frame, clusters)
-    except (CapabilityError, DataError):
+    except (CapabilityError, DataError) as error:
+        if estimate is None:  # the main fit's own failure, not an R5 refusal (review m-c1)
+            return floor.failed_jackknife(psi, clusters, error)
         return floor.refused_jackknife(psi, clusters)
     except Exception as error:  # (C)'s failure is (C)'s miss, never (A)'s
         return floor.failed_jackknife(psi, clusters, error)

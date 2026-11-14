@@ -38,8 +38,8 @@ family compared there.
 property phase at R = 4,000 is 14.2 CPU-h, of which the jackknife arms (10 to 39 clusters, 2,000
 draws) are 9.9 and the package-GLM refits about 1; about 16.5 at R = 6,000. The pilot is about
 2.4 CPU-h and the 1,000-draw primary under 0.1. A two-draw smoke of every key, timed per key,
-projects 13.1 CPU-h at the declared R, and the pilot's ``pilot-timing.csv`` projects it again
-from 400 draws. Declared 22 CPU-h, the plan's figure.
+projects 13.1 CPU-h at the declared R (a three-draw smoke 15.2 at R = 6,000). The pilot's
+``pilot-timing.csv`` projects it again from 400 draws, at the sized R and at 6,000. Declared 22 CPU-h, the plan's figure.
 
 **Red-cell readings**: as ``few-cluster-floor-tmle``, owner ``X54-cluster-floor``. ``unequal40`` at 6 to 10 clusters may read
 all-draw coverage near 0.92, where G1 passes or fails by chance (plan 2.2); the floor reports

@@ -21,13 +21,14 @@ file                       content
 ``pilot-sizing.csv``       per floor family: the expected floor, the R the M5 rule picks, the
                            plug-in family figure with every control clause, the predictive
                            figure; then each predicted red with its reading
-                           (:data:`~tests.studies.few_cluster_floor.READINGS`)
+                           (:data:`~tests.studies.few_cluster_floor.READINGS`), and for S-a
+                           the predicted reds of the reported d5 reading
 ``pilot-candidates.csv``   per part (c) family: (C)'s discordance with (A) and the family-wise
                            probability that a (C) as good as (A) passes clause (i); below 0.95
                            is a predicted shortfall
 ``pilot-timing.csv``       CPU seconds per key by fit and J (main fit, (C), package GLM), and
-                           the projected CPU hours at the declared R against 1.25 times the
-                           declared budget
+                           the projected CPU hours at the R the sizing picks (read against
+                           1.25 times the declared budget) and at R = 6,000
 =========================  ===================================================================
 
 .. code-block:: bash
@@ -43,6 +44,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
@@ -222,6 +224,30 @@ def sizing_table(which: str, module: ModuleType, summary: pd.DataFrame) -> pd.Da
             out.append(
                 {"family": family, "kind": "predicted red", "cell": cell, "reading": reading}
             )
+    if which == "tmle":
+        # The d5 configurations' reported floor reading (review M2): its cells are published
+        # verdict rows, run at the stacked family's R, so their predicted reds are listed too.
+        study = module.study
+        result = sized["tmle_stacked"]
+        out.append(
+            {
+                "family": study.D5_REPORTED,
+                "kind": "reported",
+                "cell": "",
+                "reading": "",
+                "replicates": result.replicates,
+            }
+        )
+        cells = module.floor_cells(summary, study.D5_REPORTED)
+        for cell, reading in predicted_reds(cells, result, anchor=study.ANCHORS["tmle_stacked"]):
+            out.append(
+                {
+                    "family": study.D5_REPORTED,
+                    "kind": "predicted red",
+                    "cell": cell,
+                    "reading": reading,
+                }
+            )
     return pd.DataFrame(out)
 
 
@@ -259,8 +285,15 @@ def candidate_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.Da
     return pd.DataFrame(out)
 
 
-def timing_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.DataFrame:
-    """CPU seconds per key by fit and J, and the projection at the declared R."""
+def timing_table(
+    which: str, module: ModuleType, rows: pd.DataFrame, picked: Mapping[str, int]
+) -> pd.DataFrame:
+    """CPU seconds per key by fit and J, and the projection at the R the sizing picks.
+
+    ``picked`` maps each floor family to the R of ``pilot-sizing.csv``. The table ends with two
+    total rows: the projection at that R, which the 1.25 rule reads against the declared
+    budget, and the projection with every family at :data:`~tests.studies.few_cluster_floor.R_CAP`.
+    """
     study = module.study
     main = rows.loc[
         (rows["property"] == floor.FAMILY)
@@ -284,26 +317,30 @@ def timing_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.DataF
     laws = main.groupby(["fit", "clusters"])["cell"].nunique().rename("laws")
     table = table.merge(laws.reset_index(), on=["fit", "clusters"])
 
-    def replicates(fit: str) -> int:
-        if which == "tmle":
-            return int(study.PROPERTY_REPLICATES[study.FITS[fit]])
-        return int(study.PROPERTY_REPLICATES)
+    def family(fit: str) -> str:
+        return str(study.FITS[fit]) if which == "tmle" else str(study.FIT)
 
-    projected = sum(
-        row.laws
-        * (
-            replicates(row.fit) * (row.main_seconds + row.package_seconds)
-            + min(replicates(row.fit), floor.CANDIDATE_DRAWS) * row.jackknife_seconds
+    def projected(replicates: Any) -> float:
+        seconds = sum(
+            row.laws
+            * (
+                replicates(row.fit) * (row.main_seconds + row.package_seconds)
+                + min(replicates(row.fit), floor.CANDIDATE_DRAWS) * row.jackknife_seconds
+            )
+            for row in table.itertuples(index=False)
         )
-        for row in table.itertuples(index=False)
-    )
-    hours = projected / 3600.0
+        return float(seconds) / 3600.0
+
     limit = BUDGET_TOLERANCE * DECLARED_CPU_HOURS[which]
-    table.attrs["projected_cpu_hours"] = hours
-    total = pd.DataFrame(
-        [
+    totals = []
+    for name, replicates in (
+        ("total at the sized R", lambda fit: int(picked[family(fit)])),
+        (f"total at R = {floor.R_CAP}", lambda fit: floor.R_CAP),
+    ):
+        hours = projected(replicates)
+        totals.append(
             {
-                "fit": "total",
+                "fit": name,
                 "clusters": np.nan,
                 "main_seconds": np.nan,
                 "package_seconds": np.nan,
@@ -313,9 +350,9 @@ def timing_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.DataF
                 "declared_cpu_hours": DECLARED_CPU_HOURS[which],
                 "within_tolerance": hours <= limit,
             }
-        ]
-    )
-    return pd.concat([table, total], ignore_index=True)
+        )
+    table.attrs["projected_cpu_hours"] = totals[0]["projected_cpu_hours"]
+    return pd.concat([table, pd.DataFrame(totals)], ignore_index=True)
 
 
 def run(which: str, output: Path | None = None, jobs: int = 1) -> dict[str, pd.DataFrame]:
@@ -331,13 +368,16 @@ def run(which: str, output: Path | None = None, jobs: int = 1) -> dict[str, pd.D
     output = module.STUDY.artifacts if output is None else output
     output.mkdir(parents=True, exist_ok=True)
     failures = failure_table(records)
+    sized = sizing_table(which, module, summary)
+    family_rows = sized.loc[sized["kind"] == "family"]
+    picked = dict(zip(family_rows["family"], family_rows["replicates"].astype(int), strict=True))
     tables = {
         "pilot-failures.csv": failures,
         "pilot-summary.csv": summary,
         "pilot-cells.csv": cell_table(summary, failures),
-        "pilot-sizing.csv": sizing_table(which, module, summary),
+        "pilot-sizing.csv": sized,
         "pilot-candidates.csv": candidate_table(which, module, stamped),
-        "pilot-timing.csv": timing_table(which, module, stamped),
+        "pilot-timing.csv": timing_table(which, module, stamped, picked),
     }
     stamped.drop(columns=list(floor.TIMING_COLUMNS)).to_csv(output / "pilot.csv.gz", index=False)
     for name, table in tables.items():
@@ -345,7 +385,7 @@ def run(which: str, output: Path | None = None, jobs: int = 1) -> dict[str, pd.D
     with pd.option_context("display.width", 200, "display.max_rows", 200):
         print(tables["pilot-sizing.csv"].to_string())
         print(tables["pilot-candidates.csv"].to_string())
-        print(tables["pilot-timing.csv"].tail(1).to_string())
+        print(tables["pilot-timing.csv"].tail(2).to_string())
     return tables
 
 

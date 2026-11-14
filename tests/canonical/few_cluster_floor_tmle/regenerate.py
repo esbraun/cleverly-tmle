@@ -57,8 +57,8 @@ already is when admissible, becomes a family default when it wins (the family's 
 R = 4,000 is 33.6 CPU-h, of which the jackknife arms are 10.9 and the DR-TMLE fits about 20; the
 1,000-draw primary under 0.1. With every family raised to 6,000 the property phase is about 45
 CPU-h. Two-draw smokes of every key, timed per key, project 33 to 35 CPU-h at the declared R. The
-pilot is about 4.5 CPU-h, and its ``pilot-timing.csv`` projects the run from 400 draws against
-1.25 times the declared budget. Declared 60 CPU-h (plan 5.1 declared 250, which assumed 0.15 s
+pilot is about 4.5 CPU-h. Its ``pilot-timing.csv`` projects the run from 400 draws at the R that
+``pilot-sizing.csv`` picks, read against 1.25 times the declared budget, and at R = 6,000. Declared 60 CPU-h (plan 5.1 declared 250, which assumed 0.15 s
 per jackknife refit; a refit here costs 0.005 to 0.02 s).
 
 **Red-cell readings** (declared before any run, owner ``X54-cluster-floor`` in

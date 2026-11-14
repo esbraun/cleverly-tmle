@@ -439,10 +439,11 @@ def synthetic_columns(cell: Any, rng: Any) -> dict[str, Any]:
 #: cell, so a subset with one positive-and-control group per clause and threshold binds every
 #: clause; ``docs/development/method-benchmarking.md`` records the measured time.
 DIFFERENTIAL_BUDGET: Final[int] = 200
-#: The groups the differential reads, one per family and construction, at the smallest count,
-#: the anchor and 39, each with its part (c) pairs (and the pooled rows of their
-#: configurations): every arm kind, the fold-evaluated :math:`t_{J-2}` arm, (B) at
-#: :math:`p = 5`, and a pooled row over cells at and above its start.
+#: The groups the differential reads, one per family and construction, each at one count
+#: (4, 10, 20 or 39 across the groups), with its part (c) pairs and the pooled rows of their
+#: configurations: every arm kind, the fold-evaluated :math:`t_{J-2}` arm, (B) at
+#: :math:`p = 5`, and a pooled row. The pooled functions are shared with S-b, whose subset
+#: gives a pooled row three pairs.
 DIFFERENTIAL_GROUPS: Final[tuple[tuple[str, str, int], ...]] = (
     ("tmle_in_sample_known", "equal10", 4),
     ("tmle_stacked_estimated", "unequal_informative", 10),
