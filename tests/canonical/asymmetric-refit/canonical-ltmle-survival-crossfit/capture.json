@@ -1,0 +1,36 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 200,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 560,
+    "seconds_capture": 1.01,
+    "seconds_fit": 326.05,
+    "stage": "refits",
+    "study": "canonical-ltmle-survival-crossfit"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 15,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 37,
+    "seconds_capture": 1.01,
+    "seconds_fit": 15.59,
+    "stage": "scope",
+    "study": "canonical-ltmle-survival-crossfit"
+  }
+}

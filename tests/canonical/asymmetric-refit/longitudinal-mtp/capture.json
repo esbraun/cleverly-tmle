@@ -1,0 +1,42 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 300,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/n500",
+      "properties/n1000",
+      "properties/n2000",
+      "properties/n4000",
+      "properties/n8000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 300,
+    "seconds_capture": 0.63,
+    "seconds_fit": 361.35,
+    "stage": "refits",
+    "study": "longitudinal-mtp"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 24,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/n500",
+      "properties/n1000",
+      "properties/n2000",
+      "properties/n4000",
+      "properties/n8000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 40,
+    "seconds_capture": 0.6,
+    "seconds_fit": 32.61,
+    "stage": "scope",
+    "study": "longitudinal-mtp"
+  }
+}

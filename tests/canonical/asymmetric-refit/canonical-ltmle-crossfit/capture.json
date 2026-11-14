@@ -1,0 +1,34 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 200,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 340,
+    "seconds_capture": 0.51,
+    "seconds_fit": 52.81,
+    "stage": "refits",
+    "study": "canonical-ltmle-crossfit"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 14,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 22,
+    "seconds_capture": 0.51,
+    "seconds_fit": 26.86,
+    "stage": "scope",
+    "study": "canonical-ltmle-crossfit"
+  }
+}

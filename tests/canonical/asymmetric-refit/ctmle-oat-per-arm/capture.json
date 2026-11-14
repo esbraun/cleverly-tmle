@@ -1,0 +1,36 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/properties",
+      "properties/joint"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 0.29,
+    "seconds_fit": 0.21,
+    "stage": "refits",
+    "study": "ctmle-oat-per-arm"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 20,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/properties",
+      "properties/joint"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 32,
+    "seconds_capture": 0.37,
+    "seconds_fit": 2.65,
+    "stage": "scope",
+    "study": "ctmle-oat-per-arm"
+  }
+}
