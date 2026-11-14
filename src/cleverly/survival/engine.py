@@ -37,6 +37,7 @@ from ._targeting import (
     WalkResult,
     default_cutoff,
     point_weights,
+    predictable_covariance,
     restricted_weights,
     walk,
 )
@@ -303,6 +304,17 @@ class ContinuousSurvivalTMLE:
         The multiplier distribution, as :func:`~cleverly.inference.simultaneous_bands` takes.
     band_scale : {"logit", "identity"}
         The scale of the band of a bounded estimate.
+    variance : {"switched", "influence_curve"}
+        The variance every estimate reports.  ``"switched"`` reads the influence-curve
+        variance, raised to the predictable variation of the influence curve's martingale part
+        where the curve is sparse: where the relative standard deviation of the
+        influence-curve variance exceeds
+        :data:`~cleverly.inference.sparse.SPARSE_INFLUENCE_THRESHOLD` (0.125), the variance is
+        the larger of the two (:mod:`cleverly.inference.switched`).  It is never below the
+        influence-curve variance and equals it with probability tending to one.
+        ``"influence_curve"`` reads the influence-curve variance alone.  A band takes its
+        critical value from the influence curves and its half-widths from the reported
+        standard errors.
     """
 
     def __init__(
@@ -331,6 +343,7 @@ class ContinuousSurvivalTMLE:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        variance: Literal["switched", "influence_curve"] = "switched",
     ) -> None:
         times = tuple(float(t) for t in horizons)
         if not times or any(not np.isfinite(t) or t <= 0 for t in times):
@@ -344,6 +357,8 @@ class ContinuousSurvivalTMLE:
             raise ValueError("restricted_horizons are strictly increasing")
         if norm not in ("covariance", "variance", "euclidean"):
             raise ValueError("norm is 'covariance', 'variance' or 'euclidean'")
+        if variance not in ("switched", "influence_curve"):
+            raise ValueError("variance is 'switched' or 'influence_curve'")
         if treatment_learner is not None and not cross_fit:
             raise _gap(
                 "A user treatment learner needs cross_fit=True: without cross-fitting every "
@@ -380,6 +395,7 @@ class ContinuousSurvivalTMLE:
         self.n_multiplier = int(n_multiplier)
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.variance: Literal["switched", "influence_curve"] = variance
 
     # ------------------------------------------------------------------ inputs
 
@@ -628,6 +644,13 @@ class ContinuousSurvivalTMLE:
         reach = T[None, :, None] >= grid[None, None, :]
         relevant = factual & reach
         bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
+        # pi S_c w^2 = w min(1, pi S_c / floor): the predictable variation reads the floored
+        # weight squared, as P_n D^2 does.  None where the floor binds nowhere.
+        floored = (
+            np.minimum(product / floor, 1.0)
+            if self.variance == "switched" and np.any(product < floor)
+            else None
+        )
         last_time_floor_share = float(np.mean(product[..., -1] < floor))
         # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
         del survival, retention, retention_before, product, factual, reach, relevant, dgam
@@ -683,7 +706,7 @@ class ContinuousSurvivalTMLE:
         shares = [float(np.mean(observed <= time)) for time in (*self.horizons, *restricted)]
         settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
 
-        def support(scale: str, q: int) -> Support:
+        def support(scale: str, q: int, relative_sd: float) -> Support:
             return continuous_survival_support(
                 scale=scale,
                 event_share=shares[q],
@@ -694,9 +717,14 @@ class ContinuousSurvivalTMLE:
                 settings=settings,
                 restricted=q >= len(self.horizons),
                 restricted_horizons=len(restricted),
+                variance_rel_sd=relative_sd,
             )
 
-        estimates = build_estimates(
+        predictable = None
+        if self.variance == "switched":
+            predictable = predictable_covariance(problem, result.evaluation, result.dlam, floored)
+        del floored
+        estimates, covariance = build_estimates(
             result,
             arm_labels,
             causes,
@@ -705,6 +733,7 @@ class ContinuousSurvivalTMLE:
             alpha=self.alpha,
             support=support,
             restricted=restricted,
+            predictable=predictable,
         )
         bands = None
         if self.simultaneous:
@@ -732,6 +761,7 @@ class ContinuousSurvivalTMLE:
             n=n,
             backend=backend,
             restricted_horizons=restricted,
+            predictable=covariance,
         )
 
 

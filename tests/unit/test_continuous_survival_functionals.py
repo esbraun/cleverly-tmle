@@ -510,9 +510,13 @@ def test_a_nonlinear_contrast_is_the_delta_method_by_finite_differences() -> Non
     curve = np.column_stack([_reported_curve(fit[name]) for name in names]) @ gradient
     std_err = float(np.sqrt(np.var(curve, ddof=1) / fit.n))
     assert derived.psi == pytest.approx(function(point), rel=1e-14)
-    assert derived.std_error == pytest.approx(std_err, rel=1e-6)
+    # Under the default switched variance the curve's own variance is the influence-curve one;
+    # the reported one is at least that (tests/unit/test_continuous_survival_variance.py).
+    assert derived.switched is not None
+    assert np.sqrt(derived.switched.influence_variance) == pytest.approx(std_err, rel=1e-6)
+    assert derived.std_error >= std_err * (1 - 1e-12)
     low, high = derived.ci
-    assert (high - low) / 2 == pytest.approx(1.959964 * std_err, rel=1e-5)
+    assert (high - low) / 2 == pytest.approx(1.959964 * derived.std_error, rel=1e-5)
     assert derived.support.label == "experimental"
     assert "smooth function" in derived.support.reason
 
@@ -621,7 +625,9 @@ def test_a_restricted_mean_takes_the_range_logit_interval_of_its_range() -> None
         # The standard error is the time-unit one, from the curve in time units (review R1).
         curve = np.asarray(estimate.influence_curve)
         natural = float(np.std(curve, ddof=1) / np.sqrt(curve.size))
-        assert estimate.std_error == pytest.approx(natural, rel=1e-3)
+        assert estimate.switched is not None
+        assert np.sqrt(estimate.switched.influence_variance) == pytest.approx(natural, rel=1e-3)
+        assert estimate.std_error == pytest.approx(np.sqrt(estimate.switched.variance))
         frame = fit.to_frame().set_index("estimand")
         assert frame.loc[name, "std_err"] == pytest.approx(estimate.std_error)
         # The interval is formed on the logit of the estimate's place in (0, tau).

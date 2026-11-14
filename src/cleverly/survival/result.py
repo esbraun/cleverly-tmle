@@ -16,6 +16,8 @@ from ..exceptions import CapabilityError
 from ..inference.delta import Transform
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.results import ratio_contrast, smooth_contrast
+from ..inference.sparse import influence_row
+from ..inference.switched import PredictableCovariance
 from ..utils.frames import emit_frame
 
 #: The registered study that measures :class:`~cleverly.survival.ContinuousSurvivalTMLE`.
@@ -34,6 +36,27 @@ MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
 #: The sample size the study gates.  A smaller fit has fewer events of each arm and cause; at the
 #: early time the cell with the fewest events (about 16 per fit) covered least.
 MEASURED_N: Final[int] = 1_000
+
+#: The study that measures the default interval's sparse-cell floors (X6 part (a)).
+VARIANCE_STUDY: Final[str] = "continuous-survival-variance"
+
+#: The largest relative standard deviation of the influence-curve variance (``variance_rel_sd``)
+#: at which a risk or risk difference reads supported: :data:`VARIANCE_STUDY`'s
+#: :math:`r^*_{\mathrm{prim}}`, the largest median rung over its gated cells such that every
+#: primary row at or below it passes.  ``None`` until that study's readings are committed: no
+#: study has yet measured the default interval away from the registered base law, so no floor is
+#: read from data the library does not hold.  The design test checks it against the committed
+#: ``floors.csv``.
+MEASURED_REL_SD: Final[float | None] = None
+
+#: The same floor for event shares in ``[0.25, 0.40)``, :math:`r^*_{\mathrm{cal}}`, read from the
+#: first-quartile rows under the calibration rule.  It applies only if the study lowers the
+#: share floor to 0.25 (every first-quartile row passing), and is ``None`` otherwise.
+MEASURED_REL_SD_EARLY: Final[float | None] = None
+
+#: The share floor below which no relative-SD floor applies: the lower edge of
+#: :data:`MEASURED_EVENT_SHARE` before the study.
+SHARE_FLOOR_DEFAULT: Final[float] = 0.4
 
 #: The limits every continuous-time estimate states, supported or not.
 CONTINUOUS_LIMITS: Final[tuple[str, ...]] = (
@@ -61,6 +84,7 @@ MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
     "n_folds": 10,
     "learner_folds": 5,
     "alpha": 0.05,
+    "variance": "switched",
 }
 
 
@@ -85,6 +109,7 @@ def continuous_survival_support(
     settings: Mapping[str, Any],
     restricted: bool = False,
     restricted_horizons: int = 0,
+    variance_rel_sd: float | None = None,
 ) -> Support:
     """The support of one continuous-time estimate.
 
@@ -119,6 +144,12 @@ def continuous_survival_support(
         How many restriction times the fit targets.  They add targets to the walk, which moves
         every risk of the fit, so this is a check of its own rather than a key of
         :data:`MEASURED_DEFAULTS`: no registered study measures such a fit yet.
+    variance_rel_sd : float or None
+        The relative standard deviation of the estimate's influence-curve variance,
+        :math:`\\sqrt{(\\hat\\kappa - 1)/n}`.  A risk or risk difference above
+        :data:`MEASURED_REL_SD` reads experimental (above :data:`MEASURED_REL_SD_EARLY` at an
+        event share below :data:`SHARE_FLOOR_DEFAULT`).  Ratios and restricted means keep their
+        own labels: the floor's study measures risks and risk differences only.
 
     Returns
     -------
@@ -167,6 +198,19 @@ def continuous_survival_support(
             f"{event_share:.0%} of the observed events happen by this time, beyond the measured "
             f"band ({low:.0%} to {high:.0%}); the registered study's latest gated time sits at "
             "75%."
+        )
+    floor = MEASURED_REL_SD_EARLY if event_share < SHARE_FLOOR_DEFAULT else MEASURED_REL_SD
+    if (
+        floor is not None
+        and variance_rel_sd is not None
+        and not restricted
+        and scale in ("level", "difference")
+        and not variance_rel_sd <= floor
+    ):
+        reasons.append(
+            f"The influence curve of this estimate is sparse: the relative standard deviation of "
+            f"its variance is {variance_rel_sd:.3f}, above {floor:.3f}, the largest at which "
+            f"every gated row of the {VARIANCE_STUDY} study passes."
         )
     if n < MEASURED_N:
         reasons.append(
@@ -238,6 +282,19 @@ __all__ = [
     "continuous_survival_support",
     "risk_names",
 ]
+
+
+def _influence_view(estimate: ParameterEstimate) -> ParameterEstimate:
+    """``estimate`` read under the centred rule, with its influence-curve variance."""
+    record = estimate.switched
+    if record is None:
+        return estimate
+    return replace(
+        estimate,
+        covariance_rule="centered",
+        variance=record.influence_variance,
+        switched=None,
+    )
 
 
 def _t(time: float) -> str:
@@ -360,59 +417,6 @@ def _json_ready(value: Any) -> Any:
     return value
 
 
-def restricted_level(
-    name: str,
-    value: float,
-    curve: FloatArray,
-    tau: float,
-    *,
-    n: int,
-    alpha: float,
-    support: Support,
-) -> ParameterEstimate:
-    """A restricted mean of one arm, with its interval on the range-logit scale of ``(0, tau)``.
-
-    A restricted mean lies in :math:`[0, \\tau]`, as a risk lies in :math:`[0, 1]`, so it takes
-    the risks' treatment: its curve and standard error stay in time units, and its interval
-    and test are formed on the logit of its position in that range and mapped back
-    (``range_interval``).  A value on the boundary has no logit and keeps the identity scale.
-
-    Parameters
-    ----------
-    name : str
-        The parameter name.
-    value : float
-        The estimate, in time units.
-    curve : ndarray
-        Its influence curve, in time units.
-    tau : float
-        The restriction time.
-    n : int
-        The number of units.
-    alpha : float
-        Significance level.
-    support : Support
-        The estimate's support.
-
-    Returns
-    -------
-    ParameterEstimate
-        The estimate, with bounds ``(0, tau)`` and ``range_interval`` set.
-    """
-    return make_estimate(
-        name,
-        value,
-        curve,
-        n=n,
-        scale="level",
-        alpha=alpha,
-        bounds=(0.0, float(tau)),
-        rule_widened=False,
-        support=support,
-        range_interval=True,
-    )
-
-
 def build_estimates(
     walk: WalkResult,
     arms: tuple[str, str],
@@ -421,9 +425,10 @@ def build_estimates(
     *,
     n: int,
     alpha: float,
-    support: Callable[[str, int], Support],
+    support: Callable[[str, int, float], Support],
     restricted: tuple[float, ...] = (),
-) -> dict[str, ParameterEstimate]:
+    predictable: FloatArray | None = None,
+) -> tuple[dict[str, ParameterEstimate], PredictableCovariance | None]:
     """Assemble the risks, their contrasts and the restricted means from the targeted walk.
 
     Parameters
@@ -441,70 +446,116 @@ def build_estimates(
     alpha : float
         Significance level.
     support : callable
-        The support of an estimate, given its scale and the index of its weight row: a
-        target time, then a restriction time.
+        The support of an estimate, given its scale, the index of its weight row (a target
+        time, then a restriction time) and the relative standard deviation of its
+        influence-curve variance.
     restricted : tuple of float
         The restriction times, whose targets follow the target times in each arm and cause.
+    predictable : ndarray or None
+        ``(P, P)`` the predictable-variation second moments of the walk's influence columns
+        (:func:`~cleverly.survival._targeting.predictable_covariance`).  Given, every estimate
+        reports the switched variance read from it; ``None`` reports the influence-curve
+        variance.
 
     Returns
     -------
-    dict of str to ParameterEstimate
+    estimates : dict of str to ParameterEstimate
         Every arm's risk, then each difference and ratio, by time; then the restricted means
         time lost of each arm and cause, their differences, and the restricted mean survival
         times of each arm and their differences, by restriction time.
+    covariance : PredictableCovariance or None
+        The predictable-variation covariance of the levels with each estimate's gradient, or
+        ``None`` without ``predictable``.
     """
     labels = list(causes.values())
     J, K = len(labels), len(horizons)
     Q = K + len(restricted)
+    P = 2 * J * Q
     single = J == 1
     psi = walk.evaluation.psi
     ic = walk.evaluation.influence
+    # The walk targets RMTL / tau; every level here is in reported units (time for an RMTL).
+    unit = np.ones(P)
+    for a in (0, 1):
+        for j in range(J):
+            for r, tau in enumerate(restricted):
+                unit[(a * J + j) * Q + K + r] = float(tau)
+    targets = tuple(
+        level_name(arms[a], None if single else labels[j], horizons[q])
+        if q < K
+        else restricted_name("rmtl_regimen", arms[a], None if single else labels[j], restricted[q - K])
+        for a in (0, 1)
+        for j in range(J)
+        for q in range(Q)
+    )
+    matrix = None
+    if predictable is not None:
+        matrix = unit[:, None] * np.asarray(predictable, dtype=float) * unit[None, :]
+        # The divisor of the influence-curve variance (ddof 1), so the two compare like with like.
+        matrix = matrix / max(n - 1, 1)
+    gradients: dict[str, FloatArray] = {}
     out: dict[str, ParameterEstimate] = {}
+
+    def build(
+        name: str, value: float, curve: FloatArray, row: FloatArray, scale: str, q: int, **kw: Any
+    ) -> ParameterEstimate:
+        relative_sd = float(influence_row(name, curve).variance_rel_sd)
+        extra: dict[str, Any] = {}
+        if matrix is not None:
+            gradients[name] = row
+            extra = {
+                "covariance_rule": "switched",
+                "predictable_variance": float(row @ matrix @ row),
+            }
+        return make_estimate(
+            name,
+            value,
+            curve,
+            n=n,
+            scale=scale,  # type: ignore[arg-type]
+            alpha=alpha,
+            rule_widened=False,
+            support=support(scale, q, relative_sd),
+            **kw,
+            **extra,
+        )
+
+    def e(p: int) -> FloatArray:
+        row = np.zeros(P)
+        row[p] = 1.0
+        return row
+
     for a in (0, 1):
         for j, cause in enumerate(labels):
             for k, time in enumerate(horizons):
                 p = (a * J + j) * Q + k
                 name = level_name(arms[a], None if single else cause, time)
-                out[name] = make_estimate(
-                    name,
-                    psi[p],
-                    ic[:, p],
-                    n=n,
-                    scale="level",
-                    alpha=alpha,
-                    bounds=(0.0, 1.0),
-                    rule_widened=False,
-                    support=support("level", k),
-                )
+                out[name] = build(name, psi[p], ic[:, p], e(p), "level", k, bounds=(0.0, 1.0))
     for j, cause in enumerate(labels):
         for k, time in enumerate(horizons):
             p0, p1 = j * Q + k, (J + j) * Q + k
             label = None if single else cause
             name = contrast_name("ate_regimen", arms[1], arms[0], label, time)
-            out[name] = make_estimate(
+            out[name] = build(
                 name,
                 psi[p1] - psi[p0],
                 ic[:, p1] - ic[:, p0],
-                n=n,
-                scale="difference",
-                alpha=alpha,
+                e(p1) - e(p0),
+                "difference",
+                k,
                 bounds=(-1.0, 1.0),
-                rule_widened=False,
-                support=support("difference", k),
             )
             name = contrast_name("rr_regimen", arms[1], arms[0], label, time)
             if psi[p0] > 0 and psi[p1] > 0:
                 log_ic = ic[:, p1] / psi[p1] - ic[:, p0] / psi[p0]
-                out[name] = make_estimate(
+                out[name] = build(
                     name,
                     psi[p1] / psi[p0],
                     log_ic,
-                    n=n,
-                    scale="ratio",
-                    alpha=alpha,
+                    e(p1) / psi[p1] - e(p0) / psi[p0],
+                    "ratio",
+                    k,
                     log_psi=float(np.log(psi[p1] / psi[p0])),
-                    rule_widened=False,
-                    support=support("ratio", k),
                 )
     pair = f"{arms[1]} vs {arms[0]}"
     for r, tau in enumerate(restricted):
@@ -512,57 +563,74 @@ def build_estimates(
         tau = float(tau)
         span = (-tau, tau)
 
-        def lost(a: int, j: int, q: int = q, tau: float = tau) -> tuple[float, FloatArray]:
+        def lost(a: int, j: int, q: int = q, tau: float = tau) -> tuple[float, FloatArray, FloatArray]:
             # The walk targets RMTL / tau, so the walk does not depend on the unit of time;
-            # the report is in time units.
+            # the report is in time units, and so is the covariance's row.
             p = (a * J + j) * Q + q
-            return tau * float(psi[p]), tau * ic[:, p]
+            return tau * float(psi[p]), tau * ic[:, p], e(p)
 
         def level(
-            name: str, value: float, curve: FloatArray, q: int = q, tau: float = tau
+            name: str,
+            value: float,
+            curve: FloatArray,
+            row: FloatArray,
+            q: int = q,
+            tau: float = tau,
         ) -> ParameterEstimate:
-            return restricted_level(
-                name, value, curve, tau, n=n, alpha=alpha, support=support("level", q)
+            return build(
+                name,
+                value,
+                curve,
+                row,
+                "level",
+                q,
+                bounds=(0.0, tau),
+                range_interval=True,
             )
 
         def difference(
             name: str,
             value: float,
             curve: FloatArray,
+            row: FloatArray,
             q: int = q,
             span: tuple[float, float] = span,
         ) -> ParameterEstimate:
-            return make_estimate(
-                name,
-                value,
-                curve,
-                n=n,
-                scale="difference",
-                alpha=alpha,
-                bounds=span,
-                rule_widened=False,
-                support=support("difference", q),
-            )
+            return build(name, value, curve, row, "difference", q, bounds=span)
 
         for a in (0, 1):
             for j, cause in enumerate(labels):
                 name = restricted_name("rmtl_regimen", arms[a], None if single else cause, tau)
                 out[name] = level(name, *lost(a, j))
         for j, cause in enumerate(labels):
-            (v0, c0), (v1, c1) = lost(0, j), lost(1, j)
+            (v0, c0, g0), (v1, c1, g1) = lost(0, j), lost(1, j)
             name = restricted_name("rmtl_regimen", pair, None if single else cause, tau)
-            out[name] = difference(name, v1 - v0, c1 - c0)
+            out[name] = difference(name, v1 - v0, c1 - c0, g1 - g0)
         # RMST(tau) = tau - sum_j RMTL_j(tau); its score is solved by linearity.
         total = []
         for a in (0, 1):
             parts = [lost(a, j) for j in range(J)]
-            total.append((sum(v for v, _ in parts), np.sum([c for _, c in parts], axis=0)))
+            total.append(
+                (
+                    sum(v for v, _, _ in parts),
+                    np.sum([c for _, c, _ in parts], axis=0),
+                    np.sum([g for _, _, g in parts], axis=0),
+                )
+            )
         for a in (0, 1):
             name = restricted_name("rmst_regimen", arms[a], None, tau)
-            out[name] = level(name, tau - total[a][0], -total[a][1])
+            out[name] = level(name, tau - total[a][0], -total[a][1], -total[a][2])
         name = restricted_name("rmst_regimen", pair, None, tau)
-        out[name] = difference(name, total[0][0] - total[1][0], total[0][1] - total[1][1])
-    return out
+        out[name] = difference(
+            name,
+            total[0][0] - total[1][0],
+            total[0][1] - total[1][1],
+            total[0][2] - total[1][2],
+        )
+    covariance = (
+        None if matrix is None else PredictableCovariance(targets, matrix, gradients)
+    )
+    return out, covariance
 
 
 @dataclass(frozen=True)
@@ -599,6 +667,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         The dataframe library the data arrived in; :meth:`to_frame` returns a frame of it.
     restricted_horizons : tuple of float
         The restriction times the fit targeted.
+    predictable : PredictableCovariance or None
+        Under ``variance="switched"``, the predictable-variation covariance of every targeted
+        level, with each stored estimate's gradient over them; :meth:`contrast` and
+        :meth:`ratio` read it.  ``None`` under ``variance="influence_curve"``.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -610,6 +682,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     n: int
     backend: str | None = None
     restricted_horizons: tuple[float, ...] = field(default=())
+    predictable: PredictableCovariance | None = None
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
@@ -883,21 +956,68 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         ParameterEstimate
             The derived estimate.
         """
-        derived = smooth_contrast(
-            self.estimates,
-            function,
-            names,
-            n=self.n,
-            alpha=self._alpha,
-            name=name,
-            scale=scale,
-            gradient=gradient,
-            transform=transform,
-        )
+
+        def run(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+            return smooth_contrast(
+                estimates,
+                function,
+                names,
+                n=self.n,
+                alpha=self._alpha,
+                name=name,
+                scale=scale,
+                gradient=gradient,
+                transform=transform,
+            )
+
+        derived = self._derive(names, run)
         support = combine_support(
             [CONTRAST_SUPPORT, *(self.estimates[key].support for key in names)]
         )
         return replace(derived, support=support)
+
+    def _derive(
+        self,
+        names: Sequence[str],
+        run: Callable[[Mapping[str, ParameterEstimate]], ParameterEstimate],
+    ) -> ParameterEstimate:
+        """A derived estimate from ``run``, under the fit's variance.
+
+        Under ``variance="influence_curve"`` this is ``run`` of the stored estimates.  Under
+        ``"switched"``, ``run`` builds the derived curve from the inputs' influence-curve
+        versions, and the same ``run`` on their gradients over the targeted levels gives the
+        derived gradient :math:`h`: the delta method is linear in the curves at fixed values,
+        so the derived curve is the levels' curves times :math:`h`.  The derived estimate then
+        reports the switched variance of :math:`h^\\top \\hat\\Sigma_{pv} h`, with the switch
+        read on its own curve.
+        """
+        chosen = [self.estimates[key] for key in names]
+        covariance = self.predictable
+        if covariance is None or not any(e.switched is not None for e in chosen):
+            return run(self.estimates)
+        view = {key: _influence_view(self.estimates[key]) for key in names}
+        derived = run(view)
+        rows = {key: replace(view[key], influence_curve=covariance.gradients[key]) for key in names}
+        gradient = run(rows).influence_curve
+        rebuilt = make_estimate(
+            derived.name,
+            derived.psi,
+            derived.influence_curve,
+            n=derived.n,
+            rule_widened=derived.rule_widened,
+            scale=derived.scale,
+            alpha=derived.alpha,
+            log_psi=derived.log_psi,
+            covariance_rule="switched",
+            inference=derived.inference,
+            reference_df=derived.reference_df,
+            support=derived.support,
+            bounds=derived.bounds,
+            outcome_family=derived.outcome_family,
+            range_interval=derived.range_interval,
+            predictable_variance=covariance.quadratic(gradient),
+        )
+        return replace(rebuilt, transform=derived.transform)
 
     @property
     def _alpha(self) -> float:
@@ -1014,16 +1134,20 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             )
         prefix = "survival_" if view == "survival" else ""
         label = name or contrast_name(f"{prefix}{kind}_regimen", top[0], bottom[0], top[1], top[2])
-        derived = ratio_contrast(
-            self.estimates,
-            numerator,
-            denominator,
-            kind=kind,
-            complement=view == "survival",
-            n=self.n,
-            alpha=self._alpha,
-            name=label,
-        )
+
+        def run(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+            return ratio_contrast(
+                estimates,
+                numerator,
+                denominator,
+                kind=kind,
+                complement=view == "survival",
+                n=self.n,
+                alpha=self._alpha,
+                name=label,
+            )
+
+        derived = self._derive((numerator, denominator), run)
         support = combine_support(
             [RATIO_SUPPORT, self.estimates[numerator].support, self.estimates[denominator].support]
         )
@@ -1057,8 +1181,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         stored = self.estimates[restricted_name(head, pair, cause, tau)]
         if first == 1:
             return stored
-        # The stored difference is on the identity scale, so its negation is the reverse.
+        # The stored difference is on the identity scale, so its negation is the reverse, with
+        # the same variances: the switch reads the same relative SD on the negated curve.
         label = restricted_name(head, f"{arm} vs {versus}", cause, tau)
+        record = stored.switched
         return make_estimate(
             label,
             -stored.psi,
@@ -1069,6 +1195,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             bounds=(-tau, tau),
             rule_widened=False,
             support=stored.support,
+            covariance_rule=stored.covariance_rule,
+            predictable_variance=None if record is None else record.predictable_variance,
         )
 
     def rmtl(
@@ -1208,7 +1336,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             ``estimates``, each estimate's
             :meth:`~cleverly.inference.ParameterEstimate.to_dict` by name; ``record``, the
             selected models and how the walk ended; and ``settings``, the arms, causes, target
-            times, restriction times, units and significance level.  A value that is not a
+            times, restriction times, units, significance level and variance; and
+            ``predictable_covariance``, the targets and matrix of the predictable-variation
+            covariance under ``variance="switched"``, else ``None``.  A value that is not a
             finite number, such as the p-value of a range-logit estimate, reads ``None``, so
             the mapping passes ``json.dumps(..., allow_nan=False)``.
         """
@@ -1245,7 +1375,11 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
                     "restricted_horizons": [float(t) for t in self.restricted_horizons],
                     "n": int(self.n),
                     "alpha": self._alpha,
+                    "variance": "influence_curve" if self.predictable is None else "switched",
                 },
+                "predictable_covariance": None
+                if self.predictable is None
+                else self.predictable.to_dict(),
             }
         )
 
