@@ -625,8 +625,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "drift-corrected and separable-effects survival fits, a fold-average plan and an "
                 "isotonic projection change the node's term of the curve; a collaborative survival "
                 "fit and a learned rule choose the node's coefficient along the fit, which no "
-                "bound here covers; and a continuous outcome's node has no binomial bound. The "
-                "fit's warning names which. A contrast or a restricted mean that reads such a "
+                "bound here covers; a hazard fit with covariates measured after baseline adds "
+                "the residual of a regression of the future at each node; and a continuous "
+                "outcome's node has no binomial bound. The fit's warning names which. A contrast or a restricted mean that reads such a "
                 "parameter takes this status too, and the simultaneous band leaves it out. The "
                 "plug-in standard error remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. F31 in docs/roadmap.md holds these kinds and the rare-event "
@@ -856,6 +857,11 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
         "continuous": (
             "a fit of a continuous outcome",
             "a run of one value of a bounded continuous outcome has no binomial bound",
+        ),
+        "hazard_later_covariates": (
+            "a hazard fit with covariates measured after baseline",
+            "its curve adds at each node the residual of the regression of the future on the "
+            "node's covariates, a continuous target that no binomial bound covers",
         ),
     }
 )

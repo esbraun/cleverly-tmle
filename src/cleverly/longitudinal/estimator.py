@@ -7521,7 +7521,7 @@ class _SequentialEstimator:
 
         ``None`` on an ``LTMLE`` iterated-mean or hazard fit of a binary outcome or event with
         one draw, static, dynamic, known stochastic or modified-treatment-policy regimens and
-        the default variance.  Otherwise the key of
+        the default variance, and, on a hazard fit, no covariates measured after baseline.  Otherwise the key of
         :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` that keeps the
         constant-node status, which the fit's warning reads (X54 part (i)).
 
@@ -7555,6 +7555,10 @@ class _SequentialEstimator:
             ("fold_average", any(plan.fold_average for plan in plans)),
             ("isotonic", bool(self.isotonic)),
             ("continuous", data.family != "binomial"),
+            (
+                "hazard_later_covariates",
+                getattr(self, "survival_model", None) == "hazard" and bool(later_covariates(data)),
+            ),
         )
         return next((key for key, applies in checks if applies), None)
 
