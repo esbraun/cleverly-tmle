@@ -1618,7 +1618,8 @@ class ParameterEstimate:
         can tell that ``ci_lower`` and ``ci_upper`` include the margin. An estimate under the
         ``"switched"`` rule adds ``variance_source``, both standard errors
         (``influence_curve_std_err`` and ``predictable_variation_std_err``) and
-        ``variance_rel_sd``, the relative standard deviation that the switch reads. ``std_err`` is present
+        ``variance_rel_sd``, the relative standard deviation that the switch reads.
+        ``std_err`` is present
         exactly when :attr:`supplies_inference` is ``True``, so a programmatic consumer has a
         total test.
 

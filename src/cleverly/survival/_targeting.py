@@ -558,7 +558,7 @@ def _martingale_block(
     reach: FloatArray | None,
     a: int,
 ) -> FloatArray:
-    r"""``(JQ, JQ)`` :math:`\sum_i \sum_m \rho_{im} V_a(u_m \mid L_i)` over the targets of arm ``a``.
+    r"""``(JQ, JQ)`` :math:`\sum_{i,m} \rho_{im} V_a(u_m \mid L_i)` over the targets of arm ``a``.
 
     Every unit contributes for both arms, whatever it received: the term is
     :math:`E[M_a^2 \mid L]`, a function of :math:`L` alone.

@@ -1,4 +1,4 @@
-r"""The switched variance: the influence-curve variance raised to a predictable variation where it is sparse.
+r"""The switched variance: the influence-curve variance, raised where the curve is sparse.
 
 ``ContinuousSurvivalTMLE(variance="switched")`` reads a second variance beside the
 influence-curve one: the predictable variation :math:`\hat\sigma^2_{pv}` of the martingale part
@@ -161,11 +161,7 @@ class SwitchedVariance:
     @property
     def source(self) -> VarianceSource:
         """``"predictable_variation"`` when the switch is on and that variance is the larger."""
-        if (
-            self.switched
-            and self.usable
-            and self.predictable_variance > self.influence_variance
-        ):
+        if self.switched and self.usable and self.predictable_variance > self.influence_variance:
             return "predictable_variation"
         return "influence_curve"
 

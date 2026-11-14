@@ -483,7 +483,9 @@ def build_estimates(
     targets = tuple(
         level_name(arms[a], None if single else labels[j], horizons[q])
         if q < K
-        else restricted_name("rmtl_regimen", arms[a], None if single else labels[j], restricted[q - K])
+        else restricted_name(
+            "rmtl_regimen", arms[a], None if single else labels[j], restricted[q - K]
+        )
         for a in (0, 1)
         for j in range(J)
         for q in range(Q)
@@ -563,7 +565,9 @@ def build_estimates(
         tau = float(tau)
         span = (-tau, tau)
 
-        def lost(a: int, j: int, q: int = q, tau: float = tau) -> tuple[float, FloatArray, FloatArray]:
+        def lost(
+            a: int, j: int, q: int = q, tau: float = tau
+        ) -> tuple[float, FloatArray, FloatArray]:
             # The walk targets RMTL / tau, so the walk does not depend on the unit of time;
             # the report is in time units, and so is the covariance's row.
             p = (a * J + j) * Q + q
@@ -627,9 +631,7 @@ def build_estimates(
             total[0][1] - total[1][1],
             total[0][2] - total[1][2],
         )
-    covariance = (
-        None if matrix is None else PredictableCovariance(targets, matrix, gradients)
-    )
+    covariance = None if matrix is None else PredictableCovariance(targets, matrix, gradients)
     return out, covariance
 
 
