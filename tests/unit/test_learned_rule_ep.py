@@ -37,7 +37,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.neighbors import KNeighborsRegressor
 
 from cleverly import SuperLearner
-from cleverly.bases import Cosine, Modifiers, Sieve
+from cleverly.bases import BSpline, Cosine, Modifiers, Sieve
 from cleverly.estimators import TMLE
 from cleverly.estimators import ep as ep_module
 from cleverly.exceptions import CapabilityError, DataError, InSampleLearnerWarning
@@ -1090,3 +1090,264 @@ def test_a_study_fit_reports_the_engine_estimate() -> None:
         study.identify(OptimalRuleValue(rule=LearnedRule(loss="ep", modifiers=W1_ONLY))).estimate(
             **options
         )
+
+
+# ------------------------------------------- EP1, EP2, EP4: a declared sieve or final learner
+#
+# P1 PR 1 (plan 4.5).  EP1 reruns W-c1 with a declared fixed-size B-spline sieve on a finite
+# population whose modifier takes nine levels, so the member does not saturate the levels and
+# the fold curve is the projection of the effect onto the member, not the effect itself.  EP2
+# reruns W-c2 with a declared final learner and records the rows each final-stage fit sees.
+# EP4 reads the documented per-split diagnostic.
+
+#: The EP1 population: nine levels of ``V`` on ``[0, 2]``, binary ``W2``.
+EP1_LEVELS = np.linspace(0.0, 2.0, 9)
+EP1_MODIFIERS = Modifiers(["V"], domains={"V": (0.0, 2.0)})
+EP1_SIEVE = Sieve(BSpline(["V"], 4), size=1)
+
+
+def ep1_true_mean(a: Any, v: Any, w2: Any) -> Any:
+    blip = np.sin(4.0 * v) - 0.2 + 0.6 * w2 * (v - 1.0)
+    return expit(-0.2 + 0.3 * v - 0.4 * w2 + a * blip)
+
+
+def ep1_g(v: float, w2: int) -> float:
+    return float(expit(-0.3 + 0.4 * v - 0.5 * w2))
+
+
+def ep1_p_v(v: float) -> float:
+    """``P(V = v)``, uneven so that an unweighted final stage misses the projection."""
+    return float((0.2 + v**2) / np.sum(0.2 + EP1_LEVELS**2))
+
+
+def ep1_p_w2(v: float) -> float:
+    return float(expit(-0.5 + 0.6 * v))
+
+
+class EP1WrongRegression(ClassifierMixin, BaseEstimator):
+    """A fitted stub, wrong in the blip, on the design ``(A, V, W2)``."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> EP1WrongRegression:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        x = np.asarray(X, dtype=float)
+        a, v, w2 = x[:, 0], x[:, 1], x[:, 2]
+        p = expit(-0.2 + 0.3 * v - 0.4 * w2 + a * (0.5 - 0.3 * v) + 0.2 * w2)
+        return np.column_stack([1.0 - p, p])
+
+
+@cache
+def ep1_population() -> pd.DataFrame:
+    rows = []
+    for copy in range(COPIES):
+        for v in EP1_LEVELS:
+            for w2 in (0, 1):
+                cell = (ep1_p_w2(v) if w2 else 1.0 - ep1_p_w2(v)) * ep1_p_v(v)
+                g = ep1_g(v, w2)
+                for a in (0, 1):
+                    mean = float(ep1_true_mean(a, v, w2))
+                    for y in (0, 1):
+                        mass = cell * (g if a else 1.0 - g) * (mean if y else 1.0 - mean)
+                        rows.append(
+                            {"V": v, "W2": w2, "A": a, "Y": y, "w": mass, "c": copy}
+                            | {"p1": g, "p0": 1.0 - g}
+                        )
+    return pd.DataFrame(rows).astype({"W2": float, "A": float, "Y": float})
+
+
+def ep1_effect() -> np.ndarray:
+    """``theta(v)``, the effect given ``V``, at each level."""
+    p = np.array([ep1_p_w2(v) for v in EP1_LEVELS])
+    effect = {
+        w2: ep1_true_mean(1.0, EP1_LEVELS, w2) - ep1_true_mean(0.0, EP1_LEVELS, w2) for w2 in (0, 1)
+    }
+    return (1.0 - p) * effect[0] + p * effect[1]
+
+
+def ep1_projection() -> np.ndarray:
+    """The projection of ``theta`` onto the declared member under ``P(V)``, at each level."""
+    from cleverly.estimators.ep import sieve_member
+
+    member = sieve_member(EP1_SIEVE.basis, EP1_SIEVE.size, EP1_MODIFIERS)
+    design = np.asarray(member.evaluate({"V": EP1_LEVELS}, EP1_MODIFIERS), dtype=float)
+    root = np.sqrt([ep1_p_v(v) for v in EP1_LEVELS])
+    beta = np.linalg.lstsq(design * root[:, None], ep1_effect() * root, rcond=None)[0]
+    return design @ beta
+
+
+def ep1_fit() -> Any:
+    estimator = TMLE(
+        learned_rule=LearnedRule(loss="ep", modifiers=EP1_MODIFIERS, sieve=EP1_SIEVE),
+        n_folds=10,
+        cv_evaluation=True,
+        outcome_learner=EP1WrongRegression(),
+        random_state=3,
+    )
+    return estimator.fit(
+        ep1_population(),
+        outcome="Y",
+        treatment="A",
+        covariates=["V", "W2"],
+        weights="w",
+        id="c",
+        treatment_probabilities={1.0: "p1", 0.0: "p0"},
+    ).single()
+
+
+def ep1_gap(result: Any) -> float:
+    """The largest distance of a fold curve from the projection, over the levels."""
+    margin = np.asarray(result.nuisance.regimes.margin, dtype=float)
+    v = ep1_population()["V"].to_numpy()
+    target = ep1_projection()
+    return max(
+        float(np.max(np.abs(margin[np.isclose(v, level)] - target[i])))
+        for i, level in enumerate(EP1_LEVELS)
+    )
+
+
+class TestEP1TheDeclaredSieveReachesTheCurve:
+    def test_the_member_does_not_saturate_the_levels(self) -> None:
+        # Nonzero witness: the projection differs from the effect, so a curve that ignored the
+        # declared sieve (and fitted the effect at each level) fails the identity below.
+        assert np.max(np.abs(ep1_projection() - ep1_effect())) > 1e-2
+
+    def test_every_fold_curve_is_the_projection_onto_the_declared_member(self) -> None:
+        assert ep1_gap(ep1_fit()) < 1e-10
+
+    def test_skipping_the_debiasing_breaks_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = ep_module.debias
+
+        def no_debiasing(**inputs: Any) -> Any:
+            fitted = original(**inputs)
+            return replace(
+                fitted,
+                coefficients=0.0 * fitted.coefficients,
+                targeted_t=np.asarray(inputs["initial_t"], dtype=float),
+                targeted_r=np.asarray(inputs["initial_r"], dtype=float),
+            )
+
+        monkeypatch.setattr(ep_module, "debias", no_debiasing)
+        assert ep1_gap(ep1_fit()) > 1e-3
+
+    @pytest.mark.parametrize("mutation", ["unit_inverse_g", "no_row_weights"])
+    def test_a_debiasing_weight_mutation_breaks_it(
+        self, mutation: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = ep_module.nuisance_pieces
+
+        def mutated(*args: Any, **kwargs: Any) -> Any:
+            pieces = original(*args, **kwargs)
+            if mutation == "unit_inverse_g":
+                return replace(pieces, weight=pieces.rows)
+            return replace(pieces, weight=pieces.weight / pieces.rows, rows=0 * pieces.rows + 1)
+
+        monkeypatch.setattr(ep_module, "nuisance_pieces", mutated)
+        assert ep1_gap(ep1_fit()) > 1e-3
+
+    def test_an_unweighted_final_stage_breaks_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = ep_module.final_stage
+
+        def unweighted(debiased: Any, design: Any, weights: Any, *args: Any, **kw: Any) -> Any:
+            return original(debiased, design, np.ones_like(weights), *args, **kw)
+
+        monkeypatch.setattr(ep_module, "final_stage", unweighted)
+        assert ep1_gap(ep1_fit()) > 1e-3
+
+    def test_dropping_the_arm_sign_breaks_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unsigned(design: Any, treatment: Any, pair: Any, scale: str) -> Any:
+            return np.asarray(design, dtype=float)
+
+        monkeypatch.setattr(ep_module, "debias_features", unsigned)
+        assert ep1_gap(ep1_fit()) > 1e-3
+
+
+class RowSpyFinal(RegressorMixin, BaseEstimator):
+    """A linear final learner that records the modifier rows of every fit."""
+
+    calls: ClassVar[list[np.ndarray]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> RowSpyFinal:
+        RowSpyFinal.calls.append(np.asarray(X, dtype=float).copy())
+        self.model_ = LinearRegression().fit(X, y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> Any:
+        return self.model_.predict(X)
+
+
+def _spied_fit(
+    monkeypatch: pytest.MonkeyPatch, *, all_rows: bool
+) -> tuple[list[tuple[int, set[int]]], list[Any]]:
+    """Fit with the spy learner; return, per final-stage fit, its outer fold and its rows.
+
+    ``all_rows=True`` is the mutation: each fold's rule is fitted on every row.
+    """
+    frame = law.draw("misspecified_limit", 400, 3)
+    original = rule_learners.fit_fold_rule
+    current: list[int] = []
+
+    def tracking(data: Any, rows: Any, **settings: Any) -> Any:
+        current.append(int(settings["fold"]))
+        return original(data, np.arange(data.n) if all_rows else rows, **settings)
+
+    monkeypatch.setattr(rule_learners, "fit_fold_rule", tracking)
+    RowSpyFinal.calls = []
+    owners: list[int] = []
+    spy = RowSpyFinal()
+    real_fit = RowSpyFinal.fit
+
+    def owned(self: RowSpyFinal, X: Any, y: Any, sample_weight: Any = None) -> RowSpyFinal:
+        owners.append(current[-1])
+        return real_fit(self, X, y, sample_weight)
+
+    monkeypatch.setattr(RowSpyFinal, "fit", owned)
+    result = TMLE(
+        learned_rule=ep_rule(sieve=FIXED, learner=spy),
+        n_folds=5,
+        cv_evaluation=True,
+        outcome_learner=law.outcome_learner(),
+        treatment_learner=law.treatment_learner(),
+        random_state=11,
+    ).fit(frame, outcome="Y", treatment="A", covariates=list(law.COVARIATES))
+    w1 = frame["W1"].to_numpy()
+    index = {value: row for row, value in enumerate(w1)}
+    assert len(index) == len(w1)
+    calls = [{index[value] for value in x[:, 0]} for x in RowSpyFinal.calls]
+    folds = list(result.single().nuisance.folds)
+    return list(zip(owners, calls, strict=True)), folds
+
+
+class TestEP2TheDeclaredLearnerIsFoldLocal:
+    def test_no_final_stage_fit_sees_a_validation_row_of_its_fold(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls, folds = _spied_fit(monkeypatch, all_rows=False)
+        assert {owner for owner, _ in calls} == set(range(5))
+        for owner, rows in calls:
+            _, test = folds[owner]
+            assert not rows & set(np.asarray(test).tolist())
+
+    def test_the_mutation_that_fits_on_every_row_is_seen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls, folds = _spied_fit(monkeypatch, all_rows=True)
+        leaked = [
+            owner for owner, rows in calls if rows & set(np.asarray(folds[owner][1]).tolist())
+        ]
+        assert leaked
+
+
+class TestEP4RuleDisagreement:
+    @pytest.mark.parametrize(
+        "changes", [{}, {"sieve": FIXED}, {"learner": LinearRegression()}], ids=str
+    )
+    def test_an_ep_rule_fit_reports_rule_disagreement_per_split(
+        self, changes: dict[str, Any]
+    ) -> None:
+        result = support.fit(learned_rule=ep_rule(**({"sieve": FIXED} | changes)))
+        splits = result.extra["learned_rule"].splits
+        assert len(splits) == 1
+        for split in splits:
+            assert 0.0 <= split.rule_disagreement <= 1.0
