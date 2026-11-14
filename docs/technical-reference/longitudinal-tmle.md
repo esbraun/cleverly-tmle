@@ -1588,7 +1588,7 @@ Another composition, such as a rule or known policy, observation weights, cluste
 ### A treatment at several nodes with covariates after baseline
 
 With a categorical treatment $A_k$ at every node, the history is
-$H_k = (W, \bar L_k, \bar A_{k-1})$, a regimen sets a static arm, a known rule $d_k(H_k)$ or a
+$H_k = (W, \bar L_k, \bar A_{k-1})$, a regimen sets a static arm, a known rule $d_k(W, \bar L_k)$, which reads no earlier treatment, or a
 known policy $q_{r,k}(a \mid H_k)$ at each node, and $h^r_k = \prod_{s \le k} q_{r,s}(A_s \mid H_s) / (g_s c_s)$
 is the iterated-mean clever covariate at the observed history. The estimand, the influence curve,
 the node panel, the backward pass and the remainder are those of this section's first table with $H_k$ in

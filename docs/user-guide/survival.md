@@ -530,8 +530,8 @@ A treatment with categories at each time point fits beside such covariates too. 
 treatment at each time point, follow a known rule that reads the latest covariate, or draw the
 treatment with known probabilities that may read the covariate and the earlier treatment. At each
 time point the fit predicts the event for every treatment level at each person's own history, so it
-never builds the treatment sequences a plan could follow. No registered study measures this fit
-yet, so it is labelled `experimental`
+never builds the treatment sequences a plan could follow. Its validation study is designed but has
+not run, so the fit is labelled `experimental`
 ([its evidence page](../technical-reference/method-evidence/hazard-time-varying-multinode.md)).
 
 A covariate declared at the first time point only is measured before the treatment, so it is an
@@ -548,7 +548,8 @@ gives the exact estimand, the settings it refuses, and its checks.
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
 With a treatment at several time points and a covariate measured after baseline, the hazard model
-refuses a plan that shifts a dose or tilts the odds of treatment
+refuses a plan that moves people to another treatment level, or one that multiplies the odds of
+treatment when you supplied the treatment probabilities yourself
 ([H27 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
 Its message points to the default model, which fits that plan.
 

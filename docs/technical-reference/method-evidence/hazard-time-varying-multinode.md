@@ -21,7 +21,7 @@ For a regimen $r$ the target is $\psi_r(t) = E\,Q^r_1(H_1)$, the risk of an even
 when each node's treatment follows $r$. The regimens are always treating, never treating, a rule
 (treat when $W_1 = 1$ at node 1 and when $L_k = +1$ after) and a known policy,
 $q_1(1 \mid W_1) = 0.3 + 0.4\,[W_1 = 1]$ and
-$q_k(1 \mid L_k, A_{k-1}) = 0.2 + 0.4\,[L_k = +1] + 0.2\,A_{k-1}$ after. A fit reports 21
+$q_k(1 \mid L_k, A_{k-1}) = 0.05 + 0.3\,[L_k = +1] + 0.6\,A_{k-1}$ after. A fit reports 21
 estimates: each regimen's risk at each node and each of always, the rule and the policy against
 never at each node. Identification needs sequential randomization of each $A_k$ given the
 history, censoring at random given the history, and positivity of each regimen (Díaz, Williams,
@@ -54,7 +54,7 @@ influence curve is the efficient influence function.
 | --- | --- | --- | --- |
 | `multinode_contrast` | always minus never | -0.7276 | 1.040 |
 | `multinode_rule` | the rule minus never | -0.3192 | 1.019 |
-| `multinode_policy` | the policy minus never | -0.3225 | 0.668 |
+| `multinode_policy` | the policy minus never | -0.3370 | 0.597 |
 | `multinode_risk` | always | 0.1290 | 0.748 |
 
 ## The fits
@@ -80,7 +80,7 @@ combine them.
 | family | cells | fits |
 | --- | --- | --- |
 | `interval_calibration` | six arms (`multinode` contrast, rule, policy and risk; `crossfit` contrast and policy), each with the shrunken-SE and noise controls, which must fail | 4,000 per fit label at n = 2,000, provisional until the calibration pilot |
-| `double_robustness` | the contrast under all five configurations, `both_wrong` as the control; the rule under `both_correct` and `outcome_correct`; the policy under every configuration but `both_wrong` | 1,200 per configuration at n = 2,000, the wrong-learner configurations provisional until their pilot |
+| `double_robustness` | the contrast under all five configurations, `both_wrong` as the control; the rule under `both_correct` and `outcome_correct`; the policy under every configuration but `both_wrong`; the untargeted rule and policy contrasts of the `outcome_correct` draws | 1,200 per configuration at n = 2,000, the wrong-learner configurations provisional until their pilot |
 | `targeting_necessity` | the targeted and the untargeted contrast of the `mechanism_correct` draws | the robustness fits |
 | `root_n_and_efficiency`, `root_n_rate` | the contrast and the policy at n = 1,000, 2,000 and 8,000 | 800 each; the n = 1,000 rung carries no claim |
 | `power` | the contrast against zero | the `multinode` calibration fits |
@@ -95,30 +95,37 @@ bounds the expected held fits of the study and its pilot inside each set's allow
 ## What each component is checked by
 
 Exact-law checks cannot see a term that vanishes at the truth. The design test computes, before
-any run, the exact limit that each such component moves. Each gap is in efficiency SEs at
-n = 2,000.
+any run, the exact limit that each such component moves. It also computes the probability that
+the arm carrying the witness tells the mutation from the truth at the arm's 1,200 replicates,
+by `sizing.bias_discriminated_probability` at a Monte Carlo spread of 1 to 1.5 times the bound.
+Each gap is in efficiency SEs at n = 2,000.
 
-| component | witness | gap | plan floor |
-| --- | --- | --- | --- |
-| the current-level slot | always minus never, from zero | -31.3 | 5 |
-| the policy mixture at nodes 2 and 3 | the observed treatment in place of the mixture, `outcome_correct`, policy risk | 3.07 | 3 |
-| the level plan | every node set to the slot's level, `outcome_correct`, policy contrast | 1.63 | 3, or 1 recorded |
-| the held slot | the hazard at the treatment of node 1, `outcome_correct`, policy contrast | -0.50 | 3, or 1 recorded |
-| the policy's prefix | the policy read at the level path, `outcome_correct`, policy contrast | 0.15 | 3, or 1 recorded |
-| the rule's slots | the level plan and the held slot, `outcome_correct`, rule contrast | 0.11 and -0.19 | 3, or 1 recorded |
-| the hazard term and the walk | the untargeted `mechanism_correct` contrast | 7.68 | 3 |
-| the covariate term of the panel | the untargeted `continuation_wrong` contrast | 0.80 | 1 |
-| $L_k$ in the mechanism | the targeted `both_wrong` contrast | 7.03 | discriminated |
-| $L_k$ as a confounder of later treatment | always and never fitted with $L$ dropped | 7.03 | 3 |
+| component | witness | gap | floor | discriminated |
+| --- | --- | --- | --- | --- |
+| the current-level slot | always minus never, from zero | -31.3 | 5 | 1.00 |
+| the policy mixture at nodes 2 and 3 | the observed treatment in place of the mixture, `outcome_correct` policy contrast (policy risk 4.36) | 3.50 | 3 | 1.00 |
+| the level plan | every node set to the slot's level, untargeted `outcome_correct` rule contrast | -4.19 | 3 | 1.00 |
+| the held slot | the hazard at the treatment of node 1, untargeted `outcome_correct` policy contrast (rule 1.49, targeted policy 1.33) | 1.95 | 3, or 1 recorded | 1.00 |
+| the policy's prefix | the policy read at the level path, `outcome_correct` policy contrast | 1.14 | 3, or 1 recorded | 1.00 |
+| the hazard term and the walk | the untargeted `mechanism_correct` contrast | 7.68 | 3 | 1.00 |
+| the covariate term of the panel | the untargeted `continuation_wrong` contrast | 0.80 | 1 | 1.00 |
+| $L_k$ in the mechanism | the targeted `both_wrong` contrast | 7.03 | discriminated | 1.00 |
+| $L_k$ as a confounder of later treatment | always and never fitted with $L$ dropped | 7.03 | 3 | 1.00 |
 
-Five witnesses fall below the plan's floor: the held slot, the policy's prefix and the rule's
-slots below the 1 SE fallback, and the covariate term below 1 SE. The coefficients were searched
-inside the positivity, hazard-clip and held-cell limits before any pilot, and these are the gaps
-at the declared ones. The rule's followers hold different treatments at consecutive nodes only
-when $L$ changes, which the Markov covariate makes rare. The policy reads the earlier treatment
-only through the plan's fixed 0.2 term. The policy's held slot reached 1.3 SEs only at a
-baseline hazard that held a cell in 7% of the n = 1,000 fits. Each of these components keeps its
-deliberate-mutation control in `tests/unit/test_hazard_time_varying_multinode.py`.
+At a static or rule node the backward pass fits the slot hazard to the followers' events, so it
+repairs a wrong slot under any mechanism. The targeted rule contrast therefore moves only 0.11
+SEs under the level plan and -0.19 under the held slot, and is discriminated with probability 0.
+The untargeted pass has no such repair, so the untargeted `outcome_correct` arms carry the rule's
+slots. A defect of a policy slot changes the mixture the target averages, which no fit to the
+events repairs, so the targeted policy contrast shows it too: 0.86 SEs under the level plan,
+discriminated with probability 1.00.
+
+The held slot and the policy's prefix reach their 1 SE fallback, the largest gaps found inside
+the positivity, hazard-clip and held-cell limits. The covariate term is the one declared
+shortfall, 0.80 SEs against a floor of 1. The current-level slot has no witness that reads the
+observed treatment on a static arm, where the regimen's mixture is its level, so the contrast's
+distance from zero stands in for it. Each component also keeps its deliberate-mutation control
+in `tests/unit/test_hazard_time_varying_multinode.py`.
 
 ## Limitations
 
@@ -129,15 +136,22 @@ deliberate-mutation control in `tests/unit/test_hazard_time_varying_multinode.py
 | no observation weights, clusters or `node_bounds=` | the unit tests fit weighted data, since every exact-law fit weights the support by its mass; clusters and `node_bounds=` are not measured on this design |
 | declared factors and `markov_order=` | covered by the unit tests only |
 | `targeting="one_step"` only | the per-horizon algorithm is refused on this design (H28) |
-| the slot witnesses above their floor | the rule's slots, the policy's prefix and held slot, and the covariate term rest on the unit tests' mutation controls |
+| the witnesses below their floor | the held slot and the policy's prefix sit between 1 and 3 SEs, and the covariate term at 0.80 SEs; each also rests on its unit-test mutation control |
 | no comparator | R `ltmle` and `lmtp` reach this estimand by the iterated-mean algorithm only, which `canonical-ltmle-survival` already ties to the in-package fit, so they would add transitive evidence only |
 
 ## Reproduction
 
-The smoke gate fits two draws of each fit label and configuration on the pilot stream, as
-`SMOKE_GATE()` in `tests/studies/canonical_hazard_time_varying_multinode.py`. Every smoke fit
-must converge with every node score at most $10^{-10}$, hold no cell and take at most twice the
-cost table's 1.3 s (in sample) or 1.8 s (five folds). The pilot runs one label per run, as
+The smoke gate is `python -m tests.studies.canonical_hazard_time_varying_multinode`, which runs
+`SMOKE_GATE()` on the pilot stream and writes
+`tests/canonical/hazard_time_varying_multinode/smoke.json`. It fits two draws of every
+configuration at n = 2,000, the five-fold fit, the n = 1,000 and n = 8,000 rungs, the untargeted
+fits and the two iterated-mean fits. Every smoke fit must converge with every node score at most
+$10^{-10}$, hold no cell and take at most twice its entry in `COST_SECONDS`: 1.3 s for an in-sample
+configuration, 2.5 s for `mechanism_correct`, 1.5 s for `both_wrong`, 1.8 s for five folds, 1.0
+and 4.5 s for the rungs, 0.4 s for an untargeted fit and 0.5 s for an iterated-mean fit. The
+design test reads the committed record.
+
+The pilot runs one label per run, as
 `python -m tests.studies.hazard_time_varying_multinode_pilot --jobs N --labels LABEL`, and writes
 `tests/canonical/hazard_time_varying_multinode/pilot.csv.gz`. The declared run is
 `python tests/canonical/hazard_time_varying_multinode/regenerate.py --output DIR`, with an empty
