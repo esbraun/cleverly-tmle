@@ -755,6 +755,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.known_score_att import STUDY as KNOWN_SCORE_ATT
     from tests.studies.learned_regimen_ltmle import STUDY as LEARNED_REGIMEN_LTMLE
     from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
@@ -915,6 +916,7 @@ def registered() -> tuple[StudyRecord, ...]:
         ADAPTIVE_TMLE_SELECTIVE,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
+        KNOWN_SCORE_ATT,
         DRTMLE_ONE_WRONG,
         DRTMLE_FOLDWISE,
         DRTMLE_FOLDWISE_N1500,

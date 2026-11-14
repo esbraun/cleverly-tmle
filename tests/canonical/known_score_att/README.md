@@ -16,10 +16,10 @@ mechanism is known (X35 plan sections 1, 2 and 5). It has no comparator.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed here and the record is not in `registered()`. The
-support rows (family `P3`, qualifier `known_mechanism`, option
-`conditional_form="known_score"`), the descriptions and the evidence page land with the
-registration.
+Registered. The declared run's artifacts, manifest and log are committed here. Support rows
+`T55` (family `P3`, qualifier `known_mechanism`, option `conditional_form="known_score"`) cite
+its cells, and [the evidence page](../../../docs/technical-reference/method-evidence/known-score-att.md)
+reports them.
 
 ## Run
 

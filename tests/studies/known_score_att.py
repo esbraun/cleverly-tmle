@@ -32,7 +32,8 @@ family                      cells
 **Publication policy** is ``reporting``.  The red-cell reading is declared in
 ``tests/canonical/known_score_att/regenerate.py`` before any run.
 
-**Declared, not run.**  No artifact is committed and the record is not in ``registered()``.
+**Registered.**  The declared run is committed in ``tests/canonical/known_score_att/``; support
+rows ``T55`` cite its cells.
 """
 
 from __future__ import annotations

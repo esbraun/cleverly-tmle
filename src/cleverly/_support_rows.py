@@ -3565,6 +3565,78 @@ def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit of every ``T55`` row (study ``known-score-att``).
+_KNOWN_SCORE_LIMIT = (
+    "Measured with the treatment mechanism declared by column and equal to the law's. A "
+    "declared mechanism that is wrong biases the estimate whatever the outcome regression "
+    "(study known-score-att, cell s_att__declared_constant: bias -0.66, about 11 SD). "
+    "Interval calibration and the efficiency gain over the arm-mean form were measured on a "
+    "two-arm continuous outcome with a correct outcome regression; the binary and three-arm "
+    "cells measured bias and coverage with a misspecified outcome regression only, where the "
+    "gain is about 1% of the variance."
+)
+
+
+def _x35_known_score_rows() -> tuple[SupportRow, ...]:
+    """``conditional_form="known_score"`` on TMLE (``T55``, ``known-score-att``)."""
+    slug = ["known-score-att"]
+    declared = {"conditional_form": "known_score"}
+    common: dict[str, Any] = {
+        "families": ("P3",),
+        "qualifiers": ["known_mechanism"],
+        "options": declared,
+        "limits": [_KNOWN_SCORE_LIMIT],
+    }
+    return (
+        point_row(
+            "T55.in_sample",
+            slug,
+            outcome=CONTINUOUS,
+            cells=[
+                "interval_calibration/att_known_score_in_sample__correctly_specified",
+                "interval_calibration/atc_known_score_in_sample__correctly_specified",
+                "efficiency_gain/att__known_score",
+                "efficiency_gain/atc__known_score",
+                "known_score_accuracy/s_att__q_wrong",
+                "known_score_accuracy/s_atc__q_wrong",
+                "root_n_and_efficiency/n_500",
+                "root_n_and_efficiency/n_2000",
+                "root_n_and_efficiency/n_8000",
+            ],
+            **common,
+        ),
+        point_row(
+            "T55.stacked",
+            slug,
+            outcome=BOUNDED,
+            splitting=("stacked",),
+            cells=[
+                "interval_calibration/att_known_score_stacked__correctly_specified",
+                "interval_calibration/atc_known_score_stacked__correctly_specified",
+            ],
+            **common,
+        ),
+        point_row(
+            "T55.binary",
+            slug,
+            cells=["known_score_accuracy/b2_att__q_wrong", "known_score_accuracy/b2_atc__q_wrong"],
+            **common,
+        ),
+        point_row(
+            "T55.arms3",
+            slug,
+            treatment=("arms3",),
+            cells=[
+                "known_score_accuracy/b3_att_1__q_wrong",
+                "known_score_accuracy/b3_att_2__q_wrong",
+                "known_score_accuracy/b3_atc_1__q_wrong",
+                "known_score_accuracy/b3_atc_2__q_wrong",
+            ],
+            **common,
+        ),
+    )
+
+
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
@@ -3577,6 +3649,7 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),
         *_x76_adjustment_rows(),
+        *_x35_known_score_rows(),
     )
 )
 
