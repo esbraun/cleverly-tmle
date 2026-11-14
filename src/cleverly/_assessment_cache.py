@@ -107,8 +107,8 @@ _RETAIN_PACKED: ContextVar[bool] = ContextVar("assessment_retain_packed", defaul
 def _result_backend(result: Any) -> str | None:
     """The dataframe backend a result's reports come back in.
 
-    A result with a data container reads its backend there. A continuous-time survival
-    result keeps no container and records the backend on itself.
+    A result with a data container reads its backend there; a continuous-time survival
+    result's container records the same backend as the result itself.
     """
     data = getattr(result, "data", None)
     if data is not None:

@@ -358,6 +358,32 @@ def test_t6_a_draw_that_loses_events_refuses_before_any_refit(refits: list[Any])
     assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
     assert "Raise subset_fraction, or drop subset from tests=." in str(caught.value)
     assert refits == []
+    # With the default tests the placebo and noise refits come first in the order; the guard
+    # still refuses before any of them runs.
+    with pytest.raises(CapabilityError, match=r"subset draw 1 of 20 leaves arm"):
+        refute(result, estimand=RD, subset_fraction=0.05)
+    assert refits == []
+
+
+def test_t6_a_subset_refit_reproduces_under_its_own_refit(refits: list[Any]) -> None:
+    """A fit made with frozen folds keeps them when refitted without naming them."""
+    refute(_fresh(_cross_fitted()), estimand=RD, tests=("subset",), n_replicates=2)
+    _, _, refitted = refits[0]
+    stored = refitted.estimator
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        again = stored.refit(refitted.data, random_state=stored.random_state)
+    np.testing.assert_array_equal(again.estimator._outer_folds, stored._outer_folds)
+    assert again[RD].psi == refitted[RD].psi
+
+
+def test_the_stored_data_does_not_alias_the_callers_arrays() -> None:
+    result = _fresh(_in_sample())
+    data = result.data
+    before = data.time.copy()
+    refitted = result.estimator.refit(data, random_state=result.estimator.random_state)
+    data.time[:] = 0.0
+    np.testing.assert_array_equal(refitted.data.time, before)
 
 
 # ----------------------------------------------------------------- T7, T8 noise and seeds
@@ -638,9 +664,20 @@ def test_t11_floors_below_every_cell_change_nothing() -> None:
 
 
 def test_t11_the_shares_rise_with_the_floor() -> None:
-    curve = _fresh(_in_sample()).diagnostics.truncation_curve()
+    result = _fresh(_in_sample())
+    curve = result.diagnostics.truncation_curve()
     rows = _rows(curve, RD)
     assert len(rows) == 5
+    # truncated_fraction is the unit share: a unit counts once if any of its cells, in
+    # either arm, falls below the floor.
+    product = _initial(result).product
+    for bound, share in zip(rows["bound"], rows["truncated_fraction"], strict=True):
+        assert share == float(np.mean(product.min(axis=(0, 2)) < bound))
+    # Mutation control: the cell share is another number at some floor of the grid.
+    assert any(
+        share != float(np.mean(product < bound))
+        for bound, share in zip(rows["bound"], rows["truncated_fraction"], strict=True)
+    )
     assert np.all(np.diff(rows["truncated_fraction"]) >= 0)
     assert np.all(np.diff(rows["bounded_share"]) >= 0)
     assert rows["truncated_fraction"].iloc[-1] > rows["truncated_fraction"].iloc[0]

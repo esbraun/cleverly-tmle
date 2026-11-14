@@ -305,16 +305,29 @@ def continuous_survival_refute(
     def on_scale(value: float) -> float:
         return float(np.log(value)) if is_ratio else float(value)
 
+    def replicates(name: str) -> int:
+        if request.n_replicates is not None:
+            return request.n_replicates
+        if name == "random_common_cause":
+            return _DEFAULT_NOISE_REPLICATES
+        return _DEFAULT_PERTURBATION_REPLICATES
+
+    # Draw and check the subsets before any refit, so a draw the engine cannot fit is refused
+    # before the placebo and noise refits spend their time.
+    subset_draws: list[np.ndarray] = []
+    subset_size = 0
+    if "subset" in request.tests:
+        subset_count = replicates("subset")
+        subset_size = min(n, max(20, int(subset_fraction * n)))
+        subset_draws = [
+            np.sort(rng.choice(n, size=subset_size, replace=False)) for _ in range(subset_count)
+        ]
+        refused = _guard_subset(estimator, data, subset_draws, subset_count)
+        if refused is not None:
+            raise refused
+
     for name in request.tests:
-        count = (
-            request.n_replicates
-            if request.n_replicates is not None
-            else (
-                _DEFAULT_NOISE_REPLICATES
-                if name == "random_common_cause"
-                else _DEFAULT_PERTURBATION_REPLICATES
-            )
-        )
+        count = replicates(name)
         if name == "placebo":
             null = _NULLS[str(estimate.scale)]
             mode = request.placebo_mode or "permute"
@@ -352,7 +365,7 @@ def continuous_survival_refute(
             )
             _, coded = estimator._arms(treatment)
             treated = int(coded.sum())
-            if 2 * treated != n:
+            if mode == "permute" and 2 * treated != n:
                 detail += (
                     f". The arms differ in size ({n - treated} and {treated}), so the mean "
                     "over permutations carries a bias of order 1/n"
@@ -416,11 +429,7 @@ def continuous_survival_refute(
                 )
             )
         else:  # subset; the rules admit no other test
-            size = min(n, max(20, int(subset_fraction * n)))
-            draws = [np.sort(rng.choice(n, size=size, replace=False)) for _ in range(count)]
-            refused = _guard_subset(estimator, data, draws, count)
-            if refused is not None:
-                raise refused
+            draws, size = subset_draws, subset_size
             fits = [
                 refit(
                     _rows(data, rows),

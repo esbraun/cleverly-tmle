@@ -536,15 +536,20 @@ class ContinuousSurvivalTMLE:
         _frozen_folds : array-like or None
             Private: one outer cross-fitting label per row of ``data``, used instead of a
             fresh draw.  A subset refutation passes each drawn unit's original label, so the
-            refits keep the fit's split.
+            refits keep the fit's split.  When omitted, a fit that was itself produced with
+            frozen labels reuses them on data of the same size.
 
         Returns
         -------
         ContinuousSurvivalResult
             The fit of the copy.
         """
+        folds = _frozen_folds
+        override = self._fold_override
+        if folds is None and override is not None and override.size == len(data.time):
+            folds = override
         estimator = self._copy(random_state)
-        return estimator._fit_data(data, folds=_frozen_folds)
+        return estimator._fit_data(data, folds=folds)
 
     def _copy(self, random_state: int | None) -> ContinuousSurvivalTMLE:
         """A copy at ``random_state`` that shares no mapping with this estimator."""
@@ -600,7 +605,15 @@ class ContinuousSurvivalTMLE:
             n=initial.n,
             backend=data.backend,
             estimator=stored,
-            data=data,
+            # Copy the arrays: the caller's frame or container may be edited after the fit,
+            # and a refutation must refit the rows this fit read.
+            data=replace(
+                data,
+                time=np.array(data.time, copy=True),
+                event=np.array(data.event, copy=True),
+                treatment=np.array(data.treatment, copy=True),
+                baseline=np.array(data.baseline, copy=True),
+            ),
         )
 
     def _initial(self, data: Any, seed: int, *, folds: Any = None) -> _Initial:

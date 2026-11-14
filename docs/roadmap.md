@@ -85,8 +85,8 @@ The readiness labels are defined under
 | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the diagnostics, the descriptive refutation and the truncation curve shipped | the shipped `ContinuousSurvivalTMLE`, its record and its stored estimator and data |
-| [X105](#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) Negative controls, generated outcomes and resampling for continuous-time fits | 6 | no new theory for the controls and generated outcomes; the resampling part needs the fold rule of X6 (d) | the shipped continuous-time refutation; X6 (d) for resampling |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
+| [X105](#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) Negative controls, generated outcomes and resampling for continuous-time fits | 6 | no new theory for the controls and generated outcomes; the resampling part needs the fold rule of X6 (d) | the shipped continuous-time refutation; X6 (d) for resampling |
 
 ### Longitudinal and sequential estimators
 
@@ -826,7 +826,9 @@ claims to perturb.
 
 `refute` on a `ContinuousSurvivalResult` runs the placebo, random-common-cause and subset tests
 ([X101](#x101-assessment-of-continuous-time-survival-fits)) and refuses the rest. This item holds
-the refused tests that have a construction but no adapter. It starts on demand.
+the refused tests that have a construction but no adapter. It starts on demand. Before part (b)
+lifts its refusals, the generated-outcome and plasmode verdict rows in `_interpretation.py`, which
+name no method today, must exclude continuous-time configurations until a study measures them.
 
 | part | what to add | base |
 | --- | --- | --- |

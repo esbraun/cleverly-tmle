@@ -144,10 +144,10 @@ point-treatment attribute, and `cleverly.validation.refute` and
 (`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
 agrees, and requires `refute` and `truncation_curve` to answer.
 
-A refute costs about 41 refits of the fit with the default 20 replicates, and the curve one refit
+A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk), and the curve one refit
 of the nuisances plus one walk per floor. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
 (`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
-jumps, about 400 MB, while it runs. No registered study calibrates the refutation readings on this
+jumps and the weight product, about 600 MB, while it runs. No registered study calibrates the refutation readings on this
 fit, so each prints its numbers without a verdict.
 
 The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the

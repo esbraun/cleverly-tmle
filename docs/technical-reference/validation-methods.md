@@ -3159,7 +3159,7 @@ The negative control, the generated outcomes and the plasmode, the two bootstrap
 `future_treatment`, `placebo_mode="markov"` and `noise_nodes=True` are refused before any refit.
 `_continuous_survival_refute.py` holds each sentence, and
 [X105](../roadmap.md#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits)
-tracks the first three. A refute costs about 41 refits of the fit with the default 20 replicates; at
+tracks the first three. A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk); at
 n = 4,000 a cross-fitted default fit takes 60 to 120 s.
 
 `tests/unit/test_continuous_survival_refute.py` checks each test and refusal. Its witnesses are a
