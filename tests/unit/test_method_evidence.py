@@ -2068,6 +2068,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
+    # ``hazard-multinode`` (design review a, F9): the power cell reads the rejection of zero on
+    # the ``base`` calibration fits, and the necessity pair compares the targeted contrast with
+    # the plug-in of the initial hazards of the ``base`` ``mechanism_correct`` robustness fits,
+    # as ``hazard-time-varying``'s does.  No claim reads two verdicts jointly.
+    "hazard-multinode": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
     # ``hazard-time-varying`` (design review b1, f11a): the power cell reads the rejection of
     # zero on the ``one_cause`` calibration fits, and the necessity pair compares the targeted
     # contrast with the untargeted backward plug-in of the ``one_cause`` ``mechanism_correct``
@@ -2201,6 +2209,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # working model on the same draws, and the iterated-mean curve's decreasing share, each
         # reported with no verdict.
         "iterated_mean_difference",
+        # X70 part (a) (``hazard-multinode``): the one-step walk over regimen curves beside the
+        # per-horizon fit of the same regimens on the same draws, reported with no verdict.
+        "one_step_walk",
         # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
         # nuisance errors, the oracle Hessian checks and the split-stability readings, each
         # reported with no verdict.

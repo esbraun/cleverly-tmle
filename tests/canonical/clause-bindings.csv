@@ -1857,18 +1857,18 @@ hazard-time-varying,targeting_necessity,least displacement over labels,control_c
 hazard-multinode,double_robustness,bias discriminated,pair_collapse
 hazard-multinode,double_robustness,bias equivalent,bias
 hazard-multinode,double_robustness,se ratio in union band,se/0.05
-hazard-multinode,interval_calibration,coverage in calibration band,bias
+hazard-multinode,interval_calibration,coverage in calibration band,affine
 hazard-multinode,interval_calibration,efficiency above band,pair_collapse
 hazard-multinode,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
 hazard-multinode,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
 hazard-multinode,interval_calibration,se ratio below band,se_high
 hazard-multinode,interval_calibration,se ratio in calibration band,se/0.9
-hazard-multinode,power,rejection floor,none
+hazard-multinode,power,rejection floor,rejection/0.01
 hazard-multinode,root_n_and_efficiency,bias equivalent,bias
 hazard-multinode,root_n_and_efficiency,coverage floor,affine
 hazard-multinode,root_n_and_efficiency,se ratio sanity,se_high
 hazard-multinode,root_n_rate,slope in root-n band,contract
-hazard-multinode,simultaneous_coverage,joint coverage below nominal,pair_collapse
+hazard-multinode,simultaneous_coverage,joint coverage below nominal,se_high
 hazard-multinode,simultaneous_coverage,joint coverage in calibration band,se_low
 hazard-multinode,targeting_necessity,bias discriminated,pair_collapse
 hazard-multinode,targeting_necessity,bias equivalent,bias

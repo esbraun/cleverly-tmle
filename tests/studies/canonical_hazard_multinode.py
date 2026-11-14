@@ -271,7 +271,7 @@ STUDY = StudyRecord(
     slug="hazard-multinode",
     artifacts=ROOT / "tests" / "canonical" / "hazard_multinode",
     document="docs/technical-reference/method-evidence/hazard-multinode.md",
-    anchor="hazard-multinode",
+    anchor="treatment-at-several-nodes-on-the-hazard-path",
     scenarios=ESTIMANDS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -323,6 +323,31 @@ CONFIGURATION = {
         "pXYZ": "the static path X, Y, Z (msm)",
     },
 }
+
+
+#: The support rows this study licenses (plan X70 3.3: ``G62``), each with the fit label whose
+#: fit its key is read from.  They live in :data:`cleverly._support_rows.LONGITUDINAL_ROWS`.
+#: The regimen rows name ``targeting="iterative"``; the reported ``onestep`` label's fits match
+#: no row.
+G62_FITS = {
+    "G62.three_node": "base",
+    "G62.four_node": "four",
+    "G62.msm": "msm",
+}
+#: Row id -> the calibration cells that license it.
+G62_CELLS: dict[str, tuple[str, ...]] = {
+    row_id: tuple(f"{fit}_{arm}" for arm in ARMS[fit]) for row_id, fit in G62_FITS.items()
+}
+#: The rows whose fit labels carry a gated ``simultaneous_coverage`` band.
+G62_BANDED = ("G62.three_node", "G62.four_node")
+
+
+def support_rows() -> tuple[Any, ...]:
+    """The registered ``G62`` rows, in :data:`G62_FITS` order."""
+    from cleverly._support_rows import LONGITUDINAL_ROWS
+
+    rows = {row.id: row for row in LONGITUDINAL_ROWS}
+    return tuple(rows[row_id] for row_id in G62_FITS)
 
 
 def learners(configuration: str = "both_correct") -> dict[str, Any]:

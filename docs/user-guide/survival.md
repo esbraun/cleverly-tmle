@@ -458,9 +458,17 @@ If a trial design fixes the
 treatment probabilities, you can pass them for the first time point only, as a mapping from the
 first treatment column to its levels, such as
 `treatment_probabilities={"A1": {0: "p0", 1: "p1"}}` with one probability column per level. An
-array that covers every time point is refused, even with the later columns left empty. The fit
+array that covers every time point is refused, even with the later columns left empty
+([H26 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+The fit
 estimates the probabilities of later treatment and of dropout, because it needs them along
-sequences that nobody followed. No registered study measures this fit yet, so its results are labelled
+sequences that nobody followed.
+
+The
+[multi-node hazard study](../technical-reference/method-evidence/hazard-multinode.md)
+measures this fit with a yes-or-no treatment at three and at four time points, one event type and
+no cross-fitting, under the default `targeting="iterative"`. Those fits are labelled `supported`.
+Fits outside that, including the same regimens with `targeting="one_step"`, are labelled
 `experimental`.
 [A treatment at several nodes on the hazard path](../technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
 gives the exact estimand and its checks.

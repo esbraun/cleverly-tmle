@@ -627,6 +627,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_full_refit_bootstrap import STUDY as FULL_REFIT_BOOTSTRAP
     from tests.studies.canonical_hazard_msm import STUDY as HAZARD_MSM
     from tests.studies.canonical_hazard_mtp import STUDY as HAZARD_MTP
+    from tests.studies.canonical_hazard_multinode import STUDY as HAZARD_MULTINODE
     from tests.studies.canonical_hazard_time_varying import STUDY as HAZARD_TIME_VARYING
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
@@ -857,6 +858,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_DR_TMLE,
         HAZARD_MSM,
         HAZARD_MTP,
+        HAZARD_MULTINODE,
         HAZARD_TIME_VARYING,
         CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,

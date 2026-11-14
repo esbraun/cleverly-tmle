@@ -1755,6 +1755,52 @@ ARMS.update(
     }
 )
 
+#: The labels of ``hazard-multinode``: one estimate of one fit label, a fit label's band over
+#: every estimate, and a fit label's own draws.  Mirrored from
+#: ``tests.studies.canonical_hazard_multinode``, which this module cannot import.
+_HAZARD_MULTINODE_FITS = {
+    "base": "the three-node law, n = 2,000",
+    "four": "the four-node law, n = 2,000",
+    "msm": "the logit working model over the eight static paths of the three-node law, n = 2,000",
+    "onestep": "the three-node law fitted with the one-step walk, n = 2,000",
+}
+_HAZARD_MULTINODE_ARMS = {
+    "contrast": "the risk difference of treating at every node against never by the last node",
+    "rule": "the risk under the known rule by the last node",
+    "policy": "the risk under the known policy by the last node",
+    "stay": "the risk under a draw at node 1 then kept, by the last node",
+    "dose": "the cumulative-dose coefficient",
+    "dose_W1": "the cumulative-dose by W1 coefficient",
+}
+ARMS.update(
+    {
+        **{
+            f"{fit}_{arm}": f"{_HAZARD_MULTINODE_FITS[fit]}, {_HAZARD_MULTINODE_ARMS[arm]}"
+            for fit, fit_arms in (
+                ("base", ("contrast", "rule", "policy", "stay")),
+                ("four", ("contrast", "policy")),
+                ("msm", ("dose", "dose_W1")),
+                ("onestep", ("contrast", "policy")),
+            )
+            for arm in fit_arms
+        },
+        **{
+            f"{fit}_curve": (
+                f"{_HAZARD_MULTINODE_FITS[fit]}, every risk and risk difference of every regimen "
+                "read as one joint set"
+            )
+            for fit in ("base", "four")
+        },
+        **{
+            fit: (
+                f"{_HAZARD_MULTINODE_FITS[fit]}, beside the iterated-mean fit of the same "
+                "regimens on the same draw"
+            )
+            for fit in ("base", "four")
+        },
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -10525,4 +10571,175 @@ STUDY_ARM_CELLS[
     "bias as the untargeted necessity control",
     "bias interval must fall entirely outside the margin, with the reported standard error "
     "still on the scale of the empirical spread",
+)
+
+
+#: ``hazard-multinode`` (X70 part (a)): a binary treatment decided at every node on the hazard
+#: path, its treatment paths enumerated as slots.  The laws and fits are those of
+#: ``tests/studies/hazard_multinode_law.py`` and ``tests/studies/canonical_hazard_multinode.py``,
+#: which this module cannot import.
+_HAZARD_MULTINODE_SLUG = "hazard-multinode"
+_HAZARD_MULTINODE_LAW = (
+    "two baseline covariates, a binary treatment at every node logistic in W and the previous "
+    "arm, logistic dropout and event hazard in W and the last two arms, one cause"
+)
+_HAZARD_MULTINODE_REGIMENS = {
+    "always": "treatment at every node",
+    "never": "no treatment at any node",
+    "rule": "the known rule that treats at every node when W2 is at least 2",
+    "policy": "the known policy that treats with probability 0.3 + 0.4 A(k-1) + 0.1 W1",
+    "stay": "a draw at node 1 with probability 0.3 + 0.2 W1, then the previous arm kept",
+}
+STUDY_SCENARIOS.update(
+    {
+        (_HAZARD_MULTINODE_SLUG, "base"): (
+            f"three nodes, {_HAZARD_MULTINODE_LAW}; five regimens against never treating"
+        ),
+        (_HAZARD_MULTINODE_SLUG, "four"): (
+            f"four nodes, {_HAZARD_MULTINODE_LAW}; always and a known policy against never treating"
+        ),
+        (_HAZARD_MULTINODE_SLUG, "msm"): (
+            f"three nodes, {_HAZARD_MULTINODE_LAW}; the logit working model (1, d, t, d W1) over "
+            "the eight static paths, d the cumulative dose through t"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_MULTINODE_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by node {t} under {words}"
+            )
+            for label, words in _HAZARD_MULTINODE_REGIMENS.items()
+            for t in range(1, 5)
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, f"ate_regimen[{label} vs never @ t={t}]"): (
+                f"the risk by node {t} under {words} minus the risk under no treatment"
+            )
+            for label, words in _HAZARD_MULTINODE_REGIMENS.items()
+            if label != "never"
+            for t in range(1, 5)
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, f"msm_regimen[{term}]"): (
+                f"the {words} of the logit working model (1, d, t, d W1) over the risk of each "
+                "static path by each node"
+            )
+            for term, words in (
+                ("(intercept)", "intercept"),
+                ("dose", "cumulative-dose coefficient"),
+                ("t", "node coefficient"),
+                ("dose_W1", "cumulative-dose by W1 coefficient"),
+            )
+        },
+    }
+)
+PROPERTIES["one_step_walk"] = (
+    "reported, not judged: how the one-step walk over regimen curves calibrates on a law with a "
+    "treatment at several nodes, and how far it sits from the per-horizon fit of the same "
+    "regimens on the same draw"
+)
+CELLS.update(
+    {
+        ("one_step_walk", "one_step_fit"): (
+            "the one-step fit of the regimens, against the exact value",
+            "no verdict; coverage and SE ratio are reported",
+        ),
+        ("one_step_walk", "paired_difference"): (
+            "the one-step estimate minus the per-horizon estimate of the same regimens on the "
+            "same draw",
+            "no verdict; the SD of the difference over the efficiency-bound standard error is "
+            "reported",
+        ),
+    }
+)
+_HAZARD_MULTINODE_DIFFERENCE_CELLS = {
+    **_HAZARD_MTP_DIFFERENCE_CELLS,
+    "mechanism_correct_difference": (
+        "the hazard estimate minus the iterated-mean estimate of the same regimens on the same "
+        "draw, with the hazard learner reading the node's own arm alone and the treatment and "
+        "censoring models correct",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
+    ),
+    "isotonic_difference": CELLS["iterated_mean_difference", "isotonic_difference"],
+}
+_HAZARD_MULTINODE_ROBUSTNESS = {
+    "both_correct": (
+        "correct logistic hazard, treatment and censoring learners",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    "outcome_correct": (
+        "a correct hazard learner with treatment and censoring learners that predict each "
+        "node's prior share",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    "mechanism_correct": (
+        "a hazard learner that reads the node's own arm alone, with correct treatment and "
+        "censoring learners",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    "both_wrong": (
+        "a hazard learner that reads the node's own arm alone and treatment and censoring "
+        "learners that predict each node's prior share",
+        "bias interval must fall entirely outside the margin, with the reported standard error "
+        "still on the scale of the empirical spread",
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_HAZARD_MULTINODE_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
+            for fit, fit_arms in (
+                ("base", ("contrast", "rule", "policy", "stay")),
+                ("four", ("contrast", "policy")),
+            )
+            for arm in fit_arms
+            for base, words in _HAZARD_MULTINODE_DIFFERENCE_CELLS.items()
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, "double_robustness", "base_contrast", base): words
+            for base, words in _HAZARD_MULTINODE_ROBUSTNESS.items()
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, "double_robustness", label, "mechanism_correct"): (
+                _HAZARD_MULTINODE_ROBUSTNESS["mechanism_correct"]
+            )
+            for label in (
+                "base_rule",
+                "base_policy",
+                "base_stay",
+                "four_contrast",
+                "four_policy",
+                "msm_dose",
+                "msm_dose_W1",
+            )
+        },
+        (_HAZARD_MULTINODE_SLUG, "double_robustness", "four_contrast", "node_hazard"): (
+            "a hazard learner that predicts each node's prior share of the event, with no arm "
+            "and no W, and correct treatment and censoring learners; its plug-in contrast is "
+            "zero in every sample, so the targeting alone moves the estimate",
+            "bias interval inside the equivalence margin, with the reported standard error on "
+            "the scale of the empirical spread",
+        ),
+        (_HAZARD_MULTINODE_SLUG, "targeting_necessity", "base_contrast", "targeted"): (
+            "the estimator with a hazard learner that reads the node's own arm alone and correct "
+            "treatment and censoring learners, so targeting does all the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_HAZARD_MULTINODE_SLUG, "targeting_necessity", "base_contrast", "untargeted"): (
+            "the same fit's plug-in of the initial hazards, with every targeting step removed",
+            "bias interval must fall entirely outside the margin",
+        ),
+        **{
+            (_HAZARD_MULTINODE_SLUG, "root_n_and_efficiency", label, "n_1600"): (
+                "bias, coverage and SE calibration at n = 1,600, a rate rung that carries no claim",
+                "coverage interval lies below nominal or clears the declared floor",
+            )
+            for label in ("base_contrast", "base_policy")
+        },
+    }
 )

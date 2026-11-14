@@ -1532,7 +1532,15 @@ through node $k$.
 | `tests/unit/test_hazard_multinode.py` | on an exact law with two and three binary nodes, realised exactly as weighted data, a wrong hazard learner with the true mechanism gives the exact $\psi_{r,j}(t)$ within `1e-8` on both algorithms for a static arm, a rule of $W$, a policy that reads the earlier arm, and a regimen that draws at node 1 and then stays, while its plug-in misses. The same holds for each of two competing causes and for a working model over four two-node paths. The copies of one hazard are bit-equal after the walk, and with saturated hazards the influence curve equals the iterated-mean curve within `1e-10`. Declared first-node treatment probabilities give the same exactness, and the true mechanism declared at every node, or the true retention declared, is refused before any learner (H26). Mutations: dropping the plug-in term, slots read from the observed plan values, each slot's later treatment factor read at the unit's observed history (the walk converges and the estimate misses), copies updated apart, slot mass counted twice, a wrong node-1 weight, a residual kept for a deviated unit, and a working model targeting the cells, each miss or break an identity. Also an empty prefix cell holds every copy, a treatment that never changes reduces to the held fit, the settings above carry over, the cluster variance is that of the summed curve, the cross-fitted path hazards equal a manual refit, the replay at the fitted bound is bit-identical, H17 fires before any learner when a policy draws, and static arms past the same predicted peak reach the learners |
 | `tests/unit/test_hazard_refusals.py` | H15, H18, H21, H22, H23 and H26 by type and message, before any learner |
 
-No registered study covers this fit yet, so its rows are labelled `experimental`.
+The registered study [treatment at several nodes on the hazard path](method-evidence/hazard-multinode.md)
+measures this fit on a three-node and a four-node law with a binary treatment, one cause and
+logistic learners, in sample, at n = 2,000. Its regimen fits use `targeting="iterative"`, and the
+support rows `G62.three_node` and `G62.four_node` license static arms, known rules and known
+policies there, with the simultaneous band. `G62.msm` licenses a working model over the static
+paths of three nodes with `targeting="one_step"`. The one-step walk over regimen curves is reported
+on 200 draws with no verdict, so a one-step regimen fit matches no row. A cross-fitted or
+competing-risk fit, another node count, or a treatment with more than two levels also matches
+no row. Each is labelled `experimental`.
 
 ### The isotonic projection
 

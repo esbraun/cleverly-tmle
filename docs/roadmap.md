@@ -841,6 +841,7 @@ validates it, with support rows `G60`.
 states part (c), and the
 [hazard modified-treatment-policy study](technical-reference/method-evidence/hazard-mtp.md)
 validates it, with support rows `G61`.
+
 [A treatment at several nodes on the hazard path](technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
 states part (a), and the
 [hazard multi-node study](technical-reference/method-evidence/hazard-multinode.md)

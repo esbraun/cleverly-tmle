@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import itertools
 import warnings
+from dataclasses import replace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -19,7 +20,10 @@ import pandas as pd
 import pytest
 from scipy.stats import norm
 
+from cleverly import _support
+from cleverly._support_rows import LONGITUDINAL_ROWS
 from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import estimator as estimator_module
 from cleverly.utils.bounds import DEFAULT_LTMLE_G_BOUNDS
 from tests.studies import canonical_hazard_multinode as study
 from tests.studies import hazard_multinode_law as law
@@ -981,6 +985,83 @@ def test_the_agreement_reading_carries_no_floor() -> None:
 # ---------------------------------------------------------------------------- cells and seeds
 
 
+def _fit_key(fit_label: str, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The support key of one fit label's fit, read where the estimator classifies it."""
+    keys: list[Any] = []
+    original = estimator_module.classify_longitudinal_fit
+
+    def spy(estimator: Any, data: Any, **settings: Any) -> Any:
+        names = (
+            "outcome_kind",
+            "cross_fitted",
+            "known_factors",
+            "has_msm",
+            "regimen_kinds",
+            "tuned_cap",
+            "separable_first",
+        )
+        key, _ = _support.longitudinal_key(
+            estimator, data, **{name: settings[name] for name in names if name in settings}
+        )
+        keys.append(key)
+        return original(estimator, data, **settings)
+
+    monkeypatch.setattr(estimator_module, "classify_longitudinal_fit", spy)
+    result = _quiet(study.fit, fit_label, study.law_of(fit_label).draw(1_000, 1))
+    return keys[-1], result
+
+
+class TestTheSupportRows:
+    @pytest.mark.parametrize("row", study.support_rows(), ids=lambda row: row.id)
+    def test_each_row_covers_its_fit_and_licenses_it(
+        self, row: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        key, result = _fit_key(study.G62_FITS[row.id], monkeypatch)
+        assert key.is_covered_by(row.key), key.differing_axes(row.key)
+        assert row.evidence == (study.STUDY.slug,)
+        assert row.cells == study.G62_CELLS[row.id]
+        assert set(row.cells) <= set(study.CALIBRATION_LABELS)
+        supports = {(e.support.label, e.support.row) for e in result.estimates.values()}
+        assert supports == {("supported", row.id)}
+
+    def test_no_other_row_covers_these_fits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each fit reads its own row only, and none of them reads a held-design row.
+
+        With the held marker on the treatment axis, the fit's key would be that of a held
+        hazard fit, which ``G31``, ``G32`` and ``G60`` cover; the unheld axis keeps it off them.
+        """
+        for row_id, fit_label in study.G62_FITS.items():
+            key, _ = _fit_key(fit_label, monkeypatch)
+            covering = {row.id for row in LONGITUDINAL_ROWS if key.is_covered_by(row.key)}
+            assert covering == {row_id}
+            held = replace(key, treatment=("held", *key.treatment))
+            assert not any(held.is_covered_by(row.key) for row in study.support_rows())
+
+    def test_the_one_step_regimen_fit_reads_no_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The one-step walk over regimen curves is reported and ungated (plan X70 rev 3.4)."""
+        key, result = _fit_key(study.ONE_STEP_FIT, monkeypatch)
+        assert dict(key.options)["targeting"] == "one_step"
+        assert not any(key.is_covered_by(row.key) for row in LONGITUDINAL_ROWS)
+        supports = {(e.support.label, e.support.row) for e in result.estimates.values()}
+        assert supports == {("experimental", None)}
+
+    def test_the_rows_say_what_the_key_cannot(self) -> None:
+        """The banded rows license the gated band, and every row limits its law and walk."""
+        from cleverly._support_rows import _LONG_BAND, _LONG_WALD, BAND_CELLS
+
+        for row in study.support_rows():
+            kinds = _LONG_BAND if row.id in study.G62_BANDED else _LONG_WALD
+            assert frozenset(row.kinds) == kinds, row.id
+            assert (row.id in BAND_CELLS) == (row.id in study.G62_BANDED), row.id
+            text = " ".join(row.limits)
+            assert "one-step walk over regimen curves" in text, row.id
+            assert "prefix cell" in text, row.id
+        banded = {f"{study.G62_FITS[row_id]}_curve" for row_id in study.G62_BANDED}
+        assert banded == set(study.JOINT_LABELS)
+        targeting = {row.id: dict(row.key.options)["targeting"] for row in study.support_rows()}
+        assert targeting == {row_id: study.algorithm(fit) for row_id, fit in study.G62_FITS.items()}
+
+
 class TestTheCells:
     def test_the_record_lists_every_study_specific_module(self) -> None:
         from tests.unit.test_study_provenance import _required_from
@@ -1004,9 +1085,8 @@ class TestTheCells:
         assert written | rate == declared
         assert filled | rate == declared
 
-    def test_the_study_is_not_yet_registered(self) -> None:
-        # Registration comes with the artifacts, the evidence page and the grid row.
-        assert study.STUDY.slug not in {record.slug for record in registered()}
+    def test_the_study_is_registered(self) -> None:
+        assert study.STUDY in registered()
 
     def test_the_seeds_are_distinct(self) -> None:
         from tests.studies import canonical_hazard_msm, canonical_hazard_mtp

@@ -119,6 +119,7 @@ survival-ctmle
 survival-dr-tmle
 hazard-msm
 hazard-mtp
+hazard-multinode
 hazard-time-varying
 continuous-time-survival
 categorical-incremental
