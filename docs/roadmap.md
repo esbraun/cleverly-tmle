@@ -67,6 +67,7 @@ tier is the one the legend lists.
 
 | tier | what it holds |
 | --- | --- |
+| scale | the scaling and efficiency work of [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths). The owner put it ahead of every fix and feature not already in progress on 2026-11-14 |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
 | 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e) and (h), X11, X81, X80, X75 |
@@ -156,6 +157,12 @@ The readiness labels are defined under
 | --- | --- | --- | --- |
 | [R1](#r1-nested-riesz-engine-and-initial-catalog) Nested Riesz engine and initial catalog | 4 | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need |
 | [R2](#r2-evidence-gated-riesz-catalog-expansion) Evidence-gated Riesz catalog expansion | 4, target by target | source audit for each target | R1 and a target-specific derivation |
+
+### Scaling and efficiency
+
+| item | tier | readiness | depends on |
+| --- | --- | --- | --- |
+| [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths) Scaling and efficiency of the shipped TMLE paths | scale | no new theory; each change preserves the analysis or is a separate opt-in option with its own evidence | the shipped estimators, assessments and plots |
 
 ### Plots
 
@@ -563,6 +570,45 @@ on new held-out laws.
 
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
+
+### X106. Scaling and efficiency of the shipped TMLE paths
+
+A benchmark of the public estimators, assessments and plots at 100,000 to 1,000,000 subjects found
+million-row paths for point TMLE and the longitudinal engines with explicit learners, and
+avoidable allocations and repeated work elsewhere. Continuous-time survival allocates hazards of
+shape `(2, J, n, M)` over every distinct event time; targeting curves build `(draws, units)` key,
+order and mask matrices before reducing them; the binned density and dose-response quadrature
+designs grow faster than the sample; the constant-cell check of a projection effect curve is
+quadratic in the number of modifier patterns. This item removes those costs without changing any
+default learner, fold count, draw count, bin rule or time grid.
+
+Each change is one of four kinds. An equivalent implementation returns the same results, bitwise
+where it can and otherwise within a declared tolerance, with every selection, status and refusal
+unchanged on a replay of committed study replications. A display limit changes only what a plot
+draws, and its default draws what it draws today. A memory guard refuses a request that cannot fit
+before allocating, with a `max_memory_bytes=` override, and never refuses one that fits. A sampled
+analysis is a separate opt-in option whose result describes the sampled procedure and needs its
+own registered study.
+
+| part | what to change | kind |
+| --- | --- | --- |
+| (a) exact hot paths | the projection constant-cell check exits when patterns outnumber terms; Breslow event counts by one grouped count; vectorized weighted AUC; one sort per weight vector for top-weight shares; fixed-size digests for duplicate covariates | equivalent |
+| (b) targeting curves | half samples generated and reduced in draw blocks, with the same draws; a memory guard | equivalent, guard |
+| (c) continuous-time survival | a memory guard over the engine's arrays; then an exact factored or subject-blocked representation of the hazards and targeting, if one exists | guard, equivalent |
+| (d) density and dose response | sparse or matrix-free binned-density designs; quadrature tiled over nodes; a guard over the buffers that coexist | equivalent, guard |
+| (e) adaptive TMLE | working-model selection that reuses held-fold slices, factors and cross-products across the lambda path | equivalent |
+| (f) plots | `max_points=` on `influence`, `max_rug_points=` on the effect `curve`, `max_intervals=` on `zipper`; one prepared nuisance report shared by `calibration` and `learners` | display, equivalent |
+| (g) refutation and sensitivity | replayable subset and placebo draws instead of retained arrays; a preview of planned refits; checkpoints for the long generated-outcome and bootstrap tests; profiles of `tipping_gamma()` and the continuous marginal sensitivity | equivalent |
+| (h) sampled refutation | `sample_limit=` on the refuters, with a paired baseline on the same sample | sampled analysis |
+| (i) fit budget | a preview of the nuisance fits a method plans, before fitting | information |
+| (j) longitudinal and survival retention | released candidate states in `SurvivalCTMLE`; cached history designs and released training state in the LTMLE family; streamed summaries for the weights plot and the regimen MSM | equivalent, guard |
+| (k) C-TMLE, DR-TMLE and point TMLE | cached fold-local inputs, fewer slab and arm-design copies, shared nuisance state across targets, reused basis cross-products for effect-curve bands | equivalent |
+| (l) assessment cache | a documented clear and budget policy that keeps replayed results reproducible | equivalent |
+
+Acceptance: each change carries a matched baseline and candidate comparison on the same data,
+learners, folds and seeds, with a practical gain and nonregression limits fixed before the runs,
+and witnesses that fail when the change alters a result it claims to preserve. Acceptance covers
+the measured configurations only.
 
 ### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
 
