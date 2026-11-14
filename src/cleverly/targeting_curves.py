@@ -46,6 +46,7 @@ from scipy.special import digamma
 
 from ._pooled_targeting import TARGETING_SPAN_RTOL, solve_pooled, span_basis
 from ._typing import FloatArray, IntArray
+from .data.known_mechanism import divides_by_declaration
 from .exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from .inference.delta import reference_quantile, two_sided_pvalue
 from .utils.frames import frame_from_dict
@@ -1124,7 +1125,7 @@ def targeting_fit(
     clustered = data.cluster is not None
     few_clusters = clustered and n_units < TARGETING_MIN_CLUSTERS
     outcome = "binary" if getattr(data, "family", "") == "binomial" else "continuous"
-    known_mechanism = getattr(data, "known_treatment", None) is not None
+    known_mechanism = divides_by_declaration(data)
     config_status, config_codes = targeting_status(
         route=route,
         outcome=outcome,

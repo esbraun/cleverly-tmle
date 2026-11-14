@@ -64,6 +64,8 @@ T4_CODES = {
     "incremental_reading",
     "learned_rule_reading",
     "learned_rule_bound",
+    "optimal_rule_reading",
+    "optimal_rule_bound",
     "observation_reads",
     "bounded_rows",
     "redrawn_folds",
@@ -87,6 +89,8 @@ LITERAL_CODES = {
     "incremental_reading",  # test_simulated_confounding_off_axis.py
     "learned_rule_reading",  # test_simulated_confounding_learned_rule.py
     "learned_rule_bound",  # test_learned_rule_bound.py
+    "optimal_rule_reading",  # test_optimal_rule_sensitivity.py
+    "optimal_rule_bound",  # test_optimal_rule_sensitivity.py
 }
 
 

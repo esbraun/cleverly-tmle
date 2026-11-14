@@ -295,6 +295,17 @@ def _structural_nested_mean() -> Any:
     )
 
 
+def _mtp_censored(estimator: str) -> Callable[[], Any]:
+    """A continuous-treatment modified policy with dropout after each node (X77)."""
+
+    def build() -> Any:
+        from tests.unit import _capability_sweep_support as sweep
+
+        return sweep._fit_mtp_censored(estimator)
+
+    return build
+
+
 #: One small fit per result family.
 FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_repeats": _point_tmle,
@@ -307,15 +318,25 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
     "time_to_event_drtmle": _survival_method(DRTMLEMethod()),
     "continuous_survival": _continuous_survival,
+    # X6 (c): restricted_horizons= adds restricted means, in time units, beside the risks.
+    "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
     "dose_response": _dose_response,
     "structural_nested_mean": _structural_nested_mean,
+    # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
+    # plot answers as it does on an estimated-mechanism fit of the same kind.
+    "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
+    "ltmle_known_sample": sweep.fit_ltmle_known_sample_weights,
+    "ltmle_mtp_censored": _mtp_censored("ltmle"),
+    "sdr_mtp_censored": _mtp_censored("sdr"),
     # X70 (d) and (c): the hazard working model and the hazard modified treatment policy.
     "hazard_msm": sweep.fit_hazard_msm,
     "hazard_mtp": sweep.fit_hazard_mtp,
     # X70 (b1): the hazard path on a held design with covariates after baseline.
     "hazard_time_varying": sweep.fit_hazard_time_varying,
+    # X70 (a): the hazard path with a treatment at several nodes and baseline covariates.
+    "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
 }
@@ -336,6 +357,30 @@ NOT_FITS = {
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
 #: names, or the refusal's class and first five words.
 EXPECTED: dict[str, dict[str, str]] = {
+    "ltmle_mtp_censored": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "sdr_mtp_censored": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "point_tmle_repeats": {
         "forest": "draws",
         "curve": "TypeError: curve() draws a longitudinal fit,",
@@ -432,6 +477,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    "continuous_survival_restricted": {
+        "forest": "draws",
+        "curve": "X100",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "draws",
+        "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "adaptive_tmle": {
         "forest": "draws",
         "curve": "TypeError: curve() draws a longitudinal fit,",
@@ -480,6 +537,30 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    "point_tmle_known_sample": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_known_sample": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     # The coefficients have no horizon, so the curve refuses and forest draws them.
     "hazard_msm": {
         "forest": "draws",
@@ -506,6 +587,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "hazard_time_varying": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_multinode": {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
