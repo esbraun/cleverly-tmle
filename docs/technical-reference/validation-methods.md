@@ -343,6 +343,34 @@ at one fold, so no fold factor enters that comparison.
 The combined diagnostic row reports the signed movement range for each parameter or working-model
 coefficient. The retained frame keeps the fitted pair and the per-bound values.
 
+A continuous-time survival fit bounds one product, $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$,
+from below at a floor $b$, in every cell of both arms. The walk masks the score to the received arm,
+but its tilt multiplies the bounded weight into each unit's hazards in both arms, so a floor that
+binds only counterfactual cells still moves the estimate. The curve refits the initial hazards once
+from the stored estimator, at its stored seed, and first replays the fitted floor. Every reported
+estimate and standard error, and the record's `initial_psi`, `bounded_share`,
+`last_time_floor_share`, `frozen_share` and `off_grid_share`, must equal the fit exactly; a mismatch
+raises `CapabilityError`, and the sentence names library versions, BLAS threads and
+`VersionMismatchWarning`. The walk then reruns at each other floor.
+
+The default grid is the fitted floor $f$ times 1/4, 1/2, 1, 2 and 4, inside $(0, 1)$, and its
+`1` point is $f$ exactly. An explicit grid takes floors in $(0, 1)$; `mechanism=True` is refused.
+The frame carries the point-treatment columns, so `plotting.sensitivity` draws it.
+`truncated_fraction` is the point definition: the share of units with any cell of
+$\hat\pi \hat S_c(u^-)$ on the time grid, in either arm, below $b$. `bounded_share` (the
+received-arm cells while followed) and `last_time_floor_share` are their own columns, with
+`frozen_share`, `converged` and `steps`. A row at another floor reads `experimental`, as a fit with
+that `g_bounds` does, and the fitted row keeps the fit's support.
+
+`tests/unit/test_continuous_survival_refute.py` checks the exact facts the construction gives. Two
+floors below the smallest cell give bit-identical estimates and `truncated_fraction = 0`. Both
+shares rise with $b$. Each row equals a refit of the stored estimator with `g_bounds=b`, on the
+sweep's law and on a law whose censoring depends on the arm. Its witnesses are a floor between the
+smallest cell and the smallest received-arm cell, which moves some estimate while `bounded_share`
+stays 0, and a corrupted stored time, which the replay refuses. Its mutation controls are a curve
+that floors received-arm cells only, which stays flat, and a floor on $\hat\pi$ alone, which fails
+the exact refit check on the arm-dependent law.
+
 `estimands=` restricts the emitted rows to the parameters you name. It accepts two forms.
 
 | you name | the curve emits |
@@ -3159,6 +3187,61 @@ bands, read on the placebo frames. `refute()` refuses these cases before any ref
 and a node-2 band that reads `L_2` and `A_1`. The node-2 regression is free of the placebo
 treatment within `1e-12`. Its mutation control maps node 2 on the observed `A_1`. The doses then
 leave the band that the refit reads, and the regression moves by more than 0.1.
+
+#### Continuous-time survival refutation
+
+A `ContinuousSurvivalResult` stores a copy of its estimator, with its seed resolved and the outer
+fold label of each row recorded, and its data as a `ContinuousSurvivalData`.
+`result.estimator.refit(result.data, random_state=result.estimator.random_state)` reproduces the fit
+bit for bit in one process. Every learner reads that seed: the folds, the lasso members, an unseeded
+user treatment learner or sklearn hazard member (through `seed_unset`), the off-grid draws and the
+band. `refute()` refits the stored estimator on a perturbed copy of the data. No study calibrates
+these readings yet, so every one is descriptive: `passed` is `None`.
+
+| test | draw | reference |
+| --- | --- | --- |
+| `placebo` | the treatment column permuted among the units (`"permute"`, the default), or drawn from its empirical marginal (`"draw"`) | 0 for `ate_regimen`, 1 for `rr_regimen`, read on the log scale |
+| `random_common_cause` | one standard-normal baseline column; each refit keeps the fit's seed and so its folds | the paired shift against the original fit |
+| `subset` | `min(n, max(20, int(fraction * n)))` units drawn without replacement, each with its original outer fold label | `SE * sqrt((n/m - 1) * n/(n - 1))` |
+
+Treat censoring as cause 0. Then $P(\tilde T \ge u \mid a, L) = S(u^- \mid a, L) S_c(u^- \mid
+a, L)$ holds for the observed cause-specific hazards with or without censoring at random, so the
+identified risk and its efficient influence curve are functions of the observed law. Under the
+permutation law the treatment is independent of the covariates and the outcome, so the identified
+risk difference is exactly 0 and the ratio exactly 1. Every main-terms Cox model is misspecified on
+that law, so double robustness does not carry the null. Symmetry does: at a zero arm coefficient the
+risk-set mean of the placebo arm equals its marginal mean, so the Cox score for that coefficient
+vanishes for any covariate coefficients, as the logistic score does. The working models' limits are
+arm-symmetric, and the limiting difference is 0.
+
+The placebo `t` is `mean / (sd / sqrt R)` over the refits, so it does not lean on the
+influence-curve standard error, which need not hold on the misspecified placebo law. It reads the
+mean over permutations, which is exactly 0 when both arms have the same size and carries a bias of
+order $1/n$ otherwise; the detail names unequal arms. An arm's risk has no fixed placebo null: both
+arms equal one functional of the observed hazards, which equals the marginal risk only when
+censoring is independent of the event time given the covariates alone. The placebo is refused
+there, and the `refute` row defers on `tests`, so `random_common_cause` and `subset` still run.
+
+The subset reference holds for an asymptotically linear estimator whose refits keep the fit's
+split, so each drawn unit keeps its outer label, compacted as on a point fit. Every draw is checked
+against the engine's two guards before the first subset refit: an event of every cause in every arm
+by the first target time, and every arm followed to the last target time. The random common cause
+leaves the estimand unchanged, so its shift measures how far the nuisance fits move at this sample
+size; with every learner seeded it carries no learner-seed noise.
+
+The negative control, the generated outcomes and the plasmode, the two bootstrap tests,
+`future_treatment`, `placebo_mode="markov"` and `noise_nodes=True` are refused before any refit.
+`_continuous_survival_refute.py` holds each sentence, and
+[X105](../roadmap.md#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits)
+tracks the first three. A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk); at
+n = 4,000 a cross-fitted default fit takes 60 to 120 s.
+
+`tests/unit/test_continuous_survival_refute.py` checks each test and refusal. Its witnesses are a
+placebo copy whose treatment moved, a placebo `t` inside [-3, 3] beside an original `|t| > 5`,
+subset refits whose fold labels equal the fit's at the drawn rows, and a noise column that moves
+some estimate. Its mutation controls are a refit at another seed, an unseeded SAGA treatment learner
+without `seed_unset`, a placebo that keeps 80% of the recorded treatments (`|t| > 5`), and a subset
+refit that redraws its split.
 
 #### The longitudinal plasmode
 

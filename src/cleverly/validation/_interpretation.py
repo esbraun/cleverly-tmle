@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 
-from .._continuous_survival_family import refuse_continuous_survival
+from .._continuous_survival_family import is_continuous_survival
 from .._inference_status import supplies_inference
 from .._trial_family import refuse_augmented_trial
 from ..data.known_mechanism import divided_treatment_at, divides_by_declaration
@@ -171,6 +171,12 @@ class FitConfiguration:
         the band-rank form of one of them, ``"band_permute"``, ``"band_draw"`` or
         ``"band_markov"``. ``None`` where the question is not about a placebo.
         :func:`~cleverly.validation.refute.refute` sets it on the placebo test.
+    event_share : float or None
+        The share of the observed events, of any cause, at or before the estimand's time on
+        a continuous-time survival fit. ``None`` on every other family.
+    causes : int or None
+        The number of event types of a continuous-time survival fit. ``None`` on every other
+        family.
     """
 
     method: str
@@ -189,6 +195,8 @@ class FitConfiguration:
     replicates: int | None = None
     nodes: int | None = None
     placebo_draw: str | None = None
+    event_share: float | None = None
+    causes: int | None = None
 
 
 def event_count(data: Any) -> int | None:
@@ -271,9 +279,10 @@ def fit_configuration(result: TMLEResult, estimand: str) -> FitConfiguration:
         from ._structural_refute import structural_configuration
 
         return structural_configuration(result, estimand)
+    if is_continuous_survival(result):
+        return continuous_survival_configuration(result, estimand)
     # An adaptive working-model fit has no refutation, so no test reads its configuration.
     refuse_augmented_trial(result, "refute", "refutation")
-    refuse_continuous_survival(result, "refute")
     data = result.data
     estimator = result.estimator
     estimate = result[estimand]
@@ -441,8 +450,84 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     )
 
 
+def continuous_survival_configuration(result: Any, estimand: str) -> FitConfiguration:
+    """Read the scope axes of a continuous-time survival fit for one estimand.
+
+    The estimand kind is ``"continuous:"`` and the parameter stem (``risk``, ``ate_regimen``
+    or ``rr_regimen``), since an arm or cause label is the user's own text. A hazard member
+    is named by its ``repr``, which tells ``CoxHazard`` settings apart where
+    :func:`learner_fingerprint` reads a class with no ``get_params`` by its name alone. The
+    event count is the fewest events of any arm and cause at or before the estimand's time,
+    and the event share is the share of observed events, of any cause, by that time.
+
+    Parameters
+    ----------
+    result : ContinuousSurvivalResult
+        The fit, with its stored estimator and data.
+    estimand : str
+        A reported parameter name.
+
+    Returns
+    -------
+    FitConfiguration
+        The scope axes as the fit records them.
+    """
+    from ..targets.base import parameter_stem
+
+    estimator = result.estimator
+    data = result.data
+    estimate = result[estimand]
+    n = int(result.n)
+    k = next(
+        index for index, time in enumerate(result.horizons) if estimand.endswith(f"t={time:g}]")
+    )
+    time = float(result.horizons[k])
+    stem = parameter_stem(estimand)
+    kind = "risk" if stem in ("risk_regimen", "cif_regimen") else stem
+    T = np.asarray(data.time, dtype=float)
+    D = np.asarray(data.event, dtype=int)
+    arm = np.asarray(result.record.arm)
+    codes = sorted(int(code) for code in np.unique(D) if code != 0)
+    counts = [
+        int(np.count_nonzero((arm == a) & (code == D) & (time >= T)))
+        for a in (0, 1)
+        for code in codes
+    ]
+    observed = T[D > 0]
+    learners = (
+        *(repr(member) for member in estimator.hazard_library),
+        *(repr(member) for member in estimator.censoring_library),
+        learner_fingerprint(estimator.treatment_learner, n)
+        if estimator.treatment_learner is not None
+        else "default",
+    )
+    return FitConfiguration(
+        method="ContinuousSurvivalTMLE",
+        estimand_kind=f"continuous:{kind}",
+        outcome_family="survival" if len(result.causes) == 1 else "competing_risks",
+        treatment_kind="discrete",
+        learners=learners,
+        cross_fitting=f"folds={result.record.n_folds}" if result.record.cross_fitted else "off",
+        inference=str(estimate.inference),
+        known_mechanism=False,
+        n=n,
+        covariates_per_row=float(np.asarray(data.baseline).shape[1]) / max(1, n),
+        min_event_count=min(counts),
+        clusters=None,
+        arms=2,
+        nodes=None,
+        event_share=float(np.mean(observed <= time)),
+        causes=len(result.causes),
+    )
+
+
 def _frozen(values: Iterable[Any] | None) -> frozenset[Any] | None:
     return None if values is None else frozenset(values)
+
+
+def _within(value: float | None, bounds: tuple[float, float]) -> bool:
+    """Whether ``value`` lies in the closed range ``bounds``; ``None`` never does."""
+    return value is not None and bounds[0] <= value <= bounds[1]
 
 
 @dataclass(frozen=True)
@@ -486,6 +571,12 @@ class CalibrationScope:
     placebo_draws : frozenset of str or None
         The covered placebo draws (:attr:`FitConfiguration.placebo_draw`). A placebo row
         restricts it; every other row leaves it ``None``.
+    causes : frozenset of int or None
+        The covered event-type counts of a continuous-time survival fit
+        (:attr:`FitConfiguration.causes`).
+    event_share_range : tuple of float or None
+        The covered range ``(low, high)`` of :attr:`FitConfiguration.event_share`, both ends
+        included. A fit that records no event share lies outside a restricted range.
     """
 
     methods: frozenset[str] | None = None
@@ -505,6 +596,8 @@ class CalibrationScope:
     min_event_count_min: int | None = None
     clusters_min: int | None = None
     placebo_draws: frozenset[str] | None = None
+    causes: frozenset[int] | None = None
+    event_share_range: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -520,6 +613,7 @@ class CalibrationScope:
             "replicates",
             "nodes",
             "placebo_draws",
+            "causes",
         ):
             object.__setattr__(self, name, _frozen(getattr(self, name)))
 
@@ -563,6 +657,7 @@ class CalibrationScope:
             ("replicate count", self.replicates, fit.replicates),
             ("node count", self.nodes, fit.nodes),
             ("placebo draw", self.placebo_draws, fit.placebo_draw),
+            ("cause count", self.causes, fit.causes),
         )
         for axis, covered, value in pairs:
             if covered is not None and value not in covered:
@@ -589,6 +684,10 @@ class CalibrationScope:
             self.clusters_min is None or fit.clusters < self.clusters_min
         ):
             found.append(f"cluster count {fit.clusters}")
+        if self.event_share_range is not None and not _within(
+            fit.event_share, self.event_share_range
+        ):
+            found.append(f"event share {fit.event_share!r}")
         return found
 
     def mismatch(self, fit: FitConfiguration | None) -> str | None:
@@ -1829,6 +1928,12 @@ def plain_mismatches(scope: CalibrationScope, fit: FitConfiguration | None) -> l
         scope.clusters_min is None or fit.clusters < scope.clusters_min
     ):
         found.append(f"{fit.clusters} clusters")
+    if scope.causes is not None and fit.causes not in scope.causes:
+        found.append(f"{fit.causes} event types")
+    if scope.event_share_range is not None and not _within(
+        fit.event_share, scope.event_share_range
+    ):
+        found.append("a target time outside the measured share of events")
     return found
 
 

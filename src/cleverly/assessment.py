@@ -679,7 +679,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
     ),
     # The continuous-time survival TMLE (X6, X101). Its diagnostics read the engine's own
-    # record; no refutation or truncation curve is implemented for it.
+    # record; the refutation and the truncation curve refit the stored estimator.
     _capability(
         "support",
         CONTINUOUS_SURVIVAL_FAMILY,
@@ -718,20 +718,28 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "truncation_curve",
         CONTINUOUS_SURVIVAL_FAMILY,
-        artifacts=(),
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=continuous_survival_refusal("truncation_curve"),
-        interpretation="estimate stability across declared mechanism bounds",
+        artifacts=("estimator configuration", "analysis data"),
+        execution="refit",
+        cost="expensive",
+        requires_replay="refit_nuisances",
+        interpretation=(
+            "estimate stability across floors on pi(a | L) S_c(u- | a, L), rerun from "
+            "refitted initial hazards after an exact replay of the fit at its own floor"
+        ),
     ),
     _capability(
         "refute",
         CONTINUOUS_SURVIVAL_FAMILY,
-        artifacts=(),
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=continuous_survival_refusal("refute"),
-        interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
+        artifacts=("estimator configuration", "analysis data"),
+        execution="refit",
+        deterministic=False,
+        cost="expensive",
+        accepts_random_state=True,
+        requires_replay="rerun_configuration",
+        interpretation=(
+            "behavior under a treatment placebo on a contrast, a noise covariate and "
+            "subsampling on the fit's folds, read descriptively"
+        ),
     ),
     # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
     # the producing fit, and declares four of its own, which only a curve has.
@@ -1865,11 +1873,19 @@ def replayability(result: Any) -> Replayability:
         # refit selects its own working model, so nothing retargets or refits in place.
         return Replayability(True, False, False, False, False, (), rerun_configuration=True)
     if _family(result) == CONTINUOUS_SURVIVAL_FAMILY:
-        # A continuous-time fit keeps its record and its influence curves only: no
-        # estimator, no data and no hazard jumps, so nothing retargets, refits or reruns.
-        return Replayability(
-            True, False, False, False, False, ("estimator configuration", "analysis data")
+        # A continuous-time fit keeps its estimator, with the seed resolved, and its data,
+        # so it refits its nuisances and reruns on changed data. It keeps no hazard jumps,
+        # so nothing retargets in place, and no representer.
+        absent = tuple(
+            name
+            for name, held in (
+                ("estimator configuration", getattr(result, "estimator", None)),
+                ("analysis data", getattr(result, "data", None)),
+            )
+            if held is None
         )
+        ok = not absent
+        return Replayability(True, False, False, ok, False, absent, rerun_configuration=ok)
     if _family(result) == "structural":
         # A structural fit keeps its settings and its split. It reruns on a changed panel;
         # it stores no targeting state or representer to retarget or evaluate.
@@ -2913,6 +2929,10 @@ def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
         bound.arguments["n_replicates"],
         bound.arguments["negative_control_outcome"],
         bound.arguments["placebo_mode"],
+        bound.arguments["negative_control_kind"],
+        bound.arguments["negative_control_floor"],
+        bound.arguments["future_treatment_control"],
+        bound.arguments["future_treatment_node"],
     )
 
 
@@ -3459,13 +3479,19 @@ class DiagnosticsFacade(_CapabilityFacade):
         estimands: Sequence[str] | None = None,
         mechanism: bool | None = None,
     ) -> Any:
-        """Evaluate fitted estimates across a sequence of mechanism bounds.
+        r"""Evaluate fitted estimates across a sequence of mechanism bounds.
 
         Point-treatment and longitudinal results intentionally have different
         contracts. A point-treatment curve retargets the stored nuisance fits. A
         longitudinal curve repeats the complete backward recursion while reusing the
         fitted treatment/censoring mechanism, folds, prepared data, scaler, and frozen
         resolved regimen plans.
+
+        A continuous-time survival curve refits the initial hazards from the stored estimator,
+        replays the fit at its own floor exactly, and reruns the targeting walk at each floor
+        on :math:`\pi(a \mid L) S_c(u^- \mid a, L)`; it refuses ``mechanism=True``, and its
+        default grid is the fitted floor times 1/4, 1/2, 1, 2 and 4
+        (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`).
 
         A longitudinal fit refuses ``mechanism=True``. It has one cumulative
         treatment-and-censoring bound, so there is no separate observation mechanism for a
@@ -3522,6 +3548,20 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("truncation_curve", {"mechanism": mechanism})
         # The cache key holds these arguments, so a one-shot iterator is read once here.
         (bounds, estimands), _ = _single_pass((bounds, estimands), {})
+        if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+            from .survival.diagnostics import MECHANISM_REFUSAL, continuous_truncation_curve
+
+            if mechanism:
+                raise CapabilityError.from_refusal(MECHANISM_REFUSAL)
+            return TruncationCurve(
+                _cached(
+                    self._result,
+                    "diagnostics.truncation_curve",
+                    (bounds,),
+                    {"estimands": estimands, "mechanism": mechanism},
+                    lambda: continuous_truncation_curve(self._result, bounds, estimands=estimands),
+                )
+            )
         longitudinal = _family(self._result) == "longitudinal"
         if longitudinal and bounds is None:
             raise CapabilityError(
