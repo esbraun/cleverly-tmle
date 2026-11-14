@@ -75,6 +75,7 @@ __all__ = [
     "LEARNED_RULE_REMEDY",
     "LEARNED_RULE_TILT_REFUSAL",
     "LOSSES",
+    "OPTIMAL_CONTRAST_TARGET",
     "OPTIMAL_REPLAY_TARGET_KIND",
     "OPTIMAL_RULE_SENSITIVITY_REFUSAL",
     "OPTIMAL_RULE_TARGET",
@@ -1070,6 +1071,14 @@ class LearnedRuleRecord:
         The level ``z`` at which this result holds the intermediate, or ``None``.  Each
         fold's rule is the plug-in rule of the fold's outcome regression at
         :math:`(a, z)`: the best treatment given :math:`Z = z`, one rule per level.
+    weighted : bool
+        Whether the fit took observation weights (``weights=``), so that its target is the
+        value on the population the weights describe.
+    strata : tuple of str
+        The baseline strata columns of the fit (``strata=``), or ``()``.
+    known_regimes : tuple of str
+        The names of the known regimes declared beside the rule (``interventions=``), or
+        ``()``.
 
     Attributes
     ----------
@@ -1088,6 +1097,9 @@ class LearnedRuleRecord:
     estimand: str = "ey_learned_rule"
     intermediate_name: str | None = None
     intermediate_level: float | None = None
+    weighted: bool = False
+    strata: tuple[str, ...] = ()
+    known_regimes: tuple[str, ...] = ()
 
     @property
     def n_splits(self) -> int:
@@ -1132,9 +1144,12 @@ class LearnedRuleRecord:
             the treated share over the folds, or at more than two arms of each arm's share.
             The stacked report also gives the range of the fold weights.  A fit of several
             splits also names the split count, and gives both ranges over every split.  A fit
-            of the value of the optimal rule says so instead, with the conditions it adds
-            and the share of rows on which the fold rules disagree.  A fit with an
-            intermediate also names the level the rules hold it at.
+            of the value of the optimal rule says so instead, with the conditions it adds,
+            the target of its composition (the weighted population's optimum, each
+            stratum's optimal value, the contrasts with known regimes, the in-sample
+            estimator, the optimum at a level of the intermediate) and the share of rows on
+            which the fold rules disagree.  A fit with an intermediate also names the level
+            the rules hold it at.
         """
         if self.estimand == OPTIMAL_RULE_TARGET:
             return self._describe_optimal()
@@ -1260,7 +1275,7 @@ class LearnedRuleRecord:
         return any(np.isnan(split.rule_disagreement) for split in self.splits)
 
     def _describe_optimal(self) -> str:
-        """The summary line of a fit of the value of the optimal rule (X11 (f))."""
+        """The summary line of a fit of the value of the optimal rule (X11 (f), (f3))."""
         folds = self.splits[0].n_folds
         report = {
             "fold_evaluated": f"the average of the values of the {folds} rules learned on "
@@ -1268,40 +1283,93 @@ class LearnedRuleRecord:
             "stacked": f"the values of the {folds} rules learned on the training folds, "
             "evaluated on the folds they did not train on and pooled over every validation "
             "row (the stacked report)",
+            "in_sample": "the value of the one rule learned on every row, estimated in "
+            "sample on the same rows (cross_fit=False), whose interval needs the learners "
+            "to keep the influence curve in a Donsker class (condition C5a, van der Laan and "
+            "Luedtke 2015, Theorem 5)",
         }[self.scheme]
         splits = "" if self.n_splits == 1 else f", averaged over {self.n_splits} random splits"
+        over = "" if self.scheme == "in_sample" else "by fold"
         if self._frozen():
             return (
                 "Target: a replay of the frozen fold rules of a fit of the value of the "
                 f"optimal rule. The rules are held fixed and learn nothing, so the estimate "
                 f"is the value of those fixed rules, {report}{splits}. "
-                f"{self._shares('by fold')}"
+                f"{self._shares(over)}{self._describe_level()}"
             )
-        disagreement = [split.rule_disagreement for split in self.splits]
-        shown = (
-            " The fold rules assign different arms to "
-            + (
-                f"{min(disagreement):.3g} to {max(disagreement):.3g}"
-                if self.n_splits > 1
-                else f"{disagreement[0]:.3g}"
+        shown = ""
+        if self.scheme != "in_sample":
+            disagreement = [split.rule_disagreement for split in self.splits]
+            shown = (
+                " The fold rules assign different arms to "
+                + (
+                    f"{min(disagreement):.3g} to {max(disagreement):.3g}"
+                    if self.n_splits > 1
+                    else f"{disagreement[0]:.3g}"
+                )
+                + " of the rows, a share that rules near one limit keep small."
             )
-            + " of the rows, a share that rules near one limit keep small."
-        )
         if len(self.arms) == 2:
             tie = "the effect is zero for almost no unit"
             zero = "the effect is zero for a share of units"
         else:
             tie = "the best arm ties with another for almost no unit"
             zero = "the best arm ties with another for a share of units"
+        if self.scheme == "in_sample":
+            learned, fast = "rule converges", "the rule approaches"
+        else:
+            learned, fast = "rules converge", "the rules approach"
         return (
-            "Target: the value of the optimal rule, the arm with the best mean outcome for "
-            f"each unit, a fixed parameter. The estimate is {report}{splits}, as for the "
-            "learned rule's value, and it estimates the optimal value only when the learned "
-            f"rules converge to the optimal rule, {tie}, and "
-            "the rules approach their limit fast enough (van der Laan and Luedtke 2015, "
+            f"Target: {self._optimal_target()}, a fixed parameter. The estimate is "
+            f"{report}{splits}, as for the learned rule's value, and it estimates the "
+            f"optimal value only when the learned {learned} to the optimal rule, {tie}, and "
+            f"{fast} its limit fast enough (van der Laan and Luedtke 2015, "
             f"Section 7.2). Where {zero} the interval can "
-            f"under-cover.{shown} {self._shares('by fold')}"
+            f"under-cover.{self._optimal_composition()}{shown} {self._shares(over)}"
         )
+
+    def _optimal_target(self) -> str:
+        """The optimal value a fit targets, in words, with the population and level it reads."""
+        best = "the arm with the best mean outcome for each unit"
+        if self.intermediate_level is not None:
+            name = self.intermediate_name or "Z"
+            level = f"{name} = {self.intermediate_level:g}"
+            best = (
+                f"the arm with the best mean outcome for each unit with the intermediate held "
+                f"at {level}, the best treatment given {level} and not the best pair of "
+                "treatment and intermediate"
+            )
+        if self.weighted:
+            return (
+                "the value of the optimal rule of the weighted population (weights=), "
+                f"{best} under the law the weights describe, averaged over that population"
+            )
+        return f"the value of the optimal rule, {best}"
+
+    def _optimal_composition(self) -> str:
+        """The sentences of an optimal fit's weights, strata and known regimes, or ``""``."""
+        out = ""
+        if self.weighted:
+            out += (
+                " The weighted optimal value differs from the unweighted one, and its rule "
+                "differs from the unweighted optimal rule when the weights depend on the "
+                "treatment and the outcome together."
+            )
+        if self.strata:
+            out += (
+                f" Each stratum of {', '.join(self.strata)} targets the optimal value within "
+                "the stratum: the strata are baseline covariates, so the optimal rule "
+                "restricted to a stratum is that stratum's optimal rule, and the marginal "
+                "estimate is the share mixture of the stratum values."
+            )
+        if self.known_regimes:
+            out += (
+                " Each contrast ate_optimal_rule[...] targets the optimal value minus the "
+                f"value of a known regime ({', '.join(self.known_regimes)}), and it inherits "
+                "the regret of the learned rules, while the known regime's value carries "
+                "none."
+            )
+        return out
 
     def _describe_in_sample(self) -> str:
         """The summary line of an in-sample fit (``cross_fit=False``), which has one rule."""
@@ -1783,6 +1851,9 @@ def learned_rule_record(
     estimand: str = "ey_learned_rule",
     intermediate_name: str | None = None,
     intermediate_level: float | None = None,
+    weighted: bool = False,
+    strata: Sequence[str] = (),
+    known_regimes: Sequence[str] = (),
 ) -> LearnedRuleRecord:
     """Build the record of a learned-rule fit from the records of its splits.
 
@@ -1801,6 +1872,12 @@ def learned_rule_record(
         The intermediate column of a controlled-direct-effect fit, or ``None``.
     intermediate_level : float or None
         The level of the intermediate the result holds, or ``None`` (X11 (j)).
+    weighted : bool
+        Whether the fit took observation weights.
+    strata : sequence of str
+        The baseline strata columns, or ``()``.
+    known_regimes : sequence of str
+        The names of the known regimes beside the rule, or ``()``.
 
     Returns
     -------
@@ -1818,6 +1895,9 @@ def learned_rule_record(
         estimand=estimand,
         intermediate_name=intermediate_name if intermediate_level is not None else None,
         intermediate_level=None if intermediate_level is None else float(intermediate_level),
+        weighted=bool(weighted),
+        strata=tuple(str(name) for name in strata),
+        known_regimes=tuple(str(name) for name in known_regimes),
     )
 
 
@@ -1833,12 +1913,24 @@ def _arm_estimands(estimands: Any) -> tuple[str, ...]:
     )
 
 
+#: The contrast of the value of the optimal rule with a known regime (X11 (f3)).  Its
+#: arithmetic is ``ate_learned_rule``'s; its target is the optimal value minus the regime's.
+OPTIMAL_CONTRAST_TARGET = "ate_optimal_rule"
+
 #: The targets of a learned-rule fit that read a known regime declared beside the rule
-#: (X11 (c)).  A fit without ``interventions=`` reports neither, and refuses either by name.
+#: (X11 (c), (f3)).  A fit without ``interventions=`` reports none, and refuses each by name.
 #: No simultaneous band covers them: ``simultaneous_bands()`` refuses them with
 #: :data:`~cleverly.inference.multiplier.KNOWN_REGIME_BAND_REFUSAL`, and a fit skips its
 #: default band (X11 (c2)).
-CONTRAST_TARGETS: tuple[str, ...] = ("ey_known_regime", "ate_learned_rule")
+CONTRAST_TARGETS: tuple[str, ...] = (
+    "ey_known_regime",
+    "ate_learned_rule",
+    OPTIMAL_CONTRAST_TARGET,
+)
+
+#: The names that read the learned column as the value of the learned rules.  A fit of the
+#: value of the optimal rule reports none of them (X11 (f), (f3)).
+_LEARNED_FAMILY: tuple[str, ...] = ("ey_learned_rule", "ate_learned_rule")
 
 
 def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, ...]:
@@ -1859,21 +1951,30 @@ def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, .
         The resolved estimand names.
 
     A fit whose ``estimands=`` names :data:`OPTIMAL_RULE_TARGET` reports the value of the
-    optimal rule alone (:func:`optimal_rule_requested`); its configuration refusal has
+    optimal rule first (:func:`optimal_rule_requested`).  Beside known regimes it also
+    reports ``ey_known_regime`` and ``ate_optimal_rule`` (X11 (f3)): both when the caller
+    names ``ey_optimal_rule`` alone, as ``estimands=None`` reports both learned-rule
+    contrasts, and otherwise the ones the caller names.  Its configuration refusal has
     refused every other name.  No other fit reports it, so ``estimands="all"`` leaves it out.
 
     Returns
     -------
     tuple of str
         ``names`` with ``ey_learned_rule`` first, and without the contrast targets on a
-        learned-rule fit with no known regime, or ``("ey_optimal_rule",)`` for a fit that
-        names it.  Any other fit's ``names`` unchanged.
+        learned-rule fit with no known regime; for a fit that names ``ey_optimal_rule``,
+        that name first and then its contrast targets.  Any other fit's ``names``
+        unchanged.
     """
     if getattr(estimator, "learned_rule", None) is None:
         return tuple(names)
-    if optimal_rule_requested(estimator):
-        return (OPTIMAL_RULE_TARGET,)
     known = bool(getattr(estimator, "interventions", ()))
+    if optimal_rule_requested(estimator):
+        if not known:
+            return (OPTIMAL_RULE_TARGET,)
+        written = _requested(getattr(estimator, "estimands", None))
+        contrasts = ("ey_known_regime", OPTIMAL_CONTRAST_TARGET)
+        asked = tuple(name for name in contrasts if name in written)
+        return (OPTIMAL_RULE_TARGET, *(asked or contrasts))
     rest = [
         name
         for name in names
@@ -1932,11 +2033,52 @@ def learned_rule_retarget_refusal(estimator: Any, requested: Sequence[str]) -> R
     """
     if getattr(estimator, "learned_rule", None) is None:
         return None
+    family = _family_refusal(estimator, requested)
+    if family is not None:
+        return family
     if getattr(estimator, "interventions", ()):
         return None
     if not any(name in CONTRAST_TARGETS for name in requested):
         return None
     return _contrast_refusal(estimator, requested)
+
+
+def _family_refusal(estimator: Any, requested: Sequence[str]) -> Refusal | None:
+    """Refuse a name that reads the learned column as the other target (X11 (f), (f3)).
+
+    A fit of the value of the optimal rule reports ``ey_optimal_rule`` and
+    ``ate_optimal_rule``; any other learned-rule fit reports ``ey_learned_rule`` and
+    ``ate_learned_rule``.  A name of the other family would read the same estimate as the
+    other target.
+    """
+    if optimal_rule_requested(estimator):
+        foreign = [name for name in requested if name in _LEARNED_FAMILY]
+        if not foreign:
+            return None
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"{foreign} read the learned column as the value of the learned rules, and this "
+            "fit reads it as the value of the optimal rule (ey_optimal_rule), a fixed "
+            "parameter. One fit reports one of the two targets, and the contrast of the "
+            "optimal value with a known regime is ate_optimal_rule.",
+            alternative=(
+                "Request estimands=['ey_optimal_rule'] with interventions= for the optimal "
+                "value and its contrasts ate_optimal_rule, or estimands=None for the value "
+                "of the learned rules and its contrasts ate_learned_rule."
+            ),
+        )
+    if OPTIMAL_CONTRAST_TARGET not in requested:
+        return None
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "ate_optimal_rule contrasts the value of the optimal rule with a known regime, and it "
+        "needs ey_optimal_rule among the estimands: without it the fit reports the value of "
+        "the learned rules, whose contrast is ate_learned_rule.",
+        alternative=(
+            "Request estimands=['ey_optimal_rule', 'ate_optimal_rule'] with interventions=, "
+            "or estimands=None for the learned-rule contrasts ate_learned_rule."
+        ),
+    )
 
 
 def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) -> Refusal | None:
@@ -1968,7 +2110,7 @@ def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) ->
                 RefusalReason.INVALID_DECLARATION,
                 f"{' and '.join(named)} on a learned-rule fit read a known regime declared "
                 "beside the rule with interventions=, and this fit declares none. Its one "
-                "estimand is the learned-rule value, which has no contrast.",
+                "estimand is the value of its learned column, which has no contrast.",
                 alternative=(
                     "Declare the known regimes to compare against, for example "
                     "interventions=[Static(1)], or drop "
@@ -2087,58 +2229,52 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
         )
     if optimal_rule_requested(estimator):
         return _optimal_configuration_refusal(estimator)
+    family = _family_refusal(estimator, _requested(getattr(estimator, "estimands", None)))
+    if family is not None:
+        return family
     return _contrast_refusal(estimator)
 
 
-#: The way out of a refusal of the value of the optimal rule: the fit that runs.
+#: The fit of the value of the optimal rule and the settings it admits (X11 (f), (f3)).
 _OPTIMAL_REMEDY = (
-    "TMLE(learned_rule=LearnedRule(), estimands=['ey_optimal_rule']) without "
-    "interventions= or reference=, on unweighted data without strata="
+    "TMLE(learned_rule=LearnedRule(), estimands=['ey_optimal_rule']), which takes "
+    "weights=, strata=, intermediate=, cross_fit=False and known regimes of interventions= "
+    "beside the rule, each contrast reported as ate_optimal_rule"
 )
 
 
 def _optimal_configuration_refusal(estimator: Any) -> Refusal | None:
     """The declarations beside ``ey_optimal_rule`` that the fit cannot report (X11 (f), (f3)).
 
-    The value of the optimal rule is the fit's one estimand.  A second name beside it would
-    report the same number under two targets, and a known regime beside it asks for a
-    contrast with the optimal value, which X11 (f3) holds.
+    The value of the optimal rule is the fit's estimand, and beside known regimes it reports
+    their values (``ey_known_regime``) and its contrasts with them (``ate_optimal_rule``).
+    A learned-rule name beside it would report the same number under two targets.  A
+    contrast declaration without known regimes, or a ``reference=`` that names no learned
+    rule, refuses as it does for the learned-rule value.
     """
     names = list(_requested(getattr(estimator, "estimands", None)))
-    others = [name for name in names if name != OPTIMAL_RULE_TARGET]
-    contrast = [name for name in others if name in CONTRAST_TARGETS]
-    interventions = tuple(getattr(estimator, "interventions", ()) or ())
-    reference = getattr(estimator, "reference", None)
-    if interventions or contrast or reference is not None:
-        named = [
-            *(["interventions="] if interventions else []),
-            *([f"estimands={contrast}"] if contrast else []),
-            *(["reference="] if reference is not None else []),
-        ]
-        return _gap(
-            f"{' and '.join(named)} beside ey_optimal_rule would contrast the value of the "
-            "optimal rule with known regimes, which is not implemented. Each contrast would "
-            "add the regret of the fold rules to the error of the learned-rule contrast, and "
-            f"no witness checks that composition ({_X11.format(part='f3')}).",
-            f"Fit the value of the optimal rule alone, {_OPTIMAL_REMEDY}, or the contrasts "
-            "of the learned-rule value with estimands=None, which reports ey_learned_rule, "
-            "ey_known_regime and ate_learned_rule.",
-            "X11",
-        )
+    admitted = (OPTIMAL_RULE_TARGET, "ey_known_regime", OPTIMAL_CONTRAST_TARGET)
+    others = [name for name in names if name not in admitted]
     if others:
+        contrast = (
+            ", and the contrast of the optimal value with a known regime is ate_optimal_rule"
+            if "ate_learned_rule" in others
+            else ""
+        )
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
             f"estimands={names} names ey_optimal_rule beside {others}. A learned-rule fit "
             "has one estimate of its learned column, and ey_optimal_rule reads it as the "
             "value of the optimal rule, a fixed parameter, while ey_learned_rule reads it as "
             "the value of the rules the fit learned, a data-adaptive one. One fit reports "
-            "one of the two targets.",
+            f"one of the two targets{contrast}.",
             alternative=(
-                "Request estimands=['ey_optimal_rule'] for the value of the optimal rule, or "
-                "estimands=None for the value of the learned rules."
+                f"Request estimands=['ey_optimal_rule'] for the value of the optimal rule, "
+                f"{_OPTIMAL_REMEDY}, or estimands=None for the value of the learned rules "
+                "and its contrasts ate_learned_rule."
             ),
         )
-    return None
+    return _contrast_refusal(estimator)
 
 
 def _data_refusal(
@@ -2149,7 +2285,7 @@ def _data_refusal(
     ``docs/technical-reference/point-treatment-tmle.md``, "Learned rules", holds the table.
     ``rule`` is the declared rule, which the row of a rule learner on more than two arms
     reads.  ``None`` skips that row.  ``optimal`` is whether the fit targets the value of
-    the optimal rule, which the rows of weights and strata read (X11 (f3)).
+    the optimal rule, which the row of an EP rule's modifiers reads (R12).
     """
     if data.is_continuous_treatment:
         return _gap(
@@ -2240,16 +2376,6 @@ def _data_refusal(
     ep_refusal = _ep_modifier_refusal(data, rule, optimal=optimal)
     if ep_refusal is not None:
         return ep_refusal
-    if data.has_intermediate and optimal:
-        return _gap(
-            "the value of the optimal rule with intermediate= is refused. At each level z its "
-            "target would be the value of the rule argmax_a Qbar0(a, z, W), and no witness "
-            "checks the regret of the fold rules at a level of Z "
-            f"({_X11.format(part='f3')}).",
-            "Fit the value of the rules learned at each level with estimands=None "
-            "(ey_learned_rule), or the value of the optimal rule without intermediate=.",
-            "X11",
-        )
     if data.has_strata and data.cluster is not None:
         return _gap(
             "a learned rule with baseline strata (strata=) and clusters (id=) is refused under "
@@ -2260,28 +2386,6 @@ def _data_refusal(
             "Fit the clustered learned-rule value without strata=, or the stratified "
             "learned-rule value without id=.",
             "X28",
-        )
-    if optimal and data.is_weighted:
-        return _gap(
-            "the value of the optimal rule with observation weights (weights=) is refused, "
-            "because no source or witness covers the regret of the fold rules under "
-            "weights. A weighted fit would target the optimum over the weighted population, "
-            "as a weighted fit does for every other estimand "
-            f"({_X11.format(part='f3')}).",
-            "Fit the value of the optimal rule without weights=, or the value of the rules "
-            "learned in the weighted population with estimands=None (ey_learned_rule), "
-            "which takes known weights.",
-            "X11",
-        )
-    if optimal and data.has_strata:
-        return _gap(
-            "the value of the optimal rule with baseline strata (strata=) is refused. Each "
-            "stratum's optimal value would add the regret of the fold rules inside the "
-            "stratum, and no witness checks the stratum values or their share mixture "
-            f"against it ({_X11.format(part='f3')}).",
-            "Fit the value of the optimal rule without strata=, or the learned-rule value "
-            "inside each stratum with estimands=None (ey_learned_rule).",
-            "X11",
         )
     return None
 
@@ -2522,18 +2626,6 @@ def learned_rule_scheme_refusal(estimator: Any, data: CausalData | None = None) 
             alternative=alternative,
             roadmap="F27",
         )
-    if not estimator.cross_fit and optimal_rule_requested(estimator):
-        return _gap(
-            "the value of the optimal rule from the in-sample fit (cross_fit=False) is "
-            "refused. Its source, van der Laan and Luedtke (2015), Section 7.2, states the "
-            "cross-validated TMLE, and the in-sample fit would add the regret of the "
-            "full-sample rule to the Donsker condition C5a of its own interval, a step that "
-            f"no witness checks ({_X11.format(part='f3')}).",
-            "Fit the value of the optimal rule with cross_fit=True and n_folds of at least 2 "
-            "(CrossFitting(enabled=True) on the method), or the value of the full-sample "
-            "rule in sample with estimands=None (ey_learned_rule), a different target.",
-            "X11",
-        )
     return None
 
 
@@ -2666,8 +2758,8 @@ def refuse_learned_rule_composition(
     2       another axis keyword                                 X11 (c2)
             an arm estimand or ``ey_regime`` (a redirection)     none, a redirection
             a contrast declaration the fit cannot report         none, a declaration
-            ``ey_optimal_rule`` beside a known regime            X11 (f3)
-            ``ey_optimal_rule`` beside another estimand          none, a declaration
+            ``ey_optimal_rule`` beside a learned-rule name, or   none, a declaration
+            ``ate_optimal_rule`` without ``ey_optimal_rule``
     3       a continuous treatment                               F27
     4       a rule learner (``loss="blip"``,                     X11 (d2)
             ``"weighted_classification"`` or ``"ep"``) on more
@@ -2677,14 +2769,10 @@ def refuse_learned_rule_composition(
             ``loss="ep"`` with a modifier outside ``W`` (R6)     none, a declaration
             ``ey_optimal_rule`` with ``loss="ep"`` and           none, another estimand
             modifiers narrower than ``W`` (R12)
-            ``ey_optimal_rule`` with ``intermediate=``           X11 (f3)
     7       ``strata=`` with clusters, ``id=``                   X28
-    8       ``ey_optimal_rule`` with ``weights=``                X11 (f3)
-    9       ``ey_optimal_rule`` with ``strata=``                 X11 (f3)
-    10      ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
-    11      ``n_bootstrap`` above 0                              F27
-    12      ``ey_optimal_rule`` with ``cross_fit=False``         X11 (f3)
-    13      ``loss="blip"`` or ``"ep"`` with ``weights=`` and    none, a declaration
+    8       ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
+    9       ``n_bootstrap`` above 0                              F27
+    10      ``loss="blip"`` or ``"ep"`` with ``weights=`` and    none, a declaration
             a learner whose ``fit`` takes no ``sample_weight``
     ======  ===================================================  ===================
 
@@ -2704,6 +2792,11 @@ def refuse_learned_rule_composition(
     More than two arms is no row: the plug-in rule is the argmax over every arm (X11 (d)).
     Nor is ``intermediate=`` with the plug-in rule: each level ``z`` learns its fold rules
     from the outcome regression at :math:`(a, z)` (X11 (j)).
+
+    The value of the optimal rule (``ey_optimal_rule``) meets the rows of the learned-rule
+    value with the same setting, and no row of its own but the declarations of row 2 and
+    R12: it takes ``weights=``, ``strata=``, ``intermediate=``, ``cross_fit=False`` and known
+    regimes beside it, whose contrasts it reports as ``ate_optimal_rule`` (X11 (f3)).
 
     ``TMLE`` runs it first in its preflight, before any learner.
     ``CausalStudy.identify`` runs it with no estimator and the estimand's rule, so the data

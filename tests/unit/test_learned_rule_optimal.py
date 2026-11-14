@@ -17,7 +17,7 @@ rev 2.1, section 6).  The witnesses below are the plan's:
 - W-f3 (known g): with ``treatment_probabilities=`` the fit solves its score at the supplied
   probabilities, and the mutation that substitutes an estimated g moves the point.
 
-The rest pins the refusals of X11 (f3) with remedies that run, the support family ``P12``, whose
+The rest pins the declaration refusals with remedies that run, the support family ``P12``, whose
 one row ``T46`` (the ``learned-rule-optimal-value`` study) covers the fold-evaluated report on
 rows with a known treatment mechanism, while every learned-rule key and row is unchanged, the
 record and summary line, the fold-rule disagreement diagnostic, and the sensitivity analyses that
@@ -560,24 +560,28 @@ def _weighted_frame() -> pd.DataFrame:
 
 
 class TestTheRefusals:
-    """Each X11 (f3) row refuses before any learner, and its remedy runs as written."""
+    """The declarations an optimal-value fit refuses, before any learner.
 
-    #: The configuration rows: what the estimator declares, and the item the refusal names.
+    Weights, strata, known regimes, the in-sample fit and an intermediate are admitted
+    (X11 (f3)); ``tests/unit/test_learned_rule_optimal_compositions.py`` holds their
+    witnesses.  A learned-rule name beside ``ey_optimal_rule`` stays a declaration refusal.
+    """
+
+    #: The configuration rows: what the estimator declares, and the text the refusal names.
     CONFIGURATION: ClassVar[dict[str, tuple[dict[str, Any], str, RefusalReason]]] = {
-        "known_regime": (
-            {"interventions": [Static(1, name="treat")]},
-            "X11 (f3)",
-            RefusalReason.IMPLEMENTATION_GAP,
-        ),
-        "reference": ({"reference": "learned rule"}, "X11 (f3)", RefusalReason.IMPLEMENTATION_GAP),
-        "contrast_target": (
-            {"estimands": [OPTIMAL_RULE_TARGET, "ate_learned_rule"]},
-            "X11 (f3)",
-            RefusalReason.IMPLEMENTATION_GAP,
+        "learned_contrast": (
+            {"estimands": [OPTIMAL_RULE_TARGET, "ate_learned_rule"], "interventions": [Static(1)]},
+            "ate_optimal_rule",
+            RefusalReason.INVALID_DECLARATION,
         ),
         "learned_value": (
             {"estimands": [OPTIMAL_RULE_TARGET, "ey_learned_rule"]},
             "One fit reports one of the two targets",
+            RefusalReason.INVALID_DECLARATION,
+        ),
+        "contrast_without_regimes": (
+            {"estimands": [OPTIMAL_RULE_TARGET, "ate_optimal_rule"]},
+            "this fit declares none",
             RefusalReason.INVALID_DECLARATION,
         ),
     }
@@ -587,74 +591,23 @@ class TestTheRefusals:
         overrides, item, reason = self.CONFIGURATION[row]
         _refused(lambda: _never(**overrides), item, reason)
 
-    def test_the_contrast_remedies_fit(self) -> None:
-        caught = _refused(lambda: _never(interventions=[Static(1, name="treat")]), "X11 (f3)")
+    def test_the_declaration_remedies_fit(self) -> None:
+        caught = _refused(lambda: _never(estimands=[OPTIMAL_RULE_TARGET, "ey_learned_rule"]), "")
         assert "TMLE(learned_rule=LearnedRule(), estimands=['ey_optimal_rule'])" in str(caught)
         assert list(support.fit(estimands=[OPTIMAL_RULE_TARGET]).estimates) == [OPTIMAL]
-        contrast = support.fit(interventions=[Static(1, name="treat")])
-        assert "ate_learned_rule[learned rule vs treat]" in contrast.estimates
-
-    #: The data rows: the fit options, and the remedy that fits.
-    DATA: ClassVar[dict[str, dict[str, Any]]] = {
-        "weights": {"weights": "w"},
-        "strata": {"strata": ["W2"]},
-    }
-
-    @pytest.mark.parametrize("row", list(DATA))
-    def test_the_data_rows_refuse_before_any_learner(self, row: str) -> None:
-        frame = _weighted_frame()
-        caught = _refused(
-            lambda: _never().fit(frame, **FIT, **self.DATA[row]),
-            "X11 (f3)",
-            RefusalReason.IMPLEMENTATION_GAP,
-        )
-        assert "estimands=None (ey_learned_rule)" in str(caught)
-
-    @pytest.mark.parametrize("row", list(DATA))
-    def test_the_data_remedies_fit(self, row: str) -> None:
-        frame = _weighted_frame()
-        alone = support.learned_tmle(estimands=[OPTIMAL_RULE_TARGET]).fit(frame, **FIT).single()
-        assert list(alone.estimates) == [OPTIMAL]
-        learned = support.learned_tmle().fit(frame, **FIT, **self.DATA[row]).single()
-        assert LEARNED in learned.estimates
-
-    def test_the_in_sample_row_refuses_and_its_remedies_fit(self) -> None:
-        frame = support.law_frame()
-        caught = _refused(
-            lambda: _never(cross_fit=False, cv_evaluation=False).fit(frame, **FIT),
-            "X11 (f3)",
-            RefusalReason.IMPLEMENTATION_GAP,
-        )
-        assert "a different target" in str(caught)
-        assert list(support.fit(frame, estimands=[OPTIMAL_RULE_TARGET]).estimates) == [OPTIMAL]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            in_sample = support.fit(frame, cross_fit=False, cv_evaluation=False)
-        assert in_sample.extra["learned_rule"].scheme == "in_sample"
+        contrast = support.fit(estimands=[OPTIMAL_RULE_TARGET], interventions=[Static(1)])
+        assert "ate_optimal_rule[learned rule vs always 1]" in contrast.estimates
 
     def test_an_earlier_row_comes_first(self) -> None:
-        """Strata with clusters (row 7) refuse before (f3)."""
+        """Strata with clusters (row 7) keep their X28 refusal for the optimal value."""
         frame = _weighted_frame().assign(cluster=np.repeat(np.arange(100), 4))
         _refused(lambda: _never().fit(frame, strata=["W2"], id="cluster", **FIT), "X28")
 
-    def test_the_study_refuses_the_data_rows_and_admits_them_for_the_learned_value(self) -> None:
+    def test_the_study_admits_the_data_rows(self) -> None:
         frame = _weighted_frame()
         for extra in ({"weights": "w"}, {"strata": ("W2",)}):
             study = CausalStudy(frame, design=PointTreatment(**_design(**extra)))
-            _refused(lambda study=study: study.identify(OptimalRuleValue()), "X11 (f3)")
-            assert study.identify(LearnedRuleValue()).functional.target == "ey_learned_rule"
-
-    def test_the_study_refuses_the_in_sample_method(self) -> None:
-        study = CausalStudy(support.law_frame(), design=PointTreatment(**_design()))
-        effect = study.identify(OptimalRuleValue())
-        _refused(
-            lambda: effect.estimate(
-                TMLEMethod(cross_fitting=CrossFitting(enabled=False)),
-                **never_fit_learners(),
-                simultaneous=False,
-            ),
-            "X11 (f3)",
-        )
+            assert study.identify(OptimalRuleValue()).functional.target == OPTIMAL_RULE_TARGET
 
 
 # ------------------------------------------------------------------------------ the label

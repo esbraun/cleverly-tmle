@@ -265,6 +265,7 @@ DECLARED = {
             "par",
             "ate_regime",
             "ate_learned_rule",
+            "ate_optimal_rule",
             "ate_ipsi",
             "ate_policy",
             "ate_rr_tilt",

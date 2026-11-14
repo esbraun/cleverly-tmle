@@ -322,6 +322,10 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
             "known regime beside a learned rule: no study request declares one, and a direct TMLE "
             "fit carries no identification metadata, so the surface never meets it"
         ),
+        "ate_optimal_rule": (
+            "contrast of the optimal-rule value with a known regime: the fit reports "
+            "ey_optimal_rule, whose refusal is fit-wide (X11 (f3))"
+        ),
         "ey_rr_tilt": "risk-ratio tilt mean: no replay reading of its rule is declared",
         "ate_rr_tilt": "risk-ratio tilt contrast: refused fit-wide for the same reason",
         "cate_projection": (
