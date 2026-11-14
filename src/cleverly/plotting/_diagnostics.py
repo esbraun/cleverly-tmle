@@ -1631,7 +1631,16 @@ def _concentration(
 
     centred = values - values.mean()
     del values
-    kish = kish_count(centred, centered=False)
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        kish = kish_count(centred, centered=False)
+    if not math.isfinite(kish):
+        # The fourth powers underflowed or overflowed: |influence| below about 1e-81 or above
+        # about 1e77. The count would print as inf or nan, so the plot raises, as the
+        # report's influence_row does at these scales.
+        raise ValueError(
+            "the influence values are too close to zero or too large for the Kish count to be "
+            "computed in floating point; rescale them"
+        )
     squares = np.sort(centred**2)[::-1]
     del centred
     total = float(squares.sum())

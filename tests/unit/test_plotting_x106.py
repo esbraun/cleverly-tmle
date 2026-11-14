@@ -204,6 +204,26 @@ def test_influence_reports_the_kish_count_of_influence_row(
     )
 
 
+@pytest.mark.parametrize("scale", [1e-82, 1e78])
+def test_influence_raises_where_the_kish_count_is_not_finite(scale: float) -> None:
+    curve = np.random.default_rng(3).normal(size=200) * scale
+    with np.errstate(all="ignore"):  # the estimate's own moments over- or underflow too
+        estimate = make_estimate("ate", 0.2, curve, n=200, rule_widened=False)
+        with pytest.raises((ZeroDivisionError, OverflowError)):
+            influence_row("ate", curve)
+    with pytest.raises(ValueError, match="Kish count"):
+        plotting.influence(estimate)
+
+
+def test_influence_draws_at_a_small_but_finite_scale() -> None:
+    curve = np.random.default_rng(3).normal(size=200) * 1e-75
+    estimate = make_estimate("ate", 0.2, curve, n=200, rule_widened=False)
+    kish = influence_row("ate", curve).kish
+    assert (
+        _kish_note(plotting.influence(estimate)) == f"Kish effective count: {kish:.0f} of 200 rows."
+    )
+
+
 # --------------------------------------------------------------------------- balance
 
 
