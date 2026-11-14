@@ -591,7 +591,7 @@ own registered study.
 
 | part | what to change | kind |
 | --- | --- | --- |
-| (a) exact hot paths | the projection constant-cell check exits when patterns outnumber terms; Breslow event counts by one grouped count; vectorized weighted AUC; one sort per weight vector for top-weight shares; fixed-size digests for duplicate covariates | equivalent |
+| (a) exact hot paths | fixed-size digests for duplicate covariates. Delivered: the projection constant-cell check exits when patterns outnumber terms; Breslow event counts come from one grouped count; the weighted AUC fills tie blocks without a loop. A shared sort for top-weight shares was measured below any useful gain and dropped | equivalent |
 | (b) targeting curves | half samples generated and reduced in draw blocks, with the same draws; a memory guard | equivalent, guard |
 | (c) continuous-time survival | a memory guard over the engine's arrays; then an exact factored or subject-blocked representation of the hazards and targeting, if one exists | guard, equivalent |
 | (d) density and dose response | sparse or matrix-free binned-density designs; quadrature tiled over nodes; a guard over the buffers that coexist | equivalent, guard |
