@@ -732,7 +732,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
             cells=["weighted"],
             # Roadmap: X11.
             limits=[
-                "The study measures a known observation weight only. Estimated weights refuse.",
+                "The study measures a known observation weight only. A fit with weights declared "
+                "estimated keys weighting='estimated', which no row covers, and reads "
+                "experimental.",
                 "A weighted fit with clusters is experimental.",
             ],
         )
@@ -1081,7 +1083,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "The study measures the known weight w = 1 + 1.5 * 1{W1 > 0} at the "
                 "misspecified_limit law. Its calibration SE ratio below 1 (0.986) matches the "
                 "fold-evaluated compositions cell of the same law (0.969) and is a property of "
-                "that law. Estimated weights refuse."
+                "that law. A fit with weights declared estimated reads experimental."
             ],
         ),
         (

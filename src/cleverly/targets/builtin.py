@@ -191,8 +191,11 @@ _LEARNED_RULE_ID = Identification(
         "C5: no Donsker condition is needed, so the learners may be flexible",
         "C6: iid rows; or, under id=, iid clusters of bounded size whose number grows "
         "with n, with a fixed number of folds and at least 2 clusters in every validation "
-        "fold; known, fixed and bounded observation weights under weights=; no missing "
-        "outcomes or intermediate variable",
+        "fold; bounded observation weights under weights=, known and fixed, or declared "
+        "estimated (weights_estimated=True), when the target is the value on the population "
+        "the supplied weights describe and the interval treats them as fixed; no missing "
+        "outcomes; an intermediate Z only held at a level z, where the rules are learned from "
+        "the outcome regression at (a, z) and the assumptions of the intermediate apply",
     ),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
