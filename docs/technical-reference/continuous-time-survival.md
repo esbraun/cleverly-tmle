@@ -240,6 +240,39 @@ no data is refused, and there is no feedback diagnostic, because the fit has no 
 baseline. `tests/unit/test_balance_over_time.py` checks both rows at large $n$ under the true
 censoring model and under one that ignores $W$.
 
+## Memory
+
+The engine holds both arms' hazard jumps, survival and incidences for every unit at every grid
+time: arrays of shape $(2, n, M)$ and $(2, J, n, M)$, with $M$ the distinct observed times up to
+the last target time or restricted horizon. When $M$ grows with $n$, memory grows as $n^2$. A fit
+holds at most about $\max(73 J + 97,\ 81 J + 81)\, n M$ bytes at once, $170\, n M$ with one cause,
+reached in the walk's trial step; a truncation curve keeps the initial jumps and weight product
+beside every walk, $16 (J + 1)\, n M$ bytes more. At $n = 100{,}000$ with one cause and
+$M = 59{,}980$ that is about 1 TB.
+
+Before fitting any nuisance, the fit predicts that peak phase by phase from $n$, $J$, $M$, the
+target rows and the largest prediction fold (`cleverly.survival._memory.peak_bytes`), and refuses
+with `MethodConfigurationError` when the prediction exceeds the budget. The budget is the memory
+available at that moment (`cleverly.utils.memory.available_memory`, which reads the control
+group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it
+in either direction. Where the platform reports no available memory, as on macOS, nothing is
+checked unless `max_memory_bytes=` is passed. Every refit of a result, and so every refutation,
+assessment replay and truncation curve, uses the fit's `max_memory_bytes`.
+`TimeToEvent(grid="continuous")` has no such setting; its refusal spells the
+`ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the
+budget can be set.
+
+The prediction counts NumPy arrays the engine and the shipped hazard learners allocate. It does
+not count a user learner's own allocations, which can only make the check miss a refusal. It
+exceeds the peak by about 10% at most when the walk takes a step, and by up to about 20% when the
+initial fit already meets the stopping rule, since the check cannot know that in advance.
+`tests/unit/test_continuous_survival_memory.py` checks that the `tracemalloc` peak of a fit stays
+at or below the prediction and within 10% of it. Its fixtures have one to three causes, a
+restricted mean, cross-fitting, the factual tilt and a truncation curve, and each phase's peak
+stays at or below that phase's prediction. Dropping one $(2, J, n, M)$ array from the fit's
+prediction, or the censoring jumps from the nuisance phase's, falls below the measured peak.
+Coarsening the time grid would lower $M$ but changes the analysis, so the engine never does it.
+
 ## What is refused
 
 | request | why |
@@ -255,6 +288,7 @@ censoring model and under one that ignores $W$.
 | `ratio()` of anything but the two arms' risks at one cause and one time | `contrast()` takes any other smooth function of reported estimates |
 | a restricted horizon past one arm's follow-up, or before the first event of some cause in some arm | as for a target time |
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
+| a fit whose predicted peak memory exceeds the memory available or `max_memory_bytes=` | the dense arrays would not fit; see [Memory](#memory) |
 
 ## Evidence
 

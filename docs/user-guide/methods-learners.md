@@ -381,9 +381,14 @@ in sample with `CrossFitting(enabled=False)`. Never read the interval off the sa
 Because the split reads no treatment, it cannot keep a rare arm in every training complement. The
 fit checks the realized draw instead, before the first learner. Each arm must appear in at least
 two independent units, which are rows for iid data and *clusters* under `id=`. Each training
-complement must hold every arm, and both observed outcome classes of a binary outcome. A package
-classification `SuperLearner` needs two rows of each class of its target in each complement, which
-the default library makes the common case.
+complement must hold every arm.
+
+A binary outcome needs both classes in every training complement, with one exception. For
+a plain `TMLE` of a two-level or multi-level treatment, each class needs only one unit in the
+sample. A training complement that holds one outcome value then predicts that value in its fold
+([a binary outcome regression with one value](../technical-reference/point-treatment-tmle.md#a-binary-outcome-regression-with-one-value)).
+A package classification `SuperLearner` needs two rows of each class of its target in each
+complement, which the default library makes the common case.
 
 None of these refusals names a redraw. The remedy is `CrossFitting(enabled=False)`, or more
 observations at the rare level.

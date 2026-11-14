@@ -1594,6 +1594,31 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own clause"
                 )
 
+        # ``few-cluster-fold-variance``: restated from the declaration in ``regenerate.py``. A
+        # positive row passes the shown band, G1 and the variance-ratio lower end; a deflated
+        # control fails that rule; the IID control's median upper end sits below 0.95.
+        fold = published.loc[published["property"] == "fold_variance_calibration"]
+        if not fold.empty:
+            for row in fold.itertuples():
+                rule = (
+                    row.shown_ci_lower >= 0.92
+                    and row.shown_ci_upper <= 0.98
+                    and row.all_draw_ci_lower >= 0.90
+                    and row.variance_ratio_ci_lower >= 0.93**2
+                )
+                arm = str(row.cell).rsplit("__", 1)[1]
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif arm.endswith("deflated_control"):
+                    expected = not rule
+                elif arm == "iid_t_control":
+                    expected = row.paired_median_ci_upper < 0.95
+                else:
+                    expected = rule
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
@@ -1977,6 +2002,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # clauses on the control's firing draws; the other arms carry the diagnostic role.
         # Checked row by row below.
         "boundary_node",
+        # ``few-cluster-fold-variance``: a positive row answers to the shown-coverage band, G1
+        # and the variance-ratio lower end; a deflated control must fail that rule; the IID
+        # control to its median ratio's upper end. Checked row by row below.
+        "fold_variance_calibration",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.

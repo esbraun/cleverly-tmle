@@ -67,9 +67,10 @@ tier is the one the legend lists.
 
 | tier | what it holds |
 | --- | --- |
+| scale | the scaling and efficiency work of [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths). The owner put it ahead of every fix and feature not already in progress on 2026-11-14 |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e) and (h), X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c) and (h), X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -156,6 +157,12 @@ The readiness labels are defined under
 | --- | --- | --- | --- |
 | [R1](#r1-nested-riesz-engine-and-initial-catalog) Nested Riesz engine and initial catalog | 4 | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need |
 | [R2](#r2-evidence-gated-riesz-catalog-expansion) Evidence-gated Riesz catalog expansion | 4, target by target | source audit for each target | R1 and a target-specific derivation |
+
+### Scaling and efficiency
+
+| item | tier | readiness | depends on |
+| --- | --- | --- | --- |
+| [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths) Scaling and efficiency of the shipped TMLE paths | scale | no new theory; each change preserves the analysis or is a separate opt-in option with its own evidence | the shipped estimators, assessments and plots |
 
 ### Plots
 
@@ -462,6 +469,14 @@ holds that leg of the always risk and the contrast. It is a standing record of a
 gates no release. The study also declared a conditional owner for its `risk[never]` coverage leg,
 as F31's rare-event limit; that leg passed, so the owner was not needed and holds no row here.
 
+The `X54-training-floor` owner holds the positive cells of `few-cluster-fold-variance` that fall
+below their configuration's training floor, declared before the run. It covers only their
+coverage band and G1 legs, under one of two readings. A red below the predicted floor reads as the
+training-floor limit the pilot showed. A red at or above it, or a red count above a passing count,
+reads as a finite-sample miss. In the registered run it holds the three cells at 2 training
+clusters under the training-floor reading, both floors are 4, and `MINIMUM_FOLD_TRAINING_CLUSTERS`
+ships them. It is a standing record of a reading, and it gates no release.
+
 The `mtp-point-calibration` owner holds one calibration cell of the point modified-treatment-policy
 study. Its standard error is conservative, and the diagnosis finds no defect.
 
@@ -557,11 +572,51 @@ on new held-out laws.
 | `X93-upper-dose-calibration` | the paired `dose_response[h=2,a=3.5]` row of `dose-response-npcausal`, declared before the run as the upper-dose red signature | reading `pre-registered upper-dose over-report`. Every leg but calibration passes. The upper bound of the calibration excess is 0.0558, above the margin of 0.05. At dose 3.5 `cleverly`'s mean SE is 1.10 efficient SDs, its SE ratio 1.068 and its coverage 0.963, so its interval is too wide, not too narrow. The reflected pilot fits trace the excess to the pooled-hazard density of the dose. The owner asks for a dose density that does not over-report the SE at the upper dose. It closes when a re-declared comparison with that density passes the calibration leg at dose 3.5 |
 | `X93-failure-worst-case` | the paired `dose_response[h=2,a=2.5]` and `dose_response[h=2.5,a=3.5]` rows of `dose-response-npcausal`, diagnosed after the run | reading `failure-accounting worst case, a sizing miss`. On their complete cases both rows conclude equivalent. `ctseff` failed on six of 4,800 replications, and the failure accounting imputes those six at their worst case. That imputation lowers the calibration slack by 0.011 to 0.013, more than the complete-case slacks of 0.0111 and 0.0107, so both rows read unaccounted. The declaration sized the paired legs on complete cases and did not price the imputation in. The owner asks for a re-declared run whose size prices the worst case at the expected number of comparator failures. It closes when such a run passes both rows |
 | `X54-supplement-width` | the `interior_n200` truth rows `risk_regimen[always @ t=4]` and `ate_regimen[always vs never @ t=4]` of `boundary-node-ltmle`, declared before the run | reading `one-sided bound, wider by design`. On about half the draws the supplement adds a flagged node's variance at the exact one-sided binomial bound of its hazard, not at the hazard itself, so the reported standard error runs above the empirical spread. The registered run reads SE ratios of 1.261 (99% interval 1.160 to 1.370) and 1.171 (1.093 to 1.262), against the band's upper end of 1.20, with coverage 0.927 and 0.947 and both bias legs equivalent; the 2,000-draw pilot had read 1.29 and 1.19. The owner covers the SE-ratio leg only: a red coverage or bias leg on these rows is a defect suspect (`unowned_primary_failures` in `tests/studies/boundary_node_ltmle.py`). A standing record of a reading; the owner closes when an interval for a flagged node that is not a one-sided bound ships with its own registered study ([F31](#f31-inference-at-a-boundary-node-estimate)) |
+| `X54-training-floor` | the positive `fold_variance_calibration` cells of `few-cluster-fold-variance` below their configuration's training floor (the propensity estimated or declared known), declared `reporting` before the run. The pilot predicts both cells with 2 training clusters in each configuration and the known `equal10__v2_j8` (`PREDICTED_RED_OWNERS` in `tests/studies/few_cluster_fold_variance.py`) | reading `training-floor limit` for a red below the configuration's predicted floor (4 estimated, 6 known: `PREDICTED_FLOOR`). Fitted on 2 or 4 training clusters, the nuisances leave coverage outside the band or withheld and lost draws that pull all-draw coverage below 0.90. Reading `finite-sample (plug-in sizing)` for a red at or above the predicted floor, or for a red count above a count of the same configuration at which every cell passes. That non-monotone pattern is its signature. The plug-in pass figures size the run at 1.000 (estimated) and 0.997 (known), but the Jeffreys-predictive figures, which carry the pilot's uncertainty, are 0.718 and 0.646 (`PREDICTIVE_FAMILY`), so such a red is a chance the declaration names. Either reading holds only a red whose variance-ratio lower end passes and that sits below the measured floor, as `declared_route` in `tests/studies/few_cluster_fold_variance_properties.py` reads it. A red at 24 training clusters leaves no floor. It is a defect suspect unless a diagnosis recorded in `NO_DEFECT_DIAGNOSES` finds no defect. Then the configuration ships no `MINIMUM_FOLD_TRAINING_CLUSTERS` entry, its estimates keep only the cluster-count floor (`few_cluster_plugin` below 10 positive-mass clusters today, and the measured `CLUSTER_INTERVAL_FLOORS` once X54 part (a) ships them), the evidence page and F28 record "no certified training count" for that configuration with the cell's readings, and the owner holds the red under the finite-sample reading. A red variance-ratio lower end and a deflated or IID control that does not do its job are not held: they are a defect suspect or withhold the configuration's licence. In the registered run `declared_route` reads a training floor of 4 in both configurations and holds the estimated `cluster_covariate__v2_j4` and `equal10__v2_j4` and the known `equal10__v2_j4` under `training-floor limit`; no finite-sample reading arises. The known cells `cluster_covariate__v2_j4` and `equal10__v2_j8`, predicted red, passed. `MINIMUM_FOLD_TRAINING_CLUSTERS` ships the floors, and a fold-evaluated estimate below them takes `few_cluster_plugin`. The cells stay red as a standing record and gate no release |
 
 ## Detailed implementation contracts
 
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
+
+### X106. Scaling and efficiency of the shipped TMLE paths
+
+A benchmark of the public estimators, assessments and plots at 100,000 to 1,000,000 subjects found
+million-row paths for point TMLE and the longitudinal engines with explicit learners, and
+avoidable allocations and repeated work elsewhere. Continuous-time survival allocates hazards of
+shape `(2, J, n, M)` over every distinct event time; targeting curves build `(draws, units)` key,
+order and mask matrices before reducing them; the binned density and dose-response quadrature
+designs grow faster than the sample; the constant-cell check of a projection effect curve is
+quadratic in the number of modifier patterns. This item removes those costs without changing any
+default learner, fold count, draw count, bin rule or time grid.
+
+Each change is one of four kinds. An equivalent implementation returns the same results, bitwise
+where it can and otherwise within a declared tolerance, with every selection, status and refusal
+unchanged on a replay of committed study replications. A display limit changes only what a plot
+draws, and its default draws what it draws today. A memory guard refuses before allocating when its
+predicted peak exceeds the budget, names both, and takes a `max_memory_bytes=` override. A sampled
+analysis is a separate opt-in option whose result describes the sampled procedure and needs its
+own registered study.
+
+| part | what to change | kind |
+| --- | --- | --- |
+| (a) exact hot paths | fixed-size digests for duplicate covariates. Delivered: the projection constant-cell check exits when patterns outnumber terms; Breslow event counts come from one grouped count; the weighted AUC fills tie blocks without a loop. A shared sort for top-weight shares was measured below any useful gain and dropped | equivalent |
+| (b) targeting curves | half samples generated and reduced in draw blocks, with the same draws; a memory guard | equivalent, guard |
+| (c) continuous-time survival | a memory guard over the engine's arrays; then an exact factored or subject-blocked representation of the hazards and targeting, if one exists | guard, equivalent |
+| (d) density and dose response | sparse or matrix-free binned-density designs; quadrature tiled over nodes; a guard over the buffers that coexist | equivalent, guard |
+| (e) adaptive TMLE | working-model selection that reuses held-fold slices, factors and cross-products across the lambda path | equivalent |
+| (f) plots | `max_points=` on `influence`, `max_rug_points=` on the effect `curve`, `max_intervals=` on `zipper`; one prepared nuisance report shared by `calibration` and `learners` | display, equivalent |
+| (g) refutation and sensitivity | replayable subset and placebo draws instead of retained arrays; a preview of planned refits; checkpoints for the long generated-outcome and bootstrap tests; profiles of `tipping_gamma()` and the continuous marginal sensitivity | equivalent |
+| (h) sampled refutation | `sample_limit=` on the refuters, with a paired baseline on the same sample | sampled analysis |
+| (i) fit budget | a preview of the nuisance fits a method plans, before fitting | information |
+| (j) longitudinal and survival retention | released candidate states in `SurvivalCTMLE`; cached history designs and released training state in the LTMLE family; streamed summaries for the weights plot and the regimen MSM | equivalent, guard |
+| (k) C-TMLE, DR-TMLE and point TMLE | cached fold-local inputs, fewer slab and arm-design copies, shared nuisance state across targets, reused basis cross-products for effect-curve bands | equivalent |
+| (l) assessment cache | a documented clear and budget policy that keeps replayed results reproducible | equivalent |
+
+Acceptance: each change carries a matched baseline and candidate comparison on the same data,
+learners, folds and seeds, with a practical gain and nonregression limits fixed before the runs,
+and witnesses that fail when the change alters a result it claims to preserve. Acceptance covers
+the measured configurations only.
 
 ### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
 
@@ -1299,7 +1354,7 @@ Acceptance: a nonzero witness for each changed term; a registered study for each
 The cluster-as-unit theory is the same at 4 clusters as at 10. Each part below needs a registered
 measurement or a declared construction, not a theorem.
 [F28](#f28-finite-sample-limits-of-clustered-intervals) stays the owner id of the clustered red
-cells. Parts (d), (f), (g) and (i) are delivered
+cells. Parts (d) to (g) and (i) are delivered
 ([delivered items](roadmap-delivered.md)).
 
 | part | request | the evidence that reopens it |
@@ -1307,7 +1362,6 @@ cells. Parts (d), (f), (g) and (i) are delivered
 | (a) | an interval at 4 to 9 clusters, or at 4 to 19 for in-sample `LTMLE` | a registered measurement. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class |
 | (b) | a cross-fitted `LTMLE` interval at 4 to 19 clusters | a registered measurement. `few-cluster-cross-fitted-ltmle` measures 20 and 30 clusters only |
 | (c) | a small-sample reference other than $t_{J-2}$ | a reference with its registered study. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. Fang et al., arXiv:2510.08438, Section 3.3, gives another |
-| (e) | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The few-cluster study measures it at 2, 4 and 6 clusters per fold, at equal sizes only, because `cv_evaluation=True` refuses clusters of unequal size |
 | (h) | complex nuisance learners at about 20 clusters | a registered study. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. The registered evidence uses parametric nuisance learners only |
 
 [F31](#f31-inference-at-a-boundary-node-estimate) keeps the rare-event regime, and F28 keeps fits
@@ -2607,7 +2661,7 @@ fit or in one reported baseline stratum, the fit takes the `"few_cluster_plugin"
 | --- | --- | --- |
 | an interval below 4 clusters | arbitrary dependence | a supported construction for a fixed number of dependent units. Below 4 clusters the reference has fewer than 2 degrees of freedom, and at 2 clusters or fewer no independent-cluster argument applies |
 
-[X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (a) to (c), (e) and (h) hold
+[X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (a) to (c) and (h) hold
 the registered measurements from 3 clusters up to each floor, and the other small-sample work. The
 cluster-as-unit theory is the same at 4 clusters as at 10, so that work needs evidence and not a
 theorem. F28 stays the owner id of the clustered red cells.

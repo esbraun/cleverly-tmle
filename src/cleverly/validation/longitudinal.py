@@ -1573,7 +1573,7 @@ def _hazard_nuisances(
     """One ``"hazard"`` row per node and cause of a hazard fit.
 
     Each row scores the regression the learner fitted: the pseudo-hazard
-    :math:`\\rho_j = \\lambda_j / (1 - \\sum_{i < j} \\lambda_i)` at the observed level,
+    :math:`\\rho_j = \\lambda_j / (1 - \\sum_{i < j} \\lambda_i)` at the observed treatment,
     against the event of cause ``j``, on the rows at risk with no event of an earlier cause
     at the node.  A node and cause whose training rows held no event fits no learner and
     reports :data:`LONGITUDINAL_CONSTANT_TARGET`.
@@ -1583,10 +1583,12 @@ def _hazard_nuisances(
     initial = result.initial_hazards
     at_risk, events = event_indicators(result.data)
     if initial.observed is not None:
-        # A continuous or mixed baseline node has no levels: the fit kept the hazards at
-        # each unit's observed treatment.
+        # The fit kept the hazards at each unit's observed treatment: a continuous or mixed
+        # baseline node has no levels, and the slots of a treatment at several nodes are
+        # regimen paths, which a unit's observed path need not follow.
         hazards = initial.observed
     else:
+        # A held design: the observed baseline level is the unit's treatment at every node.
         observed = np.asarray(np.nan_to_num(result.data.treatment[:, 0], nan=0.0), dtype=np.int64)
         hazards = initial.hazards[np.arange(result.data.n), :, observed, :]
     causes: tuple[str | None, ...] = result.data.cause_labels or (None,)
