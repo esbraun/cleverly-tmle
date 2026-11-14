@@ -1,0 +1,25 @@
+=== hazard-multinode declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/hazard_multinode/regenerate.py --output /tmp/hazard-multinode-run-4 --jobs 4
+commit: 5ba870d8200548344f558399a1deb53c8a466312; upstream 5ba870d8200548344f558399a1deb53c8a466312
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 dca430a13a93ae947782cdcb46900cefd326085cb80418307493300e1b6629a9
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-14T06:58:06+00:00
+note: resumed from /root/.cache/cleverly/runs/hazard-multinode/5a9c05beab86, reused the Python phase
+finished: 2026-11-14T08:00:14+00:00
+wall seconds: 3728.2
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 14ca0ed3cd25ffde5de0b1470a14c9451e26afc3b7e486e921b1c2d019a75547
+sha256 performance-tests.csv: 43cbb753c27986d7dc638449f99404bf41f47c432f412ed0e63fbf619db26861
+sha256 properties.csv: e53f622cfbe20169c055fb6d42d37a8f3aee0da0cd1baf6348946fd9d006b616
+sha256 property-failure-accounting.csv: 84b951c42580bf74cea3b13b7c3820d605e08e54b03564950cf4d92fc3e31dc1
+sha256 property-failure-witnesses.parquet: 1b16f4c5a92f14cb70869aeda41c914344d1bef852da833f625b1bb320041157
+sha256 property-failures.csv: bc44f28b6263350ac3611dd528c15afff1ec61af308998d1bd573fc2658297c7
+sha256 property-replicates.parquet: 7d2bcb3063012625757a3b5274b0682c9669db38e3508b4ca051834cecaa5662
+sha256 replicates.parquet: 2345c32e2571158cdb2419bcdcd5472869942efe532cefad349218bcbeff37ab
+sha256 summary.csv: 2af05765328becb2de42a9e83552bbf15fcf7790811baf0b152546f6eae7849a
+
