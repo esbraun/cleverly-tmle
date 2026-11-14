@@ -1870,3 +1870,10 @@ option-patience,ordered_late_confounder,bias discriminated,control_diffuse
 option-patience,ordered_whole_path,bias equivalent,bias
 option-patience,patience_bias,bias equivalent,bias
 option-patience,patience_witness,coverage floor,shift/3
+drtmle-foldwise-n1500,double_robustness,bias equivalent,bias
+drtmle-foldwise-n1500,double_robustness,se ratio in union band,se/0.05
+multi-arm-drtmle-foldwise,double_robustness,bias equivalent,bias
+multi-arm-drtmle-foldwise,double_robustness,se ratio in union band,se/0.05
+stratified-drtmle-foldwise,stratified_contraction,control slope fails to contract,shrink_role/control/1.5
+stratified-drtmle-foldwise,stratified_contraction,rung se ratio in sanity band,se_low
+stratified-drtmle-foldwise,stratified_contraction,slope consistent with second order,contract

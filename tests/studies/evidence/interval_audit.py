@@ -417,6 +417,16 @@ def _composite_audit() -> Audit:
     )
 
 
+def _stratified_drtmle_foldwise_audit() -> Audit:
+    # No scan: DR-TMLE inherits the constant-arm-cell trigger, but no committed sample holds a
+    # constant arm-by-stratum cell. Regenerating all 4,000 samples of the primary scenario at
+    # n = 2,000 and reading ``constant_outcome_cells`` per stratum found none; the smallest
+    # minority-outcome count of any cell was 11 (review of the 0.2.5 release). The contraction
+    # ladder's cells read the marginal ate, a difference, whose interval is unchanged.
+    means = tuple(f"ey[{arm}][V={stratum}]" for stratum in (0, 1, 2) for arm in (1, 0))
+    return Audit(truth={"stratified_both_correct": means})
+
+
 def _pricing_audit() -> Audit:
     # No scan: a longitudinal level whose last-node regression reads a constant outcome takes
     # ``constant_node_plugin``, which the committed rows already record.  The range check
@@ -441,6 +451,7 @@ AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
     "mtp-pricing": _pricing_audit,
+    "stratified-drtmle-foldwise": _stratified_drtmle_foldwise_audit,
 }
 
 
@@ -494,14 +505,6 @@ SCREEN_REASONS: dict[str, str] = {
     ),
     "score-assessment": (
         "the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
-    ),
-    "stratified-drtmle-foldwise": (
-        "its run (cleverly 9ace1a3) predates the logit interval of a bounded mean, so its rows "
-        "record the identity interval; under the logit interval the accepted red row "
-        "stratified_both_correct/ey[1][V=2] covers 0.9193 (99% lower end 0.9075) against the "
-        "floor 0.90, so its coverage verdict would pass. The row stays red and held by "
-        "X8-drtmle-small-stratum until that owner's re-read decides an audit file or a rerun. "
-        "stratified_contraction/marginal_ate reads a difference; asymmetric_audit reads it"
     ),
     "targeting-curves": (
         "the flagged cells are band and type I rows of a targeting curve with truth 0, not "

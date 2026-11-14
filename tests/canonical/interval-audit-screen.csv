@@ -138,7 +138,7 @@ stacked-mar-arm-indexed-cvtmle,neutral,15,15,0.018,,,4,
 stacked-mar-natural-course-cvtmle,neutral,5,2,0.005,,crossfit_overfitting/stacked_mar_natural_course_cvtmle,0,
 stochastic-categorical-ltmle,neutral,6,5,0.005,,,1,
 stochastic-regimes,neutral,11,9,0.005,,,0,
-stratified-drtmle-foldwise,declared,12,12,0.037333,stratified_both_correct/ey[1][V=2],stratified_contraction/marginal_ate__treatment_correct_n2000,0,"its run (cleverly 9ace1a3) predates the logit interval of a bounded mean, so its rows record the identity interval; under the logit interval the accepted red row stratified_both_correct/ey[1][V=2] covers 0.9193 (99% lower end 0.9075) against the floor 0.90, so its coverage verdict would pass. The row stays red and held by X8-drtmle-small-stratum until that owner's re-read decides an audit file or a rerun. stratified_contraction/marginal_ate reads a difference; asymmetric_audit reads it"
+stratified-drtmle-foldwise,audited,12,12,0.037333,stratified_both_correct/ey[1][V=2],stratified_contraction/marginal_ate__treatment_correct_n2000,0,interval-audit.parquet
 structural-nested-mean,neutral,34,33,0.020375,,,0,
 survival-ctmle,neutral,7,6,0.003125,,,0,
 survival-dr-tmle,neutral,15,15,0.002833,,,0,

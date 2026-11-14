@@ -3254,7 +3254,13 @@ def perturbed(rows: pd.DataFrame, kind: str, *, alpha: float = 0.05) -> pd.DataF
         for part in kind.split("+"):
             out = perturbed(out, part, alpha=alpha)
         return out
-    if kind.partition("/")[0] in {"centre", "se_role", "coverage_role", "spread_role"}:
+    if kind.partition("/")[0] in {
+        "centre",
+        "se_role",
+        "coverage_role",
+        "spread_role",
+        "shrink_role",
+    }:
         return _role_kind(rows, kind, alpha)
     name, _, level = kind.partition("/")
     graded = name in {"se", "coverage"} and re.fullmatch(r"\d+(\.\d+)?(e-?\d+)?", level)
@@ -3388,6 +3394,7 @@ def composed_perturbations() -> tuple[str, ...]:
     | ``se_role/<role>/<f>`` | each standard error of the role times ``f``. At 1e5 it puts a rounding-level variance floor out of reach | kept |
     | ``coverage_role/<role>/<p>`` | ``coverage/<p>`` on the role's cells alone | ``rejected`` kept |
     | ``spread_role/<role>/<g>`` | each cell of the role dilated ``g`` times about its mean, and its standard errors times ``g`` | recomputed for the role |
+    | ``shrink_role/<role>/<p>`` | each error of the role times ``(n / n_min) ** -p`` within its family, so a slope that does not contract does | recomputed for the role |
     | ``<a>+<b>`` | kind ``a``, then kind ``b`` | as each kind says |
 
     Returns
@@ -3395,8 +3402,8 @@ def composed_perturbations() -> tuple[str, ...]:
     tuple of str
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
         followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role,
-        then the ``bias`` kind followed by each role's coverage share, then the ``affine`` map
-        twice followed by an SE scale.
+        then the ``bias`` kind followed by each role's coverage share, then each role's ``shrink_role`` at
+        :data:`CONTRACT_POWER`, then the ``affine`` map twice followed by an SE scale.
     """
     return _composed()
 
@@ -3426,6 +3433,9 @@ def _composed() -> tuple[str, ...]:
         # A bias clause in conjunction with a coverage floor that already fails decides alone
         # only when the floor is repaired: the named bias shift, then one role's coverage.
         *(f"bias+coverage_role/{role}/{p:g}" for p in COVERAGE_TARGETS for role in roles),
+        # A control whose rate clause requires that its bias not contract decides alone only
+        # when that role's errors contract and the positives' do not move.
+        *(f"shrink_role/{role}/{CONTRACT_POWER:g}" for role in roles),
         # A one-sided tail clause on a skewed cell fails with its light-side misses only once
         # the cell's errors contract and move toward that side, which a uniform shift or SE
         # scale cannot do without failing a coverage leg first: each cell's seeded affine map
@@ -3435,7 +3445,7 @@ def _composed() -> tuple[str, ...]:
 
 
 def _role_kind(rows: pd.DataFrame, kind: str, alpha: float) -> pd.DataFrame:
-    """A ``centre``, ``spread_role``, ``se_role`` or ``coverage_role`` kind on a copy."""
+    """A ``centre``, ``spread_role``, ``shrink_role``, ``se_role`` or ``coverage_role`` kind on a copy."""
     name, role, level = kind.split("/")
     out = rows.copy()
     chosen = (out["role"] == role).to_numpy()
@@ -3452,7 +3462,11 @@ def _role_kind(rows: pd.DataFrame, kind: str, alpha: float) -> pd.DataFrame:
         return out
     errors = out["estimate"].astype(float) - out["truth"].astype(float)
     centre = errors.groupby([out["property"], out["cell"]]).transform("mean")
-    if name == "spread_role":
+    if name == "shrink_role":
+        n = out["n"].astype(float)
+        smallest = n.groupby(out["property"]).transform("min")
+        moved = (errors * (n / smallest) ** -float(level)).to_numpy()
+    elif name == "spread_role":
         moved = (centre + float(level) * (errors - centre)).to_numpy()
         scaled = out["std_error"].astype(float).to_numpy().copy()
         scaled[chosen] *= float(level)
