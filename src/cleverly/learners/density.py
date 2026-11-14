@@ -598,8 +598,11 @@ def _knots(
     supported = width > 0.0
     scale = np.ones(n)
     if lower is not None or upper is not None:
+        # Only a row whose support cuts a bin is projected, so a support past every edge
+        # leaves the reading bit for bit as it is without one.
+        cut = np.any((left != e[None, :-1]) | (right != e[None, 1:]), axis=1)
         total = np.where(supported, p, 0.0).sum(axis=1)
-        scale = np.where(total > 0.0, total, 1.0)
+        scale = np.where(cut & (total > 0.0), total, 1.0)
     projected = np.where(supported, p, 0.0) / scale[:, None]
     active = np.asarray(occupied, dtype=bool)[None, :] & supported & (projected > floor)
     safe_width = np.where(supported, width, 1.0)

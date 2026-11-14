@@ -436,11 +436,14 @@ class TestACoarsenedShiftFit:
         assert support["+1"].min_mechanism == pytest.approx(
             float(np.min(np.maximum(shift_law.PI_EXACT[covariate, index], 0.01))), abs=1e-9
         )
-        # The two reweightings multiply, so the weight's ESS is below the bare ratio's.
+        # The two reweightings multiply: each row's weight is its ratio over pi <= 1, so the
+        # largest weight is above the bare ratio's, and the two ESS differ.  (Which ESS is
+        # smaller depends on how pi and the ratio co-vary, so it is not asserted.)
         bare = check_policy_support(
             result.nuisance.policies, result.nuisance.density, result.data.treatment
         )
-        assert support["+1"].ess_ratio < bare["+1"].ess_ratio
+        assert support["+1"].max_ratio > 1.5 * bare["+1"].max_ratio
+        assert support["+1"].ess_ratio != pytest.approx(bare["+1"].ess_ratio, abs=1e-3)
         assert bare["+1"].min_mechanism is None
 
     def test_the_mnar_tilt_refuses_this_axis_by_name(self) -> None:

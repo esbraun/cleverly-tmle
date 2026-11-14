@@ -253,10 +253,20 @@ def test_t_a5_the_longitudinal_estimate_is_bit_identical() -> None:
             )
 
     plain = fit(["A1", "A2"])
-    declared = fit({"A1": Support(-10.0, 10.0), "A2": Support(0.0, law.upper)})
+    # An h-dependent bound past every bin edge leaves the density's reading, and so the fit,
+    # unchanged.
+    declared = fit({"A1": Support(-10.0, 10.0), "A2": Support(-10.0, _past_the_edges)})
     for name in plain.estimates:
         assert declared[name].psi == plain[name].psi, name
         assert np.array_equal(declared[name].influence_curve, plain[name].influence_curve)
+    # A bound inside the bins cuts each row's density at it (``learners.density``), so the
+    # same declaration at u(h) moves the estimate: the nonzero witness of the reading.
+    binding = fit({"A1": Support(-10.0, 10.0), "A2": Support(0.0, law.upper)})
+    assert binding["ey_regimen[up at 2]"].psi != plain["ey_regimen[up at 2]"].psi
+
+
+def _past_the_edges(h: Any) -> Any:
+    return law.upper(h) + 10.0
 
 
 # ------------------------------------------------------------------ declarations

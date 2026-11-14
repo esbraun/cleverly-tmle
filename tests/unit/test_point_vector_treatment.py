@@ -580,7 +580,12 @@ def _numbers(value: Any, depth: int = 0, seen: set[int] | None = None) -> list[f
 def _same(found: Any, expected: Any, where: str) -> None:
     left, right = np.asarray(_numbers(found)), np.asarray(_numbers(expected))
     assert left.shape == right.shape, f"{where}: {left.shape} numbers against {right.shape}"
-    np.testing.assert_allclose(left, right, rtol=1e-9, atol=1e-9, err_msg=where)
+    # A Hessian condition number past 1e15 marks a singular fluctuation (policies with equal
+    # ratio columns), and its digits are rounding: both readings must be singular there.
+    singular = (np.abs(left) > 1e15) & (np.abs(right) > 1e15)
+    np.testing.assert_allclose(
+        left[~singular], right[~singular], rtol=1e-9, atol=1e-9, err_msg=where
+    )
 
 
 def _up(a: Any, h: Any) -> np.ndarray:
