@@ -71,7 +71,7 @@ design test reads it from the committed pilot.
 | nuisance | correct learner | wrong learner |
 | --- | --- | --- |
 | hazard | unpenalized logistic regression on `W1`, `W2`, the dose (and the arm), at each visit | logistic regression on the dose (and the arm) alone (`NoWLogistic`) |
-| treatment | multinomial logistic on `W1`, `W2`; a truncated-normal location density by maximum likelihood; a logistic classifier | the prior share; a density with no covariates; a classifier on the dose alone |
+| treatment | multinomial logistic on `W1`, `W2`; a truncated-normal location density by maximum likelihood; a logistic classifier | the prior share, on the six-level law only: the fit sets of the other laws keep the treatment and censoring models correct |
 | censoring | logistic regression on `W1`, `W2` and the dose (and the arm), at each visit | the prior share |
 
 The correct learners are correctly specified and are not saturated. With saturated level and
