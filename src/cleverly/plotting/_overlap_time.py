@@ -197,6 +197,7 @@ def baseline(
     data = result.data
     if censoring and not data.has_censoring:
         raise ValueError("censoring=True draws retention, and this fit declares no censoring")
+    _refuse_ratio_nodes(result, None, (1,))
     name = treatment_label or str(data.treatment_names[0])
     codes = np.asarray(data.treatment[:, 0], dtype=float)
     present = np.isfinite(codes)
@@ -343,6 +344,8 @@ def _refuse_ratio_nodes(result: Any, fit: Any, times: Sequence[int]) -> None:
                 "weights() draws the weights the fit used.",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
+        if fit is None:
+            continue
         policy = _node_kind(fit, time)
         if policy in _RATIO_KINDS:
             raise CapabilityError(
