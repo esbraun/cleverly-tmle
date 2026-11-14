@@ -730,6 +730,24 @@ isotonic-binding,material_move,share floor,positive_diffuse
 known-node-mechanisms,known_mechanism_accuracy,bias equivalent,bias
 known-node-mechanisms,known_mechanism_accuracy,coverage floor,coverage/0.5
 known-node-mechanisms,known_mechanism_accuracy,se ratio in band,se_high
+known-score-att,efficiency_gain,atc spread ratio under its boundary,positive_diffuse
+known-score-att,efficiency_gain,atc_zero_gain spread ratio reaches its boundary,control_concentrated
+known-score-att,efficiency_gain,att spread ratio under its boundary,positive_diffuse
+known-score-att,efficiency_gain,att_zero_gain spread ratio reaches its boundary,affine
+known-score-att,interval_calibration,coverage in calibration band,bias
+known-score-att,interval_calibration,efficiency above band,pair_collapse
+known-score-att,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+known-score-att,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+known-score-att,interval_calibration,se ratio below band,se_high
+known-score-att,interval_calibration,se ratio in calibration band,affine
+known-score-att,known_score_accuracy,bias discriminated,pair_collapse
+known-score-att,known_score_accuracy,bias equivalent,bias
+known-score-att,known_score_accuracy,coverage floor,coverage/0.5
+known-score-att,known_score_accuracy,se ratio in band,se_high
+known-score-att,root_n_and_efficiency,bias equivalent,bias
+known-score-att,root_n_and_efficiency,coverage floor,coverage/0.5
+known-score-att,root_n_and_efficiency,se ratio sanity,se_high
+known-score-att,root_n_rate,slope in root-n band,contract
 known-treatment-mechanism,bootstrap_coverage,coverage floor,se_low
 known-treatment-mechanism,interval_calibration,coverage in calibration band,shift/0.7
 known-treatment-mechanism,interval_calibration,noise se ratio below band,se_high
@@ -1854,6 +1872,25 @@ hazard-time-varying,simultaneous_coverage,joint coverage in calibration band,se_
 hazard-time-varying,targeting_necessity,bias discriminated,pair_collapse
 hazard-time-varying,targeting_necessity,bias equivalent,bias
 hazard-time-varying,targeting_necessity,least displacement over labels,control_concentrated
+hazard-multinode,double_robustness,bias discriminated,pair_collapse
+hazard-multinode,double_robustness,bias equivalent,bias
+hazard-multinode,double_robustness,se ratio in union band,se/0.05
+hazard-multinode,interval_calibration,coverage in calibration band,affine
+hazard-multinode,interval_calibration,efficiency above band,pair_collapse
+hazard-multinode,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+hazard-multinode,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-multinode,interval_calibration,se ratio below band,se_high
+hazard-multinode,interval_calibration,se ratio in calibration band,se/0.9
+hazard-multinode,power,rejection floor,rejection/0.01
+hazard-multinode,root_n_and_efficiency,bias equivalent,bias
+hazard-multinode,root_n_and_efficiency,coverage floor,affine
+hazard-multinode,root_n_and_efficiency,se ratio sanity,se_high
+hazard-multinode,root_n_rate,slope in root-n band,contract
+hazard-multinode,simultaneous_coverage,joint coverage below nominal,se_high
+hazard-multinode,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-multinode,targeting_necessity,bias discriminated,pair_collapse
+hazard-multinode,targeting_necessity,bias equivalent,bias
+hazard-multinode,targeting_necessity,least displacement over labels,control_concentrated
 option-stopping-ltmle,interval_calibration,coverage in calibration band,shift/0.7
 option-stopping-ltmle,interval_calibration,noise se ratio below band,se_high
 option-stopping-ltmle,interval_calibration,se ratio below band,se_high

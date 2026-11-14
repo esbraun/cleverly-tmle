@@ -37,6 +37,7 @@ from cleverly.data.known_mechanism import (
     KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL,
     KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL,
     KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL,
+    KNOWN_SCORE_ESTIMATED_REFUSAL,
     KNOWN_WEIGHTED_LAW_REFUSAL,
     divides_by_declaration,
     unweighted_tilt_refusal,
@@ -651,7 +652,11 @@ def test_w9_the_tilt_weights_have_mean_one_in_each_training_fold(
 
 
 def test_w11_fixed_mechanism_constructions_refuse_a_sample_declaration() -> None:
-    """W11: DR-TMLE with a guard or a companion, and AdaptiveIPTW, redirect before any learner."""
+    """W11: constructions that need the declared mechanism refuse before any learner.
+
+    DR-TMLE with a guard or a companion, AdaptiveIPTW, and the known-score ATT of TMLE (X35)
+    each weight or divide by the declaration as the weighted law's mechanism.
+    """
     frame = _frame("treatment")
     never = {"outcome_learner": NeverFit(), "treatment_learner": NeverFit()}
     cases = {
@@ -659,6 +664,9 @@ def test_w11_fixed_mechanism_constructions_refuse_a_sample_declaration() -> None
         KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL: _drtmle(guard=(), evaluation=frame, **never),
         KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL: AdaptiveIPTW(
             treatment_learner=NeverFit(), reduced_outcome_learner=NeverFit(), cross_fit=False
+        ),
+        KNOWN_SCORE_ESTIMATED_REFUSAL: _tmle(
+            estimands=("att",), conditional_form="known_score", **never
         ),
     }
     for refusal, estimator in cases.items():

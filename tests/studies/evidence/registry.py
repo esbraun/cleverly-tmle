@@ -627,6 +627,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_full_refit_bootstrap import STUDY as FULL_REFIT_BOOTSTRAP
     from tests.studies.canonical_hazard_msm import STUDY as HAZARD_MSM
     from tests.studies.canonical_hazard_mtp import STUDY as HAZARD_MTP
+    from tests.studies.canonical_hazard_multinode import STUDY as HAZARD_MULTINODE
     from tests.studies.canonical_hazard_time_varying import STUDY as HAZARD_TIME_VARYING
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
@@ -758,6 +759,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.known_score_att import STUDY as KNOWN_SCORE_ATT
     from tests.studies.learned_regimen_ltmle import STUDY as LEARNED_REGIMEN_LTMLE
     from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
@@ -858,6 +860,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_DR_TMLE,
         HAZARD_MSM,
         HAZARD_MTP,
+        HAZARD_MULTINODE,
         HAZARD_TIME_VARYING,
         CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,
@@ -920,6 +923,7 @@ def registered() -> tuple[StudyRecord, ...]:
         ADAPTIVE_TMLE_SELECTIVE,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
+        KNOWN_SCORE_ATT,
         DRTMLE_ONE_WRONG,
         DRTMLE_FOLDWISE,
         DRTMLE_FOLDWISE_N1500,

@@ -47,7 +47,7 @@ longitudinal sibling) pin the construction.  The study reads every cell against 
 
 **Registered.**  The declared run at ``26b53828`` passed every gated verdict (3 of 3 primary
 rows, 26 of 26 property cells, no failed fit); its artifacts are
-``tests/canonical/known_sample_weights`` and its support rows ``T55`` and ``G64``.
+``tests/canonical/known_sample_weights`` and its support rows ``T56`` and ``G64``.
 """
 
 from __future__ import annotations

@@ -22,7 +22,7 @@ unbiased, and with both wrong that it does not. It has no comparator.
 Registered. The declared run at `26b53828` passed every gated verdict: 3 of 3 primary rows and
 26 of 26 property cells, with no failed fit. `run.log` records the run. The evidence page is
 `docs/technical-reference/method-evidence/known-mechanism-sample-weights.md`, and the support rows
-are `T55` (point) and `G64` (longitudinal).
+are `T56` (point) and `G64` (longitudinal).
 
 ## Run
 

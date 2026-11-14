@@ -12,7 +12,9 @@ python -m tests.canonical.weighted_lmtp_ltmle.regenerate --replicates 4 --n 2000
 ```
 
 The probe uses the declared sample size. At `--n 200` the weighted quasibinomial regression of one
-training complement stops on `quasibinomial IRLS did not converge`, because the selected rows of a
-fifth of 200 panels separate. A smaller probe measures the solver rather than the study.
+training complement stopped on `quasibinomial IRLS did not converge`, because the selected rows of a
+fifth of 200 panels separate. The learner keeps its last iterate when that separation is
+complete, so the probe may run there, but a smaller probe still measures the solver rather than
+the study.
 
 Run `python -m tests.canonical.weighted_lmtp_ltmle.regenerate` to build the declared artifacts.

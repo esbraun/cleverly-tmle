@@ -185,6 +185,7 @@ _OUTCOME_KEYWORDS = (
     "step_size",
     "targeting",
     "outcome_by_arm",
+    "conditional_form",
     "iterate",
     "stopping",
     "step_bound",

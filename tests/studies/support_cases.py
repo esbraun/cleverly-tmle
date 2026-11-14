@@ -2818,14 +2818,14 @@ def _hazard_mtp_cases() -> tuple[RowCase, ...]:
 
 
 def _known_sample_weights_cases() -> tuple[RowCase, ...]:
-    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T55`` and ``G64``.
+    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T56`` and ``G64``.
 
     Each runs the study's own fit of the gated setting on a draw of its law.
     """
     module, slug = "known_sample_weights_law", "known-mechanism-sample-weights"
     return (
         _observed(
-            "T55",
+            "T56",
             slug,
             "sample_correct",
             f"{module}.py:459",
@@ -2842,6 +2842,31 @@ def _known_sample_weights_cases() -> tuple[RowCase, ...]:
             lambda law: law.draw_longitudinal(400, 0),
             lambda law, frame: law.fit_longitudinal(frame, "ltmle_sample"),
         ),
+    )
+
+
+def _hazard_multinode_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-multinode`` (X70 part (a)): ``G62``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_multinode", "hazard-multinode"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G62.{row}",
+            slug,
+            label,
+            f"{module}.py:508",
+            module,
+            lambda study: study.law_of(label).draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("three_node", "base"),
+        case("four_node", "four"),
+        case("msm", "msm"),
     )
 
 
@@ -3305,6 +3330,32 @@ def _x76_patience_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _x35_known_score_cases() -> tuple[RowCase, ...]:
+    """The cases of ``known-score-att`` (X35): ``T55``.
+
+    Each runs the study's own fit of one setting on a draw of its law.
+    """
+    module, slug = "known_score_att_law", "known-score-att"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:451",
+            module,
+            lambda law: law.sample(law.SETTINGS[setting], 400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (
+        case("T55.in_sample", "s_known_score"),
+        case("T55.stacked", "s_known_score_stacked"),
+        case("T55.binary", "b2_wrong_known_score"),
+        case("T55.arms3", "b3_wrong_known_score"),
+    )
+
+
 def _x76_adjustment_cases() -> tuple[RowCase, ...]:
     """The cases of ``option-treatment-adjustment`` (X76 part (d)): ``T54``.
 
@@ -3454,6 +3505,7 @@ CASES: tuple[RowCase, ...] = (
     *_hazard_msm_cases(),
     *_hazard_mtp_cases(),
     *_known_sample_weights_cases(),
+    *_hazard_multinode_cases(),
     *_hazard_time_varying_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
@@ -3463,6 +3515,7 @@ CASES: tuple[RowCase, ...] = (
     *_x76_by_arm_cases(),
     *_x76_patience_cases(),
     *_x76_adjustment_cases(),
+    *_x35_known_score_cases(),
     *_x76_stopping_long_cases(),
     *_x76_trim_cases(),
     *_x76_markov_cases(),

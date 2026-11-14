@@ -1227,7 +1227,7 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
 
         monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
         # The leave-two-out preflight refuses the same draw first; disable it too.
-        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a: None)
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a, **k: None)
         n, n_folds = 60, 6
         rng = np.random.default_rng(0)
         frame = pd.DataFrame(
