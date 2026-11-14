@@ -20,6 +20,7 @@ from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._summary import short_repr
 from .._trial_family import refuse_augmented_trial
 from ..data.causal_data import arm_share
@@ -1846,6 +1847,7 @@ def simulated_confounding(
     PAR and PAF retain counterfactual treatment dependence through their reference intervention.
     """
     refuse_augmented_trial(result, "simulated_confounding", "bound")
+    refuse_continuous_survival(result, "simulated_confounding")
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
     if getattr(result, "assessment_family", None) == "longitudinal":

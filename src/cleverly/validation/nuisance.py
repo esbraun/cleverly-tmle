@@ -53,6 +53,7 @@ import numpy as np
 from scipy.special import expit
 from scipy.stats import norm
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._inference_status import InferenceStatus, is_labelled, status_record, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
@@ -897,6 +898,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         One report per nuisance model, read off the stored fits.
     """
     refuse_augmented_trial(result, "nuisance_diagnostics", "report")
+    refuse_continuous_survival(result, "nuisance_diagnostics")
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []

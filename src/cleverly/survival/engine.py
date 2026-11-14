@@ -126,6 +126,9 @@ class ContinuousSurvivalRecord:
         The number of cross-fitting folds, ``1`` for a full-sample fit.
     grid_size : int
         The number of distinct observed times up to the last target.
+    arm : ndarray
+        ``(n,)`` each row's received arm in row order: ``0`` for the reference arm and ``1``
+        for the treated arm, the codes of ``arms``.
     treatment_probability : ndarray
         ``(n,)`` each row's estimated probability of the treated arm (arm code 1, the
         non-reference arm) given its baseline covariates, :math:`\\hat\\pi(1 \\mid L_i)`,
@@ -164,6 +167,7 @@ class ContinuousSurvivalRecord:
     cross_fitted: bool
     n_folds: int
     grid_size: int
+    arm: IntArray
     treatment_probability: FloatArray
     censoring_survival: FloatArray
     positivity_floor: float
@@ -658,6 +662,7 @@ class ContinuousSurvivalTMLE:
             cross_fitted=self.cross_fit,
             n_folds=self.n_folds if self.cross_fit else 1,
             grid_size=int(grid.size),
+            arm=A.copy(),
             treatment_probability=p1.copy(),
             censoring_survival=censoring_survival,
             positivity_floor=float(floor),

@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._refusal import Refusal, RefusalReason
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
@@ -629,6 +630,7 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
         If the treatment is continuous, which has no per-arm propensity either.
     """
     refuse_augmented_trial(result, "positivity_report", "report")
+    refuse_continuous_survival(result, "positivity_report")
     if not result.nuisance.fits_treatment:
         raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     if result.data.is_continuous_treatment:
@@ -1479,6 +1481,7 @@ def truncation_curve(
         explicit ``g(W)`` bound moves a value of a declared known mechanism.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
+    refuse_continuous_survival(result, "truncation_curve")
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError(
