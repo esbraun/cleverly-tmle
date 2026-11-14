@@ -45,9 +45,10 @@ lost 12 of 1,000 fits to ``DataError`` (0.012 against the bound of 0.01), and wi
 asks for 10,800.  V1, V4 and V7 read worst coverages of 0.929 to 0.941.  The reported cells run at
 the same count on the same seeds, are left out of the count, the pilot's failure-share refusal
 and the merge gate, and still feed ``r_prim`` (a red row of either caps it) and both clauses of
-the ship rule.  V3 does not move ``MEASURED_N``, which stays 1,000: V3 is published only.  A reported cell's failure share is published
-in the failure accounting, red above 0.01, and gates nothing (``failures.BOUND_REPORTED``), so
-V3's ``DataError`` share cannot fail the run.  Roadmap item X6 (a2) owns both reported cells: the
+the ship rule.  V3 does not move ``MEASURED_N``, which stays 1,000: V3 is published only.  A
+reported cell's failure share is published in the failure accounting, red above 0.01, and gates
+nothing (``failures.BOUND_REPORTED``; the record opts out with
+``StudyRecord.reported_bounds_gate=False``), so V3's ``DataError`` share cannot fail the run.  Roadmap item X6 (a2) owns both reported cells: the
 weight-driven shortfall of V2 and the initial-fit failures of V3 at 500 units.
 
 Sizes.  6,000 per cell, the shared primary rule on the 36 rows of the gated cells (clause (a)

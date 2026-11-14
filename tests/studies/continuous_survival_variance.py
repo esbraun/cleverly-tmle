@@ -139,7 +139,8 @@ CELLS: dict[str, tuple[str, int, bool]] = {
 #: neither moves ``MEASURED_N``, which stays 1,000 (V3 is published only, and X6 (a2) owns
 #: moving 500-unit fits off experimental); both stay in the ship rule's harm clause and its
 #: readings.  A reported cell's failure share is published in the failure
-#: accounting and gates nothing (``failures.BOUND_REPORTED``).  Roadmap item X6 (a2) owns both.
+#: accounting and gates nothing (``failures.BOUND_REPORTED``), because the record opts out of
+#: gating reported bounds (``reported_bounds_gate=False``).  Roadmap item X6 (a2) owns both.
 REPORTED_CELLS: frozenset[str] = frozenset({"v2_heavy_weights", "v3_half_n"})
 #: The record cells that are merge gates and size the count.
 GATED_CELLS: tuple[str, ...] = tuple(cell for cell in CELLS if cell not in REPORTED_CELLS)
@@ -178,6 +179,8 @@ STUDY = StudyRecord(
     anchor="continuous-time-survival-switched-variance",
     scenarios=dict(ESTIMANDS),
     reported_scenarios=REPORTED_CELLS,
+    # A reported cell's failure share is X6 (a2)'s evidence, published red and not gated.
+    reported_bounds_gate=False,
     scenario_n={cell: n for cell, (_, n, _) in CELLS.items() if n != PRIMARY_N},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

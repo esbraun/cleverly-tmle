@@ -119,8 +119,10 @@ UNACCOUNTED = "unaccounted"
 #: The reasons a cell's gate records.
 WITHIN_BOUND = "within bound"
 BOUND_EXCEEDED = "bound exceeded"
-#: A reported scenario over its bound: the bound leg is published red and gates nothing, because
-#: the cell carries no verdict (:attr:`StudyRecord.reported_scenarios`).
+#: A reported scenario over its bound in a record that opts out of gating it
+#: (:attr:`StudyRecord.reported_bounds_gate` false): the bound leg is published red and gates
+#: nothing, because the cell carries no verdict (:attr:`StudyRecord.reported_scenarios`).  A
+#: record that does not opt out gates a reported scenario's bound like any other.
 BOUND_REPORTED = "bound exceeded, reported cell"
 WORST_CASE_FAILS = "worst case fails"
 NOT_ACCOUNTABLE = "failures not accountable"
@@ -952,8 +954,9 @@ def _rows(
         name = "failure bound" if side == implementation else f"{_side(record, side)} failure bound"
         bounds.append(Leg(name, float(count), float(allowance), "", count <= allowance))
     over = int(not all(leg.passed for leg in bounds))
-    if over and scenario in record.reported_scenarios:
-        # A reported cell states no verdict, so its failure share is published and not gated.
+    if over and scenario in record.reported_scenarios and not record.reported_bounds_gate:
+        # The record opted out: a reported cell states no verdict, so its failure share is
+        # published and not gated.
         passed, reason = True, BOUND_REPORTED
     else:
         passed, reason = (gate or _gate)(over, 0, legs)
