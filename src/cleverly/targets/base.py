@@ -498,6 +498,10 @@ class TargetContext:
     #: ``paf`` beside the arm means.  ``None`` on every other fit.  Any estimator whose
     #: natural-course fluctuation returns an :class:`ArmMean` uses this one hook.
     natural_course: ArmMean | None = None
+    #: The declared treatment mechanism, one ``(n,)`` column per arm code, when the fit asks
+    #: for the known-score ATT and ATC (``conditional_form="known_score"``); ``None``
+    #: otherwise, and then the conditional effects average over the conditioning arm.
+    known_score: dict[float, FloatArray] | None = None
     #: The codes of :attr:`means` that each finished estimate reads, keyed by its name.
     #: A target records them through the ``reads`` argument of :meth:`finish`, from its own
     #: definition: ``ey[a]`` reads ``a``, a contrast reads its arm and the reference,

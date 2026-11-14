@@ -50,9 +50,8 @@ The wrong hazard learner is :class:`~tests.studies.hazard_mtp_law.NoWLogistic`, 
 logistic regression on the dose with no ``W``.  ``W`` confounds the dose, so its dose slope is
 biased, and its plug-in contrast lies more than three efficiency standard errors from the truth
 at n = 2,000 on every law (``tests/unit/test_hazard_mtp_study_design.py``).  The wrong
-mechanism is the prior share for the levels, a Gaussian density with no covariates on the
-density route, a classifier on the dose alone on the classifier route, and the prior share for
-the censoring.
+treatment and censoring learners are the prior share.  Only ``levels`` declares a wrong
+mechanism; the fit sets of the other laws keep it correct.
 
 **The agreement reading** is reported with no floor.  :func:`fits_differ_reading` states the
 paired ratios and the share of decreasing iterated-mean curves with its interval.  Both fits are

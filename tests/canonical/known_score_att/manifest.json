@@ -1,0 +1,173 @@
+{
+  "schema_version": 2,
+  "study": "known-score ATT and ATC on point TMLE",
+  "slug": "known-score-att",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "a8292d1adbdcc8425ef2870fcdcd44427049f421",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 2000,
+    "seed": 20263501,
+    "resampling_seed": 20263502,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "S": [
+        "att",
+        "atc"
+      ]
+    },
+    "construction": "point TMLE with a declared treatment mechanism and conditional_form=\"known_score\" (g-weighted ATT and ATC plug-in, curve D_KS)",
+    "law_S": "W1 ~ U(-sqrt3, sqrt3), W2 ~ Bernoulli(0.5); g0 = expit(-0.3 + W1 + 0.5 W2); Y = W1 + 0.5 W2 + A (1 + 1.5 W1) + eps, eps ~ U(-sqrt3, sqrt3)",
+    "law_S0": "law S with tau = 1 (zero known-score gain)",
+    "law_B": "tests/studies/known_mechanism_law.py, two and three arms",
+    "outcome_learners": {
+      "correct": "least squares on (1, A, W1, W2, A W1) (law S)",
+      "wrong": "least squares on (1, A, W2) (law S); main-terms logistic on (A, W1, W3) (law B)"
+    },
+    "treatment_mechanism": "declared by column (p0, p1[, p2]); no treatment learner runs",
+    "control_declared_constant": 0.49,
+    "estimands": [
+      "att",
+      "atc"
+    ],
+    "g_bounds": "default",
+    "q_bounds": "declared [-8.0, 8.0] on the stacked cells only",
+    "max_iter": 100,
+    "tol": 1e-10,
+    "cross_fit": "False, except the stacked cells (5 folds)",
+    "simultaneous_intervals": false,
+    "settings": {
+      "s_known_score": {
+        "law": "S",
+        "outcome": "correct",
+        "form": "known_score",
+        "cross_fit": false,
+        "declared": null
+      },
+      "s_arm_mean": {
+        "law": "S",
+        "outcome": "correct",
+        "form": "arm_mean",
+        "cross_fit": false,
+        "declared": null
+      },
+      "s_known_score_stacked": {
+        "law": "S",
+        "outcome": "correct",
+        "form": "known_score",
+        "cross_fit": true,
+        "declared": null
+      },
+      "s_wrong_known_score": {
+        "law": "S",
+        "outcome": "wrong",
+        "form": "known_score",
+        "cross_fit": false,
+        "declared": null
+      },
+      "s0_known_score": {
+        "law": "S0",
+        "outcome": "correct",
+        "form": "known_score",
+        "cross_fit": false,
+        "declared": null
+      },
+      "s0_arm_mean": {
+        "law": "S0",
+        "outcome": "correct",
+        "form": "arm_mean",
+        "cross_fit": false,
+        "declared": null
+      },
+      "s_declared_constant": {
+        "law": "S",
+        "outcome": "correct",
+        "form": "known_score",
+        "cross_fit": false,
+        "declared": 0.49
+      },
+      "b2_wrong_known_score": {
+        "law": "B2",
+        "outcome": "wrong",
+        "form": "known_score",
+        "cross_fit": false,
+        "declared": null
+      },
+      "b3_wrong_known_score": {
+        "law": "B3",
+        "outcome": "wrong",
+        "form": "known_score",
+        "cross_fit": false,
+        "declared": null
+      }
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/known_score_att.py": "eaefc7d1f78033ec119c74a1c6fbd7e3600856e54997869a10fa73934e0f0a2b",
+    "tests/studies/known_score_att_properties.py": "18906b6a2ad29a3da9c10c1f6dfd012ce094d7d1c07fbc05b43997b1eb1f0ed4",
+    "tests/studies/known_score_att_law.py": "d11a41bd8009fe8d05284de2beef0f2de75523391d823e8c6ce93513b888d3bc",
+    "tests/studies/known_mechanism_law.py": "b2108b9a57c3fbddcb5112e02200763528dd9aabcfe18550e419a216a4dd2f08",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "src/cleverly/estimators/tmle.py": "b49f8d9af694816139f934862fbbb904c2e8cc963b2b7906973e1377737e31e7",
+    "src/cleverly/fluctuation/iterative.py": "a289d79cbef1a260549d074eb35ac8b589cdcb8afc5fab1eeb4d56247183d5ef",
+    "src/cleverly/inference/influence.py": "2bff9cd0f2edf9af5016f15fe0e3f60170fa1ae5dd633f94fd8180002ce0b157",
+    "src/cleverly/targets/builtin.py": "9b4016d315070506664223c4468059d583cfd8af7d1007b3a055784ea303a9d1",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_failures.py": "83b8e6b282d72342324315ecacf7d8077bafb7f8eb30652e01a76fce42699fd2",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "07d11290968cf7a56aaf783f7b5b5fe53cfe0ed7835102404fc9dec5727c4915",
+    "summary.csv": "d0efbb017a4507c07807b179dd6f12873677dc24fa90f87fd16475970fa7200d",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "8a1b53738fc55cc26c07115f9df361a6eb85be334ae73cd7ca8e90566b902e99",
+    "property-replicates.parquet": "42d59a4c37bb0606a0bef16d770d554b784eb16d09360de294f5c7897af273a5",
+    "properties.csv": "c1cec942cd0c02baefa62b12498bf58a3abe163c7940050ca29ca7a2a4150b0a"
+  }
+}
