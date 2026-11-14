@@ -24,13 +24,13 @@ A fit whose binary target is completely separated also keeps its last iterate, w
 warning.  There the maximum-likelihood estimate does not exist: the coefficients grow without
 bound, the fitted values tend to 0 and 1 on the separated rows, and the deviance tends to zero
 geometrically, so its relative change never meets R's rule.  The learner detects the case
-directly, on the target and the fitted values rather than on the deviance: the target is binary
-on the rows of positive weight, and every such row's fitted value is within
-:data:`SEPARATION_TOLERANCE` of its observed class.  A fractional target never meets that test.
-The last iterate approximates the limiting predictions, and a fit that converged before takes
-the same iterates and stops at the same step.  The test reads the last iterate only, so a
-separated design whose rows near the boundary are still farther than the tolerance from their
-class after ``max_iter`` steps still raises.
+directly and scale-free, by Albert and Anderson's (1984) characterization: the target is binary
+on the rows of positive weight and some linear predictor puts every such row strictly on the
+side of its class.  A small linear program decides that (:func:`completely_separated`), so the
+test does not depend on how far IRLS has run.  A fractional target never meets it, and neither
+does a quasi-complete separation, where some row must lie on the hyperplane; that case keeps the
+deviance rule above.  The last iterate approximates the limiting predictions, and a fit that
+converged before takes the same iterates and stops at the same step.
 
 Neither change moves a registered study that ran before it, for two structural reasons.  No
 committed failure record carries the text the learner raised, so no committed run reached the
@@ -43,18 +43,15 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Any, Final
+from typing import Any
 
 import numpy as np
+from scipy.optimize import linprog
 from scipy.special import expit, xlogy
 from sklearn.base import BaseEstimator
 
 #: R's ``glm.control(epsilon=)``: the relative deviance change at which ``glm`` stops.
 DEVIANCE_EPSILON = 1e-8
-
-#: How close every positive-weight fitted value must be to its observed class, 0 or 1, for an
-#: unconverged fit of a binary target to read as complete separation.
-SEPARATION_TOLERANCE: Final = 1e-6
 
 
 class QuasiBinomialSeparationWarning(RuntimeWarning):
@@ -68,17 +65,44 @@ def deviance(target: np.ndarray, fitted: np.ndarray, weights: np.ndarray) -> flo
     return float(2.0 * np.sum(weights * terms))
 
 
-def completely_separated(target: np.ndarray, fitted: np.ndarray, weights: np.ndarray) -> bool:
-    """Whether a binary target is fitted to within :data:`SEPARATION_TOLERANCE` on every row.
+def completely_separated(design: np.ndarray, target: np.ndarray, weights: np.ndarray) -> bool:
+    """Whether a hyperplane puts every positive-weight row strictly on the side of its class.
 
-    Only the rows of positive weight count.  A target with a fractional value on such a row is
-    never separated, whatever the fitted values.
+    That is complete separation of a binary target (Albert and Anderson, 1984), the case in
+    which the maximum-likelihood estimate does not exist.  A strict separator can be scaled to a
+    margin of one, so the test is the feasibility of ``s_i x_i' b >= 1`` for every row with
+    positive weight, where ``s_i`` is ``+1`` for ``y_i = 1`` and ``-1`` for ``y_i = 0`` and
+    ``x_i`` includes the intercept column.  It reads the design and the target, not an iterate.
+    A target with a fractional value on such a row is never separated.
+
+    Parameters
+    ----------
+    design : ndarray
+        The ``(n, p)`` design, intercept column included.
+    target : ndarray
+        The ``(n,)`` target.
+    weights : ndarray
+        The ``(n,)`` row weights. Rows of zero weight do not count.
+
+    Returns
+    -------
+    bool
+        Whether the positive-weight rows are completely separated.
     """
     informative = weights > 0
     observed = target[informative]
     if not np.all((observed == 0.0) | (observed == 1.0)):
         return False
-    return bool(np.all(np.abs(fitted[informative] - observed) <= SEPARATION_TOLERANCE))
+    signs = np.where(observed == 1.0, 1.0, -1.0)
+    rows = design[informative] * signs[:, None]
+    solution = linprog(
+        np.zeros(design.shape[1]),
+        A_ub=-rows,
+        b_ub=-np.ones(rows.shape[0]),
+        bounds=[(None, None)] * design.shape[1],
+        method="highs",
+    )
+    return bool(solution.status == 0)
 
 
 class QuasiBinomialGLM(BaseEstimator):
@@ -131,7 +155,9 @@ class QuasiBinomialGLM(BaseEstimator):
             coefficient = updated
         else:
             last = expit(design @ coefficient)
-            if completely_separated(target, last, weights):
+            before = deviance(target, expit(design @ previous), weights)
+            after = deviance(target, last, weights)
+            if after <= before and completely_separated(design, target, weights):
                 warnings.warn(
                     f"quasibinomial IRLS coefficients did not converge in {self.max_iter} "
                     "steps: complete separation, last iterate kept",
@@ -139,8 +165,6 @@ class QuasiBinomialGLM(BaseEstimator):
                     stacklevel=2,
                 )
             else:
-                before = deviance(target, expit(design @ previous), weights)
-                after = deviance(target, last, weights)
                 if abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON:
                     raise RuntimeError("quasibinomial IRLS did not converge")
                 warnings.warn(
