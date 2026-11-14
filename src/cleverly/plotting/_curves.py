@@ -196,6 +196,7 @@ def curve(
     units: str | None = None,
     time_label: str | None = None,
     truth: Any = None,
+    max_rug_points: int | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -303,6 +304,14 @@ def curve(
         a sequence in increasing order of the level or a mapping of level to value. A
         conditional effect curve takes a function of the modifier's values, drawn as a
         dash-dot line. Values are on the scale the plot draws.
+    max_rug_points : int or None, default=None
+        The most ticks the rug of a conditional effect curve draws in each panel (the short
+        marks along the bottom at the rows' modifier values). With a number, a panel with
+        more rows draws that many values evenly spaced in rank, from the smallest to the
+        largest, so the ticks follow the modifier's distribution whatever the row order;
+        ``0`` draws no rug. When omitted, a panel with more than 20,000 rows draws every
+        k-th row in row order. The curve and its interval use every row either way, and the
+        notes say how many ticks were drawn. Other views draw no rug and ignore it.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -391,6 +400,7 @@ def curve(
 
     if band is False:
         band = "none"
+    rug_limit = _core.display_limit(max_rug_points, "max_rug_points", 0)
     if isinstance(obj, DoseResponseResult):
         return _dose_response(
             obj,
@@ -470,6 +480,7 @@ def curve(
             truth=truth,
             title=title or None,
             ax=ax,
+            rug_limit=rug_limit,
         )
     keys = getattr(obj, "parameter_keys", None)
     if isinstance(keys, Mapping) and hasattr(obj, "estimates"):
@@ -2221,6 +2232,7 @@ def _effect_curve(
     truth: Any,
     title: str | None,
     ax: Axes | None,
+    rug_limit: int | None = None,
 ) -> Figure:
     from .._inference_status import supplies_inference
     from .._summary import vocabulary
@@ -2321,6 +2333,7 @@ def _effect_curve(
     binary = _binary_outcome(result)
     average, average_note = _average_effect(result, binary, several_panels=rows > 1)
     notes: list[str] = []
+    rug_sizes: list[int] = []
     color = _core.series_color(0)
     for panel, level in zip(panels, panels_levels, strict=True):
         if by is not None:
@@ -2365,7 +2378,7 @@ def _effect_curve(
             )
         if band is not None:
             _band_marks(panel, band, modifier, by, level, held, transform, color)
-        _rug(panel, result, modifier, by, level, mods)
+        rug_sizes.append(_rug(panel, result, modifier, by, level, mods, rug_limit))
         if by is not None:
             _core.corner_label(panel, 0.97, f"{by} = {level}", color)
         if ratio:
@@ -2429,6 +2442,9 @@ def _effect_curve(
             )
         )
     notes.append(average_note)
+    rug_note = _rug_note(rug_sizes, rug_limit, modifier)
+    if rug_note:
+        notes.append(rug_note)
     if held:
         shown = ", ".join(
             f"{name} = {value:g}" if isinstance(value, (int, float)) else f"{name} = {value}"
@@ -2619,19 +2635,75 @@ def _band_marks(
     )
 
 
-def _rug(ax: Axes, result: Any, modifier: str, by: str | None, level: Any, mods: Any) -> None:
-    """Short ticks along the bottom edge at the fitted rows' modifier values."""
+#: The most rug ticks a panel draws when no limit is given: every k-th row past it.
+_RUG_CAP = 20000
+
+
+def _rug_values(values: np.ndarray, limit: int | None) -> np.ndarray:
+    """The modifier values a panel's rug draws.
+
+    With no limit, every k-th row in row order once there are more than 20,000. With a
+    limit, that many values evenly spaced in rank from the smallest to the largest, which
+    does not depend on the order of the rows; ``0`` draws none.
+    """
+    if limit is None:
+        if values.size > _RUG_CAP:
+            return values[:: math.ceil(values.size / _RUG_CAP)]
+        return values
+    if values.size <= limit:
+        return values
+    ranks = np.rint(np.linspace(0.0, values.size - 1.0, limit)).astype(int)
+    return np.sort(values)[ranks]
+
+
+def _rug_note(sizes: Sequence[int], limit: int | None, modifier: str) -> str | None:
+    """The note that says how a rug was thinned, or ``None`` when every row was drawn."""
+    largest = max(sizes, default=0)
+    if limit == 0 and largest:
+        return "No rug is drawn."
+    if limit is None:
+        if largest <= _RUG_CAP:
+            return None
+        return (
+            f"Rug: at most {_RUG_CAP:,} ticks per panel; a panel with more rows draws every "
+            f"k-th row in row order ({largest:,} rows in the largest panel)."
+        )
+    if largest <= limit:
+        return None
+    if limit == 1:
+        return f"Rug: each panel's smallest {modifier} value only."
+    return (
+        f"Rug: at most {limit:,} of each panel's rows' {modifier} values, evenly spaced in rank "
+        f"({largest:,} rows in the largest panel)."
+    )
+
+
+def _rug(
+    ax: Axes,
+    result: Any,
+    modifier: str,
+    by: str | None,
+    level: Any,
+    mods: Any,
+    limit: int | None = None,
+) -> int:
+    """Short ticks along the bottom edge at the fitted rows' modifier values.
+
+    Returns the number of rows the panel holds, which the rug note reads.
+    """
     from matplotlib.transforms import blended_transform_factory
 
     values = _observed(result, modifier)
     if values is None:
-        return
+        return 0
     if by is not None:
         mask = _level_rows(result, by, level, mods.levels_of(by)[0])
         if mask is not None:
             values = values[mask]
-    if values.size > 20000:
-        values = values[:: math.ceil(values.size / 20000)]
+    size = int(values.size)
+    if limit == 0:
+        return size
+    values = _rug_values(values, limit)
     ax.vlines(
         values,
         0.0,
@@ -2642,3 +2714,4 @@ def _rug(ax: Axes, result: Any, modifier: str, by: str | None, level: Any, mods:
         alpha=0.35,
         gid="cleverly-rug",
     )
+    return size

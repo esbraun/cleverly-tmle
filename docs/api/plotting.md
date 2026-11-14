@@ -73,6 +73,27 @@ calls `zipper`.
 target times with `curve`, and `EffectCurveResult.plot()` draws the conditional effect over a
 modifier with `curve`.
 
+## Large data
+
+Four figures can draw one mark per row, per replication or per covariate. With large data that
+crowds the marks together and makes a saved vector file (SVG or PDF) large. Each has a keyword
+that limits what is drawn and nothing else: the estimates, intervals, shares and counts the
+figure states are computed from all the data either way, and `cleverly.plotting.notes(fig)`
+says how many marks were drawn out of how many.
+
+| keyword | what it limits | what stays exact |
+| --- | --- | --- |
+| `influence(..., max_points=)` | the points the line passes through, spread evenly along it, both ends and the top-1% point kept | the ranking, the top share and the Kish count (how many equal rows would carry the same spread) |
+| `curve(..., max_rug_points=)` | the ticks along the bottom of a conditional effect curve, evenly spaced by rank; `0` draws none | the curve, its interval and band |
+| `zipper(..., max_intervals=)` | the intervals drawn per panel, at evenly spaced places in the sorted order, both ends kept | the coverage and the counts of misses |
+| `balance(..., page=)` | which covariates are drawn: page 1 holds the `max_covariates` ranked first, covariates above the threshold after weighting first | every difference and the subtitle |
+
+Without these keywords each figure draws what it always has. Without `max_rug_points`, a panel with
+more than 20,000 rows draws every k-th row's tick in row order, and the notes say so. Without
+`page`, `balance` draws every covariate above the threshold after weighting even past
+`max_covariates`; with `page`, each page holds exactly `max_covariates` covariates, so every
+covariate can be reached.
+
 ## Fits over time and with external data
 
 `overlap`, `learners` and `calibration` also draw fits whose treatment is set at more than one
