@@ -4,11 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, overload, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    cast,
+    overload,
+    runtime_checkable,
+)
 
 import narwhals as nw
 import numpy as np
 
+from ._planned_fits import PlannedFits
 from ._summary import Detail, Summary
 from ._support import Support, combine_support
 from ._typing import Family, FloatArray
@@ -5341,6 +5351,33 @@ class CausalStudy:
         """
         return self.identify(estimand).estimate(method=method, **overrides)
 
+    def planned_fits(
+        self,
+        estimand: PointEstimand,
+        method: str | EstimationMethod | None = None,
+        **overrides: Any,
+    ) -> PlannedFits:
+        """Identify one causal quantity and count the model fits its estimate would make.
+
+        The shortcut for ``study.identify(estimand).planned_fits(method, **overrides)``,
+        beside :meth:`estimate`, so the same call previews a fit before it runs.
+
+        Parameters
+        ----------
+        estimand : Estimand
+            Typed causal quantity.
+        method : str, EstimationMethod or None
+            Named method or configured method object, as :meth:`estimate` takes it.
+        **overrides : Any
+            Method fields overridden for this fit.
+
+        Returns
+        -------
+        PlannedFits
+            One row per model and scope, with the fits and the candidate fits.
+        """
+        return self.identify(estimand).planned_fits(method=method, **overrides)
+
 
 #: Study fingerprint -> the in-sample predictions of every effect curve fitted on those rows
 #: in this process (R13 (i)).  Detection is best effort: the interval of an external score
@@ -6458,6 +6495,99 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         >>> sorted(result.estimates)
         ['ate']
         """
+        normalized = self._checked_method(method, overrides)
+        assert self._study is not None
+        if self.functional.axis == "trial":
+            return self._estimate_trial(normalized)
+        if isinstance(self._study.data, ContinuousSurvivalData):
+            return self._estimate_continuous(normalized)
+        if self.functional.longitudinal:
+            return self._estimate_longitudinal(normalized)
+        if isinstance(normalized, EPMethod):
+            return self._estimate_effect_curve(normalized)
+        return self._estimate_point(normalized)
+
+    def planned_fits(
+        self,
+        method: str | EstimationMethod | None = None,
+        **overrides: Any,
+    ) -> PlannedFits:
+        """Count the model fits :meth:`estimate` would make, without fitting any.
+
+        Takes the arguments of :meth:`estimate`, so the same call previews a fit before it
+        runs.  It refuses what :meth:`estimate` refuses before its first learner, draws the
+        cross-fitting folds as the fit draws them, and counts every fit of every nuisance
+        model, with the candidate fits inside a Super Learner.
+
+        Parameters
+        ----------
+        method : str, EstimationMethod or None
+            Named method or configured method object, as :meth:`estimate` takes it.
+        **overrides : Any
+            Method fields overridden for this fit.
+
+        Returns
+        -------
+        PlannedFits
+            One row per model and scope, with the fits and the candidate fits.  Counts that
+            depend on draws not made yet, such as bootstrap resamples, are upper bounds.
+
+        Raises
+        ------
+        CapabilityError
+            If the method is unavailable or the effect has no bound study.
+        MethodConfigurationError
+            If ``method`` does not satisfy the estimation-method contract.
+
+        See Also
+        --------
+        IdentifiedEffect.estimate : Run the fit that this counts.
+        PlannedFits : The record this returns.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> plan = study.identify(ATE()).planned_fits(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     n_folds=5,
+        ...     repeats=2,
+        ...     random_state=0,
+        ...     q_bounds=(-20.0, 20.0),
+        ... )
+        >>> [(row.role, row.fits) for row in plan.rows]
+        [('treatment_learner', 10), ('outcome_learner', 10)]
+        """
+        normalized = self._checked_method(method, overrides)
+        if self.functional.axis == "trial":
+            # TODO(X106 phase 2): the adaptive TMLE of a trial pooled with external data.
+            raise NotImplementedError("TODO(X106 phase 2): TrialATE is not priced yet")
+        assert self._study is not None
+        if isinstance(self._study.data, ContinuousSurvivalData):
+            # TODO(X106 phase 3): the continuous-time survival engine.
+            raise NotImplementedError("TODO(X106 phase 3): continuous survival is not priced")
+        if self.functional.longitudinal:
+            # TODO(X106 phase 3): the longitudinal and survival engines.
+            raise NotImplementedError("TODO(X106 phase 3): longitudinal fits are not priced")
+        if isinstance(normalized, EPMethod):
+            # TODO(X106 phase 2): the EP learner of an effect curve.
+            raise NotImplementedError("TODO(X106 phase 2): EP is not priced yet")
+        estimator = self._point_engine(normalized)
+        return cast("PlannedFits", estimator._planned_fits(self._study.data))
+
+    def _checked_method(
+        self, method: str | EstimationMethod | None, overrides: dict[str, Any]
+    ) -> EstimationMethod:
+        """The method :meth:`estimate` and :meth:`planned_fits` run, with its refusals."""
         if self._study is None:
             raise CapabilityError(
                 "this effect is not bound to analysis data; "
@@ -6470,15 +6600,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         refusal = self._unused_ratio_refusal(normalized)
         if refusal is not None:
             raise MethodConfigurationError.from_refusal(refusal)
-        if self.functional.axis == "trial":
-            return self._estimate_trial(normalized)
-        if isinstance(self._study.data, ContinuousSurvivalData):
-            return self._estimate_continuous(normalized)
-        if self.functional.longitudinal:
-            return self._estimate_longitudinal(normalized)
-        if isinstance(normalized, EPMethod):
-            return self._estimate_effect_curve(normalized)
-        return self._estimate_point(normalized)
+        return normalized
 
     def _estimate_effect_curve(self, method: EPMethod) -> EffectCurveResult:
         """Fit the EP learner of a conditional contrast (P1 part (b)).
@@ -6643,31 +6765,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_point(self, method: EstimationMethod) -> TMLEResult:
         assert self._study is not None and isinstance(self._study.data, CausalData)
         functional = self.functional
-        kwargs = method.estimator_kwargs()
-        kwargs.update({"estimands": (functional.target,), "reference": functional.reference})
-        if functional.axis == "regime":
-            kwargs["interventions"] = functional.interventions
-        elif functional.axis == "learned_rule":
-            (kwargs["learned_rule"],) = functional.interventions
-        elif functional.axis == "policy":
-            kwargs["policies"] = functional.interventions
-        elif functional.axis == "ipsi":
-            kwargs["incremental"] = functional.interventions
-        elif functional.axis == "msm":
-            kwargs["msm"] = functional.msm
-        elif functional.axis == "effect_modification":
-            # The pair rides on the declaration, so the engine's reference= stays unset.
-            kwargs["effect_modification"] = functional.effect_modification
-            kwargs["reference"] = None
-
-        if isinstance(method, CollaborativeTMLEMethod):
-            estimator: Any = CTMLE(**kwargs)
-        elif isinstance(method, DRTMLEMethod):
-            estimator = DRTMLE(**kwargs)
-        elif isinstance(method, AdaptiveIPTWMethod):
-            estimator = AdaptiveIPTW(**kwargs)
-        else:
-            estimator = TMLE(**kwargs)
+        estimator = self._point_engine(method)
         result_set = estimator.fit(self._study.data)
         raw = (
             result_set[functional.intermediate]
@@ -6691,6 +6789,37 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             method=method,
             parameter_keys=self._point_parameter_keys(raw),
         )
+
+    def _point_engine(self, method: EstimationMethod) -> Any:
+        """The point-treatment engine :meth:`_estimate_point` fits and :meth:`planned_fits` counts.
+
+        Constructing it runs the engine's constructor checks, so both refuse alike.
+        """
+        functional = self.functional
+        kwargs = method.estimator_kwargs()
+        kwargs.update({"estimands": (functional.target,), "reference": functional.reference})
+        if functional.axis == "regime":
+            kwargs["interventions"] = functional.interventions
+        elif functional.axis == "learned_rule":
+            (kwargs["learned_rule"],) = functional.interventions
+        elif functional.axis == "policy":
+            kwargs["policies"] = functional.interventions
+        elif functional.axis == "ipsi":
+            kwargs["incremental"] = functional.interventions
+        elif functional.axis == "msm":
+            kwargs["msm"] = functional.msm
+        elif functional.axis == "effect_modification":
+            # The pair rides on the declaration, so the engine's reference= stays unset.
+            kwargs["effect_modification"] = functional.effect_modification
+            kwargs["reference"] = None
+
+        if isinstance(method, CollaborativeTMLEMethod):
+            return CTMLE(**kwargs)
+        if isinstance(method, DRTMLEMethod):
+            return DRTMLE(**kwargs)
+        if isinstance(method, AdaptiveIPTWMethod):
+            return AdaptiveIPTW(**kwargs)
+        return TMLE(**kwargs)
 
     def _select_point_parameters(self, result: TMLEResult, method: EstimationMethod) -> TMLEResult:
         if (
