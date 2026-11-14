@@ -549,6 +549,41 @@ def test_w3g_rows_at_the_pass_cap_keep_one_representation_and_their_masses() -> 
     np.testing.assert_allclose(total, 1.0, rtol=0, atol=1e-12)
 
 
+class _TableHazard(law.OracleHazard):
+    """Each row's hazards from a fixed table; the design is ``[row, bin]``."""
+
+    def __init__(self, table: Any = None) -> None:
+        self.table = table
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        design = np.asarray(X, dtype=float)
+        row, index = np.rint(design[:, 0]).astype(int), np.rint(design[:, 1]).astype(int)
+        p = np.asarray(self.table, dtype=float)
+        survival = 1.0 - np.concatenate([np.zeros((p.shape[0], 1)), np.cumsum(p, 1)], 1)
+        hazard = np.clip(p[row, index] / np.maximum(survival[row, index], 1e-300), 0.0, 1.0)
+        return np.column_stack([1.0 - hazard, hazard])
+
+
+def test_w3g_the_fit_reports_the_rows_at_the_pass_cap() -> None:
+    density = _dirichlet_steep()
+    rows = np.arange(density.n, dtype=float)[:, None]
+    dose = density.edges[:-1][np.argmax(density.bin_probabilities, axis=1)] + 0.01
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fitted, report = fit_conditional_density(
+            _TableHazard(density.bin_probabilities),
+            rows,
+            dose,
+            np.ones(density.n),
+            Folds.single(density.n),
+            edges=density.edges.tolist(),
+            occupied=density.occupied,
+        )
+    np.testing.assert_allclose(fitted.bin_probabilities, density.bin_probabilities, atol=1e-12)
+    assert report.density_reading_passes == density_module._KNOT_PASSES
+    assert report.density_reading_capped_rows == fitted.knot_passes[1] > 0
+
+
 def _numeric_total(density: ConditionalDensity, nodes: int) -> np.ndarray:
     """``int g^`` per row by a ``nodes``-point rule on every half bin, read at the reading."""
     e = density.edges

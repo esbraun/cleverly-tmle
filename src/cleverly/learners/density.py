@@ -829,10 +829,11 @@ class DensityDiagnostics:
         modelling matter.
     learner : tuple of SuperLearnerDiagnostics
         Per-fold Super Learner diagnostics, empty when the learner is not an ensemble.
-    knot_passes : tuple of int
-        ``(passes, capped)`` of the reading's knot iteration: the most passes any row
-        needed, and the rows still moving at the cap of 200, which keep their capped
-        iterate with exact segment masses.
+    density_reading_passes : int
+        The most passes of the reading's knot iteration any row needed.
+    density_reading_capped_rows : int
+        The rows still moving at the iteration's cap of 200 passes.  They keep their capped
+        iterate, whose segment masses are exact.
     core_bins : int or None
         The core count ``K`` of a grid the fit built (``density_bins``), before the outer
         refinement; ``None`` for explicit ``edges=``.
@@ -843,7 +844,8 @@ class DensityDiagnostics:
     min_density: float
     integrated: tuple[float, float]
     learner: tuple[SuperLearnerDiagnostics, ...] = ()
-    knot_passes: tuple[int, int] = (0, 0)
+    density_reading_passes: int = 0
+    density_reading_capped_rows: int = 0
     core_bins: int | None = None
 
 
@@ -1880,7 +1882,8 @@ def fit_conditional_density(
         min_density=float(observed.min()),
         integrated=(float(integrated.min()), float(integrated.max())),
         learner=tuple(diagnostics),
-        knot_passes=density.knot_passes,
+        density_reading_passes=density.knot_passes[0],
+        density_reading_capped_rows=density.knot_passes[1],
         core_bins=grid.core,
     )
     if predict_designs is None:
