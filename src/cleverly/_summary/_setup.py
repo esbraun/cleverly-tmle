@@ -47,6 +47,7 @@ from ._data import (
 from ._estimates import without_roadmap
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._planned_fits import PlannedFits
     from ..methods import MethodAvailability
     from ..protocol import StudyProtocol
     from ..study import CausalStudy, IdentifiedEffect
@@ -1344,5 +1345,111 @@ def phases_summary(profile: PhaseProfile, detail: Detail) -> Summary:
         header=header,
         tables=tables,
         notes=notes,
+        sections=sections,
+    )
+
+
+# ----------------------------------------------------------------- planned fits
+
+
+def _bounded(value: int, exact: bool) -> str:
+    """A count, marked as a bound unless it is exact."""
+    text = count_text(value)
+    return text if exact else vocabulary.PLANNED_UPPER_MARK.format(fits=text)
+
+
+def _why_lines(plan: PlannedFits) -> tuple[str, ...]:
+    """Each distinct reason a row is not exact, once, after the roles it applies to."""
+    roles: dict[str, list[str]] = {}
+    for row in plan.rows:
+        if row.why and row.role not in roles.setdefault(row.why, []):
+            roles[row.why].append(row.role)
+    return tuple(f"{', '.join(names)}: {why}" for why, names in roles.items())
+
+
+def planned_fits_summary(plan: PlannedFits, detail: Detail) -> Summary:
+    """The summary of the learner fits an ``estimate`` call would make.
+
+    Parameters
+    ----------
+    plan : PlannedFits
+        The record.
+    detail : {"short", "full"}
+        ``"full"`` adds where the counts come from, the notes and any check left to the fit.
+
+    Returns
+    -------
+    Summary
+        The summary.
+    """
+    check_detail(detail)
+    total = plan.total_fits
+    header = [
+        (vocabulary.PLANNED_FITS_TOTAL, count_text(total)),
+        (vocabulary.PLANNED_CANDIDATE_TOTAL, count_text(plan.total_candidate_fits)),
+        (
+            vocabulary.PLANNED_BOUND,
+            vocabulary.PLANNED_BOUND_TEXT[plan.exact].format(low=count_text(plan.min_fits)),
+        ),
+        (vocabulary.PLANNED_FOLDS, vocabulary.PLANNED_FOLDS_TEXT[plan.folds]),
+    ]
+    rows = []
+    for row in plan.rows:
+        exact = row.bound == "exact"
+        rows.append(
+            (
+                Cell(row.role, row.role),
+                Cell(row.scope, row.scope),
+                Cell(row.learner, row.learner),
+                Cell(row.fits, _bounded(row.fits, exact)),
+                Cell(row.candidate_fits, _bounded(row.candidate_fits, exact)),
+            )
+        )
+    tables = [
+        SummaryTable(
+            vocabulary.PLANNED_ROW_COLUMNS, tuple(rows), title=vocabulary.PLANNED_ROWS_TITLE
+        ),
+        SummaryTable(
+            vocabulary.PLANNED_CANDIDATE_COLUMNS,
+            tuple(
+                (
+                    Cell(name, name),
+                    Cell(fits, count_text(fits)),
+                    Cell.of(folds),
+                )
+                for name, fits, folds in plan.candidates
+            ),
+            title=vocabulary.PLANNED_CANDIDATES_TITLE,
+        ),
+    ]
+    sections = []
+    if detail == "full":
+        sections.append(
+            SummarySection(
+                vocabulary.SECTION_MULTIPLIERS,
+                tuple(f"{name}: {count_text(value)}" for name, value in plan.multipliers),
+            )
+        )
+        sections.append(
+            SummarySection(
+                vocabulary.SECTION_PLANNED_NOTES,
+                (
+                    *plan.notes,
+                    *_why_lines(plan),
+                    vocabulary.PLANNED_NO_NOTES,
+                ),
+            )
+        )
+        if plan.unpreviewed:
+            sections.append(
+                SummarySection(
+                    vocabulary.SECTION_UNPREVIEWED,
+                    (vocabulary.PLANNED_UNPREVIEWED_LEAD, *plan.unpreviewed),
+                )
+            )
+    return Summary.build(
+        title=vocabulary.PLANNED_FITS_TITLE,
+        header=header,
+        tables=tables,
         sections=sections,
     )
