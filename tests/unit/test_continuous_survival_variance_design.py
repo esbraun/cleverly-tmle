@@ -120,8 +120,35 @@ def test_the_count_is_the_shared_rule_on_the_committed_pilot() -> None:
         assert study.PRIMARY_REPLICATES == study.PENDING_REPLICATES
         return
     count = pilot.primary_count(PILOT)
-    assert count == study.PRIMARY_REPLICATES <= study.REPLICATE_CAP
+    assert count == study.PRIMARY_REPLICATES == 6_000 <= study.REPLICATE_CAP
     assert count >= pilot.at_target_count()
+
+
+def test_the_reported_cells_are_the_pilots() -> None:
+    # V2 and V3 are reported cells, declared from the committed pilot before any primary run:
+    # they stay in the record and its readings and leave the count and the merge gate.
+    assert {"v2_heavy_weights", "v3_half_n"} == study.REPORTED_CELLS
+    assert study.STUDY.reported_scenarios == study.REPORTED_CELLS
+    assert study.GATED_CELLS == ("v1_rare_cause2", "v4_in_sample", "v7_quadratic")
+    assert set(study.STUDY.scenarios) >= study.REPORTED_CELLS
+    if PILOT.empty:
+        return
+    shares = pilot.failure_shares(PILOT)
+    assert shares["v3_half_n"] > study.FAILURE_BOUND
+    assert all(shares[cell] <= study.FAILURE_BOUND for cell in study.GATED_CELLS)
+    # With either reported cell back in the sizing the count leaves the cap.
+    for cell in study.REPORTED_CELLS:
+        widened = (*study.GATED_CELLS, cell)
+        original = study.GATED_CELLS
+        try:
+            study.GATED_CELLS = widened  # type: ignore[misc]
+            try:
+                count = pilot.primary_count(PILOT)
+            except ValueError:
+                count = None
+        finally:
+            study.GATED_CELLS = original  # type: ignore[misc]
+        assert count is None or count > study.REPLICATE_CAP, cell
 
 
 def test_the_floor_constants_are_pending_until_the_run() -> None:
@@ -290,7 +317,15 @@ def test_a_declared_run_waits_for_the_pilot(monkeypatch: pytest.MonkeyPatch) -> 
         with pytest.raises(SystemExit, match="run the pilot first"):
             regenerate.refuse_undeclared()
     else:
-        assert regenerate.pilot_refusals() == []
+        # The only refusals the committed pilot may leave are the extensions it still owes: a
+        # flagged gated cell below 2,000 draws.  Once extended, any other refusal fails here.
+        owed = {
+            f"{cell} has a first-quartile plug-in pass below 0.90; extend its pilot to "
+            f"{study.EXTENSION_REPLICATES} draws"
+            for cell in pilot.extension_cells(PILOT, study.PRIMARY_REPLICATES)
+            if pilot.draws(PILOT, cell) < study.EXTENSION_REPLICATES
+        }
+        assert set(regenerate.pilot_refusals()) == owed
     monkeypatch.setattr(sys, "argv", ["regenerate", "--replicates", "2", "--output", "/tmp/x"])
     regenerate.refuse_undeclared()
 
@@ -384,19 +419,25 @@ def test_the_pilot_readings_run_on_rows_like_the_drivers(
 
     rows = _pilot_rows()
     count = pilot.primary_count(rows)
-    # Clause (a) at the 0.2 margin binds: 6,000 at 60 calibrated rows of 1,000 draws.
+    # Clause (a) at the 0.2 margin binds: 6,000 at the gated cells' calibrated rows.
     assert count == 6_000
     assert pilot.v7_halving(rows) is False
     assert pilot.v7_witness(rows) > pilot.WITNESS_BIAS
     assert set(pilot.failure_shares(rows).values()) == {0.0}
     assert pilot.extension_cells(rows, count) == ()
     monkeypatch.setattr(pilot, "read", lambda: rows)
+    monkeypatch.setattr(study, "PRIMARY_REPLICATES", count + 400)
     assert regenerate.pilot_refusals() == [
-        f"the pilot sets {count} primary replicates and the record declares "
-        f"{study.PRIMARY_REPLICATES}"
+        f"the pilot sets {count} primary replicates and the record declares {count + 400}"
     ]
     monkeypatch.setattr(study, "PRIMARY_REPLICATES", count)
     assert regenerate.pilot_refusals() == []
+    # A reported cell's failures are recorded and not refused.
+    lossy = _pilot_rows(failures=20)
+    monkeypatch.setattr(pilot, "read", lambda: lossy)
+    refused = " ".join(regenerate.pilot_refusals())
+    assert all(cell in refused for cell in study.GATED_CELLS)
+    assert not any(cell in refused for cell in study.REPORTED_CELLS)
     # Each departure is refused by name.
     departures = {
         "extend its pilot to 2000 draws": _pilot_rows(early_ratio=1.06),

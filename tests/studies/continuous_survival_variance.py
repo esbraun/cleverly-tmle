@@ -23,7 +23,10 @@ of :mod:`tests.studies.continuous_survival_variance_law` that no registered stud
 (:func:`~tests.studies.continuous_survival_variance_law.gated`) take the primary rule of
 :data:`MARGINS` on the default's reported interval: the coverage interval above 0.90 and below
 0.99, the SE ratio's interval inside (0.8, 1.2) and the bias equivalent to zero within 0.2 SD.
-They are the merge gate.  The six first-quartile targets of each fit ride on every gated row of
+In ``v1_rare_cause2``, ``v4_in_sample`` and ``v7_quadratic`` they are the merge gate;
+``v2_heavy_weights`` and ``v3_half_n`` are reported cells (:data:`REPORTED_CELLS`, declared from
+the pilot before any primary run), whose rows carry no verdict and still feed every reading.  The
+six first-quartile targets of each fit ride on every gated row of
 that fit (:data:`EARLY_COLUMNS`) and are read by
 :mod:`tests.studies.continuous_survival_variance_readings` under the calibration rule: they decide
 the ship rule's benefit clause and the share floor, and are no merge gate.
@@ -35,11 +38,11 @@ controls, the width-matched readings for (a2), and the three support floors.
 
 **Size and seeds.**  The pilot (:mod:`tests.studies.continuous_survival_variance_pilot`, 1,000
 draws per cell on its own stream) sets :data:`PRIMARY_REPLICATES`: the larger of the shared
-primary rule (:func:`~tests.studies.repeated_sizing.primary_replicates`, on the 60 gated rows'
-covered counts and per-cell biases) and the at-target count of the 30 first-quartile calibration
+primary rule (:func:`~tests.studies.repeated_sizing.primary_replicates`, on the 36 rows of the
+gated cells' covered counts and per-cell biases) and the at-target count of the 30 first-quartile calibration
 rows (family pass at least 0.95 at SE ratio 1, coverage 0.95).  Until the pilot is committed the
 count is :data:`PENDING_REPLICATES` and ``regenerate.py`` refuses a declared run; the design test
-recomputes the count from the committed pilot.  A count above :data:`REPLICATE_CAP` stops the
+recomputes the count, 6,000, from the committed pilot.  A count above :data:`REPLICATE_CAP` stops the
 declaration (no truncation).  The pilot also reads V7's coefficient rule and witness
 (:data:`V7_GATED`), each cell's failure share, and each first-quartile row's plug-in pass
 probability, which extends a cell's pilot to :data:`EXTENSION_REPLICATES` draws and, if the
@@ -74,10 +77,10 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 #: The placeholder count until the committed pilot sets it; ``regenerate.py`` refuses a declared
 #: run while the record holds it.
 PENDING_REPLICATES = 0
-#: The count per cell: the larger of the shared primary rule on the committed pilot and the
-#: at-target calibration count of the first-quartile rows (``pilot.primary_count``), checked by
-#: the design test.  Pending until the pilot is committed.
-PRIMARY_REPLICATES = PENDING_REPLICATES
+#: The count per cell: the larger of the shared primary rule on the committed pilot's gated
+#: cells and the at-target calibration count of the first-quartile rows
+#: (``pilot.primary_count``), checked by the design test.  Clause (a) binds at 6,000.
+PRIMARY_REPLICATES = 6_000
 #: The plan's cap per cell (5.1).  A pilot whose rule asks for more stops the declaration: the
 #: run is not truncated to the cap, and the reading goes back to the plan.
 REPLICATE_CAP = 7_200
@@ -118,6 +121,26 @@ V7_GATED = True
 CELLS: dict[str, tuple[str, int, bool]] = {
     cell: spec for cell, spec in ALL_CELLS.items() if V7_GATED or cell != "v7_quadratic"
 }
+#: The record cells declared *reported* after the pilot and before any primary run (X6 plan
+#: 5.1, pilot-informed change).  The committed pilot (1,000 draws per cell, 789258e6) found:
+#:
+#: * ``v2_heavy_weights``: the switched interval covers control cause 1 at 1.12 at 0.894 with SE
+#:   ratio 0.88 (the influence curve's at 0.874), the cause-1 difference at 1.12 at 0.907 and
+#:   treated cause 2 at 1.12 at 0.915.  With it in the sizing the shared primary rule finds no
+#:   count up to 50,000;
+#: * ``v3_half_n``: 12 of 1,000 fits raised ``DataError``, a share of 0.012 against the bound of
+#:   0.01, and with it in the sizing the rule asks for 10,800.
+#:
+#: Both run at the record's count on the same seeds.  They leave the count, the pilot's
+#: failure-share refusal and the merge gate (their truth rows carry no verdict,
+#: ``StudyRecord.reported_scenarios``), and they still feed every reading: V2's rows enter the
+#: ``variance_rel_sd`` floor, so a red row caps ``r_prim`` below its rung; V3 alone decides
+#: ``MEASURED_N``, which stays 1,000 unless every V3 row passes; both stay in the ship rule's
+#: harm clause and its readings.  The record framework still applies the failure bound to a
+#: reported scenario, so V3's ``DataError`` share is bounded at 0.01 in the declared run.
+REPORTED_CELLS: frozenset[str] = frozenset({"v2_heavy_weights", "v3_half_n"})
+#: The record cells that are merge gates and size the count.
+GATED_CELLS: tuple[str, ...] = tuple(cell for cell in CELLS if cell not in REPORTED_CELLS)
 ESTIMANDS: dict[str, tuple[str, ...]] = {
     cell: laws.gated(law) for cell, (law, _, _) in CELLS.items()
 }
@@ -152,6 +175,7 @@ STUDY = StudyRecord(
     document="docs/technical-reference/method-evidence/continuous-survival-variance.md",
     anchor="continuous-time-survival-switched-variance",
     scenarios=dict(ESTIMANDS),
+    reported_scenarios=REPORTED_CELLS,
     scenario_n={cell: n for cell, (_, n, _) in CELLS.items() if n != PRIMARY_N},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

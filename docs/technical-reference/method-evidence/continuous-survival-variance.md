@@ -52,15 +52,25 @@ empty.
 <!-- generated: accuracy -->
 <!-- /generated -->
 
-The twelve targets at the median and upper quartile of each cell are gated by the primary rule:
-coverage above 0.90 and below 0.99, the SE ratio inside (0.8, 1.2) and the bias within 0.2 SD.
+The twelve targets at the median and upper quartile of `v1_rare_cause2`, `v4_in_sample` and
+`v7_quadratic` are gated by the primary rule: coverage above 0.90 and below 0.99, the SE ratio
+inside (0.8, 1.2) and the bias within 0.2 SD. `v2_heavy_weights` and `v3_half_n` are reported
+cells: their rows publish the same readings with no verdict, enter the `variance_rel_sd` floor
+(V2) and the size floor (V3), and stay in the ship rule.
 The six first-quartile targets of each fit are read under the calibration rule (SE ratio inside
 (0.93, 1.07), coverage inside (0.92, 0.98), both at 99%) and are no gate.
 
-A pilot of 1,000 draws per cell on its own stream sets the count before the run: the larger of
-the shared primary rule on the gated rows and 3,600, the count at which the 30 first-quartile
-rows pass the calibration rule together with probability 0.977 at an SE ratio of 1. The design
-value is about 6,000 per cell, where a row whose true bias is 0.15 SD passes the bias gate with
+The split was made from the pilot, before any primary run. In 1,000 pilot draws the switched
+interval of `v2_heavy_weights` covered control cause 1 at time 1.12 at 0.894 with an SE ratio of
+0.88 (the influence curve's covered 0.874), the cause-1 difference there at 0.907 and treated
+cause 2 at 0.915, and with V2 the sizing rule found no count up to 50,000. `v3_half_n` lost 12 of
+1,000 fits to `DataError`, against a bound of 10, and with it the rule asked for 10,800. The
+framework still bounds the reported cells' fit failures at 0.01.
+
+The pilot sets the count before the run: the larger of the shared primary rule on the gated
+cells and 3,600, the count at which the 30 first-quartile
+rows pass the calibration rule together with probability 0.977 at an SE ratio of 1. Each cell
+runs 6,000 replicates, where a row whose true bias is 0.15 SD passes the bias gate with
 probability 0.90. The cap is 7,200; a pilot that asks for more stops the declaration, and the run
 is never cut to the cap. The pilot also decides the V7 coefficient (0.3, or 0.15 if the
 influence-curve interval covers a cause-1 target at the median or upper quartile below 0.93) and

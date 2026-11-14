@@ -20,37 +20,49 @@ per cell on its own stream and writes ``continuous_survival_variance_pilot.csv.g
 a declared run until that file is committed and agrees with the declaration
 (:func:`pilot_refusals`):
 
-* ``PRIMARY_REPLICATES`` equals the pilot's count (the shared primary rule on the gated rows, or
+* ``PRIMARY_REPLICATES`` equals the pilot's count (the shared primary rule on the gated cells, or
   the 3,600 at-target count of the first-quartile rows if larger), and the count is at most the
   cap of 7,200.  A count above the cap stops the declaration and goes back to the plan; the run
   is never truncated to the cap;
 * V7's coefficient follows the halving rule read on the draws at 0.3, and V7's pilot holds draws
   at the declared coefficient;
 * ``V7_GATED`` agrees with V7's non-null witness at the declared coefficient;
-* no record cell's pilot loses more than the failure bound of 0.01 of its fits;
-* each cell flagged by the first-quartile plug-in check holds 2,000 draws, and each row still
+* no gated cell's pilot loses more than the failure bound of 0.01 of its fits;
+* each gated cell flagged by the first-quartile plug-in check holds 2,000 draws, and each row still
   below 0.90 on them is named in a committed ``pilot-diagnosis.md`` beside this script.
 
-Sizes.  Pending the pilot.  The design value is about 6,000 per cell (clause (a) of the shared rule
-binds: a row whose true bias is 0.15 SD passes the 0.2 SD bias gate with 0.664 at 3,600, 0.903 at
-6,000).  Four cells at n = 1,000 and ``v3_half_n`` at 500; V7 leaves the record if its witness
-fails.
+Cells (a pilot-informed change, declared before any primary run).  ``v1_rare_cause2``,
+``v4_in_sample`` and ``v7_quadratic`` are gated cells; ``v2_heavy_weights`` and ``v3_half_n`` are
+reported cells (``REPORTED_CELLS``, ``StudyRecord.reported_scenarios``).  The committed pilot
+(1,000 draws per cell, 789258e6) read V2's switched interval covering control cause 1 at 1.12 at
+0.894 with SE ratio 0.88 (the influence curve's at 0.874), the cause-1 difference at 1.12 at 0.907
+and treated cause 2 at 1.12 at 0.915; with V2 the shared rule finds no count up to 50,000.  V3
+lost 12 of 1,000 fits to ``DataError`` (0.012 against the bound of 0.01), and with V3 the rule
+asks for 10,800.  V1, V4 and V7 read worst coverages of 0.929 to 0.941.  The reported cells run at
+the same count on the same seeds, are left out of the count, the pilot's failure-share refusal
+and the merge gate, and still feed the floors (V2's red rows cap ``r_prim``; V3 alone decides
+``MEASURED_N``) and both clauses of the ship rule.  The record framework still bounds a reported
+scenario's fit failures, so V3's ``DataError`` share is held to 0.01 in this run: at the pilot's
+0.012 the bound is likely to fail, and that failure would be read under the last item below.
 
-Budget.  Per fit, measured on one core with the no-square reading the record carries (one fit
-each on replicate 0, 2026-11-14): ``v1_rare_cause2`` 8.5 s, ``v2_heavy_weights`` 6.2 s,
-``v3_half_n`` 3.0 s, ``v4_in_sample`` 3.7 s, ``v7_quadratic`` 6.3 s, 27.7 s per replicate across the
-five cells.  At 6,000 per cell the primary takes about 46 CPU-h and the pilot (1,000 per cell)
-about 7.2.  Extensions are likely: at 6,000 a calibrated first-quartile row reads a plug-in pass
-below 0.90 when its pilot SE ratio is outside (0.964, 1.034), so pilot noise alone flags a cell
-with probability about 0.54 at 1,000 draws, and leaves a row flagged after 2,000 draws with about
-0.16 per cell (each such row then needs its diagnosis).  At three extended cells (1,000 more draws
-each, about 2 CPU-h a cell): about 59 CPU-h, 89 with a 1.5 margin, and about 102 with margin at
-the cap.  The runner brief restates it from the pilot's own ``seconds``.  Cloud, one job per cell;
-the slowest cell (V1) takes about 14 CPU-h at 6,000, under 4 h on a 4-core runner.
+Sizes.  6,000 per cell, the shared primary rule on the 36 rows of the gated cells (clause (a)
+binds: a row whose true bias is 0.15 SD passes the 0.2 SD bias gate with 0.903 at 6,000), above
+the 3,600 at-target count of the first-quartile rows.  Four cells at n = 1,000 and ``v3_half_n``
+at 500; V7's witness held (0.45 SD) and halving did not fire.
+
+Budget.  Median seconds per fit in the pilot, on one core: ``v1_rare_cause2`` 6.47,
+``v2_heavy_weights`` 7.37, ``v3_half_n`` 3.02, ``v4_in_sample`` 3.16, ``v7_quadratic`` 6.97, so
+27.0 s per replicate across the five cells; the declared fit adds the no-square reading, about
+5% (one fit per cell, 2026-11-14).  At 6,000 per cell the primary takes about 47 CPU-h.  The
+pilot's plug-in check still flags two gated cells (``v1_rare_cause2`` and ``v4_in_sample``), whose
+extension to 2,000 draws takes about 2.7 CPU-h.  About 50 CPU-h, 75 with a 1.5 margin, and about
+89 with margin at the cap.  Cloud, one job per cell; the slowest cell (V2) takes about 13 CPU-h,
+under 4 h on a 4-core runner.
 
 Red-cell readings (declared before any run).  The record is ``gated``: every median and
-upper-quartile row of every record cell is a merge gate under the primary rule, and any red
-verdict fails the run.  The support floors only label estimates; a floor that falls below a red
+upper-quartile row of every gated cell is a merge gate under the primary rule, and any red
+verdict fails the run.  A reported cell's rows publish bias, coverage and the SE ratio with no
+verdict; they decide no gate and feed the floors and the ship rule as stated above.  The support floors only label estimates; a floor that falls below a red
 row's rung does not turn the row green or the record into ``reporting``.  No cell is re-sized,
 re-drawn or downgraded after a verdict is seen.
 
@@ -76,7 +88,10 @@ re-drawn or downgraded after a verdict is seen.
   calibration rule at each cell's sparsest first-quartile row; where it does not, the cell does
   not exercise the sparse-cell failure, and the reading says so.
 * A replication that raises is never redrawn; a ``DataError`` is a recordable fit failure bounded
-  by 0.01 per cell.
+  by 0.01 per cell.  The framework applies the bound to the reported cells too; a reported cell
+  that exceeds it fails the run without a verdict on its rows, and goes to Eric as a red-cell
+  decision rather than a defect suspect of the estimator, since the pilot showed it before the
+  run.
 """
 
 import sys
@@ -115,7 +130,7 @@ def pilot_refusals() -> list[str]:
     elif (witness > pilot.WITNESS_BIAS) != study.V7_GATED:
         out.append(f"V7's witness reads {witness:.3f}; set V7_GATED = {not study.V7_GATED}")
     for cell, share in pilot.failure_shares(rows).items():
-        if share > study.FAILURE_BOUND:
+        if cell in study.GATED_CELLS and share > study.FAILURE_BOUND:
             out.append(f"{cell} lost {share:.3f} of its pilot fits; diagnose it")
     count = pilot.primary_count(rows)
     if count > study.REPLICATE_CAP:

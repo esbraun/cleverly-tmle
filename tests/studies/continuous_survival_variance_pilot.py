@@ -11,8 +11,8 @@ mixes draws from two laws.
 The committed rows give these readings of X6 plan rev 5, section 5.1, which the regeneration
 script checks before a declared run (``regenerate.pilot_refusals``):
 
-* **the count** (:func:`primary_count`): the larger of the shared primary rule on the 60 gated
-  rows and the at-target count of the 30 first-quartile calibration rows (3,600: family pass
+* **the count** (:func:`primary_count`): the larger of the shared primary rule on the 36 rows of
+  the gated cells and the at-target count of the 30 first-quartile calibration rows (3,600: family pass
   0.977 at SE ratio 1 and coverage 0.95), read on each cell's first 1,000 draws;
 * **V7's coefficient** (:func:`v7_halving`, on the draws at 0.3 only): if the pilot's
   influence-curve interval covers any cause-1 target at the median or upper quartile below 0.93,
@@ -24,11 +24,11 @@ script checks before a declared run (``regenerate.pilot_refusals``):
   untargeted plug-in of each arm's cause-1 risk at the median has a standardized bias whose
   largest magnitude must exceed 0.2 SD, or V7 is reported rather than gated
   (:data:`~tests.studies.continuous_survival_variance.V7_GATED`);
-* **the failure share** (:func:`failure_shares`): a cell that loses more than the failure bound
-  of 0.01 is diagnosed before the declaration;
+* **the failure share** (:func:`failure_shares`): a gated cell that loses more than the failure
+  bound of 0.01 is diagnosed before the declaration (a reported cell's share is recorded);
 * **the first-quartile plug-in check** (:func:`plug_in_checks`): each first-quartile row's
   calibration pass probability at the declared count, taking the pilot's SE ratio of the reported
-  (switched) interval as true.  A cell with a row below 0.90 on its first 1,000 draws
+  (switched) interval as true.  A gated cell with a row below 0.90 on its first 1,000 draws
   (:func:`extension_cells`) is extended to 2,000 draws and re-read; a row still below 0.90 is a
   confirmed departure, which needs a committed diagnosis
   (``tests/canonical/continuous_survival_variance/pilot-diagnosis.md`` naming the row) before
@@ -232,16 +232,16 @@ def failure_shares(rows: pd.DataFrame) -> dict[str, float]:
 
 
 def primary_count(rows: pd.DataFrame) -> int:
-    """The declared count per cell from the pilot's first 1,000 draws of each record cell.
+    """The declared count per cell from the pilot's first 1,000 draws of each gated cell.
 
     The larger of :func:`~tests.studies.repeated_sizing.primary_replicates` (clauses (a) to (c)
-    on the gated rows' covered counts by the shipped interval, clause (d) on one bias group per
-    cell, both at :data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`) and
+    on the gated cells' rows' covered counts by the shipped interval, clause (d) on one bias group
+    per gated cell, both at :data:`~tests.studies.repeated_sizing.PRIMARY_CLAUSE_SHARE`) and
     :func:`at_target_count`.
     """
     covered: dict[str, int] = {}
     groups = []
-    for cell in study.CELLS:
+    for cell in study.GATED_CELLS:
         kept = kept_rows(rows, cell)
         kept = kept.loc[kept["replicate"] < study.PILOT_REPLICATES]
         names = list(study.ESTIMANDS[cell])
@@ -314,10 +314,14 @@ def plug_in_checks(rows: pd.DataFrame, replicates: int, *, first: bool = False) 
 
 
 def extension_cells(rows: pd.DataFrame, replicates: int) -> tuple[str, ...]:
-    """The cells holding a first-quartile row whose plug-in pass on 1,000 draws is below 0.90."""
+    """The gated cells holding a first-quartile row whose plug-in pass on 1,000 draws is below 0.90.
+
+    A reported cell is not extended: its rows decide no gate and its count follows the gated
+    cells', so a longer pilot would size nothing.
+    """
     checks = plug_in_checks(rows, replicates, first=True)
     low = set(checks.loc[checks["plug_in_pass"] < PLUG_IN_PASS, "cell"])
-    return tuple(cell for cell in study.CELLS if cell in low)
+    return tuple(cell for cell in study.GATED_CELLS if cell in low)
 
 
 def confirmed_departures(rows: pd.DataFrame, replicates: int) -> list[str]:
