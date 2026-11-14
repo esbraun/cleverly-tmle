@@ -5584,6 +5584,14 @@ def refute(
                         *((_PRE_TREATMENT_SENTENCE,) if pre_treatment else ()),
                     ),
                     evidence=resolution.plain,
+                    withheld=(
+                        ""
+                        if passed is not None or not resolution.licensed
+                        else f"the control fit reports no interval (status "
+                        f"{refitted[estimand].inference!r}), so it has no Wald test"
+                        if not refitted[estimand].supplies_inference
+                        else "the control estimate has no spread"
+                    ),
                     statistic=z,
                     statistic_name="z",
                     statistic_pvalue=pvalue,
