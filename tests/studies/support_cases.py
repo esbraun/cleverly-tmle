@@ -2818,7 +2818,7 @@ def _hazard_mtp_cases() -> tuple[RowCase, ...]:
 
 
 def _known_sample_weights_cases() -> tuple[RowCase, ...]:
-    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T55`` and ``G62``.
+    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T55`` and ``G64``.
 
     Each runs the study's own fit of the gated setting on a draw of its law.
     """
@@ -2834,7 +2834,7 @@ def _known_sample_weights_cases() -> tuple[RowCase, ...]:
             lambda law, frame: law.fit(frame, "sample_correct"),
         ),
         _observed(
-            "G62",
+            "G64",
             slug,
             "ltmle_sample",
             f"{module}.py:789",
@@ -2842,6 +2842,32 @@ def _known_sample_weights_cases() -> tuple[RowCase, ...]:
             lambda law: law.draw_longitudinal(400, 0),
             lambda law, frame: law.fit_longitudinal(frame, "ltmle_sample"),
         ),
+    )
+
+
+def _hazard_time_varying_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-time-varying`` (X70 part (b1)): ``G63.held``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_time_varying", "hazard-time-varying"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G63.held.{row}",
+            slug,
+            label,
+            f"{module}.py:539",
+            module,
+            lambda study: study.law_of(label).draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("in_sample", "one_cause"),
+        case("competing", "competing"),
+        case("mtp", "three_arm"),
+        case("cross_fitted", "crossfit"),
     )
 
 
@@ -3428,6 +3454,7 @@ CASES: tuple[RowCase, ...] = (
     *_hazard_msm_cases(),
     *_hazard_mtp_cases(),
     *_known_sample_weights_cases(),
+    *_hazard_time_varying_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

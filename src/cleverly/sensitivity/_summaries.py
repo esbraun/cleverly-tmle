@@ -1054,6 +1054,11 @@ def marginal_summary(bounds: MarginalSensitivityBounds, detail: Detail) -> Summa
             settings.append(f"Tail-regression learners: {_names(bounds.pseudo_outcome_learner)}.")
         if bounds.scale == "log":
             settings.append("The standard errors of the ends are on the log scale.")
+        if bounds.reference_df is not None:
+            settings.append(
+                f"Reference distribution of the interval: t, {bounds.reference_df} df, the "
+                "fit's own few-cluster rule."
+            )
         if bounds.limit_reading is not None:
             settings.append(f"Evidence for the interval: {_formal(bounds.limit_reading.sentence)}")
         sections = [
