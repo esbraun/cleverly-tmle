@@ -398,6 +398,9 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/sensitivity/simulated_confounding.py", "must contain only numeric"): (
         _MALFORMED
     ),
+    ("src/cleverly/sensitivity/marginal.py", "this fit leaves a choice"): "a missing "
+    "argument: the fit reports two or more parameters the bounds take, so the call must name "
+    "one; the sensitivity facade defers the same case and asks for estimand=",
     ("src/cleverly/validation/refute.py", "support only failure_policy='fail'"): "a "
     "malformed argument: the field's declared type admits 'fail' alone",
     ("src/cleverly/validation/refute.py", "has no empirical draw records"): _INTERNAL,
