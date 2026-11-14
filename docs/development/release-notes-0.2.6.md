@@ -18,7 +18,11 @@ continuous-time survival TMLE.
   that did not shrink with n. ([#662](https://github.com/esbraun/cleverly-tmle/pull/662))
 - An `LTMLE` interval now adds a variance supplement for a node whose fitted regression rows all
   hold one value, at the exact one-sided binomial bound of its hazard. Intervals of such fits
-  widen; others do not move. ([#670](https://github.com/esbraun/cleverly-tmle/pull/670))
+  widen; others do not move. Hazard fits with a treatment at several nodes get the supplement
+  too. A hazard fit with covariates measured after baseline is outside the
+  supplement's reach: such a node still reports `constant_node_plugin`, with no interval and a
+  warning that says why. ([#670](https://github.com/esbraun/cleverly-tmle/pull/670),
+  [#677](https://github.com/esbraun/cleverly-tmle/pull/677))
 - `marginal_sensitivity_bounds` with `estimand=None` no longer bounds the ATE of a fit that does
   not report it. It bounds the ATE when the fit reports it, otherwise the one reported parameter
   the bounds can take, and otherwise raises and names the choices. On a multi-arm fit, name the
