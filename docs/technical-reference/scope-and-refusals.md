@@ -636,8 +636,9 @@ The fit checks H3 first, then H2 and H1. On a held design with a covariate after
 then checks H28, H29 and H30, and on any other held design H6. H16 and H19 follow, regimen by regimen.
 H20 is checked when the separable regimens are read, before the companion check of
 [separable effects](longitudinal-tmle.md#separable-effects) that refuses every other
-regimen that is not a static arm. H24 follows the pooled-design check. H31 and H25 are raised by
-the replay before any targeting.
+regimen that is not a static arm. H24 follows the pooled-design check. One hazard-replay check raises
+H31, or else H25, before any targeting, and the `truncation_curve` capability row reports the same
+record, so the row and the call agree.
 
 A covariate after baseline means a `time_varying=` block at a node after the first. A block at node
 1 alone precedes the treatment, so on a held design the hazard engine fits it, also with
