@@ -88,8 +88,11 @@ from .._warnings import FitWarning, records_data
 from .._warnings import warn as _warn
 from ..data.known_mechanism import (
     KnownNodeMechanisms,
+    MechanismLaw,
+    check_mechanism_law,
     known_node_mechanisms,
     probability_columns,
+    refuse_ambiguous_node_declaration,
 )
 from ..data.validate import (
     MIN_CONTINUOUS_LEVELS,
@@ -541,6 +544,7 @@ class LongitudinalData:
         continuous_treatment: Sequence[str] | Mapping[str, Any] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
         eliminate: Sequence[str] = (),
     ) -> LongitudinalData:
@@ -619,7 +623,21 @@ class LongitudinalData:
         censoring_probabilities:
             The known retention probabilities ``P(C_t = 1 | observed past)``: a mapping of
             censoring column to the column that holds them, or an ``(n, T)`` array.  It may
-            be given alone or beside ``treatment_probabilities``.
+            be given alone or beside ``treatment_probabilities``.  Beside non-constant
+            ``weights`` either declaration needs ``mechanism_law``, unless its every value
+            is 0 or 1.
+        mechanism_law:
+            How ``treatment_probabilities`` and ``censoring_probabilities`` are read beside
+            non-constant ``weights``, where they are required.  A weighted fit estimates the
+            effect in the weight-tilted population.  ``"target"`` says the declared
+            probabilities hold in that population (randomization before sampling, or weights
+            that read the baseline covariates only), and the fit divides by them.
+            ``"sample"`` says they hold in the rows as drawn while the weights may read the
+            treatment or later data; at each declared node the fit then estimates the tilted
+            probabilities from the declaration and a weighted classification by the node's
+            learner, and counts the node as estimated.  A node whose every declared value is
+            0 or 1 means the same under both readings and is divided by.  Without weights,
+            or with constant ones, the value is recorded only.
         dose_atoms:
             A mapping of continuous dose column to its declared atoms, the doses with a
             recorded point mass, such as a list price: ``{"A2": (3.0,)}``.  The policy
@@ -635,6 +653,7 @@ class LongitudinalData:
         """
         if not is_dataframe(data):
             raise DataError("LongitudinalData.from_frame expects a pandas or polars DataFrame")
+        _check_law_beside(mechanism_law, treatment_probabilities, censoring_probabilities)
         supports: dict[str, Any] = {}
         if isinstance(continuous_treatment, Mapping):
             supports = {
@@ -838,6 +857,7 @@ class LongitudinalData:
         if treatment_probabilities is None and censoring_probabilities is None:
             return built.eliminating(eliminate)
         return built._declare_known(
+            law=mechanism_law,
             treatment_probabilities=(
                 treatment_probabilities
                 if not treatment_columns
@@ -1106,6 +1126,7 @@ class LongitudinalData:
         continuous_treatment: bool = False,
         treatment_probabilities: Mapping[Any, str] | None = None,
         censoring_probabilities: str | None = None,
+        mechanism_law: MechanismLaw | None = None,
         eliminate: Sequence[str] = (),
     ) -> LongitudinalData:
         """Build from a long panel: one row per unit and decision time.
@@ -1169,6 +1190,9 @@ class LongitudinalData:
             ``P(A_t = level | past)`` on each row.
         censoring_probabilities : str or None
             The column that holds ``P(C_t = 1 | past)`` on each row.
+        mechanism_law : {"target", "sample"} or None
+            How the two declarations are read beside non-constant ``weights``, where they
+            are required, as for :meth:`from_frame`.
         eliminate : sequence of str
             The competing causes to prevent, by label, as :meth:`eliminating` describes.
             Needs the mapping form of ``event=``.
@@ -1254,6 +1278,7 @@ class LongitudinalData:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            mechanism_law=mechanism_law,
         ).eliminating(eliminate)
 
     def to_long_panel(self) -> Any:
@@ -1290,7 +1315,8 @@ class LongitudinalData:
         ``t`` the treatment and censoring mechanisms read ``W``, ``L_{t-k}, ..., L_t`` and
         ``A_{t-k-1}, ..., A_{t-1}``.  The outcome regression reads ``W`` and
         ``L_{t-k}, ..., L_t``, plus the arms of the rule and policy nodes in ``[t-k-1, t]``.
-        The estimand does not change.
+        On a held design every node's arm is the baseline decision, so the window keeps it at
+        every node.  The estimand does not change.
 
         Parameters
         ----------
@@ -1330,7 +1356,11 @@ class LongitudinalData:
         return replace(self, markov_order=int(markov_order))
 
     def with_known_mechanisms(
-        self, *, treatment_probabilities: Any = None, censoring_probabilities: Any = None
+        self,
+        *,
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
     ) -> LongitudinalData:
         """Return a copy that declares treatment or censoring factors known.
 
@@ -1344,6 +1374,9 @@ class LongitudinalData:
             The treatment declaration, in an array form :meth:`from_frame` reads.
         censoring_probabilities : array-like or mapping or None
             The censoring declaration, in an array form :meth:`from_frame` reads.
+        mechanism_law : {"target", "sample"} or None
+            How the declarations are read beside non-constant weights, where they are
+            required.  See :meth:`from_frame`.
 
         Returns
         -------
@@ -1355,7 +1388,8 @@ class LongitudinalData:
         ValueError
             If this data already declares a mechanism.
         DataError
-            If a declaration is malformed or names columns.
+            If a declaration is malformed or names columns, or names no
+            ``mechanism_law`` beside non-constant weights.
         """
         if self.known_mechanisms is not None:
             raise ValueError(
@@ -1371,9 +1405,11 @@ class LongitudinalData:
                 "from. Pass the arrays, or declare the columns in "
                 "LongitudinalData.from_frame or in the fit on the frame."
             )
+        _check_law_beside(mechanism_law, treatment_probabilities, censoring_probabilities)
         return self._declare_known(
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            law=mechanism_law,
         )
 
     def _declare_known(
@@ -1383,25 +1419,26 @@ class LongitudinalData:
         censoring_probabilities: Any,
         treatment_columns: Mapping[str, tuple[tuple[Any, str], ...]] | None = None,
         censoring_columns: Mapping[str, str] | None = None,
+        law: MechanismLaw | None = None,
     ) -> LongitudinalData:
         decisions = self.n_decisions
         self._refuse_known_mixed_nodes(treatment_probabilities)
-        return replace(
-            self,
-            known_mechanisms=known_node_mechanisms(
-                treatment_probabilities=treatment_probabilities,
-                censoring_probabilities=censoring_probabilities,
-                n=self.n,
-                treatment_names=self.treatment_names,
-                treatment_levels=self.treatment_levels[:decisions],
-                continuous_nodes=tuple(
-                    self.node_kind(time) != "categorical" for time in range(1, decisions + 1)
-                ),
-                censoring_names=self.censoring_names,
-                treatment_columns=treatment_columns,
-                censoring_columns=censoring_columns,
+        known = known_node_mechanisms(
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
+            n=self.n,
+            treatment_names=self.treatment_names,
+            treatment_levels=self.treatment_levels[:decisions],
+            continuous_nodes=tuple(
+                self.node_kind(time) != "categorical" for time in range(1, decisions + 1)
             ),
+            censoring_names=self.censoring_names,
+            treatment_columns=treatment_columns,
+            censoring_columns=censoring_columns,
+            law=law,
         )
+        refuse_ambiguous_node_declaration(known, self.weights)
+        return replace(self, known_mechanisms=known)
 
     @classmethod
     def from_time_to_event(
@@ -1422,6 +1459,7 @@ class LongitudinalData:
         treatment_probabilities: Mapping[Any, str] | None = None,
         eliminate: Sequence[str] = (),
         censoring_probabilities: Mapping[float, str] | None = None,
+        mechanism_law: MechanismLaw | None = None,
     ) -> LongitudinalData:
         r"""Build a point-treatment survival container from one time and one event column.
 
@@ -1506,6 +1544,9 @@ class LongitudinalData:
             received treatment.  Grid time :math:`g_j` is the censoring factor of node
             :math:`j + 1`.  Grid times left out are estimated.  The columns are not
             covariates.
+        mechanism_law : {"target", "sample"} or None
+            How the two declarations are read beside a non-constant ``weights`` column,
+            where they are required, as for :meth:`from_frame`.
 
         Returns
         -------
@@ -1559,6 +1600,7 @@ class LongitudinalData:
         if weights is not None:
             wanted.append(str(weights))
         known_columns: tuple[tuple[Any, str], ...] = ()
+        _check_law_beside(mechanism_law, treatment_probabilities, censoring_probabilities)
         if treatment_probabilities is not None:
             pairs = probability_columns(treatment_probabilities)
             if pairs is None:
@@ -1698,6 +1740,7 @@ class LongitudinalData:
             declared_names[column] = name
         node = str(treatment)
         return built._declare_known(
+            law=mechanism_law,
             treatment_probabilities=(
                 {node: {level: column_array(frame, name) for level, name in known_columns}}
                 if known_columns
@@ -3197,6 +3240,32 @@ class LongitudinalData:
             return 1
         return max(1, time - self.markov_order)
 
+    def window_arm_start(self, time: int) -> int:
+        """The first treatment node whose arm the nuisance designs at ``time`` read.
+
+        Under :attr:`markov_order` ``k`` the window holds the arms ``A_{t-k-1}, ...``, the
+        arms that precede its covariates ``L_{t-k}, ..., L_t``, so the start is
+        ``max(1, window_start(time) - 1)``.  On a held design it is ``1``: every node's
+        arm is the node-1 decision, so every window holds it, and node 1 is the one block
+        that carries it (an identity node adds no block of its own).  Starting later would
+        drop the held treatment from every node past ``k + 2`` and pool those models over
+        the arms.  The mechanism designs (:meth:`history_design`) and the windowed outcome
+        design read their arms from this one start.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+
+        Returns
+        -------
+        int
+            ``1`` without an order or on a held design, else ``max(1, window_start(time) - 1)``.
+        """
+        if self.markov_order is None or self.treatment_held:
+            return 1
+        return max(1, self.window_start(time) - 1)
+
     def window_covariates(self, time: int) -> FloatArray:
         """``[W, L_s, ..., L_t]`` from :meth:`window_start` ``s``, as a finite matrix.
 
@@ -3307,7 +3376,13 @@ class LongitudinalData:
         labels[~present] = None
         return labels
 
-    def policy_frame(self, time: int, extra: Mapping[str, Any] | None = None) -> Any:
+    def policy_frame(
+        self,
+        time: int,
+        extra: Mapping[str, Any] | None = None,
+        *,
+        treatment: FloatArray | None = None,
+    ) -> Any:
         """:meth:`history_frame` plus the earlier treatments, for a policy node to read.
 
         This is what a known policy density :math:`q_t(\\cdot \\mid H_t)` is handed:
@@ -3333,8 +3408,14 @@ class LongitudinalData:
         appends further columns, which a :class:`~cleverly.interventions.JointPolicy` uses
         to hand a component's map the natural values of the current node's other
         components.
+
+        ``treatment``, an ``(n, T)`` matrix of dense codes at categorical nodes, replaces the
+        observed earlier treatments: the hazard fit of a design with a treatment at several
+        nodes evaluates a policy at every counterfactual treatment prefix
+        (:func:`~cleverly.longitudinal.regimen.counterfactual_policy_density`).
         """
         history = self.covariate_history(time)
+        codes_of = self.treatment if treatment is None else np.asarray(treatment, dtype=float)
         payload: dict[str, Any] = {
             name: history[:, index] for index, name in enumerate(self.history_names(time))
         }
@@ -3349,7 +3430,7 @@ class LongitudinalData:
                     self.treatment[:, node - 1], nan=0.0
                 )
                 continue
-            codes = np.nan_to_num(self.treatment[:, node - 1], nan=0.0).astype(np.int64)
+            codes = np.nan_to_num(codes_of[:, node - 1], nan=0.0).astype(np.int64)
             levels = np.empty(len(self.treatment_levels[node - 1]), dtype=object)
             for index, level in enumerate(self.treatment_levels[node - 1]):
                 levels[index] = level
@@ -3446,14 +3527,17 @@ class LongitudinalData:
         test claiming to say that should be mutated and seen to fail before it is trusted.
 
         Under :attr:`markov_order` ``k`` the design holds ``W``, ``L_{t-k}, ..., L_t`` and the
-        blocks of ``A_{t-k-1}, ..., A_{t-1}``, plus ``A_t`` with ``include_current``.
+        blocks of ``A_{t-k-1}, ..., A_{t-1}``, plus ``A_t`` with ``include_current``.  On a held
+        design those arms are all the node-1 decision, whose block every design with a
+        non-empty arm range keeps (:meth:`window_arm_start`).
         """
         columns = [self.window_covariates(time)]
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
         # Under a Markov order k the window holds A_{t-k-1}, ..., A_{t-1}: the arms that
-        # precede the window's covariates L_{t-k}, ..., L_t.
-        first = 1 if self.markov_order is None else max(1, self.window_start(time) - 1)
+        # precede the window's covariates L_{t-k}, ..., L_t.  On a held design every one of
+        # them is the node-1 decision, so the range starts at node 1 (window_arm_start).
+        first = self.window_arm_start(time)
         for t in range(first, last + 1):
             if self.is_held_node(t):
                 # One block per *decision*: an identity node repeats node 1, so it adds
@@ -4168,6 +4252,17 @@ def _refuse_duplicates(names: Sequence[str]) -> None:
             f"columns {sorted(repeated)} are used for more than one node. Each column is one node "
             "in the time ordering, and a column that is both (say) a baseline covariate "
             "and a time-varying one would be adjusted for twice."
+        )
+
+
+def _check_law_beside(law: Any, treatment_probabilities: Any, censoring_probabilities: Any) -> None:
+    """Refuse a ``mechanism_law=`` that is malformed or reads no declaration."""
+    check_mechanism_law(law)
+    if law is not None and treatment_probabilities is None and censoring_probabilities is None:
+        raise DataError(
+            "mechanism_law= says how treatment_probabilities= and censoring_probabilities= are "
+            "read beside weights, and this call declares neither. Drop mechanism_law=, or "
+            "declare the probabilities."
         )
 
 

@@ -220,6 +220,21 @@ standard error from rare large weights. The `p4_sdr` cell stays outside the scre
 so the study declares it `reporting` before the run. Its owner is the `SDR` limit in
 [the interval under heavy cumulative density ratios](../longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios).
 
+A Wald reading is gated only at an $n$ of at least twice the tail size of its quantity
+(`X39-below-tail-size`; `tests/diagnostics/fix5_heavy_ratios/quadrature.csv`). The `p4` cells and
+rows sit below it ($n_\kappa$ = 52,158), and so do the `ate_regimen[p5 vs natural]` rows and the
+`p5` and `p5_sdr` calibration cells ($n_\kappa$ = 3,120). The
+[`mtp-policy-variance`](mtp-policy-variance.md) study runs a gated twin of each. At 104,400 rows the
+`p4` truth twins cover 0.945 to 0.953 with an SE ratio of 0.972 to 1.013, and the `p4` and `p4_sdr`
+calibration twins read SE ratios of 0.995 and 0.990 with coverage of 0.950 and 0.946. At 6,400 rows
+the `p5` contrast twins cover 0.947 and 0.951 with SE ratios of 1.009 and 0.991, and the `p5` and
+`p5_sdr` calibration twins read 1.001 and 0.993 with coverage of 0.947. Every twin passes.
+
+On the
+`p4` rows of this study's primary configuration, the `p4` Wald rows read an RMS ratio interval that
+contains 1, so the shortfall above reads as chance, and `variance="policy_weighted"` reads
+conservative with coverage of 0.965 to 0.972 under the oracle hazard.
+
 ## Measured values and declared margins
 
 Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
@@ -274,8 +289,8 @@ the committed results and checked at the precision printed.
 | two laws with two nodes and a binary outcome | the evidence covers a Bernoulli outcome, and a continuous outcome needs `q_bounds`. The study has no size ladder, so it claims no rate |
 | the density is an oracle | the density route reads the generating pooled-hazard probabilities. The default estimated density is not tested here |
 | the declared support is the true support | a declared support that is wrong but consistent with the data is outside this evidence |
-| the `p4_sdr` cell reports | the `SDR` interval runs short of nominal under heavy cumulative density ratios. The package treats the interval as experimental, with the measured numbers of the red-cell owner `X40-sdr-heavy-ratios` |
-| the `p4` standard error is short at n = 5,000 | the two `p4` rows of `boundaries_ltmle` read an SE ratio of 0.911 to 0.917 and coverage of 0.929 to 0.937. The rows pass the declared rule. Read an interval under this plan as slightly narrow |
+| the `p4_sdr` cell reports | the `SDR` interval runs short of nominal under heavy cumulative density ratios at n = 4,000, below twice the tail size. The cell stays red as the standing record `X40-sdr-heavy-ratios`. `variance="policy_weighted"` reads conservative on the same configuration ([`mtp-policy-variance`](mtp-policy-variance.md)) |
+| the `p4` standard error is short at n = 5,000 | the two `p4` rows of `boundaries_ltmle` read an SE ratio of 0.911 to 0.917 and coverage of 0.929 to 0.937, below twice the tail size. The rows pass the declared rule, and the re-run of this configuration in [`mtp-policy-variance`](mtp-policy-variance.md) reads the shortfall as chance. The twins at 104,400 rows pass |
 | the primary rows use main-terms learners | the primary phase matches the comparator's `SL.glm`. The property cells read the correct outcome model |
 | the atom covers one node | plan `p5` sends an interval to an atom at node 2 only. An atom with a near-zero mass is outside this evidence |
 | the atom scenarios are margin-read | `lmtp` fits a different node-2 design at the atom, so the atom rows show agreement within the margin and not exactness |

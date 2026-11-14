@@ -82,7 +82,7 @@ guard is a plain `TMLE`, bit for bit.
 
 | keyword | status |
 | --- | --- |
-| a declared known mechanism | complete data at every `guard` and reduction, in sample and with `cross_fit=True`, under both `reduced_crossfit` settings and with `n_bootstrap=`. It is Theorem 1 at `g_n ≡ g_0`. See [a known treatment mechanism](theorem.md#a-known-treatment-mechanism) |
+| a declared known mechanism | complete data at every `guard` and reduction, in sample and with `cross_fit=True`, under both `reduced_crossfit` settings and with `n_bootstrap=`. It is Theorem 1 at `g_n ≡ g_0`. See [a known treatment mechanism](theorem.md#a-known-treatment-mechanism). Beside non-constant weights this needs `mechanism_law="target"`. Under `"sample"` a non-empty `guard` and an `evaluation=` companion refuse before any learner, and `guard=()` fits the ordinary TMLE on the estimated tilt ([weights](../point-treatment-tmle.md#known-treatment-mechanism)) |
 | `delta=`, randomized | `randomized=True`, or data that declares a known mechanism, selects Díaz & van der Laan (2017)'s missing-outcome construction, at any number of arms. Above two arms, the fit applies the construction to each arm indicator and stacks the arm estimators. The conditions are below. |
 | `delta=`, observational | without `randomized=` or a declared mechanism, a non-empty `guard` selects the [composite indicator](theorem.md#observational-missing-data-the-composite-indicator), at any number of arms |
 | `treatment_delta=` | a declared missing treatment, with or without `delta=`, selects the composite indicator at every `guard`. `guard=()` is the composite TMLE. The arm means and their contrasts (`ey`, `ate`, `rr`, `or`) at every `guard`, and regime means and arm-indexed `msm=` coefficients on `TMLE`; the table below gives the compositions |
@@ -140,7 +140,10 @@ Ordinary `TMLE` admits a cross-fitted missing-outcome fit only under its
 two things at once. The reduced regressions must be `P_w`-conditional expectations, which weighted
 loss gives. The mechanism they condition on and divide by must be the `P_w` mechanism, which holds
 because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the
-whole expansion at two tilted laws, and keeps the wrong transport as a control that fails.
+whole expansion at two tilted laws, and keeps the wrong transport as a control that fails. A
+declared mechanism is the `P_w` mechanism only under `mechanism_law="target"`; under `"sample"`
+`nuisance.propensity` is the estimated tilt, which the reduced regressions do not yet read, so a
+guarded fit refuses.
 
 `tests/unit/test_simulated_confounding.py` adds the applied evidence. It refits nonuniform-weight
 complete-outcome fits for each binary parameter DR-TMLE can replay: the arm means, the ATE, the
@@ -219,5 +222,6 @@ retained diagnostic.
 | `targeting="one_step"` with `reduced_crossfit="foldwise"`, cross-fitted, at a non-empty `guard` | on cost, as the `evaluation=` row. The slabs move by each of up to 20,000 adaptive steps. The fit refuses before any learner, also on an estimator whose settings change after construction. The refusal names `targeting="iterative"` and `reduced_crossfit="pooled"` |
 | `reduced_crossfit="foldwise"` with `n_folds < 3` | the construction leaves two folds out at a time. The refusal is a `CapabilityError` (`INVALID_DECLARATION`) and names `reduced_crossfit="pooled"`. The fit asks again before any learner, so an `n_folds` that changes after construction meets the same refusal. `cross_fit=True` with fewer than two folds is refused earlier, when the declaration is constructed |
 | `reduced_crossfit="foldwise"` where a pair of folds holds every trainable row of an arm in the whole sample | the leave-two-out primary regressions cannot be fitted. The fit refuses after the fold draw and before any learner. A baseline stratum whose arm rows sit in two folds is not refused by this check |
+| `reduced_crossfit="foldwise"` with a package `SuperLearner` primary regression, where the rows outside a pair of folds keep one row of a class of its target, or none for a class other than a binary outcome's | the inner stratified split needs two rows of each class. The fit refuses after the fold draw and before any learner and names the pair and `reduced_crossfit="pooled"`. A binary outcome class with no row outside the pair takes the [one-value rule](../point-treatment-tmle.md#a-binary-outcome-regression-with-one-value) |
 | a continuous outcome with `cross_fit=True` and `q_bounds=None` | the scale would come from every observed outcome, held-out rows included, and no shipped result covers it. See the [fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) |
 | `stratify_folds="treatment"` or `"treatment+outcome"` with `cross_fit=True` | the partition would be a function of the data the fit then conditions on. Refused when the declaration is constructed |

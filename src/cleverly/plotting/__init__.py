@@ -24,13 +24,12 @@ function                question
 :func:`weights`         at which time point do a longitudinal fit's weights grow too large?
 :func:`balance`         did weighting make treated and untreated units alike on each covariate?
 :func:`zipper`          do a study's intervals cover the true value, and how do they miss?
-======================  ============================================================================
 :func:`calibration`     do predicted effects or probabilities match what was measured?
 :func:`learners`        which learners carry the fit, and how sharp was the choice?
 :func:`repeats`         does the estimate depend on how the data were split?
 :func:`bootstrap`       is the bootstrap distribution close to normal?
 :func:`influence`       how few rows or clusters carry the uncertainty?
-======================  ===========================================================
+======================  ============================================================================
 """
 
 from __future__ import annotations

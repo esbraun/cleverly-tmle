@@ -476,6 +476,10 @@ conditional-projection,interval_calibration,se ratio in calibration band,affine
 conditional-projection,power,rejection floor,affine
 conditional-projection,type_i_error,coverage floor,coverage/0.5
 conditional-projection,type_i_error,rejection ceiling,rejection/0.1
+continuous-survival-functionals,interval_calibration,coverage in calibration band,shift/0.7
+continuous-survival-functionals,interval_calibration,noise se ratio below band,se_high
+continuous-survival-functionals,interval_calibration,se ratio below band,se_high
+continuous-survival-functionals,interval_calibration,se ratio in calibration band,se/0.05
 continuous-time-survival,double_robustness,bias discriminated,pair_collapse
 continuous-time-survival,double_robustness,bias equivalent,bias
 continuous-time-survival,double_robustness,se ratio in union band,se/0.05
@@ -730,6 +734,24 @@ isotonic-binding,material_move,share floor,positive_diffuse
 known-node-mechanisms,known_mechanism_accuracy,bias equivalent,bias
 known-node-mechanisms,known_mechanism_accuracy,coverage floor,coverage/0.5
 known-node-mechanisms,known_mechanism_accuracy,se ratio in band,se_high
+known-score-att,efficiency_gain,atc spread ratio under its boundary,positive_diffuse
+known-score-att,efficiency_gain,atc_zero_gain spread ratio reaches its boundary,control_concentrated
+known-score-att,efficiency_gain,att spread ratio under its boundary,positive_diffuse
+known-score-att,efficiency_gain,att_zero_gain spread ratio reaches its boundary,affine
+known-score-att,interval_calibration,coverage in calibration band,bias
+known-score-att,interval_calibration,efficiency above band,pair_collapse
+known-score-att,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+known-score-att,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+known-score-att,interval_calibration,se ratio below band,se_high
+known-score-att,interval_calibration,se ratio in calibration band,affine
+known-score-att,known_score_accuracy,bias discriminated,pair_collapse
+known-score-att,known_score_accuracy,bias equivalent,bias
+known-score-att,known_score_accuracy,coverage floor,coverage/0.5
+known-score-att,known_score_accuracy,se ratio in band,se_high
+known-score-att,root_n_and_efficiency,bias equivalent,bias
+known-score-att,root_n_and_efficiency,coverage floor,coverage/0.5
+known-score-att,root_n_and_efficiency,se ratio sanity,se_high
+known-score-att,root_n_rate,slope in root-n band,contract
 known-treatment-mechanism,bootstrap_coverage,coverage floor,se_low
 known-treatment-mechanism,interval_calibration,coverage in calibration band,shift/0.7
 known-treatment-mechanism,interval_calibration,noise se ratio below band,se_high
@@ -827,6 +849,12 @@ learned-rule-learners,interval_calibration,noise se ratio below band,se_high
 learned-rule-learners,interval_calibration,se ratio below band,se_high
 learned-rule-learners,interval_calibration,se ratio in calibration band,se/0.05
 learned-rule-learners,interval_calibration,validation-rule coverage below band,coverage/0.925
+learned-rule-optimal-compositions,interval_calibration,coverage in calibration band,bias
+learned-rule-optimal-compositions,interval_calibration,noise se ratio below band,se_high
+learned-rule-optimal-compositions,interval_calibration,se ratio below band,se_high
+learned-rule-optimal-compositions,interval_calibration,se ratio in calibration band,affine
+learned-rule-optimal-compositions,interval_calibration,unnormalised curve se ratio below band,pair_collapse
+learned-rule-optimal-compositions,weighted_target_control,unweighted-target coverage below the calibration floor,affine
 learned-rule-optimal-value,interval_calibration,coverage in calibration band,shift/0.7
 learned-rule-optimal-value,interval_calibration,noise se ratio below band,se_high
 learned-rule-optimal-value,interval_calibration,se ratio below band,se_high
@@ -1262,6 +1290,13 @@ mtp-pricing,interval_calibration,se ratio in calibration band,none
 mtp-pricing,ratio_necessity,bias discriminated,pair_collapse
 mtp-pricing,ratio_necessity,bias equivalent,bias
 mtp-pricing,ratio_necessity,least displacement over labels,control_concentrated
+mtp-pricing-censored,censoring_necessity,bias discriminated,pair_collapse
+mtp-pricing-censored,censoring_necessity,bias equivalent,bias
+mtp-pricing-censored,censoring_necessity,least displacement over labels,control_concentrated
+mtp-pricing-censored,interval_calibration,coverage in calibration band,shift/0.7
+mtp-pricing-censored,interval_calibration,noise se ratio below band,se_high
+mtp-pricing-censored,interval_calibration,se ratio below band,se_high
+mtp-pricing-censored,interval_calibration,se ratio in calibration band,se/0.05
 mtp-tuning,interval_calibration,coverage in calibration band,bias
 mtp-tuning,interval_calibration,noise se ratio below band,se_high
 mtp-tuning,interval_calibration,population truth se ratio below band,se_high
@@ -1617,10 +1652,6 @@ targeting-curves,simultaneous_coverage,joint coverage below nominal,se_low
 targeting-curves,simultaneous_coverage,joint coverage in calibration band,se_low
 targeting-curves,type_i_error,coverage floor,coverage/0.5
 targeting-curves,type_i_error,rejection ceiling,rejection/0.1
-tests.studies.continuous_survival_functionals_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.continuous_survival_functionals_properties,interval_calibration,noise se ratio below band,se_high
-tests.studies.continuous_survival_functionals_properties,interval_calibration,se ratio below band,se_high
-tests.studies.continuous_survival_functionals_properties,interval_calibration,se ratio in calibration band,se/0.05
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05
@@ -1820,6 +1851,63 @@ hazard-msm,simultaneous_coverage,joint coverage in calibration band,se_low
 hazard-msm,targeting_necessity,bias discriminated,pair_collapse
 hazard-msm,targeting_necessity,bias equivalent,bias
 hazard-msm,targeting_necessity,least displacement over labels,control_concentrated
+hazard-mtp,double_robustness,bias discriminated,pair_collapse
+hazard-mtp,double_robustness,bias equivalent,bias
+hazard-mtp,double_robustness,se ratio in union band,se/0.05
+hazard-mtp,interval_calibration,coverage in calibration band,shift/0.7
+hazard-mtp,interval_calibration,efficiency above band,pair_collapse
+hazard-mtp,interval_calibration,efficiency empirical in efficiency band,mixed/3
+hazard-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-mtp,interval_calibration,se ratio below band,se_high
+hazard-mtp,interval_calibration,se ratio in calibration band,se/0.9
+hazard-mtp,power,rejection floor,rejection/0.01
+hazard-mtp,root_n_and_efficiency,bias equivalent,bias
+hazard-mtp,root_n_and_efficiency,coverage floor,coverage/0.5
+hazard-mtp,root_n_and_efficiency,se ratio sanity,se_high
+hazard-mtp,root_n_rate,slope in root-n band,contract
+hazard-mtp,simultaneous_coverage,joint coverage below nominal,se_high
+hazard-mtp,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-mtp,targeting_necessity,bias discriminated,pair_collapse
+hazard-mtp,targeting_necessity,bias equivalent,bias
+hazard-mtp,targeting_necessity,least displacement over labels,control_concentrated
+hazard-time-varying,double_robustness,bias discriminated,pair_collapse
+hazard-time-varying,double_robustness,bias equivalent,bias
+hazard-time-varying,double_robustness,se ratio in union band,se/0.05
+hazard-time-varying,interval_calibration,coverage in calibration band,shift/0.7
+hazard-time-varying,interval_calibration,efficiency above band,pair_collapse
+hazard-time-varying,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+hazard-time-varying,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-time-varying,interval_calibration,se ratio below band,se_high
+hazard-time-varying,interval_calibration,se ratio in calibration band,se/0.9
+hazard-time-varying,power,rejection floor,rejection/0.01
+hazard-time-varying,root_n_and_efficiency,bias equivalent,bias
+hazard-time-varying,root_n_and_efficiency,coverage floor,coverage/0.5
+hazard-time-varying,root_n_and_efficiency,se ratio sanity,se_high
+hazard-time-varying,root_n_rate,slope in root-n band,contract
+hazard-time-varying,simultaneous_coverage,joint coverage below nominal,se_high
+hazard-time-varying,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-time-varying,targeting_necessity,bias discriminated,pair_collapse
+hazard-time-varying,targeting_necessity,bias equivalent,bias
+hazard-time-varying,targeting_necessity,least displacement over labels,control_concentrated
+hazard-multinode,double_robustness,bias discriminated,pair_collapse
+hazard-multinode,double_robustness,bias equivalent,bias
+hazard-multinode,double_robustness,se ratio in union band,se/0.05
+hazard-multinode,interval_calibration,coverage in calibration band,affine
+hazard-multinode,interval_calibration,efficiency above band,pair_collapse
+hazard-multinode,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+hazard-multinode,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-multinode,interval_calibration,se ratio below band,se_high
+hazard-multinode,interval_calibration,se ratio in calibration band,se/0.9
+hazard-multinode,power,rejection floor,rejection/0.01
+hazard-multinode,root_n_and_efficiency,bias equivalent,bias
+hazard-multinode,root_n_and_efficiency,coverage floor,affine
+hazard-multinode,root_n_and_efficiency,se ratio sanity,se_high
+hazard-multinode,root_n_rate,slope in root-n band,contract
+hazard-multinode,simultaneous_coverage,joint coverage below nominal,se_high
+hazard-multinode,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-multinode,targeting_necessity,bias discriminated,pair_collapse
+hazard-multinode,targeting_necessity,bias equivalent,bias
+hazard-multinode,targeting_necessity,least displacement over labels,control_concentrated
 option-stopping-ltmle,interval_calibration,coverage in calibration band,shift/0.7
 option-stopping-ltmle,interval_calibration,noise se ratio below band,se_high
 option-stopping-ltmle,interval_calibration,se ratio below band,se_high
@@ -1865,3 +1953,36 @@ option-patience,ordered_late_confounder,bias discriminated,control_diffuse
 option-patience,ordered_whole_path,bias equivalent,bias
 option-patience,patience_bias,bias equivalent,bias
 option-patience,patience_witness,coverage floor,shift/3
+drtmle-foldwise-n1500,double_robustness,bias equivalent,bias
+drtmle-foldwise-n1500,double_robustness,se ratio in union band,se/0.05
+multi-arm-drtmle-foldwise,double_robustness,bias equivalent,bias
+multi-arm-drtmle-foldwise,double_robustness,se ratio in union band,se/0.05
+stratified-drtmle-foldwise,stratified_contraction,control slope fails to contract,shrink_role/control/1.5
+stratified-drtmle-foldwise,stratified_contraction,rung se ratio in sanity band,se_low
+stratified-drtmle-foldwise,stratified_contraction,slope consistent with second order,contract
+mtp-policy-variance,policy_calibration,se ratio above clause,se_low
+mtp-policy-variance,policy_variance,se ratio above clause,se_low
+mtp-policy-variance,interval_calibration,noise se ratio below band,se_high
+mtp-policy-variance,interval_calibration,se ratio below band,se_high
+mtp-policy-variance,policy_calibration,coverage floor control below ceiling,se_high
+mtp-policy-variance,policy_calibration,se ratio below clause,se_high
+mtp-policy-variance,policy_calibration,se ratio clause,se_high
+mtp-policy-variance,policy_variance,coverage floor control below ceiling,se_high
+mtp-policy-variance,policy_variance,se ratio clause,se_high
+mtp-policy-variance,policy_variance,wald coverage below nominal,se_high
+mtp-policy-variance,interval_calibration,coverage in calibration band,bias
+mtp-policy-variance,policy_calibration,bias equivalent,bias
+mtp-policy-variance,policy_variance,bias equivalent,bias
+mtp-policy-variance,interval_calibration,se ratio in calibration band,se/0.05
+mtp-policy-variance,policy_calibration,coverage floor,coverage/0.5
+mtp-policy-variance,policy_variance,coverage floor,coverage/0.5
+mtp-policy-variance,policy_variance,coverage reaches nominal,coverage/0.925
+known-mechanism-sample-weights,both_misspecified,bias discriminated,affine
+known-mechanism-sample-weights,interval_calibration,coverage in calibration band,bias
+known-mechanism-sample-weights,interval_calibration,noise se ratio below band,se_high
+known-mechanism-sample-weights,interval_calibration,se ratio below band,se_high
+known-mechanism-sample-weights,interval_calibration,se ratio in calibration band,se/0.05
+known-mechanism-sample-weights,sample_bias,bias equivalent,bias
+known-mechanism-sample-weights,sample_misspecified,bias equivalent,bias
+known-mechanism-sample-weights,target_reading_control,bias discriminated,shift/0.7
+known-mechanism-sample-weights,tilt_misspecified,bias equivalent,bias

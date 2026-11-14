@@ -33,8 +33,13 @@ from cleverly.survival._targeting import (
     walk,
 )
 from cleverly.survival.result import (
+    CONTINUOUS_SURVIVAL_STUDY,
+    FUNCTIONALS_LIMITS,
+    FUNCTIONALS_STUDY,
     MEASURED_DEFAULTS,
     OFF_GRID_SHARE,
+    RATIO_REASON,
+    RESTRICTED_EVENT_SHARE,
     continuous_survival_support,
     risk_names,
 )
@@ -301,11 +306,19 @@ def test_the_fit_reports_and_targets_every_restricted_mean() -> None:
     assert max(fit.record.standardized_score) <= fit.record.cutoff
     # The band covers the risks and their differences only.
     assert set(fit.simultaneous.bands) == set(risk_names(fit.arms, fit.causes, fit.horizons))
-    # Every estimate reads experimental: no registered study measures a fit with restricted
-    # means, and the extra targets move its risks.
+    # Every estimate reads experimental: the fit is in sample, and its restriction time lies
+    # past its last target time, which the functionals study does not measure (D3).
     assert all(e.support.label == "experimental" for e in fit.values())
-    assert "restricted mean." in fit[names[0]].support.reason
-    assert "moves its risks" in fit["cif_regimen[treated, death @ t=1]"].support.reason
+    for name in (names[0], "cif_regimen[treated, death @ t=1]"):
+        assert "past the last target time" in fit[name].support.reason
+        assert fit[name].support.limits[-1] == FUNCTIONALS_LIMITS[0]
+    # ratio() reads the fit's own risk ratio's label, in either order, not the unmeasured one.
+    stored = fit["rr_regimen[treated vs control, death @ t=1]"].support
+    pair = ("cif_regimen[treated, death @ t=1]", "cif_regimen[control, death @ t=1]")
+    assert fit.ratio(*pair).support == stored
+    assert fit.ratio(*reversed(pair)).support == stored
+    assert RATIO_REASON not in stored.reason
+    assert RATIO_REASON in fit.ratio(*pair, kind="or").support.reason
 
 
 def test_the_initial_estimates_skip_the_restricted_rows() -> None:
@@ -315,26 +328,52 @@ def test_the_initial_estimates_skip_the_restricted_rows() -> None:
     assert all(0.0 <= initial[name] <= 1.0 for name in initial if "ate_" not in name)
 
 
-def test_the_support_reads_a_restricted_mean_as_unmeasured() -> None:
+def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> None:
     measured = dict(MEASURED_DEFAULTS)
-    common = {"event_share": 0.6, "n": 1_000, "causes": 2, "cross_fitted": True}
-    plain = continuous_survival_support(
-        scale="level", default_nuisances=True, settings=measured, **common
-    )
-    assert plain.label == "supported"
-    restricted = continuous_survival_support(
-        scale="level", default_nuisances=True, settings=measured, restricted=True, **common
-    )
-    assert restricted.label == "experimental"
-    assert "restricted mean" in restricted.reason
-    moved = continuous_survival_support(
-        scale="level", default_nuisances=True, settings=measured, restricted_horizons=1, **common
-    )
-    assert moved.label == "experimental" and "moves its risks" in moved.reason
-    several = continuous_survival_support(
-        scale="level", default_nuisances=True, settings=measured, restricted_horizons=2, **common
-    )
+    common = {"n": 1_000, "causes": 2, "cross_fitted": True, "default_nuisances": True}
+
+    def label(**kwargs: Any) -> Any:
+        return continuous_survival_support(settings=measured, **{**common, **kwargs})
+
+    plain = label(scale="level", event_share=0.6)
+    assert plain.label == "supported" and plain.evidence == (CONTINUOUS_SURVIVAL_STUDY,)
+    # A ratio is measured only in a fit with one restricted horizon.
+    assert label(scale="ratio", event_share=0.6).reason == RATIO_REASON
+    for scale in ("level", "difference", "ratio"):
+        moved = label(scale=scale, event_share=0.6, restricted_horizons=1)
+        assert moved.label == "supported", scale
+        assert moved.evidence == (FUNCTIONALS_STUDY,)
+        assert moved.limits[-1] == FUNCTIONALS_LIMITS[0]
+    # m3: a restricted mean reads supported only inside the window around the measured share.
+    low, high = RESTRICTED_EVENT_SHARE
+    for scale in ("level", "difference"):
+        inside = label(scale=scale, event_share=0.75, restricted=True, restricted_horizons=1)
+        assert inside.label == "supported"
+        edge = label(scale=scale, event_share=low, restricted=True, restricted_horizons=1)
+        assert edge.label == "supported"
+        early = label(scale=scale, event_share=0.6, restricted=True, restricted_horizons=1)
+        assert early.label == "experimental"
+        assert "weights the sparse early times" in early.reason
+        late = label(scale=scale, event_share=high + 0.01, restricted=True, restricted_horizons=1)
+        assert late.label == "experimental"
+    # The window is the restricted means', not the risks': 0.6 passes a risk and fails an RMTL.
+    assert label(scale="level", event_share=0.6, restricted_horizons=1).label == "supported"
+    # D3: a restriction time past the last target time is unmeasured, for every estimate.
+    for restricted in (False, True):
+        past = label(
+            scale="level",
+            event_share=0.75,
+            restricted=restricted,
+            restricted_horizons=1,
+            past_last_time=True,
+        )
+        assert past.label == "experimental" and "past the last target time" in past.reason
+    several = label(scale="level", event_share=0.6, restricted_horizons=2)
+    assert several.label == "experimental"
     assert "targets 2 restricted horizons" in several.reason
+    # The other conditions still bind on a restricted fit.
+    small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=500)
+    assert small.label == "experimental"
 
 
 # ----------------------------------------------------------------- T-c4: refusal C1

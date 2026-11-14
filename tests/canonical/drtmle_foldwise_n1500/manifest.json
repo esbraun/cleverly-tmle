@@ -1,0 +1,124 @@
+{
+  "schema_version": 2,
+  "study": "DR-TMLE fold-wise default on the RM18 binary draws",
+  "slug": "drtmle-foldwise-n1500",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-drtmle-foldwise",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "816271198c4906f370f2f5cf0961141f481f2b53",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 1500,
+    "seed": 2026111201,
+    "resampling_seed": 2026111211,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-drtmle-foldwise": 0.01
+    },
+    "scenarios": {
+      "both_correct": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "source_law": "Benkeser et al. (2017), Section 5.1",
+    "cross_fit": true,
+    "n_folds": 10,
+    "reduced_crossfit": "foldwise",
+    "reduction": "univariate",
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "update_order": "drtmle",
+    "max_outer": 100,
+    "max_iter": 100,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "stratify_folds": "none",
+    "folds": "canonical-drtmle's unstratified ten-fold vector, drawn by cleverly.random_partition from the sample's seed alone",
+    "nuisance_models": {
+      "correct": "unpenalized logistic GLM with W1:W2",
+      "misspecified": "unpenalized main-effects logistic GLM",
+      "reduced_Q": "Gaussian GLM",
+      "reduced_g": "binomial GLM"
+    },
+    "comparator": "none: Python property evidence, no comparator",
+    "comparator_reason": "R drtmle has no fold-wise reduced-regression construction",
+    "draws": "each cell draws the canonical-drtmle RM18 cell's property stream, so replication r < 800 is that cell's registered replication r; the primary phase draws this record's own fresh seed",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/drtmle_foldwise_n1500.py": "063a47391a78ef5661dcbb6d20ddea067469702a4ce5eb84ca218db7f9952b16",
+    "tests/studies/drtmle_foldwise_sizing.py": "e84a43b6e41bd7070219aaf1eaba19229370557ec2ffc9b071bab014c99e7bef",
+    "tests/studies/drtmle_foldwise.py": "f15af4b20daea89828ea0941e19ce5babdd4e38fd57aa181956ffdb63a13dda5",
+    "tests/studies/drtmle_properties.py": "1e8e8806910b3aa03ba50fa15f65895e59c48e27906c0981df38b19256b19bb7",
+    "tests/studies/canonical_drtmle.py": "3d70a888b44d4241c2d1216fdaded20a4ba252344160de8af630e54663872ee0",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
+    "tests/studies/evidence/property_verdicts.py": "f7130e95147b06e2ab81f13704a921effb783b94a72a3e9a94050614d68f7699",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/discrete_law.py": "cecd125d7cc80652937d83edbd29f792cd05468baf634cc7b2855fd17db778f2",
+    "tests/studies/canonical_multi_arm_drtmle.py": "06ea8be89c2a447834b9083f176d55a1a5151dcc0c6e962836b156bb4564f572",
+    "tests/studies/canonical_stratified_drtmle.py": "34d0abe1ff13fc827246879703df1eed7982b90b770e4ef92463cdd237eb37e6",
+    "tests/studies/drtmle_foldwise_properties.py": "edc8ad23b6ba84dca578b83143c4bc5fbcc3751e6fbea89698c7a37b318aab29",
+    "tests/studies/multi_arm_common.py": "60f76754d0079b0a00994812f3d6208c7e6ba0f8ae060811e9db8c0ba1841697",
+    "tests/studies/multi_arm_drtmle_properties.py": "568adaf2e303829c1a668122b3c0ba660365d93b89b86d8e80dcee9cba1edd9a",
+    "tests/studies/multi_arm_properties.py": "2f7ded8fb0ea6c66799220f5db6654b21abffb306de53ec72e5ad9145d23b8a9",
+    "tests/studies/stratified_alternating_law.py": "06dd359ac9b20bbbedad07080baeca51b5d35f4940a9e3bb750e54c86620f276",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "fae18f81935c279ae980b0e7b8ab232cd9b747d099496cc43b7e11a8107a6a72",
+    "summary.csv": "c84567b30246df254d57ea24c874fcb34ffc47ccb0efd0fee59be4ef5579a48d",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "69c94a2a43621d403e2248260a2e6a168e733a1180650683099e1c54a6614b46",
+    "property-replicates.parquet": "0ab9b95cda4ef601dd99ed3312351174fcfed9aa3e7c35fe05016a9147f2e7b8",
+    "properties.csv": "5da703b3ef20d03349ea6cea3ad8d03a75668fb5a1d7f84c4a327208eb268ed9",
+    "pooled-displacement.csv": "ec227535c87059faf93e7228926e3237444bf4b7736ed64d0fa37f258a34ce60"
+  }
+}

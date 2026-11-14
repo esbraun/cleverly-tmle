@@ -1,0 +1,172 @@
+{
+  "schema_version": 2,
+  "study": "policy-weighted variance for heavy density ratios",
+  "slug": "mtp-policy-variance",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mtp-policy-variance",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "a1c62db0601796d5c61b2c8ee14f77d075043f32",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1800,
+    "n": 5600,
+    "scenario_n": {
+      "pricing_ltmle_tau5_tail": 72800,
+      "pricing_sdr_tau5_tail": 73600,
+      "atom_ltmle_tail": 6400,
+      "atom_sdr_tail": 6400,
+      "p4_ltmle_tail": 104400,
+      "p4_sdr_tail": 104400,
+      "atom_ltmle_tail_policy": 6400,
+      "atom_sdr_tail_policy": 6400
+    },
+    "seed": 20265005,
+    "resampling_seed": 2026500501,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-mtp-policy-variance": 0.01
+    },
+    "scenarios": {
+      "pricing_ltmle_tau5_tail": [
+        "ey_regimen[price_down]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_sdr_tau5_tail": [
+        "ey_regimen[price_down]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_ltmle_tau3_tail": [
+        "ey_regimen[price_down]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_sdr_tau3_tail": [
+        "ey_regimen[price_down]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "atom_ltmle_tail": [
+        "ate_regimen[p5 vs natural]"
+      ],
+      "atom_sdr_tail": [
+        "ate_regimen[p5 vs natural]"
+      ],
+      "p4_ltmle_tail": [
+        "ey_regimen[p4]",
+        "ate_regimen[p4 vs natural]"
+      ],
+      "p4_sdr_tail": [
+        "ey_regimen[p4]",
+        "ate_regimen[p4 vs natural]"
+      ],
+      "pricing_ltmle_tau3_tail_policy": [
+        "ey_regimen[price_down]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_sdr_tau3_tail_policy": [
+        "ey_regimen[price_down]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "atom_ltmle_tail_policy": [
+        "ey_regimen[p5]",
+        "ate_regimen[p5 vs natural]"
+      ],
+      "atom_sdr_tail_policy": [
+        "ey_regimen[p5]",
+        "ate_regimen[p5 vs natural]"
+      ]
+    },
+    "construction": "ordinary, one fold, end of study",
+    "variance": "policy_weighted on the option rows; influence_curve on the Wald rows",
+    "variance_learner": {
+      "learning_rate": 0.1,
+      "l2_regularization": 1.0,
+      "early_stopping": false,
+      "max_depth": 5,
+      "max_iter": 200,
+      "min_samples_leaf": 20
+    },
+    "twin_sizes": {
+      "pricing_ltmle_tau5_tail": 72800,
+      "pricing_sdr_tau5_tail": 73600,
+      "pricing_ltmle_tau3_tail": 5600,
+      "pricing_sdr_tau3_tail": 5600,
+      "atom_ltmle_tail": 6400,
+      "atom_sdr_tail": 6400,
+      "p4_ltmle_tail": 104400,
+      "p4_sdr_tail": 104400,
+      "pricing_ltmle_tau3_tail_policy": 5600,
+      "pricing_sdr_tau3_tail_policy": 5600,
+      "atom_ltmle_tail_policy": 6400,
+      "atom_sdr_tail_policy": 6400
+    },
+    "twin_se_screen": [
+      0.1,
+      10.0
+    ],
+    "coverage_control_se_factor": 0.65,
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.1,
+        10.0
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mtp_policy_variance.py": "b2bc00e8686521c24c7993c66b2287371e4676a4a3a8e606b0fcd3cf7c158d43",
+    "tests/studies/mtp_policy_variance_properties.py": "aa202b5c9f3ec95a9ae7b41049b328d654319c3aebbfc4d96d2aa69edf8ce2d6",
+    "tests/studies/canonical_mtp_boundaries.py": "a0a186cedebd3120440655936a288c2f8421ddd0d902a207015ab7738f5c168b",
+    "tests/studies/canonical_mtp_pricing.py": "e7882b1e7b1508d2694fa1dabf2bb7d09170f00b2d17e882aa28fedf879e899a",
+    "tests/studies/mtp_boundaries_common.py": "efa8ba7e0501271d55e632ab19edb7a6720f18077a3fe31a495e8e509c3d53af",
+    "tests/studies/mtp_boundaries_properties.py": "1412fc9c418b132d4c84a4bebbc1e750cd36439acf363b9f236b22c501468898",
+    "tests/studies/mtp_pricing_common.py": "5da8c15baaee240013f43988653f9ed2fdf6b3e8a538a7ac99a3b6e343d70e3a",
+    "tests/studies/mtp_pricing_properties.py": "a002f3576110dfe4e755092eec5619065fcfe418abf0326f6a1445d0fc0e773d",
+    "tests/studies/mtp_study_tools.py": "673cff2ca2cd20a3e047768abf3f38323de62d4d990ba4d65cbc2d062b720fd2",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/diagnostics/fix5_heavy_ratios/law_p_moments.csv": "1eb01db6ec9695b7dd1f75442f3b0f3bac403efc844c03a6e2911f713424cc60",
+    "tests/diagnostics/fix5_heavy_ratios/quadrature.csv": "272cb47ba03138c1b2d03856e5ce6a3a2010349425943b422a60c274522d2242",
+    "tests/diagnostics/fix5_heavy_ratios/law_b_own_moments.csv": "ffa3ffb0552dbb8b96cca6d366d86ee80cffbe8d1a1a5ce38ba1f9e2464cb9fa",
+    "tests/studies/mtp_policy_variance_screen.csv.gz": "5109374186141af0b487c14ffc758d7dbf6cfa0ca76112142e542419eb3f53ae",
+    "tests/studies/mtp_policy_variance_pilot.csv.gz": "16e4448ab701fc6cd134c5e775566871fe56b631b25f160b5dcf07dfa230f800"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "38b4d4907a0484aac0bbebb27f80e2ead2b7db76e54de6857db4463dacea7c24",
+    "summary.csv": "9c5066ae354b9ac9992d52cc3c82affcc2b8fd1fe4d04eb970990e87917d6b0f",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "535d2943d8d4cfe3829bc8894633f0163509c9b0cbadb13858efb967004402ca",
+    "property-replicates.parquet": "c84ae7b719c1bb08a3139906504a593f9b8c38c73fd7eb2caade93ee5437af15",
+    "properties.csv": "1eee220ea3f49878a319f7d9f41b4a480ac3a4b91ba75a0682d193725237c2df",
+    "coverage-controls.csv": "2cc9d48e81958cc3e800d38c372ccf469c8723fdce741b2e945da22f13ac3e7b"
+  }
+}

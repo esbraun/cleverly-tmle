@@ -127,11 +127,16 @@ ACCEPTED_LABEL = "accepted (named exception)"
 
 
 def _accepted_by_exception(slug: str, implementation: str, scenario: str, estimand: str) -> bool:
-    """Whether a truth row is the one its owner accepted by a named exception."""
-    # Imported here because ``red_cells`` itself imports this module.
-    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, RedKey
+    """Whether a truth row was accepted as valid by a named exception.
 
-    return RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}") in ACCEPTED_BY_EXCEPTION
+    An exception whose row also has an owner only lifts the ``reporting`` requirement, so that
+    row still prints as failed.
+    """
+    # Imported here because ``red_cells`` itself imports this module.
+    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS, RedKey
+
+    key = RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}")
+    return key in ACCEPTED_BY_EXCEPTION and key not in OWNERS
 
 
 def _comparison_result(row: Any) -> str:
@@ -407,6 +412,25 @@ def measured(row: Any) -> str:
                 f"lower bound {render(float(row.gain_lower))}"
             )
         return measured
+    if family in _POLICY_VARIANCE_FAMILIES:
+        # ``mtp-policy-variance``: an option row is judged on its coverage floor and its SE-ratio
+        # clause, a control on one of the two, and a reported row reads both, so every row
+        # prints both intervals with the code-read reading and the lowest-SE-quartile coverage.
+        measured = (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+        if pd.notna(getattr(row, "q1_coverage", None)):
+            measured += (
+                f", lowest-SE-quartile coverage {render(float(row.q1_coverage))} "
+                f"({_interval(row.q1_coverage_ci_lower, row.q1_coverage_ci_upper)})"
+            )
+        if pd.notna(getattr(row, "rms_ratio", None)):
+            measured += f", RMS ratio {_interval(row.rms_ratio_ci_lower, row.rms_ratio_ci_upper)}"
+        reading = getattr(row, "reading", None)
+        if isinstance(reading, str) and reading:
+            measured += f", reads {reading}"
+        return measured
     if family in {"non_h1", "witness"}:
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
@@ -489,6 +513,20 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
+    if family == "stratified_contraction":
+        # Fix-6's stratified ladder: a rate row answers to its slope, and a rung to its SE ratio
+        # alone, so the rung prints that interval beside its published bias and coverage, and
+        # the coverage its bias and SE ratio imply.
+        if "__rate_" in str(row.cell):
+            return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+        rung = (
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"bias {render(float(row.standardized_bias))} SD, "
+            f"coverage {render(float(row.coverage))}"
+        )
+        if str(row.role) == "control":
+            return rung
+        return f"{rung} against {render(float(row.implied_coverage))} implied"
     if family in {"refuter_size", "refuter_power"}:
         # The cell's verdict reads the count of its trials, so the row prints that count.
         word = "rejections" if family == "refuter_size" else "detections"
@@ -644,7 +682,7 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
-    if family == "known_mechanism_accuracy":
+    if family in {"known_mechanism_accuracy", "known_score_accuracy"}:
         # A positive cell answers to the bias margin, the coverage floor and the SE screen
         # together; the control to its bias alone, so the margin is printed beside it.
         return (
@@ -682,9 +720,10 @@ def measured(row: Any) -> str:
         return measured
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
-    if family == "repeat_stability":
+    if family in {"repeat_stability", "efficiency_gain"}:
         # The positive rows read the upper endpoint below the boundary; the control reads it at
-        # or above, so the control's text says the endpoint reaches the boundary.
+        # or above, so the control's text says the endpoint reaches the boundary.  The
+        # known-score study's ``efficiency_gain`` reads the same paired spread ratio.
         reach = ", reached by the upper endpoint" if str(row.role) == "control" else ""
         return (
             f"spread ratio {render(float(row.spread_ratio))}, "
@@ -861,10 +900,10 @@ def measured(row: Any) -> str:
             f"min arm share {render(float(row.mean_min_arm_share))}, "
             f"lost-arm share {render(float(row.lost_arm_share))}"
         )
-    if family == "optimal_target_control":
-        # X11 PR I: the control answers to a coverage ceiling on the optimal value. Its coverage
-        # of the realized rule value and its mean regret are published beside it, read by no
-        # verdict.
+    if family in {"optimal_target_control", "weighted_target_control"}:
+        # X11 PR I and X11 (f3): the control answers to a coverage ceiling on a value other than
+        # its fit's target. Its coverage of the realized rule value and its mean regret are
+        # published beside it, read by no verdict.
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}, mean regret "
@@ -933,8 +972,9 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
-    if family == "iterated_mean_difference":
-        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+    if family in {"iterated_mean_difference", "one_step_walk"}:
+        # hazard-msm (X70 part (d)), and hazard-multinode's one-step walk (X70 part (a)):
+        # reported with no verdict.  A paired difference prints its
         # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
         # row the share of draws whose iterated-mean risk curve decreases.
         cell = str(row.cell)
@@ -967,6 +1007,17 @@ def _has_exact_efficiency(row: Any) -> bool:
         row.efficiency_empirical_ci_lower
     )
 
+
+#: The ``mtp-policy-variance`` families whose rows print coverage and the SE-ratio interval.
+_POLICY_VARIANCE_FAMILIES = frozenset(
+    {
+        "policy_variance",
+        "policy_calibration",
+        "reporting_calibration",
+        "sdr_default_pseudo",
+        "tail_option",
+    }
+)
 
 #: The ``small-sample-wald`` coverage families and their re-read rows, each judged or reported
 #: on its two coverage legs, and the two cells whose verdict also reads the paired gain.
@@ -1038,6 +1089,12 @@ _BIAS_GATED = frozenset(
         "patience_bias",
         "ordered_late_confounder",
         "ordered_whole_path",
+        # Fix-16: the bias positives and controls of ``known-mechanism-sample-weights``.
+        "sample_bias",
+        "target_reading_control",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "both_misspecified",
     }
 )
 

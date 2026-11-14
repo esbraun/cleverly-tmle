@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._refusal import RefusalReason
 from .._support import Support, combine_support
 from .._typing import FloatArray
@@ -88,14 +89,37 @@ MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
 }
 
 
-#: Why a ratio of two continuous-time risks reads experimental.
+#: The registered study that measures a fit with ``restricted_horizons=``: its risks, risk
+#: differences, risk ratios, restricted means and their differences.
+FUNCTIONALS_STUDY: Final[str] = "continuous-survival-functionals"
+
+#: The share of the observed events (any cause) at or before a restriction time inside which a
+#: restricted mean reads supported.  The study restricts at the last target time, by which 75% of
+#: the observed events have happened on average (0.69 to 0.80 over 2,000 of its draws, sampling
+#: SD 0.016 at n = 1,000).  The lower edge sits five sampling SDs below that mean, as the risks'
+#: band does below its gated times; a restricted mean at an earlier restriction time weights the
+#: sparse early times more heavily, where the risks' standard error ran low, so it reads
+#: experimental.  The upper edge is the risks' (:data:`MEASURED_EVENT_SHARE`).
+RESTRICTED_EVENT_SHARE: Final[tuple[float, float]] = (0.67, 0.85)
+
+#: The limits a fit with restricted means states beside :data:`CONTINUOUS_LIMITS`.
+FUNCTIONALS_LIMITS: Final[tuple[str, ...]] = (
+    "One restriction time, at the last target time (2.32, the upper quartile of the event "
+    "times), with three target times. The restricted means read supported at restriction times "
+    "by which 67% to 85% of the observed events have happened; a restriction time past the last "
+    "target time extends the grid of the walk, which only the exact-law tests measure.",
+)
+
+#: Why a ratio of two continuous-time risks reads experimental in a fit without restricted means.
 RATIO_REASON: Final[str] = (
-    "No registered study measures a continuous-time risk ratio or odds ratio."
+    "The registered continuous-survival-functionals study measures the risk ratio of a fit "
+    "with one restricted horizon; no registered study measures the risk ratio of a fit "
+    "without one, or an odds ratio."
 )
 
 
-def _experimental(reason: str) -> Support:
-    return Support("experimental", reason, ("X91",), limits=CONTINUOUS_LIMITS)
+def _experimental(reason: str, limits: tuple[str, ...] = CONTINUOUS_LIMITS) -> Support:
+    return Support("experimental", reason, ("X91",), limits=limits)
 
 
 def continuous_survival_support(
@@ -110,16 +134,21 @@ def continuous_survival_support(
     restricted: bool = False,
     restricted_horizons: int = 0,
     variance_rel_sd: float | None = None,
+    past_last_time: bool = False,
 ) -> Support:
     """The support of one continuous-time estimate.
 
-    An estimate reads ``supported`` when the registered ``continuous-time-survival`` study
-    measures its configuration: a risk or a risk difference with two causes and at least
-    :data:`MEASURED_N` units, at a time by which between 40% and 85% of the observed events have
-    happened (:data:`MEASURED_EVENT_SHARE`),
-    from a cross-fitted fit with the default libraries and the settings of
-    :data:`MEASURED_DEFAULTS`.  Otherwise it reads ``experimental`` with every reason that
-    applies.
+    A risk or a risk difference of a fit without ``restricted_horizons=`` reads ``supported``
+    when the registered ``continuous-time-survival`` study measures its configuration: two
+    causes and at least :data:`MEASURED_N` units, at a time by which between 40% and 85% of the
+    observed events have happened (:data:`MEASURED_EVENT_SHARE`), from a cross-fitted fit with
+    the default libraries and the settings of :data:`MEASURED_DEFAULTS`.  A fit with one
+    restricted horizon, at or before its last target time, is measured by the registered
+    ``continuous-survival-functionals`` study under the same conditions: its risks, risk
+    differences and risk ratios, and its restricted means and their differences at a
+    restriction time by which between 67% and 85% of the observed events have happened
+    (:data:`RESTRICTED_EVENT_SHARE`).  Otherwise the estimate reads ``experimental`` with every
+    reason that applies.
 
     Parameters
     ----------
@@ -143,13 +172,16 @@ def continuous_survival_support(
     restricted_horizons : int
         How many restriction times the fit targets.  They add targets to the walk, which moves
         every risk of the fit, so this is a check of its own rather than a key of
-        :data:`MEASURED_DEFAULTS`: no registered study measures such a fit yet.
+        :data:`MEASURED_DEFAULTS`: the functionals study measures one.
     variance_rel_sd : float or None
         The relative standard deviation of the estimate's influence-curve variance,
         :math:`\\sqrt{(\\hat\\kappa - 1)/n}`.  A risk or risk difference above
         :data:`MEASURED_REL_SD` reads experimental (above :data:`MEASURED_REL_SD_EARLY` at an
         event share below :data:`SHARE_FLOOR_DEFAULT`).  Ratios and restricted means keep their
         own labels: the floor's study measures risks and risk differences only.
+    past_last_time : bool
+        Whether a restriction time lies past the fit's last target time, which extends the
+        walk's grid beyond it.  The functionals study restricts at the last target time.
 
     Returns
     -------
@@ -170,24 +202,38 @@ def continuous_survival_support(
     ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
     ... ).label
     'experimental'
+    >>> continuous_survival_support(
+    ...     scale="level", event_share=0.75, n=1_000, causes=2, cross_fitted=True,
+    ...     default_nuisances=True, settings=MEASURED_DEFAULTS, restricted=True,
+    ...     restricted_horizons=1,
+    ... ).evidence
+    ('continuous-survival-functionals',)
     """
     reasons: list[str] = []
-    if restricted:
-        reasons.append("No registered study measures a continuous-time restricted mean.")
-    elif scale == "ratio":
+    functionals = restricted_horizons > 0
+    if scale == "ratio" and not functionals:
         reasons.append(RATIO_REASON)
     if restricted_horizons > 1:
         reasons.append(
-            f"The fit targets {restricted_horizons} restricted horizons; no registered study "
-            "targets more than one."
+            f"The fit targets {restricted_horizons} restricted horizons; the registered "
+            f"{FUNCTIONALS_STUDY} study targets one."
         )
-    elif restricted_horizons and not restricted:
+    if functionals and past_last_time:
         reasons.append(
-            "The fit also targets restricted means, which moves its risks, and no registered "
-            "study measures such a fit."
+            "A restricted horizon lies past the last target time, which extends the walk's grid "
+            f"beyond it; the registered {FUNCTIONALS_STUDY} study restricts at the last target "
+            "time, and only the exact-law tests measure the extension."
         )
-    low, high = MEASURED_EVENT_SHARE
-    if event_share < low:
+    low, high = RESTRICTED_EVENT_SHARE if restricted else MEASURED_EVENT_SHARE
+    if restricted and event_share < low:
+        reasons.append(
+            f"Only {event_share:.0%} of the observed events happen by this restriction time. "
+            f"The registered {FUNCTIONALS_STUDY} study restricts where about 75% have happened, "
+            f"and a restricted mean reads supported from {low:.0%} to {high:.0%}; an earlier "
+            "restriction time weights the sparse early times, where the standard error ran "
+            "low, more heavily."
+        )
+    elif event_share < low:
         reasons.append(
             f"Only {event_share:.0%} of the observed events happen by this time. The "
             f"registered study gates times by which {low:.0%} to {high:.0%} have happened; at "
@@ -238,13 +284,15 @@ def continuous_survival_support(
             f"The fit sets {', '.join(changed)} away from the default, and the registered study "
             "measures the defaults only."
         )
+    limits = (*CONTINUOUS_LIMITS, *FUNCTIONALS_LIMITS) if functionals else CONTINUOUS_LIMITS
     if reasons:
-        return _experimental(" ".join(reasons))
+        return _experimental(" ".join(reasons), limits)
+    study = FUNCTIONALS_STUDY if functionals else CONTINUOUS_SURVIVAL_STUDY
     return Support(
         "supported",
-        f"The registered {CONTINUOUS_SURVIVAL_STUDY} study measures this configuration.",
-        (CONTINUOUS_SURVIVAL_STUDY,),
-        limits=CONTINUOUS_LIMITS,
+        f"The registered {study} study measures this configuration.",
+        (study,),
+        limits=limits,
     )
 
 
@@ -673,6 +721,14 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         Under ``variance="switched"``, the predictable-variation covariance of every targeted
         level, with each stored estimate's gradient over them; :meth:`contrast` and
         :meth:`ratio` read it.  ``None`` under ``variance="influence_curve"``.
+
+    Notes
+    -----
+    :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a
+    row for every assessment operation. The support, nuisance, score and influence
+    diagnostics read :attr:`record` and the influence curves, and the E-value reads a risk
+    ratio of the fit; every refutation, the truncation curve and every other sensitivity
+    analysis refuses with its reason and roadmap item.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -685,6 +741,16 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     backend: str | None = None
     restricted_horizons: tuple[float, ...] = field(default=())
     predictable: PredictableCovariance | None = None
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
+    #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
+    #: another fit.
+    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+
+    #: The assessment family: one declaration per assessment operation in
+    #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`.
+    assessment_family: ClassVar[str] = CONTINUOUS_SURVIVAL_FAMILY
+    #: The method identity of the result.
+    fitted_method: ClassVar[str] = "tmle"
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
@@ -1156,6 +1222,14 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             )
 
         derived = self._derive((numerator, denominator), run)
+        if kind == "rr" and view == "risk":
+            # The fit's own risk ratio of this pair, in either order, labelled when it was built.
+            for first, second in ((top, bottom), (bottom, top)):
+                stored = self.estimates.get(
+                    contrast_name("rr_regimen", first[0], second[0], first[1], first[2])
+                )
+                if stored is not None:
+                    return replace(derived, support=stored.support)
         support = combine_support(
             [RATIO_SUPPORT, self.estimates[numerator].support, self.estimates[denominator].support]
         )
@@ -1432,6 +1506,80 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         return emit_frame(
             {key: [row.get(key) for row in rows] for key in columns}, backend=self.backend
         )
+
+    # ------------------------------------------------------------- assessment
+
+    @property
+    def diagnostics(self) -> Any:
+        """The support, score, nuisance and influence diagnostics of the fit."""
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade, whose every row refuses on this fit."""
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            The score-equation, support and nuisance-model checks, read off the record.
+        """
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        The refutation, the truncation curve and every sensitivity row refuse on this fit,
+        and the report names each refusal without raising it.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored fit."""
+        from ..assessment import replayability
+
+        return replayability(self)
 
     def save(self, path: Any) -> Any:
         """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.

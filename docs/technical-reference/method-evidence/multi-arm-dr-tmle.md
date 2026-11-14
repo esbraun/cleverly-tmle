@@ -147,6 +147,9 @@ misses its equivalence margin at n = 2,000 by 0.0004, which is about six per cen
 The two figures print four units of the last digit apart in the generated table above.
 The ladder redraws that regime on independent streams at three sizes and puts the bias inside the
 margin at every one.
+The cell fits `reduced_crossfit="pooled"`; the shipped foldwise default passes on its draws
+([`drtmle-foldwise`](dr-tmle-foldwise.md#theory-properties)), and its primary rows are in
+[multi-arm DR-TMLE with fold-wise reduced regressions](multi-arm-dr-tmle-foldwise.md).
 
 In this regime the outcome regression is misspecified and the treatment mechanism is correct.
 RM18 read the level cell against the fully specified primary rows at the same size, under a rule

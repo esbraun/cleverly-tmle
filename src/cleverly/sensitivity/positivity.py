@@ -44,11 +44,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._refusal import Refusal, RefusalReason
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
 from .._typing import BoolArray, FloatArray
-from ..data.known_mechanism import moved_known_values_refusal
+from ..data.known_mechanism import divides_by_declaration, moved_known_values_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..data.weighting import (
     ScoreLoadRow,
@@ -629,6 +630,7 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
         If the treatment is continuous, which has no per-arm propensity either.
     """
     refuse_augmented_trial(result, "positivity_report", "report")
+    refuse_continuous_survival(result, "positivity_report")
     if not result.nuisance.fits_treatment:
         raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     if result.data.is_continuous_treatment:
@@ -1479,6 +1481,7 @@ def truncation_curve(
         explicit ``g(W)`` bound moves a value of a declared known mechanism.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
+    refuse_continuous_survival(result, "truncation_curve")
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError(
@@ -1521,7 +1524,12 @@ def truncation_curve(
     # is refused.  The fitted pairs passed the fit's own check.
     # The fit's own source decides: the declaration on the data, not the stored propensity,
     # which a guarded DR-TMLE may replace with its fluctuated mechanism.
-    declared = None if mechanism else result.data.known_treatment
+    # A declaration read in the sample beside weights is not what the fit divided by.
+    declared = (
+        result.data.known_treatment
+        if not mechanism and divides_by_declaration(result.data)
+        else None
+    )
     known = declared is not None
     canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:

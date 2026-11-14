@@ -96,36 +96,64 @@ def test_the_ledger_has_no_findings(rows: list[RedRow]) -> None:
     assert findings(rows, OWNERS, POLICIES, owner_ids(), ACCEPTED_BY_EXCEPTION) == []
 
 
-# --- the named exception: one gated study's one accepted red row --------------------------------
+# --- the named exceptions: gated studies' admitted red rows --------------------------------------
 
 ACCEPTED_KEY = RedKey(
     "adaptive-tmle-selective", "truth", "cleverly-adaptive-tmle-selective/s6_cv/psi"
 )
+#: Admitted by exception but not accepted as valid: owned until Fix-3 re-reads it.
+OWNED_EXCEPTION_KEY = RedKey(
+    "stratified-drtmle-foldwise",
+    "truth",
+    "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+)
+#: Each exception and the dated written decision of the project owner that granted it.
+EXCEPTION_DECISIONS = {ACCEPTED_KEY: "2026-11-10", OWNED_EXCEPTION_KEY: "2026-11-13"}
 
 
-def test_the_exception_admits_exactly_the_selective_s6_cv_row() -> None:
-    assert set(ACCEPTED_BY_EXCEPTION) == {ACCEPTED_KEY}
-    entry = ACCEPTED_BY_EXCEPTION[ACCEPTED_KEY]
-    assert "2026-11-10" in entry.reason and "Eric" in entry.reason
+def test_the_exceptions_admit_exactly_the_two_decided_rows() -> None:
+    assert set(ACCEPTED_BY_EXCEPTION) == set(EXCEPTION_DECISIONS)
+    for key, date in EXCEPTION_DECISIONS.items():
+        entry = ACCEPTED_BY_EXCEPTION[key]
+        assert date in entry.reason and "Eric" in entry.reason
 
 
-def test_the_exception_row_is_gated_and_still_red(rows: list[RedRow]) -> None:
+def test_the_selective_row_is_unowned_and_the_stratified_row_keeps_its_owner() -> None:
+    assert ACCEPTED_KEY not in OWNERS
+    assert OWNERS[OWNED_EXCEPTION_KEY] == "X8-drtmle-small-stratum"
+
+
+@pytest.mark.parametrize("key", sorted(EXCEPTION_DECISIONS), ids=lambda key: key.slug)
+def test_the_exception_row_is_gated_and_still_red(rows: list[RedRow], key: RedKey) -> None:
     """Ratchet 1: the cell turns green, or the study turns `reporting`, and the entry goes."""
-    assert ACCEPTED_KEY in {row.key for row in rows}, "the cell is green; remove the exception"
-    assert POLICIES[ACCEPTED_KEY.slug] == "gated", "the study is reporting; remove the exception"
+    assert key in {row.key for row in rows}, "the cell is green; remove the exception"
+    assert POLICIES[key.slug] == "gated", "the study is reporting; remove the exception"
 
 
-def test_the_exception_covers_only_the_accepted_run() -> None:
+@pytest.mark.parametrize("key", sorted(EXCEPTION_DECISIONS), ids=lambda key: key.slug)
+def test_the_exception_covers_only_the_accepted_run(key: RedKey) -> None:
     """Ratchet 2: a rerun writes another replicates.parquet, and the entry fails until removed."""
     import json
 
-    manifest = json.loads(
-        BY_SLUG[ACCEPTED_KEY.slug].artifact("manifest.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads(BY_SLUG[key.slug].artifact("manifest.json").read_text(encoding="utf-8"))
     recorded = manifest["sha256"]["replicates.parquet"]
-    assert recorded == ACCEPTED_BY_EXCEPTION[ACCEPTED_KEY].replicates_sha256, (
+    assert recorded == ACCEPTED_BY_EXCEPTION[key].replicates_sha256, (
         "the study was rerun; the exception covered the run it names. Remove it"
     )
+
+
+def test_an_owned_exception_is_still_held_to_its_owner(rows: list[RedRow]) -> None:
+    """The owned exception lifts the policy only: without its owner it is an unowned red row."""
+    row = next(r for r in rows if r.key == OWNED_EXCEPTION_KEY)
+    owned = {OWNED_EXCEPTION_KEY: "X8-drtmle-small-stratum"}
+    ids = ["X8-drtmle-small-stratum"]
+    accepted = [OWNED_EXCEPTION_KEY]
+    assert findings([row], owned, POLICIES, ids, accepted) == []
+    assert findings([row], owned, POLICIES, ids) != []
+    assert findings([], owned, POLICIES, ids, accepted) == [
+        f"{OWNED_EXCEPTION_KEY} has an owner but is not red",
+        f"{OWNED_EXCEPTION_KEY} is accepted by exception but is not red",
+    ]
 
 
 def test_the_exception_is_keyed_to_one_row_and_not_its_study(rows: list[RedRow]) -> None:
@@ -673,7 +701,7 @@ def test_the_accepted_row_reads_as_accepted_in_its_table_and_no_other_row_does()
         for row, line in zip(ordered.itertuples(), lines, strict=True):
             cell = line.rstrip(" |").rsplit(" | ", 1)[1]
             key = RedKey(study.slug, "truth", f"{row.implementation}/{row.scenario}/{row.estimand}")
-            if key in ACCEPTED_BY_EXCEPTION:
+            if key in ACCEPTED_BY_EXCEPTION and key not in OWNERS:
                 assert not row.passed
                 assert cell == ACCEPTED_LABEL
                 labelled.append(key)

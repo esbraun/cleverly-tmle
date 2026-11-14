@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LogisticRegression
 
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
@@ -462,29 +463,41 @@ def test_one_column_readers_raise_at_a_mixed_node() -> None:
     assert data.node_values(1).shape == (data.n, 2)
 
 
-def test_hazard_targeting_refuses_a_vector_with_a_dose_by_name() -> None:
-    """``refuse_hazard_design`` reads the node kind, so a vector gets the H11 refusal."""
+def test_hazard_targeting_fits_a_policy_on_a_vector_with_a_dose() -> None:
+    """X70 part (c) closed H11 for a vector with a dose: a joint policy is fitted by hazard.
+
+    The shifted slots read the spliced component block, so the fit never reads the vector
+    through a one-column reader.
+    """
     rng = np.random.default_rng(0)
-    n = 200
+    n = 400
     frame = pd.DataFrame(
         {
             "W": rng.integers(0, 2, n).astype(float),
             "F": rng.integers(0, 2, n).astype(float),
             "D": rng.uniform(0.0, 2.0, n),
             "C1": 1.0,
-            "Y1": 0.0,
         }
     )
+    frame["Y1"] = (rng.uniform(size=n) < 0.2 + 0.1 * frame["D"]).astype(float)
     policy = JointPolicy("up", components={"D": Shift(0.5, cap=None)}, policy_kind="known")
-    with pytest.raises(CapabilityError, match="treatment 'F\\+D' is a vector with a dose"):
-        LTMLE({"up": policy}, n_folds=1, survival_model="hazard").fit(
-            frame,
-            treatment=[["F", "D"]],
-            continuous_treatment=["D"],
-            outcome=["Y1"],
-            baseline=["W"],
-            censoring=["C1"],
-        )
+    result = LTMLE(
+        {"up": policy},
+        n_folds=1,
+        survival_model="hazard",
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+    ).fit(
+        frame,
+        treatment=[["F", "D"]],
+        continuous_treatment=["D"],
+        outcome=["Y1"],
+        baseline=["W"],
+        censoring=["C1"],
+    )
+    fit = result.fits["up @ t=1"]
+    assert fit.hazard is not None and fit.hazard.converged
+    assert 0.0 < result.estimates["risk_regimen[up @ t=1]"].psi < 1.0
 
 
 #: The functions allowed to read ``.treatment[...]`` or call ``is_continuous_node``, each
@@ -523,9 +536,13 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
+    ("longitudinal/estimator.py", "_observed_cumulative"): (
+        "after refuse_multinode_design: every node categorical (H22, H21)"
+    ),
     ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
     ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "ModelBook.natural_law"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator.__init__"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator._modified"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator._set_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
@@ -537,6 +554,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "has_set_dose"): "is_continuous_node raises at a mixed node",
     ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
+    ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
     ("longitudinal/ratio_trim.py", "node_ratio_entries"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
@@ -564,6 +582,13 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "reads the declared known-mechanism tuple, not a node column"
     ),
     ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
+    ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
+    ("plotting/_overlap_time.py", "per_node"): (
+        "after _refuse_ratio_nodes refuses a non-categorical node"
+    ),
+    ("plotting/_overlap_time.py", "selected_probability"): (
+        "survival CTMLE only, after survival_design_refusal refuses a non-categorical node"
+    ),
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
     ("validation/refute.py", "_LongitudinalGenerated.draw"): (
         "after _held_parameter refuses a mixed node"
@@ -581,6 +606,10 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 #: mixed node's entry.  The entry raises ``CapabilityError`` on any read, so a reader missed
 #: here fails closed; the list makes each one a reviewed decision (review LOW-6).
 _LEVEL_READERS: dict[tuple[str, str], str] = {
+    ("plotting/_overlap_time.py", "baseline"): "after _refuse_ratio_nodes refuses node 1",
+    ("plotting/_overlap_time.py", "baseline_probability"): (
+        "called only from baseline, after its node-1 refusal"
+    ),
     ("data/causal_data.py", "CausalData.arm_label"): "point CausalData; refuses a vector first",
     ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
         "after survival_design_refusal refuses a non-categorical node"
@@ -621,15 +650,20 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "_Simulator._policy_density"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/hazard.py", "_codes_of"): "after refuse_multinode_design: categorical nodes",
+    ("longitudinal/hazard.py", "_path_structure"): (
+        "after refuse_multinode_design: categorical nodes"
+    ),
     ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
     ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
+    ("longitudinal/hazard_backward.py", "node_slots"): "after refuse_hazard_design",
     ("longitudinal/learned.py", "learned_regimen_record"): (
         "after refuse_learned_regimen_data: two categorical binary nodes"
     ),
     ("longitudinal/learned.py", "refuse_learned_regimen_data"): (
         "refuses a node that is not categorical before reading its levels"
     ),
-    ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
+    ("longitudinal/regimen.py", "DynamicRegimen._density_on"): "categorical policy node",
     ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_plan"): "a tilt at a mixed node is refused first",
@@ -1122,16 +1156,18 @@ def test_a_restricted_mechanism_trains_a_mixed_node_on_its_fold_rows(ratio: str)
 # ------------------------------------------------------------------ SDR (review MEDIUM-2)
 
 
-def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
+def _sdr_fit(ratio: str, *, design: str = "end", copies: int = 1, monkeypatch: Any = None) -> Any:
     """SDR at both mixed nodes of the exact law, with ``copies`` copies of the frame.
 
     With two copies, fold ``k`` holds copy ``k``, so each training complement is one exact
     copy of the law: the training-fold mechanism (``fit_rows``) and the out-of-fold
-    predictions are then exact too.
+    predictions are then exact too.  ``design="censored"`` reads ``C1`` after node 1, whose
+    retention depends on the node's dose, so the pseudo-outcome's weights carry the censoring
+    factor at the observed dose (X77).
     """
     from cleverly.learners import Folds
 
-    frame = pd.concat([law.mixed_frame("end")] * copies, ignore_index=True)
+    frame = pd.concat([law.mixed_frame(design)] * copies, ignore_index=True)
     configuration = settings(ratio=ratio, n_folds=copies)
     configuration.pop("simultaneous")
     if copies > 1:
@@ -1141,42 +1177,47 @@ def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
     exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
     with warnings.catch_warnings(), exact:
         warnings.simplefilter("ignore")
+        declared = dict(COLUMNS)
+        if design == "censored":
+            declared["censoring"] = ["C1", "C2"]
         return SDR(mtp.mixed_regimens(LABELS), reference=LABELS[0], **configuration).fit(
-            frame, **COLUMNS
+            frame, **declared
         )
 
 
-def sdr_deviation(result: Any, copies: int = 1) -> float:
+def sdr_deviation(result: Any, copies: int = 1, design: str = "end") -> float:
     """The largest error of an SDR mean, or of its curve on any copy of the exact frame."""
-    size = len(law.mixed_frame("end"))
-    rows = law.mixed_first_row_of("end")
+    size = len(law.mixed_frame(design))
+    rows = law.mixed_first_row_of(design)
     worst = 0.0
     for name, label, horizon in names(LABELS):
-        worst = max(worst, abs(result.psi(name) - law.mixed_truth(label, "end", horizon)))
-        eif = law.mixed_eif(label, "end", horizon)
+        worst = max(worst, abs(result.psi(name) - law.mixed_truth(label, design, horizon)))
+        eif = law.mixed_eif(label, design, horizon)
         for copy in range(copies):
             curve = result.influence_curves[name][copy * size + rows]
             worst = max(worst, float(np.max(np.abs(curve - eif))))
     return worst
 
 
+@pytest.mark.parametrize("design", ["end", "censored"])
 @pytest.mark.parametrize("ratio", ["classifier", "density"])
 def test_sdr_at_both_mixed_nodes_equals_the_g_formula_and_its_gateaux_derivative(
-    ratio: str,
+    ratio: str, design: str
 ) -> None:
     """SDR reads the same mixed-node ratio as LTMLE, on both routes, in sample."""
-    result = _sdr_fit(ratio)
+    result = _sdr_fit(ratio, design=design)
     assert [result.data.node_kind(time) for time in (1, 2)] == ["mixed", "mixed"]
-    assert sdr_deviation(result) < EXACT
+    assert sdr_deviation(result, design=design) < EXACT
 
 
+@pytest.mark.parametrize("design", ["end", "censored"])
 @pytest.mark.parametrize("ratio", ["classifier", "density"])
 def test_cross_fitted_sdr_at_mixed_nodes_is_exact_when_each_fold_is_the_law(
-    ratio: str, monkeypatch: pytest.MonkeyPatch
+    ratio: str, design: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two folds, each one exact copy: the training-fold recursion reads ``fit_rows``."""
-    result = _sdr_fit(ratio, copies=2, monkeypatch=monkeypatch)
-    assert sdr_deviation(result, copies=2) < EXACT
+    result = _sdr_fit(ratio, design=design, copies=2, monkeypatch=monkeypatch)
+    assert sdr_deviation(result, copies=2, design=design) < EXACT
 
 
 # ------------------------------------------------------------------ ratio_trim (X33 part d)

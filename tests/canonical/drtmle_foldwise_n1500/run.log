@@ -1,0 +1,22 @@
+=== drtmle-foldwise-n1500 declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/drtmle_foldwise_n1500/regenerate.py --output /home/user/scratch/n1500 --jobs 4
+commit: 816271198c4906f370f2f5cf0961141f481f2b53; upstream 816271198c4906f370f2f5cf0961141f481f2b53
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 21d2020577cb50e3336416070816125ed6e0a5281bdc3fae07b32fedf23e3426
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-13T00:44:50+00:00
+finished: 2026-11-13T02:25:10+00:00
+wall seconds: 6020.5
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: aac8fcd44c90f22cb64b17cff71cbff4010c28813d380f84913224b497cd6290
+sha256 performance-tests.csv: 69c94a2a43621d403e2248260a2e6a168e733a1180650683099e1c54a6614b46
+sha256 pooled-displacement.csv: ec227535c87059faf93e7228926e3237444bf4b7736ed64d0fa37f258a34ce60
+sha256 properties.csv: 5da703b3ef20d03349ea6cea3ad8d03a75668fb5a1d7f84c4a327208eb268ed9
+sha256 property-replicates.parquet: 0ab9b95cda4ef601dd99ed3312351174fcfed9aa3e7c35fe05016a9147f2e7b8
+sha256 replicates.parquet: fae18f81935c279ae980b0e7b8ab232cd9b747d099496cc43b7e11a8107a6a72
+sha256 summary.csv: c84567b30246df254d57ea24c874fcb34ffc47ccb0efd0fee59be4ef5579a48d
+

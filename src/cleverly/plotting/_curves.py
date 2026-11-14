@@ -483,6 +483,18 @@ def curve(
                 title=title or None,
                 ax=ax,
             )
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(obj, ContinuousSurvivalResult):
+        from .._refusal import RefusalReason
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
+            "curve() does not draw a continuous-time survival fit yet.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="forest() draws its risks and contrasts at the target times.",
+            roadmap="X100",
+        )
     raise TypeError(
         "curve() draws a longitudinal fit, a point-treatment fit of per-level means, of a "
         "working model or of a family of policies, or a conditional effect curve; "

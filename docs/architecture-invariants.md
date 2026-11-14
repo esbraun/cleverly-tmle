@@ -581,7 +581,7 @@ that the call refuses reads `unavailable`.
 An ambiguous default estimand is a deferral on both facades. Several operations default to
 `estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
 no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
-`unavailable`, because no argument makes a missing derivation run.
+`unavailable`, because no argument makes a missing derivation run. `marginal_bounds()` defaults to `None`, which it resolves to the fit's reported parameter, and defers on the same rule. It can bound an arm parameter the fit did not report, so a fit with no eligible reported parameter defers rather than reads `unavailable`.
 
 One eligible parameter is the case each facade answers for itself. A facade that substitutes that
 name runs the row under it. A facade that substitutes nothing defers the row, because the
@@ -734,7 +734,8 @@ outcome design at node $t$ reads `W` and a window of the last nodes. The `histor
 `policy_frame` that a rule or a policy reads keep the full history. So a window never changes a
 resolved plan. A rule node in the window adds its assigned arm to the outcome design, because the
 window does not determine that arm. The outcome and mechanism designs read the arms of the same
-nodes, from $t-k-1$. `tests/unit/test_longitudinal_markov_order.py` pins both
+nodes, from $t-k-1$, or from node 1 on a held design, whose decision is the arm of every node.
+`LongitudinalData.window_arm_start` is the one home of that start. `tests/unit/test_longitudinal_markov_order.py` pins both
 frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
 check there.
 
@@ -826,13 +827,26 @@ nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
 
-Hazard targeting (`survival_model="hazard"`) requires a held baseline decision over a categorical
-treatment and no covariate measured after baseline. It refuses any other design before any learner
-(H1 to H3, H7 and H11 of
+Hazard targeting (`survival_model="hazard"`) on a held baseline decision takes any regimen on a
+categorical treatment, and a modified treatment policy on a continuous treatment or a vector with a
+dose. With a treatment decided at several nodes, the design has baseline covariates only, every
+node is categorical, and the regimens are static plans, known rules and known policies, whose
+treatment paths are enumerated as slots. It refuses any other design before any learner (H2, H3,
+H15, H17, H18, H21 to H23 and H26 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
-The hazard model conditions on the baseline treatment and the baseline covariates only. A later
-treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard
-construction for a treatment at several nodes or for a later covariate.
+
+One hazard function sits in every slot whose treatment prefix through its node is the same, so a
+fluctuation moves every such copy by the sum over those slots and a held cell holds every copy;
+otherwise the state is not one law and the plug-in is not a substitution estimator
+(`tests/unit/test_hazard_multinode.py` mutates the sum). A covariate after baseline beside a
+treatment at several nodes needs both constructions at once. *Reconsider when* part (b2) of X70
+builds it.
+
+On a held design with covariates measured after baseline, the fit runs one backward pass per
+regimen in `longitudinal/hazard_backward.py`: each node's hazards and its regression of the future
+are targeted once, after every later node is final, and nothing is refit after it is walked. That
+order is what solves every term of the influence-curve equation, so the per-horizon algorithm, which
+restarts from the initial fits, is refused there (H28).
 
 A one-step hazard fit's levels are non-decreasing in floating point for every regimen and cause.
 Every horizon's plug-in mean reduces its column in one order that does not depend on the values.

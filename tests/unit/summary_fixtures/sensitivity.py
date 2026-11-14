@@ -48,6 +48,39 @@ def _learned_rule() -> Any:
 
 
 @functools.cache
+def _optimal_rule() -> Any:
+    """The value of the optimal rule, by its study spelling with a known treatment mechanism.
+
+    The study records the identification that ``simulated_confounding`` reads.
+    """
+    from scipy.special import expit
+
+    from cleverly import CausalStudy, OptimalRuleValue, PointTreatment
+    from tests.unit import _learned_rule_support as support
+
+    frame = support.law_frame(403, 1)
+    g1 = expit(0.3 * frame["W1"].to_numpy() - 0.2 * frame["W2"].to_numpy())
+    frame = frame.assign(p0=1.0 - g1, p1=g1)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=support.COVARIATES,
+            treatment_probabilities={0: "p0", 1: "p1"},
+        ),
+    )
+    return study.identify(OptimalRuleValue()).estimate(
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        cv_evaluation=True,
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+@functools.cache
 def _forest() -> Any:
     """A fit whose treatment learner the plug-in limits do not admit."""
     from sklearn.ensemble import RandomForestClassifier
@@ -197,6 +230,14 @@ FIXTURES = {
         names=NAMES,
         fidelity=read.bounds,
     ),
+    # optimal_rule_bound: the asymmetric point bound of the value of the optimal rule.
+    "bounds_optimal_rule": Case(
+        lambda: _optimal_rule().sensitivity.omitted_confounding(
+            "ey_optimal_rule[learned rule]", cf_y=0.05, cf_d=0.05
+        ),
+        names=NAMES,
+        fidelity=read.bounds,
+    ),
     # consistent_mechanism: a collaborative point bound.
     "bounds_consistent": Case(
         lambda: _collaborative().sensitivity.omitted_confounding(
@@ -285,6 +326,14 @@ FIXTURES = {
     "surface": Case(
         lambda: _studied("ate").sensitivity.simulated_confounding(
             grid=_grid(), benchmark_covariates=("W1",), random_state=0
+        ),
+        names=NAMES,
+        fidelity=read.surface,
+    ),
+    # optimal_rule_reading: the replay relearns the optimal rule in every cell.
+    "surface_optimal_rule": Case(
+        lambda: _optimal_rule().sensitivity.simulated_confounding(
+            "ey_optimal_rule[learned rule]", grid=_grid(), random_state=0
         ),
         names=NAMES,
         fidelity=read.surface,

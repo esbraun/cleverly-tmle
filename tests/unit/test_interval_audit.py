@@ -179,6 +179,18 @@ def test_the_quoted_pricing_numbers() -> None:
     assert audit.coverage(cells, "covered_shipped")[key] == pytest.approx(0.9655)
 
 
+def test_the_quoted_stratified_drtmle_foldwise_numbers() -> None:
+    """`X8-drtmle-small-stratum`: the fold-wise row's 0.907 becomes 0.919, above its floor."""
+    frame = audit.read(audit.record_for("stratified-drtmle-foldwise"))
+    key = "stratified_both_correct/ey[1][V=2]"
+    assert audit.coverage(frame, "covered_committed")[key] == pytest.approx(0.90725)
+    assert audit.coverage(frame, "covered_shipped")[key] == pytest.approx(0.91925)
+    rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
+    assert _cp_lower(rows["covered_shipped"]) == pytest.approx(0.9075, abs=5e-5)
+    assert _cp_lower(rows["covered_shipped"]) >= 0.90 > _cp_lower(rows["covered_committed"])
+    assert (frame["trigger"] != audit.CONSTANT_ARM_CELL).all()
+
+
 # ------------------------------------------------------------------ the rule against the package
 
 

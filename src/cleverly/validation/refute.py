@@ -86,13 +86,18 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import (
+    continuous_survival_refusal,
+    is_continuous_survival,
+    refuse_continuous_survival,
+)
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import augmented_trial_refusal, is_augmented_trial, refuse_augmented_trial
+from ..data.known_mechanism import known_score_fit
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
-from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -105,7 +110,7 @@ from ._band_placebo import (
     placebo_bands,
 )
 from ._interpretation import FitConfiguration, Resolution, Rung
-from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
+from ._markov_placebo import MarkovKernel, _placebo_law, placebo_known_mechanisms
 from ._point_generated import (
     PROJECTION_LINKS,
     InterventionLaw,
@@ -1997,6 +2002,8 @@ def refute_refusal(
     """
     if is_augmented_trial(result):
         return augmented_trial_refusal("refute", "refutation")
+    if is_continuous_survival(result):
+        return continuous_survival_refusal("refute")
     try:
         requested = _validated_tests(
             tests,
@@ -4081,7 +4088,7 @@ def _generated_outcome_test(
             intermediate=target.intermediate,
             doses=target.doses,
         )
-        weights = held_weights(target, data)
+        weights = held_weights(target, data, known_score=known_score_fit(result))
         mixture = held_mixture(target, data)
         # The truth is the sample-conditional functional of the held rows. The held design
         # reads the SE ratio and coverage only where the covariate part of the curve is
@@ -4552,8 +4559,11 @@ def _future_treatment_test(
     estimate = fitted.single()["ate"]
     value = float(estimate.psi)
     std_error = float(estimate.plugin_std_error)
-    z = value / std_error if std_error > 0 else float("nan")
-    pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+    # The control fit's own Wald test of no effect: its reference distribution (a few-cluster
+    # t), its interval scale and any stopping-rule margin, as its interval reads them.
+    test = estimate._plugin_wald_test(0.0)
+    z = float(test.statistic) if std_error > 0 else float("nan")
+    pvalue = float(test.pvalue) if np.isfinite(z) else float("nan")
     return RefutationTest(
         name="future_treatment",
         estimand=estimand,
@@ -4647,7 +4657,9 @@ def _placebo_data(
     recorded = data.treatment_recorded if data.has_missing_treatment else slice(None)
     shares = np.asarray([float(np.mean(treatment[recorded] == code)) for code in data.arm_codes])
     values = np.tile(shares, (replaced.n, 1))
-    return replace(replaced, known_treatment=KnownMechanism(values, "array"))
+    # The placebo treatment is independent of (W, A, Y), so E[w | A', W] = E[w | W] and the
+    # shares are the mechanism of the weight-tilted law too, whatever the weights read.
+    return replace(replaced, known_treatment=KnownMechanism(values, "array", law="target"))
 
 
 def _on_draw(error: CleverlyError, label: str) -> CleverlyError:
@@ -5049,6 +5061,7 @@ def refute(
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
     refuse_augmented_trial(result, "refute", "refutation")
+    refuse_continuous_survival(result, "refute")
     # The malformed arguments first, and the refusals of a well-formed request after them.
     # Every refusal is decided before any refit, so a mixed call does not pay for placebo
     # fits and only then discover that its outcome process has no effect derivation. The
@@ -5330,7 +5343,15 @@ def refute(
                         ". At each banded node the kernel draws the position from one of the "
                         f"{NEAREST_DONORS} donors whose previous value is nearest"
                     )
-            if _declares_known_treatment(data):
+            if _declares_known_treatment(data) and longitudinal and _placebo_law(data) == "sample":
+                # A tilted retention keeps the placebo declarations in the sample beside the
+                # weights, so each placebo treatment node is an estimated tilt.
+                detail += (
+                    ". The refit declares the placebo law's own kernel, read in the sample "
+                    "beside the weights as the declared retention is, so it estimates each "
+                    "node's weight-tilted mechanism from that kernel"
+                )
+            elif _declares_known_treatment(data):
                 detail += ". The refit keeps a known mechanism: the placebo law's own " + (
                     "kernel" if longitudinal else "arm shares"
                 )
@@ -5528,9 +5549,11 @@ def refute(
                 )
             value = refitted[estimand].psi
             control_se = refitted[estimand].plugin_std_error
-            deviation = _no_effect_difference(value, no_effect_null)
-            z = deviation / control_se if control_se > 0 else float("nan")
-            pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+            # The control refit's own Wald test of the no-effect value, under the reference
+            # distribution, interval scale and margin its interval reads.
+            test = refitted[estimand]._plugin_wald_test(no_effect_null)
+            z = float(test.statistic) if control_se > 0 else float("nan")
+            pvalue = float(test.pvalue) if np.isfinite(z) else float("nan")
             # The control's own outcome family and event count are the scope axes of a
             # negative-control reading, not the primary outcome's.
             control_fit = (
@@ -5572,6 +5595,14 @@ def refute(
                         *((_PRE_TREATMENT_SENTENCE,) if pre_treatment else ()),
                     ),
                     evidence=resolution.plain,
+                    withheld=(
+                        ""
+                        if passed is not None or not resolution.licensed
+                        else f"the control fit reports no interval (status "
+                        f"{refitted[estimand].inference!r}), so it has no Wald test"
+                        if not refitted[estimand].supplies_inference
+                        else "the control estimate has no spread"
+                    ),
                     statistic=z,
                     statistic_name="z",
                     statistic_pvalue=pvalue,

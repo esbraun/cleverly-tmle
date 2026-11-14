@@ -3,7 +3,7 @@
 ``repeats=R`` combines ``R`` complete cross-fitted draws by the median rule of Chernozhukov et
 al. (2018, Definition 3.3).  :class:`SequentialGComputation` and :class:`SequentialIPW` fit in
 sample, and their interval is the stacked estimating equation of one parametric fit, so no
-split exists to draw again.  Both refuse ``repeats`` above 1 with the F35 implementation gap.
+split exists to draw again.  Both refuse ``repeats`` above 1 and name LTMLE and SDR.
 Repeated draws on the cross-fitted engines stay in ``test_longitudinal_repeats.py``.
 """
 
@@ -47,8 +47,8 @@ def test_a_baseline_refuses_repeats_above_one(cls: Any, n_folds: int) -> None:
     with pytest.raises(CapabilityError) as raised:
         cls(PAIR, repeats=2, n_folds=n_folds)
     assert raised.value.refusal == baseline_repeats_refusal(cls.__name__)
-    assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert raised.value.refusal.roadmap == "F35"
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert raised.value.refusal.roadmap is None
 
 
 def test_the_refusal_names_the_estimator_and_a_working_call() -> None:

@@ -205,22 +205,31 @@ class DeclaredLaw:
 
 
 def declared_cells() -> tuple[PropertyCell, ...]:
-    """The sampled calibration cell; its two controls are derived from its rows."""
-    return tuple(
-        PropertyCell(
-            property=CALIBRATION,
-            cell=f"{label}__correctly_specified",
-            dgp=DeclaredLaw(),
-            outcome_learner=lambda: None,
-            treatment_learner=lambda: None,
-            n=CALIBRATION_N,
-            replicates=CALIBRATION_REPLICATES,
-            seed=stream_seed(STUDY, "property_sample", CALIBRATION, label, 0),
-            role="positive",
-            estimand=RMST_RD,
-        )
-        for label in CALIBRATION_LABELS
-    )
+    """The sampled calibration cell and the two controls derived from its rows.
+
+    A derived control is read from the calibration cell's own fits, so it shares that cell's
+    law, size, replicate count and seed.
+    """
+    cells = []
+    for label in CALIBRATION_LABELS:
+        sampled = f"{CALIBRATION}/{label}__correctly_specified"
+        for name in (sampled, *DERIVED_CELLS[sampled]):
+            family, cell = name.split("/", 1)
+            cells.append(
+                PropertyCell(
+                    property=family,
+                    cell=cell,
+                    dgp=DeclaredLaw(),
+                    outcome_learner=lambda: None,
+                    treatment_learner=lambda: None,
+                    n=CALIBRATION_N,
+                    replicates=CALIBRATION_REPLICATES,
+                    seed=stream_seed(STUDY, "property_sample", CALIBRATION, label, 0),
+                    role="positive" if name == sampled else "control",
+                    estimand=RMST_RD,
+                )
+            )
+    return tuple(cells)
 
 
 def synthetic_scale(cell: PropertyCell) -> float:

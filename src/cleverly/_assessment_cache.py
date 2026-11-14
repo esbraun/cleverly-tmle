@@ -104,6 +104,18 @@ def _cache_key(operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]) -
 _RETAIN_PACKED: ContextVar[bool] = ContextVar("assessment_retain_packed", default=False)
 
 
+def _result_backend(result: Any) -> str | None:
+    """The dataframe backend a result's reports come back in.
+
+    A result with a data container reads its backend there. A continuous-time survival
+    result keeps no container and records the backend on itself.
+    """
+    data = getattr(result, "data", None)
+    if data is not None:
+        return getattr(data, "backend", None)
+    return getattr(result, "backend", None)
+
+
 def _cached(
     result: Any,
     operation: str,
@@ -115,5 +127,5 @@ def _cached(
     key = _cache_key(operation, args, kwargs)
     if key not in cache:
         value = compute()
-        cache[key] = _pack_cached(value, getattr(result.data, "backend", None))
+        cache[key] = _pack_cached(value, _result_backend(result))
     return cache[key] if _RETAIN_PACKED.get() else _unpack_cached(cache[key])

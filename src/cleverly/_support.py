@@ -36,6 +36,11 @@ from ._inference_status import (
     supplies_inference,
 )
 from ._refusal import Refusal
+from .data.known_mechanism import (
+    divides_by_declaration,
+    estimates_declared_tilt,
+    tilts_node_declarations,
+)
 
 __all__ = [
     "DEFAULT_BAND_OPTION",
@@ -82,12 +87,22 @@ SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
 #: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
-#: bootstrap interval, a studentized bootstrap sup-t band, or a derived estimate.
+#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, or a Wald
+#: interval at the larger of the influence-curve and policy-weighted variances
+#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`).
 #: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
 #: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
 Kind = Literal[
-    "point", "wald", "wald_t", "band", "bootstrap", "bootstrap_bca", "bootstrap_band", "derived"
+    "point",
+    "wald",
+    "wald_t",
+    "band",
+    "bootstrap",
+    "bootstrap_bca",
+    "bootstrap_band",
+    "derived",
+    "wald_policy",
 ]
 
 
@@ -318,15 +333,19 @@ class SupportKey:
         to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
         longitudinal one.
     qualifiers : frozenset of str
-        ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
+        ``strata``, ``known_mechanism``, ``tilted_mechanism`` (a declaration read in the
+        weighted sample, ``mechanism_law="sample"``, which the fit estimates as a tilt) and, on a
+        learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
         ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
         ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
-        holds the known factors.
+        holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
+        weighted sample.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
+        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
+        ``conditional_form`` of the ATT and ATC,
         a ``patience`` or a ``treatment_adjustment`` subset, and under a declared stopping rule
         the ``step_bound`` (``"none"``, ``"search"`` or ``"fixed"``) and the reported
         ``iterate``; under ``stopping="relative"`` those two read ``"none"`` and ``"last"``,
@@ -336,8 +355,10 @@ class SupportKey:
         policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm,
         the ``isotonic`` projection, whether the fit declares ``node_bounds``, the
         ``hazard_pooling``, whether it declares a ``ratio_trim``, whether the data declare a
-        ``markov_order``, whether a regimen has a ``tuned_cap``, and the ``stopping``,
-        ``step_bound`` and ``iterate`` of a point key. No key holds the band's
+        ``markov_order``, whether a regimen has a ``tuned_cap``, the ``stopping``,
+        ``step_bound`` and ``iterate`` of a point key, and ``later_covariates``: whether a
+        hazard fit (``survival_model="hazard"``) has a covariate block at a node after the
+        first. No key holds the band's
         ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
         are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
@@ -586,9 +607,7 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
     families = {
         "outcome_learner_family": learner_family(estimator.outcome_learner),
         "treatment_learner_family": (
-            "known"
-            if data.known_treatment is not None
-            else learner_family(estimator.treatment_learner)
+            "known" if divides_by_declaration(data) else learner_family(estimator.treatment_learner)
         ),
     }
     rule = estimator.learned_rule
@@ -769,8 +788,13 @@ def point_key(
     qualifiers = set()
     if data.has_strata:
         qualifiers.add("strata")
-    if data.known_treatment is not None:
+    if divides_by_declaration(data):
         qualifiers.add("known_mechanism")
+    if estimates_declared_tilt(data):
+        # ``mechanism_law="sample"`` beside tilting weights: the mechanism is the declaration
+        # times a weighted classification, a construction of its own, so only a row of a study
+        # of that route covers it, and its rows never cover an ordinary weighted fit.
+        qualifiers.add("tilted_mechanism")
     if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
         # Unequal sizes that depend on the outcome put a ratio bias in the fold-evaluated point,
         # so a learned-rule row never covers unequal sizes unless it declares them. Only the
@@ -795,6 +819,7 @@ def point_key(
         "target_weights": estimator.target_weights,
         **_stopping_options(estimator),
         "outcome_by_arm": bool(getattr(estimator, "outcome_by_arm", False)),
+        "conditional_form": str(getattr(estimator, "conditional_form", "arm_mean")),
         "patience": getattr(estimator, "patience", None) is not None,
         "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
@@ -978,9 +1003,17 @@ def longitudinal_key(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),
         qualifiers=frozenset(
-            (*known_factors, f"separable_first_cause_{separable_first}")
-            if separable_first is not None
-            else known_factors
+            (
+                *known_factors,
+                *(
+                    (f"separable_first_cause_{separable_first}",)
+                    if separable_first is not None
+                    else ()
+                ),
+                # A declared node read in the weighted sample is an estimated factor of its own
+                # construction (``mechanism_law="sample"``), as on the point key.
+                *(("tilted_mechanism",) if tilts_node_declarations(data) else ()),
+            )
         ),
         options=(
             ("normalization", _option(estimator._normalization())),
@@ -994,6 +1027,13 @@ def longitudinal_key(
             ("markov_order", getattr(data, "markov_order", None) is not None),
             ("tuned_cap", tuned_cap),
             *_stopping_options(estimator).items(),
+            # A hazard fit with a covariate block at a node after the first runs the backward
+            # pass (X70 part (b1)), a different estimator from the baseline hazard engine.
+            (
+                "later_covariates",
+                estimator.survival_model == "hazard"
+                and any(getattr(data, "time_varying_names", ())[1:]),
+            ),
         ),
     )
     learners = {
@@ -1280,6 +1320,7 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "bootstrap_bca": "BCa bootstrap interval",
     "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
+    "wald_policy": "Wald interval, policy-weighted variance",
 }
 
 
@@ -1322,6 +1363,8 @@ def support_for(
     status: str,
     reference_df: int | None = None,
     kind: Kind | None = None,
+    *,
+    policy: bool = False,
 ) -> Support:
     """What one estimate carries, from its fit's classification and its final status.
 
@@ -1348,6 +1391,10 @@ def support_for(
         ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval,
         ``"bootstrap_bca"`` for a BCa interval, and ``"bootstrap_band"`` for a studentized
         bootstrap sup-t band.
+    policy : bool, default False
+        Whether the estimate reads ``variance="policy_weighted"``. Its interval then needs
+        the ``wald_policy`` kind, whichever variance it reports, unless its status withholds
+        the interval.
 
     Returns
     -------
@@ -1365,6 +1412,8 @@ def support_for(
         return UNCLASSIFIED
     record = None if status == "influence_curve" else STATUS_RECORDS[status]
     withheld = record is not None and record.interval == "withheld"
+    if kind is None and policy and not withheld:
+        kind = "wald_policy"
     if kind is None:
         kind = "point" if withheld else ("wald_t" if reference_df is not None else "wald")
     row = classification.row
@@ -1402,7 +1451,8 @@ def support_for(
         for name, shown in STATUS_RECORDS.items():
             if name in applied and shown.shown_reason is not None:
                 reasons.append(shown.shown_reason)
-                evidence.append(shown.reopened_by)
+                if shown.reopened_by is not None:
+                    evidence.append(shown.reopened_by)
     if reasons:
         return Support(
             "experimental",

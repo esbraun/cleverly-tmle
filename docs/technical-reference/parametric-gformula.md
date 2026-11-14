@@ -56,8 +56,8 @@ covariate law carries a treatment-by-baseline product.
 | repeated-sampling evidence | registered study `parametric-gformula`. The [method-evidence page](method-evidence/parametric-gformula.md) lists the cells | Python property evidence |
 | agreement with `pygformula` 1.2.0 | four fixtures where both model classes are correct. 63 of 63 coefficient rows and 21 of 21 estimate rows pass ([below](#how-it-differs-from-gformula-and-pygformula)) | the committed `pygformula-*.csv` files in `tests/canonical/parametric_gformula_study/` |
 | a published analytic variance for the simulation form | none exists | [Inference](#inference) |
-| pooled-over-time models | not shipped. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it | none |
-| a repeated outcome | refused. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it | none |
+| pooled-over-time models | not shipped and not planned | none |
+| a repeated outcome | refused; `LTMLE`, `SDR` and `IPSI` fit one | none |
 
 ## The estimator
 
@@ -323,7 +323,7 @@ fit chooses the family of each model from its response.
 | a learner that nothing reads, such as `hazard_learner=` on an end-of-study outcome | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | `CapabilityError`, as for `SequentialGComputation` |
 | a declared treatment mechanism with a missing value at a tilt or policy node | `CapabilityError` |
-| a repeated outcome | `CapabilityError`, `implementation_gap`. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it |
+| a repeated outcome | `CapabilityError`, `api_redirection`. `LTMLE`, `SDR` and `IPSI` fit one |
 | a truncation curve | `CapabilityError`, `api_redirection`. The estimate divides by no mechanism |
 | a regimen that leaves the span of an aliased `GLM` column | `DataError`, from the simulation |
 
@@ -354,7 +354,7 @@ The study README gives the
 [fixture table](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/README.md#comparator).
 
 Pooled-over-time models with lag and cumulative-average terms are the default of both packages.
-[X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks them.
+`ParametricGFormula` fits one model per node and does not plan the pooled form.
 
 ## Validation
 

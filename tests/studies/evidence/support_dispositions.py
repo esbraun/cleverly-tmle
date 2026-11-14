@@ -64,6 +64,13 @@ LIMIT_OWNERS = frozenset(
         "RM18-ordinary-weighted",
         "RM18-fixed-weights",
         "RM18-boundary",
+        # Fix-6 (D2): the standing record of the pooled reduced regressions; the foldwise
+        # default passes on the cells' own draws (drtmle-foldwise-n1500).
+        "RM18-one-sided-bias",
+        # Fix-6 (D4): the standing record of the pooled reduced regressions; the foldwise
+        # default's bias contracts faster than n^-1/2, consistent with second order
+        # (stratified-drtmle-foldwise).
+        "X8-drtmle-one-sided-bias",
         "X8-identity-small-stratum",
         "X8-drtmle-small-stratum",
         "X16-plugin-variance",
@@ -81,8 +88,6 @@ LIMIT_OWNERS = frozenset(
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
 FLAGGED_EXPERIMENTAL = {
     "X8-logit-small-stratum": "the logit slope at a small stratum reads an SE ratio of 0.78 to 0.94",
-    "X8-drtmle-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
-    "RM18-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
     "F27": "the boundary truth rows read a coverage of 0.894 and an SE ratio of 0.82",
     "mtp-pricing-calibration": (
         "X40: the five-node price_down rows read a coverage of 0.916 to 0.923 and an SE ratio of "
@@ -268,9 +273,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/marginal_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0136 to 0.0185, margin 0.0067, SE ratio 0.9902",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -278,9 +283,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/v0_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0094 to 0.0162, margin 0.0093, SE ratio 0.9505",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -288,9 +293,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/v1_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0123 to 0.0214, margin 0.0124, SE ratio 0.9364",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -298,9 +303,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/v2_ate__treatment_correct",
         "D03",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "X8-drtmle-one-sided-bias: bias 0.0179 to 0.0286, margin 0.0147, SE ratio 1.0627",
         "",
-        "Q6",
     ),
     (
         "canonical-stratified-drtmle",
@@ -310,6 +315,18 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         ("wald",),
         LIMIT,
         "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to 1.0653",
+        "",
+    ),
+    (
+        "stratified-drtmle-foldwise",
+        "truth",
+        "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+        "D13",
+        ("wald",),
+        # A defect suspect under the S1 reading, not a finite-sample limit: the row's Wald
+        # shortfall marks every D13 interval experimental until Fix-3 re-reads it.
+        EXPERIMENTAL,
+        "",
         "",
     ),
     (
@@ -458,9 +475,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/outcome_correct",
         "D01",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "RM18-one-sided-bias: bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888",
         "",
-        "Q6",
     ),
     (
         "canonical-drtmle",
@@ -468,9 +485,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/treatment_correct",
         "D01",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
         "",
-        "Q6",
     ),
     (
         "canonical-multi-arm-drtmle",
@@ -488,9 +505,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "double_robustness/treatment_correct",
         "D02",
         ("point",),
-        EXPERIMENTAL,
+        LIMIT,
+        "RM18-one-sided-bias: bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998",
         "",
-        "Q6",
     ),
     (
         "canonical-multi-arm-drtmle",

@@ -492,6 +492,10 @@ def fit(
         route = columns
     elif probabilities == "censoring":
         route = {"censoring_probabilities": columns["censoring_probabilities"]}
+    if route and weights is not None:
+        # The weight is the mass of each support point of the law, so the declared
+        # probabilities are the weighted law's: the target reading.
+        route = {**route, "mechanism_law": "target"}
     learners = {
         name: value
         for name, value in (

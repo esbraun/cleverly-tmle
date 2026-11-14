@@ -1,0 +1,2 @@
+/home/user/cleverly-tmle/tests/studies/hazard_mtp_pilot.py:306: DtypeWarning: Columns (2: fit_label) have mixed types. Specify dtype option on import or set low_memory=False.
+  kept = pd.read_csv(output)

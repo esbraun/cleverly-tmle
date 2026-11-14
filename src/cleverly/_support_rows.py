@@ -38,7 +38,11 @@ __all__ = [
     "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
+    "POLICY_CELLS",
+    "POLICY_NOTES",
+    "POLICY_STUDY",
     "SHORTFALLS",
+    "TAIL_NOTES",
     "T_BAND_CELLS",
     "T_BAND_STUDY",
     "UNMAPPED_BAND_CELLS",
@@ -87,6 +91,7 @@ def default_options(engine: str) -> dict[str, Any]:
         "step_bound": "none",
         "iterate": "last",
         "outcome_by_arm": False,
+        "conditional_form": "arm_mean",
         "patience": False,
         "treatment_adjustment": False,
     }
@@ -149,7 +154,7 @@ def point_row(
     dependence : str, default "iid"
         The dependence axis.
     qualifiers : iterable of str, default ()
-        ``strata`` and ``known_mechanism``.
+        ``strata``, ``known_mechanism`` and ``tilted_mechanism``.
     options : mapping of str to Any or None, default None
         Overrides of :func:`default_options`.
     engine : tuple of str, default ("tmle",)
@@ -727,7 +732,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
             cells=["weighted"],
             # Roadmap: X11.
             limits=[
-                "The study measures a known observation weight only. Estimated weights refuse.",
+                "The study measures a known observation weight only. A fit with weights declared "
+                "estimated keys weighting='estimated', which no row covers, and reads "
+                "experimental.",
                 "A weighted fit with clusters is experimental.",
             ],
         )
@@ -1076,7 +1083,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "The study measures the known weight w = 1 + 1.5 * 1{W1 > 0} at the "
                 "misspecified_limit law. Its calibration SE ratio below 1 (0.986) matches the "
                 "fold-evaluated compositions cell of the same law (0.969) and is a property of "
-                "that law. Estimated weights refuse."
+                "that law. A fit with weights declared estimated reads experimental."
             ],
         ),
         (
@@ -1309,9 +1316,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "the fold rules do not settle on the tie set (disagreement 0 to 0.735, mean "
                 "0.280), not because of the regret (mean 0.00086).",
                 "A rule learner, clusters, repeats above 1, fold targeting, the stacked report, "
-                "more than two arms and an estimated g stay experimental. Weights, strata, the "
-                "in-sample fit and contrasts with known regimes refuse. No comparator: no "
-                "maintained package fits a cross-validated TMLE of the value of the optimal "
+                "more than two arms and an estimated g stay experimental. Weights, strata, known "
+                "regimes beside the optimal value, the in-sample fit and an intermediate held "
+                "at a level, each with the known mechanism, have the rows T57. No comparator: "
+                "no maintained package fits a cross-validated TMLE of the value of the optimal "
                 "rule. No draw raised a solver warning.",
             ],
         )
@@ -1403,6 +1411,135 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # X11 (f3) (X11 PR 2): the value of the optimal rule under the five compositions PR 2 admits,
+    # each with the known treatment mechanism: fixed weights (with the weighted population's own
+    # mechanism supplied), strata, known regimes beside it (``ate_optimal_rule``), the in-sample
+    # fit with the learner families of condition C5a, and an intermediate held at each level. One
+    # P12 row per composition, as ``SUPPORT_ROWS`` of
+    # ``tests/studies/learned_rule_optimal_compositions.py`` declared them before the run, because
+    # each declared condition held: the primary bias leg, coverage floor and SE sanity of every
+    # parameter of the setting, every ``interval_calibration`` verdict of its labels, and for the
+    # weighted row both ``weighted_target_control`` verdicts. An estimated g drops
+    # ``known_mechanism``, and the stacked report, fold targeting, repeats above 1, clusters, a
+    # rule learner, estimated weights and more than two arms key other axes or qualifiers, so each
+    # of those compositions matches no row. The numbers are the committed results
+    # (``tests/canonical/learned_rule_optimal_compositions``).
+    compositions_limits = [
+        "The study measures n = 2,000 on one law per setting (RM30's non_exceptional law, and "
+        "the learned-rule-intermediate law for the intermediate): a binary treatment and "
+        "outcome, ten equal folds, pooled targeting, the plug-in rule, repeats=1 and iid rows, "
+        "with a correctly specified parametric logistic outcome model, so its limit rule is the "
+        "optimal rule of the setting. The key holds neither the learner, the law nor n, so a "
+        "misspecified or flexible learner, a law with ties, a steeper margin or another n reads "
+        "supported and was not measured.",
+        "The interval covers the optimal value only up to the regret, the gap between the "
+        "optimal value and the value of the fold rules. Its mean is 0.0012 to 0.0028 across "
+        "the labels, and the calibration standardized bias against the fixed truth runs from "
+        "-0.153 to +0.096.",
+        "An estimated g drops known_mechanism and reads experimental, and so do estimated "
+        "weights, the stacked report, fold targeting, repeats above 1, clusters, a rule "
+        "learner and more than two arms. No comparator: no maintained package fits a "
+        "cross-validated TMLE of the value of the optimal rule under these compositions. No "
+        "fit failed, and no draw raised a solver warning.",
+    ]
+    compositions_rows: dict[str, dict[str, Any]] = {
+        "weighted": {
+            "weighting": "fixed",
+            "qualifiers": ("known_mechanism",),
+            "cells": [
+                "weighted",
+                "weighted__declared",
+                "weighted__target_gap_control",
+                "weighted__unweighted_rule_control",
+            ],
+            "limits": [
+                "It covers fixed observation weights with the weighted population's own "
+                "treatment mechanism supplied as treatment_probabilities=; the cell measures the "
+                "weight 1 + A Y with g_w = g0 E[w | A, W] / E[w | W]. Supplying the design "
+                "mechanism g0 beside weights that depend on the treatment or the outcome is the "
+                "Fix-16 defect, which the key cannot see and no cell measures.",
+                "The target is the optimal value of the weighted population, 0.690108 under "
+                "1 + A Y, whose optimal rule treats a further 0.347 of the population. The "
+                "calibration positive reads SE ratio 0.972 (99% interval 0.955 to 0.990) and "
+                "coverage 0.940 (10,000 draws), so the SE is about 3% small at n = 2,000. Read "
+                "against the unweighted optimal value the interval covers 0.000, and against "
+                "the weighted value of the unweighted optimal rule 0.503 (1,200 draws).",
+            ],
+        },
+        "strata": {
+            "qualifiers": ("known_mechanism", "strata"),
+            "cells": [
+                "strata",
+                "strata_all__declared",
+                "strata_s0__declared",
+                "strata_s1__declared",
+            ],
+            "limits": [
+                "Each stratum of one binary baseline column targets its own optimal value, and "
+                "the marginal estimate the optimal value. The calibration positives read SE "
+                "ratios 0.989, 0.996 and 0.993 and coverage 0.946, 0.948 and 0.948 (marginal, "
+                "W2 = 0, W2 = 1; 10,000 draws). The control without the stratum share reads SE "
+                "ratio 0.50, so the instrument resolves a gross normalisation error only; the "
+                "fold-local share rests on the unit witnesses.",
+            ],
+        },
+        "known_regimes": {
+            "qualifiers": ("known_mechanism", "known_regimes"),
+            "cells": ["known_regimes", "contrast_1__declared", "contrast_0__declared"],
+            "limits": [
+                "It covers the contrasts ate_optimal_rule[...] of the optimal value against "
+                "Static(1) and Static(0). The calibration positives read SE ratio 0.977 (99% "
+                "interval 0.960 to 0.995) and 0.988 (0.970 to 1.006), coverage 0.937 and 0.941 "
+                "(10,000 draws), so the SE of the contrast against Static(1) is about 2% small "
+                "at n = 2,000. Other known regimes, and reference= naming the learned rule, "
+                "read supported and were not measured.",
+            ],
+        },
+        "in_sample": {
+            "splitting": ("in_sample",),
+            "qualifiers": ("known_mechanism",),
+            "options": {
+                "outcome_learner_family": "parametric",
+                "treatment_learner_family": "known",
+            },
+            "cells": ["in_sample", "in_sample__declared"],
+            "limits": [
+                "It covers the in-sample fit (cross_fit=False) of the one rule learned on every "
+                "row with a parametric outcome learner and the known mechanism, under condition "
+                "C5a. The calibration positive reads SE ratio 1.000 (99% interval 0.982 to "
+                "1.018), coverage 0.950 and standardized bias +0.096 against the optimal value "
+                "(10,000 draws). Against the value of the rule it learned the standardized bias "
+                "is +0.179: the in-sample lean, which the regret partly offsets.",
+            ],
+        },
+        "intermediate": {
+            "missing": ("intermediate",),
+            "qualifiers": ("known_mechanism",),
+            "cells": ["intermediate", "intermediate_z0__declared", "intermediate_z1__declared"],
+            "limits": [
+                "Each level z of a binary intermediate targets the optimal value with Z held at "
+                "z, not the value of the total-effect rule. The calibration positives read SE "
+                "ratio 0.984 and 1.002 and coverage 0.942 and 0.946 (z = 0, z = 1; 10,000 "
+                "draws). The cell cannot tell a fit that ignores Z: the total-effect optimum is "
+                "0.44 and 0.46 SEs from the two level truths. That rests on the bit-for-bit "
+                "identity with the learned-rule fit, which learned-rule-intermediate measures, "
+                "and on the unit witnesses.",
+            ],
+        },
+    }
+    for setting, declared in compositions_rows.items():
+        own = declared.pop("limits")
+        rows.append(
+            point_row(
+                f"T57.{setting}",
+                ["learned-rule-optimal-compositions"],
+                families=("P12",),
+                splitting=declared.pop("splitting", ("fold_evaluated",)),
+                # Roadmap: X11.
+                limits=[*own, *compositions_limits],
+                **declared,
+            )
+        )
     # P1 (c): the learned-rule value when the EP curve sets each fold's rule
     # (``LearnedRule(loss="ep", modifiers=...)``), keyed ``rule_learner_ep``. The plan named these
     # rows T49; the conditional-projection rows took T49 and T50 first. Two rows, for the
@@ -1680,6 +1817,10 @@ def _d_rows() -> tuple[SupportRow, ...]:
             limits=[
                 "The one-inconsistent-nuisance cells are red.",
                 LEAK,
+                "The red one-inconsistent-nuisance cells fit the pooled reduced regressions. "
+                "The foldwise default passes on their own draws at n = 1,500 "
+                "(drtmle-foldwise-n1500), and in drtmle-foldwise for treatment_correct at "
+                "n = 1,000 and for both regimes at n = 3,000; row D11 covers it.",
             ],
         ),
         point_row(
@@ -1691,7 +1832,14 @@ def _d_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             cells=["multi_arm_binary_drtmle"],
             # Roadmap: RM18.
-            limits=["The boundary and one-sided-bias cells are red.", LEAK],
+            limits=[
+                "The boundary and one-sided-bias cells are red.",
+                LEAK,
+                "The red treatment_correct cell fits the pooled reduced regressions. The "
+                "foldwise default passes on its draws at n = 2,000 (drtmle-foldwise) and on the "
+                "primary law and the outcome_correct cell (multi-arm-drtmle-foldwise); row D12 "
+                "covers it.",
+            ],
         ),
         point_row(
             "D03",
@@ -1705,9 +1853,11 @@ def _d_rows() -> tuple[SupportRow, ...]:
             limits=[
                 "Two truth cells and the small-stratum cell are red.",
                 LEAK,
-                "Foldwise reduced regressions do not remove the stratified treatment_correct "
-                "bias: a 200-draw pilot at n = 2,000 read foldwise marginal 0.29, v1 0.30, "
-                "v2 0.18 SD against pooled 0.58, 0.42, 0.33 SD (margin 0.25 SD).",
+                "The red treatment_correct cells fit the pooled reduced regressions. Under the "
+                "foldwise default the marginal ATE bias reads 0.40, 0.27 and 0.20 SD at n = "
+                "2,000, 4,000 and 8,000 and contracts faster than n^-1/2, consistent with second "
+                "order (log-bias slope -1.07, 99% interval -1.22 to -0.93; "
+                "stratified-drtmle-foldwise); row D13 covers it.",
             ],
         ),
         point_row(
@@ -1842,14 +1992,66 @@ def _d_rows() -> tuple[SupportRow, ...]:
         ),
         # X83: the default cross-fitted fit, foldwise reduced regressions on the
         # canonical-drtmle law. Its key is the key of D07.estimated_g_stacked, so the two merge.
+        # Fix-6 adds the default at n = 1,500 on the RM18 cells' draws.
         point_row(
             "D11",
-            ["drtmle-foldwise"],
+            ["drtmle-foldwise", "drtmle-foldwise-n1500"],
             families=("P1",),
             engine=dr,
             splitting=("stacked",),
             options={"reduced_crossfit": "foldwise"},
             cells=["both_correct", "outcome_correct", "treatment_correct"],
+        ),
+        # Fix-6: the default cross-fitted three-arm fit, foldwise reduced regressions on the
+        # canonical-multi-arm-drtmle law, and the X83 multi-arm treatment_correct cell.
+        point_row(
+            "D12",
+            ["multi-arm-drtmle-foldwise", "drtmle-foldwise"],
+            families=("P1", "P2"),
+            engine=dr,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            options={"reduced_crossfit": "foldwise"},
+            cells=[
+                "multi_arm_binary_drtmle",
+                "double_robustness/outcome_correct",
+                "double_robustness/multi_arm_drtmle__treatment_correct",
+            ],
+            limits=[
+                "The foldwise outcome_correct cell runs at n = 1,000 only "
+                "(multi-arm-drtmle-foldwise); no foldwise multi-arm outcome_correct cell runs at "
+                "n = 2,000, the size of the primary rows and of the treatment_correct cell "
+                "(drtmle-foldwise)."
+            ],
+        ),
+        # Fix-6: the default cross-fitted stratified fit, foldwise reduced regressions on the
+        # canonical-stratified-drtmle law, and the X83 stratified outcome_correct cells.
+        point_row(
+            "D13",
+            ["stratified-drtmle-foldwise", "drtmle-foldwise"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            options={"reduced_crossfit": "foldwise"},
+            cells=[
+                "stratified_both_correct",
+                "stratified_contraction",
+                "double_robustness/marginal_ate__stratified",
+                "double_robustness/v0_ate__stratified",
+                "double_robustness/v1_ate__stratified",
+                "double_robustness/v2_ate__stratified",
+            ],
+            limits=[
+                "The smallest-stratum truth cell ey[1][V=2] is red and a defect suspect "
+                "(X8-drtmle-small-stratum): its SE is under-reported by about 12% (SE ratio "
+                "0.882, 99% interval 0.858 to 0.908) and its coverage is 0.907, pending Fix-3's "
+                "small-stratum correction.",
+                "The treatment_correct bias is a finite-sample limit: the marginal ATE reads "
+                "0.40, 0.27 and 0.20 SD at n = 2,000, 4,000 and 8,000, and the marginal and v1 "
+                "biases contract faster than n^-1/2, consistent with second order "
+                "(stratified-drtmle-foldwise; X8-drtmle-one-sided-bias).",
+            ],
         ),
     ]
     return _merged(
@@ -2390,13 +2592,21 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
     # under the same row id, and change the four dispositions of ``mtp-pricing`` in
     # ``tests/studies/evidence/support_dispositions.py`` (see ``_X40_PRICE_DOWN`` there).
+    ("D13", "wald"): (
+        "Row D13 is red for the smallest-stratum treated mean, a defect suspect pending Fix-3's "
+        # Roadmap: X8-drtmle-small-stratum.
+        "small-stratum correction: coverage 0.9073 and SE ratio 0.8820 (99% interval 0.8584 to "
+        "0.9079)."
+    ),
     ("G39.ltmle.tau5", "wald"): (
         "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
+        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration). "
+        "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     ("G39.sdr.tau5", "wald"): (
         "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration)."
+        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration). "
+        "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
     # band; stochastic-categorical-ltmle's primary band cell, which BAND_CELLS maps here, passes.
@@ -2435,14 +2645,23 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         "failures 32 of 10000 (worst case fails)",
     ),
     "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
-    "D01": ("RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",),
+    "D01": (
+        "RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",
+        "RM18-one-sided-bias: bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888",
+        "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
+    ),
     "D02": (
         "RM18-boundary: coverage 0.8988 to 0.9542, bias 0.000900",
+        "RM18-one-sided-bias: bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998",
         "RM18-boundary: coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123",
         "RM18-boundary: bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888",
     ),
     "D03": (
         "X8-drtmle-small-stratum: bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388",
+        "X8-drtmle-one-sided-bias: bias 0.0136 to 0.0185, margin 0.0067, SE ratio 0.9902",
+        "X8-drtmle-one-sided-bias: bias 0.0094 to 0.0162, margin 0.0093, SE ratio 0.9505",
+        "X8-drtmle-one-sided-bias: bias 0.0123 to 0.0214, margin 0.0124, SE ratio 0.9364",
+        "X8-drtmle-one-sided-bias: bias 0.0179 to 0.0286, margin 0.0147, SE ratio 1.0627",
         (
             "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, "
             "empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to"
@@ -2671,11 +2890,139 @@ T_BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
+#: The study whose cells license the ``wald_policy`` kind (``variance="policy_weighted"``).
+POLICY_STUDY: Final[str] = "mtp-policy-variance"
+
+
+def _policy(cell: str) -> str:
+    return f"{POLICY_STUDY}:{cell}"
+
+
+#: The ``mtp-policy-variance`` option cells that license ``wald_policy`` on each row (Fix-5 plan,
+#: section 7.3). Every cell passed its bias, its coverage floor and its SE-ratio clause, and its
+#: controls failed as declared. A row named here licenses ``wald_policy`` and cites the study;
+#: every other row leaves an option fit experimental. ``G39.*.tau3`` is not named: its
+#: configuration was held out for the variance-learner screen, so no gated cell measures it.
+POLICY_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    **{
+        f"G39.{engine}.tau{tau}": tuple(
+            _policy(f"policy_variance/pricing_{engine}_tau{tau}__{quantity}__option")
+            for quantity in ("ey", "ate")
+        )
+        for engine in ("ltmle", "sdr")
+        for tau in (2, 5)
+    },
+    "G10.continuous": (
+        _policy("policy_calibration/p4_ltmle__option"),
+        _policy("policy_variance/boundaries_ltmle_p4__ey__option"),
+        _policy("policy_variance/boundaries_ltmle_p4__ate__option"),
+    ),
+    "G24.mtp.in_sample": (
+        _policy("policy_calibration/p4_sdr__option"),
+        _policy("policy_variance/boundaries_sdr_p4__ey__option"),
+        _policy("policy_variance/boundaries_sdr_p4__ate__option"),
+    ),
+}
+
+#: The condition every ``wald_policy`` licence states (Fix-5 plan, section 3.3). The key cannot
+#: tell an exact ratio from a learned one, so the note carries the condition.
+_POLICY_CONDITION = (
+    "validated with an exact or known ratio; with a learned ratio the outcome model must be "
+    "consistent"
+)
+
+#: The notes of the ``variance="policy_weighted"`` readings on each row, from the committed
+#: ``mtp-policy-variance`` rows: the licence's reading and condition where :data:`POLICY_CELLS`
+#: names the row, and the screen reading where it does not.
+POLICY_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
+    "G39.ltmle.tau5": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative, SE ratio 1.113 to "
+        "1.117 (99% intervals 1.086 to 1.144), coverage 0.980 to 0.981; "
+        f"{_POLICY_CONDITION}. With a learned classifier ratio it reads coverage 0.970 to "
+        "0.972 and SE ratio 1.063 to 1.071 (reported, not gated)",
+    ),
+    "G39.sdr.tau5": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative, SE ratio 1.143 to "
+        "1.145 (99% intervals 1.117 to 1.173), coverage 0.983; "
+        f"{_POLICY_CONDITION}. With a learned classifier ratio it reads coverage 0.977 to "
+        "0.981 and SE ratio 1.092 to 1.098 (reported, not gated)",
+    ),
+    "G39.ltmle.tau2": (
+        "variance='policy_weighted' (mtp-policy-variance): calibrated, SE ratio 1.001 to "
+        f"1.019, coverage 0.952 to 0.954; {_POLICY_CONDITION}",
+    ),
+    "G39.sdr.tau2": (
+        "variance='policy_weighted' (mtp-policy-variance): calibrated, SE ratio 0.992 to "
+        f"0.995, coverage 0.945 to 0.952; {_POLICY_CONDITION}",
+    ),
+    "G39.ltmle.tau3": (
+        "variance='policy_weighted' is experimental on this row: no gated cell measures three "
+        "nodes. The held-out learner screen read SE ratio 1.079 to 1.085 and coverage 0.965 to "
+        "0.968 on 400 draws, which is not a gate",
+    ),
+    "G39.sdr.tau3": (
+        "variance='policy_weighted' is experimental on this row: no gated cell measures three "
+        "nodes. The held-out learner screen read SE ratio 1.081 to 1.087 and coverage 0.965 to "
+        "0.973 on 400 draws, which is not a gate",
+    ),
+    "G10.continuous": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
+        "1.054 to 1.084, coverage 0.965 to 0.972, with the correct or the primary outcome "
+        f"learners and the oracle hazard; {_POLICY_CONDITION}",
+    ),
+    "G24.mtp.in_sample": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
+        "1.047 to 1.062, coverage 0.965 to 0.969, with a UnitRangePseudo or LinearRegression "
+        f"first node; {_POLICY_CONDITION}. With the default SuperLearner pseudo learner the "
+        "option covers 0.969 (reported)",
+    ),
+}
+
+#: Notes of the default Wald interval from the ``mtp-policy-variance`` tail-size twins (Fix-5
+#: plan, section 7.3). Each names a quantity whose committed cell sits below twice its tail size
+#: and the twin that reads the interval at the gated n. Each twin passed, so no row gains a
+#: shortfall. A note stands first in its row's limits, as ``_lh_note`` does.
+TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
+    "G39.ltmle.tau3": (
+        "X39-below-tail-size: the price_down rows are gated at n = 5,600, twice their tail size; "
+        "the 5,600-row twin reads coverage 0.952 to 0.955 and SE ratio 1.023 to 1.029",
+    ),
+    "G39.sdr.tau3": (
+        "X39-below-tail-size: the price_down rows are gated at n = 5,600, twice their tail size; "
+        "the 5,600-row twin reads coverage 0.945 to 0.947 and SE ratio 0.983 to 1.003",
+    ),
+    "G39.ltmle.tau5": (
+        "X39-below-tail-size: the price_up rows are gated at n = 5,000 by a margin of at least "
+        "72 rows. "
+        "The up_oracle_tau5 calibration cell is read by its 4,000-row twin: coverage 0.944, SE "
+        "ratio 0.984 (0.962 to 1.006). The up_learned_classifier_tau5 cell is a lower bound on "
+        "its tail size; its reporting twin reads coverage 0.941, SE ratio 0.978",
+    ),
+    "G10.continuous": (
+        "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5 calibration cell are below "
+        "the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
+        "coverage 0.947, SE ratio 1.009 (truth twin) and 1.001 (0.972 to 1.032)",
+    ),
+    "G24.mtp.in_sample": (
+        "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5_sdr calibration cell are "
+        "below the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
+        "coverage 0.951 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.024)",
+        "X40: the p4_sdr cell at n = 4,000 reads coverage 0.936 and SE ratio 0.920 (0.891 to "
+        "0.950), below its tail size; its 104,400-row twin reads SE ratio 0.990 (0.963 to 1.020) "
+        "and coverage 0.946. The p4 rows at n = 5,000 read an RMS ratio interval that "
+        "contains 1, so the committed shortfall reads as chance. With the default SuperLearner "
+        "pseudo learner the interval covers 0.944 (0.925 to 0.960), SE ratio 0.948 (0.905 to "
+        "0.996)",
+    ),
+}
+
+
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     """Attach the shortfall, limit, ``t`` band and band-draw tables to their rows.
 
-    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS` and
-    :data:`BAND_OPTION_DRAWS`. A ``t`` band cell measured the band at
+    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS`,
+    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES` and
+    :data:`TAIL_NOTES`. A ``t`` band cell measured the band at
     :data:`DEFAULT_BAND_DRAWS` draws.
     """
     out = []
@@ -2683,7 +3030,23 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
         pairs = tuple(
             (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
         )
-        limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
+        limits = tuple(
+            dict.fromkeys(
+                (
+                    *TAIL_NOTES.get(row.id, ()),
+                    *row.limits,
+                    *MEASURED_LIMITS.get(row.id, ()),
+                    *POLICY_NOTES.get(row.id, ()),
+                )
+            )
+        )
+        if POLICY_CELLS.get(row.id):
+            row = replace(
+                row,
+                kinds=row.kinds | {"wald_policy"},
+                evidence=tuple(dict.fromkeys((*row.evidence, POLICY_STUDY))),
+                cells=tuple(dict.fromkeys((*row.cells, *POLICY_CELLS[row.id]))),
+            )
         if T_BAND_CELLS.get(row.id):
             options = (*row.band_options, T_BAND_OPTION) if "band" in row.kinds else ()
             row = replace(
@@ -3334,6 +3697,117 @@ def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _known_sample_weights_point_rows() -> tuple[SupportRow, ...]:
+    """A declared mechanism read in the weighted sample on point TMLE (Fix-16): ``T56``.
+
+    ``mechanism_law="sample"`` estimates the tilted mechanism from the declaration and a
+    weighted classification, so the fit keys with the ``tilted_mechanism`` qualifier and no
+    ``known_mechanism``: the row covers that route only, never an ordinary weighted fit.
+    The row was added because every declared verdict of
+    ``known-mechanism-sample-weights`` passed: 3 of 3 primary tests and the 26 gated property
+    cells, with no failed fit (``tests/canonical/known_sample_weights``).
+    """
+    return (
+        point_row(
+            "T56",
+            ["known-mechanism-sample-weights"],
+            families=("P1",),
+            weighting="fixed",
+            splitting=("stacked",),
+            qualifiers=["tilted_mechanism"],
+            cells=[
+                "interval_calibration/sw_n1000__correctly_specified",
+                "interval_calibration/sw_n4000__correctly_specified",
+                "interval_calibration/sw_n16000__correctly_specified",
+                "sample_misspecified/sw_n4000",
+                "tilt_misspecified/sw_n4000",
+            ],
+            limits=[
+                "One binary law with a declared randomization by W2 and a weight that reads the "
+                "arm and W1, five-fold cross-fitting, a correct logistic outcome regression and "
+                "a correct main-terms tilt classifier. The calibration cells read SE ratio 0.993 "
+                "to 1.000 and coverage 0.946 to 0.951 over 4,000 draws at n = 1,000, 4,000 and "
+                "16,000. With the outcome regression or the tilt classifier wrong the estimate "
+                "stays unbiased, but the interval needs both right (SE ratio 1.026 and 0.931). "
+                "A flexible learner, a weight that reads the outcome, more than two arms, "
+                "missing data and clusters rest on the exact-law tests alone. No comparator.",
+            ],
+        ),
+    )
+
+
+#: The limit of every ``T55`` row (study ``known-score-att``).
+_KNOWN_SCORE_LIMIT = (
+    "Measured with the treatment mechanism declared by column and equal to the law's. A "
+    "declared mechanism that is wrong biases the estimate whatever the outcome regression "
+    "(study known-score-att, cell s_att__declared_constant: bias -0.66, about 11 SD). "
+    "Interval calibration and the efficiency gain over the arm-mean form were measured on a "
+    "two-arm continuous outcome with a correct outcome regression; the binary and three-arm "
+    "cells measured bias and coverage with a misspecified outcome regression only, where the "
+    "gain is about 1% of the variance."
+)
+
+
+def _x35_known_score_rows() -> tuple[SupportRow, ...]:
+    """``conditional_form="known_score"`` on TMLE (``T55``, ``known-score-att``)."""
+    slug = ["known-score-att"]
+    declared = {"conditional_form": "known_score"}
+    common: dict[str, Any] = {
+        "families": ("P3",),
+        "qualifiers": ["known_mechanism"],
+        "options": declared,
+        "limits": [_KNOWN_SCORE_LIMIT],
+    }
+    return (
+        point_row(
+            "T55.in_sample",
+            slug,
+            outcome=CONTINUOUS,
+            cells=[
+                "interval_calibration/att_known_score_in_sample__correctly_specified",
+                "interval_calibration/atc_known_score_in_sample__correctly_specified",
+                "efficiency_gain/att__known_score",
+                "efficiency_gain/atc__known_score",
+                "known_score_accuracy/s_att__q_wrong",
+                "known_score_accuracy/s_atc__q_wrong",
+                "root_n_and_efficiency/n_500",
+                "root_n_and_efficiency/n_2000",
+                "root_n_and_efficiency/n_8000",
+            ],
+            **common,
+        ),
+        point_row(
+            "T55.stacked",
+            slug,
+            outcome=BOUNDED,
+            splitting=("stacked",),
+            cells=[
+                "interval_calibration/att_known_score_stacked__correctly_specified",
+                "interval_calibration/atc_known_score_stacked__correctly_specified",
+            ],
+            **common,
+        ),
+        point_row(
+            "T55.binary",
+            slug,
+            cells=["known_score_accuracy/b2_att__q_wrong", "known_score_accuracy/b2_atc__q_wrong"],
+            **common,
+        ),
+        point_row(
+            "T55.arms3",
+            slug,
+            treatment=("arms3",),
+            cells=[
+                "known_score_accuracy/b3_att_1__q_wrong",
+                "known_score_accuracy/b3_att_2__q_wrong",
+                "known_score_accuracy/b3_atc_1__q_wrong",
+                "known_score_accuracy/b3_atc_2__q_wrong",
+            ],
+            **common,
+        ),
+    )
+
+
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
@@ -3346,6 +3820,8 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),
         *_x76_adjustment_rows(),
+        *_known_sample_weights_point_rows(),
+        *_x35_known_score_rows(),
     )
 )
 
@@ -3385,12 +3861,14 @@ def _x33_options(
     stopping: str = "relative",
     step_bound: str = "none",
     iterate: str = "last",
+    later_covariates: bool = False,
 ) -> tuple[tuple[str, Any], ...]:
     """The fitting options of a longitudinal key that change the fit's arithmetic.
 
     The defaults are those of a fit that declares none of them, in the order
     :func:`cleverly._support.longitudinal_key` records them. Only the ``mtp-tuning`` rows
-    (``G41``) declare a cap tuned on the data.
+    (``G41``) declare a cap tuned on the data, and only the ``hazard-time-varying`` rows
+    (``G63``) a hazard fit with covariates after baseline.
     """
     return (
         ("node_bounds", node_bounds),
@@ -3401,6 +3879,7 @@ def _x33_options(
         ("stopping", stopping),
         ("step_bound", step_bound),
         ("iterate", iterate),
+        ("later_covariates", later_covariates),
     )
 
 
@@ -3433,6 +3912,7 @@ def long_row(
     stopping: str = "relative",
     step_bound: str = "none",
     iterate: str = "last",
+    later_covariates: bool = False,
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -3468,7 +3948,8 @@ def long_row(
     dependence : str, default "iid"
         The dependence axis.
     qualifiers : iterable of str, default ()
-        The known treatment and censoring factors.
+        The known treatment and censoring factors, and ``tilted_mechanism`` for a declared node
+        read in the weighted sample.
     engine : str or tuple of str, default "tmle"
         ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
         class that records one, such as ``("collaborative_tmle", "greedy")``.
@@ -3500,6 +3981,9 @@ def long_row(
     iterate : {"last", "best"}, default "last"
         The iterate the row's fits report under a declared stopping rule. It reads ``"last"``
         under ``"relative"``.
+    later_covariates : bool, default False
+        Whether the row's fits are hazard fits (``survival_model="hazard"``) with a covariate
+        block at a node after the first, which run the backward pass of X70 part (b1).
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -3549,6 +4033,7 @@ def long_row(
                 stopping=stopping,
                 step_bound=step_bound,
                 iterate=iterate,
+                later_covariates=later_covariates,
             ),
         ),
     )
@@ -4479,6 +4964,19 @@ def _long_rows() -> tuple[SupportRow, ...]:
     return tuple(rows)
 
 
+#: What the censored continuous-policy rows were validated under (``mtp-pricing-censored``).
+_CENSORED_POLICY_LIMITS: Final[tuple[str, ...]] = (
+    "validated with a correctly specified main-terms logistic censoring model; a misspecified "
+    "censoring model biases the weights and is not measured",
+    "validated with per-node retention of at least 0.58 and cumulative retention above 0.20 at "
+    "three nodes, about 14% censored by the last node",
+    "validated on one plan only, a 12% multiplicative increase in the treatment that binds at "
+    "the upper end of the declared support",
+    "censoring must be at random given the history and the current treatment; the data cannot "
+    "check it",
+)
+
+
 def _continuous_dose_rows() -> list[SupportRow]:
     """The rows of the continuous-policy studies (X40): ``G39`` to ``G41``.
 
@@ -4489,8 +4987,10 @@ def _continuous_dose_rows() -> list[SupportRow]:
     ``G24.mtp.in_sample``. These rows hold the keys that no earlier row covers.
 
     ``G39`` is the classifier ratio route on a price with a declared support
-    (``mtp-pricing``), by engine and horizon. ``G40`` is the learned density at three and five
-    nodes. ``G41`` is a cap tuned on the data over a bounded outcome (``mtp-tuning``).
+    (``mtp-pricing``), by engine and horizon, and ``G39.<engine>.tau3_cross_fitted_censored``
+    adds censoring at each node (``mtp-pricing-censored``). ``G40`` is the learned density at
+    three and five nodes. ``G41`` is a cap tuned on the data over a bounded outcome
+    (``mtp-tuning``).
     """
     xf = ("cross_fitted",)
     pricing, tuning = ["mtp-pricing"], ["mtp-tuning"]
@@ -4575,6 +5075,26 @@ def _continuous_dose_rows() -> list[SupportRow]:
                 outcome=outcome,
                 ratio="classifier",
                 cells=cells,
+            )
+        )
+    # X77: censoring at a continuous policy node, the cross-fitted classifier route at three
+    # nodes. The key differs from ``G39.<engine>.tau3_cross_fitted`` only in ``missing``.
+    for engine, short in (("tmle", "ltmle"), ("sdr", "sdr")):
+        rows.append(
+            long_row(
+                f"G39.{short}.tau3_cross_fitted_censored",
+                ["mtp-pricing-censored"],
+                regimens=("mtp",),
+                engine=engine,
+                missing=("censoring",),
+                treatment=("continuous",) * 3,
+                splitting=xf,
+                ratio="classifier",
+                cells=[
+                    f"interval_calibration/censored_crossfit_{short}_tau3__correctly_specified",
+                    f"censoring_necessity/up_{short}_tau3__learned_censoring",
+                ],
+                limits=_CENSORED_POLICY_LIMITS,
             )
         )
     for nodes in (3, 5):
@@ -4850,7 +5370,6 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                # Roadmap: X72.
                 "reference mean only. A static level or contrast is refused.",
             ),
         ),
@@ -5252,8 +5771,10 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
-#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``) and
-#: the working model over the hazard curve (``G60``).
+#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``),
+#: the working model over the hazard curve (``G60``), a modified treatment policy on the
+#: hazard path (``G61``), hazards with a treatment at several nodes (``G62``) and hazards with
+#: covariates after baseline (``G63``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5626,6 +6147,341 @@ def _hazard_msm_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
+    """A modified treatment policy on the hazard path of ``hazard-mtp`` (X70 part (c)): ``G61``.
+
+    ``LTMLE`` with a modified treatment policy at the baseline decision, ``survival_model=
+    "hazard"`` and ``targeting="one_step"`` keys ``mtp`` on the hazard ``LTMLE`` key, with the
+    baseline treatment held over the visits (a vector treatment has one visit).  The rows were
+    added because every declared verdict passed: 48 of 48 primary tests and 39 of 39 property
+    cells with a verdict (calibration with its controls on every ratio route, the simultaneous
+    band on two laws, robustness on every route, targeting necessity, the root-n rate and
+    power), with no failed fit.  The numbers are the committed results
+    (``tests/canonical/hazard_mtp``).
+    """
+    slug = ["hazard-mtp"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a logistic visit hazard and "
+        "dropout, one cause, and a deterministic policy that the natural course is compared "
+        "against. Correctly specified low-dimensional learners at n = 2,000; a wrong hazard "
+        "learner or wrong mechanisms only in the robustness cells. A flexible learner, a "
+        "stochastic policy, held cells, observation weights or clusters rest on the exact-law "
+        "tests alone. No comparator: no maintained package targets these hazards under a "
+        "policy."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "regimens": ("mtp",),
+        "survival_model": "hazard",
+        "targeting": "one_step",
+    }
+    continuous = ("continuous",) * 5
+    return (
+        long_row(
+            "G61.levels",
+            slug,
+            held=True,
+            treatment=("6",) * 5,
+            kinds=_LONG_BAND,
+            cells=["levels"],
+            limits=[
+                "A dose on six levels over five visits, moved up one level. The primary rows "
+                "read coverage 0.941 to 0.959 over 2,400 draws, the calibration cells SE ratio "
+                "1.005 and 1.018 over 4,400, and the max-t band over both curves joint "
+                "coverage 0.951.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.density",
+            slug,
+            held=True,
+            treatment=continuous,
+            kinds=_LONG_BAND,
+            cells=["gaussian_density"],
+            limits=[
+                "A Gaussian dose over five visits, truncated to [0, 5.5] and shifted by one with "
+                "the cap at 5.5, its ratio from the binned density at oracle_bins(n) bins. The "
+                "primary rows read coverage 0.944 to 0.956 over 2,400 draws, the calibration "
+                "cells SE ratio 0.997 and 1.000 over 4,400, and the band joint coverage 0.950. "
+                "On an unbounded dose the tail bins are wider than the shift and the influence "
+                "curve misses the efficient one by about a quarter of an efficiency SD at "
+                "n = 20,000; its reported rows carry no verdict.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.classifier",
+            slug,
+            held=True,
+            treatment=continuous,
+            ratio="classifier",
+            cells=["gaussian_classifier"],
+            limits=[
+                "A Gaussian dose over five visits shifted by one, its ratio from a logistic "
+                "classifier. The primary rows read coverage 0.940 to 0.955 over 2,400 draws and "
+                "the calibration cells SE ratio 0.995 and 1.016 over 4,400; no band is "
+                "validated on this route.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.cross_fitted",
+            slug,
+            held=True,
+            treatment=continuous,
+            ratio="classifier",
+            splitting=("cross_fitted",),
+            cells=["gaussian_crossfit"],
+            limits=[
+                "The classifier route on five outer folds. The calibration cells read SE ratio "
+                "1.000 and 1.006 over 4,400 draws, and the wrong-hazard cell a standardized "
+                "bias of -0.069 over 1,600; no band is validated on this route.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.vector",
+            slug,
+            treatment=("mixed",),
+            ratio="classifier",
+            cells=["vector"],
+            limits=[
+                "A binary arm beside a Gaussian dose at one visit, the dose shifted by one and "
+                "the arm kept, its ratio from a logistic classifier. The primary rows read "
+                "coverage 0.940 to 0.954 over 2,400 draws and the calibration cells SE ratio "
+                "0.980 and 0.996 over 4,400; a vector held over several visits cannot be "
+                "declared.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
+def _known_sample_weights_long_rows() -> tuple[SupportRow, ...]:
+    """A declared node mechanism read in the weighted sample on LTMLE (Fix-16): ``G64``.
+
+    A ``"sample"`` node is an estimated factor of its own construction, so the fit keys with
+    the ``tilted_mechanism`` qualifier and no known factor: the row covers that route only.
+    The row was added because every declared verdict of
+    ``known-mechanism-sample-weights`` passed (``tests/canonical/known_sample_weights``).
+    """
+    return (
+        long_row(
+            "G64",
+            ["known-mechanism-sample-weights"],
+            outcome=("gaussian", "bounded"),
+            missing=("complete",),
+            weighting="fixed",
+            splitting=("cross_fitted",),
+            qualifiers=["tilted_mechanism"],
+            cells=[
+                "interval_calibration/lw_n4000__correctly_specified",
+                "sample_misspecified/lw_n4000",
+            ],
+            limits=[
+                "One two-node law with a continuous outcome inside declared bounds, both "
+                "treatment nodes declared, a weight that reads L0 and the first treatment, "
+                "five-fold cross-fitting and correct linear node regressions and main-terms "
+                "tilt classifiers, at n = 4,000. The calibration cell reads SE ratio 0.993 and "
+                "coverage 0.952 over 4,000 draws; with the first node regression wrong the "
+                "estimate stays unbiased and the interval over-covers (SE ratio 1.214). The "
+                "weight tilts the first node only, so a tilt at a later node, censoring, and "
+                "a flexible learner rest on the exact-law tests alone. No comparator.",
+            ],
+        ),
+    )
+
+
+def _hazard_multinode_rows() -> tuple[SupportRow, ...]:
+    """Hazards with a treatment at several nodes of ``hazard-multinode`` (X70 part (a)): ``G62``.
+
+    ``LTMLE`` with ``survival_model="hazard"`` on a design whose binary treatment is decided at
+    every node, with baseline covariates only, enumerates the treatment paths of its regimens as
+    slots.  The key reads the unheld treatment axis.  The regimen rows name
+    ``targeting="iterative"``: the study's one-step walk over regimen curves is a reported,
+    ungated family, so a one-step regimen fit matches no row.  The working model needs the
+    one-step walk (H14).  The rows were added because every declared verdict passed: 51 of 51
+    primary tests and 39 of 39 property cells with a verdict (calibration with its controls on
+    three fit labels, the simultaneous band on two laws, robustness with an all-wrong control
+    and a node-only hazard learner, targeting necessity, the root-n rate and power).  Four fits that
+    held a prefix cell were recorded as lost replicates, inside the failure bound.  The numbers
+    are the committed results (``tests/canonical/hazard_multinode``).
+    """
+    slug = ["hazard-multinode"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a binary treatment at every node "
+        "logistic in W and the previous arm, dropout and a logistic event hazard in W and the "
+        "last two arms, one cause. Correctly specified low-dimensional logistic learners at "
+        "n = 2,000, one fold, g_bounds = 1e-3; a wrong hazard learner, a node-only hazard "
+        "learner or wrong mechanisms only in the robustness cells. Cross-fitting, competing "
+        "causes, more than two treatment levels, observation weights, clusters, node_bounds, a "
+        "flexible learner and the one-step walk over regimen curves rest on "
+        "tests/unit/test_hazard_multinode.py. A fit that holds a prefix cell reports no "
+        "interval. No comparator: no maintained package targets discrete-time hazards over "
+        "treatment paths."
+    )
+    common: dict[str, Any] = {"outcome_kind": "survival", "survival_model": "hazard"}
+    return (
+        long_row(
+            "G62.three_node",
+            slug,
+            regimens=("static", "stochastic"),
+            treatment=("2",) * 3,
+            targeting="iterative",
+            kinds=_LONG_BAND,
+            cells=["base_contrast", "base_rule", "base_policy", "base_stay"],
+            limits=[
+                "Three nodes, regimens always, never, a known rule of W, a known policy that "
+                "reads the previous arm, and a draw at node 1 then kept. The primary rows read "
+                "coverage 0.934 to 0.955 over 2,400 draws, the calibration cells SE ratio 0.993 "
+                "to 1.004 over 5,198, and the max-t band over every risk and contrast joint "
+                "coverage 0.941.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G62.four_node",
+            slug,
+            regimens=("static", "stochastic"),
+            treatment=("2",) * 4,
+            targeting="iterative",
+            kinds=_LONG_BAND,
+            cells=["four_contrast", "four_policy"],
+            limits=[
+                "Four nodes, regimens always, never and a known policy over 16 paths. The "
+                "primary rows read coverage 0.940 to 0.961 over 2,400 draws, the calibration "
+                "cells SE ratio 0.985 and 0.999 over 5,200, and the max-t band over every risk "
+                "and contrast joint coverage 0.948.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G62.msm",
+            slug,
+            msm=True,
+            treatment=("2",) * 3,
+            targeting="one_step",
+            cells=["msm_dose", "msm_dose_W1"],
+            limits=[
+                "The logit working model (1, d, t, d W1) over the eight static paths of the "
+                "three-node law, with d the cumulative dose through t and uniform cell weights. "
+                "The primary rows read coverage 0.947 to 0.954 over 2,400 draws and the "
+                "calibration cells SE ratio 0.985 and 0.997 over 5,200; no band is validated "
+                "on this fit.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
+def _hazard_time_varying_rows() -> tuple[SupportRow, ...]:
+    """Hazards with covariates after baseline of ``hazard-time-varying`` (X70 (b1)): ``G63``.
+
+    ``LTMLE`` with ``survival_model="hazard"`` and ``targeting="one_step"`` on a held design with
+    a ``time_varying=`` block at a node after the first runs the backward pass of
+    :mod:`cleverly.longitudinal.hazard_backward`, which the key marks ``later_covariates``.  The
+    rows were added because every declared verdict passed: 54 of 54 primary tests and 34 of 34
+    property cells with a verdict (calibration with its controls on four fit labels, the
+    simultaneous band on two laws, robustness with an all-wrong control, targeting necessity,
+    the root-n rate and power), with no failed or held fit.  The numbers are the committed results
+    (``tests/canonical/hazard_time_varying``).
+    """
+    slug = ["hazard-time-varying"]
+    shared = (
+        "Evidence covers one scalar binary covariate per node after baseline on Markov laws "
+        "(each factor at node k reads L_k only); a continuous, multivariate or non-Markov L_k "
+        "rests on tests/unit/test_hazard_time_varying.py.",
+        "Evidence covers targeting='one_step' with correctly specified or misspecified logistic "
+        "and cell-mean learners at n = 2,000, without observation weights, clusters or "
+        "node_bounds. No comparator: no maintained package targets discrete-time hazards with "
+        "covariates after baseline by a backward pass.",
+    )
+    common: dict[str, Any] = {
+        "held": True,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+        "later_covariates": True,
+    }
+    return (
+        long_row(
+            "G63.held.in_sample",
+            slug,
+            outcome_kind="survival",
+            treatment=("2",) * 5,
+            kinds=_LONG_BAND,
+            cells=["one_cause_contrast", "one_cause_risk"],
+            limits=[
+                "One cause over five visits with dropout. The primary rows read coverage 0.935 "
+                "to 0.953 over 2,400 draws, the calibration cells SE ratio 0.988 and 1.007 over "
+                "4,800, and the max-t band over the curve joint coverage 0.944.",
+                *shared,
+                "Regimens: static arms only; a rule or known policy on a held design rests on "
+                "the unit tests.",
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.held.competing",
+            slug,
+            outcome_kind="competing",
+            treatment=("2",) * 4,
+            kinds=_LONG_BAND,
+            cells=["competing_contrast", "competing_risk"],
+            limits=[
+                "Two causes over four visits with dropout. The primary rows read coverage 0.938 "
+                "to 0.953 over 2,400 draws, the calibration cells SE ratio 0.989 and 1.002 over "
+                "4,800, and the max-t band over both causes' curves joint coverage 0.944.",
+                *shared,
+                "Regimens: static arms only, two causes.",
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.held.mtp",
+            slug,
+            outcome_kind="survival",
+            regimens=("mtp",),
+            treatment=("3",) * 5,
+            cells=["three_arm_contrast", "three_arm_risk"],
+            limits=[
+                "A three-level treatment over five visits moved up one level at node 1, against "
+                "the natural course. The primary rows read coverage 0.936 to 0.958 over 2,400 "
+                "draws and the calibration cells SE ratio 0.991 and 1.005 over 4,800; no band is "
+                "validated on this fit.",
+                *shared,
+                "Regimens: one modified treatment policy at node 1 on a three-level treatment, "
+                "against the natural course.",
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.held.cross_fitted",
+            slug,
+            outcome_kind="survival",
+            treatment=("2",) * 5,
+            splitting=("cross_fitted",),
+            cells=["crossfit_contrast", "crossfit_risk"],
+            limits=[
+                "The one-cause law on five outer folds. The calibration cells read SE ratio "
+                "1.017 and 1.019 over 4,800 draws; no band is validated on this fit.",
+                *shared,
+                "Regimens: static arms only. The cross-fitted stitch has the same limit as the "
+                "in-sample one under parametric learners, so it rests on the unit tests.",
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -5765,6 +6621,10 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_survival_ctmle_rows(),
         *_survival_dr_tmle_rows(),
         *_hazard_msm_rows(),
+        *_hazard_mtp_rows(),
+        *_known_sample_weights_long_rows(),
+        *_hazard_multinode_rows(),
+        *_hazard_time_varying_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
@@ -5891,6 +6751,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It measures ContinuousSurvivalTMLE, which no support key reads: the continuous-time fit "
         "has no node structure to classify. cleverly.survival.result.continuous_survival_support, "
         "not a support row, records the configurations the study licenses."
+    ),
+    "continuous-survival-functionals": (
+        "It measures ContinuousSurvivalTMLE with restricted_horizons=, which no support key "
+        "reads: the continuous-time fit has no node structure to classify. "
+        "cleverly.survival.result.continuous_survival_support, not a support row, records the "
+        "configurations the study licenses."
     ),
     "adaptive-iptw-pairing": (
         "It pairs the gate study's fits with R drtmle replicate by replicate, has no property "
@@ -6144,6 +7010,15 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
     # hazard_msm_properties: the joint fit of the four survival-law coefficients.
     "G60.survival": (_band("hazard_msm", "survival_logit_coefficients"),),
+    # hazard_mtp_properties: each fit label's band over every risk and contrast of both curves.
+    "G61.levels": (_band("hazard_mtp", "levels_curve"),),
+    "G61.density": (_band("hazard_mtp", "gaussian_density_curve"),),
+    # hazard_multinode_properties: each regimen fit label's band over every risk and contrast.
+    "G62.three_node": (_band("hazard_multinode", "base_curve"),),
+    "G62.four_node": (_band("hazard_multinode", "four_curve"),),
+    # hazard_time_varying_properties: each fit label's band over every risk and contrast.
+    "G63.held.in_sample": (_band("hazard_time_varying", "one_cause_curve"),),
+    "G63.held.competing": (_band("hazard_time_varying", "competing_curve"),),
     # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
     # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
     "T14": (_band("tmle3_stratified", "crossfit_strata"),),

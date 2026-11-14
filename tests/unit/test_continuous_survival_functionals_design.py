@@ -228,3 +228,22 @@ def test_the_pilot_sizes_from_rows_like_its_own() -> None:
     assert pilot.primary_count(frame) >= 6_000
     at_target, plug_in = pilot.calibration_check(frame, properties.CALIBRATION_REPLICATES)
     assert at_target > 0.99 and plug_in > 0.90
+
+
+def test_the_measured_restriction_time_reads_inside_the_restricted_window() -> None:
+    # m3: the support labels a restricted mean by the share of observed events by its
+    # restriction time.  On draws of the study's size the measured restriction time must fall
+    # inside the window, and the gated target times inside the risks' band, or a label of the
+    # measured configuration would flip between draws.  D3: the study restricts at the last
+    # target time, so no draw of it reads a restriction time past the last target time.
+    from cleverly.survival.result import MEASURED_EVENT_SHARE, RESTRICTED_EVENT_SHARE
+
+    assert max(law.TIMES) == study.TAU
+    low, high = RESTRICTED_EVENT_SHARE
+    risk_low, risk_high = MEASURED_EVENT_SHARE
+    assert high == risk_high
+    for replicate in range(200):
+        frame, _ = study.draw_scenario(study.GATED_CELL, study.PRIMARY_N, replicate)
+        observed = frame.loc[frame["event"] > 0, "time"].to_numpy()
+        assert low <= np.mean(observed <= study.TAU) <= high
+        assert all(risk_low <= np.mean(observed <= time) <= risk_high for time in law.TIMES[1:])

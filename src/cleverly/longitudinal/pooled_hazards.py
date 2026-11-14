@@ -25,7 +25,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CapabilityError, RefusalReason
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from .data import LongitudinalData
@@ -37,6 +37,7 @@ __all__ = [
     "PooledCensoring",
     "check_hazard_pooling",
     "fit_pooled_censoring",
+    "hazard_pooled_mtp_refusal",
     "node_time",
     "refuse_pooled_designs",
     "stacked_design",
@@ -65,25 +66,40 @@ def check_hazard_pooling(hazard_pooling: str) -> None:
         raise ValueError(f"hazard_pooling must be 'node' or 'pooled'; got {hazard_pooling!r}")
 
 
-def refuse_pooled_designs(data: LongitudinalData) -> None:
-    """Refuse a pooled fit on a design whose node designs differ.
+def refuse_pooled_designs(data: LongitudinalData, mtp: Sequence[str] = ()) -> None:
+    """Refuse a pooled fit on a design whose node designs differ, or beside a hazard policy.
 
     Parameters
     ----------
     data : LongitudinalData
         The prepared panel.
+    mtp : sequence of str, default ()
+        The labels of the modified treatment policy regimens of a ``survival_model="hazard"``
+        fit, empty on every other fit.  The pooled hazard fit builds no design at a shifted
+        dose, so the first one is refused (H24).
 
     Raises
     ------
     CapabilityError
-        When the design has a treatment decision at more than one node, or time-varying
-        covariates, so its node designs have different columns.
+        When the design has a treatment decision at more than one node, covariates
+        measured at a node after the first, or a node-1 covariate block under
+        ``markov_order=``, so its node designs have different columns, or when ``mtp`` names a
+        regimen.
     """
     reasons = []
     if not data.treatment_held and data.n_times > 1:
         reasons.append(f"a treatment decision at each of its {data.n_times} nodes")
-    if any(names for names in data.time_varying_names):
+    # A block at node 1 precedes the first decision and enters every node's design alike
+    # (``history_design`` reads ``L_1`` at every node), so only a later block is refused.
+    if any(names for names in data.time_varying_names[1:]):
         reasons.append("time-varying covariates")
+    elif data.markov_order is not None and data.time_varying_names[0]:
+        # Under ``markov_order=`` the window drops ``L_1`` from the nodes past ``k + 1``, so a
+        # node-1 block alone also gives the nodes designs of different widths.
+        reasons.append(
+            f"a node-1 covariate block that the Markov order {data.markov_order} window "
+            "leaves out of the later nodes"
+        )
     if reasons:
         raise CapabilityError(
             "hazard_pooling='pooled' fits one regression over every node, so every node needs "
@@ -92,6 +108,30 @@ def refuse_pooled_designs(data: LongitudinalData) -> None:
             reason=RefusalReason.INVALID_DECLARATION,
             alternative="Use hazard_pooling='node'.",
         )
+    if mtp:
+        raise CapabilityError.from_refusal(hazard_pooled_mtp_refusal(mtp[0]))
+
+
+def hazard_pooled_mtp_refusal(label: str) -> Refusal:
+    """The refusal of pooled hazards beside a modified treatment policy regimen (H24).
+
+    Parameters
+    ----------
+    label : str
+        The policy regimen's label.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection``.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"hazard_pooling='pooled' cannot take the modified treatment policy {label!r}. "
+        "The pooled hazard fit predicts every regimen at its plan's treatment values "
+        "and builds no design at a shifted dose.",
+        "Set hazard_pooling='node', which predicts each shifted dose from its own design.",
+    )
 
 
 def node_time(data: LongitudinalData, time: int) -> float:

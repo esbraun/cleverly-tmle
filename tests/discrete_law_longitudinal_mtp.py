@@ -786,3 +786,168 @@ def mixed_eif(label: str, design: str = "end", horizon: int = 2) -> np.ndarray:
         value = functional_mixed(perturbed, MIXED_PLANS[label], design, horizon)
         out.append(float(np.imag(value) / step))
     return np.array(out)
+
+
+# ------------------------------------------------------------------ censored continuous nodes
+#
+# The unit law with a censoring indicator after each node (X77): ``C_1`` after ``A_1`` and
+# ``C_2`` after ``A_2``, each ``1`` while the unit stays.  The retention of each node reads the
+# node's own dose, so the censoring factor at the observed dose differs from the one at the
+# dose a plan sends the unit to, and a classifier trained on the rows that stayed after the
+# node reads a different dose law from the rows at risk.  The parameter is Theorem 1 of Díaz,
+# Williams, Hoffman and Schenck (2023) with the censoring component of each node set to one
+# (arXiv v4, Section 3, the paragraph after Theorem 1):
+#
+# .. math::
+#
+#     \Psi = \sum_w P(w) \sum_{a_1} g_1(a_1 \mid w) \sum_e p_1(e)
+#            \sum_l P(l \mid w, a_1^d, C_1 = 1) \sum_{a_2} g_2(a_2 \mid w, a_1^d, C_1 = 1, l)
+#            \sum_f p_2(f)\, E[Y \mid w, a_1^d, C_1 = 1, l, a_2^d, C_2 = 1].
+
+#: ``P(C_1 = 1 | w, a1)`` in quarters, indexed ``[w, a1]``: moving the dose up one changes it.
+R1 = np.array([[0.75, 0.50, 0.75, 0.25], [0.50, 0.75, 0.25, 0.75]])
+
+
+def _r2(w: int, a1: int, l2: int, a2: int) -> float:
+    """``P(C_2 = 1 | w, a1, l2, a2)`` in quarters, reading the node-2 dose."""
+    return ((w + a1 + l2 + a2) % 3 + 1) / 4.0
+
+
+#: The names of a censored support point.  ``-1`` marks a variable after the unit left.
+CENSORED_NAMES = ("w", "a1", "c1", "l2", "a2", "c2", "y")
+
+
+def _censored_support() -> tuple[tuple[int, ...], ...]:
+    points: list[tuple[int, ...]] = []
+    for w, a1 in itertools.product(range(2), range(4)):
+        points.append((w, a1, 0, -1, -1, -1, -1))
+        for l2, a2 in itertools.product(range(2), range(4)):
+            points.append((w, a1, 1, l2, a2, 0, -1))
+            points.extend((w, a1, 1, l2, a2, 1, y) for y in range(2))
+    return tuple(points)
+
+
+CENSORED_SUPPORT = _censored_support()
+#: Rows: every censored cell probability is a multiple of ``1 / CENSORED_N``.
+CENSORED_N = 2 * 8 * 4 * 4 * 8 * 4 * 4
+
+
+def _censored_cell(point: tuple[int, ...]) -> float:
+    w, a1, c1, l2, a2, c2, y = point
+    mass = P_W[w] * G1[w, a1] * (R1[w, a1] if c1 else 1.0 - R1[w, a1])
+    if not c1:
+        return float(mass)
+    mass *= (P_L2[w, a1] if l2 else 1.0 - P_L2[w, a1]) * G2[w, a1, l2, a2]
+    r2 = _r2(w, a1, l2, a2)
+    if not c2:
+        return float(mass * (1.0 - r2))
+    return float(mass * r2 * (Q[w, a1, l2, a2] if y else 1.0 - Q[w, a1, l2, a2]))
+
+
+def _censored_counts() -> np.ndarray:
+    counts = np.array([_censored_cell(point) * CENSORED_N for point in CENSORED_SUPPORT])
+    assert np.allclose(counts, np.round(counts), atol=1e-9), "not realised by CENSORED_N rows"
+    assert int(np.round(counts).sum()) == CENSORED_N
+    return np.round(counts).astype(int)
+
+
+CENSORED_COUNTS = _censored_counts()
+CENSORED_PROBS = CENSORED_COUNTS / CENSORED_N
+
+
+def censored_frame() -> pd.DataFrame:
+    """``CENSORED_N`` rows realising the censored law, in support order.
+
+    The columns are ``W``, ``A1``, ``C1``, ``L2``, ``A2``, ``C2`` and ``Y``, the doses on the
+    unit grid.  A unit censored at node 1 holds ``nan`` from ``L2`` on, and one censored at node
+    2 holds ``nan`` at ``Y``.
+    """
+    rows = []
+    for point, count in zip(CENSORED_SUPPORT, CENSORED_COUNTS, strict=True):
+        rows.extend([[np.nan if v < 0 else float(v) for v in point]] * int(count))
+    raw = np.array(rows, dtype=float)
+    return pd.DataFrame(
+        {
+            "W": raw[:, 0],
+            "A1": raw[:, 1],
+            "C1": raw[:, 2],
+            "L2": raw[:, 3],
+            "A2": raw[:, 4],
+            "C2": raw[:, 5],
+            "Y": raw[:, 6],
+        }
+    )
+
+
+def censored_first_row_of() -> np.ndarray:
+    """Index of the first row of each censored support point."""
+    return np.concatenate([[0], np.cumsum(CENSORED_COUNTS)[:-1]]).astype(int)
+
+
+@cache
+def _censored_index(**pattern: int) -> tuple[int, ...]:
+    return tuple(
+        index
+        for index, point in enumerate(CENSORED_SUPPORT)
+        if all(point[CENSORED_NAMES.index(name)] == value for name, value in pattern.items())
+    )
+
+
+def _censored_mass(probs: Any, **pattern: int) -> Any:
+    return sum(probs[index] for index in _censored_index(**pattern))
+
+
+def functional_mtp_censored(probs: Any, plan: tuple[Branches, Branches]) -> Any:
+    """The g-formula under a plan with nobody censored, from censored cell masses."""
+    total = _censored_mass(probs)
+    psi: Any = 0.0
+    for w in range(2):
+        p_w = _censored_mass(probs, w=w) / total
+        for a1 in range(4):
+            g1 = _censored_mass(probs, w=w, a1=a1) / _censored_mass(probs, w=w)
+            for p_e, map1 in plan[0]:
+                a1d = map1[w][a1]
+                reached = _censored_mass(probs, w=w, a1=a1d, c1=1)
+                for l2 in range(2):
+                    stratum = _censored_mass(probs, w=w, a1=a1d, c1=1, l2=l2)
+                    for a2 in range(4):
+                        g2 = _censored_mass(probs, w=w, a1=a1d, c1=1, l2=l2, a2=a2) / stratum
+                        for p_f, map2 in plan[1]:
+                            a2d = map2[w][a1d][l2][a2]
+                            stayed = _censored_mass(probs, w=w, a1=a1d, c1=1, l2=l2, a2=a2d, c2=1)
+                            events = _censored_mass(
+                                probs, w=w, a1=a1d, c1=1, l2=l2, a2=a2d, c2=1, y=1
+                            )
+                            psi = psi + (
+                                p_w * g1 * p_e * (stratum / reached) * g2 * p_f * events / stayed
+                            )
+    return psi
+
+
+def censored_functional(probs: Any, estimand: str) -> Any:
+    """An ``ey_regimen`` or ``ate_regimen`` name over :data:`PLANS`, on the censored law."""
+    if estimand.startswith("ate_regimen["):
+        left, right = estimand[len("ate_regimen[") : -1].split(" vs ")
+        return censored_functional(probs, f"ey_regimen[{left}]") - censored_functional(
+            probs, f"ey_regimen[{right}]"
+        )
+    return functional_mtp_censored(probs, PLANS[estimand[len("ey_regimen[") : -1]])
+
+
+def censored_truth(estimand: str) -> float:
+    """The parameter at the censored law."""
+    return float(np.real(censored_functional(CENSORED_PROBS, estimand)))
+
+
+@cache
+def censored_eif(estimand: str) -> np.ndarray:
+    """The complex-step efficient influence function at every censored support point."""
+    base = np.asarray(CENSORED_PROBS, dtype=complex)
+    step = 1e-30
+    out = []
+    for point in range(base.size):
+        mass = np.zeros_like(base)
+        mass[point] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        out.append(float(np.imag(censored_functional(perturbed, estimand)) / step))
+    return np.array(out)

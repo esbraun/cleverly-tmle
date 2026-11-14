@@ -268,6 +268,15 @@ def _details(check: NuisanceDiagnostics) -> list[SummarySection]:
         )
     if check.outcome_omission is not None:
         lines.append(omissions["outcome"].format(reason=without_roadmap(check.outcome_omission)))
+    lines.extend(
+        omissions["folds"].format(
+            model=model_words(model.name),
+            folds=", ".join(str(fold) for fold in model.omitted_folds),
+            reason=without_roadmap(model.fold_omission),
+        )
+        for model in check.models
+        if model.fold_omission is not None
+    )
     if check.n_repeats > 1 and check.repeat_spread_omission is not None:
         lines.append(
             omissions["spread"].format(reason=without_roadmap(check.repeat_spread_omission))

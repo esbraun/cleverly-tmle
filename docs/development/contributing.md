@@ -200,6 +200,24 @@ is not written. It is earned by registering a study.
 | register the study, with margins declared before the run | `tests/studies/evidence/registry.py` |
 | name every key the study reports | `tests/studies/evidence/descriptions.py` |
 | generate the published tables | `python -m tests.studies.evidence.document` |
+| declare each refutation, validation and sensitivity operation for a new result family | `ASSESSMENT_CAPABILITIES` in `src/cleverly/assessment.py` |
+| add a kind of fit for each new result class, fitted method, engine, target family, registered estimand or support-key value, with the rows it must run | `KINDS` in `tests/unit/_capability_sweep_support.py` |
+| add each new result class to the plot result matrix, and pin every plot's outcome on it | `FAMILIES` and `EXPECTED` in `tests/unit/test_plotting_result_matrix.py` |
+
+Decide plot and assessment support for every new estimator, target or option before you write
+it, and record the decision in the plan. Each public plot and each refutation, validation and
+sensitivity operation is either supported, with a test that draws or runs it, or refused with a
+`Refusal` whose code and text say why. A refusal for missing work (`IMPLEMENTATION_GAP` or
+`INFERENCE_GAP`) also names its roadmap item. `tests/unit/test_sweep_coverage.py` fails when a
+fit result class, fitted method, engine, target family, registered estimand or support-key value
+has no kind in `KINDS`, and the capability sweep then asks every operation about that kind. An
+element that cannot have a kind yet goes in that test's `UNSWEPT`, with a reason and the row that
+adds it.
+
+The plot result matrix runs every plot on one fit of each result class and on every kind in
+`KINDS`. Each plot must draw or refuse with a reason, never crash. A new kind is therefore
+plotted as soon as it joins `KINDS`, and a new result class fails the matrix until it has a
+fit there.
 
 Pair each positive claim with a control that fails. A double-robustness claim needs a both-wrong
 nuisance control. A type-I error claim needs a nonzero-effect power control.

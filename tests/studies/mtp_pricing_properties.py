@@ -60,6 +60,13 @@ diagnostic, not a registered family: ``price_up`` at ``tau = 2`` with the declar
 the default bin count (``density_bins=None``), on the ``diagnostic`` stream.  It is not the
 package's default learner (design review m4).  Its rows are written beside the pilots and published by the
 method-evidence page as the measurement behind the sentence on the default density.
+
+**The tail-size rule** (bookkeeping, as :mod:`tests.studies.canonical_mtp_pricing` states it).
+:data:`BELOW_TAIL_SIZE`, :data:`WALD_GATED_CELLS` and :data:`TAIL_SIZE_NOT_COMPUTED` classify
+the calibration positives, the only cells here whose verdict reads a Wald interval: the
+double-robustness and necessity positives read bias and displacement, and no control is a
+validity claim.  The oracle cells' tail size is their own curve's, which is the efficient
+influence function's proxy.  :data:`GATING_CELLS` and the committed verdicts do not move.
 """
 
 from __future__ import annotations
@@ -267,6 +274,32 @@ GATING_CELLS: tuple[str, ...] = (
         for cell in pair
     ),
 )
+
+
+#: The calibration positives whose n is below twice their tail size (the rule of
+#: :mod:`tests.studies.canonical_mtp_pricing`): the five-node cells, ``n_kappa`` 1,928 at
+#: n = 2,000.  For the learned-ratio cells that is the efficient influence function's tail
+#: size alone, a lower bound of theirs.  Bookkeeping only: :data:`GATING_CELLS` and the
+#: committed verdicts do not move.
+BELOW_TAIL_SIZE = frozenset(
+    f"interval_calibration/{label}__correctly_specified"
+    for label in ("up_oracle_tau5", "up_learned_density_tau5", "up_learned_classifier_tau5")
+)
+#: The calibration positives whose n is at least twice their tail size.
+WALD_GATED_CELLS = frozenset(
+    f"interval_calibration/up_oracle_tau{tau}__correctly_specified" for tau in (2, 3)
+)
+_LEARNED_LIMIT = (
+    "a learned ratio: the fit's own curve reads the classifier's or the density's limit, "
+    "which has no closed form, and the efficient influence function's tail size alone "
+    "(a lower bound) does not put the cell below the rule"
+)
+#: The calibration positives with no computed tail size, each with the reason.
+TAIL_SIZE_NOT_COMPUTED: dict[str, str] = {
+    f"interval_calibration/{label}__correctly_specified": _LEARNED_LIMIT
+    for label in CELLS
+    if "learned" in label and not label.endswith("tau5")
+}
 
 
 def estimand(revenue: bool = False) -> str:

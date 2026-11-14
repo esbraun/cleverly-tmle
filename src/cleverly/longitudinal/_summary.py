@@ -1056,6 +1056,18 @@ def _settings(result: LongitudinalResult) -> SummarySection:
     if config.n_folds > 1:
         repeats = f", in each of {result.n_repeats} splits" if result.n_repeats > 1 else ""
         lines.append(f"Folds: {config.n_folds}{repeats}.")
+    if config.variance == "policy_weighted":
+        lifted = [
+            name
+            for name, estimate in result.estimates.items()
+            if estimate.variance_source == "policy_weighted"
+        ]
+        listed = ", ".join(lifted) if lifted else "none"
+        lines.append(
+            "Variance: the larger of the influence-curve variance and the policy-weighted "
+            "variance, which reads each node's residual through the ratio at the policy dose. "
+            f"The policy-weighted variance is the larger for: {listed}."
+        )
     if len(config.outcome_names) > 1 and config.outcome_kind != "repeated":
         if config.survival_model == "hazard":
             how = (
@@ -1148,6 +1160,11 @@ def _hazard_lines(result: LongitudinalResult) -> list[str]:
     largest = max(record.relative_score for record in records.values())
     verdict = "solved its equations" if converged else "did not solve its equations"
     first = next(iter(records.values()))
+    if first.algorithm == "untargeted":
+        return [
+            "The hazard fit was not targeted: an untargeted backward pass, whose intervals are "
+            "not those of a targeted fit."
+        ]
     if first.algorithm == "one_step":
         lines = [
             f"The hazard update took {first.n_iter} steps over {len(first.targets)} estimates and "

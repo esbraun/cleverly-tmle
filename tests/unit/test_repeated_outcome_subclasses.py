@@ -177,9 +177,12 @@ def test_each_estimator_reduces_or_refuses(kind: type[_SequentialEstimator]) -> 
 
 
 #: The estimators whose reduction is not built.  Each is refused by the allowlist gate, which
-#: ``test_each_estimator_reduces_or_refuses`` checks.  The strict xfail flips to a failure when the
-#: reduction lands, so the exemption leaves with the roadmap row.
-_NO_REDUCTION_YET = {"parametric_gformula": "X71 (b)"}
+#: ``test_each_estimator_reduces_or_refuses`` checks.  The strict xfail flips to a failure if the
+#: reduction ever lands.  No roadmap item plans it: the owner removed the non-TMLE baseline
+#: items on 2026-11-14, and ``LTMLE``, ``SDR`` and ``IPSI`` fit a repeated outcome.
+_NO_REDUCTION_YET = {
+    "parametric_gformula": "no per-horizon simulation of the truncated panel is built"
+}
 
 
 def _reduction_cases() -> list[Any]:
@@ -242,11 +245,11 @@ def test_an_allowlist_that_accepts_every_kind_lets_a_foreign_kind_through(
 def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle"}))
     refusal = sequential.repeated_outcome_refusal("SDR")
-    assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert refusal.reason is RefusalReason.API_REDIRECTION
+    assert refusal.roadmap is None
     assert refusal.message() == (
         "SDR has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])). "
-        "X71 in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the "
-        "end-of-study fit of the panel truncated after it."
+        "LTMLE fits one. Each horizon is the end-of-study fit of the panel truncated after it."
     )
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "ipsi"}))
     assert "IPSI and LTMLE fit one." in sequential.repeated_outcome_refusal("SDR").message()

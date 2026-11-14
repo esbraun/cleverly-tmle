@@ -94,7 +94,8 @@ from .delta import (
     wald_ci,
     wald_statistic,
 )
-from .switched import SWITCHED_REFUSAL, SwitchedVariance, VarianceSource, switched_record
+from .policy import PolicyCovariance, PolicyVariance
+from .switched import SWITCHED_REFUSAL, SwitchedVariance, switched_record
 
 __all__ = [
     "BoundedKind",
@@ -148,10 +149,17 @@ Scale = Literal["level", "difference", "ratio", "fraction"]
 #: The outcome family a builder records on an estimate: a binary outcome or a continuous one.
 OutcomeFamily = Literal["binomial", "gaussian"]
 
-#: How an estimate's joint covariance is read off its influence curve.  ``"switched"`` reports
-#: the curve's centred variance raised to its predictable variation where the curve is sparse
-#: (:mod:`cleverly.inference.switched`); its joint covariance is the fit's, not the curves'.
-CovarianceRule = Literal["centered", "second_moment", "switched"]
+#: How an estimate's joint covariance is read off its influence curve.  ``"policy_weighted"``
+#: reads the curve's centred variance and the fit's policy-weighted covariance
+#: (:mod:`cleverly.inference.policy`), and reports the larger of the two.  ``"switched"``
+#: reports the curve's centred variance raised to its predictable variation where the curve is
+#: sparse (:mod:`cleverly.inference.switched`); its joint covariance is the fit's, not the curves'.
+CovarianceRule = Literal["centered", "second_moment", "policy_weighted", "switched"]
+
+#: Which variance an estimate reports: its influence curve's, the policy-weighted one
+#: (:mod:`cleverly.inference.policy`) or the predictable variation
+#: (:mod:`cleverly.inference.switched`).
+VarianceSource = Literal["influence_curve", "policy_weighted", "predictable_variation"]
 
 #: What kind of bounded functional a target is: a mean of the outcome, or a difference of two
 #: such means.  :func:`parameter_bounds` turns it into the range on a binary outcome.
@@ -976,12 +984,15 @@ class ParameterEstimate:
         Present for ratios only: the estimate on the log scale.
     bootstrap : BootstrapSummary or None
         Bootstrap summary, when ``n_bootstrap > 0`` was requested.
-    covariance_rule : {"centered", "second_moment", "switched"}
+    covariance_rule : {"centered", "second_moment", "policy_weighted", "switched"}
         How joint covariance and delta-method contrasts are computed from the influence
         curve. ``"centered"`` uses the sample covariance at the observation or cluster
         unit, which can differ from :attr:`variance` on a fold-evaluated or repeated fit.
         ``"second_moment"`` uses the raw second moment that the stacked cross-fitted
-        natural-course mean reports as its variance. ``"switched"`` is the rule of a
+        natural-course mean reports as its variance. ``"policy_weighted"`` is the rule of a
+        longitudinal fit with ``variance="policy_weighted"``: the variance is the larger of
+        the centred curve variance and the policy-weighted one that :attr:`policy` holds,
+        and a joint covariance matrix is not defined. ``"switched"`` is the rule of a
         continuous-time survival fit with ``variance="switched"``: :attr:`variance` is the
         centred curve variance, raised to the predictable variation that :attr:`switched`
         records when the curve is sparse, and a contrast reads the fit's covariance through
@@ -1043,6 +1054,12 @@ class ParameterEstimate:
         Under the ``"switched"`` rule, both variances of the estimate and the relative
         standard deviation of its curve's variance
         (:class:`~cleverly.inference.switched.SwitchedVariance`). ``None`` under every other
+        rule.
+
+    policy : PolicyVariance or None
+        Under the ``"policy_weighted"`` rule, both variances of the estimate, its gradient
+        over the fit's levels and the fit's shared policy-weighted covariance
+        (:class:`~cleverly.inference.policy.PolicyVariance`). ``None`` under every other
         rule.
 
     Attributes
@@ -1136,6 +1153,7 @@ class ParameterEstimate:
     reference_df: int | None = None
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
+    policy: PolicyVariance | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     range_interval: bool = False
@@ -1147,11 +1165,16 @@ class ParameterEstimate:
 
     @property
     def variance_source(self) -> VarianceSource:
-        """Which variance :attr:`variance` is: ``"influence_curve"`` or ``"predictable_variation"``.
+        """Which variance :attr:`variance` is.
 
-        ``"predictable_variation"`` only under ``variance="switched"``, when the curve is sparse
-        and its predictable variation is usable and larger than its centred variance.
+        ``"policy_weighted"`` only under ``variance="policy_weighted"``, when that variance
+        is usable and larger than the influence-curve variance. ``"predictable_variation"``
+        only under ``variance="switched"``, when the curve is sparse and its predictable
+        variation is usable and larger than its centred variance. ``"influence_curve"``
+        otherwise.
         """
+        if self.policy is not None:
+            return self.policy.source
         return "influence_curve" if self.switched is None else self.switched.source
 
     def _small_sample_df(self) -> float | None:
@@ -1263,6 +1286,11 @@ class ParameterEstimate:
         that the estimate lies inside its range runs first, so the map is never evaluated at
         or beyond a bound. An estimate on or outside its range that carries no withheld
         status, which only a hand-built estimate can, keeps the identity interval.
+
+        Under ``variance="policy_weighted"`` the half-width on the same scale is the larger
+        of the default one and the normal half-width at the policy-weighted standard error
+        (:meth:`~cleverly.inference.policy.PolicyVariance.interval`), so the interval
+        contains the default one on every scale.
         """
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             return (float("nan"), float("nan"))
@@ -1272,18 +1300,17 @@ class ParameterEstimate:
         scale = None if outside_bounds(self.psi, self.bounds) else self._range_scale()
         if scale is not None:
             slope = scale.slope(self.psi)
-            low, high = wald_ci(
+            low, high = self._half_width_interval(
                 float(scale.forward(self.psi)),
-                self._plugin_std_error() * slope,
-                self.alpha,
+                slope,
                 df=None,
                 margin=margin * slope,
             )
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             return (float(scale.inverse(low)), float(scale.inverse(high)))
+        low, high = self._half_width_interval(center, 1.0, df=df, margin=margin)
         if self.transform is not None:
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -1292,9 +1319,22 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
             return (float(np.exp(low)), float(np.exp(high)))
-        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df, margin=margin)
+        return (low, high)
+
+    def _half_width_interval(
+        self, center: float, slope: float, *, df: float | None, margin: float
+    ) -> tuple[float, float]:
+        """The Wald interval on the scale :meth:`_wald_interval` chose, before any map back.
+
+        ``slope`` carries the standard error onto that scale (1 on the inference scale). Under
+        ``variance="policy_weighted"`` the half-width is the larger of the default one and the
+        normal one at the policy-weighted standard error, both carried by the same slope
+        (:meth:`~cleverly.inference.policy.PolicyVariance.interval`).
+        """
+        if self.policy is not None:
+            return self.policy.interval(center, self.alpha, df, slope=slope, margin=margin)
+        return wald_ci(center, self._plugin_std_error() * slope, self.alpha, df=df, margin=margin)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the scale the test is computed on."""
@@ -1357,6 +1397,16 @@ class ParameterEstimate:
         scale = self._test_scale()
         if self.inference in UNREPORTED_INTERVAL_STATUSES:
             statistic, pvalue = float("nan"), float("nan")
+        elif self.policy is not None:
+            slope = 1.0 if scale is None else scale.slope(self.psi)
+            value = self.inference_value if scale is None else float(scale.forward(self.psi))
+            statistic, pvalue = self.policy.test(
+                value,
+                mapped,
+                None if scale is not None else self.reference_df,
+                slope=slope,
+                margin=self.residual_margin * slope,
+            )
         elif scale is not None:
             slope = scale.slope(self.psi)
             statistic, pvalue = wald_statistic(
@@ -1621,7 +1671,10 @@ class ParameterEstimate:
         ``variance_rel_sd``, the relative standard deviation that the switch reads.
         ``std_err`` is present
         exactly when :attr:`supplies_inference` is ``True``, so a programmatic consumer has a
-        total test.
+        total test. An estimate under
+        ``variance="policy_weighted"`` adds ``variance_source`` and both standard errors,
+        ``influence_curve_std_err`` and ``policy_weighted_std_err`` (``nan`` when that variance
+        is not used), on the outcome's scale before any interval map.
 
         Returns
         -------
@@ -1640,6 +1693,14 @@ class ParameterEstimate:
         row.update(self.spread_columns())
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
+        if self.policy is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = float(
+                np.sqrt(max(self.policy.influence_variance, 0.0))
+            )
+            row["policy_weighted_std_err"] = (
+                float(np.sqrt(self.policy.policy_variance)) if self.policy.usable else float("nan")
+            )
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
@@ -1872,6 +1933,40 @@ _SECOND_MOMENT_CLUSTER_REFUSAL = (
 )
 
 
+def _policy_record(
+    ic: FloatArray,
+    covariance_rule: str,
+    cluster: IntArray | None,
+    policy: PolicyCovariance | None,
+    gradient: FloatArray | None,
+) -> PolicyVariance:
+    """The policy-weighted record of one estimate, for :func:`make_estimate`.
+
+    The default rules never reach this function, so their variance runs the shipped code.
+    """
+    if covariance_rule != "policy_weighted":
+        raise ValueError(
+            f"a policy-weighted covariance needs covariance_rule='policy_weighted'; got "
+            f"{covariance_rule!r}"
+        )
+    if policy is None or gradient is None:
+        raise ValueError("covariance_rule='policy_weighted' needs policy and gradient")
+    if cluster is not None:
+        raise ValueError("the policy-weighted variance is defined for independent rows only")
+    weights = np.asarray(gradient, dtype=float).reshape(-1)
+    if weights.size != len(policy.names):
+        raise ValueError(
+            f"gradient has {weights.size} entries and the policy covariance has "
+            f"{len(policy.names)} levels"
+        )
+    return PolicyVariance(
+        covariance=policy,
+        gradient=weights,
+        influence_variance=influence_variance(ic, None),
+        policy_variance=policy.quadratic(weights),
+    )
+
+
 def make_estimate(
     name: str,
     psi: float,
@@ -1891,6 +1986,8 @@ def make_estimate(
     outcome_family: OutcomeFamily | None = None,
     range_interval: bool = False,
     predictable_variance: float | None = None,
+    policy: PolicyCovariance | None = None,
+    gradient: FloatArray | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1921,12 +2018,14 @@ def make_estimate(
         Significance level of the interval.
     log_psi : float or None, default=None
         The estimate on the log scale, for a ratio only.
-    covariance_rule : {"centered", "second_moment", "switched"}, default="centered"
+    covariance_rule : {"centered", "second_moment", "policy_weighted", "switched"}, default="centered"
         ``"centered"`` stores :func:`~cleverly.inference.influence_variance`.
         ``"second_moment"`` stores
         :func:`~cleverly.inference.cluster.stacked_second_moment_variance` and refuses a
-        cluster. ``"switched"`` stores the centred variance, raised to
-        ``predictable_variance`` when the curve is sparse
+        cluster. ``"policy_weighted"`` stores the larger of the centred variance and
+        ``gradient`` 's quadratic form in ``policy``, with the fallback of
+        :mod:`cleverly.inference.policy`, and needs both arguments. ``"switched"`` stores the
+        centred variance, raised to ``predictable_variance`` when the curve is sparse
         (:class:`~cleverly.inference.switched.SwitchedVariance`); it needs that argument and
         refuses a cluster.
     inference : str, default="influence_curve"
@@ -1953,16 +2052,23 @@ def make_estimate(
     predictable_variance : float or None, default=None
         The estimate's predictable variation on its inference scale, under the
         ``"switched"`` rule only.
+    policy : PolicyCovariance or None, default=None
+        The fit's policy-weighted covariance of its levels, under the ``"policy_weighted"``
+        rule only.
+    gradient : ndarray or None, default=None
+        ``(k,)`` the estimate's gradient on its inference scale with respect to the levels
+        of ``policy``, under the ``"policy_weighted"`` rule only.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
         ``support``, ``bounds``, ``rule_widened``, ``outcome_family`` and, under the
-        ``"switched"`` rule, ``switched``.
+        ``"policy_weighted"`` rule, ``policy``, and under the ``"switched"`` rule, ``switched``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
-    record: SwitchedVariance | None = None
+    record: PolicyVariance | None = None
+    switched: SwitchedVariance | None = None
     if covariance_rule == "switched" and predictable_variance is None:
         # A copy of a switched estimate that does not carry its predictable variation.
         raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
@@ -1973,7 +2079,10 @@ def make_estimate(
             )
         if cluster is not None:
             raise ValueError("the switched variance is defined for independent rows only")
-        record = switched_record(ic, influence_variance(ic, None), predictable_variance)
+        switched = switched_record(ic, influence_variance(ic, None), predictable_variance)
+        variance = switched.variance
+    elif covariance_rule == "policy_weighted" or policy is not None or gradient is not None:
+        record = _policy_record(ic, covariance_rule, cluster, policy, gradient)
         variance = record.variance
     elif covariance_rule == "second_moment":
         if cluster is not None:
@@ -1983,7 +2092,8 @@ def make_estimate(
         variance = influence_variance(ic, cluster)
     else:
         raise ValueError(
-            "covariance_rule must be 'centered', 'second_moment' or 'switched'; got "
+            "covariance_rule must be 'centered', 'second_moment', 'policy_weighted' or "
+            f"'switched'; got "
             f"{covariance_rule!r}"
         )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
@@ -2003,10 +2113,11 @@ def make_estimate(
         reference_df=reference_df if supplies_inference(inference) else None,
         support=support,
         bounds=bounds,
+        policy=record,
         rule_widened=rule_widened,
         outcome_family=outcome_family,
         range_interval=range_interval,
-        switched=record,
+        switched=switched,
     )
 
 
@@ -2229,6 +2340,12 @@ def median_estimates(
             raise ValueError(
                 f"{name} declares different covariance rules {sorted(rules)} across "
                 "repeats; a median over draws needs one rule"
+            )
+        if rules == {"policy_weighted"}:
+            # A fit with variance="policy_weighted" is in sample, so it has one draw.
+            raise ValueError(
+                f"{name} reads the policy-weighted variance, which is defined for one "
+                "in-sample draw; a median over draws does not combine it"
             )
         statuses = {part.inference for part in parts}
         if len(statuses) != 1:
@@ -3452,15 +3569,26 @@ def att_estimate(
     observed: BoolArray | None = None,
     *,
     reference: float = 0.0,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     """The effect among each non-reference arm's own units, on the scaled outcome scale.
 
     One entry per non-reference arm, keyed by that arm -- a single entry, the classic
-    ATT, when the treatment is binary.
+    ATT, when the treatment is binary.  ``known_score`` maps each arm code to its declared
+    probability ``g_0(a | W)``; given, the estimate is the known-score plug-in of
+    :func:`_conditional_effects`.
     """
     _expect(submodel, "att")
     return _conditional_effects(
-        outcome, targeted, submodel, treatment, weights, observed, reference, conditions_on_arm=True
+        outcome,
+        targeted,
+        submodel,
+        treatment,
+        weights,
+        observed,
+        reference,
+        conditions_on_arm=True,
+        known_score=known_score,
     )
 
 
@@ -3473,6 +3601,7 @@ def atc_estimate(
     observed: BoolArray | None = None,
     *,
     reference: float = 0.0,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     """The mirror image: each contrast among the *reference* arm's units."""
     _expect(submodel, "atc")
@@ -3485,6 +3614,7 @@ def atc_estimate(
         observed,
         reference,
         conditions_on_arm=False,
+        known_score=known_score,
     )
 
 
@@ -3498,11 +3628,23 @@ def _conditional_effects(
     reference: float,
     *,
     conditions_on_arm: bool,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
-    """``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
+    r"""``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
 
     ``conditions_on_arm`` picks which: the contrast arm itself for the ATT, the reference
     arm for the ATC, where every parameter conditions on the same population.
+
+    The default plug-in averages the contrast over the units observed in arm ``c``.  With
+    ``known_score`` (the declared mechanism, one column per arm code) it is the known-score
+    plug-in :math:`P_n\{g_0(c\mid W)(\bar Q^*_a-\bar Q^*_r)\}/P_n g_0(c\mid W)`, the TMLE of the
+    model in which :math:`g_0` is known.  The residual term is the same in both, because the
+    targeting step and its score are; only the last term of the curve changes, from
+    :math:`\mathbb 1(A=c)(\tau-\psi)/P_n\mathbb 1(A=c)` to
+    :math:`g_0(c\mid W)(\tau-\psi)/P_n g_0(c\mid W)`.  The difference is the projection of the
+    arm-mean curve on the mechanism's tangent space, so the known-score curve has the smaller
+    variance at a consistent outcome regression (the known-score ATT bound of Chen, Hong and
+    Tarozzi 2008, Theorem 2).
 
     The columns are read by :meth:`~cleverly.fluctuation.submodel.Submodel.contrast_column_for`
     rather than positionally, so an implementation that lined the arms up by order would
@@ -3520,9 +3662,17 @@ def _conditional_effects(
             raise ValueError(f"no observations in arm {conditioning:g}: the estimand is undefined")
 
         contrast = targeted.arms[arm] - targeted.arms[reference]
-        psi = float(np.average(contrast, weights=w * indicator))
         column = submodel.contrast_column_for(arm)
-        out[arm] = ArmMean(psi, w * (column * residual + (indicator / share) * (contrast - psi)))
+        if known_score is None:
+            weight, mass = indicator, share
+        else:
+            # The residual term keeps the targeting's clever covariate, normalized by the
+            # arm share P_n(A = c); the projection term is normalized by P_n g0(c | W). The
+            # two estimate the same p, so the curve is D_KS to first order.
+            weight = np.asarray(known_score[conditioning], dtype=float).reshape(-1)
+            mass = float(np.average(weight, weights=w))
+        psi = float(np.average(contrast, weights=w * weight))
+        out[arm] = ArmMean(psi, w * (column * residual + (weight / mass) * (contrast - psi)))
     return out
 
 

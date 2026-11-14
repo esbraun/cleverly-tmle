@@ -174,6 +174,17 @@ weights raised to the positivity floor (`bounded_share`), the pairs below it at 
 (`last_time_floor_share`), the pairs held by the walk (`frozen_share`), and the random times at
 which the score equation also holds (`off_grid_share`).
 
+The record also stores the factors of the positivity condition, for overlap plots and the
+support diagnostic below. `p1` holds each row's $\hat\pi(1 \mid L_i)$, the probability of the
+treated arm, with shape `(n,)`. `retention_before` holds $\hat S_c(t_k^- \mid a, L_i)$, the
+probability of remaining uncensored just before each target time had the row received arm $a$,
+with shape `(2, n, n_target_times)` and the arms in the order of `arms`. Both are predicted out of
+fold when the fit is cross-fitted, in sample otherwise, and stored as fitted, before any bound.
+The weights bound the product $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ for both arms and
+never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` holds each row's
+received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
+arrays.
+
 ## Restricted means, ratios and the curve
 
 The restricted mean time lost to cause $j$ up to $\tau$ and the restricted mean survival time are
@@ -229,6 +240,42 @@ the unmeasured confounder to affect the treatment and the event only, and not ce
 $(A, L)$. No coverage study registers its confidence-limit E-value, so the limit prints as
 descriptive.
 
+## Assessment
+
+`ContinuousSurvivalResult` declares a capability row for every assessment operation, so
+`result.assess()` reports each operation as run or refused and does not raise for a refused one.
+Each diagnostic that runs reads the record and the influence curves and refits nothing.
+
+| operation | status | what it reads, or why it refuses |
+| --- | --- | --- |
+| `diagnostics.support()` | runs, `completed`; `warning` when the floor raised more than 1% of the followed cells | the quantiles of $\hat\pi(1 \mid L)$ overall and by arm, its tail shares, the Kish ratio of $1 / \hat\pi(A \mid L)$ in each arm, the quantiles of $\hat S_c(t_k^- \mid A, L)$ at each target time, `bounded_share` (which grades the row on the point support report's 1% and 5% truncation tiers), `last_time_floor_share` and `frozen_share` |
+| `diagnostics.score_equations()` | runs, `passed` or `failed` | each target's $\lvert P_n D^* \rvert / \hat\sigma$ against the walk's cutoff, the steps and halvings; an explicit `tolerance` is refused, because the cutoff is the fit's own stopping rule |
+| `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
+| `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
+| `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
+| `diagnostics.refute()` | refused, [X101](../roadmap.md#x101-assessment-of-continuous-time-survival-fits) | each test refits the estimator on perturbed data, and the result keeps neither its estimator nor its data |
+| `diagnostics.truncation_curve()` | refused, X101 | each point reruns the walk at another floor, and the result keeps no initial hazard jumps |
+| `sensitivity.simulated_confounding()` | refused, X101 | the replay refits on simulated data, as `refute` does |
+| `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
+| `sensitivity.marginal_bounds()` | refused, F16 | the point-treatment bound tilts the outcome regression of an arm mean, and no tilt of the cause-specific hazards is derived |
+| `sensitivity.missingness()`, `tipping_gamma()` | refused, F16 | the tilt perturbs a missing-at-random outcome, and no tilt of independent censoring in continuous time is derived |
+| `sensitivity.evalue(estimand=(numerator, denominator))` | runs, `passed`; deferred without an estimand | the E-value of `result.ratio(numerator, denominator)`, the two arms' risks at one cause and target time, as [above](#restricted-means-ratios-and-the-curve) |
+
+Each refusal is a `CapabilityError` carrying the record its row declares. The free functions of
+`cleverly.sensitivity` and `cleverly.validation` raise the same record before they read any
+point-treatment attribute. `tests/unit/test_continuous_survival_assessment.py` checks every row and
+every refusal, and that `influence()` reads each estimate's influence curve. The capability sweep
+(`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
+agrees.
+
+The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
+support row, and a censoring model that depends on the arm. Under that model each arm's stored
+censoring survival matches the model's prediction under that arm, recomputed as the product over the
+observed times strictly before each target, and the two arms differ. One target sits on an observed
+censoring time, so a lookup that includes that time's own jump fails. Under cross-fitting, a patched
+treatment fit whose value encodes its training rows shows that each row stores the probability from
+the model its own fold did not train.
+
 ## What is refused
 
 | request | why |
@@ -252,26 +299,43 @@ gates the default cross-fitted fit at n = 1,000 on one law with two causes, at t
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
 that configuration: cross-fitted, the default libraries and settings, at least 1,000 units, two
 causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
-cause have happened (`cleverly.survival.result.continuous_survival_support`). At the lower
-quartile the standard error ran up to 8% below the sampling spread and coverage fell to 0.88, so
-an estimate at a time that early reads experimental. The time condition is calibrated on this one
-law and does not read how many events each arm and cause has.
+cause have happened
+(`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
+ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
+early reads experimental. The time condition is calibrated on this one law and does not read
+how many events each arm and cause has.
 
-The registered study's rows were written under the influence-curve variance. On exploratory fits
-of its law the switched variance widened the gated rows' intervals by 0% to 4.7%, and the study
-regenerates under the switched default once the switched-variance study ships it. That study also
-sets a floor on `variance_rel_sd`: a risk or risk difference whose curve is sparser than every
-gated row that passed reads experimental. Until the study runs the floor is pending and labels no
-estimate.
+The registered study [continuous-time survival restricted means and risk
+ratios](method-evidence/continuous-survival-functionals.md) gates the same configuration with
+`restricted_horizons=(2.32,)`, the upper quartile and last target time: the risks and risk
+differences of that fit, whose extra targets move them, the log risk ratios at the median and
+upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
+at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
+calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
+its last target time reads `supported` under the conditions above, and its restricted means read
+`supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
+(`RESTRICTED_EVENT_SHARE`). The measured $\tau$ sits at about 75%, and a restricted mean at an
+earlier $\tau$ weights the sparse early times, where the risks' standard error ran low, more
+heavily.
 
-No registered study measures a risk ratio, an odds ratio, a restricted mean, a smooth contrast,
-or any estimate of a fit with `restricted_horizons=`, whose extra targets move its risks, so each
-of these reads experimental.
+A fit with several restricted horizons, or one past its last target time, whose grid
+the walk then extends, reads experimental for every estimate: only the exact-law tests below
+measure that extension. The risk ratio of a fit without restricted means, an odds ratio, the
+survival view, a smooth contrast and the band read experimental. A risk-only walk on the
+study's draws left the RMTL score above the cutoff in 25% to 51% of fits but was unbiased on
+this law, so the claim that a restricted mean must be targeted rests on the score test below.
 
-`tests/unit/test_continuous_survival.py` checks the influence curve against the Gateaux
-derivative of an exact law, the path and the stopping rule, and a mutation control for each
-censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py` checks
-the restricted mean's curve against the Gateaux derivative of the same law and the weighted
+Both registered studies' rows were written under the influence-curve variance. On exploratory fits
+of the first study's law the switched variance widened the gated rows' intervals by 0% to 4.7%,
+and both studies regenerate under the switched default once the switched-variance study ships it.
+That study also sets a floor on `variance_rel_sd`: a risk or risk difference whose curve is
+sparser than every gated row that passed reads experimental. Until the study runs the floor is
+pending and labels no estimate.
+
+`tests/unit/test_continuous_survival.py` checks the influence curve
+against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
+control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
+checks the restricted mean's curve against the Gateaux derivative of the same law and the weighted
 direction against a sum over grid points, with the term $W(u) F_j(u)$ dropped as a mutation. It
 also checks that the walk removes the bias of a restricted mean under a wrong hazard, and that a
 restricted mean left out of the direction stays unsolved and biased.

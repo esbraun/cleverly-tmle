@@ -1512,6 +1512,17 @@ class AdaptiveTMLEFit:
         The data and nuisance diagnostics.
     folds : Folds
         The outer split.
+    treatment_probability : ndarray of float
+        The cross-fitted ``g(1 | W)`` on each row, the combined-data treatment probability,
+        before ``probability_bounds`` were applied.  Stored for the diagnostics and plots;
+        the targeting reads the bounded values.
+    source_probability : ndarray of float
+        The cross-fitted ``pi(W) = P(S = 1 | W)`` on each row, before
+        ``probability_bounds``.  :attr:`AdaptiveTMLEDiagnostics.external_source_min` and the
+        :data:`SOURCE_FLOOR` warning read it on the external rows.  The targeting starts
+        from the bounded values and moves them by :attr:`epsilon`.
+    probability_bounds : tuple of float
+        The pair both probabilities were clipped to before targeting.
     """
 
     estimate: float
@@ -1529,6 +1540,9 @@ class AdaptiveTMLEFit:
     scores: ScoreResiduals
     diagnostics: AdaptiveTMLEDiagnostics
     folds: Folds
+    treatment_probability: FloatArray
+    source_probability: FloatArray
+    probability_bounds: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -1568,8 +1582,13 @@ def _nuisances_on(
     controls_only: bool,
     bounds: tuple[float, float],
     with_pibar: bool,
-) -> tuple[Nuisances, FloatArray]:
-    """Fit every nuisance on ``train`` and predict it on ``rows``; also the raw ``pi``."""
+) -> tuple[Nuisances, FloatArray, FloatArray]:
+    """Fit every nuisance on ``train`` and predict it on ``rows``; also the raw ``pi`` and ``g``.
+
+    The raw values are the predictions before ``bounds``: ``pibar`` (``nan`` without
+    ``with_pibar``) and ``g(1 | W)``.  They are returned for the diagnostics and the
+    stored record only; nothing downstream of the targeting reads them.
+    """
     low, high = bounds
     w, a, s = data.w, data.a, data.s
     outcome_task: Task = "classification" if data.family == "binomial" else "regression"
@@ -1579,7 +1598,8 @@ def _nuisances_on(
         return np.column_stack([x, np.broadcast_to(np.asarray(arm, float), (x.shape[0],))])
 
     g_model = _fit(learners.treatment, w[train], a[train], "classification")
-    g = np.clip(_predict(g_model, at, "classification"), low, high)
+    raw_g = _predict(g_model, at, "classification")
+    g = np.clip(raw_g, low, high)
     if controls_only:
         controls = train[a[train] == 0.0]
         pi_model = _fit(learners.source, w[controls], s[controls], "classification")
@@ -1601,7 +1621,7 @@ def _nuisances_on(
         qt_model = _fit(learners.outcome, with_arm(w[train], a[train]), data.y[train], outcome_task)
         theta = _predict(theta_model, at, outcome_task)
         qt = _predict(qt_model, with_arm(at, own), outcome_task)
-        return Nuisances(g, theta, source0, source1, qt, pibar), raw_pibar
+        return Nuisances(g, theta, source0, source1, qt, pibar), raw_pibar, raw_g
     if learners.missingness is None:
         raise ValueError("missing outcomes need a missingness learner")
     seen = train[data.observed[train]]
@@ -1634,7 +1654,7 @@ def _nuisances_on(
     qt = np.where(own == 1.0, qt1, qt0)
     q_own = _predict(q_model, design(at, s[rows], own), outcome_task)
     g_delta = np.clip(_predict(delta_model, design(at, s[rows], own), "classification"), low, 1.0)
-    return Nuisances(g, theta, source0, source1, qt, pibar, q_own, g_delta), raw_pibar
+    return Nuisances(g, theta, source0, source1, qt, pibar, q_own, g_delta), raw_pibar, raw_g
 
 
 def _stack(pieces: Sequence[tuple[IntArray, Nuisances]], n: int) -> Nuisances:
@@ -1838,10 +1858,11 @@ def fit_adaptive_tmle(
     every = np.arange(n, dtype=np.int64)
     out_of_fold: list[tuple[IntArray, Nuisances]] = []
     raw_pibar = np.full(n, np.nan)
+    raw_g = np.full(n, np.nan)
     for v in range(split.n_folds):
         held = np.flatnonzero(assignment == v)
         train = every if split.n_folds == 1 else np.flatnonzero(assignment != v)
-        values, raw = _nuisances_on(
+        values, raw, raw_treatment = _nuisances_on(
             data,
             learners,
             train,
@@ -1852,6 +1873,7 @@ def fit_adaptive_tmle(
         )
         out_of_fold.append((held, values))
         raw_pibar[held] = raw
+        raw_g[held] = raw_treatment
     cross_fitted = _stack(out_of_fold, n)
     seeds = np.random.default_rng(random_state).integers(0, 2**32 - 1, size=split.n_folds + 1)
     selections: list[tuple[int | None, IntArray, Nuisances, IntArray]] = []
@@ -1861,7 +1883,7 @@ def fit_adaptive_tmle(
             for v in range(u + 1, split.n_folds):
                 both = np.flatnonzero((assignment == u) | (assignment == v))
                 train = np.flatnonzero((assignment != u) & (assignment != v))
-                values, _ = _nuisances_on(
+                values, _, _ = _nuisances_on(
                     data,
                     learners,
                     train,
@@ -1929,6 +1951,8 @@ def fit_adaptive_tmle(
         raw_pibar,
         controls_only,
         n_external_treated,
+        raw_g=raw_g,
+        bounds=g_bounds,
     )
 
 
@@ -2255,6 +2279,9 @@ def _assemble(
     raw_pibar: FloatArray,
     controls_only: bool,
     n_external_treated: int,
+    *,
+    raw_g: FloatArray,
+    bounds: tuple[float, float],
 ) -> AdaptiveTMLEFit:
     """The estimate, its standard error and the record of the targeting.
 
@@ -2364,6 +2391,9 @@ def _assemble(
             data, units, split, form, raw_pibar, controls_only, n_external_treated, population
         ),
         folds=split,
+        treatment_probability=raw_g,
+        source_probability=raw_pibar,
+        probability_bounds=(float(bounds[0]), float(bounds[1])),
     )
 
 

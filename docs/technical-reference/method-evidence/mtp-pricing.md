@@ -64,6 +64,21 @@ and 0.968 at n = 4,000. The influence-curve variance runs short at the smaller s
 therefore moved to n = 5,000, and the property cells kept their declared sizes.
 `tests/studies/canonical_mtp_pricing.py` records the declaration.
 
+A Wald reading is gated only at an $n$ of at least twice the tail size of its quantity
+(`X39-below-tail-size`), and several rows here sit below it
+(`tests/diagnostics/fix5_heavy_ratios/law_p_moments.csv`). The
+[`mtp-policy-variance`](mtp-policy-variance.md) study runs a gated twin of each at the first
+multiple of 400 above the rule. The five-node `price_down` rows are far below it; their twins at
+72,800 and 73,600 rows cover 0.929 to 0.945 and pass the floor, and on these rows
+`variance="policy_weighted"` covers 0.980 to 0.983 with the exact ratio.
+
+The three-node `price_down` rows are below it
+at 5,000 (twice the tail size is at most 5,324); their 5,600-row twins cover 0.945 to 0.955 with
+an SE ratio of 0.983 to 1.029. The five-node `price_up` rows are gated at 5,000 by a margin of at
+least 72 rows. The `up_oracle_tau5` cell's 4,000-row twin reads coverage 0.944 and an SE ratio of 0.984
+(0.962 to 1.006). The `up_learned_classifier_tau5` cell's tail size is known only as a lower bound
+for a learned ratio, so its twin reports: coverage 0.941, SE ratio 0.978.
+
 The committed rows record the identity interval. The package now forms the interval of an
 unclustered mean of a yes/no outcome on the logit scale
 ([small-sample scale](../inference.md#small-sample-scale)). On the same committed estimates and
@@ -307,7 +322,7 @@ the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| the four `tau = 5` `price_down` primary rows are experimental | the exact ratio gives coverage 0.916 to 0.923 and an SE ratio of 0.931 to 0.952 for `LTMLE` and `SDR` at the primary size. The package labels these fits experimental. The roadmap item `mtp-pricing-calibration` owns the question |
+| the four `tau = 5` `price_down` primary rows are experimental under the default variance | the exact ratio gives coverage 0.916 to 0.923 and an SE ratio of 0.931 to 0.952 for `LTMLE` and `SDR` at the primary size, far below twice the tail size. The package labels these default fits experimental and supports `variance="policy_weighted"` on them, which [`mtp-policy-variance`](mtp-policy-variance.md) measures as conservative. The rows stay red as the standing record `mtp-pricing-calibration` |
 | the learned-density cells publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at 2, 3 and 5 nodes. The interval is conservative, with coverage 0.953 to 0.975. The row `mtp-pricing-learned-density` of the red-cell ledger owns it |
 | the screened ratio learner is the quadratic logistic classifier | the study uses it at every node count, with `ratio="classifier"` |
 | the cross-fold leak pair `classifier_split` is not registered | the pilot cannot discriminate. The fast tier shows the effect of the leak only |

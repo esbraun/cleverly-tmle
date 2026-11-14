@@ -19,6 +19,12 @@ from .data.causal_data import _vector_components
 from .data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
+    KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL,
+    KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL,
+    MechanismLaw,
+    check_mechanism_law,
+    divided_treatment_at,
+    divides_by_declaration,
     probability_columns,
 )
 from .data.treatment_covariates import (
@@ -518,7 +524,17 @@ class PointTreatment:
         probabilities in place of an estimate, and the columns are not adjustment
         covariates.  A design names columns, so the array forms of
         :meth:`cleverly.TMLE.fit` are refused here.  ``CollaborativeTMLEMethod`` is
-        unavailable on such a design, because there is no mechanism to select.
+        unavailable on such a design, because there is no mechanism to select.  Beside a
+        non-constant ``weights`` column it needs ``mechanism_law``.
+    mechanism_law : {"target", "sample"} or None
+        How ``treatment_probabilities`` is read beside non-constant weights, where it is
+        required.  ``"target"``: the probabilities hold in the population the weights
+        restore (randomization before sampling, as in a case-cohort subsample of a trial,
+        or weights that read the covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the
+        treatment, so the fit estimates the weight-tilted mechanism from them with the
+        treatment learner and counts it as estimated.  :meth:`cleverly.TMLE.fit` states
+        the condition its interval then needs.  It needs ``treatment_probabilities``.
     treatment_adjustment : sequence of str or None
         The adjustment columns that the treatment mechanism reads, a subset of
         ``adjustment``.  ``None`` reads all of them.  The outcome regression and every
@@ -603,12 +619,20 @@ class PointTreatment:
     outcome_family: Family = "auto"
     treatment_missingness: str | None = None
     treatment_probabilities: Any = None
+    mechanism_law: MechanismLaw | None = None
     treatment_adjustment: Sequence[str] | None = None
     continuous_treatment: Sequence[str] = field(default_factory=tuple)
     treatment_support: Any = None
     dose_atoms: Sequence[float] | Mapping[str, Sequence[float]] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
+        check_mechanism_law(self.mechanism_law)
+        if self.mechanism_law is not None and self.treatment_probabilities is None:
+            raise DataError(
+                "PointTreatment(mechanism_law=) says how treatment_probabilities= is read "
+                "beside weights, and this design declares no treatment_probabilities. Drop "
+                "mechanism_law=, or declare the probabilities."
+            )
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
         object.__setattr__(self, "dose_atoms", _point_atoms(self.dose_atoms))
@@ -729,6 +753,7 @@ class PointTreatment:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
+            mechanism_law=self.mechanism_law,
             treatment_covariates=self.treatment_adjustment,
         ).with_dose_declarations(self.treatment_support, _declared_atoms(self.dose_atoms))
 
@@ -798,6 +823,13 @@ class PointTreatment:
             raise DataError(
                 f"the supplied CausalData declares treatment_probabilities={held!r}, but this "
                 f"design declares treatment_probabilities={declared!r}; build the data from "
+                "this design, or correct the design"
+            )
+        held_law = None if data.known_treatment is None else data.known_treatment.law
+        if held_law != self.mechanism_law:
+            raise DataError(
+                f"the supplied CausalData declares mechanism_law={held_law!r}, but this "
+                f"design declares mechanism_law={self.mechanism_law!r}; build the data from "
                 "this design, or correct the design"
             )
         # ``outcome_family`` is inferred when the design does not state one, so only a
@@ -1111,6 +1143,27 @@ def _held_censoring(data: LongitudinalData) -> dict[float, str] | None:
     return held or None
 
 
+def _held_law(data: LongitudinalData) -> MechanismLaw | None:
+    """The ``mechanism_law`` a prepared container's declarations carry, or ``None``."""
+    known = data.known_mechanisms
+    return None if known is None else known.law
+
+
+def _check_node_law(design: Any) -> None:
+    """Refuse a longitudinal design's ``mechanism_law`` that is malformed or reads nothing."""
+    check_mechanism_law(design.mechanism_law)
+    if (
+        design.mechanism_law is not None
+        and design.treatment_probabilities is None
+        and design.censoring_probabilities is None
+    ):
+        raise DataError(
+            f"{type(design).__name__}(mechanism_law=) says how treatment_probabilities= and "
+            "censoring_probabilities= are read beside weights, and this design declares "
+            "neither. Drop mechanism_law=, or declare the probabilities."
+        )
+
+
 def _held_node_columns(
     data: LongitudinalData,
 ) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...] | None:
@@ -1188,6 +1241,16 @@ class LongitudinalTreatment:
         The known retention probabilities (a tuple of pairs is also accepted): each censoring
         column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
         censoring learner.
+    mechanism_law : {"target", "sample"} or None
+        How the declared probabilities are read beside a non-constant ``weights`` column,
+        where they are required unless their every value is 0 or 1.  ``"target"``: they hold
+        in the population the weights restore (randomization before sampling, or weights
+        that read the baseline covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the treatment
+        or later data, so at each declared node the fit estimates the weight-tilted
+        probabilities from them with the node's learner and counts the node as estimated.
+        :meth:`cleverly.longitudinal.LTMLE.fit` states the condition its interval then
+        needs.  It needs ``treatment_probabilities`` or ``censoring_probabilities``.
     markov_order : int or None
         A statistical-model restriction of order ``k``.  Every nuisance model at node ``t``
         reads the baseline covariates and the last ``k + 1`` nodes only.  The estimand does
@@ -1236,11 +1299,13 @@ class LongitudinalTreatment:
     continuous_treatment: Sequence[str] | Mapping[str, Any] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    mechanism_law: MechanismLaw | None = None
     markov_order: int | None = None
     dose_atoms: Mapping[str, Sequence[float]] | None = None
     eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
+        _check_node_law(self)
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         check_markov_order(self.markov_order)
         continuous = self.continuous_treatment
@@ -1329,6 +1394,7 @@ class LongitudinalTreatment:
             censoring_probabilities=(
                 None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
             ),
+            mechanism_law=self.mechanism_law,
             dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
             eliminate=self.eliminate,
         )
@@ -1422,6 +1488,7 @@ class LongitudinalTreatment:
                 self.censoring_probabilities,
                 _held_censoring_columns(data),
             ),
+            ("mechanism_law", self.mechanism_law, _held_law(data)),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -1512,6 +1579,16 @@ class TimeToEvent:
         that holds the probability of still being observed after it, given the treatment
         received, the covariates and being event-free and observed through it.  The fit then
         divides by these probabilities at that time and fits no censoring learner there.
+    mechanism_law : {"target", "sample"} or None
+        How the declared probabilities are read beside a non-constant ``weights`` column,
+        where they are required unless their every value is 0 or 1.  ``"target"``: they hold
+        in the population the weights restore (randomization before sampling, or weights
+        that read the baseline covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the treatment
+        or later data, so at each declared node the fit estimates the weight-tilted
+        probabilities from them with the node's learner and counts the node as estimated.
+        :meth:`cleverly.longitudinal.LTMLE.fit` states the condition its interval then
+        needs.  It needs ``treatment_probabilities`` or ``censoring_probabilities``.
 
     Attributes
     ----------
@@ -1550,8 +1627,10 @@ class TimeToEvent:
     dose_atoms: Sequence[float] = ()
     eliminate: Sequence[str] = ()
     censoring_probabilities: Mapping[float, str] | None = None
+    mechanism_law: MechanismLaw | None = None
 
     def __post_init__(self) -> None:
+        _check_node_law(self)
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         if self.censoring_probabilities is not None:
@@ -1691,6 +1770,7 @@ class TimeToEvent:
             ),
             eliminate=self.eliminate,
             censoring_probabilities=self.censoring_probabilities,
+            mechanism_law=self.mechanism_law,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
@@ -1700,6 +1780,7 @@ class TimeToEvent:
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment_probabilities", self.treatment_probabilities, held_columns),
             ("censoring_probabilities", self.censoring_probabilities, _held_censoring(data)),
+            ("mechanism_law", self.mechanism_law, _held_law(data)),
             ("time", self.time, data.time_name),
             ("event", self.event, data.event_name),
             ("treatment", (self.treatment,), tuple(data.treatment_names)),
@@ -1802,6 +1883,16 @@ class LongPanel:
         the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
+    mechanism_law : {"target", "sample"} or None
+        How the declared probabilities are read beside a non-constant ``weights`` column,
+        where they are required unless their every value is 0 or 1.  ``"target"``: they hold
+        in the population the weights restore (randomization before sampling, or weights
+        that read the baseline covariates only), and every method divides by them.
+        ``"sample"``: they hold in the rows as drawn and the weights may read the treatment
+        or later data, so at each declared node the fit estimates the weight-tilted
+        probabilities from them with the node's learner and counts the node as estimated.
+        :meth:`cleverly.longitudinal.LTMLE.fit` states the condition its interval then
+        needs.  It needs ``treatment_probabilities`` or ``censoring_probabilities``.
     eliminate : sequence of str
         The competing causes to prevent, by label.  The estimand is then the risk of each
         remaining cause had the named causes been prevented (Young et al. 2020): their events
@@ -1847,11 +1938,13 @@ class LongPanel:
     continuous_treatment: bool = False
     treatment_probabilities: Mapping[Any, str] | None = None
     censoring_probabilities: str | None = None
+    mechanism_law: MechanismLaw | None = None
     treatment_support: Any = None
     dose_atoms: Sequence[float] = ()
     eliminate: Sequence[str] = ()
 
     def __post_init__(self) -> None:
+        _check_node_law(self)
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         object.__setattr__(self, "eliminate", tuple(str(cause) for cause in self.eliminate))
         if (self.outcome is None) == (self.event is None):
@@ -1921,6 +2014,7 @@ class LongPanel:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
             censoring_probabilities=self.censoring_probabilities,
+            mechanism_law=self.mechanism_law,
             eliminate=self.eliminate,
         )
         return _declare_every_node(built, self.treatment_support, self.dose_atoms)
@@ -1964,6 +2058,7 @@ class LongPanel:
                 self.censoring_probabilities,
                 layout.censoring_probabilities,
             ),
+            ("mechanism_law", self.mechanism_law, _held_law(data)),
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
@@ -2457,6 +2552,15 @@ class RegimeContrast:
     definition: str = field(default="contrast of each regime against the reference", init=False)
 
 
+def _check_learned_rule_level(owner: str, level: float | None) -> None:
+    """Refuse a held level of the intermediate other than ``None``, ``0.0`` or ``1.0``."""
+    if level is not None and level not in (0.0, 1.0):
+        raise DataError(
+            f"{owner}(intermediate=...) holds a binary intermediate at 0.0 or 1.0, or takes "
+            f"None for a design without one; got {level!r}"
+        )
+
+
 @dataclass(frozen=True)
 class LearnedRuleValue:
     """Request the value of the treatment rules learned inside each training fold.
@@ -2474,10 +2578,18 @@ class LearnedRuleValue:
     the rows (of the weight mass under weights), and reads experimental until its study
     registers.
 
+    With ``intermediate=z`` on a design that declares ``PointTreatment(intermediate=...)``,
+    the binary intermediate is held at ``z``: each fold learns the best treatment given
+    ``Z = z`` from the outcome regression at ``(a, z)``, and the target is the value of those
+    rules with ``Z`` set to ``z``.  The plug-in rule only; a rule learner refuses.
+
     Parameters
     ----------
     rule : LearnedRule
         The rule class, and the label the reported parameter carries.
+    intermediate : float or None
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate is held.
+        Required on a design with an intermediate and refused on one without.
 
     See Also
     --------
@@ -2496,6 +2608,7 @@ class LearnedRuleValue:
     """
 
     rule: LearnedRule = field(default_factory=LearnedRule)
+    intermediate: float | None = None
     name: str = field(default="ey_learned_rule", init=False)
     definition: str = field(
         default=(
@@ -2511,6 +2624,13 @@ class LearnedRuleValue:
                 "LearnedRuleValue(rule=...) takes a cleverly.interventions.LearnedRule, not "
                 f"{self.rule!r}"
             )
+        _check_learned_rule_level("LearnedRuleValue", self.intermediate)
+        if self.intermediate is not None:
+            object.__setattr__(
+                self,
+                "definition",
+                f"{self.definition}, with the intermediate held at {self.intermediate:g}",
+            )
 
 
 @dataclass(frozen=True)
@@ -2519,7 +2639,7 @@ class OptimalRuleValue:
 
     The target is a fixed parameter: the mean outcome :math:`\\Psi_{d_0}(P_0)` had every
     unit received the arm with the best mean outcome given its covariates,
-    :math:`d_0(w) = \\arg\\max_a \\bar Q_0(a, w)`.  The estimator is the cross-validated TMLE
+    :math:`d_0(w) = \\arg\\max_a \\bar Q_0(a, w)`.  The estimator is the TMLE
     of :class:`LearnedRuleValue`, so on the same data and settings the point and the interval
     are that fit's, reported under ``ey_optimal_rule``.  Van der Laan and Luedtke (2015),
     Section 7.2, give the conditions under which it estimates the optimal value: the fold
@@ -2529,17 +2649,30 @@ class OptimalRuleValue:
     the best arm tying with another for almost no unit, its own step.  At an exceptional law
     nothing is guaranteed, and the interval can under-cover.
 
-    The fit needs cross-fitting with at least two folds, under either report.  It refuses
-    ``weights=``, ``strata=``, known regimes beside it and the in-sample fit (X11 (f3) in
-    ``docs/roadmap.md``).  The fold-evaluated fit on rows with known treatment probabilities
+    The fit runs under either report and in sample (``CrossFitting(enabled=False)``, whose
+    interval needs the Donsker condition C5a of van der Laan and Luedtke 2015, Theorem 5).
+    With ``weights=`` on the design the target is the optimal value of the population the
+    weights describe, whose optimal rule can differ from the unweighted one; with ``strata=``
+    each stratum reports its own optimal value beside the marginal one; with
+    ``intermediate=z`` the target is the value of the best treatment with the intermediate
+    held at ``z``.  The fold-evaluated fit on rows with known treatment probabilities
     (``treatment_probabilities=``) reads supported, from the ``learned-rule-optimal-value``
-    study; every other fit, an estimated treatment mechanism among them, reads experimental.
+    study, and so does such a fit with one of those compositions, or known regimes beside it,
+    from the ``learned-rule-optimal-compositions`` study (the in-sample fit with a parametric
+    outcome learner); every other fit, an estimated treatment mechanism among them, reads
+    experimental.  Under weights the probabilities must be the weighted population's own,
+    which the label cannot check.
 
     Parameters
     ----------
     rule : LearnedRule
         The rule class whose fold rules estimate the optimal rule, and the label the
         reported parameter carries.
+    intermediate : float or None
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate is held: the
+        target is :math:`E_0\\bar Q_0(d^z_0(W), z, W)` with
+        :math:`d^z_0(w) = \\arg\\max_a \\bar Q_0(a, z, w)`.  Required on a design with an
+        intermediate and refused on one without.
 
     See Also
     --------
@@ -2555,6 +2688,7 @@ class OptimalRuleValue:
     """
 
     rule: LearnedRule = field(default_factory=LearnedRule)
+    intermediate: float | None = None
     name: str = field(default="ey_optimal_rule", init=False)
     definition: str = field(
         default=(
@@ -2569,6 +2703,13 @@ class OptimalRuleValue:
             raise DataError(
                 "OptimalRuleValue(rule=...) takes a cleverly.interventions.LearnedRule, not "
                 f"{self.rule!r}"
+            )
+        _check_learned_rule_level("OptimalRuleValue", self.intermediate)
+        if self.intermediate is not None:
+            object.__setattr__(
+                self,
+                "definition",
+                f"{self.definition}, with the intermediate held at {self.intermediate:g}",
             )
 
 
@@ -3804,6 +3945,16 @@ def _point_identification(
                 )
             continue
         assumptions.append(item)
+    if direct and axis == "learned_rule":
+        # The learned-rule records carry no two-arm positivity item (C2 states positivity
+        # for every arm), so the positivity of the held level gets its own sentence: the
+        # level's clever covariate divides by q(z | a, W) at every arm a rule can choose.
+        assert level is not None
+        assumptions.append(
+            f"intermediate positivity at {design.intermediate} = {level:g}: "
+            f"P({design.intermediate} = {level:g} | {design.treatment_name} = a, W) >= delta > 0 "
+            "for every arm a almost surely"
+        )
 
     nuisances = (
         [OUTCOME_REGRESSION]
@@ -4149,7 +4300,9 @@ def _point_functional(
         msm=msm,
         effect_modification=projection,
         intermediate=(
-            estimand.intermediate if isinstance(estimand, ControlledDirectEffect) else None
+            estimand.intermediate
+            if isinstance(estimand, (ControlledDirectEffect, *LEARNED_RULE_ESTIMANDS))
+            else None
         ),
         missingness=design.missingness,
         treatment_missingness=design.treatment_missingness,
@@ -4810,21 +4963,30 @@ class ExplicitAdjustmentProvider:
                 )
             if estimand.intermediate not in (0.0, 1.0):
                 raise DataError("the evidenced binary intermediate must be fixed at 0 or 1")
-        elif design.intermediate is not None and isinstance(actual, LEARNED_RULE_ESTIMANDS):
-            # X11 (j) ships on the engine only: ControlledDirectEffect wraps an arm contrast,
-            # and no study estimand holds a learned rule at a level of the intermediate.
-            raise CapabilityError(
-                f"{type(actual).__name__} with PointTreatment(intermediate=...) has no "
-                "spelling on the method layer: ControlledDirectEffect wraps an arm contrast, "
-                "and no study estimand holds the learned rule at a level of the intermediate "
-                "(X11 (j3) in docs/roadmap.md).",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative=(
-                    "TMLE(learned_rule=LearnedRule()).fit(..., intermediate=...) on the engine "
-                    "reports the value of the rules learned at each level of the intermediate."
-                ),
-                roadmap="X11",
-            )
+        elif isinstance(actual, LEARNED_RULE_ESTIMANDS) and (
+            design.intermediate is not None or actual.intermediate is not None
+        ):
+            if design.intermediate is None:
+                raise CapabilityError(
+                    f"{type(actual).__name__}(intermediate={actual.intermediate:g}) holds an "
+                    "intermediate at a level, and this design declares none",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Declare the column with PointTreatment(intermediate=...), or drop "
+                        "intermediate= from the estimand."
+                    ),
+                )
+            if actual.intermediate is None:
+                raise CapabilityError(
+                    f"{type(actual).__name__} on a design with PointTreatment(intermediate=...) "
+                    "needs the level at which the intermediate is held: the fit learns one set "
+                    "of rules per level, from the outcome regression at (a, z)",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        f"Request {type(actual).__name__}(intermediate=0.0) or "
+                        f"{type(actual).__name__}(intermediate=1.0)."
+                    ),
+                )
         elif design.intermediate is not None:
             raise CapabilityError(
                 "a design with intermediate= must identify ControlledDirectEffect explicitly",
@@ -5690,19 +5852,19 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         blocker = (
             Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
+                "no collaborative or doubly robust learned-rule result was reviewed.",
+                alternative="Fit method='tmle'.",
+                roadmap="F27",
+            )
+            if self.functional.axis == "learned_rule"
+            else Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
                 "a controlled direct effect fixes an intermediate variable, and neither "
                 "variant's score is derived for that functional.",
                 alternative="Fit method='tmle'.",
                 roadmap="F5",
             )
             if self.functional.intermediate is not None
-            else Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                "no collaborative or doubly robust learned-rule result was reviewed.",
-                alternative="Fit method='tmle'.",
-                roadmap="F27",
-            )
-            if self.functional.axis == "learned_rule"
             else None
         )
         variants = (
@@ -5752,6 +5914,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             drtmle = drift_refusal is None
             if drift_refusal is not None:
                 drtmle_blocker = drift_refusal
+        # A declaration read in the sample beside non-constant weights is an estimated
+        # mechanism, which the guarded reduced regressions (the default guard) and adaptive
+        # IPTW read as fixed, so both fits refuse it; the study holds its data and says so
+        # here.  An unguarded DRTMLE is the TMLE fit, which method="tmle" gives.
+        estimated_declaration = point and self._estimated_declaration()
+        if estimated_declaration and blocker is None:
+            drtmle = False
+            drtmle_blocker = KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL
         if isinstance(design, PointTreatment) and design.support == "vector":
             # A vector with a dose has no arms, as a continuous dose has none; each variant
             # refuses it with the reason its engine gives a continuous treatment.
@@ -5764,6 +5934,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
         iptw_reason = self._adaptive_iptw_refusal(design)
+        if iptw_reason is None and estimated_declaration:
+            iptw_reason = KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL
         records: tuple[MethodAvailability, ...] = (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability("adaptive_iptw", iptw_reason is None, iptw_reason),
@@ -5950,6 +6122,26 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 )
         return tuple(out)
 
+    def _estimated_declaration(self) -> bool:
+        """Whether the study's declared mechanism is read in the sample beside weights.
+
+        Such a fit estimates the weight-tilted mechanism from the declaration
+        (:func:`~cleverly.data.known_mechanism.divides_by_declaration`).  An effect built
+        without a study, or on data with no declaration, claims nothing.
+
+        Returns
+        -------
+        bool
+            ``True`` when the study's point data declares a mechanism that it does not
+            divide by.
+        """
+        data = getattr(self._study, "data", None)
+        return (
+            isinstance(data, CausalData)
+            and data.known_treatment is not None
+            and not divides_by_declaration(data)
+        )
+
     def _adaptive_iptw_refusal(self, design: Any) -> Refusal | None:
         """Why ``adaptive_iptw`` does not fit this functional, or ``None`` where it does.
 
@@ -6032,10 +6224,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ipsi, ipsi_reason = (False, IPSI_POLICY_REFUSAL) if declares_mtp(regimens) else (True, None)
         if not declares_tilt(regimens):
             return True, None, True, None, ipsi, ipsi_reason
-        known = getattr(data, "known_mechanisms", None)
         n_times = getattr(data, "n_times", 0)
-        declared = known is not None and all(
-            known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+        # A declaration read in the sample beside weights is estimated, so it fixes no tilt.
+        declared = getattr(data, "known_mechanisms", None) is not None and all(
+            divided_treatment_at(data, time) is not None for time in tilt_nodes(regimens, n_times)
         )
         return (
             declared,
@@ -6092,10 +6284,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         regimens = self.functional.interventions
         if declares_tilt(regimens):
             data = getattr(self._study, "data", None)
-            known = getattr(data, "known_mechanisms", None)
             n_times = getattr(data, "n_times", 0)
-            declared = known is not None and all(
-                known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+            declared = getattr(data, "known_mechanisms", None) is not None and all(
+                divided_treatment_at(data, time) is not None
+                for time in tilt_nodes(regimens, n_times)
             )
             if not declared:
                 return False, BASELINE_TILT_REFUSAL, False, BASELINE_TILT_REFUSAL

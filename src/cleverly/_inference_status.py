@@ -203,8 +203,9 @@ class StatusRecord:
         reads fewer clusters than the floor, and none otherwise.
     diagnostic_noun : str
         The noun a coverage-study report uses for the spread it measured.
-    reopened_by : str
-        The roadmap id whose anchor in ``docs/roadmap.md`` holds the reopen route.
+    reopened_by : str or None
+        The roadmap id whose anchor in ``docs/roadmap.md`` holds the reopen route, or ``None``
+        when no roadmap item plans one and the record's alternative is the route.
     alternative : str
         The sentence a refusal of an inferential operation at this status ends with: the
         estimator that supplies an interval for the same question, or
@@ -236,7 +237,7 @@ class StatusRecord:
     assessment_note: str
     bootstrap_note: str
     diagnostic_noun: str
-    reopened_by: str
+    reopened_by: str | None
     alternative: str
     code: RefusalReason = RefusalReason.INFERENCE_GAP
     interval: Interval = "withheld"
@@ -468,9 +469,8 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "here makes that bias negligible over several time points. The point estimate "
                 "stands. The diagnostic curve remains under plugin_std_error and "
                 "plugin_interval: for g-computation it is the efficient influence curve at the "
-                "untargeted fits, and for IPW it is the fixed-mechanism curve. F35 in "
-                "docs/roadmap.md reopens this when a result supplies the asymptotic linearity "
-                "of these estimators with data-adaptive nuisances. A StructuralNestedMean fit "
+                "untargeted fits, and for IPW it is the fixed-mechanism curve. A "
+                "StructuralNestedMean fit "
                 "with n_folds=1 and a learner other than GLM takes this status too, because no "
                 "result read here covers in-sample adaptive nuisances in a g-estimating "
                 "equation. Cross-fitting, which is the default, gives that estimator its "
@@ -479,14 +479,14 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             assessment_note=(
                 "the reported curve is a baseline diagnostic: no confidence interval or "
                 "p-value is available for a g-computation or IPW fit with a data-adaptive "
-                "learner, and F35 in the roadmap is the condition that reopens it"
+                "learner"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap of a g-computation or IPW "
                 "fit with a data-adaptive learner"
             ),
             diagnostic_noun="baseline plug-in diagnostic",
-            reopened_by="F35",
+            reopened_by=None,
             alternative="For an interval, pass GLM models, or fit LTMLE or SDR.",
         ),
         "no_cluster_variance_plugin": StatusRecord(

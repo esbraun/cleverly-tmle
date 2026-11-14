@@ -220,16 +220,28 @@ T_REFERENCE_BAND_REFUSAL = Refusal(
     roadmap="F28",
 )
 
+#: Why no band covers an estimate of a fit with ``variance="policy_weighted"``.
+POLICY_VARIANCE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() needs a joint covariance matrix, and under "
+    "variance='policy_weighted' the fit defines the variance of each linear functional as a "
+    "maximum of two variances, not a matrix.",
+    alternative=(
+        "Report the pointwise intervals, or refit with variance='influence_curve' for a band."
+    ),
+)
+
 #: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
 KNOWN_REGIME_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
     "simultaneous_bands() has no joint result over a learned-rule value, the known-regime "
-    "values beside it (ey_known_regime) and their contrasts (ate_learned_rule). Joint "
-    "normality of the stack gives each contrast's own interval, and a band over a "
-    "data-adaptive value and fixed regimes has no witness (X11 (c2) in docs/roadmap.md).",
+    "values beside it (ey_known_regime) and their contrasts (ate_learned_rule, or "
+    "ate_optimal_rule beside the value of the optimal rule). Joint normality of the stack "
+    "gives each contrast's own interval, and a band over a data-adaptive value and fixed "
+    "regimes has no witness (X11 (c2) in docs/roadmap.md).",
     alternative=(
         "Report the pointwise intervals, or pass simultaneous_bands() the estimates without "
-        "the ey_known_regime and ate_learned_rule ones."
+        "the ey_known_regime, ate_learned_rule and ate_optimal_rule ones."
     ),
     roadmap="X11",
 )
@@ -727,7 +739,8 @@ def simultaneous_bands(
         influence curve, which matches the raw second moment only on a mean-zero curve,
         and this function does not check the mean. Also, with code ``inference_gap``, if
         any estimate is a known-regime value (``ey_known_regime``) or a contrast of the
-        learned rule with a known regime (``ate_learned_rule``): no joint result covers a
+        learned rule with a known regime (``ate_learned_rule``, or ``ate_optimal_rule`` beside
+        the value of the optimal rule): no joint result covers a
         band over a data-adaptive value and fixed regimes (X11 (c2)). Also, with code
         ``inference_gap``, under ``band_scale="logit"``, if a bounded estimate with a
         positive standard error lies on or outside its range, where the logit band is not
@@ -977,6 +990,8 @@ def _checked_items(
         raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
     if known_regime_estimates(name for name, _ in items):
         raise CapabilityError.from_refusal(KNOWN_REGIME_BAND_REFUSAL)
+    if any(estimate.covariance_rule == "policy_weighted" for _, estimate in items):
+        raise CapabilityError.from_refusal(POLICY_VARIANCE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]
@@ -1001,8 +1016,8 @@ def _checked_items(
 def known_regime_estimates(names: Iterable[str]) -> list[str]:
     """The names among ``names`` that read a known regime beside a learned rule.
 
-    Each is an ``ey_known_regime`` or ``ate_learned_rule`` parameter, a stratum alias
-    included, and no band covers it (:data:`KNOWN_REGIME_BAND_REFUSAL`).
+    Each is an ``ey_known_regime``, ``ate_learned_rule`` or ``ate_optimal_rule`` parameter, a
+    stratum alias included, and no band covers it (:data:`KNOWN_REGIME_BAND_REFUSAL`).
 
     Parameters
     ----------
