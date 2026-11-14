@@ -1,10 +1,11 @@
 """Assessment of a continuous-time survival fit (X101): every row runs or refuses by name.
 
 The support, nuisance-model and score-equation rows and ``diagnostics.influence()`` read
-the fit's record and its influence curves. Every refutation, the truncation curve and every
-sensitivity analysis refuses with a ``CapabilityError`` naming its roadmap item, and the
-capability row declares the same record, so ``assess()`` reports each refusal and never
-raises.
+the fit's record and its influence curves. The refutation and the truncation curve refit the
+stored estimator on the stored data (``tests/unit/test_continuous_survival_refute.py``). The
+simulated common cause and every sensitivity bound refuse with a ``CapabilityError`` naming
+its roadmap item, and the capability row declares the same record, so ``assess()`` reports
+each refusal and never raises.
 
 The witnesses guard components that could vanish without any exact check noticing: the
 arm axis of the stored censoring survival, the orientation of the stored treatment
@@ -40,9 +41,6 @@ def result() -> Any:
     return KINDS["continuous_survival"].build()
 
 
-#: Each refused diagnostic and the roadmap item its refusal names.
-DIAGNOSTIC_REFUSALS = {"refute": "X101", "truncation_curve": "X101"}
-
 #: Each refused sensitivity analysis and the roadmap item its refusal names.
 SENSITIVITY_REFUSALS = {
     "omitted_confounding": "F16",
@@ -71,18 +69,28 @@ def test_assess_runs_every_row_or_names_its_refusal(result: Any) -> None:
     assert statuses["support"] is AssessmentStatus.COMPLETED
     assert statuses["nuisance_models"] is AssessmentStatus.COMPLETED
     assert statuses["corrections"] is AssessmentStatus.NOT_APPLICABLE
-    for name in (*DIAGNOSTIC_REFUSALS, *SENSITIVITY_REFUSALS):
+    # The curve runs on its default grid; refute waits on the estimand, since the fit reports
+    # many and the bare default "ate" is none of them.
+    assert statuses["truncation_curve"] is AssessmentStatus.COMPLETED
+    assert statuses["refute"] is AssessmentStatus.DEFERRED
+    for name in SENSITIVITY_REFUSALS:
         assert statuses[name] is AssessmentStatus.UNAVAILABLE, name
-    for item in (*report.diagnostics.items, *report.sensitivity.items):
-        if item.name in DIAGNOSTIC_REFUSALS or item.name in SENSITIVITY_REFUSALS:
-            expected = {**DIAGNOSTIC_REFUSALS, **SENSITIVITY_REFUSALS}[item.name]
+    for item in report.sensitivity.items:
+        if item.name in SENSITIVITY_REFUSALS:
+            expected = SENSITIVITY_REFUSALS[item.name]
             assert item.refusal is not None and item.refusal.roadmap == expected, item.name
 
 
 def test_the_capability_sweep_finds_no_disagreement(result: Any) -> None:
     assert sweep(result) == []
     answered = ran(KINDS["continuous_survival"].build(), sweep_arguments(result))
-    assert {"support", "nuisance_models", "score_equations"} <= answered
+    assert {
+        "support",
+        "nuisance_models",
+        "score_equations",
+        "refute",
+        "truncation_curve",
+    } <= answered
 
 
 def test_validate_passes_on_the_record(result: Any) -> None:
@@ -163,17 +171,6 @@ def test_influence_reads_each_estimates_curve(result: Any) -> None:
 # ----------------------------------------------------------------- the rows that refuse
 
 
-@pytest.mark.parametrize(("operation", "roadmap"), DIAGNOSTIC_REFUSALS.items())
-def test_each_refused_diagnostic_names_its_item(result: Any, operation: str, roadmap: str) -> None:
-    row = result.diagnostics.capability(operation)
-    assert not row.available and row.status is AssessmentStatus.UNAVAILABLE
-    assert row.refusal.roadmap == roadmap
-    with pytest.raises(CapabilityError, match=rf"{roadmap} in docs/roadmap\.md") as caught:
-        getattr(result.diagnostics, operation)()
-    assert caught.value.refusal.roadmap == roadmap
-    assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-
-
 @pytest.mark.parametrize(("operation", "roadmap"), SENSITIVITY_REFUSALS.items())
 def test_each_refused_sensitivity_analysis_names_its_item(
     result: Any, operation: str, roadmap: str
@@ -210,11 +207,26 @@ def test_corrections_do_not_apply(result: Any) -> None:
     assert facade.value.refusal.condition.endswith(row.refusal.condition)
 
 
-def test_nothing_replays_from_the_stored_fit(result: Any) -> None:
+def test_the_stored_estimator_and_data_refit_and_rerun(result: Any) -> None:
     replay = result.replayability
     assert replay.summarize_existing_artifacts
-    assert not (replay.retarget_cached_nuisances or replay.refit_nuisances)
-    assert not replay.rerun_configuration
+    assert replay.refit_nuisances and replay.rerun_configuration
+    assert not replay.retarget_cached_nuisances
+    assert replay.unreconstructible == ()
+
+
+@pytest.mark.parametrize("missing", ["estimator", "data"])
+def test_a_result_without_its_estimator_or_data_refits_nothing(result: Any, missing: str) -> None:
+    """The nonzero witness of the replay gate: a hand-built result holds neither."""
+    bare = dataclasses.replace(result, **{missing: None})
+    replay = bare.replayability
+    assert not (replay.refit_nuisances or replay.rerun_configuration)
+    assert replay.unreconstructible == (
+        ("estimator configuration",) if missing == "estimator" else ("analysis data",)
+    )
+    for operation in ("refute", "truncation_curve"):
+        row = bare.diagnostics.capability(operation)
+        assert not row.available, operation
 
 
 # ----------------------------------------------------------------- witnesses
@@ -225,8 +237,6 @@ def _free_calls() -> dict[str, tuple[Any, dict[str, Any], str]]:
     from tests.unit._simulated_confounding_support import _GRID
 
     return {
-        "refute": (validation.refute, {}, "X101"),
-        "truncation_curve": (sensitivity.truncation_curve, {}, "X101"),
         "simulated_confounding": (sensitivity.simulated_confounding, {"grid": _GRID}, "X101"),
         "omitted_variable_bounds": (sensitivity.omitted_variable_bounds, {}, "F16"),
         "robustness_value": (sensitivity.robustness_value, {}, "F16"),

@@ -180,7 +180,8 @@ BAND_SUPPORT: Final[Support] = _experimental(
 
 if TYPE_CHECKING:
     from ._targeting import WalkResult
-    from .engine import ContinuousSurvivalRecord
+    from .data import ContinuousSurvivalData
+    from .engine import ContinuousSurvivalRecord, ContinuousSurvivalTMLE
 
 __all__ = [
     "CONTINUOUS_SURVIVAL_STUDY",
@@ -357,13 +358,24 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         The number of units.
     backend : str or None
         The dataframe library the data arrived in; :meth:`to_frame` returns a frame of it.
+    estimator : ContinuousSurvivalTMLE or None
+        A copy of the estimator that produced the fit, with its seed resolved and the outer
+        cross-fitting label of each row recorded, so
+        ``estimator.refit(data, random_state=estimator.random_state)`` reproduces the fit.
+        ``None`` only on a result built by hand, which the refits refuse.
+    data : ContinuousSurvivalData or None
+        The rows the fit read. ``None`` only on a result built by hand.
 
     Notes
     -----
     :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a
     row for every assessment operation. The support, nuisance, score and influence
-    diagnostics read :attr:`record` and the influence curves; every refutation, the
-    truncation curve and every sensitivity analysis refuses with its reason and roadmap item.
+    diagnostics read :attr:`record` and the influence curves. ``diagnostics.refute()`` refits
+    :attr:`estimator` on perturbed copies of :attr:`data` (the placebo on a contrast, the
+    random common cause and the subset tests, all descriptive), and
+    ``diagnostics.truncation_curve()`` reruns the targeting walk at other floors from refitted
+    initial hazards. The simulated common cause and every sensitivity bound refuse with their
+    reason and roadmap item.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -374,6 +386,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     horizons: tuple[float, ...]
     n: int
     backend: str | None = None
+    estimator: ContinuousSurvivalTMLE | None = field(default=None, repr=False)
+    data: ContinuousSurvivalData | None = field(default=None, repr=False)
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
@@ -500,7 +514,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     ) -> Any:
         """Run the applicable post-fit assessment battery.
 
-        The refutation, the truncation curve and every sensitivity row refuse on this fit,
+        With ``include_refits=True`` the refutation and the truncation curve refit the stored
+        estimator; the simulated common cause and every sensitivity bound refuse on this fit,
         and the report names each refusal without raising it.
 
         Parameters

@@ -1930,6 +1930,7 @@ KINDS: dict[str, Kind] = {
     # No truncation curve and no replay (X62), so only the reading rows and refute run.
     "survival_drtmle": _kind(fit_survival_drtmle, *_READ, "refute"),
     "survival_ctmle": _kind(fit_survival_ctmle, *_READ, "refute"),
+<<<<<<< HEAD
     # Fix-15: the selector paths report a point and no interval (F18), so the bound rows
     # and the E-value refuse them; C-TMLE0 and the stacked per-arm curve supply one.
     "ctmle_greedy": _kind(fit_ctmle_greedy, "marginal_bounds", *_LIVE),
@@ -1968,6 +1969,11 @@ KINDS: dict[str, Kind] = {
     "separable": _kind(fit_separable, *_READ, *_POINT),
     "learned_regimen": _kind(fit_learned_regimen, *_READ),
     "continuous_survival": _kind(fit_continuous_survival, *_READ, refits=False),
+=======
+    # The stored estimator refits on the stored data (X101): refute answers through the first
+    # reported estimate, an arm risk, so it runs the noise test.
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, *_POINT),
+>>>>>>> 68647265 (Add refutation and the truncation curve to continuous-time survival fits)
 }
 
 
@@ -2289,16 +2295,24 @@ MUTATIONS: dict[str, Mutation] = {
                 "separable",
                 # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
                 "learned_rule+level",
+                # The default continuous-time request reads cif_regimen, a risk with no
+                # fixed null, so the placebo declines there (X101).
+                "continuous_survival",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
         # supplied plan no longer meets a default refusal, because ``subset`` keeps the
         # original fold labels, and an MSM coefficient has a placebo reference (X82 A2).
         _RAISED.format("refute")
+<<<<<<< HEAD
         + r"(the placebo refutation|the placebo has no exact null|"
         + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value|"
         # A mixed node's placebo meets its missing Markov kernel first (X82).
         + r"the longitudinal placebo has no Markov kernel)",
+=======
+        + r"(the placebo refutation|the placebo has no (exact|fixed) null|"
+        + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value)",
+>>>>>>> 68647265 (Add refutation and the truncation curve to continuous-time survival fits)
     ),
     "M4": Mutation(
         "CTMLE ignores a covariate the refit adds",

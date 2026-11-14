@@ -104,5 +104,12 @@ time point, or whose rows come from a trial and an external source.
   `counterfactual=True`. `learners` draws each hazard's and the treatment model's candidates with
   the chosen one marked; a cross-fitted fit keeps the first fold's choices.
 
+<<<<<<< HEAD
 A continuous-time survival fit does not yet draw `curve`, and covariate balance over time is not
 drawn for any fit over time. Each refusal names the [roadmap](../roadmap.md) item that tracks it.
+=======
+A continuous-time survival fit does not yet draw `curve`, `overlap`, `weights` or `learners`,
+and covariate balance over time is not drawn for any fit over time. Its truncation curve carries
+the point-treatment columns, so `sensitivity` draws it. Each refusal names the
+[roadmap](../roadmap.md) item that tracks it.
+>>>>>>> 68647265 (Add refutation and the truncation curve to continuous-time survival fits)
