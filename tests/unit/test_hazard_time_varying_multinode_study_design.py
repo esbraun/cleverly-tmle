@@ -4,14 +4,17 @@ Every check here reads law (M) of :mod:`tests.studies.hazard_time_varying_multin
 declared constants, before any pilot or run: the truths against an independent forward sum, the
 exact-sample fits, positivity, the efficiency bounds, every robustness limit and every witness
 of a component that could vanish at the truth, the sizes that need no pilot, the record and the
-seeds.  The readings that need a committed pilot (the calibration and wrong-learner counts, the
-band, the influence-curve gap) are not written yet: the pilot has not run, and a test that
-waits for it would skip.  They are added with the pilot commit, as in
-``tests/unit/test_hazard_time_varying_study_design.py``.
+seeds.  The readings that need a committed pilot (the calibration, primary and wrong-learner
+counts, the band, the influence-curve gap, the agreement report) read
+``tests/canonical/hazard_time_varying_multinode/pilot.csv.gz``, as in
+``tests/unit/test_hazard_time_varying_study_design.py``.  A pilot group with some labels
+committed fails, naming the rest; a group with none committed skips.  The calibration screen
+and the large fit's influence-curve SD are read against each arm's exact kurtosis (plan X70
+rev 3.8).
 
-Each gap below is in efficiency SEs at the arm's size, :math:`n = 2{,}000`: the exact limit
-minus the truth over :math:`\\sigma / \\sqrt{n}`, with :math:`\\sigma` the SD of the efficient
-influence function.  An exact limit is the fit of the law as data, every support point once and
+Each gap below is in efficiency SEs at the arm's size: the exact limit minus the truth over
+:math:`\\sigma / \\sqrt{n}`, with :math:`\\sigma` the SD of the efficient influence function, at
+:math:`n = 2{,}000`, or :math:`n = 8{,}000` for an untargeted ``outcome_correct`` arm.  An exact limit is the fit of the law as data, every support point once and
 weighted by its mass.
 """
 
@@ -28,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.special import expit
 from scipy.stats import chisquare, norm, poisson
@@ -99,22 +103,22 @@ MUTATIONS: dict[str, Callable[[], AbstractContextManager[Any]]] = {
 POLICY_RISK = "policy_risk"
 #: The exact limit of each mutation on the ``outcome_correct`` fit, targeted and untargeted, by
 #: ``(mutation, arm, targeted)``: a gated arm of the study reads each (the untargeted ones are
-#: the ``__outcome_correct_untargeted`` arms).  At a static or rule node every follower's
+#: the ``__outcome_correct_untargeted`` arms, in SEs at their n = 8,000, twice the gap at 2,000).  At a static or rule node every follower's
 #: observed ``A_k`` is the slot, so the walk fits the slot's hazard to the followers' own events
 #: and repairs a slot defect under any mechanism: the rule's targeted gaps are small, and its
 #: untargeted ones are not.  A defect of the policy's prefix or slots changes the mixture that
 #: defines the target, so the walk cannot repair it.
 WITNESS_GAPS: dict[tuple[str, str, bool], float] = {
     ("level_plan", "multinode_rule", True): 0.112,
-    ("level_plan", "multinode_rule", False): -4.186,
+    ("level_plan", "multinode_rule", False): -8.372,
     ("level_plan", "multinode_policy", True): 0.857,
-    ("level_plan", "multinode_policy", False): -0.514,
+    ("level_plan", "multinode_policy", False): -1.028,
     ("held_slot", "multinode_rule", True): -0.190,
-    ("held_slot", "multinode_rule", False): 1.493,
+    ("held_slot", "multinode_rule", False): 2.986,
     ("held_slot", "multinode_policy", True): 1.325,
-    ("held_slot", "multinode_policy", False): 1.951,
+    ("held_slot", "multinode_policy", False): 3.902,
     ("policy_prefix", "multinode_policy", True): 1.143,
-    ("policy_prefix", "multinode_policy", False): 1.143,
+    ("policy_prefix", "multinode_policy", False): 2.286,
     ("observed_slot", "multinode_policy", True): 3.497,
     ("observed_slot", POLICY_RISK, True): 4.359,
 }
@@ -132,11 +136,11 @@ BELOW_FALLBACK = frozenset(
     {
         ("level_plan", "multinode_rule", True),
         ("level_plan", "multinode_policy", True),
-        ("level_plan", "multinode_policy", False),
         ("held_slot", "multinode_rule", True),
     }
 )
-#: The replicates of a robustness arm, which every witness above is read at.
+#: The replicates of a robustness arm, which every witness above is read at: the targeted arms'
+#: configurations and the untargeted arms each run at least this many.
 ARM_REPLICATES = 1_200
 
 
@@ -154,14 +158,19 @@ def _policy_risk() -> law.Target:
     return study.target_of(study.risk_name("policy", study.LAST))
 
 
-def _gap(result: Any, arm: str) -> float:
-    """The exact-limit gap of one arm (a cell label or :data:`POLICY_RISK`) in SEs."""
+def _gap(result: Any, arm: str, n: int = N) -> float:
+    """The exact-limit gap of one arm (a cell label or :data:`POLICY_RISK`) in SEs at ``n``."""
     if arm == POLICY_RISK:
         aim = _policy_risk()
         estimate = float(result[study.risk_name("policy", study.LAST)].psi)
-        return (estimate - aim.value(law.LAW)) / (law.efficiency_sd(law.LAW, aim) / np.sqrt(N))
+        return (estimate - aim.value(law.LAW)) / (law.efficiency_sd(law.LAW, aim) / np.sqrt(n))
     name = properties.ESTIMAND[arm]
-    return (float(result[name].psi) - properties.TRUTHS[arm]) / _scale(arm)
+    return (float(result[name].psi) - properties.TRUTHS[arm]) / _scale(arm, n)
+
+
+def _witness_n(targeted: bool) -> int:
+    """The n of the arm a witness is read on: the untargeted arms run at n = 8,000."""
+    return N if targeted else properties.UNTARGETED_N
 
 
 @pytest.fixture(scope="module")
@@ -384,7 +393,7 @@ def held_units() -> list[tuple[str, int, int]]:
     ]
     units.append(("primary/multinode", study.PRIMARY_N, study.PRIMARY_REPLICATES))
     units += [
-        (f"pilot/{label}", pilot.PILOT_N, draws)
+        (f"pilot/{label}", pilot.pilot_n(label), draws)
         for label, (_, draws) in pilot.PILOTS.items()
         if label != "ic_gap"
     ]
@@ -563,11 +572,12 @@ class TestTheWitnesses:
         """Each slot mutation's exact limit on the ``outcome_correct`` fit, against its floor.
 
         Each component's largest witness meets the plan's floor: the level plan on the rule's
-        untargeted arm (-4.19 SEs), the held slot on the policy's untargeted arm (1.95), the
-        policy's prefix (1.14) and the policy mixture (3.50 on the contrast).
+        untargeted arm (-8.37 SEs at n = 8,000), the held slot on the policy's untargeted arm
+        (3.90), the policy's prefix (2.29 untargeted, 1.14 targeted) and the policy mixture (3.50
+        on the targeted contrast).  At n = 2,000 the untargeted gaps were half these.
         """
         for (mutation, arm, targeted), recorded in WITNESS_GAPS.items():
-            gap = _gap(mutated_fits[(mutation, targeted)], arm)
+            gap = _gap(mutated_fits[(mutation, targeted)], arm, _witness_n(targeted))
             assert gap == pytest.approx(recorded, abs=1e-3), (mutation, arm, targeted)
         for component, floor in COMPONENT_FLOORS.items():
             largest = max(
@@ -582,6 +592,8 @@ class TestTheWitnesses:
     def test_each_component_is_discriminated(self) -> None:
         """Each component's largest witness on a declared arm clears the bias margin at the
         arm's 1,200 replicates, with the two-check floor, at spreads of 1 and 1.5 SEs."""
+        assert properties.UNTARGETED_REPLICATES >= ARM_REPLICATES
+        assert min(map(properties.configuration_replicates, study.CONFIGURATIONS)) >= ARM_REPLICATES
         for component in COMPONENT_FLOORS:
             largest = max(
                 abs(gap)
@@ -661,6 +673,174 @@ class TestTheWitnesses:
         assert gap >= 3.0
 
 
+# ---------------------------------------------------------------------------- the pilot
+
+
+PILOT = pd.read_csv(pilot.OUTPUT) if pilot.OUTPUT.exists() else pd.DataFrame()
+
+
+def _pilot(label: str) -> pd.DataFrame:
+    return PILOT.loc[PILOT["label"] == label] if not PILOT.empty else PILOT
+
+
+CALIBRATION_PILOTED = not PILOT.empty and PILOT["label"].str.startswith("calibration_").any()
+#: The pilot label groups whose readings are read together.  A group with some labels committed
+#: and others not fails, naming the missing labels; a group with none committed skips.
+#: ``untargeted`` is the n = 8,000 label that plan X70 rev 3.8 added after the first eight.
+PILOT_GROUPS = {
+    "calibration": tuple(f"calibration_{fit}" for fit in study.FITS),
+    "wrong learner": tuple(pilot.WRONG_LEARNER_LABELS),
+    "untargeted": (pilot.UNTARGETED_LABEL,),
+}
+
+
+def _group(name: str) -> None:
+    """Fail when only some labels of a pilot group are committed; skip when none is."""
+    labels = PILOT_GROUPS[name]
+    missing = [label for label in labels if _pilot(label).empty]
+    if len(missing) == len(labels):
+        pytest.skip(f"the {name} pilot has not been committed")
+    if missing:
+        pytest.fail(
+            f"only part of the {name} pilot is committed; missing {missing}. Its readings are "
+            "read together, so commit the rest before reading any"
+        )
+
+
+def _kept(label: str) -> pd.DataFrame:
+    """One pilot label's rows without its held draws, which the declared run would lose.
+
+    No draw may be refused, every requested draw is kept or held, and the held draws stay
+    within :func:`held_allowance`.  The caller has checked the label's group.
+    """
+    rows = _pilot(label)
+    assert not rows.empty, label
+    assert rows["refusal"].fillna("").eq("").all(), label
+    draws = pilot.PILOTS[label][1]
+    assert rows["replicate"].nunique() == draws, label
+    held = rows.loc[rows["held"] == 1, "replicate"]
+    assert held.nunique() <= held_allowance(draws), (label, held.nunique())
+    return rows.loc[rows["held"] == 0]
+
+
+#: The pass probability each positive bias arm needs (design review d).
+POSITIVE_PASS = 0.99
+#: A wrong-learner reading that needs more replicates than this stops the declaration for a
+#: diagnosis (plan X70 rev 2.7).
+RULE_CAP = 4_000
+#: Every positive arm whose verdict reads a bias interval, with its replicates.
+POSITIVE_ARMS: dict[str, int] = {
+    cell.cell: cell.replicates
+    for cell in properties.declared_cells()
+    if cell.role == "positive"
+    and (
+        cell.property in ("double_robustness", "targeting_necessity")
+        or (cell.property == "root_n_and_efficiency" and cell.n != min(properties.RATE_SIZES))
+    )
+}
+
+
+def _tolerated_bias(replicates: int) -> float:
+    """The largest |standardized bias| at which a positive arm passes with ``POSITIVE_PASS``."""
+    z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+    return MARGINS.standardized_bias - (z + float(norm.ppf(POSITIVE_PASS))) / np.sqrt(replicates)
+
+
+def _pilot_rule(errors: np.ndarray) -> tuple[float, int]:
+    """The rule of plan X70 rev 2.7 on one arm's pilot errors: ``(reading, replicates)``.
+
+    The reading is the |standardized bias| plus one of its standard errors; the replicates are
+    the larger of :data:`~tests.studies.hazard_time_varying_multinode_properties.
+    DOUBLE_ROBUST_REPLICATES` and the smallest multiple of 400 that passes with
+    :data:`POSITIVE_PASS` at the reading.  A reading no count passes returns one step past
+    :data:`RULE_CAP`.
+    """
+    standardized = abs(errors.mean()) / errors.std(ddof=1) + 1.0 / np.sqrt(errors.size)
+    needed = int(properties.DOUBLE_ROBUST_REPLICATES)
+    while sizing.bias_equivalent_probability(MARGINS, standardized, needed) < POSITIVE_PASS:
+        needed += 400
+        if needed > RULE_CAP:
+            break
+    return float(standardized), needed
+
+
+def _wrong_learner_errors(
+    configuration: str, label: str, column: str = "wrong_targeted"
+) -> np.ndarray:
+    """One wrong-learner configuration's pilot errors on one cell label at n = 2,000."""
+    _group("wrong learner")
+    rows = _kept(properties.WRONG_LEARNER_ARMS[configuration])
+    values = rows.loc[rows["estimand"] == properties.ESTIMAND[label], column]
+    return values.to_numpy(dtype=float) - properties.TRUTHS[label]
+
+
+#: The pass probability the joint band's pilot reading needs at the declared count: plan X70
+#: section 5 states 0.95 for (b2), above (b1)'s 0.90.
+JOINT_PASS = 0.95
+
+
+def band_pass_probability(coverage: float, replicates: int, level: float = 0.99) -> float:
+    """The chance that the declared joint cell's exact interval lies inside the band.
+
+    At true joint coverage ``coverage`` the cell's covered count over ``replicates`` is
+    binomial, and the cell passes when the two-sided Clopper-Pearson interval at ``level`` lies
+    inside :attr:`Margins.calibration_coverage`, the rule
+    :func:`~tests.studies.evidence.property_verdicts.simultaneous_coverage_verdicts` reads.
+    """
+    from scipy.stats import beta as beta_law
+    from scipy.stats import binom
+
+    hits = np.arange(replicates + 1)
+    tail = (1.0 - level) / 2.0
+    with np.errstate(invalid="ignore"):
+        low = np.where(hits > 0, beta_law.ppf(tail, hits, replicates - hits + 1), 0.0)
+        high = np.where(
+            hits < replicates, beta_law.ppf(1.0 - tail, hits + 1, replicates - hits), 1.0
+        )
+    lower, upper = MARGINS.calibration_coverage
+    inside = (low >= lower) & (high <= upper)
+    return float(binom.pmf(hits[inside], replicates, coverage).sum())
+
+
+class TestTheWrongLearnerPilots:
+    @pytest.mark.parametrize("arm", list(PLUG_IN_GAPS), ids=lambda arm: "-".join(arm))
+    def test_the_pilot_plug_in_varies(self, arm: tuple[str, str]) -> None:
+        """Each wrong-learner label's plug-in varies and centres on its exact-sample limit."""
+        label, configuration = arm
+        values = _wrong_learner_errors(configuration, label, "wrong_plug_in")
+        assert np.var(values, ddof=1) > 0.0
+        offset = PLUG_IN_GAPS[arm] * _scale(label, pilot.PILOT_N)
+        error = np.std(values, ddof=1) / np.sqrt(values.size)
+        assert abs(values.mean() - offset) < 3.0 * error + 1e-3 * _scale(label, pilot.PILOT_N)
+
+    @pytest.mark.parametrize("label", list(pilot.WRONG_LEARNER_LABELS))
+    def test_the_wrong_learner_fits_converge(self, label: str) -> None:
+        """At most 1% of a wrong-learner label's kept draws fail to converge."""
+        _group("wrong learner")
+        rows = _kept(label).drop_duplicates("replicate")
+        share = float((rows["converged"] == 0).mean())
+        assert share <= properties.NONCONVERGED_SUSPECT_SHARE, (label, share)
+        assert rows["unexpected_warnings"].sum() == 0, label
+
+    def test_the_controls_are_discriminated_at_the_pilot(self) -> None:
+        """The both-wrong control and the untargeted necessity control, read at the pilot.
+
+        Each control's |standardized bias| minus one of its standard errors clears the margin
+        at its configuration's replicates with the two-check floor.
+        """
+        controls = {
+            "both_wrong": _wrong_learner_errors("both_wrong", CONTRAST),
+            "mechanism_correct": _wrong_learner_errors(
+                "mechanism_correct", CONTRAST, "wrong_plug_in"
+            ),
+        }
+        for configuration, errors in controls.items():
+            gap = abs(errors.mean()) / errors.std(ddof=1) - 1.0 / np.sqrt(errors.size)
+            replicates = properties.configuration_replicates(configuration)
+            probability = sizing.bias_discriminated_probability(MARGINS, gap, replicates)
+            assert probability >= sizing.discrimination_floor(2), (configuration, gap)
+
+
 # ---------------------------------------------------------------------------- sizes
 
 
@@ -695,6 +875,7 @@ class TestTheSizes:
             )
             assert probability >= sizing.discrimination_floor(2)
 
+    @pytest.mark.skipif(CALIBRATION_PILOTED, reason="the committed calibration pilot sizes R")
     def test_the_calibration_replicates_at_a_calibrated_pilot(self) -> None:
         """The provisional count: the arm-pooled rule at an 8,000-draw pilot reading a ratio of
         one on the six arms.  The committed pilot replaces it."""
@@ -726,6 +907,197 @@ class TestTheSizes:
             if cell.property in ("double_robustness", "targeting_necessity", "power"):
                 assert cell.replicates >= 1_000, cell.cell
         assert study.PRIMARY_REPLICATES >= 1_000
+
+    @staticmethod
+    def _calibration_rows(fit_label: str) -> pd.DataFrame:
+        """One calibration label's kept rows; fails while only some labels are committed."""
+        _group("calibration")
+        assert pilot.PILOTS[f"calibration_{fit_label}"][1] == sizing.CALIBRATION_PILOT_DRAWS
+        return _kept(f"calibration_{fit_label}")
+
+    def _calibration_ratios(self) -> dict[str, float]:
+        """Each calibration arm's pilot mean SE over the SD of its estimates."""
+        ratios = {}
+        for label in properties.CALIBRATION_LABELS:
+            rows = self._calibration_rows(properties.FIT_OF[label])
+            arm = rows.loc[rows["estimand"] == properties.ESTIMAND[label]]
+            assert len(arm) == rows["replicate"].nunique()
+            ratios[label] = float(arm["std_error"].mean() / arm["estimate"].std(ddof=1))
+        return ratios
+
+    def test_the_calibration_screen_reads_the_kurtosis(self) -> None:
+        """The defect screen, centred on each arm's expected SE ratio (plan X70 rev 3.8).
+
+        A heavy-tailed influence curve reads a mean SE below the estimates' SD by about
+        :math:`(\\kappa - 1) / (8 n)` (:func:`~tests.studies.
+        hazard_time_varying_multinode_properties.predicted_se_ratio`), 0.037 for the policy arms
+        at :math:`\\kappa = 599`.  Each arm's pilot ratio must lie within the screen's half-width
+        of its prediction, and the arms' mean departure from their predictions within the
+        off-mean bound, as the pooled rule asks of a departure from one.
+        """
+        ratios = self._calibration_ratios()
+        departures = {
+            label: ratio - properties.predicted_se_ratio(label, properties.CALIBRATION_N)
+            for label, ratio in ratios.items()
+        }
+        half = mtp_study_tools.screen_half_width(sizing.CALIBRATION_PILOT_DRAWS)
+        assert all(abs(value) <= half for value in departures.values()), departures
+        assert abs(np.mean(list(departures.values()))) < mtp_study_tools.OFF_MEAN, departures
+        assert properties.EIF_KURTOSIS["multinode_policy"] == pytest.approx(599.35, abs=0.01)
+
+    def test_the_calibration_replicates_follow_the_pilot(self) -> None:
+        """The per-arm rule at the pilot's own ratios (plan X70 rev 3.8): each arm is sized at
+        its reading, not pooled toward one."""
+        ratios = self._calibration_ratios()
+        reading = mtp_study_tools.per_arm_replicates(
+            list(ratios.values()), sizing.CALIBRATION_PILOT_DRAWS
+        )
+        assert reading["R"] == properties.CALIBRATION_REPLICATES
+        assert min(reading["per_cell"]) >= mtp_study_tools.CELL_TARGET
+        assert reading["family_wise"] >= mtp_study_tools.FAMILY_TARGET
+
+    @pytest.mark.parametrize(
+        "configuration",
+        [c for c in properties.WRONG_LEARNER_ARMS if c != "both_wrong"],
+    )
+    def test_the_wrong_learner_arms_are_sized_by_the_pilot_rule(self, configuration: str) -> None:
+        """Each configuration with a wrong learner takes the pre-committed size (plan X70 rev
+        2.7): the largest need among its targeted positive arms, by :func:`_pilot_rule` at its
+        800-draw pilot, with no cap; a need above 4,000 stops the declaration for a diagnosis.
+        The targeted necessity arm reads the ``mechanism_correct`` contrast fits."""
+        needs = {}
+        for label in properties.CONFIGURATION_ARMS[configuration]:
+            reading, needed = _pilot_rule(_wrong_learner_errors(configuration, label))
+            assert needed <= RULE_CAP, (label, reading, needed)
+            needs[label] = needed
+        assert properties.WRONG_LEARNER_REPLICATES[configuration] == max(needs.values()), needs
+        for label in properties.CONFIGURATION_ARMS[configuration]:
+            assert POSITIVE_ARMS[f"{label}__{configuration}"] == max(needs.values())
+        if configuration == properties.NECESSITY_CONFIGURATION:
+            assert POSITIVE_ARMS[f"{CONTRAST}__targeted"] == max(needs.values())
+
+    def test_the_control_configuration_keeps_the_floor(self) -> None:
+        assert properties.WRONG_LEARNER_REPLICATES["both_wrong"] == (
+            properties.DOUBLE_ROBUST_REPLICATES
+        )
+
+    def test_the_untargeted_arms_are_sized_by_their_pilot(self) -> None:
+        """The untargeted ``outcome_correct`` arms at n = 8,000, by :func:`_pilot_rule` at the
+        ``untargeted_outcome_correct_n8000`` pilot (plan X70 rev 3.8)."""
+        _group("untargeted")
+        rows = _kept(pilot.UNTARGETED_LABEL)
+        assert (rows["n"] == properties.UNTARGETED_N).all()
+        needs = {}
+        for label, configuration in properties.UNTARGETED_ARMS:
+            assert configuration == "outcome_correct"
+            arm = rows.loc[rows["estimand"] == properties.ESTIMAND[label]]
+            errors = arm["wrong_plug_in"].to_numpy(dtype=float) - properties.TRUTHS[label]
+            reading, needed = _pilot_rule(errors)
+            assert needed <= RULE_CAP, (label, reading, needed)
+            needs[label] = needed
+        assert max(needs.values()) == properties.UNTARGETED_REPLICATES, needs
+        for label, configuration in properties.UNTARGETED_ARMS:
+            cell = f"{label}__{configuration}{properties.UNTARGETED_SUFFIX}"
+            assert POSITIVE_ARMS[cell] == properties.UNTARGETED_REPLICATES
+
+    def test_the_positive_arms_follow_the_calibration_pilot(self) -> None:
+        """The ``both_correct`` arms and the claimed rungs pass at the calibration pilot's
+        reading of their cell label."""
+        rows = self._calibration_rows("multinode")
+        for cell_label, name in properties.COEFFICIENTS["multinode"]:
+            arm = rows.loc[rows["estimand"] == name]
+            error = (arm["estimate"] - arm["truth"]).to_numpy(dtype=float)
+            standardized = abs(error.mean()) / error.std(ddof=1) + 1.0 / np.sqrt(error.size)
+            for cell, replicates in POSITIVE_ARMS.items():
+                if cell.startswith(f"{cell_label}__") and cell.endswith(
+                    ("__both_correct", "__n_2000", "__n_8000")
+                ):
+                    probability = sizing.bias_equivalent_probability(
+                        MARGINS, standardized, replicates
+                    )
+                    assert probability >= POSITIVE_PASS, (cell, probability)
+
+    def test_the_band_pass_probability(self) -> None:
+        """The joint-band rule passes a calibrated band and stops at a band at its edge."""
+        replicates = properties.CALIBRATION_REPLICATES
+        assert band_pass_probability(0.95, replicates) > 0.999
+        assert band_pass_probability(0.915, replicates) < 0.01
+        assert band_pass_probability(0.92, replicates) < JOINT_PASS
+
+    @pytest.mark.parametrize("joint", study.JOINT_LABELS)
+    def test_the_joint_band_pilot_meets_the_band(self, joint: str) -> None:
+        """The declared joint cell passes with probability :data:`JOINT_PASS` at the pilot's
+        coverage +/- 1 SE.
+
+        The ``multinode`` calibration pilot fits with ``simultaneous=True``, as the declared
+        calibration fits do, so it reads the band the ``simultaneous_coverage`` cells gate, over
+        all 21 estimates.  The rule was fixed before the pilot was read.  A failure stops the
+        declaration for a diagnosis: the band is not widened, and the count is not raised after
+        the reading.
+        """
+        rows = self._calibration_rows(properties.JOINT_FIT[joint])
+        band = rows.loc[rows["estimand"] == "joint_band", "covered"].to_numpy(dtype=float)
+        pointwise = rows.loc[rows["estimand"] == "joint_pointwise", "covered"]
+        assert band.size == rows["replicate"].nunique() == pointwise.size
+        coverage = float(band.mean())
+        error = float(np.sqrt(coverage * (1.0 - coverage) / band.size))
+        replicates = properties.CALIBRATION_REPLICATES
+        passes = {
+            edge: band_pass_probability(edge, replicates)
+            for edge in (coverage - error, coverage + error)
+        }
+        if min(passes.values()) < JOINT_PASS:
+            pytest.fail(
+                f"{joint}: at the pilot's joint coverage {coverage:.4f} +/- {error:.4f} the "
+                f"declared cell at {replicates} replicates passes with probability "
+                f"{min(passes.values()):.3f}, below {JOINT_PASS}; the declaration stops for a "
+                "diagnosis, and the band is not widened"
+            )
+
+    def test_the_primary_replicates_follow_the_shared_rule(self) -> None:
+        """:func:`~tests.studies.repeated_sizing.primary_replicates` on the ``multinode``
+        calibration pilot."""
+        covered: dict[str, int] = {}
+        groups = []
+        for scenario in study.SCENARIOS:
+            rows = self._calibration_rows(scenario)
+            rows = rows.loc[~rows["estimand"].isin(pilot.JOINT_ROWS)]
+            assert int(rows["n"].iloc[0]) == study.PRIMARY_N
+            names = list(study.ESTIMANDS[scenario])
+            hits = rows.pivot(index="replicate", columns="estimand", values="covered")[names]
+            covered.update({f"{scenario}/{name}": int(hits[name].sum()) for name in names})
+            error = rows.assign(error=rows["estimate"] - rows["truth"]).pivot(
+                index="replicate", columns="estimand", values="error"
+            )[names]
+            standardized = error / error.std(ddof=1)
+            groups.append(
+                sizing.PilotGroup(
+                    standardized.mean().to_numpy(), standardized.cov().to_numpy() / len(hits)
+                )
+            )
+        share = sizing.PRIMARY_CLAUSE_SHARE
+        assert (
+            sizing.primary_replicates(
+                MARGINS,
+                covered,
+                sizing.CALIBRATION_PILOT_DRAWS,
+                implementations=1,
+                coverage_pass=share,
+                bias_groups=groups,
+                bias_pass=share,
+            )
+            == study.PRIMARY_REPLICATES
+        )
+
+    @pytest.mark.parametrize("label", [*pilot.PILOTS])
+    def test_every_pilot_label_converged(self, label: str) -> None:
+        """Every kept fit of a committed label converged with no unexpected warning."""
+        if _pilot(label).empty:
+            pytest.skip(f"{label} has not been committed")
+        rows = _pilot(label)
+        rows = rows.loc[rows["held"] == 0]
+        assert (rows["converged"] == 1).all(), label
+        assert rows["unexpected_warnings"].sum() == 0, label
 
 
 SMOKE = (
@@ -871,3 +1243,100 @@ class TestTheCells:
             for r in range(50)
         }
         assert not foreign & set(seeds)
+
+
+# ---------------------------------------------------------------------------- the IC gap
+
+
+def _ic_gaps(fit_label: str) -> dict[str, tuple[list[float], float]]:
+    rows = _pilot("ic_gap")
+    if rows.empty:
+        pytest.skip("the ic_gap pilot has not been committed")
+    assert rows["refusal"].fillna("").eq("").all()
+    assert (rows["held"] == 0).all(), "an ic_gap fit held a cell; rerun the label"
+    small_n, large_n = properties.IC_GAP_SIZES
+    rows = rows.loc[rows["fit_label"] == fit_label]
+    out: dict[str, tuple[list[float], float]] = {}
+    for label, _ in properties.COEFFICIENTS[fit_label]:
+        arm = rows.loc[rows["estimand"] == label]
+        small = arm.loc[arm["n"] == small_n, "estimate"].to_numpy(dtype=float)
+        large = arm.loc[arm["n"] == large_n, "estimate"].to_numpy(dtype=float)
+        assert small.size == properties.IC_GAP_DRAWS and large.size == 1, (fit_label, label)
+        out[label] = (list(small), float(large[0]))
+    return out
+
+
+class TestTheInfluenceCurveGap:
+    @pytest.mark.parametrize("fit_label", list(study.FITS))
+    def test_a_fit_meets_the_declared_bound(self, fit_label: str) -> None:
+        small_n, large_n = properties.IC_GAP_SIZES
+        for label, (small, large) in _ic_gaps(fit_label).items():
+            median = float(np.median(small))
+            assert median <= properties.IC_GAP_BOUND[small_n], (label, small)
+            assert large <= properties.IC_GAP_BOUND[large_n], (label, large)
+            assert large <= properties.IC_GAP_FALL * median, (label, median, large)
+
+    @pytest.mark.parametrize("fit_label", list(study.FITS))
+    def test_a_large_fit_reports_the_bound(self, fit_label: str) -> None:
+        """At n = 40,000 each fit's influence-curve SD over the bound lies within three of its
+        sampling SDs of one (plan X70 rev 3.8): ``large_fit_tolerance``, from the arm's exact
+        kurtosis, 0.18 for the policy arms and 0.09 to 0.12 for the rest."""
+        rows = _pilot("ic_gap")
+        if rows.empty:
+            pytest.skip("the ic_gap pilot has not been committed")
+        rows = rows.loc[(rows["fit_label"] == fit_label) & (rows["n"] == pilot.BOUND_N)]
+        assert len(rows) == len(properties.COEFFICIENTS[fit_label])
+        for label, ratio in zip(rows["estimand"], rows["estimate"], strict=True):
+            tolerance = properties.large_fit_tolerance(label, pilot.BOUND_N)
+            assert ratio == pytest.approx(1.0, abs=tolerance), (label, tolerance)
+
+
+# ---------------------------------------------------------------------------- the agreement
+
+
+def _paired_ratios(
+    rows: pd.DataFrame, fit_label: str, column: str = "iterated_estimate"
+) -> dict[str, float]:
+    ratios = {}
+    for label, name in properties.COEFFICIENTS[fit_label]:
+        arm = rows.loc[rows["estimand"] == name]
+        difference = arm["estimate"] - arm[column]
+        ratios[label] = float(difference.std(ddof=1)) / _scale(label, pilot.PILOT_N)
+    return ratios
+
+
+@pytest.mark.parametrize("fit_label", study.DIFFERENCE_FITS)
+def test_the_agreement_pilot_is_reported(fit_label: str) -> None:
+    """The ``iterated_mean_difference`` readings, reported with no floor."""
+    if _pilot(f"fits_differ_{fit_label}").empty:
+        pytest.skip("the pilot has not been committed")
+    rows = _kept(f"fits_differ_{fit_label}")
+    decreases = rows.loc[rows["estimand"] == "largest_decrease", "estimate"]
+    ratios = _paired_ratios(rows, fit_label)
+    ratios |= {
+        f"{label} (isotonic)": value
+        for label, value in _paired_ratios(rows, fit_label, "isotonic_estimate").items()
+    }
+    reading = properties.fits_differ_reading(ratios, int((decreases > 0.0).sum()), len(decreases))
+    assert all(np.isfinite(value) and value > 0.0 for value in reading["ratios"].values())
+    print(reading["text"])
+
+
+def test_a_partial_pilot_group_fails_and_names_the_missing_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A group with some labels committed fails, naming the rest; with none it skips."""
+    module = __import__(__name__, fromlist=["PILOT"])
+    partial = pd.DataFrame({"label": ["calibration_multinode", "wrong_learner_outcome_correct"]})
+    monkeypatch.setattr(module, "PILOT", partial)
+    for name, missing in (
+        ("calibration", "calibration_crossfit"),
+        ("wrong learner", "wrong_learner_mechanism_correct"),
+    ):
+        with pytest.raises(pytest.fail.Exception, match=missing):
+            _group(name)
+    with pytest.raises(pytest.skip.Exception):
+        _group("untargeted")
+    monkeypatch.setattr(module, "PILOT", pd.DataFrame({"label": ["ic_gap"]}))
+    with pytest.raises(pytest.skip.Exception):
+        _group("calibration")

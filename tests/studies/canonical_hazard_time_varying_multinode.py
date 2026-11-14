@@ -62,8 +62,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
-#: The shared primary rule (``repeated_sizing.primary_replicates``), provisional until the
-#: ``multinode`` calibration pilot is committed (the design test).
+#: The shared primary rule (``repeated_sizing.primary_replicates``) read from the committed
+#: ``multinode`` calibration pilot (the design test).
 PRIMARY_REPLICATES = 2_400
 PRIMARY_N = 2_000
 SEED = 20261902
@@ -224,8 +224,9 @@ DOUBLE_ROBUST_ARMS: tuple[tuple[str, str], ...] = (
 )
 
 #: ``(cell label, configuration)`` of the untargeted robustness arms (plan X70 rev 3.7): the
-#: backward plug-in of the ``outcome_correct`` draws, whose hazard and continuation are correct,
-#: so its limit is the truth.  At a static or rule node the walk fits the slot's hazard to the
+#: backward plug-in of ``outcome_correct`` draws, whose hazard and continuation are correct, so
+#: its limit is the truth.  They run on draws of their own at n = 8,000 (rev 3.8), where the
+#: plug-in's finite-sample bias at n = 2,000 is gone.  At a static or rule node the walk fits the slot's hazard to the
 #: followers' own events and repairs a slot defect under any mechanism; the untargeted plug-in
 #: keeps it, so these arms are where a defect of the rule's slots shows.
 UNTARGETED_ARMS: tuple[tuple[str, str], ...] = (

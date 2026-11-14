@@ -23,6 +23,9 @@ label                                  what it measures
                                        800 draws each (plan X70 rev 2.7): the untargeted backward
                                        plug-in and the targeted estimate of each draw.  Each
                                        sizes its configuration's robustness fits
+``untargeted_outcome_correct_n8000``   the untargeted backward plug-in of ``outcome_correct``
+                                       at n = 8,000, 800 draws (plan X70 rev 3.8): it sizes the
+                                       untargeted ``outcome_correct`` arms, which run at that n
 ``fits_differ_multinode``              the ``iterated_mean_difference`` family at n = 2,000, 200
                                        draws: the hazard fit, the iterated-mean fit and the
                                        isotonic iterated-mean fit
@@ -34,7 +37,9 @@ label                                  what it measures
 
 Order of the runner work: the calibration and wrong-learner pilots, one label per run and
 committed after each; then the row thread sets the replicate counts from them; then the
-declaration commit with no skipped design test; then the declared run.
+declaration commit with no skipped design test; then the declared run.  Rev 3.8 added
+``untargeted_outcome_correct_n8000`` after the first eight labels were committed: it runs alone,
+appending its rows, and the untargeted arms' count waits on it.
 
 Every hazard fit's row holds node 1's initial plug-in (``initial_estimate``) and the fit's
 accepted steps over every node walk (``walk_steps``), and every row records its key's fits:
@@ -61,6 +66,7 @@ PILOT_N = 2_000
 FITS_DIFFER_DRAWS = 200
 WRONG_LEARNER_DRAWS = 800
 CALIBRATION_DRAWS = 8_000
+UNTARGETED_DRAWS = 800
 BOUND_N = 40_000
 IC_GAP_JOBS: tuple[tuple[str, int, int], ...] = (
     *(
@@ -77,14 +83,26 @@ WRONG_LEARNER_LABELS: dict[str, str] = {
     label: configuration for configuration, label in properties.WRONG_LEARNER_ARMS.items()
 }
 JOINT_ROWS = ("joint_band", "joint_pointwise")
+#: The untargeted ``outcome_correct`` pilot at the arms' own n (plan X70 rev 3.8).
+UNTARGETED_LABEL = "untargeted_outcome_correct_n8000"
 
 #: ``label -> (fit label, draws)``; ``ic_gap`` runs :data:`IC_GAP_JOBS`.
 PILOTS: dict[str, tuple[str, int]] = {
     **{f"calibration_{fit}": (fit, CALIBRATION_DRAWS) for fit in study.FITS},
     **dict.fromkeys(WRONG_LEARNER_LABELS, ("multinode", WRONG_LEARNER_DRAWS)),
+    UNTARGETED_LABEL: ("multinode", UNTARGETED_DRAWS),
     **{f"fits_differ_{fit}": (fit, FITS_DIFFER_DRAWS) for fit in study.DIFFERENCE_FITS},
     "ic_gap": ("", len(IC_GAP_JOBS)),
 }
+#: The labels drawn at another n than :data:`PILOT_N`.
+PILOT_SIZES: dict[str, int] = {UNTARGETED_LABEL: properties.UNTARGETED_N}
+
+
+def pilot_n(label: str) -> int:
+    """The n a pilot label draws (``ic_gap`` draws per job, :data:`IC_GAP_JOBS`)."""
+    return PILOT_SIZES.get(label, PILOT_N)
+
+
 COLUMNS = (
     "label",
     "replicate",
@@ -114,7 +132,7 @@ COLUMNS = (
 
 def _row(label: str, replicate: int, **values: Any) -> dict[str, Any]:
     row: dict[str, Any] = dict.fromkeys(COLUMNS, np.nan)
-    row.update(label=label, replicate=replicate, n=PILOT_N, held=0, refusal="")
+    row.update(label=label, replicate=replicate, n=pilot_n(label), held=0, refusal="")
     row.update(values)
     return row
 
@@ -215,6 +233,32 @@ def _wrong_learner(
     return rows
 
 
+def _untargeted(
+    label: str, replicate: int, frame: pd.DataFrame, records: Any
+) -> list[dict[str, Any]]:
+    """Every estimate of the untargeted ``outcome_correct`` backward pass, against its truth."""
+    configuration = "outcome_correct"
+    plug_in = records.untargeted("multinode", frame, configuration=configuration)
+    rows = []
+    for name, reference in study.TRUTH["multinode"].items():
+        estimate = plug_in[name]
+        low, high = estimate.ci
+        rows.append(
+            _row(
+                label,
+                replicate,
+                fit_label="multinode",
+                estimand=name,
+                truth=reference,
+                estimate=float(estimate.psi),
+                std_error=float(estimate.std_error),
+                covered=int(low <= reference <= high),
+                wrong_plug_in=float(estimate.psi),
+            )
+        )
+    return rows
+
+
 def _ic_gap(replicate: int) -> list[dict[str, Any]]:
     """One fit of :data:`IC_GAP_JOBS`: each arm's influence-curve reading."""
     fit_label, n, draw = IC_GAP_JOBS[replicate]
@@ -252,13 +296,16 @@ def _one(job: tuple[str, int]) -> list[dict[str, Any]]:
         except Exception as error:  # a refusal is a pilot finding, recorded with its class
             return [_row(label, replicate, refusal=type(error).__name__)]
     fit_label, _ = PILOTS[label]
-    frame = properties.draw(fit_label, PILOT_N, stream_seed(study.STUDY, "pilot", label, replicate))
+    seed = stream_seed(study.STUDY, "pilot", label, replicate)
+    frame = properties.draw(fit_label, pilot_n(label), seed)
     records = properties.FitRecords()
     try:
         if label.startswith("fits_differ_"):
             rows = _fits_differ(label, replicate, frame, records)
         elif label in WRONG_LEARNER_LABELS:
             rows = _wrong_learner(label, replicate, frame, records)
+        elif label == UNTARGETED_LABEL:
+            rows = _untargeted(label, replicate, frame, records)
         else:
             rows = _calibration(label, replicate, frame, records)
     except study.HeldCellError:  # the declared run's lost replicate, recorded as one

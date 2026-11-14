@@ -19,10 +19,11 @@ family                          cells, replications and size
                                 fit label at n = 2,000
 ``double_robustness``           eleven targeted arms on the five configurations' fits
                                 (:data:`~tests.studies.canonical_hazard_time_varying_multinode.
-                                DOUBLE_ROBUST_ARMS`) and two untargeted ones, the rule's and
-                                the policy's backward plug-in on the ``outcome_correct`` draws
-                                (``UNTARGETED_ARMS``); each configuration runs the largest count
-                                among its arms, at least 1,200, at n = 2,000
+                                DOUBLE_ROBUST_ARMS`), each configuration running the
+                                largest count among its arms, at least 1,200, at n = 2,000;
+                                and two untargeted ones, the rule's and the policy's backward
+                                plug-in on ``outcome_correct`` draws of their own at
+                                n = 8,000 (``UNTARGETED_ARMS``, :data:`UNTARGETED_N`)
 ``targeting_necessity``         ``multinode_contrast``: the targeted contrast of the
                                 ``mechanism_correct`` fits, and the untargeted backward
                                 plug-in of the same draws
@@ -99,9 +100,8 @@ DOUBLE_ROBUST_N = 2_000
 DOUBLE_ROBUST_ARMS = study.DOUBLE_ROBUST_ARMS
 UNTARGETED_ARMS = study.UNTARGETED_ARMS
 UNTARGETED_SUFFIX = study.UNTARGETED_SUFFIX
-#: The configurations that fit a wrong learner, each with its pilot label; their counts come
-#: from the committed 800-draw pilots (the design test), provisionally the floor.  The four
-#: pilots of plan X70 section 5.
+#: The configurations that fit a wrong learner, each with its pilot label: the four pilots of
+#: plan X70 section 5.
 WRONG_LEARNER_ARMS: dict[str, str] = {
     configuration: f"wrong_learner_{configuration}"
     for configuration in (
@@ -111,15 +111,35 @@ WRONG_LEARNER_ARMS: dict[str, str] = {
         "both_wrong",
     )
 }
-WRONG_LEARNER_REPLICATES: dict[str, int] = dict.fromkeys(WRONG_LEARNER_ARMS, 1_200)
+#: Each wrong-learner configuration's replicates: the rule of plan X70 rev 2.7 at its committed
+#: 800-draw pilot (the design test), the largest need among the configuration's targeted
+#: positive arms and at least :data:`DOUBLE_ROBUST_REPLICATES`.  ``outcome_correct`` takes 2,800
+#: from its rule arm; ``both_wrong`` is the control and keeps the floor.
+WRONG_LEARNER_REPLICATES: dict[str, int] = {
+    "outcome_correct": 2_800,
+    "mechanism_correct": 1_200,
+    "continuation_wrong": 1_200,
+    "both_wrong": 1_200,
+}
+#: The untargeted ``outcome_correct`` arms (plan X70 rev 3.8) run on draws of their own at
+#: n = 8,000.  At n = 2,000 their plug-in carries a finite-sample bias of about 0.24 of its SD,
+#: from the continuation learner's pooled-mean fallback for history cells a regimen's followers
+#: rarely reach, which is gone by n = 8,000.  Their count is the rule of plan X70 rev 2.7 at the
+#: committed ``untargeted_outcome_correct_n8000`` pilot (the design test); provisional until it
+#: is committed.
+UNTARGETED_N = 8_000
+UNTARGETED_REPLICATES = 1_200
+UNTARGETED_STREAM = f"outcome_correct{UNTARGETED_SUFFIX}"
 NECESSITY_CONFIGURATION = "mechanism_correct"
 NECESSITY_N = DOUBLE_ROBUST_N
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
-#: The arm-pooled rule over the six calibration arms, provisional until the calibration pilots
-#: are committed (the design test).
-CALIBRATION_REPLICATES = 4_000
+#: The per-arm rule (``mtp_study_tools.per_arm_replicates``) at the committed calibration
+#: pilot's SE ratios (plan X70 rev 3.8, the design test).  The arms' heavy-tailed influence
+#: curves put their expected SE ratios below one (:func:`predicted_se_ratio`), so each arm is
+#: sized at its own reading rather than pooled toward one.
+CALIBRATION_REPLICATES = 15_600
 POWER_REPLICATES = CALIBRATION_REPLICATES
 POWER_N = CALIBRATION_N
 DIFFERENCE_REPLICATES = 800
@@ -171,6 +191,41 @@ def _exact() -> tuple[dict[str, float], dict[str, float]]:
 
 
 TRUTHS, EFFICIENCY_SD = _exact()
+
+
+def _kurtosis() -> dict[str, float]:
+    kurtosis: dict[str, float] = {}
+    for label in FIT_OF:
+        curve = target(label).curve(law.LAW)
+        second = float(np.sum(law.LAW.probs * curve**2))
+        kurtosis[label] = float(np.sum(law.LAW.probs * curve**4)) / second**2
+    return kurtosis
+
+
+#: The kurtosis :math:`\kappa = E[\phi^4] / E[\phi^2]^2` of each cell label's efficient
+#: influence function, exact over the law's support.
+EIF_KURTOSIS = _kurtosis()
+
+
+def predicted_se_ratio(label: str, n: int) -> float:
+    r"""The expected mean SE over the estimates' SD of one arm at ``n``, to first order.
+
+    The reported SE is :math:`\hat\sigma / \sqrt{n}` with :math:`\hat\sigma` the root mean
+    square of the influence curve, and :math:`E \hat\sigma \approx \sigma (1 - (\kappa - 1) /
+    (8 n))`: a heavy-tailed curve reads a mean SE below the bound while its variance estimate
+    stays unbiased (plan X70 rev 3.8).  The calibration screen and its off-mean test are centred
+    here rather than on one.
+    """
+    return 1.0 - (EIF_KURTOSIS[label] - 1.0) / (8.0 * n)
+
+
+def large_fit_tolerance(label: str, n: int) -> float:
+    r"""Three sampling SDs of one fit's influence-curve SD over the bound at ``n``.
+
+    The SD of :math:`\hat\sigma / \sigma` is about :math:`\sqrt{(\kappa - 1) / (4 n)}`
+    (plan X70 rev 3.8).
+    """
+    return 3.0 * float(np.sqrt((EIF_KURTOSIS[label] - 1.0) / (4.0 * n)))
 
 
 def iterated_fit(
@@ -265,6 +320,14 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
             "multinode",
         )
         for configuration in CONFIGURATIONS
+    ),
+    (
+        "double_robustness",
+        UNTARGETED_STREAM,
+        "outcome_correct",
+        UNTARGETED_N,
+        UNTARGETED_REPLICATES,
+        "multinode",
     ),
     *(
         ("root_n_and_efficiency", f"n_{size}", "both_correct", size, RATE_REPLICATES, "multinode")
@@ -372,9 +435,9 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "positive",
             multinode,
             ESTIMAND[label],
-            DOUBLE_ROBUST_N,
-            configuration_replicates(configuration),
-            configuration,
+            UNTARGETED_N,
+            UNTARGETED_REPLICATES,
+            UNTARGETED_STREAM,
         )
     for arm, role in (("targeted", "positive"), ("untargeted", "control")):
         add(
@@ -465,7 +528,7 @@ def _draw(key: _Key) -> pd.DataFrame:
 
 def cells_of(key: _Key) -> list[str]:
     """The ``family/cell`` names the fit set's rows and derived controls fill."""
-    family, _, configuration, _, n, _, label = key[0]
+    family, stream, configuration, _, n, _, label = key[0]
     if family == "interval_calibration":
         names: list[str] = []
         for cell_label, _ in COEFFICIENTS[label]:
@@ -479,13 +542,10 @@ def cells_of(key: _Key) -> list[str]:
         if label == "multinode":
             names.append(f"power/{CONTRAST}__alternative")
         return names
+    if family == "double_robustness" and stream == UNTARGETED_STREAM:
+        return [f"{family}/{cell}__{arm}{UNTARGETED_SUFFIX}" for cell, arm in UNTARGETED_ARMS]
     if family == "double_robustness":
         names = [f"{family}/{cell}__{configuration}" for cell in CONFIGURATION_ARMS[configuration]]
-        names += [
-            f"{family}/{cell}__{configuration}{UNTARGETED_SUFFIX}"
-            for cell, arm_configuration in UNTARGETED_ARMS
-            if arm_configuration == configuration
-        ]
         if configuration == NECESSITY_CONFIGURATION:
             names += [
                 f"targeting_necessity/{CONTRAST}__{arm}" for arm in ("targeted", "untargeted")
@@ -644,7 +704,7 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> list[dict[str, Any]]:
-    family, _, configuration, replicate, n, requested, label = payload
+    family, stream, configuration, replicate, n, requested, label = payload
     common_row = {"replicate": replicate, "n": n, "requested_replicates": requested}
     shared: dict[str, Any] = {"replicate": replicate, "n": n, "requested": requested}
 
@@ -694,6 +754,17 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
                 )
             )
         return rows
+    if family == "double_robustness" and stream == UNTARGETED_STREAM:
+        plug_in = records.untargeted(label, frame, configuration=configuration)
+        return [
+            row(
+                cell_label,
+                f"{cell_label}__{arm}{UNTARGETED_SUFFIX}",
+                "positive",
+                plug_in[ESTIMAND[cell_label]],
+            )
+            for cell_label, arm in UNTARGETED_ARMS
+        ]
     result = records.hazard(label, frame, configuration=configuration)
     if family == "root_n_and_efficiency":
         role = "control" if n == min(RATE_SIZES) else "positive"
@@ -708,18 +779,6 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
         row(cell_label, f"{cell_label}__{configuration}", role, result[ESTIMAND[cell_label]])
         for cell_label in CONFIGURATION_ARMS[configuration]
     ]
-    untargeted = [cell for cell, arm in UNTARGETED_ARMS if arm == configuration]
-    if untargeted:
-        plug_in = records.untargeted(label, frame, configuration=configuration)
-        rows += [
-            row(
-                cell_label,
-                f"{cell_label}__{configuration}{UNTARGETED_SUFFIX}",
-                "positive",
-                plug_in[ESTIMAND[cell_label]],
-            )
-            for cell_label in untargeted
-        ]
     if configuration == NECESSITY_CONFIGURATION:
         estimate = result[ESTIMAND[CONTRAST]]
         plug_in = records.untargeted(label, frame, configuration=configuration)
