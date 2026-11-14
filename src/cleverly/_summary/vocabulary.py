@@ -4764,7 +4764,7 @@ BALANCE_TIME_COLUMNS: Final[tuple[str, ...]] = (
 BALANCE_TIME_DIAGNOSTIC_TITLES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "confounding": "Confounding: covariates up to each treatment, across it",
-        "feedback": "Feedback: covariates after each treatment, across it",
+        "feedback": "Feedback (weights do not remove it): later covariates across each treatment",
         "censoring": "Censoring: covariates across leaving the study and staying",
         "joint": "Joint: covariates across the arms among units whose status is known",
     }
@@ -4789,8 +4789,10 @@ BALANCE_TIME_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "balance_time_descriptive": (
             "These differences describe the data and the fitted weights and carry no interval "
             "or test. Each is the mean in the first group minus the mean in the second, within "
-            "the units that share the same earlier treatments, divided by the pooled standard "
-            "deviation of the two groups there before weighting."
+            "the units that share the same earlier treatments, divided by a spread read there "
+            "before weighting: the square root of the mean of the two groups' variances, or, "
+            "for units whose status is known against their whole arm, the arm's standard "
+            "deviation."
         ),
         "balance_time_averaged": (
             "Each row is averaged over the strata of earlier treatments, each stratum counting "

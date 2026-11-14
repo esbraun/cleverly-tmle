@@ -62,16 +62,20 @@ def balance_time_summary(balance: BalanceOverTime, detail: str) -> Summary:
     """
     threshold = balance.threshold
     header = [
-        (vocabulary.BALANCE_TIME_TREATMENTS, ", ".join(balance.treatments)),
+        # The treatments come last, so they end a line, because a reader
+        # takes a capital letter followed by a colon later in the line as the next label.
         (vocabulary.BALANCE_TIME_DIAGNOSTICS, ", ".join(balance.diagnostics)),
         (vocabulary.BALANCE_HELD_AGAINST, f"{threshold:g}"),
         (vocabulary.ROWS, count_text(balance.n)),
+        (vocabulary.BALANCE_TIME_TREATMENTS, ", ".join(balance.treatments)),
     ]
     tables = []
     every: list[dict[str, Any]] = []
     for diagnostic in balance.diagnostics:
         groups = summary_rows(balance, diagnostic)
-        every.extend(groups)
+        if diagnostic != "feedback":
+            # Weighting is not meant to remove feedback, so the reading counts the others.
+            every.extend(groups)
         many = len({group["contrast"] for group in groups}) > len(
             {group["exposure"] for group in groups}
         )

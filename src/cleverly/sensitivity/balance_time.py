@@ -389,6 +389,21 @@ class BalanceOverTime:
 
         return balance(self, **kwargs)
 
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
+
+    def __repr__(self) -> str:
+        from .._summary import short_repr
+
+        return short_repr(
+            "BalanceOverTime",
+            (
+                ("treatments", len(self.treatments)),
+                ("diagnostics", len(self.diagnostics)),
+                ("rows", len(self.rows)),
+            ),
+        )
+
     def _check_diagnostic(self, diagnostic: str) -> None:
         if diagnostic not in DIAGNOSTICS:
             raise ValueError(f"diagnostic must be one of {DIAGNOSTICS}; got {diagnostic!r}")
