@@ -102,6 +102,13 @@ trial = CausalStudy(
   select.
 - A fit refuses a bound pair that would move a declared value, before any learner. Pass
   `g_bounds=` wide enough to hold every declared probability.
+- For the effect on the treated (ATT) or on the controls (ATC), pass
+  `conditional_form="known_score"` to `TMLE` or `Targeting`. It averages the effect over every
+  unit, weighted by its declared chance of being in the treated (or control) arm, instead of over
+  the units that landed there. With an outcome learner close to the truth, its interval is
+  no wider than the default, and narrower when the effect varies with the covariates. It answers the
+  question for the treated population; for the treated units actually in this sample, keep the
+  default.
 
 [Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
 gives the forms, the curves and the refusals. `LongitudinalTreatment` takes the same declaration
