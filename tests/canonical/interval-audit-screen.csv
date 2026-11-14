@@ -63,6 +63,7 @@ fold-targeted-cvtmle,neutral,9,9,0.0275,,crossfit_overfitting/fold_targeted_cvtm
 full-refit-bootstrap-and-derived-contrasts,neutral,6,6,0.01625,,,0,
 hazard-msm,neutral,5,4,0.00125,,,1,
 hazard-mtp,neutral,39,36,0.002917,,,2,
+hazard-multinode,neutral,38,37,0.010833,,,2,
 hazard-time-varying,neutral,42,42,0.012917,,,2,
 incremental-interventions,neutral,14,10,0.00625,,,0,
 isotonic-binding,neutral,4,4,0.348889,,,0,
