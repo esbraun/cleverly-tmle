@@ -6638,6 +6638,11 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 #: estimate cannot license a configuration, so it is not the evidence of a row. A study of an
 #: engine that no support key reads is the other case: its reason names what a row would need.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "boundary-node-ltmle": (
+        "It measures the boundary-node supplement of LTMLE under the reporting policy, with "
+        "two primary SE-ratio legs red by design under the owner X54-supplement-width. No "
+        "support row was declared before the run, so the study licenses none and moves no label."
+    ),
     "band-t-reference-held-out": (
         "It holds out one t band cell, the strata law at n = 1,000, to test the rule out of "
         "sample. The cell licenses no row: band-t-reference licenses the t band, and this study "
