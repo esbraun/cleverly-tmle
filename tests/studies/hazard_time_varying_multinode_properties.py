@@ -126,8 +126,8 @@ WRONG_LEARNER_REPLICATES: dict[str, int] = {
 #: n = 8,000.  At n = 2,000 their plug-in carries a finite-sample bias of about 0.24 of its SD,
 #: from the continuation learner's pooled-mean fallback for history cells a regimen's followers
 #: rarely reach, which is gone by n = 8,000.  Their count is the rule of plan X70 rev 2.7 at the
-#: committed ``untargeted_outcome_correct_n8000`` pilot (the design test); provisional until it
-#: is committed.
+#: committed ``untargeted_outcome_correct_n8000`` pilot (the design test): the rule and policy
+#: contrasts read 0.073 and 0.077, so the floor of 1,200.
 UNTARGETED_N = 8_000
 UNTARGETED_REPLICATES = 1_200
 UNTARGETED_STREAM = f"outcome_correct{UNTARGETED_SUFFIX}"

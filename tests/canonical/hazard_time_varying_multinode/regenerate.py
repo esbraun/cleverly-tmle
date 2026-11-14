@@ -18,6 +18,14 @@ which the design test skips nothing; then the declared run.  The record is regis
 support rows ``G63.multinode.in_sample`` and ``G63.multinode.cross_fitted``, only after the run
 passes.
 
+Cost, from the committed pilot's core-seconds a draw (its wall times on 4 cores): about 61,000
+core-seconds, or 17 core-hours, 25 with a 1.5x margin.  Calibration takes 15,600 draws on each fit
+label (1.15 and 1.53 core-seconds), about 11.6 core-hours; the primary rows 2,400 (1.15); the
+robustness fits 1,200 per configuration and 2,800 for ``outcome_correct`` (1.15 to 2.42), with
+1,200 untargeted fits at n = 8,000 (0.41), about 3.2; the ladder 800 at each rung, about 1.1; and
+``iterated_mean_difference`` 800 (1.54), about 0.3.  On 16 cores the run takes about 1.1 hours.
+The run checkpoints each fit set and resumes from them (:mod:`tests.canonical.declared_run`).
+
 Red-cell readings (declared before any run).  The record is ``gated``, so any red verdict fails
 the run.  A red that the diagnosis finds is not a defect follows the route of
 ``docs/development/method-benchmarking.md``, except as the calibration bullet below narrows it
