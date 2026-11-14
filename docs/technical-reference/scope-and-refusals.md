@@ -53,8 +53,10 @@ another, and [known stochastic policies](longitudinal-tmle.md#known-stochastic-p
 why. Those are statements about the sample.
 
 A horizon at which no follower of a regimen had the event is not refused. Its regression is
-zero, the maximum-likelihood hazard, and
-[a node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the rule.
+zero, the maximum-likelihood hazard. An `LTMLE` fit inside the reach of the node-variance
+supplement adds the node's bounded variance; any other fit withholds the interval under
+`constant_node_plugin` and its warning names what it lacks.
+[A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the rule.
 
 Cross-fitting narrows what the sample supports. Each outer fold fits its regressions and its
 mechanism on its training rows alone, so every fold must carry the followers and treatment levels

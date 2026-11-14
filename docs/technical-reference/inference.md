@@ -100,8 +100,8 @@ times the cell means on the link scale. A coefficient then also reads each cell 
 inverse weights, so `msm[a:V]` with a binary `V` reads the treated cell at `V = 1`, as `ate[V=1]`
 does. A model with more cells than terms pools them, as a continuous modifier does, and its
 coefficients take the check on the whole rows alone; F41 records that limit. Policies of a
-continuous treatment have no arm cells, and a longitudinal fit has its own constant-outcome status,
-`"constant_node_plugin"`.
+continuous treatment have no arm cells, and a longitudinal fit outside the reach of the
+node-variance supplement has its own constant-outcome status, `"constant_node_plugin"`.
 
 Under either status `plugin_std_error` still returns the plug-in number, while `plugin_interval`
 is `(nan, nan)` and the plug-in p-value is `nan`: a constant cell's plug-in standard error is near
@@ -258,7 +258,7 @@ statuses. A longitudinal fit outside the reach of the boundary-node supplement s
 a fitted quantity. `CTMLE` stamps `"stack_failure_plugin"` on each
 estimate that reads a failed arm stack. The builder of a bounded mean stamps
 `"constant_arm_cell_plugin"` or `"out_of_range_plugin"` ([Small-sample scale](#small-sample-scale)).
-The other estimates keep the fit status. So read each
+The other estimates keep the fit status, so read each
 estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
 `inference_status` stays the fit status unless every estimate carries the parameter status.
 
@@ -344,6 +344,7 @@ A selection that mixes statuses either takes the parameter status or raises `Val
 | function | selection | result |
 | --- | --- | --- |
 | `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes the status `precedent_status` picks. `"constant_node_plugin"` withholds its interval, so it wins over any fit status, and the derived estimate reports no interval |
+| the same functions | inputs that carry the node-variance supplement ([a node with no event](longitudinal-tmle.md#a-node-with-no-event)) | the derived estimate adds the supplement at its own gradient over the fit's shared loadings. Inputs whose loadings come from different fits raise `CapabilityError` |
 | the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
 | a longitudinal fit with `repeats` above 1, and its `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and band | one name with different statuses in different draws | each draw's estimate first takes the precedent status of the name's draws (`with_precedent_status`), so `median_estimates` sees one status. A `constant_node_plugin` in one draw withholds the interval of the report |

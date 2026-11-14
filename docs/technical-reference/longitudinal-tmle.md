@@ -1044,32 +1044,61 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 
 | case | result |
 | --- | --- |
-| no follower had the event at every node through the horizon | risk zero and a zero influence curve. The parameter takes the `constant_node_plugin` status, so it reports no interval or p-value |
-| a node of the recursion read a constant, at a horizon with events at other nodes | the point estimate stands. The node's term of the influence curve is zero, so the parameter takes the `constant_node_plugin` status too |
+| no follower had the event at every node through the horizon | risk zero, on the bound of the parameter's range, so the parameter takes `out_of_range_plugin` and reports no interval or p-value. A contrast against it takes that status too |
+| a node of the recursion read a constant, at a horizon with events at other nodes, inside the supplement's reach | the point estimate stands, and the variance adds the node-variance supplement below |
+| the same, outside the reach | the point estimate stands. The node's term of the influence curve is zero, so the parameter takes the `constant_node_plugin` status |
 | the followers of one outer training fold all hold 0, or all hold 1 | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
 | `msm=` with a cell whose followers all hold 0, or all hold 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
 | a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
-A node's term of the influence curve is identically zero when the node reads a constant. The
-true outcome variance there can still be positive, so the plug-in standard error leaves that node's variance
-out. A risk of zero would report a standard error of zero, and a contrast against it would carry
-the other arm's variance only. Each parameter whose recursion reads such a node therefore takes
-the `constant_node_plugin` status
-([inference status](inference.md#inference-status)). The other parameters of the fit keep
-theirs.
+A node's term of the influence curve, $C_{t,i}(Z_{t,i} - \bar Q^*_{t,i})$, is identically zero
+when the node reads a constant. The true residual variance there can still be positive, so the
+plug-in standard error leaves that node's variance out.
+
+**The node-variance supplement.** With no event among the $m$ independent units of the node's
+fitted rows (rows, or clusters on a fit with `id=`), the exact one-sided $1 - \alpha/2$ upper
+limit of a binomial proportion with zero events is $\hat h_U = 1 - (\alpha/2)^{1/m}$, and a
+row's residual variance is at most $s^2 = \hat h_U(1 - \hat h_U)$. A cluster holds no event with
+probability at most $1 - h$ whatever the dependence inside it, so the clustered limit needs no
+dependence model. All ones is the mirror image. Each unit $u$ then carries the loading
+$\ell_u = s \sum_{i \in u} k\,|C_{t,i}|$, with $k$ the residuals the node dropped (the causes held
+at zero, plus one for a cell held at one), and an estimate with gradient $\lambda$ over the levels
+adds
+
+$$\hat\sigma^2_{node} = n^{-2} \sum_u \Big(\sum_t \sum_r |\lambda_r|\,\ell_{r,t,u}\Big)^2$$
+
+when clustered, and $n^{-2}\sum_u \sum_t (\sum_r |\lambda_r| \ell_{r,t,u})^2$ on independent rows,
+whose residuals at different nodes are uncorrelated martingale increments. On the hazard path
+$C$ is the clever weight at the node, which bounds the coefficient of every residual of the cell.
+The reported variance is $\hat\sigma^2_{IC} + \hat\sigma^2_{node}$, on the interval scale and
+reference the estimate already uses, and `variance_source` reads `"boundary_node"`
+(`cleverly.inference.node_variance`; the witnesses are in
+`tests/unit/test_boundary_node_variance.py`).
+
+What it claims: at a law whose node hazards lie in $(0, 1)$ and whose node risk sets grow with
+$n$, a flagged node has probability at most $(1 - h_{min})^{cn}$, and the supplemented interval
+differs from the ordinary one only on that event. At a true hazard of exactly 0 the node term is
+zero and the supplement only widens a correct interval. In finite samples at a law where the
+event is common, nothing here guarantees coverage. The study `boundary-node-ltmle` is declared to
+measure it and has not run, so a supplemented estimate carries the support label its fit already
+has.
+
+The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
+one fold draw, the default variance, and no isotonic projection, fold average, learned rule or
+separable intervention. Every other fit keeps `constant_node_plugin`, and its warning names what
+is missing (`BOUNDARY_NODE_OUT_OF_REACH` in `cleverly._inference_status`).
 
 | output | what it shows |
 | --- | --- |
-| the fit | one `DataWarning` with the count of such parameters, the first 10 names, and the reason. `constant_node_parameters(result)` lists them all |
-| `summary()` | the estimate with its name starred, `-` for the standard error, the interval and the p-value, and a `no_inference` note that gives the reason and the plug-in spread |
-| `curve()` and `to_frame()` | the status in the `inference` column, NaN in the inferential spread columns, and the plug-in spread in the `plugin_` columns |
-| `incidence_total()` | each total takes the status of the incidences it sums, with the same columns as `curve()` |
-| a contrast, `rmst()` and `rmtl()` | the status, when they read such a parameter |
-| the simultaneous band | the other parameters only. A `CausalStudy` band narrowed to `RegimeMean` or `RegimeContrast` leaves them out too |
-| `assess()` | the nuisance item adds the status note, with the count of such parameters |
+| the fit | one `DataWarning` per kind: the supplemented parameters, and the `constant_node_plugin` ones with the reason. `boundary_node_parameters(result)` and `constant_node_parameters(result)` list them |
+| `to_frame()` | `variance_source`, `influence_curve_std_err` and `boundary_node_std_err` beside the reported standard error |
+| a contrast, a ratio, `rmst()` and `rmtl()` | the supplement at their own gradient, through the same loadings |
+| `covariance()` | `CapabilityError`: the supplement bounds each functional's variance and is not a quadratic form |
+| the simultaneous band | the other parameters only. The multiplier process does not carry the node term, and the summary and the curve plot name the parameters it leaves out |
+| a `constant_node_plugin` parameter | as an estimate with no interval: `-` in `summary()`, NaN in the inferential columns of `curve()` and `to_frame()`, the plug-in spread in the `plugin_` columns, and out of the band |
 
-[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) holds an interval at such a node at a fixed law, and
-[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) keeps the rare-event regime.
+[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) keeps the kinds outside the reach
+and the rare-event regime.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
 regimen, the cause and the horizon. A cross-fitted training fold that reads a constant while the
 sample does not adds `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`, which names the folds, and the node's
@@ -1299,10 +1328,13 @@ then need that hazard below the floor, so the one-step walk cannot solve them.
 The mutation `test_m_a_clipped_cell_stalls_the_walk` removes the hold and sees the walk fail to converge.
 The full-cell module has a mutation of the same name, and it clips the full cell instead.
 
-Each parameter whose regimen reads a flagged cell at a node up to its horizon takes the
-`constant_node_plugin` status. A regimen reads a level when it puts mass on that level for some
-unit. `RegimenFit.hazard_constant_nodes` lists the flagged nodes, and `constant_nodes(fit)` reports
-them. The status then works as [a node with no event](#a-node-with-no-event) states.
+Each parameter whose regimen reads a flagged cell at a node up to its horizon adds the
+node-variance supplement, or outside its reach takes the `constant_node_plugin` status, as
+[a node with no event](#a-node-with-no-event) states. A regimen reads a level when it puts mass on
+that level for some unit, and on a policy of a continuous dose the cell is the key of each unit's
+observed slot. `RegimenFit.hazard_constant_nodes` lists the flagged nodes, `constant_nodes(fit)`
+reports them, and `RegimenFit.hazard_boundary` holds each flagged cell's rows and dropped
+residuals.
 
 The empty-cell witness is
 `make_point_survival(n=400, seed=36, layout="wide", hazard_scale={3: 0.05})`. Arm 1 has followers at
@@ -1451,7 +1483,7 @@ pool-adjacent-violators algorithm (PAVA).
 | curve band limits | the fit builds the band at the unprojected levels. It then projects each curve's lower limits and upper limits by the same PAVA (Westling et al. 2020, Theorem 1 (iv) and (v)) |
 | contrasts | each contrast is the difference or ratio of projected levels. Its band is kept as built |
 | what does not move | every influence curve, every standard error, and the critical value |
-| a parameter with no interval | a `constant_node_plugin` parameter is left out of the band, and so out of the band projection |
+| a parameter with no interval or a supplemented variance | a `constant_node_plugin` parameter, and one that adds the node-variance supplement, is left out of the band, and so out of the band projection |
 | record | `result.isotonic_moves` lists `(regimen, cause, horizon, before, after)` for each moved level. `summary()` prints an `isotonic_moves` note that names each moved level, in any split |
 | identity | a one-step hazard fit, a fit with one reported horizon, and a curve that does not decrease |
 | refused | an end-of-study outcome (H3), `msm=` (H5), and a point-treatment functional (H10) |

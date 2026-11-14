@@ -252,7 +252,7 @@ A parameter status sits beside the fit status. `PARAMETER_STATUSES` in
 holds `constant_node_plugin`, `constant_arm_cell_plugin` and `out_of_range_plugin`. The last two
 are set by `bounded_status` in `cleverly.inference.influence` and described after the table.
 `_estimates` stamps `constant_node_plugin` through `_parameter_status`, in the fit
-and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
+and in `_refit_bound` alike, on a fit outside the reach of the node-variance supplement. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
 the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
 when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
 status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
@@ -286,7 +286,7 @@ inherit them through `inference_status`.
 | `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
 | a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of each draw, so the replay of each draw at the fitted bound equals that draw in every field that `_fitted_replay_matches` compares |
-| a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
+| a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty and the fit's `boundary_reach` names a kind outside the supplement's reach. Inside the reach the estimate keeps the fit status and carries `node` (`boundary_loadings`). `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
 | a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
 | a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Two status rules: a member under `constant_arm_cell_plugin` refuses the whole band (`constant_arm_members`, an `inference_gap` refusal of `simultaneous_bands()`; the fit skips its default band and `summary()` names the reason), and a member under `out_of_range_plugin` stays in the family at its plug-in standard error and keeps the band it had before the status, as `band_member` decides: the logit band refuses it and the identity band covers it. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
@@ -334,9 +334,10 @@ publishes a spread must take its names from `spread_columns()` or `spread_name`,
 it from `STATUS_RECORDS`. The estimator that stamps a parameter status names it through
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
-supplies the selector paths' influence curve, when a second parameter status is added, or when
-[X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) supplies an interval at a boundary
-node, which would remove the one status that reads a fitted quantity.
+supplies the selector paths' influence curve, or when a second parameter status is added. Inside the reach of the
+node-variance supplement (X54 part (i)) a boundary node no longer stamps a status: the estimate
+carries `node` and adds the supplement. `constant_node_plugin` stays for the kinds
+`BOUNDARY_NODE_OUT_OF_REACH` lists.
 
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
