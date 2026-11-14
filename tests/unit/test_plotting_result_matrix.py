@@ -313,6 +313,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "hazard_mtp": sweep.fit_hazard_mtp,
     # X70 (b1): the hazard path on a held design with covariates after baseline.
     "hazard_time_varying": sweep.fit_hazard_time_varying,
+    # X70 (a): the hazard path with a treatment at several nodes and baseline covariates.
+    "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
 }
@@ -494,11 +496,23 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_multinode": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },

@@ -54,6 +54,7 @@ from cleverly.datasets import (
     make_instrument,
     make_linear_ate,
     make_longitudinal,
+    make_longitudinal_survival,
     make_missing_outcome,
     make_missing_outcome_binary,
     make_multi_arm,
@@ -993,6 +994,30 @@ def fit_hazard_time_varying() -> Any:
     )
 
 
+def fit_hazard_multinode() -> Any:
+    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a))."""
+    frame, _ = make_longitudinal_survival(n=600, seed=12)
+    study = CausalStudy(
+        frame.drop(columns=["L2"]),
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="iterative",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_isotonic() -> Any:
     """The iterated-mean fit with its curve projected."""
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
@@ -1264,6 +1289,9 @@ KINDS: dict[str, Kind] = {
     # The regressions of the future read targeted later hazards, which no truncation replay
     # rebuilds (H31), so the truncation row reads unavailable.
     "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
+    # A treatment at several nodes with baseline covariates walks every regimen path, and its
+    # truncation replay rebuilds the walk, so every point row runs.
+    "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
