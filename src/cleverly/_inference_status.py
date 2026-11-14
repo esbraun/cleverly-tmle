@@ -627,9 +627,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "fit and a learned rule choose the node's coefficient along the fit, which no "
                 "bound here covers; a hazard fit with covariates measured after baseline adds "
                 "the residual of a regression of the future at each node; and a continuous "
-                "outcome's node has no binomial bound. The fit's warning names which. A contrast or a restricted mean that reads such a "
-                "parameter takes this status too, and the simultaneous band leaves it out. The "
-                "plug-in standard error remains as a diagnostic under plugin_std_error and "
+                "outcome's node has no binomial bound. The fit's warning names which. A "
+                "contrast or a restricted mean that reads such a parameter takes this status "
+                "too, and the simultaneous band leaves it out. The plug-in standard error"
+                " remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. F31 in docs/roadmap.md holds these kinds and the rare-event "
                 "regime in which the node hazard shrinks with n."
             ),
