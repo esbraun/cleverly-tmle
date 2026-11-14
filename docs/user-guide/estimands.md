@@ -438,7 +438,9 @@ refuse, because a learned rule has no generated truth yet.
 
 The omitted-variable bound runs for this target. It gives a point bound under cross-fitting, and
 in sample it also gives its one-sided limits. `benchmark()`, the E-value and the missingness tilt
-read `unavailable`. The support report and `truncation_curve` run.
+read `unavailable`. The support report and `truncation_curve` run. With an intermediate held at
+a value, the `placebo` test, `simulated_confounding` and the omitted-variable bound refuse, because
+each would need its own check at that value.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.

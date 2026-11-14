@@ -284,7 +284,7 @@ class TestEachRowRefusesBeforeAnyLearner:
         assert result.extra["learned_rule"].scheme == "in_sample"
 
     def test_strata_with_clusters_refuse_in_sample(self) -> None:
-        """Row 8 holds for the in-sample fit too."""
+        """Row 7 holds for the in-sample fit too."""
         _refused(
             lambda: _fit(_engine(cross_fit=False, cv_evaluation=False), "strata_clusters"), "X28"
         )

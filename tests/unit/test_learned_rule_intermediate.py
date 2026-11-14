@@ -741,6 +741,28 @@ class TestTheMethodLayerSpelling:
             method.nuisance.regimes.fold_rules, engine.nuisance.regimes.fold_rules
         )
 
+    def test_the_support_key_equals_the_engine_key(self) -> None:
+        from cleverly import _support
+
+        engine = fit_cde()[0.0]
+        method = self._estimate(0.0)
+        keys = [
+            _support.point_key(result.estimator, result.data, (NAME,))[0]
+            for result in (engine, method)
+        ]
+        assert keys[0] == keys[1]
+        assert method.estimates[NAME].support.label == engine.estimates[NAME].support.label
+
+    def test_the_variants_cite_the_learned_rule_item_at_a_level(self) -> None:
+        """A learned rule at a level hears its own F27 reason, not the CDE's F5 reason."""
+        effect = self._study().identify(LearnedRuleValue(intermediate=0.0))
+        rows = {item.name: item for item in effect.available_methods()}
+        assert rows["tmle"].available
+        for name in ("collaborative_tmle", "drtmle"):
+            assert not rows[name].available
+            assert "F27" in (rows[name].reason or "")
+            assert "F5" not in (rows[name].reason or "")
+
     def test_the_two_levels_differ(self) -> None:
         """The nonzero witness: a spelling that ignored the level would report one number."""
         assert abs(self._estimate(0.0)[NAME].psi - self._estimate(1.0)[NAME].psi) > 1e-2
