@@ -26,11 +26,11 @@ registration.
 Run a disposable smoke of the primary phase:
 
 ```bash
-python tests/canonical/known_score_att/regenerate.py --replicates 2 --output /tmp/known-score-att-smoke
+python -m tests.canonical.known_score_att.regenerate --replicates 2 --output /tmp/known-score-att-smoke
 ```
 
 Run the declared study:
 
 ```bash
-python tests/canonical/known_score_att/regenerate.py --output <empty scratch directory> --jobs "$(nproc --all)"
+python -m tests.canonical.known_score_att.regenerate --output <empty scratch directory> --jobs "$(nproc --all)"
 ```
