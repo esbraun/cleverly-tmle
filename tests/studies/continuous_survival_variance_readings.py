@@ -365,10 +365,10 @@ def floors(candidates: pd.DataFrame) -> pd.DataFrame:
     frame = candidates.loc[candidates["candidate"] == default].copy()
     early = frame["first_quartile"].astype(bool)
     frame["rule"] = np.where(early, "calibration", "primary")
-    frame["passed"] = np.where(early, calibration_pass(frame), primary_pass(frame))
+    frame["rule_passed"] = np.where(early, calibration_pass(frame), primary_pass(frame))
     frame["default"] = default
     return frame.loc[
-        :, ["scenario", "estimand", "rule", "median_rel_sd", "passed", "default"]
+        :, ["scenario", "estimand", "rule", "median_rel_sd", "rule_passed", "default"]
     ].reset_index(drop=True)
 
 
@@ -376,18 +376,18 @@ def floor_values(table: pd.DataFrame) -> Mapping[str, Any]:
     """The three floors from ``floors.csv``: ``r_prim``, the share floor, ``r_cal``, ``n``."""
     primary = table.loc[table["rule"] == "primary"]
     early = table.loc[table["rule"] == "calibration"]
-    share = 0.25 if bool(early["passed"].all()) else 0.40
+    share = 0.25 if bool(early["rule_passed"].all()) else 0.40
     v3 = primary.loc[primary["scenario"] == "v3_half_n"]
     return {
         "default": str(table["default"].iloc[0]),
         "r_prim": rel_sd_floor(
-            primary["median_rel_sd"].tolist(), primary["passed"].astype(bool).tolist()
+            primary["median_rel_sd"].tolist(), primary["rule_passed"].astype(bool).tolist()
         ),
         "share_floor": share,
         "r_cal": rel_sd_floor(
-            early["median_rel_sd"].tolist(), early["passed"].astype(bool).tolist()
+            early["median_rel_sd"].tolist(), early["rule_passed"].astype(bool).tolist()
         )
         if share == 0.25
         else None,
-        "measured_n": 500 if bool(v3["passed"].all()) else 1_000,
+        "measured_n": 500 if bool(v3["rule_passed"].all()) else 1_000,
     }
