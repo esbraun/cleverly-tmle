@@ -1087,6 +1087,12 @@ _BIAS_GATED = frozenset(
         "patience_bias",
         "ordered_late_confounder",
         "ordered_whole_path",
+        # Fix-16: the bias positives and controls of ``known-mechanism-sample-weights``.
+        "sample_bias",
+        "target_reading_control",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "both_misspecified",
     }
 )
 

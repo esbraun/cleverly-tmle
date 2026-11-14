@@ -70,10 +70,20 @@ the 4-vCPU cloud machine, about 1.3 CPU-hours with the harness (the bootstrap in
 derived controls and the accounting): about 30 to 45 minutes of wall time at four jobs.
 """
 
+import sys
 from pathlib import Path
 
-from tests.canonical.declared_run import run
-from tests.studies import canonical_known_sample_weights, known_sample_weights_properties
+# Run as ``python tests/canonical/known_sample_weights/regenerate.py``, Python puts this
+# directory on the path rather than the repository root, so ``tests`` would not import.
+_ROOT = str(Path(__file__).resolve().parents[3])
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from tests.canonical.declared_run import run  # noqa: E402
+from tests.studies import (  # noqa: E402
+    canonical_known_sample_weights,
+    known_sample_weights_properties,
+)
 
 if __name__ == "__main__":
     run(

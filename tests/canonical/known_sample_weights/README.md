@@ -19,8 +19,10 @@ unbiased, and with both wrong that it does not. It has no comparator.
 
 ## State of this directory
 
-Declared, not run. No artifact is committed, so the record is not in `registered()`. The
-support rows and the evidence page land with the registration, after the run.
+Registered. The declared run at `26b53828` passed every gated verdict: 3 of 3 primary rows and
+26 of 26 property cells, with no failed fit. `run.log` records the run. The evidence page is
+`docs/technical-reference/method-evidence/known-mechanism-sample-weights.md`, and the support rows
+are `T55` (point) and `G62` (longitudinal).
 
 ## Run
 

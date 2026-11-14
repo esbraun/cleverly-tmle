@@ -1301,6 +1301,14 @@ any positive $g_0$. The choice decides what the interval needs: `"target"` needs
 outcome regression, and `"sample"` needs the classifier and the regression consistent. Use
 `"target"` when the randomization happened before the sampling that the weights undo.
 
+The registered study
+[a declared treatment mechanism beside sample-reading weights](method-evidence/known-mechanism-sample-weights.md)
+measures the `"sample"` fit on a binary law whose weight reads $A$ and $W_1$, cross-fitted on five
+folds with parametric learners. The interval is calibrated at n = 1,000, 4,000 and 16,000 when both
+nuisances are correct, the estimate stays unbiased with either the outcome regression or the tilt
+classifier wrong, and the `"target"` reading of the same declaration is biased. Its support row is
+`T55`.
+
 The causal reading needs one more condition when the weight reads $Y$. The tilted parameter
 $E_w[\bar Q_w(a,W)]$ is computed from $P_w$, and it equals a counterfactual mean of the target
 population only when the weights describe how that population was sampled. A weight that reads

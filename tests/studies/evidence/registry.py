@@ -635,6 +635,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
+    from tests.studies.canonical_known_sample_weights import STUDY as KNOWN_SAMPLE_WEIGHTS
     from tests.studies.canonical_learned_weighted_tmle import (
         STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
     )
@@ -923,6 +924,7 @@ def registered() -> tuple[StudyRecord, ...]:
         MULTI_ARM_DRTMLE_FOLDWISE,
         STRATIFIED_DRTMLE_FOLDWISE,
         KNOWN_NODE_MECHANISMS,
+        KNOWN_SAMPLE_WEIGHTS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,
         PARAMETRIC_GFORMULA,

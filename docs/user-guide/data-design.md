@@ -165,7 +165,10 @@ outcome model is wrong. With `"sample"`, the estimate is still consistent when e
 model or the treatment learner is right, but the interval holds only when both are close to the
 truth, as for any estimated treatment model. The treatment learner must accept `sample_weight`. The
 `"sample"` fit also does not use the declared chances as efficiently as a method built for known
-chances could.
+chances could. A [simulation study](../technical-reference/method-evidence/known-mechanism-sample-weights.md)
+checked the `"sample"` claims on one point-treatment and one two-time-point design with logistic
+and linear models: the estimate stayed on target with either model wrong, and the interval covered
+when both were right.
 
 When the weights depend on the outcome, the weighted population is a causal target
 only if the weights describe how that population was sampled, with known sampling fractions.

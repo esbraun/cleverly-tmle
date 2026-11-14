@@ -3566,6 +3566,43 @@ def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _known_sample_weights_point_rows() -> tuple[SupportRow, ...]:
+    """A declared mechanism read in the weighted sample on point TMLE (Fix-16): ``T55``.
+
+    ``mechanism_law="sample"`` estimates the tilted mechanism from the declaration and a
+    weighted classification, so the fit keys as an estimated-mechanism weighted fit with no
+    ``known_mechanism`` qualifier.  The row was added because every declared verdict of
+    ``known-mechanism-sample-weights`` passed: 3 of 3 primary tests and the 26 gated property
+    cells, with no failed fit (``tests/canonical/known_sample_weights``).
+    """
+    return (
+        point_row(
+            "T55",
+            ["known-mechanism-sample-weights"],
+            families=("P1",),
+            weighting="fixed",
+            splitting=("stacked",),
+            cells=[
+                "interval_calibration/sw_n1000__correctly_specified",
+                "interval_calibration/sw_n4000__correctly_specified",
+                "interval_calibration/sw_n16000__correctly_specified",
+                "sample_misspecified/sw_n4000",
+                "tilt_misspecified/sw_n4000",
+            ],
+            limits=[
+                "One binary law with a declared randomization by W2 and a weight that reads the "
+                "arm and W1, five-fold cross-fitting, a correct logistic outcome regression and "
+                "a correct main-terms tilt classifier. The calibration cells read SE ratio 0.993 "
+                "to 1.000 and coverage 0.946 to 0.951 over 4,000 draws at n = 1,000, 4,000 and "
+                "16,000. With the outcome regression or the tilt classifier wrong the estimate "
+                "stays unbiased, but the interval needs both right (SE ratio 1.026 and 0.931). "
+                "A flexible learner, a weight that reads the outcome, more than two arms, "
+                "missing data and clusters rest on the exact-law tests alone. No comparator.",
+            ],
+        ),
+    )
+
+
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
@@ -3578,6 +3615,7 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),
         *_x76_adjustment_rows(),
+        *_known_sample_weights_point_rows(),
     )
 )
 
@@ -5974,6 +6012,39 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _known_sample_weights_long_rows() -> tuple[SupportRow, ...]:
+    """A declared node mechanism read in the weighted sample on LTMLE (Fix-16): ``G62``.
+
+    A ``"sample"`` node is an estimated factor, so the fit keys as a weighted cross-fitted
+    ``LTMLE`` with no known factor.  The row was added because every declared verdict of
+    ``known-mechanism-sample-weights`` passed (``tests/canonical/known_sample_weights``).
+    """
+    return (
+        long_row(
+            "G62",
+            ["known-mechanism-sample-weights"],
+            outcome=("gaussian", "bounded"),
+            missing=("complete",),
+            weighting="fixed",
+            splitting=("cross_fitted",),
+            cells=[
+                "interval_calibration/lw_n4000__correctly_specified",
+                "sample_misspecified/lw_n4000",
+            ],
+            limits=[
+                "One two-node law with a continuous outcome inside declared bounds, both "
+                "treatment nodes declared, a weight that reads L0 and the first treatment, "
+                "five-fold cross-fitting and correct linear node regressions and main-terms "
+                "tilt classifiers, at n = 4,000. The calibration cell reads SE ratio 0.993 and "
+                "coverage 0.952 over 4,000 draws; with the first node regression wrong the "
+                "estimate stays unbiased and the interval over-covers (SE ratio 1.214). The "
+                "weight tilts the first node only, so a tilt at a later node, censoring, and "
+                "a flexible learner rest on the exact-law tests alone. No comparator.",
+            ],
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -6114,6 +6185,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_survival_dr_tmle_rows(),
         *_hazard_msm_rows(),
         *_hazard_mtp_rows(),
+        *_known_sample_weights_long_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),

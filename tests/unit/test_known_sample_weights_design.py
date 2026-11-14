@@ -90,11 +90,12 @@ class TestTheDeclaration:
         assert not {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED} & seeds
         assert law.INFLUENCE_SEED not in seeds
 
-    def test_declared_and_not_registered(self) -> None:
-        assert study.SLUG not in {record.slug for record in registered()}
+    def test_registered_once_its_run_is_committed(self) -> None:
+        assert [record.slug for record in registered()].count(study.SLUG) == 1
+        assert study.STUDY.artifact("property-replicates.parquet").exists()
         from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
 
-        assert properties.__name__ in UNCOMMITTED_MODULES
+        assert properties.__name__ not in UNCOMMITTED_MODULES
 
     def test_the_record_declares_the_cells_the_module_builds(self) -> None:
         built: dict[str, set[str]] = {}

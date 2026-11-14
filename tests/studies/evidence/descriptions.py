@@ -1702,6 +1702,15 @@ ARMS.update(
     }
 )
 
+#: The labels of ``known-mechanism-sample-weights`` (Fix-16): one draw stream per law and size.
+#: Mirrored from ``tests.studies.canonical_known_sample_weights``, which this module cannot
+#: import.
+_KSW_LABELS = {
+    **{f"sw_n{n}": f"law SW at n = {n:,}, the ATE" for n in (1_000, 4_000, 16_000)},
+    "lw_n4000": "law LW at n = 4,000, the always-versus-never contrast",
+}
+ARMS.update({label: f"{words}, mechanism_law='sample'" for label, words in _KSW_LABELS.items()})
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -10315,3 +10324,80 @@ for _twin, _words in _PV_LARGE.items():
                 f"{_words}, {_quantity}, 400 draws: {_tested}",
                 _DIAGNOSTIC_REQUIRED,
             )
+
+
+#: ``known-mechanism-sample-weights`` (Fix-16): a declared treatment mechanism read in the
+#: weighted sample (``mechanism_law="sample"``).  The laws and fits are those of
+#: ``tests/studies/known_sample_weights_law.py``, which this module cannot import.
+_KSW_SLUG = "known-mechanism-sample-weights"
+STUDY_SCENARIOS[(_KSW_SLUG, "SW")] = (
+    "a binary outcome, W1 normal and W2 binary, a declared randomization by W2 and a weight "
+    "that reads the arm and W1; mechanism_law='sample' with a correct logistic outcome "
+    "regression and a correct main-terms tilt classifier, five folds"
+)
+_KSW_BIAS = "99% interval of the standardized bias inside the margin"
+_KSW_BEYOND = "99% interval of the standardized bias wholly outside the margin"
+_KSW_SW_WRONG_Q = "the main-terms outcome regression on (A, W1, W2)"
+_KSW_LW_WRONG_Q = "an intercept-only regression at node one"
+PROPERTIES.update(
+    {
+        "sample_bias": (
+            "with every nuisance correct, mechanism_law='sample' estimates the weight-tilted "
+            "parameter without bias"
+        ),
+        "target_reading_control": (
+            "reading the declaration as the tilted law's mechanism ('target') when the weights "
+            "tilt it, with a wrong outcome regression, is biased"
+        ),
+        "sample_misspecified": (
+            "with the outcome regression wrong and the tilt classifier correct, "
+            "mechanism_law='sample' stays unbiased"
+        ),
+        "tilt_misspecified": (
+            "with the tilt classifier wrong and the outcome regression correct, "
+            "mechanism_law='sample' stays unbiased"
+        ),
+        "both_misspecified": (
+            "with both the outcome regression and the tilt classifier wrong, "
+            "mechanism_law='sample' is biased"
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("sample_bias", label): (
+                f"{words}, mechanism_law='sample' with every nuisance correct",
+                _KSW_BIAS,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        **{
+            ("target_reading_control", label): (
+                f"{words}, mechanism_law='target' (dividing by the declaration) with "
+                f"{_KSW_LW_WRONG_Q if label.startswith('lw') else _KSW_SW_WRONG_Q}",
+                _KSW_BEYOND,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        **{
+            ("sample_misspecified", label): (
+                f"{words}, mechanism_law='sample' with "
+                f"{_KSW_LW_WRONG_Q if label.startswith('lw') else _KSW_SW_WRONG_Q} and the "
+                "correct tilt classifier",
+                _KSW_BIAS,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        ("tilt_misspecified", "sw_n4000"): (
+            "law SW at n = 4,000, the ATE, mechanism_law='sample' with the correct outcome "
+            "regression and a tilt classifier on W2 alone",
+            _KSW_BIAS,
+        ),
+        ("both_misspecified", "sw_n4000"): (
+            f"law SW at n = 4,000, the ATE, mechanism_law='sample' with {_KSW_SW_WRONG_Q} and "
+            "a tilt classifier on W2 alone",
+            _KSW_BEYOND,
+        ),
+    }
+)
