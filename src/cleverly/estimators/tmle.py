@@ -3683,6 +3683,12 @@ class TMLE:
                     classes = sample_classes if sample_classifies else np.unique(values)
                     for value in classes:
                         count = int(np.count_nonzero(values == value))
+                        if count == 0 and role == "outcome" and data.family == "binomial":
+                            # The complement holds one value of the binary outcome, so its
+                            # regression is that value and no Super Learner runs there
+                            # (``ConstantFit``, the maximum-likelihood fit). One row of a
+                            # class is still too few for the inner split.
+                            continue
                         if count < 2:
                             return role, repeat, fold, label(float(value)), count
         return None

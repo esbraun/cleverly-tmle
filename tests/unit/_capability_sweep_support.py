@@ -59,6 +59,7 @@ from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, Refusal
 from cleverly.interventions import Incremental, Shift
+from cleverly.learners import make_folds
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -928,6 +929,63 @@ def fit_gformula() -> Any:
     )
 
 
+def _constant_outcome_frame(n: int, seed: int) -> Any:
+    """``make_binary_outcome(n, seed)`` and the three-fold split a fit with ``random_state=0`` draws.
+
+    The split reads no outcome, so a frame can be shaped against it before the fit.
+    """
+    frame, _ = make_binary_outcome(n=n, seed=seed)
+    return frame, np.asarray(make_folds(n, 3, random_state=0).assignment)
+
+
+def fit_per_arm_constant_fold() -> Any:
+    """A cross-fitted per-arm fit whose arm-1 training rows of one fold hold ``Y = 0`` only.
+
+    Arm 1 keeps its events in fold 1 alone, so the fold that holds them out predicts 0 for arm
+    1 (the constant-target rule) while the other folds fit the learner.
+    """
+    frame, folds = _constant_outcome_frame(400, 17)
+    frame.loc[(frame["A"] == 1) & (folds != 0), "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            cross_fit=True,
+            n_folds=3,
+            outcome_by_arm=True,
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result.nuisance.outcome_constant_folds == (1,)
+    return result
+
+
+def fit_per_arm_constant_arm() -> Any:
+    """An in-sample per-arm fit whose arm 1 holds ``Y = 0`` only: its estimates withhold."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    frame.loc[frame["A"] == 1, "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(outcome_learner=LogisticRegression(max_iter=1000), outcome_by_arm=True)
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result["ate"].inference == "constant_arm_cell_plugin"
+    return result
+
+
+def fit_drtmle_constant_pair() -> Any:
+    """A foldwise DR-TMLE fit whose rows outside folds 1 and 2 hold ``Y = 1`` only."""
+    frame, folds = _constant_outcome_frame(240, 11)
+    frame.loc[folds == 2, "Y"] = 1
+    estimator = DRTMLE(
+        **linear_drtmle(
+            outcome_learner=LogisticRegression(max_iter=1000), n_folds=3, estimands=("ate",)
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    inner = result.nuisance.inner
+    assert inner is not None and np.all(inner.outcome[0].observed[folds == 1] == 1.0)
+    return result
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -1058,6 +1116,16 @@ KINDS: dict[str, Kind] = {
     # One covariate, which benchmark cannot drop.
     "split_plan": _kind(fit_split_plan, *_LIVE, *_BOUND),
     "drtmle_companion": _kind(fit_drtmle_companion, *_LIVE, "corrections"),
+    # The constant-target rule (X54): a per-arm training fold of one outcome value predicts it.
+    "per_arm+constant_fold": _kind(fit_per_arm_constant_fold, *_ARM, "marginal_bounds"),
+    # An in-sample per-arm fit of a constant arm: the estimates that read it withhold their
+    # interval, so the E-value and the marginal bounds of the default ATE refuse with the
+    # constant-cell reason and the plug-in bound rows answer.
+    "per_arm+constant_arm": _kind(fit_per_arm_constant_arm, *_LIVE, *_PLUGIN_BOUND, "benchmark"),
+    # A foldwise DR-TMLE whose leave-two-out complement holds one outcome value.
+    "drtmle+constant_pair": _kind(
+        fit_drtmle_constant_pair, *_LIVE, "corrections", "evalue", "marginal_bounds"
+    ),
     "policy_means": _kind(fit_policy_means, *_LIVE),
     "natural_course_study": _kind(fit_natural_course_study, *_LIVE),
     # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.

@@ -465,6 +465,31 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
     return None
 
 
+def marginal_estimand_refusal(result: Any, estimand: str | None = None) -> Refusal | None:
+    r"""Why the bounds of ``estimand`` withhold their interval on ``result``, or ``None``.
+
+    The fit-level reasons are :func:`marginal_bound_refusal`'s; call it first.  This one is the
+    bounded estimate's own: its status withholds the interval (:func:`_withheld_status`), and
+    at :math:`\Gamma = 1` the set interval would be a confidence interval for that estimate.
+    ``None`` names the default estimand, which the capability row reads.
+    """
+    return _estimand_refusal(result, _resolve_target(result, estimand))
+
+
+def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:
+    withheld = _withheld_status(result, target)
+    if withheld is None:
+        return None
+    record = status_record(withheld)
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        f"the bound's interval is built from the influence curve of {target.name}, and that "
+        f"estimate withholds its interval ({withheld}): {record.reason}",
+        alternative=record.alternative or NO_ALTERNATIVE,
+        roadmap=record.reopened_by,
+    )
+
+
 def _withheld_status(result: Any, target: _Target) -> str | None:
     """The status of ``target``'s estimate when it withholds the interval, else ``None``.
 
@@ -1212,16 +1237,9 @@ def marginal_sensitivity_bounds(
         raise ValueError(f"level must lie in (0, 1); got {level!r}")
     grid = _gammas(gamma)
     target = _resolve_target(result, estimand)
-    withheld = _withheld_status(result, target)
+    withheld = _estimand_refusal(result, target)
     if withheld is not None:
-        record = status_record(withheld)
-        raise CapabilityError(
-            f"the bound's interval is built from the influence curve of {target.name}, and "
-            f"that estimate withholds its interval ({withheld}): {record.reason}",
-            reason=RefusalReason.INFERENCE_GAP,
-            alternative=record.alternative or NO_ALTERNATIVE,
-            roadmap=record.reopened_by,
-        )
+        raise CapabilityError.from_refusal(withheld)
     cluster = result.data.cluster
     z = reference_quantile(1.0 - level)
     outcome_kind = "binary" if result.data.family == "binomial" else "continuous"

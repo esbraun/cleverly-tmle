@@ -1638,7 +1638,11 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
-        "folds": "The {model} fitted no learner in fold {folds}: {reason}.",
+        "folds": (
+            "The {model} fitted no learner in fold {folds}: {reason}. Its log loss reads "
+            "those predictions clipped at 1e-12, so each held-out row of the other class "
+            "adds log(1e12), about 27.6, to the row's sum."
+        ),
     }
 )
 MODEL_NOTHING_OMITTED: Final = "The fit reported every model this check reads."

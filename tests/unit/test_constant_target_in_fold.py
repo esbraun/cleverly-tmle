@@ -1,7 +1,7 @@
 """A cross-fitted point-treatment fold whose binary outcome takes one value predicts it.
 
 The rule is the point-treatment twin of the longitudinal one
-(``docs/technical-reference/longitudinal-tmle.md``, "A fold with one target value"): the
+(``docs/technical-reference/longitudinal-tmle.md``, "A node with no event"): the
 maximum-likelihood probability of the one value is 1, so the fold's regression is that value
 (:class:`~cleverly.estimators._nuisance.ConstantFit`) and no learner runs.  It reaches the
 per-arm outcome regression of ``TMLE(outcome_by_arm=True)`` and the leave-two-out outcome
@@ -33,10 +33,9 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators import _nuisance as nuisance_module
-from cleverly.exceptions import CapabilityError, RefusalReason
-from cleverly.learners import Folds
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
+from cleverly.learners import Folds, SuperLearner
 from cleverly.sensitivity import marginal_sensitivity_bounds
-from cleverly.utils.bounds import shrink_probabilities
 from cleverly.validation.nuisance import TMLE_CONSTANT_TARGET_IN_FOLD
 
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
@@ -125,16 +124,44 @@ class TestPerArmOutcome:
         # Nonzero witness: the folds that fitted a learner do not predict 0.
         assert np.all(nuisance.outcome.arms[1.0][~held] > 0.0)
         assert nuisance.outcome_constant_folds == (1,)
-        # The targeting step starts a prediction of exactly 0 at its probability bound, the
-        # estimator's own ``alpha``, so the logit it fluctuates is finite.
-        start = shrink_probabilities(nuisance.outcome.arms[1.0][held], TMLE().alpha)
-        assert np.all(start == 1.0 - TMLE().alpha)
+        # The targeting step starts a prediction of exactly 0 at its probability bound, so
+        # the stored targeted predictions there are finite and inside (0, 1).
+        targeted = result.repeats[0].fluctuations["mean"].targeted.arms[1.0][held]
+        assert np.all(np.isfinite(targeted)) and np.all((targeted > 0.0) & (targeted < 1.0))
         assert np.isfinite(result["ate"].psi) and np.isfinite(result["ate"].std_error)
         report = result.diagnostics.nuisance_models()["outcome"]
         assert report.fold_omission == TMLE_CONSTANT_TARGET_IN_FOLD
         assert report.omitted_folds == (1,)
         text = str(result.diagnostics.nuisance_models().summary("full"))
         assert "fitted no learner in fold 1" in " ".join(text.split())
+
+    def test_the_targeting_step_starts_the_fold_at_the_bound(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The targeted predictions of the constant fold move with ``alpha``, the bound.
+
+        A targeting path that read the exact 0 instead of its bound would not see ``alpha``.
+        The rows outside the fold start inside the bound at both values, so they do not move.
+        """
+        frame, assignment = _per_arm_frame()
+        _fixed_split(monkeypatch, assignment, K_TMLE)
+        held = assignment == 0
+        targeted = {}
+        for alpha in (0.9995, 0.99):
+            estimator = TMLE(
+                outcome_learner=LogisticRegression(),
+                treatment_learner=LogisticRegression(),
+                cross_fit=True,
+                n_folds=K_TMLE,
+                outcome_by_arm=True,
+                random_state=0,
+                alpha=alpha,
+            )
+            fit = estimator.fit(frame, outcome="Y", treatment="A").single()
+            assert np.all(fit.nuisance.outcome.arms[1.0][held] == 0.0)
+            assert np.all(fit.nuisance.outcome.arms[1.0][~held] > 1.0 - 0.99)
+            targeted[alpha] = fit.repeats[0].fluctuations["mean"].targeted.arms[1.0]
+        assert np.all(targeted[0.99][held] > targeted[0.9995][held])
 
     def test_without_the_rule_the_fold_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mutation control: the fold loop no longer receives ``constant_folds``."""
@@ -170,6 +197,84 @@ class TestPerArmOutcome:
         assert by_arm.nuisance.outcome_constant_folds == (1, 2, 3)
         assert by_arm["ate"].inference == "constant_arm_cell_plugin"
         assert by_arm["ey0"].inference != "constant_arm_cell_plugin"
+
+
+def _super_learner() -> SuperLearner:
+    """A small package Super Learner, whose inner split stratifies on its target."""
+    return SuperLearner([LogisticRegression(), LogisticRegression(C=0.1)], task="classification")
+
+
+def _super_learner_fit(frame: pd.DataFrame) -> Any:
+    estimator = TMLE(
+        outcome_learner=_super_learner(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=True,
+        n_folds=K_TMLE,
+        outcome_by_arm=True,
+        random_state=0,
+    )
+    return estimator.fit(frame, outcome="Y", treatment="A").single()
+
+
+def _shortfall_without_the_exemption(
+    self: Any, data: Any, folds: Any, *, fits_treatment: bool = True
+) -> Any:
+    """``_super_learner_complement_shortfall`` with ``count < 2`` for every class."""
+    size = int(np.asarray(data.observed).size)
+    for role, _task, rows, target, label in self._super_learner_inner_split_roles(
+        data, fits_treatment=fits_treatment
+    ):
+        for repeat, draw in enumerate(folds):
+            for fold, (train, _) in enumerate(draw):
+                kept = np.zeros(size, dtype=bool)
+                kept[train] = True
+                values = target[kept & rows]
+                for value in np.unique(target[rows]):
+                    count = int(np.count_nonzero(values == value))
+                    if count < 2:
+                        return role, repeat, fold, label(float(value)), count
+    return None
+
+
+class TestPackageSuperLearner:
+    """A package Super Learner needs two rows of each class only where it runs.
+
+    A per-arm complement with no row of one outcome class takes the rule and fits no Super
+    Learner, so the inner-split preflight lets it through.  One row of a class is still
+    refused, because the learner runs there and its stratified split needs two.
+    """
+
+    def test_a_complement_without_a_class_takes_the_rule(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        frame, assignment = _per_arm_frame()
+        _fixed_split(monkeypatch, assignment, K_TMLE)
+        result = _super_learner_fit(frame)
+        assert result.nuisance.outcome_constant_folds == (1,)
+        assert np.all(result.nuisance.outcome.arms[1.0][assignment == 0] == 0.0)
+        assert np.isfinite(result["ate"].std_error)
+
+    def test_one_row_of_a_class_is_still_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        frame, assignment = _per_arm_frame()
+        lone = int(np.flatnonzero((frame["A"].to_numpy() == 1) & (assignment == 1))[0])
+        frame.loc[lone, "Y"] = 1.0
+        _fixed_split(monkeypatch, assignment, K_TMLE)
+        with pytest.raises(DataError, match="holds 1 respondent\\(s\\) in arm 1 with outcome 1"):
+            _super_learner_fit(frame)
+
+    def test_without_the_exemption_the_constant_fold_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the preflight asks two rows of a class the fold does not fit."""
+        monkeypatch.setattr(
+            tmle_module.TMLE,
+            "_super_learner_complement_shortfall",
+            _shortfall_without_the_exemption,
+        )
+        frame, assignment = _per_arm_frame()
+        _fixed_split(monkeypatch, assignment, K_TMLE)
+        with pytest.raises(DataError, match="holds 0 respondent\\(s\\) in arm 1 with outcome 1"):
+            _super_learner_fit(frame)
 
 
 class TestPerArmInSample:
@@ -221,6 +326,13 @@ class TestPerArmInSample:
         # Nonzero witness: the arm that fitted a learner keeps its bounds and interval.
         bounds = marginal_sensitivity_bounds(result, gamma=(1.0, 2.0), estimand="ey0")
         assert np.isfinite(bounds.rows[0].lower_limit)
+
+    @pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
+    def test_validate_names_the_constant_arm_as_the_cause(self) -> None:
+        result = self._fit(self._frame())
+        item = next(i for i in result.validate().items if i.name == "score_equations")
+        assert item.status.value == "failed"
+        assert "constant_arm_cell_plugin" in item.detail and "ate" in item.detail
 
     @pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
     def test_an_unreported_estimand_on_the_constant_arm_is_withheld(self) -> None:
@@ -285,6 +397,17 @@ def _pair_frame(n: int = 160) -> tuple[pd.DataFrame, np.ndarray]:
     return frame, assignment
 
 
+def _per_arm_pair_frame(n: int = 160) -> tuple[pd.DataFrame, np.ndarray]:
+    """Arm 1's ``Y = 0`` rows all sit in folds 1 and 2 (one-based); arm 0 is unrestricted."""
+    rng = np.random.default_rng(0)
+    assignment = np.arange(n) % K_DRTMLE
+    treatment = (np.arange(n) // 4) % 2
+    outcome = rng.binomial(1, 0.5, n).astype(float)
+    outcome[(treatment == 1) & (assignment >= 2)] = 1.0
+    frame = pd.DataFrame({"W": rng.normal(size=n), "A": treatment, "Y": outcome})
+    return frame, assignment
+
+
 class TestLeaveTwoOutOutcome:
     def test_the_pair_predicts_its_one_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
         frame, assignment = _pair_frame()
@@ -302,6 +425,30 @@ class TestLeaveTwoOutOutcome:
         # The production folds each held both classes.
         assert result.nuisance.outcome_constant_folds == ()
         assert np.isfinite(result["ate"].psi)
+
+    def test_a_per_arm_pair_predicts_its_one_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``outcome_by_arm=True``: arm 1's rows outside folds 1 and 2 hold ``Y = 1`` only."""
+        frame, assignment = _per_arm_pair_frame()
+        _fixed_split(monkeypatch, assignment, K_DRTMLE)
+        result = _drtmle(outcome_by_arm=True).fit(frame, outcome="Y", treatment="A").single()
+        inner = result.nuisance.inner
+        assert inner is not None
+        assert np.all(inner.outcome[0].arms[1.0][assignment == 1] == 1.0)
+        assert np.all(inner.outcome[1].arms[1.0][assignment == 0] == 1.0)
+        # Nonzero witnesses: arm 0 of the same pair, and arm 1 of a pair with both classes.
+        assert np.all(inner.outcome[0].arms[0.0][assignment == 1] < 1.0)
+        assert np.all(inner.outcome[0].arms[1.0][assignment == 2] < 1.0)
+        assert np.isfinite(result["ate"].psi)
+
+    def test_without_the_rule_the_per_arm_pair_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the per-arm fold loop no longer receives ``constant_folds``."""
+        frame, assignment = _per_arm_pair_frame()
+        _fixed_split(monkeypatch, assignment, K_DRTMLE)
+        _wrap_cross_fit(monkeypatch, _without_constant_folds)
+        with pytest.raises(ValueError, match=TWO_CLASSES):
+            _drtmle(outcome_by_arm=True).fit(frame, outcome="Y", treatment="A")
 
     def test_without_the_rule_the_pair_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mutation control: the fold loop no longer receives ``constant_folds``."""
