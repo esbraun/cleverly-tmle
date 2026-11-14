@@ -2883,6 +2883,29 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
                 lambda module, frame, label=label: module.calibration_fit(label, frame),
             )
         )
+    # Fix-5: the option fits of ``mtp-policy-variance`` that license ``wald_policy``.
+    policy = "mtp_policy_variance_properties"
+    for row, family, label in (
+        ("G39.ltmle.tau5", "policy_variance", "pricing_ltmle_tau5"),
+        ("G39.sdr.tau5", "policy_variance", "pricing_sdr_tau5"),
+        ("G39.ltmle.tau2", "policy_variance", "pricing_ltmle_tau2"),
+        ("G39.sdr.tau2", "policy_variance", "pricing_sdr_tau2"),
+        ("G10.continuous", "policy_calibration", "p4_ltmle"),
+        ("G24.mtp.in_sample", "policy_calibration", "p4_sdr"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-policy-variance",
+                f"{label}__option",
+                f"{policy}.py:429",
+                policy,
+                lambda module, family=family, label=label: module.draw_frame(family, label, 400, 0),
+                lambda module, frame, family=family, label=label: module.config_of(
+                    family, label
+                ).fit(frame, module.OPTION),
+            )
+        )
     tuning = "canonical_mtp_tuning"
     for row, scenario, estimator in (
         ("G41.ltmle", "population_quantile_ltmle", "ltmle"),

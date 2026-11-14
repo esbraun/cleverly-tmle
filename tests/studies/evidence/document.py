@@ -412,6 +412,25 @@ def measured(row: Any) -> str:
                 f"lower bound {render(float(row.gain_lower))}"
             )
         return measured
+    if family in _POLICY_VARIANCE_FAMILIES:
+        # ``mtp-policy-variance``: an option row is judged on its coverage floor and its SE-ratio
+        # clause, a control on one of the two, and a reported row reads both, so every row
+        # prints both intervals with the code-read reading and the lowest-SE-quartile coverage.
+        measured = (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+        if pd.notna(getattr(row, "q1_coverage", None)):
+            measured += (
+                f", lowest-SE-quartile coverage {render(float(row.q1_coverage))} "
+                f"({_interval(row.q1_coverage_ci_lower, row.q1_coverage_ci_upper)})"
+            )
+        if pd.notna(getattr(row, "rms_ratio", None)):
+            measured += f", RMS ratio {_interval(row.rms_ratio_ci_lower, row.rms_ratio_ci_upper)}"
+        reading = getattr(row, "reading", None)
+        if isinstance(reading, str) and reading:
+            measured += f", reads {reading}"
+        return measured
     if family in {"non_h1", "witness"}:
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
@@ -986,6 +1005,17 @@ def _has_exact_efficiency(row: Any) -> bool:
         row.efficiency_empirical_ci_lower
     )
 
+
+#: The ``mtp-policy-variance`` families whose rows print coverage and the SE-ratio interval.
+_POLICY_VARIANCE_FAMILIES = frozenset(
+    {
+        "policy_variance",
+        "policy_calibration",
+        "reporting_calibration",
+        "sdr_default_pseudo",
+        "tail_option",
+    }
+)
 
 #: The ``small-sample-wald`` coverage families and their re-read rows, each judged or reported
 #: on its two coverage legs, and the two cells whose verdict also reads the paired gain.

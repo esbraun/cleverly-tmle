@@ -163,6 +163,8 @@ class TestTheDerivedKind:
             "derived",
             "bootstrap_bca",
             "bootstrap_band",
+            # Checked when variance="policy_weighted" (test_policy_variance.py).
+            "wald_policy",
         }
 
 
