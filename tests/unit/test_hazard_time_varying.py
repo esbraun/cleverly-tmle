@@ -24,6 +24,7 @@ from scipy.special import expit
 from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.assessment import assessment_capabilities
 from cleverly.exceptions import (
     CapabilityError,
     ConvergenceWarning,
@@ -41,6 +42,7 @@ from cleverly.longitudinal import (
 )
 from cleverly.longitudinal import hazard as hazard_module
 from cleverly.longitudinal import hazard_backward as backward
+from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.longitudinal.hazard import HazardInputs, HazardState, _held_cells, scores, walk_loss
 from cleverly.longitudinal.hazard_backward import node_curve_terms, soft_held_cells
 from cleverly.msm import MSM
@@ -1405,6 +1407,29 @@ def test_h31_a_truncation_replay_is_refused() -> None:
     with pytest.raises(CapabilityError, match=_escape(message)) as raised:
         result.diagnostics.truncation_curve(bounds=[(1e-3, 1.0), (1e-2, 1.0)])
     assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    # The capability row reads unavailable before any call, with the record the replay raises.
+    (row,) = (
+        item for item in assessment_capabilities(result) if item.operation == "truncation_curve"
+    )
+    assert not row.available
+    assert row.refusal == backward.hazard_replay_refusal()
+    with pytest.raises(CapabilityError, match=_escape(message)) as replayed:
+        longitudinal_truncation_curve(result, [1e-3])
+    assert replayed.value.refusal == row.refusal
+
+
+def test_h31_comes_before_h25_on_a_policy_fit_with_covariates_after_baseline() -> None:
+    """A hazard policy fit with a covariate after baseline: the row and the call read H31."""
+    law = HeldLaw(n_times=3, arms=3)
+    up = ModifiedPolicy("up", apply=_up, policy_kind="known")
+    result = fit(law, {"up": up, "low": 0})
+    (row,) = (
+        item for item in assessment_capabilities(result) if item.operation == "truncation_curve"
+    )
+    assert row.refusal == backward.hazard_replay_refusal()
+    with pytest.raises(CapabilityError) as raised:
+        longitudinal_truncation_curve(result, [1e-3])
+    assert raised.value.refusal == row.refusal
 
 
 def test_h6_a_pseudo_learner_is_used_with_covariates_after_baseline() -> None:
