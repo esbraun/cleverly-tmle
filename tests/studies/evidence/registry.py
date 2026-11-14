@@ -213,8 +213,10 @@ class StudyRecord:
     #: Scenarios declared as reported stress rows: a law on which the method's guarantee is
     #: pointwise and the study measures how far the estimate sits from the target, with no
     #: verdict on it.  Their truth rows publish bias, coverage and the SE ratio, and pass by
-    #: declaration on those three legs.  The failure bound still gates them, so a lost
-    #: replicate is not hidden.  Their paired rows run no calibration leg.
+    #: declaration on those three legs.  Their failure bound legs are published in the failure
+    #: accounting, red when the bound is exceeded, so a lost replicate is not hidden; they gate
+    #: nothing, because the cell carries no verdict (``failures.BOUND_REPORTED``).  Their paired
+    #: rows run no calibration leg.
     reported_scenarios: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()

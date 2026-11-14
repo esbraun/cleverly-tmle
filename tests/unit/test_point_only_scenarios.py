@@ -76,3 +76,42 @@ def test_a_reported_truth_row_passes_by_declaration(reported: bool) -> None:
 def test_reported_scenarios_must_be_declared() -> None:
     with pytest.raises(ValueError, match="undeclared"):
         dataclasses.replace(pairing.STUDY, reported_scenarios=frozenset({"no_such"}))
+
+
+@pytest.mark.parametrize(
+    ("scenario", "lost", "gate_passed", "reason"),
+    [
+        ("v3_half_n", 72, True, "bound exceeded, reported cell"),
+        ("v3_half_n", 10, True, "within bound"),
+        ("v1_rare_cause2", 72, False, "bound exceeded"),
+        ("v1_rare_cause2", 10, True, "within bound"),
+    ],
+)
+def test_a_reported_cell_publishes_its_failure_bound_and_gates_nothing(
+    scenario: str, lost: int, gate_passed: bool, reason: str
+) -> None:
+    """A reported cell over its bound passes the gate with its red leg published; a gated
+    cell over the same bound still fails (``continuous-survival-variance``: V3 reported, V1
+    gated, 0.01 of 6,000 replicates allows 60)."""
+    from tests.studies import continuous_survival_variance as variance
+    from tests.studies.evidence import failures
+
+    record = variance.STUDY
+    assert failures.allowed(record, record.implementation, scenario) == 60
+    rows = failures._rows(
+        table="performance",
+        implementation=record.implementation,
+        scenario=scenario,
+        estimand=variance.ESTIMANDS[scenario][0],
+        record=record,
+        failed=lost,
+        dropped=lost,
+        legs=[],
+        counted={record.implementation: lost},
+    )
+    (row,) = rows
+    assert row["leg"] == "failure bound"
+    assert row["leg_passed"] is (lost <= 60)
+    assert row["gate_passed"] is gate_passed
+    assert row["reason"] == reason
+    assert failures.red(pd.DataFrame(rows)).empty is gate_passed

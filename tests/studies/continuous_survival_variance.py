@@ -136,8 +136,8 @@ CELLS: dict[str, tuple[str, int, bool]] = {
 #: ``StudyRecord.reported_scenarios``), and they still feed every reading: V2's rows enter the
 #: ``variance_rel_sd`` floor, so a red row caps ``r_prim`` below its rung; V3 alone decides
 #: ``MEASURED_N``, which stays 1,000 unless every V3 row passes; both stay in the ship rule's
-#: harm clause and its readings.  The record framework still applies the failure bound to a
-#: reported scenario, so V3's ``DataError`` share is bounded at 0.01 in the declared run.
+#: harm clause and its readings.  A reported cell's failure share is published in the failure
+#: accounting and gates nothing (``failures.BOUND_REPORTED``).  Roadmap item X6 (a2) owns both.
 REPORTED_CELLS: frozenset[str] = frozenset({"v2_heavy_weights", "v3_half_n"})
 #: The record cells that are merge gates and size the count.
 GATED_CELLS: tuple[str, ...] = tuple(cell for cell in CELLS if cell not in REPORTED_CELLS)

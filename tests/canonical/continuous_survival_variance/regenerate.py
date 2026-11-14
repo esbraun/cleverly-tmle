@@ -41,9 +41,10 @@ lost 12 of 1,000 fits to ``DataError`` (0.012 against the bound of 0.01), and wi
 asks for 10,800.  V1, V4 and V7 read worst coverages of 0.929 to 0.941.  The reported cells run at
 the same count on the same seeds, are left out of the count, the pilot's failure-share refusal
 and the merge gate, and still feed the floors (V2's red rows cap ``r_prim``; V3 alone decides
-``MEASURED_N``) and both clauses of the ship rule.  The record framework still bounds a reported
-scenario's fit failures, so V3's ``DataError`` share is held to 0.01 in this run: at the pilot's
-0.012 the bound is likely to fail, and that failure would be read under the last item below.
+``MEASURED_N``) and both clauses of the ship rule.  A reported cell's failure share is published
+in the failure accounting, red above 0.01, and gates nothing (``failures.BOUND_REPORTED``), so
+V3's ``DataError`` share cannot fail the run.  Roadmap item X6 (a2) owns both reported cells: the
+weight-driven shortfall of V2 and the initial-fit failures of V3 at 500 units.
 
 Sizes.  6,000 per cell, the shared primary rule on the 36 rows of the gated cells (clause (a)
 binds: a row whose true bias is 0.15 SD passes the 0.2 SD bias gate with 0.903 at 6,000), above
@@ -88,10 +89,11 @@ re-drawn or downgraded after a verdict is seen.
   calibration rule at each cell's sparsest first-quartile row; where it does not, the cell does
   not exercise the sparse-cell failure, and the reading says so.
 * A replication that raises is never redrawn; a ``DataError`` is a recordable fit failure bounded
-  by 0.01 per cell.  The framework applies the bound to the reported cells too; a reported cell
-  that exceeds it fails the run without a verdict on its rows, and goes to Eric as a red-cell
-  decision rather than a defect suspect of the estimator, since the pilot showed it before the
-  run.
+  by 0.01 per gated cell.  A reported cell's failures are recorded and published with its bound
+  leg, and gate nothing; a share above 0.01 there is a reading for X6 (a2), its owner.
+* A reported cell's rows carry no verdict.  Their readings are X6 (a2)'s evidence: V2's
+  heavy-weight shortfall and V3's initial-fit failures at 500 units, each of which keeps its
+  configuration experimental until (a2) moves it.
 """
 
 import sys
