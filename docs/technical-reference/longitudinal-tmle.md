@@ -763,6 +763,23 @@ At a continuous node the treatment factor of the cumulative product is the ratio
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
+**Censoring at a continuous node.** With `censoring=`, the censoring indicator is part of the
+intervention at each node and the plan sets it to one. Díaz, Williams, Hoffman and Schenck (2023),
+arXiv v4, Section 3, identify the mean by Theorem 1 with that component set to one. The condition
+adds positivity of staying uncensored and censoring at random given $(H_t, A_t)$. By the chain
+rule the joint ratio of node $t$ is
+
+$$r_t = \frac{g^d_t(A_t \mid H_t)}{g_t(A_t \mid H_t)} \cdot \frac{1\{C_t = 1\}}{P(C_t = 1 \mid A_t, H_t)},$$
+
+with the retention evaluated at the **observed** treatment. The policy ratio sits in the numerator
+of the cumulative product and the learned retention in the bounded denominator, so `g_bounds`
+reaches the retention and not the policy ratio. The classifier trains on the units uncensored
+through $t - 1$. The exact-law witnesses and their four mutation controls are in
+`tests/unit/test_longitudinal_mtp_censored.py`. The
+[censored continuous-policy study](method-evidence/mtp-pricing-censored.md) supports `LTMLE` and
+`SDR` at three cross-fitted nodes on the classifier route (`G39.<engine>.tau3_cross_fitted_censored`).
+Other censored continuous-policy keys stay experimental.
+
 **The bin count of the density route.** A binned density at a fixed bin count is not
 consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
 errs most there. One draw of the `longitudinal-mtp` law, fitted with the exact bin probabilities so
@@ -824,8 +841,9 @@ above. So they test the targeting with a nearly exact ratio and not the default 
 ### Limits of the continuous-policy evidence
 
 The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
-[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
-test the continuous policies of this section. They publish these limits.
+[`mtp-pricing`](method-evidence/mtp-pricing.md), [`mtp-pricing-censored`](method-evidence/mtp-pricing-censored.md)
+and [`mtp-tuning`](method-evidence/mtp-tuning.md) test the continuous policies of this section.
+They publish these limits.
 
 | limit | what it means for use |
 | --- | --- |
@@ -833,6 +851,7 @@ test the continuous policies of this section. They publish these limits.
 | the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
 | the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
 | the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+| censoring at a continuous policy node is covered at three cross-fitted nodes on the classifier route only | `mtp-pricing-censored` validates `LTMLE` and `SDR` with a correctly specified main-terms logistic censoring model, per-node retention of at least 0.59 and one plan. In-sample fits, the density route, other node counts, a bounded outcome, survival outcomes and pooled censoring with a continuous policy stay experimental. Its `lmtp` comparison is pending and would read this package's own joint ratio, so it cannot check the retention model |
 
 ### Vector nodes with a continuous component
 

@@ -125,6 +125,7 @@ vector-modified-treatment-policies
 mtp-boundaries
 mtp-policy-variance
 mtp-pricing
+mtp-pricing-censored
 mtp-tuning
 sequentially-doubly-robust-estimation
 ordinary-longitudinal-msm-projection
