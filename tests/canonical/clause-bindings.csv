@@ -1868,3 +1868,20 @@ multi-arm-drtmle-foldwise,double_robustness,se ratio in union band,se/0.05
 stratified-drtmle-foldwise,stratified_contraction,control slope fails to contract,shrink_role/control/1.5
 stratified-drtmle-foldwise,stratified_contraction,rung se ratio in sanity band,se_low
 stratified-drtmle-foldwise,stratified_contraction,slope consistent with second order,contract
+mtp-policy-variance,policy_calibration,se ratio above clause,se_low
+mtp-policy-variance,policy_variance,se ratio above clause,se_low
+mtp-policy-variance,interval_calibration,noise se ratio below band,se_high
+mtp-policy-variance,interval_calibration,se ratio below band,se_high
+mtp-policy-variance,policy_calibration,coverage floor control below ceiling,se_high
+mtp-policy-variance,policy_calibration,se ratio below clause,se_high
+mtp-policy-variance,policy_calibration,se ratio clause,se_high
+mtp-policy-variance,policy_variance,coverage floor control below ceiling,se_high
+mtp-policy-variance,policy_variance,se ratio clause,se_high
+mtp-policy-variance,policy_variance,wald coverage below nominal,se_high
+mtp-policy-variance,interval_calibration,coverage in calibration band,bias
+mtp-policy-variance,policy_calibration,bias equivalent,bias
+mtp-policy-variance,policy_variance,bias equivalent,bias
+mtp-policy-variance,interval_calibration,se ratio in calibration band,se/0.05
+mtp-policy-variance,policy_calibration,coverage floor,coverage/0.5
+mtp-policy-variance,policy_variance,coverage floor,coverage/0.5
+mtp-policy-variance,policy_variance,coverage reaches nominal,coverage/0.925

@@ -1624,6 +1624,12 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "ratio_trim": _witness("test_each_draw_carries_the_x33_option"),
     "eliminate": _witness("test_each_draw_carries_the_eliminated_cause"),
     "competing_learner": _witness("test_each_draw_carries_the_eliminated_cause"),
+    # variance="policy_weighted" refuses repeats > 1 at construction (Fix-5).
+    "variance": (
+        "tests.unit.test_policy_variance",
+        "test_a_refused_setting_is_refused_at_construction",
+        None,
+    ),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")

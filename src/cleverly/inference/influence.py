@@ -1260,7 +1260,10 @@ class ParameterEstimate:
         if scale is not None:
             slope = scale.slope(self.psi)
             low, high = self._half_width_interval(
-                float(scale.forward(self.psi)), slope, df=None, margin=margin * slope
+                float(scale.forward(self.psi)),
+                slope,
+                df=None,
+                margin=margin * slope,
             )
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
