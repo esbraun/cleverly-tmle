@@ -417,6 +417,16 @@ def _composite_audit() -> Audit:
     )
 
 
+def _stratified_drtmle_foldwise_audit() -> Audit:
+    # No scan: DR-TMLE inherits the constant-arm-cell trigger, but no committed sample holds a
+    # constant arm-by-stratum cell. Regenerating all 4,000 samples of the primary scenario at
+    # n = 2,000 and reading ``constant_outcome_cells`` per stratum found none; the smallest
+    # minority-outcome count of any cell was 11 (review of the 0.2.5 release). The contraction
+    # ladder's cells read the marginal ate, a difference, whose interval is unchanged.
+    means = tuple(f"ey[{arm}][V={stratum}]" for stratum in (0, 1, 2) for arm in (1, 0))
+    return Audit(truth={"stratified_both_correct": means})
+
+
 def _pricing_audit() -> Audit:
     # No scan: a longitudinal level whose last-node regression reads a constant outcome takes
     # ``constant_node_plugin``, which the committed rows already record.  The range check
@@ -441,6 +451,7 @@ AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
     "mtp-pricing": _pricing_audit,
+    "stratified-drtmle-foldwise": _stratified_drtmle_foldwise_audit,
 }
 
 

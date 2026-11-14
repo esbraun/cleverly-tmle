@@ -82,6 +82,7 @@ row is red.  Otherwise the red is a defect suspect and is diagnosed.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from functools import cache
 from typing import Any
@@ -690,6 +691,24 @@ def _fails_to_contract(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judg
     return pf.Judged(iv.high - FIRST_ORDER_SLOPE, control_reading(iv) == FAILS_TO_CONTRACT)
 
 
+def _at_budget(clause: pf.Clause) -> pf.Clause:
+    """``clause`` with its candidates read on the rows its level verdict reads.
+
+    A level row reads its rung at a verdict budget (:data:`VERDICT_REPLICATES` in a declared run,
+    :func:`at_verdict_budget`), while the outer rungs hold more replications for the slopes.  The
+    row's own replicates and losses give that budget.  The candidates must read the same
+    replications, or at no loss they would not reproduce the complete case (F18).
+    """
+    inner = clause.candidates
+    assert inner is not None
+
+    def candidates(ctx: pf.Context, row: pd.Series) -> list[tuple[str, pf.Judged]]:
+        budget = int(row["replicates"]) + ctx.k(row)
+        return inner(dataclasses.replace(ctx, rows=at_verdict_budget(ctx.rows, budget)), row)
+
+    return dataclasses.replace(clause, candidates=candidates)
+
+
 def _rule() -> pf.FamilyRule:
     def level(ctx: pf.Context, row: pd.Series) -> bool:
         return str(row["role"]) == "positive" and not _is_rate(ctx, row)
@@ -703,12 +722,14 @@ def _rule() -> pf.FamilyRule:
         families=frozenset({FAMILY}),
         shared="summarize_properties",
         clauses=(
-            pf.se_interval_clause(
-                "rung se ratio in sanity band",
-                which="se_ratio",
-                judge=pf.band_judge(lambda ctx: ctx.margins.se_ratio_sanity),
-                seed=lambda ctx, row: stream_seed(ctx.record, FAMILY, str(row["cell"])),
-                applies=level,
+            _at_budget(
+                pf.se_interval_clause(
+                    "rung se ratio in sanity band",
+                    which="se_ratio",
+                    judge=pf.band_judge(lambda ctx: ctx.margins.se_ratio_sanity),
+                    seed=lambda ctx, row: stream_seed(ctx.record, FAMILY, str(row["cell"])),
+                    applies=level,
+                )
             ),
             pf.rate_slope_clause(
                 "slope consistent with second order",

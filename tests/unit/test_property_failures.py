@@ -2018,7 +2018,12 @@ class TestDifferential:
         control = (rows["role"] == "control").to_numpy()
         assert control.any() and (~control).any()
         keys = [rows["property"], rows["cell"]]
-        for kind in ("centre/control/0", "spread_role/control/4", "se_role/control/2"):
+        for kind in (
+            "centre/control/0",
+            "spread_role/control/4",
+            "shrink_role/control/1.5",
+            "se_role/control/2",
+        ):
             moved = property_failures.perturbed(rows, kind)
             pd.testing.assert_frame_equal(moved.loc[~control], rows.loc[~control])
             assert not moved.loc[control].equals(rows.loc[control]), kind
@@ -2029,6 +2034,24 @@ class TestDifferential:
         pd.testing.assert_series_equal(flipped["covered"][~control], rows["covered"][~control])
         shares = flipped.loc[control].groupby(["property", "cell"])["covered"].mean()
         assert np.allclose(shares, 0.5, atol=1.0 / 380)
+
+    def test_the_shrink_kind_contracts_one_role_within_its_family(self) -> None:
+        """A control's errors shrink by ``(n / n_min) ** -p``; the positives do not move."""
+        _, rows = self._ladder()
+        kind = f"shrink_role/control/{property_failures.CONTRACT_POWER:g}"
+        assert kind in property_failures.composed_perturbations()
+        rows = rows.assign(role=np.where(rows["n"] == rows["n"].max(), "control", rows["role"]))
+        control = (rows["role"] == "control").to_numpy()
+        assert control.any() and (~control).any() and rows["n"].nunique() > 1
+        moved = property_failures.perturbed(rows, kind)
+        pd.testing.assert_frame_equal(moved.loc[~control], rows.loc[~control])
+        n = rows["n"].astype(float)
+        factor = (
+            n / n.groupby(rows["property"]).transform("min")
+        ) ** -property_failures.CONTRACT_POWER
+        expected = (rows["estimate"] - rows["truth"]) * factor
+        assert np.allclose((moved["estimate"] - moved["truth"])[control], expected[control])
+        assert (factor[control] < 1.0).all()
 
     def test_the_rounding_kind_scales_the_standard_errors_of_one_role(self) -> None:
         _, rows = self._ladder()
