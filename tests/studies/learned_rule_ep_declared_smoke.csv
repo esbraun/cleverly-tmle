@@ -1,0 +1,8 @@
+group,fits,seconds_per_fit
+nonexc__S,2,2.387
+misspec__S,3,2.771
+optimal__S,3,2.225
+nonexc__L,3,38.23
+misspec__L,3,35.68
+optimal__L,3,33.47
+nonexc_L__validation_rule_control,3,0.8026

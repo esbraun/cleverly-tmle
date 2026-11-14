@@ -1641,7 +1641,8 @@ laws. Rows `T51` (the learned-rule value) and `T51.optimal` (the value of the op
 the treatment mechanism supplied, `treatment_probabilities=`) label those fits supported. A
 declared sieve, fixed size, schedule or final learner reads experimental through its own
 condition, because the key holds neither choice; the declared `learned-rule-ep-declared` study
-(`tests/studies/learned_rule_ep_declared.py`, not yet run) measures a fixed-size B-spline sieve and
+(`tests/studies/learned_rule_ep_declared.py`, not yet run; its declared run
+`python -m tests.canonical.learned_rule_ep_declared.regenerate` holds the red-cell readings) measures a fixed-size B-spline sieve and
 a shallow gradient-boosting final learner, and the condition goes when it is registered. An EP
 rule fit reports `rule_disagreement` for each split, as every learned rule does. Weights, clusters, fold targeting, `repeats`
 above 1, known regimes, a continuous outcome and, for the optimal value, an estimated $g$ read
