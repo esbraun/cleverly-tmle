@@ -689,6 +689,7 @@ class CurveDiagnostics:
         n_half_samples: int = 2000,
         alpha: float = 0.05,
         random_state: int | None = None,
+        max_memory_bytes: int | None = None,
     ) -> Any:
         """How much treating by the curve first gains over treating at random, on held-out rows.
 
@@ -719,6 +720,11 @@ class CurveDiagnostics:
             The intervals hold at ``1 - alpha``, and the band jointly over the grid.
         random_state : int or None
             Seed of the split, the refits and the draws; ``None`` uses 0.
+        max_memory_bytes : int or None
+            The most memory the half-sample draws may add above the arrays already held, in
+            bytes; ``None`` uses the memory available now.  The draws run in blocks sized to
+            it, and a request whose single draw would exceed it is refused before the refits.
+            It bounds the draws only, not the refits, and never lowers ``n_half_samples``.
 
         Returns
         -------
@@ -730,6 +736,8 @@ class CurveDiagnostics:
         CapabilityError
             If ``split`` is not a fraction (a fold average is refused), the producing fit
             repeats its cross-fitting split, or ``compare`` is asked of an engine fit.
+        MethodConfigurationError
+            If one half-sample draw at a time is predicted to exceed the memory budget.
 
         Examples
         --------
@@ -767,6 +775,9 @@ class CurveDiagnostics:
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
             TARGETING_SPLIT_REFUSAL,
+            check_draw_memory,
+            check_grid,
+            check_groups,
             check_targeting_settings,
             targeting_fit,
         )
@@ -816,6 +827,17 @@ class CurveDiagnostics:
         in_train[order[:n_train_units]] = True
         train = np.flatnonzero(in_train[inverse])
         evaluation = np.flatnonzero(~in_train[inverse])
+        grid_ = check_grid(grid)
+        check_draw_memory(
+            n=len(evaluation),
+            units=n_units - n_train_units,
+            blocks=len(evaluation),
+            scores=1 if other is None else 2,
+            draws=int(n_half_samples),
+            grid=grid_,
+            edges=check_groups(groups, grid_),
+            max_memory_bytes=max_memory_bytes,
+        )
         frame = self._frame(data)
         refit = estimator.refit(data.subset(train), random_state=seed)
         refit_curve = refit.effect_curve()
@@ -837,6 +859,7 @@ class CurveDiagnostics:
             route="split",
             n_train=len(train),
             score_curve=refit_curve,
+            max_memory_bytes=max_memory_bytes,
         )
 
 

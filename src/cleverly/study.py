@@ -5682,6 +5682,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         n_half_samples: int = 2000,
         alpha: float = 0.05,
         random_state: int | None = None,
+        max_memory_bytes: int | None = None,
         **overrides: Any,
     ) -> Any:
         """How much treating by an external priority score first gains over treating at random.
@@ -5719,6 +5720,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             The intervals hold at ``1 - alpha``, and the band jointly over the grid.
         random_state : int or None
             Seed of the ATE fit's folds and of the draws.
+        max_memory_bytes : int or None
+            The most memory the half-sample draws may add above the arrays already held, in
+            bytes; ``None`` uses the memory available now.  The draws run in blocks sized to
+            it, and a request whose single draw would exceed it is refused before the ATE fit.
+            It bounds the draws only, not the ATE fit, and never lowers ``n_half_samples``.
         **overrides : Any
             Settings of the ATE fit, as :meth:`estimate` takes them.
 
@@ -5733,6 +5739,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             If the estimand is not a :class:`ConditionalContrast` bound to a study, a score is
             not declared external (R13), or the fit repeats its cross-fitting split, targets
             by fold, evaluates by fold or bootstraps.
+        MethodConfigurationError
+            If one half-sample draw at a time is predicted to exceed the memory budget.
 
         Examples
         --------
@@ -5770,6 +5778,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .effect_modification import _resolve_pair
         from .targeting_curves import (
             TARGETING_REPEATS_REFUSAL,
+            check_draw_memory,
+            check_grid,
+            check_groups,
             check_targeting_settings,
             targeting_fit,
         )
@@ -5789,6 +5800,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             scores[compare] = self._external_score(compare, compare_computed_from, score_kind)
         data = self._study.data
         assert isinstance(data, CausalData)
+        grid_ = check_grid(grid)
+        check_draw_memory(
+            n=data.n,
+            units=data.n if data.cluster is None else int(np.unique(data.cluster).size),
+            blocks=max(int(np.unique(np.asarray(values)).size) for values in scores.values()),
+            scores=len(scores),
+            draws=int(n_half_samples),
+            grid=grid_,
+            edges=check_groups(groups, grid_),
+            max_memory_bytes=max_memory_bytes,
+        )
         pair = _resolve_pair(
             EffectModification(
                 Constant(),
@@ -5819,6 +5841,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             alpha=alpha,
             random_state=random_state,
             route="external",
+            max_memory_bytes=max_memory_bytes,
         )
 
     def available_methods(self) -> MethodAvailabilities:

@@ -408,6 +408,15 @@ fits the ATE on them only; the curve is that of the refit, not of the curve fitt
 A paired `compare=` column shares the draws, and the SE of a difference is the SD of the
 per-draw differences.
 
+**Memory.** The draws are made and reduced in blocks of about 64 MiB (`BLOCK_BYTES`), or one
+draw when a single draw takes more, so memory grows with the evaluation rows and not with
+$B \times n$. Each draw's keys, ranks and sums read only its own row of the random stream, so
+the block size never changes a draw: a seeded curve is the same whatever the blocks.
+`max_memory_bytes=` on both routes and on `control_values` caps what the draws add above the
+arrays already held; `None` uses the memory available now. It sets the block size and never
+lowers $B$, and a request whose single draw would exceed it raises `MethodConfigurationError`
+before the ATE fit. It does not bound the ATE fit or the pooled fluctuation.
+
 **Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
 a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
 199 rows read `experimental`, because the study calibrates no interval with fewer than 200 top
