@@ -96,7 +96,7 @@ def test_the_summary_whisker_spans_the_strata_after_weighting() -> None:
         for segment in artist.get_segments()
     ]
     expected = []
-    for (exposure, covariate), rows in _by_cell(balance, "confounding").items():
+    for rows in _by_cell(balance, "confounding").values():
         values = [abs(r.smd_weighted) for r in rows if np.isfinite(r.smd_weighted)]
         if len(values) > 1:
             expected.append((min(values), max(values)))
