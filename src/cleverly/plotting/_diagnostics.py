@@ -1822,15 +1822,18 @@ def influence(
     fraction, share, units, kish = _concentration(estimate.influence_curve, cluster)
     count = fraction.size - 1
     top = max(1, math.ceil(0.01 * count - 1e-12))
-    drawn = _line_points(fraction, share, top, limit)
+    # Every point is drawn from the arrays themselves: an index of every point would copy
+    # both of them, which at a million rows adds tens of MiB to the figure's peak memory.
+    thinned = limit is not None and limit < fraction.size
+    drawn = _line_points(fraction, share, top, limit) if thinned else None
     top_share = float(share[top])
     unit = "cluster" if units == "clusters" else "row"
     headline, point_label = _top_words(top, count, unit)
     fig, axis = _core.figure_for(ax, figsize=(5.2, 5.6))
     _diagonal(axis, 0.0, 1.0, label="Even spread")
     (curve,) = axis.plot(
-        fraction[drawn],
-        share[drawn],
+        fraction if drawn is None else fraction[drawn],
+        share if drawn is None else share[drawn],
         color=_core.PALETTE[0],
         linewidth=2.0,
         zorder=3,
@@ -1879,7 +1882,7 @@ def influence(
     ]
     if units == "clusters":
         found.append("Share of clusters: influence values are summed within each cluster first.")
-    if drawn.size < fraction.size:
+    if drawn is not None:
         found.append(
             f"Line drawn through {drawn.size} of {fraction.size} points, chosen evenly along its "
             f"length; the ranking, the top share and the Kish count use every {unit}."
