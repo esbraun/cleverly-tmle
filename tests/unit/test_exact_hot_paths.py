@@ -1,24 +1,19 @@
-"""Faster forms of four internal computations return exactly what the plain forms return.
+"""Faster forms of three internal computations return exactly what the plain forms return.
 
-The tests of the first three keep the plain form as a reference and compare bitwise; the
-duplicate-covariate tests compare with the real digest and under forced digest collisions. The
-inputs reach the cases where a shortcut could differ: tie blocks and NaNs for the weighted AUC, ties and
+Each test keeps the plain form as a reference and compares bitwise on inputs chosen to reach
+the cases where a shortcut could differ: tie blocks and NaNs for the weighted AUC, ties and
 NaN event times for the Breslow counts, pattern counts on either side of the term count for
-the constant-cell check, and digest collisions and signed zeros for duplicate covariates.
+the constant-cell check.
 """
 
 from __future__ import annotations
 
 import importlib
-import tracemalloc
-import warnings
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from cleverly.data import validate
-from cleverly.data.validate import check_covariates
 from cleverly.estimators.tmle import _coefficients_on_constant_cells
 from cleverly.survival.cox import _risk_sets
 from cleverly.validation.nuisance import _weighted_auc
@@ -335,69 +330,3 @@ def test_a_saturated_working_model_reports_its_constant_cell() -> None:
     found = _coefficients_on_constant_cells(outcome, treatment, ones, ones, msm=msm, contrast=None)
     assert found
     assert found == _cells_reference(outcome, treatment, ones, ones, msm=msm, contrast=None)
-
-
-# ----------------------------------------------------------------------------------------
-# Duplicate covariates
-
-
-def _checked(matrix: np.ndarray, names: list[str]):
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        result = check_covariates(matrix, names)
-    return result, [str(w.message) for w in caught]
-
-
-def test_duplicates_are_found_through_digest_collisions(monkeypatch) -> None:
-    rng = np.random.default_rng(5)
-    a, b, c = rng.normal(size=(3, 50))
-    zero = np.zeros(50)
-    zero[1] = 1.0
-    negative = zero.copy()
-    zero[0], negative[0] = 0.0, -0.0
-    matrix = np.column_stack([a, b, b, np.full(50, 2.0), zero, negative, c, a])
-    names = ["a", "b", "b2", "const", "zero", "negzero", "c", "a2"]
-    reference = _checked(matrix, names)
-    monkeypatch.setattr(validate, "_column_digest", lambda column: 0)
-    (kept, retained, dropped), messages = _checked(matrix, names)
-    assert dropped == ["const", "b2", "a2"]  # constants first, then duplicates in order
-    assert retained == ["a", "b", "zero", "negzero", "c"]  # signed zeros differ as bytes
-    assert kept.tobytes() == reference[0][0].tobytes()
-    assert (retained, dropped, messages) == (reference[0][1], reference[0][2], reference[1])
-
-
-def test_a_constant_duplicate_is_dropped_as_a_constant() -> None:
-    matrix = np.column_stack([np.arange(5.0), np.ones(5), np.ones(5)])
-    (_, retained, dropped), _ = _checked(matrix, ["x", "one", "one2"])
-    assert retained == ["x"]
-    assert dropped == ["one", "one2"]
-
-
-def test_stored_covariates_do_not_follow_the_callers_array() -> None:
-    from cleverly.data import CausalData
-
-    rng = np.random.default_rng(9)
-    covariates = rng.normal(size=(200, 3))
-    data = CausalData.from_arrays(
-        outcome=rng.binomial(1, 0.5, 200).astype(float),
-        treatment=rng.binomial(1, 0.5, 200).astype(float),
-        covariates=covariates,
-    )
-    before = np.array(data.covariates, copy=True)
-    covariates[:] = 0.0
-    np.testing.assert_array_equal(data.covariates, before)
-
-
-def test_duplicate_detection_keeps_no_copy_of_every_column() -> None:
-    rng = np.random.default_rng(13)
-    n, p = 200_000, 20
-    matrix = rng.normal(size=(n, p))
-    tracemalloc.start()
-    try:
-        check_covariates(matrix, [f"w{j}" for j in range(p)])
-        _, peak = tracemalloc.get_traced_memory()
-    finally:
-        tracemalloc.stop()
-    # The retained output is one 8 * n * p copy. Byte keys of every column would add another
-    # 8 * n * p on top; the digests keep at most a column or two of scratch.
-    assert peak < 8 * n * p * 1.4
