@@ -316,7 +316,14 @@ def test_a_transform_scales_both_variances(name: str) -> None:
         slope**2 * estimate.policy.policy_variance, rel=1e-12
     )
     assert mapped.variance == pytest.approx(slope**2 * estimate.variance, rel=1e-12)
-    assert mapped.variance_source == estimate.variance_source
+    # Under the natural regime the density ratio is 1, so the two variances tie: the curve's
+    # sample variance and the covariance's quadratic form then round apart in the last bits
+    # differently on each side of the map, and either label is right.
+    tied = estimate.policy.policy_variance == pytest.approx(
+        estimate.policy.influence_variance, rel=1e-12
+    )
+    if not tied:
+        assert mapped.variance_source == estimate.variance_source
 
 
 def test_a_transformed_contrast_equals_the_transform_of_the_contrast() -> None:
