@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e) and (h), X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -200,7 +200,7 @@ It moved each part that an established method or a natural extension carries to 
 | Grouped cross-fitting beyond point-treatment TMLE | clustered C-TMLE intervals beyond the parametric cells of X52 | asymptotic | C-TMLE refuses `id=`. [X51](#x51-c-tmle-point-estimates-for-further-targets) holds the clustered point estimates | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | Time-respecting cross-fitting | blocked-temporal and rolling-origin folds for a dependent calendar series | serial dependence | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval at an exceptional law; the full-refit bootstrap; a continuous treatment; a fold-evaluated `DRTMLE` learned rule; `CTMLE` with `learned_rule=`; a learned rule with missing outcomes or a missing treatment; an E-value for a learned-rule contrast | adaptive-optimum inference; asymptotic; regularity | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. [X11](#x11-learned-policy-follow-ups) holds the compositions that moved | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
-| Inference at a boundary node estimate | an interval in the rare-event local regime, where the node hazard shrinks with $n$ | asymptotic | the point estimate stands under the `constant_node_plugin` status. [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the interval at a fixed law | [F31](#f31-inference-at-a-boundary-node-estimate) |
+| Inference at a boundary node estimate | an interval in the rare-event local regime, where the node hazard shrinks with $n$; an interval for a fit outside the reach of the node-variance supplement | asymptotic | an `LTMLE` fit inside the reach adds the node-variance supplement. Any other fit keeps the point estimate under the `constant_node_plugin` status. [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurement at a fixed law | [F31](#f31-inference-at-a-boundary-node-estimate) |
 | Inference after quantile ratio trimming | an interval for a longitudinal TMLE whose per-node density ratios are trimmed at a fixed quantile, or a trim level that tends to 1 at stated rates, with its coverage | `LTMLE(ratio_trim=q)` reports the point estimate. A fit whose trim moves a positive ratio takes the `trimmed_ratio_plugin` status and reports the plug-in diagnostic only. `ratio_trim=None` keeps the untrimmed fit and its interval | [F30](#f30-inference-after-quantile-ratio-trimming) |
 | Finite-sample limits of clustered intervals | an interval below 4 clusters | arbitrary dependence | `few_cluster_plugin` from 3 to 9 positive-mass clusters, and to 19 for `LTMLE`, which shows a labelled $t_{J-2}$ interval. `no_cluster_variance_plugin` below 3. [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurements from 3 clusters up to those floors | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 | The `ctmleGlmnet` type-2 path | a type-2 candidate sequence and its fluctuation | algorithm definition. No published source defines the type-2 sequence, and the R code disagrees with itself | `strategy="lasso"` runs the C-TMLE1 construction only, and no keyword selects a type-2 path | [F29](#f29-the-ctmleglmnet-type-2-path) |
@@ -457,6 +457,13 @@ record of a reading, and it gates no release.
 The `F1-power-design` owner holds the power cell of the known-policy study, whose declared size
 gives it an exact power of 0.5365. It is a standing record of a reading, and it gates no release.
 
+The `X54-supplement-width` owner holds the primary rows of `boundary-node-ltmle` whose standard
+error is declared, before the run, to sit above the sanity band because the boundary-node
+supplement is a one-sided bound. It covers only the SE-ratio leg, and in the registered run it
+holds that leg of the always risk and the contrast. It is a standing record of a reading, and it
+gates no release. The study also declared a conditional owner for its `risk[never]` coverage leg,
+as F31's rare-event limit; that leg passed, so the owner was not needed and holds no row here.
+
 The `mtp-point-calibration` owner holds one calibration cell of the point modified-treatment-policy
 study. Its standard error is conservative, and the diagnosis finds no defect.
 
@@ -551,6 +558,7 @@ on new held-out laws.
 | `X92-paired-conservative` | the `interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified` cell of `targeting-curves`, the paired TOC(0.1) difference of two correlated scores, declared `reporting` before the run | reading `conservative, contracting`, declared before the run. With the true nuisances the oracle computation (`tests/studies/targeting_curves_oracle.csv`) read the half-sample SE ratio of this row at 1.063 at n = 2,000, 1.051 at 4,000 and 1.024 at 8,000. The run reads an SE ratio of 1.060 (99% interval 1.035 to 1.086) and coverage 0.963 (0.956 to 0.969). The row's one-sided gate, lower ends of 0.93 and 0.92, passes (`tests/unit/test_targeting_curves_design.py`). The owner closes when a re-declared cell at a size chosen before its run passes the two-sided band. Until then the cell stays published red under `reporting`, and the interval reads `supported` because it errs on the wide side |
 | `X93-upper-dose-calibration` | the paired `dose_response[h=2,a=3.5]` row of `dose-response-npcausal`, declared before the run as the upper-dose red signature | reading `pre-registered upper-dose over-report`. Every leg but calibration passes. The upper bound of the calibration excess is 0.0558, above the margin of 0.05. At dose 3.5 `cleverly`'s mean SE is 1.10 efficient SDs, its SE ratio 1.068 and its coverage 0.963, so its interval is too wide, not too narrow. The reflected pilot fits trace the excess to the pooled-hazard density of the dose. The owner asks for a dose density that does not over-report the SE at the upper dose. It closes when a re-declared comparison with that density passes the calibration leg at dose 3.5 |
 | `X93-failure-worst-case` | the paired `dose_response[h=2,a=2.5]` and `dose_response[h=2.5,a=3.5]` rows of `dose-response-npcausal`, diagnosed after the run | reading `failure-accounting worst case, a sizing miss`. On their complete cases both rows conclude equivalent. `ctseff` failed on six of 4,800 replications, and the failure accounting imputes those six at their worst case. That imputation lowers the calibration slack by 0.011 to 0.013, more than the complete-case slacks of 0.0111 and 0.0107, so both rows read unaccounted. The declaration sized the paired legs on complete cases and did not price the imputation in. The owner asks for a re-declared run whose size prices the worst case at the expected number of comparator failures. It closes when such a run passes both rows |
+| `X54-supplement-width` | the `interior_n200` truth rows `risk_regimen[always @ t=4]` and `ate_regimen[always vs never @ t=4]` of `boundary-node-ltmle`, declared before the run | reading `one-sided bound, wider by design`. On about half the draws the supplement adds a flagged node's variance at the exact one-sided binomial bound of its hazard, not at the hazard itself, so the reported standard error runs above the empirical spread. The registered run reads SE ratios of 1.261 (99% interval 1.160 to 1.370) and 1.171 (1.093 to 1.262), against the band's upper end of 1.20, with coverage 0.927 and 0.947 and both bias legs equivalent; the 2,000-draw pilot had read 1.29 and 1.19. The owner covers the SE-ratio leg only: a red coverage or bias leg on these rows is a defect suspect (`unowned_primary_failures` in `tests/studies/boundary_node_ltmle.py`). A standing record of a reading; the owner closes when an interval for a flagged node that is not a one-sided bound ships with its own registered study ([F31](#f31-inference-at-a-boundary-node-estimate)) |
 
 ## Detailed implementation contracts
 
@@ -1293,7 +1301,7 @@ Acceptance: a nonzero witness for each changed term; a registered study for each
 The cluster-as-unit theory is the same at 4 clusters as at 10. Each part below needs a registered
 measurement or a declared construction, not a theorem.
 [F28](#f28-finite-sample-limits-of-clustered-intervals) stays the owner id of the clustered red
-cells. Parts (d), (f) and (g) are delivered
+cells. Parts (d), (f), (g) and (i) are delivered
 ([delivered items](roadmap-delivered.md)).
 
 | part | request | the evidence that reopens it |
@@ -1303,7 +1311,6 @@ cells. Parts (d), (f) and (g) are delivered
 | (c) | a small-sample reference other than $t_{J-2}$ | a reference with its registered study. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. Fang et al., arXiv:2510.08438, Section 3.3, gives another |
 | (e) | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The few-cluster study measures it at 2, 4 and 6 clusters per fold, at equal sizes only, because `cv_evaluation=True` refuses clusters of unequal size |
 | (h) | complex nuisance learners at about 20 clusters | a registered study. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. The registered evidence uses parametric nuisance learners only |
-| (i) | an interval at a boundary node estimate, at a fixed law | a declared node-variance construction and a registered study where zero-event nodes are common. At a law with interior hazards, and a node risk set that grows linearly in $n$, a zero-event node has exponentially small probability. An interval that differs from the ordinary one only on that event is then valid at every fixed law under the shipped theorem. A law with a true node hazard of exactly 0 or 1 is neither interior nor in the local regime, so the construction must be conservative there, or F31 keeps that case |
 
 [F31](#f31-inference-at-a-boundary-node-estimate) keeps the rare-event regime, and F28 keeps fits
 below 4 clusters. Acceptance: each part's registered study passes under a declaration fixed before
@@ -2669,13 +2676,17 @@ The point estimate is the maximum-likelihood value, and `survtmle` reads such a 
 way. The node's term of the influence curve is then identically zero, although the true hazard
 there can be positive. So the plug-in standard error leaves that node's variance out.
 
-[X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) holds the
-interval at a fixed law. There a zero-event node has exponentially small probability, so the
-shipped theorem covers an interval that differs from the ordinary one only on that event.
+An `LTMLE` fit inside the reach of the node-variance supplement adds the node's variance at the
+exact binomial bound of its hazard, so it reports an interval. The registered study
+[`boundary-node-ltmle`](technical-reference/method-evidence/boundary-node-ltmle.md) measures that
+interval at a fixed law (X54 part (i), [delivered](roadmap-delivered.md)). F31 keeps the claims
+below: the rare-event regime, and fits outside the supplement's reach.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
 | an interval in the rare-event local regime, where the node hazard $h_n$ tends to 0 | asymptotic | a limit theorem for a TMLE parameter whose node hazard shrinks with $n$. Boundary theory, such as Andrews (1997), assumes the truth on the boundary. The review read its abstract only |
+| the coverage of the ordinary interval when no node is flagged but a node holds one or two events | asymptotic | the same regime seen from the other side: a node flagged with probability $f$ holds about $-\ln f$ expected events. `boundary-node-ltmle` publishes this coverage, and its declaration reads a shortfall there as this limit, not as a failure of the supplement |
+| an interval at a boundary node for a fit outside the supplement's reach | asymptotic | a bound for a dropped node term that is not one residual times one known coefficient: SDR, IPSI, the baselines, repeated fold draws, `variance="policy_weighted"`, drift-corrected, collaborative, separable, learned-rule and fold-average fits, isotonic projections and continuous outcomes ([scope and refusals](technical-reference/scope-and-refusals.md)) |
 
 ### F32. Fold policies that read the treatment or the outcome
 

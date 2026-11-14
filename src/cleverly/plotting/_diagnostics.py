@@ -1278,7 +1278,11 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
     from .._summary._estimates import plain_support_reason
     from .._summary.vocabulary import BOOTSTRAP_DIAGNOSTIC
-    from ..inference.influence import BOOTSTRAP_INTERVAL_LABELS, bootstrap_is_diagnostic
+    from ..inference.influence import (
+        BOOTSTRAP_INTERVAL_LABELS,
+        bootstrap_diagnostic_reason,
+        bootstrap_is_diagnostic,
+    )
 
     summary = estimate.bootstrap
     kind = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
@@ -1286,12 +1290,7 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     low, high = (float(value) for value in summary.ci)
     found: list[str] = []
     if bootstrap_is_diagnostic(estimate):
-        if not estimate.supplies_inference:
-            reason = "withheld"
-        elif summary.below_floor:
-            reason = "below_floor"
-        else:
-            reason = "declared"
+        reason = bootstrap_diagnostic_reason(estimate)
         floor = summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS
         found.append(BOOTSTRAP_DIAGNOSTIC[reason].format(names=name, clusters=floor))
         spread_word, limits_word = "bootstrap SD", f"{kind} range (diagnostic)"
@@ -1672,8 +1671,9 @@ def influence(
 
     The curve describes the stored influence values. On a fit with several cross-fitting
     repeats the stored curve is the median draw's (the mean of the two central draws for
-    an even count), and on a fit evaluated within folds the reported variance is not
-    computed from this curve; :func:`~cleverly.plotting.notes` says so.
+    an even count), and on a fit evaluated within folds, or on an estimate that adds the
+    boundary-node supplement, the reported variance is not computed from this curve alone;
+    :func:`~cleverly.plotting.notes` says so.
 
     Parameters
     ----------
@@ -1861,6 +1861,12 @@ def influence(
                 "This fit evaluates the estimate within folds, so this curve is not the "
                 "reported variance."
             )
+    if getattr(estimate, "node", None) is not None:
+        found.append(
+            "This estimate's recursion read a node with no event (or only events), whose term "
+            "the influence curve leaves out; the reported variance adds a bound on that term, "
+            "so this curve is not the reported variance."
+        )
     if str(estimate.scale) == "ratio":
         found.append("Influence values are on the log scale.")
     found.extend(_core.estimate_interval(estimate, label).notes)
