@@ -322,6 +322,10 @@ def test_the_influence_curve_variance_is_the_shipped_interval() -> None:
 
 # ------------------------------------------------------------------------- T-a9
 
+#: The opening of the relative-SD floor's reason.  Plain "sparse" also appears in the restricted
+#: means' early-time reason, so it would not tell the floor's reason apart.
+SPARSE_REASON = "The influence curve of this estimate is sparse"
+
 
 @pytest.mark.parametrize("scale", ["level", "difference"])
 def test_the_relative_sd_floor_labels_risks_and_differences(
@@ -351,10 +355,10 @@ def test_the_relative_sd_floor_labels_risks_and_differences(
     assert "continuous-survival-variance" in above.reason
     assert label(float("nan")).label == "experimental"  # an undefined spread is not below it
     # Ratios and restricted means keep their own labels (review 4, m9).
-    assert "sparse" not in label(0.5, scale="ratio").reason
-    assert "sparse" not in label(0.5, restricted=True, restricted_horizons=1).reason
+    assert SPARSE_REASON not in label(0.5, scale="ratio").reason
+    assert SPARSE_REASON not in label(0.5, restricted=True, restricted_horizons=1).reason
     # Below the share floor the early floor applies, and it is pending.
-    assert "sparse" not in label(0.5, share=0.3).reason
+    assert SPARSE_REASON not in label(0.5, share=0.3).reason
     monkeypatch.setattr(result_module, "MEASURED_REL_SD_EARLY", 0.3)
     assert "sparse" in label(0.5, share=0.3).reason
 
@@ -373,7 +377,7 @@ def test_the_pending_floor_labels_nothing_and_the_engine_passes_each_curves_spre
         refit = _engine().fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
     seen = {"above": 0, "below": 0}
     for name, estimate in refit.items():
-        sparse = "sparse" in estimate.support.reason
+        sparse = SPARSE_REASON in estimate.support.reason
         risk = name.startswith(("cif_regimen", "ate_regimen"))
         relative_sd = estimate.switched.relative_sd
         assert sparse == (risk and relative_sd > floor), name
