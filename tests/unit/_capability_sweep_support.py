@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -65,6 +66,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, Refusal
 from cleverly.interventions import Incremental, ModifiedPolicy, Shift
 from cleverly.learners import make_folds
+from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -337,6 +339,43 @@ def fit_clustered_adaptive() -> Any:
         estimands=("ey1", "ey0", "ate"),
     )
     return TMLE(**settings).fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+def fit_clustered_ltmle_adaptive() -> Any:
+    """A cross-fitted clustered ``LTMLE`` at 20 clusters with a regression tree outcome.
+
+    ``make_longitudinal(600, 12)`` in 20 clusters of 30 rows, five outer folds. 20 clusters put
+    the fit on the ``t`` tier, where row ``G07`` covers it, and the tree makes its key carry
+    ``adaptive_nuisance`` (X54 part (h)). The qualifier moves only the support label, so every
+    row that the in-sample ``ltmle`` kind answers runs here.
+    """
+    from sklearn.tree import DecisionTreeRegressor
+
+    frame, _ = make_longitudinal(n=600, seed=12)
+    frame["cluster"] = np.arange(len(frame)) // 30
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        reference="never",
+        outcome_learner=DecisionTreeRegressor(max_depth=3, min_samples_leaf=20, random_state=0),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+        learner_folds=2,
+        random_state=5,
+        simultaneous=False,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator.fit(
+            frame,
+            outcome="Y",
+            id="cluster",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        )
 
 
 def fit_incremental() -> Any:
@@ -1319,6 +1358,9 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, *_POINT),
+    # The t tier with an adaptive outcome learner on a cross-fitted clustered fit: the
+    # qualifier changes the support label alone (X54 part (h)).
+    "ltmle+adaptive_nuisance": _kind(fit_clustered_ltmle_adaptive, *_READ, *_POINT),
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
@@ -1618,6 +1660,7 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle+adaptive_nuisance",
                 "gcomp",
                 "ipw",
                 "gformula",

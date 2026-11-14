@@ -150,7 +150,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         "Fix-15",
         (
             "missing:eliminated",
-            "splitting:cross_fitted",
             "splitting:fold_targeted_evaluated",
             "splitting:repeated",
             "treatment:6",

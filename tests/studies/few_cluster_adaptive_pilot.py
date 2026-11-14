@@ -1,27 +1,42 @@
 r"""The pilot of ``few-cluster-adaptive-learners``, run before the declaration on its own stream.
 
-Each draw cell (law and cluster count) is fitted on :data:`PILOT_DRAWS` draws by every fit of
-the study except the stacked default-library ``TMLE``, which is fitted on the first
-:data:`PILOT_STACKED_DRAWS` of them, because it costs about four times the in-sample fit. The
-L3 cell fits both of its fits on :data:`PILOT_LTMLE_DRAWS` draws. The rows are the study's own
-(:func:`tests.studies.few_cluster_adaptive_properties.fit_rows`); a fit that raises writes one
-row per arm with ``lost`` set and ``covered = 0``.
+Every draw cell (law and cluster count) is fitted on :data:`PILOT_DRAWS` draws by every fit of
+the study: the default-library fits, their GLM baselines and both controls on L1 and L2, and
+both ``LTMLE`` fits on L3. The rows are the study's own
+(:func:`tests.studies.few_cluster_adaptive_properties.fit_rows`), with each key's wall and CPU
+seconds; a fit that raises writes one row per arm with ``lost`` set and ``covered = 0``. The
+draws come from :data:`PILOT_SEED`, a stream no other study reads.
 
-The pilot budget was about 1.5 CPU-hours (the row thread's cap for this pilot), far below the
-plan's 400 draws per cell (22 CPU-hours). Its readings therefore enter the design test as
-plug-in pass probabilities with wide uncertainty, and the declaration says so
-(``tests/canonical/few_cluster_adaptive_learners/regenerate.py``).
+The plan's pilot is 400 draws per cell (plan X54 section 5.4, design review B1): at 400 draws a
+coverage reading has an SE of about 0.011 and a log variance ratio about 0.06, enough to tell a
+coverage of 0.95 from 0.90 and a variance ratio of 0.52 from 1. Budget, from the measured CPU
+seconds per fit (stacked default library 17.8 to 23.3, in sample 3.8 to 5.9, cross-fitted
+``LTMLE`` about 26, the stacked control about 0.5, every GLM fit under 0.1): about 14 CPU-h
+stacked, 3 in sample, 3 for L3 and under 1 for the rest, so about 20 CPU-h, and 24 if the
+``LTMLE`` fit takes the 62 s a shared machine read. That is about 1.5 hours on 16 cores.
 
-Run with ``python -m tests.studies.few_cluster_adaptive_pilot --output <file.csv.gz> --jobs J``.
+Run from the repository root, with every BLAS and OpenMP thread variable at 1::
+
+    python -m tests.studies.few_cluster_adaptive_pilot --output <directory> --jobs <cores>
+
+The run writes one checkpoint file per chunk of :data:`CHUNK_DRAWS` draws of one fit under
+``<directory>/chunks/`` as each chunk finishes, and skips every chunk already written, so the
+same command resumes a stopped run. When every chunk is present it writes
+``<directory>/pilot.csv.gz``, the file the design test reads from
+``tests/canonical/few_cluster_adaptive_learners/pilot.csv.gz``, and ``pilot.json`` with the
+commit, the draw count and the CPU seconds.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import subprocess
 import time
 import zlib
 from collections.abc import Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Final
 
@@ -34,9 +49,14 @@ from tests.studies import few_cluster_adaptive_properties as properties
 
 #: The seed of the pilot stream, used by no other study.
 PILOT_SEED: Final[int] = 20264583
-PILOT_DRAWS: Final[int] = 60
-PILOT_STACKED_DRAWS: Final[int] = 20
-PILOT_LTMLE_DRAWS: Final[int] = 20
+#: Draws per cell and fit (plan 5.4).
+PILOT_DRAWS: Final[int] = 400
+#: Draws per checkpoint chunk: one file per ``(law, J, fit)`` and block of this many draws.
+CHUNK_DRAWS: Final[int] = 20
+#: The fits by cost, heaviest first, so the run's tail is short fits.
+_HEAVY: Final[dict[str, int]] = {"tmle_stacked": 0, "ltmle_crossfit": 0, "tmle_in_sample": 1}
+
+_Chunk = tuple[str, int, str, int]
 
 
 def draw_seed(law: str, clusters: int, replicate: int) -> np.random.SeedSequence:
@@ -46,23 +66,30 @@ def draw_seed(law: str, clusters: int, replicate: int) -> np.random.SeedSequence
 
 
 def pilot_keys() -> list[tuple[str, int, int, str]]:
-    """Every ``(law, J, replicate, fit)`` the pilot fits, the expensive fits first."""
-    out = []
-    for law, clusters in study.DRAW_CELLS:
-        if law == study.LTMLE_LAW:
-            out += [
-                (law, clusters, r, fit)
-                for r in range(PILOT_LTMLE_DRAWS)
-                for fit in study.LTMLE_FITS
-            ]
-            continue
-        for r in range(PILOT_DRAWS):
-            for fit in study.POINT_FITS:
-                if fit == "tmle_stacked" and r >= PILOT_STACKED_DRAWS:
-                    continue
-                out.append((law, clusters, r, fit))
-    heavy = {"tmle_stacked": 0, "ltmle_crossfit": 0, "tmle_in_sample": 1}
-    return sorted(out, key=lambda key: (heavy.get(key[3], 2), -key[1]))
+    """Every ``(law, J, replicate, fit)`` the pilot fits."""
+    return [
+        (law, clusters, r, fit)
+        for law, clusters in study.DRAW_CELLS
+        for fit in study.fits_of(law)
+        for r in range(PILOT_DRAWS)
+    ]
+
+
+def pilot_chunks() -> list[_Chunk]:
+    """Every ``(law, J, fit, first replicate)`` chunk, the expensive fits first."""
+    chunks = [
+        (law, clusters, fit, start)
+        for law, clusters in study.DRAW_CELLS
+        for fit in study.fits_of(law)
+        for start in range(0, PILOT_DRAWS, CHUNK_DRAWS)
+    ]
+    return sorted(chunks, key=lambda c: (_HEAVY.get(c[2], 2), -c[1], c[0], c[2], c[3]))
+
+
+def chunk_path(directory: Path, chunk: _Chunk) -> Path:
+    """The checkpoint file of one chunk."""
+    law, clusters, fit, start = chunk
+    return directory / "chunks" / f"{law}__j{clusters}__{fit}__{start:04d}.csv.gz"
 
 
 def _frame(law: str, clusters: int, replicate: int) -> pd.DataFrame:
@@ -71,9 +98,9 @@ def _frame(law: str, clusters: int, replicate: int) -> pd.DataFrame:
 
 
 def key_rows(key: tuple[str, int, int, str]) -> list[dict[str, Any]]:
-    """The rows of one pilot key, with its wall time; a raising fit writes lost rows."""
+    """The rows of one pilot key, with its wall and CPU seconds; a raising fit writes lost rows."""
     law, clusters, replicate, fit = key
-    start = time.perf_counter()
+    start, cpu = time.perf_counter(), time.process_time()
     frame = _frame(law, clusters, replicate)
     try:
         rows = properties.fit_rows(
@@ -99,16 +126,54 @@ def key_rows(key: tuple[str, int, int, str]) -> list[dict[str, Any]]:
             }
             for arm, role in study.ARMS[fit]
         ]
-    seconds = time.perf_counter() - start
-    return [{**row, "lost": lost, "seconds": seconds} for row in rows]
+    seconds, cpu_seconds = time.perf_counter() - start, time.process_time() - cpu
+    return [{**row, "lost": lost, "seconds": seconds, "cpu_seconds": cpu_seconds} for row in rows]
 
 
-def run(jobs: int) -> pd.DataFrame:
-    """Every pilot row."""
-    keys = pilot_keys()
+def run_chunk(directory: Path, chunk: _Chunk) -> Path:
+    """Fit one chunk and write its checkpoint atomically."""
+    law, clusters, fit, start = chunk
+    stop = min(start + CHUNK_DRAWS, PILOT_DRAWS)
+    rows = [row for r in range(start, stop) for row in key_rows((law, clusters, r, fit))]
+    path = chunk_path(directory, chunk)
+    partial = path.with_name(path.name.removesuffix(".csv.gz") + ".partial.csv.gz")
+    pd.DataFrame(rows).to_csv(partial, index=False, float_format="%.17g", compression="gzip")
+    os.replace(partial, path)
+    return path
+
+
+def _commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def run(directory: Path, jobs: int) -> pd.DataFrame:
+    """Fit every chunk not yet checkpointed, then gather every pilot row.
+
+    Parameters
+    ----------
+    directory : pathlib.Path
+        The output directory; its ``chunks/`` folder holds the checkpoints.
+    jobs : int
+        Worker processes.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Every pilot row, sorted by cell and replicate.
+    """
+    (directory / "chunks").mkdir(parents=True, exist_ok=True)
+    todo = [chunk for chunk in pilot_chunks() if not chunk_path(directory, chunk).exists()]
     with ProcessPoolExecutor(max_workers=jobs) as pool:
-        chunks = list(pool.map(key_rows, keys, chunksize=1))
-    rows = pd.DataFrame([row for chunk in chunks for row in chunk])
+        futures = [pool.submit(run_chunk, directory, chunk) for chunk in todo]
+        for done, future in enumerate(as_completed(futures), start=1):
+            print(f"{done}/{len(todo)} chunks: {future.result().name}", flush=True)
+    frames = [pd.read_csv(chunk_path(directory, chunk)) for chunk in pilot_chunks()]
+    rows = pd.concat(frames, ignore_index=True)
     return rows.sort_values(["cell", "replicate"], ignore_index=True)
 
 
@@ -190,16 +255,17 @@ def pilot_readings(
 ) -> pd.DataFrame:
     """The pilot reading and predictive pass probability of each declared clause, by cell.
 
-    One row per positive and per control. A lost fit reads a miss in coverage, as the declared
-    rule's worst case does. Columns: the pilot statistic, and ``p_<clause>`` the predictive
-    probability that the clause passes at ``study_draws`` draws.
+    One row per ``t_reference`` cell (gated or reported) and per control. A lost fit reads a
+    miss in coverage, as the declared rule's worst case does. Columns: the pilot statistic,
+    ``p_<clause>`` the predictive probability that the clause passes at ``study_draws`` draws,
+    and ``p_passed`` the product over a gated row's clauses (absent on a reported row).
     """
     out = []
     groups = dict(tuple(rows.groupby("cell", sort=False)))
     for cell, group in groups.items():
         fit, law, clusters, arm = properties.parse(str(cell))
         role = str(group["role"].iloc[0])
-        if role == "diagnostic":
+        if role == "diagnostic" and arm != "t_reference":
             continue
         n = len(group)
         lost = int(_lost(group).sum())
@@ -216,6 +282,9 @@ def pilot_readings(
             "lost": lost,
             "coverage": covered / n,
             "seconds": float(group["seconds"].mean()),
+            "cpu_seconds": float(group["cpu_seconds"].mean())
+            if "cpu_seconds" in group
+            else float("nan"),
         }
         kept = group.loc[~_lost(group)]
         shown = kept.loc[kept["withheld"] < 0.5]
@@ -247,8 +316,10 @@ def pilot_readings(
             single = single[np.isfinite(single)]
             record["sl_single_share"] = float(single.mean()) if single.size else float("nan")
             passes = ["p_g1", "p_shown", "p_g2", "p_variance_ratio"]
-            if properties.noninferiority_gated(str(cell)):
-                glm = groups.get(properties.glm_cell(str(cell)))
+            glm = groups.get(properties.glm_cell(str(cell)))
+            if glm is not None:
+                # The paired difference is published on every default-library row (L1, L2, L3);
+                # its clause is gated on the stacked L1 rows only.
                 paired = group.merge(glm, on="replicate", suffixes=("", "_glm"))
                 gained = int(((paired["covered"] > 0) & (paired["covered_glm"] <= 0)).sum())
                 dropped = int(((paired["covered"] <= 0) & (paired["covered_glm"] > 0)).sum())
@@ -263,8 +334,10 @@ def pilot_readings(
                     unit / np.sqrt(study_draws),
                     properties.NONINFERIORITY_MARGIN,
                 )
-                passes.append("p_noninferiority")
-            record["p_passed"] = float(np.prod([record[p] for p in passes]))
+                if properties.noninferiority_gated(str(cell)):
+                    passes.append("p_noninferiority")
+            if role == "positive":
+                record["p_passed"] = float(np.prod([record[p] for p in passes]))
         elif arm == "iid_t_control":
             positive = groups[study.cell_name(fit, law, clusters, "t_reference")]
             paired = kept.merge(positive, on="replicate", suffixes=("", "_t"))
@@ -319,11 +392,24 @@ def _log_se_ratio(errors: np.ndarray, std_error: np.ndarray) -> tuple[float, flo
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True, help="the output directory")
     parser.add_argument("--jobs", type=int, default=1)
     arguments = parser.parse_args(argv)
-    rows = run(arguments.jobs)
-    rows.to_csv(arguments.output, index=False, float_format="%.17g")
+    rows = run(arguments.output, arguments.jobs)
+    rows.to_csv(arguments.output / "pilot.csv.gz", index=False, float_format="%.17g")
+    parts = rows["cell"].str.split("__")
+    keys = rows.assign(fit=parts.str[0], law=parts.str[1], J=parts.str[2]).drop_duplicates(
+        ["fit", "law", "J", "replicate"]
+    )
+    record = {
+        "commit": _commit(),
+        "pilot_seed": PILOT_SEED,
+        "draws": PILOT_DRAWS,
+        "rows": len(rows),
+        "lost_rows": int((rows["lost"].notna() & (rows["lost"].astype(str) != "")).sum()),
+        "cpu_seconds": float(keys["cpu_seconds"].sum()),
+    }
+    (arguments.output / "pilot.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
 if __name__ == "__main__":

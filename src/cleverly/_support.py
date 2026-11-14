@@ -38,6 +38,7 @@ from ._inference_status import (
 from ._refusal import Refusal
 
 __all__ = [
+    "ADAPTIVE_IN_SAMPLE_REASON",
     "ADAPTIVE_NUISANCE",
     "DEFAULT_BAND_OPTION",
     "KEY_AXES",
@@ -551,17 +552,32 @@ def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
     return "parametric" if type(learner) in _parametric_classes() else "adaptive"
 
 
-#: The qualifier of a clustered fit on the ``t`` tier whose nuisance learners include a
-#: data-adaptive one (X54 part (h)). :func:`adaptive_nuisance` decides it. A row that does not
-#: declare it still covers a fit that carries it (:data:`SOFT_QUALIFIERS`), so the qualifier
-#: changes a label only through a measured shortfall in
-#: :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`.
+#: The qualifier of a clustered fit that reports a cluster interval (the ``t`` and ``clustered``
+#: tiers) and whose nuisance learners include a data-adaptive one (X54 part (h)).
+#: :func:`adaptive_nuisance` decides it. A row that does not declare it still covers a fit that
+#: carries it (:data:`SOFT_QUALIFIERS`), so the qualifier changes a label only through
+#: :func:`adaptive_nuisance_shortfall`: by theory for an in-sample fit on the ``t`` tier, and
+#: through a measured shortfall in :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`.
 ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
 
 #: Qualifiers that a row which does not declare them still covers. Each records a property of
 #: the fit that a registered study reads as a measured limit, not as a configuration the rows
 #: must name.
 SOFT_QUALIFIERS: Final[frozenset[str]] = frozenset({ADAPTIVE_NUISANCE})
+
+#: The dependence tiers whose fits report a cluster interval, which :data:`ADAPTIVE_NUISANCE`
+#: can qualify.
+_INTERVAL_TIERS: Final[frozenset[str]] = frozenset({"t", "clustered"})
+
+#: The theory reason of an in-sample ``t``-tier fit with an adaptive nuisance learner.
+ADAPTIVE_IN_SAMPLE_REASON: Final[str] = (
+    "Row {row} is measured with parametric nuisance learners only below 40 clusters, and an "
+    "in-sample fit with an adaptive nuisance learner has no Donsker argument: each learner, "
+    "and each Super Learner candidate, predicts from its fit to the full sample, so the "
+    "residuals the interval reads shrink at any cluster count. Cross-fitting "
+    "(cross_fit=True) removes that term (few-cluster-adaptive-learners reports the in-sample "
+    "cells)."
+)
 
 
 def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
@@ -979,8 +995,10 @@ def point_key(
             options["tuned_cap"] = True
 
     dependence = _dependence(_positive_mass_clusters(data), MINIMUM_INTERVAL_CLUSTERS)
-    if dependence == "t" and adaptive_nuisance(_point_nuisance_learners(estimator, data)):
-        # X54 part (h): the few-cluster evidence of every t-tier row fits parametric nuisances.
+    if dependence in _INTERVAL_TIERS and adaptive_nuisance(
+        _point_nuisance_learners(estimator, data)
+    ):
+        # X54 part (h): the clustered evidence of every row fits parametric nuisances.
         qualifiers.add(ADAPTIVE_NUISANCE)
 
     key = SupportKey(
@@ -1106,7 +1124,7 @@ def longitudinal_key(
         if separable_first is not None
         else tuple(known_factors)
     )
-    if dependence == "t" and adaptive_nuisance(
+    if dependence in _INTERVAL_TIERS and adaptive_nuisance(
         _longitudinal_nuisance_learners(estimator, data, qualifiers)
     ):
         # X54 part (h), as for a point fit.
@@ -1604,13 +1622,16 @@ def support_for(
 
 
 def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> str | None:
-    """The measured few-cluster shortfall of a fit with an adaptive nuisance learner, if any.
+    """The shortfall of a clustered fit with an adaptive nuisance learner, if any.
 
-    A fit whose key carries ``adaptive_nuisance`` and whose row has an entry in
-    :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS` takes the entry's sentence for
-    every kind but ``point`` when it reads fewer positive-mass clusters than the entry's
-    ``below`` count. The sentence makes the estimate experimental; its interval stays shown
-    (X54 part (h), plan section 3.5).
+    It applies to every kind but ``point``, on a fit whose key carries ``adaptive_nuisance`` and
+    has a row. An in-sample fit on the ``t`` tier takes :data:`ADAPTIVE_IN_SAMPLE_REASON` by
+    theory: no Donsker argument covers it at any cluster count, and its row's evidence fits
+    parametric nuisances (X54 part (h), M2 of its design review). Any other fit takes the
+    sentence of its row's entry in :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`
+    when it reads fewer positive-mass clusters than the entry's ``below`` count, or at every
+    count when ``below`` is ``None``. The sentence makes the estimate experimental; its
+    interval stays shown.
 
     Parameters
     ----------
@@ -1627,11 +1648,16 @@ def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> s
     from ._support_rows import ADAPTIVE_NUISANCE_SHORTFALLS
 
     row = classification.row
-    if row is None or kind == "point" or ADAPTIVE_NUISANCE not in classification.key.qualifiers:
+    key = classification.key
+    if row is None or kind == "point" or ADAPTIVE_NUISANCE not in key.qualifiers:
         return None
+    if key.dependence == "t" and "in_sample" in key.splitting:
+        return ADAPTIVE_IN_SAMPLE_REASON.format(row=row.id)
     entry = ADAPTIVE_NUISANCE_SHORTFALLS.get(row.id)
     clusters = classification.clusters
-    if entry is None or clusters is None or clusters >= entry.below:
+    if entry is None or clusters is None:
+        return None
+    if entry.below is not None and clusters >= entry.below:
         return None
     return entry.sentence(row.id)
 

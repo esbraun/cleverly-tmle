@@ -2542,6 +2542,13 @@ class AdaptiveNuisanceShortfall:
         str
             One sentence.
         """
+        if self.below is None:
+            return (
+                f"Row {row_id} is measured with parametric nuisance learners only: the "
+                "registered evidence with the default learner library fails at "
+                f"{self.counts} clusters for {self.splitting}, and no study measures a larger "
+                "count (few-cluster-adaptive-learners)."
+            )
         return (
             f"Row {row_id} is measured with parametric nuisance learners only below 40 "
             "clusters: the registered few-cluster evidence with the default learner library "

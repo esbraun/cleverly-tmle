@@ -475,6 +475,14 @@ the reason the stacked point is the only fold aggregation without it.
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
 
+An in-sample fit at 10 to
+39 clusters whose nuisance learners include a data-adaptive one, the default library among them,
+is experimental with its interval shown. Each learner, and each Super Learner candidate, predicts
+from its fit to the full sample, so the residuals the interval reads shrink at any cluster count,
+and no Donsker argument covers the fit. A cross-fitted fit keeps its row's label until
+`few-cluster-adaptive-learners` measures it. The support key records the case as the qualifier
+`adaptive_nuisance` (`cleverly._support.adaptive_nuisance_shortfall`).
+
 The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
 reported baseline stratum. Its upper bound, 9 (19 for `LTMLE`), is
 one below the smallest count that the registered few-cluster study measures for that fit

@@ -27,21 +27,26 @@ fit                        construction
 ``glm_in_sample``          in-sample ``TMLE``, main-terms logistic outcome and propensity
 ``glm_stacked``            stacked ``TMLE`` with those GLMs
 ``interpolating_control``  in-sample ``TMLE``, an unpruned tree outcome, logistic propensity
-``stacked_control``        stacked ``TMLE`` whose out-of-fold outcome predictions are the
-                           unpruned tree fitted on the full sample (:class:`FullSampleTree`)
+``stacked_control``        stacked ``TMLE`` whose out-of-fold outcome predictions are an
+                           unpruned random forest fitted on the full sample
+                           (:class:`FullSampleForest`)
 =========================  ===================================================================
 
 On L3 at 20 clusters: ``ltmle_crossfit`` (cross-fitted ``LTMLE``, 5 folds, the default library
 for every outcome node, the known mechanisms) and ``ltmle_glm`` (the committed subject, the
 quasi-binomial GLM).
 
-**Arms.** A default-library fit publishes ``t_reference`` (positive: the reported interval),
-``iid_t_control`` (control: the same point and t quantile with the IID row SE, the two-clause
-rule of the registered few-cluster studies) and ``wang_inflated`` (reported: candidate (B) of
-part (c), the variance times :math:`J/(J-p)` on :math:`t_{J-p}` with :math:`p = \max(2, d) = 2`).
-A GLM fit publishes ``glm_reference`` (reported; the paired non-inferiority clause of the L1
-positives reads it). Each control fit publishes its own arm, a must-fail control. The rules are
-those of :mod:`tests.studies.few_cluster_adaptive_properties`.
+**Arms.** A default-library fit publishes ``t_reference`` (the reported interval),
+``iid_t_control`` (the same point and t quantile with the IID row SE, the two-clause rule of
+the registered few-cluster studies) and ``wang_inflated`` (reported: candidate (B) of part (c),
+the variance times :math:`J/(J-p)` on :math:`t_{J-p}` with :math:`p = \max(2, d) = 2`). On the
+gated fits (:data:`POSITIVE_FITS`: stacked ``TMLE`` and cross-fitted ``LTMLE``) the first is
+positive and the second a control. The in-sample default-library fit is reported only: it takes
+the ``adaptive_nuisance`` shortfall by theory (design review M2), and its rows publish the
+same readings, among them the paired coverage difference to the GLM arm on L1 and L2. A GLM fit
+publishes ``glm_reference`` (reported; the paired non-inferiority clause of the stacked L1
+positives reads it). ``stacked_control`` is a must-fail control; ``interpolating_control`` is
+reported. The rules are those of :mod:`tests.studies.few_cluster_adaptive_properties`.
 
 **Primary.** L1 at 20 clusters, stacked default-library ``TMLE``, the ATE, 1,000 replications.
 No comparator fits a few-cluster TMLE with a Super Learner and a t reference, so the record
@@ -59,6 +64,7 @@ from typing import Any, Final
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
@@ -110,20 +116,24 @@ POINT_FITS: Final[tuple[str, ...]] = (
     "stacked_control",
 )
 LTMLE_FITS: Final[tuple[str, ...]] = ("ltmle_crossfit", "ltmle_glm")
-#: The default-library fits, whose ``t_reference`` arm is positive.
+#: The default-library fits. Each publishes its interval, its IID control and candidate (B).
 ADAPTIVE_FITS: Final[tuple[str, ...]] = ("tmle_in_sample", "tmle_stacked", "ltmle_crossfit")
+#: The default-library fits whose ``t_reference`` arm is gated (positive). The in-sample fit is
+#: reported only: it takes the ``adaptive_nuisance`` shortfall by theory
+#: (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`; design review M2, option (b)), because
+#: each learner predicts from its full-sample fit and no Donsker argument covers it.
+POSITIVE_FITS: Final[tuple[str, ...]] = ("tmle_stacked", "ltmle_crossfit")
 #: The GLM fit paired with each default-library fit (the non-inferiority clause on L1).
 GLM_OF: Final[dict[str, str]] = {
     "tmle_in_sample": "glm_in_sample",
     "tmle_stacked": "glm_stacked",
     "ltmle_crossfit": "ltmle_glm",
 }
-#: The must-fail control whose failure the caveat rule needs for each default-library fit.
+#: The must-fail control whose failure the caveat rule needs for each gated fit.
 #: The cross-fitted LTMLE cell reads the stacked control of L1 at 20 clusters: no control
 #: plants an overfit LTMLE outcome, and the stacked control shows that the out-of-fold reading
 #: can see an overfit outcome fit at that count (declared before any run).
 MUST_FAIL_OF: Final[dict[str, str]] = {
-    "tmle_in_sample": "interpolating_control",
     "tmle_stacked": "stacked_control",
     "ltmle_crossfit": "stacked_control",
 }
@@ -131,17 +141,23 @@ MUST_FAIL_OF: Final[dict[str, str]] = {
 #: Each fit's arms and their roles.
 ARMS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
     **dict.fromkeys(
-        ADAPTIVE_FITS,
+        POSITIVE_FITS,
         (
             ("t_reference", "positive"),
             ("iid_t_control", "control"),
             ("wang_inflated", "diagnostic"),
         ),
     ),
+    "tmle_in_sample": (
+        ("t_reference", "diagnostic"),
+        ("iid_t_control", "diagnostic"),
+        ("wang_inflated", "diagnostic"),
+    ),
     **dict.fromkeys(
         ("glm_in_sample", "glm_stacked", "ltmle_glm"), (("glm_reference", "diagnostic"),)
     ),
-    "interpolating_control": (("interpolating_control", "control"),),
+    # Reported: it reads what an interpolating in-sample outcome fit does to the interval.
+    "interpolating_control": (("interpolating_control", "diagnostic"),),
     "stacked_control": (("stacked_control", "control"),),
 }
 
@@ -222,8 +238,10 @@ CONFIGURATION = {
     "forest, L1 logistic or lasso; Super Learner with grouped inner folds on the cluster id",
     "glm_reference": "main-terms unpenalized logistic outcome and propensity (point); the "
     "committed quasi-binomial GLM subject (LTMLE)",
-    "controls": "an unpruned tree outcome in sample; the same tree fitted on the full sample "
-    "standing in for every out-of-fold prediction of a stacked fit",
+    "controls": "an unpruned tree outcome in sample (reported); an unpruned random forest "
+    "fitted on the full sample standing in for every out-of-fold prediction of a stacked fit "
+    "(must fail)",
+    "gated_fits": list(POSITIVE_FITS),
     "outer_folds": N_FOLDS,
     "random_state": RANDOM_STATE,
     "simultaneous_intervals": False,
@@ -280,15 +298,33 @@ def _tree() -> DecisionTreeClassifier:
     return DecisionTreeClassifier(min_samples_leaf=1, random_state=RANDOM_STATE)
 
 
-class FullSampleTree(BaseEstimator, ClassifierMixin):
-    """An unpruned tree fitted on the full sample, whatever rows a fold passes.
+#: Trees of the stacked control's forest.
+CONTROL_TREES: Final[int] = 100
 
-    The stacked control (plan X54 section 5.4, rev 3 m2) feeds the stacked targeting and
-    variance code out-of-fold predictions that are in-sample ones: each fold's "training" fit
-    is the tree on every row, so the validation rows were seen. The outcome design of
-    :class:`~cleverly.TMLE` is ``[A, W1, W2]``; :meth:`fit` refuses a training design whose
-    rows are not rows of ``design``, so a changed column order stops the control rather than
-    fitting a different design.
+
+def _forest() -> RandomForestClassifier:
+    """The unpruned forest of the stacked control: each tree grown to single-row leaves.
+
+    Each tree fits its bootstrap sample to purity, so a row's prediction averages the trees
+    that held it, which reproduce its outcome, with the about 37% that did not. The fitted
+    values are pulled strongly toward the outcomes without equalling them, so the residuals
+    shrink but do not vanish, and the fluctuation step and the propensity still act
+    (design review M1).
+    """
+    return RandomForestClassifier(
+        n_estimators=CONTROL_TREES, min_samples_leaf=1, random_state=RANDOM_STATE, n_jobs=1
+    )
+
+
+class FullSampleForest(BaseEstimator, ClassifierMixin):
+    """An unpruned random forest fitted on the full sample, whatever rows a fold passes.
+
+    The stacked control (plan X54 section 5.4, rev 3 m2; design review M1) feeds the stacked
+    targeting and variance code out-of-fold predictions that are in-sample ones: each fold's
+    "training" fit is the forest on every row, so the validation rows were seen. The outcome
+    design of :class:`~cleverly.TMLE` is ``[A, W1, W2]``; :meth:`fit` refuses a training design
+    whose rows are not rows of ``design``, so a changed column order stops the control rather
+    than fitting a different design.
 
     Parameters
     ----------
@@ -302,14 +338,14 @@ class FullSampleTree(BaseEstimator, ClassifierMixin):
         self.design = design
         self.target = target
 
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> FullSampleTree:
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> FullSampleForest:
         del y, sample_weight
         full = np.round(np.asarray(self.design, dtype=float), 12)
         rows = np.round(np.asarray(X, dtype=float), 12)
         known = {tuple(row) for row in full}
         if rows.shape[1] != full.shape[1] or any(tuple(row) not in known for row in rows):
-            raise ValueError("FullSampleTree: a training row is not a row of the full design")
-        self.model_ = _tree().fit(full, np.asarray(self.target, dtype=float))
+            raise ValueError("FullSampleForest: a training row is not a row of the full design")
+        self.model_ = _forest().fit(full, np.asarray(self.target, dtype=float))
         self.classes_ = self.model_.classes_
         return self
 
@@ -342,7 +378,7 @@ def point_estimator(fit: str, frame: pd.DataFrame) -> TMLE:
     elif fit == "stacked_control":
         design = frame[["A", "W1", "W2"]].to_numpy(dtype=float)
         settings |= {
-            "outcome_learner": FullSampleTree(design, frame["Y"].to_numpy(dtype=float)),
+            "outcome_learner": FullSampleForest(design, frame["Y"].to_numpy(dtype=float)),
             "treatment_learner": _logistic(),
         }
     elif fit not in {"tmle_in_sample", "tmle_stacked"}:
@@ -452,65 +488,4 @@ __all__: Sequence[str] = (
     "draw_and_fit",
     "fit_one",
     "law_truth",
-)
-
-
-# ------------------------------------------------------------------- the pilot's predictions
-
-#: The predictive probability that each gated row passes at the declared draws, read from the
-#: committed pilot (:func:`tests.studies.few_cluster_adaptive_pilot.pilot_readings`) before the
-#: declaration. The pilot is small (60 in-sample and 20 stacked draws per cell, 20 on L3), so
-#: these figures carry the pilot's own uncertainty, not the study's.
-PREDICTED_PASS: Final[dict[str, float]] = {
-    "interpolating_control__equal10__j10__interpolating_control": 1.000,
-    "interpolating_control__equal10__j20__interpolating_control": 1.000,
-    "interpolating_control__equal10__j40__interpolating_control": 1.000,
-    "interpolating_control__nonlinear10__j10__interpolating_control": 1.000,
-    "interpolating_control__nonlinear10__j20__interpolating_control": 1.000,
-    "interpolating_control__nonlinear10__j40__interpolating_control": 1.000,
-    "ltmle_crossfit__equal40__j20__iid_t_control": 0.757,
-    "ltmle_crossfit__equal40__j20__t_reference": 0.494,
-    "stacked_control__equal10__j10__stacked_control": 1.000,
-    "stacked_control__equal10__j20__stacked_control": 1.000,
-    "stacked_control__equal10__j40__stacked_control": 1.000,
-    "stacked_control__nonlinear10__j10__stacked_control": 1.000,
-    "stacked_control__nonlinear10__j20__stacked_control": 1.000,
-    "stacked_control__nonlinear10__j40__stacked_control": 1.000,
-    "tmle_in_sample__equal10__j10__iid_t_control": 0.999,
-    "tmle_in_sample__equal10__j10__t_reference": 0.059,
-    "tmle_in_sample__equal10__j20__iid_t_control": 1.000,
-    "tmle_in_sample__equal10__j20__t_reference": 0.001,
-    "tmle_in_sample__equal10__j40__iid_t_control": 0.996,
-    "tmle_in_sample__equal10__j40__t_reference": 0.023,
-    "tmle_in_sample__nonlinear10__j10__iid_t_control": 1.000,
-    "tmle_in_sample__nonlinear10__j10__t_reference": 0.012,
-    "tmle_in_sample__nonlinear10__j20__iid_t_control": 0.844,
-    "tmle_in_sample__nonlinear10__j20__t_reference": 0.255,
-    "tmle_in_sample__nonlinear10__j40__iid_t_control": 1.000,
-    "tmle_in_sample__nonlinear10__j40__t_reference": 0.000,
-    "tmle_stacked__equal10__j10__iid_t_control": 0.897,
-    "tmle_stacked__equal10__j10__t_reference": 0.001,
-    "tmle_stacked__equal10__j20__iid_t_control": 0.994,
-    "tmle_stacked__equal10__j20__t_reference": 0.000,
-    "tmle_stacked__equal10__j40__iid_t_control": 0.669,
-    "tmle_stacked__equal10__j40__t_reference": 0.187,
-    "tmle_stacked__nonlinear10__j10__iid_t_control": 0.902,
-    "tmle_stacked__nonlinear10__j10__t_reference": 0.000,
-    "tmle_stacked__nonlinear10__j20__iid_t_control": 0.702,
-    "tmle_stacked__nonlinear10__j20__t_reference": 0.194,
-    "tmle_stacked__nonlinear10__j40__iid_t_control": 0.997,
-    "tmle_stacked__nonlinear10__j40__t_reference": 0.065,
-}
-#: The gated rows the pilot predicts red, a pass probability below 0.10, declared before the run
-#: with their readings (``tests/canonical/few_cluster_adaptive_learners/regenerate.py``).
-PREDICTED_REDS: Final[tuple[str, ...]] = (
-    "tmle_in_sample__equal10__j10__t_reference",
-    "tmle_in_sample__equal10__j20__t_reference",
-    "tmle_in_sample__equal10__j40__t_reference",
-    "tmle_in_sample__nonlinear10__j10__t_reference",
-    "tmle_in_sample__nonlinear10__j40__t_reference",
-    "tmle_stacked__equal10__j10__t_reference",
-    "tmle_stacked__equal10__j20__t_reference",
-    "tmle_stacked__nonlinear10__j10__t_reference",
-    "tmle_stacked__nonlinear10__j40__t_reference",
 )

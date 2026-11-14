@@ -34,11 +34,6 @@ def pilot_rows() -> pd.DataFrame:
     return pd.read_csv(PILOT, keep_default_na=False, na_values=[""])
 
 
-@pytest.fixture(scope="module")
-def readings(pilot_rows: pd.DataFrame) -> pd.DataFrame:
-    return pilot.pilot_readings(pilot_rows).set_index("cell")
-
-
 # ------------------------------------------------------------------------------ the record
 
 
@@ -48,18 +43,24 @@ def test_the_record_publishes_every_declared_cell() -> None:
     assert len(declared) == 64
     roles = {cell.cell: cell.role for cell in properties.declared_cells()}
     positives = {name for name, role in roles.items() if role == "positive"}
-    assert positives == {name for name in declared if name.endswith("__t_reference")}
-    # 2 point laws x 3 counts x 2 default-library fits, and the cross-fitted LTMLE cell.
-    assert len(positives) == 13
+    # 2 point laws x 3 counts of stacked TMLE, and the cross-fitted LTMLE cell (design review M2).
+    assert positives == {
+        name
+        for name in declared
+        if name.endswith("__t_reference") and name.split("__")[0] in study.POSITIVE_FITS
+    }
+    assert len(positives) == 7
     controls = {name for name, role in roles.items() if role == "control"}
-    assert len(controls) == 13 + 12
+    assert controls == {properties.iid_cell(name) for name in positives} | {
+        name for name in declared if name.endswith("__stacked_control")
+    }
+    assert len(controls) == 7 + 6
     for name in positives:
-        assert roles[properties.iid_cell(name)] == "control"
-        assert roles[properties.must_fail_cell(name)] == "control"
-        assert properties.must_fail_cell(name).split("__")[-1] in {
-            "interpolating_control",
-            "stacked_control",
-        }
+        assert properties.must_fail_cell(name).endswith("__stacked_control")
+    # The in-sample default-library fit and the interpolating control are reported only.
+    for name in declared:
+        if name.split("__")[0] in {"tmle_in_sample", "interpolating_control"}:
+            assert roles[name] == "diagnostic", name
 
 
 def test_the_seeds_are_the_study_s_own() -> None:
@@ -167,28 +168,54 @@ def test_the_l2_propensity_stays_inside_its_stated_range() -> None:
 # ----------------------------------------------------------------------------- the controls
 
 
-def test_the_full_sample_tree_predicts_seen_outcomes_on_validation_rows() -> None:
-    """Witness: a fold's out-of-fold predictions are the full-sample tree's in-sample fit."""
+def _control_inputs() -> tuple[np.ndarray, np.ndarray]:
     frame = study.draw("equal10", 20, 5)
-    design = frame[["A", "W1", "W2"]].to_numpy()
-    target = frame["Y"].to_numpy()
-    tree = study.FullSampleTree(design, target).fit(design[:150], target[:150])
-    held = tree.predict_proba(design[150:])[:, 1]
-    np.testing.assert_array_equal(held, target[150:])
+    return frame[["A", "W1", "W2"]].to_numpy(), frame["Y"].to_numpy()
 
 
-def test_the_full_sample_tree_refuses_a_design_that_is_not_its_own() -> None:
+def test_the_full_sample_forest_predicts_validation_rows_from_the_full_sample() -> None:
+    """Witness: a fold's out-of-fold predictions are the full-sample forest's in-sample fit."""
+    design, target = _control_inputs()
+    folded = study.FullSampleForest(design, target).fit(design[:150], target[:150])
+    full = study.FullSampleForest(design, target).fit(design, target)
+    held = folded.predict_proba(design[150:])[:, 1]
+    np.testing.assert_allclose(held, full.predict_proba(design[150:])[:, 1])
+
+
+def test_the_stacked_control_shrinks_the_residuals_without_removing_them() -> None:
+    """Design review M1: the residuals shrink well below an honest fit's but do not vanish.
+
+    An interpolating tree leaves every residual at 0, so the fluctuation step and the
+    propensity drop out and the stacked control repeats the in-sample one. The forest's
+    residuals stay away from 0, so both still act.
+    """
+    design, target = _control_inputs()
+    forest = study.FullSampleForest(design, target).fit(design, target)
+    residual = np.abs(target - forest.predict_proba(design)[:, 1])
+    honest = np.abs(target - target.mean())
+    assert residual.mean() < 0.5 * honest.mean()
+    assert np.mean(residual > 0.01) > 0.5
+
+
+def test_the_full_sample_forest_refuses_a_design_that_is_not_its_own() -> None:
     """Mutation: a changed column order stops the control instead of fitting another design."""
-    frame = study.draw("equal10", 20, 5)
-    design = frame[["A", "W1", "W2"]].to_numpy()
-    target = frame["Y"].to_numpy()
+    design, target = _control_inputs()
     with pytest.raises(ValueError, match="not a row of the full design"):
-        study.FullSampleTree(design, target).fit(design[:, [1, 0, 2]], target)
+        study.FullSampleForest(design, target).fit(design[:, [1, 0, 2]], target)
 
 
-def test_the_stacked_control_feeds_the_tree_into_the_fit() -> None:
+def test_the_two_controls_differ_on_a_draw() -> None:
+    """The stacked control no longer repeats the interpolating one (design review M1)."""
+    frame = study.draw("equal10", 20, 7)
+    stacked = study.fit_one("stacked_control", frame).estimate
+    interpolating = study.fit_one("interpolating_control", frame).estimate
+    assert abs(float(stacked.psi) - float(interpolating.psi)) > 1e-3
+    assert abs(float(stacked.std_error) - float(interpolating.std_error)) > 1e-3
+
+
+def test_the_stacked_control_feeds_the_forest_into_the_fit() -> None:
     estimator = study.point_estimator("stacked_control", study.draw("equal10", 20, 5))
-    assert isinstance(estimator.outcome_learner, study.FullSampleTree)
+    assert isinstance(estimator.outcome_learner, study.FullSampleForest)
     assert estimator.cross_fit
 
 
@@ -225,6 +252,13 @@ def test_a_withheld_fit_is_a_miss_in_every_arm(glm_fit: study.Fitted) -> None:
     assert {row["withheld"] for row in shown} == {0}
 
 
+def test_every_row_carries_the_declared_role_of_its_arm(glm_fit: study.Fitted) -> None:
+    """The rows of a reported fit carry its diagnostic roles, and of a gated fit its own."""
+    for fit in ("tmle_in_sample", "tmle_stacked"):
+        rows = properties.fit_rows(fit, "equal10", 20, 0, glm_fit, 10)
+        assert [row["role"] for row in rows] == [role for _, role in study.ARMS[fit]]
+
+
 def test_the_wang_arm_widens_the_reported_interval(glm_fit: study.Fitted) -> None:
     rows = properties.fit_rows("tmle_in_sample", "equal10", 20, 0, glm_fit, 10)
     by_arm = {row["cell"].split("__")[-1]: row for row in rows}
@@ -257,12 +291,18 @@ def _passing_summary() -> pd.DataFrame:
         )
     frame = pd.DataFrame(rows)
     controls = frame["cell"].str.endswith(("interpolating_control", "stacked_control"))
+    # A reported in-sample row reads like a failing one: it must gate nothing.
+    frame.loc[frame["cell"] == REPORTED, ["coverage_ci_lower", "variance_ratio_ci_lower"]] = (
+        0.5,
+        0.3,
+    )
     frame.loc[controls, ["coverage_ci_lower", "coverage_ci_upper"]] = (0.6, 0.7)
     return frame
 
 
-POSITIVE = study.cell_name("tmle_in_sample", "equal10", 20, "t_reference")
-NONLINEAR = study.cell_name("tmle_in_sample", "nonlinear10", 20, "t_reference")
+POSITIVE = study.cell_name("tmle_stacked", "equal10", 20, "t_reference")
+NONLINEAR = study.cell_name("tmle_stacked", "nonlinear10", 20, "t_reference")
+REPORTED = study.cell_name("tmle_in_sample", "equal10", 20, "t_reference")
 
 
 def _verdict(summary: pd.DataFrame, cell: str, column: str = "passed") -> bool:
@@ -293,6 +333,37 @@ def test_each_positive_clause_fails_its_row(column: str, value: object) -> None:
     summary.loc[summary["cell"] == POSITIVE, column] = value
     assert not _verdict(summary, POSITIVE)
     assert not _verdict(summary, POSITIVE, "caveat_removed")
+
+
+def test_a_reported_in_sample_row_gates_nothing() -> None:
+    """Design review M2: the in-sample row reads red values and still states no verdict."""
+    summary = _passing_summary()
+    properties.adaptive_verdicts(summary)
+    reported = summary.loc[summary["cell"] == REPORTED].iloc[0]
+    assert reported["role"] == "diagnostic"
+    assert bool(reported["passed"])
+    assert pd.isna(reported.get("caveat_removed", np.nan))
+    assert not properties.noninferiority_gated(REPORTED)
+    assert properties.noninferiority_gated(POSITIVE)
+
+
+def test_the_coverage_floor_is_implied_only_at_a_small_withheld_share() -> None:
+    """Design review m1: the binding reason holds while few intervals are withheld.
+
+    At 4,000 draws and shown coverage 0.95 the shown lower end clears 0.92. With no interval
+    withheld the all-draw lower end clears 0.90 too; with 5% withheld it does not, so there the
+    floor decides alone and the differential's reason check would be refuted.
+    """
+    draws, coverage = 4_000, 0.95
+
+    def lower(hits: float, trials: float) -> float:
+        return float(stats.beta.ppf(0.005, hits, trials - hits + 1))
+
+    for withheld, implied in ((0.0, True), (0.05, False)):
+        shown = round(draws * (1 - withheld))
+        hits = round(shown * coverage)
+        assert lower(hits, shown) >= properties.SHOWN_COVERAGE_FLOOR
+        assert (lower(hits, draws) >= 0.90) is implied
 
 
 def test_the_variance_ratio_clause_is_one_sided() -> None:
@@ -390,23 +461,53 @@ def test_the_variance_ratio_interval_sees_a_short_standard_error() -> None:
 # -------------------------------------------------------------------------------- the pilot
 
 
-def test_the_pilot_holds_every_declared_key(pilot_rows: pd.DataFrame) -> None:
+def test_the_pilot_runs_every_fit_of_every_cell_at_400_draws() -> None:
     keys = pilot.pilot_keys()
-    expected = sum(len(study.ARMS[fit]) for *_, fit in keys)
+    assert pilot.PILOT_DRAWS == 400
+    cells = {(law, clusters, fit) for law, clusters, _, fit in keys}
+    assert cells == {
+        (law, clusters, fit) for law, clusters in study.DRAW_CELLS for fit in study.fits_of(law)
+    }
+    assert len(keys) == len(cells) * 400 == 38 * 400
+    chunks = pilot.pilot_chunks()
+    assert len(chunks) == len(set(chunks)) == len(cells) * 400 // pilot.CHUNK_DRAWS
+    assert chunks[0][2] in {"tmle_stacked", "ltmle_crossfit"}
+
+
+def test_the_pilot_resumes_from_its_checkpoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A written chunk is never refitted, and a missing one is."""
+    monkeypatch.setattr(pilot, "PILOT_DRAWS", 2)
+    monkeypatch.setattr(pilot, "CHUNK_DRAWS", 1)
+    fitted: list[tuple[str, int, int, str]] = []
+
+    def fake(key: tuple[str, int, int, str]) -> list[dict[str, object]]:
+        fitted.append(key)
+        law, clusters, replicate, fit = key
+        return [
+            {"cell": study.cell_name(fit, law, clusters, arm), "replicate": replicate, "lost": ""}
+            for arm, _ in study.ARMS[fit]
+        ]
+
+    monkeypatch.setattr(pilot, "key_rows", fake)
+    chunks = pilot.pilot_chunks()
+    (tmp_path / "chunks").mkdir()
+    for chunk in chunks[1:]:
+        pilot.run_chunk(tmp_path, chunk)
+    fitted.clear()
+    todo = [c for c in pilot.pilot_chunks() if not pilot.chunk_path(tmp_path, c).exists()]
+    assert todo == [chunks[0]]
+    pilot.run_chunk(tmp_path, todo[0])
+    assert len(fitted) == 1
+    assert all(pilot.chunk_path(tmp_path, c).exists() for c in chunks)
+
+
+@pytest.mark.skipif(not PILOT.exists(), reason="the 400-draw pilot is not committed yet")
+def test_the_committed_pilot_holds_every_declared_key(pilot_rows: pd.DataFrame) -> None:
+    expected = sum(len(study.ARMS[fit]) for *_, fit in pilot.pilot_keys())
     assert len(pilot_rows) == expected
     assert set(pilot_rows["cell"]) == set(study.PUBLISHED_CELLS)
-
-
-def test_the_predicted_pass_probabilities_are_the_declared_ones(readings: pd.DataFrame) -> None:
-    for cell, declared in study.PREDICTED_PASS.items():
-        assert readings.loc[cell, "p_passed"] == pytest.approx(declared, abs=0.01), cell
-
-
-def test_every_predicted_red_is_declared(readings: pd.DataFrame) -> None:
-    """A gated row predicted below 0.10 is named in the declaration's predicted reds."""
-    gated = readings.loc[readings["role"] != "diagnostic"]
-    reds = set(gated.index[gated["p_passed"] < 0.10])
-    assert reds == set(study.PREDICTED_REDS)
 
 
 def test_the_pass_probabilities_see_a_shortfall() -> None:

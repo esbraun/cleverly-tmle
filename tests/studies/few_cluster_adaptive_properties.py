@@ -8,7 +8,11 @@ replicate columns a row records ``withheld`` (the estimate withheld its interval
 the fit then reads a miss) and ``sl_single`` (every outcome Super Learner of the fit put at
 least 0.999 of its weight on one candidate).
 
-The declared rules (plan X54 rev 3.2, sections 3.6 and 5.4, review findings B3 and N3):
+The declared rules (plan X54 rev 3.2, sections 3.6 and 5.4, review findings B3 and N3, and
+the S-h design review: M1, M2). The gated fits are stacked ``TMLE`` and cross-fitted ``LTMLE``
+(:data:`~tests.studies.few_cluster_adaptive_learners.POSITIVE_FITS`); the in-sample
+default-library fit takes the ``adaptive_nuisance`` shortfall by theory, so its rows, its IID
+control and the interpolating control are reported and gate nothing.
 
 =================================  ==========================================================
 rule                               rows and threshold
@@ -23,21 +27,32 @@ rule                               rows and threshold
                                    over shown fits at least :math:`0.8649 = 0.93^2`
 ``shown coverage lower end``       every positive: the exact 99% lower end of shown-only
                                    coverage at least 0.92
-``paired non-inferiority``         every L1 positive: the exact 99% lower end of the paired
-                                   all-draw coverage difference to its ``glm_reference`` arm
-                                   above :math:`-0.02`
-``paired iid/cluster se ratio``    every ``iid_t_control``: the two-clause rule of the
+``paired non-inferiority``         every stacked L1 positive: the exact 99% lower end of the
+                                   paired all-draw coverage difference to its
+                                   ``glm_reference`` arm above :math:`-0.02`
+``paired iid/cluster se ratio``    every gated ``iid_t_control``: the two-clause rule of the
 and ``paired positive se ratio``   registered few-cluster studies
-``must fail``                      ``interpolating_control`` and ``stacked_control``: the exact
-                                   99% upper end of all-draw coverage below 0.90
+``must fail``                      ``stacked_control``: the exact 99% upper end of all-draw
+                                   coverage below 0.90
 =================================  ==========================================================
 
-A positive row's ``passed`` is the conjunction of its five clauses (four off L1). The caveat
-of the docs goes for a configuration only where its positive row passes, its IID control
-passes and its must-fail control (:data:`~tests.studies.few_cluster_adaptive_learners.MUST_FAIL_OF`)
-passes: the reading ``caveat_removed``. Every positive row also publishes the shown-only
+A positive row's ``passed`` is the conjunction of its clauses. The caveat of the docs goes for
+a configuration only where its positive row passes, its IID control passes and its must-fail
+control (:data:`~tests.studies.few_cluster_adaptive_learners.MUST_FAIL_OF`) passes: the reading
+``caveat_removed``. Every ``t_reference`` row, gated or reported, publishes the shown-only
 coverage, the withheld share, the variance ratio and its interval, the median and largest SE
-in empirical-SD units, the Super Learner single-candidate share and the over-coverage reading.
+in empirical-SD units, the Super Learner single-candidate share, the over-coverage reading and
+the paired all-draw coverage difference to its GLM arm with its exact lower end, on L1, L2 and
+L3 alike (design review M2).
+
+The ``coverage floor`` clause has no perturbation of its own in the property differential: it
+is bound by the reason "implied by: shown coverage lower end"
+(``tests/canonical/clause-binding-reasons.csv``). All-draw coverage is :math:`(1 - w)` times
+shown coverage, with :math:`w` the withheld share, so a shown lower end of 0.92 implies an
+all-draw lower end of 0.90 only while :math:`w` stays at about 0.02 or less. The pilot withholds
+nothing. The differential re-checks the reason on every perturbation of the committed rows, and
+a row where the floor fails while the shown clause passes refutes it, which fails the
+differential and requires a binding (design review m1).
 """
 
 from __future__ import annotations
@@ -145,9 +160,9 @@ def _role(fit: str, arm: str) -> str:
 
 
 def noninferiority_gated(cell: str) -> bool:
-    """Whether a positive cell carries the paired non-inferiority clause: L1 only."""
+    """Whether a cell carries the paired non-inferiority clause: a gated fit on L1 only."""
     fit, law, _, arm = parse(cell)
-    return law == "equal10" and fit in study.ADAPTIVE_FITS and arm == "t_reference"
+    return law == "equal10" and fit in study.POSITIVE_FITS and arm == "t_reference"
 
 
 def glm_cell(cell: str) -> str:
@@ -301,6 +316,7 @@ def fit_rows(
                 estimate=float(estimate.psi),
                 standard_error=float(np.sqrt(influence_variance(estimate.influence_curve))),
                 critical=t_critical(estimate.reference_df),
+                role=role,
                 **common,
             )
         elif arm == "wang_inflated":
@@ -553,7 +569,9 @@ def adaptive_verdicts(summary: pd.DataFrame) -> None:
         cell = str(row["cell"])
         role = str(row["role"])
         _, _, _, arm = parse(cell)
-        if role == "positive":
+        if role == "diagnostic":
+            passed = True
+        elif role == "positive":
             passed = (
                 bool(row["coverage_ci_lower"] >= margins.coverage_floor)
                 and bool(row["bias_equivalent"])
@@ -567,10 +585,8 @@ def adaptive_verdicts(summary: pd.DataFrame) -> None:
                 row["paired_se_ratio_ci_upper"] < FEW_CLUSTER_IID_CONTROL_CEILING
                 and row["paired_positive_se_ratio_ci_upper"] <= margins.se_ratio_sanity[1]
             )
-        elif role == "control":
-            passed = bool(row["coverage_ci_upper"] < MUST_FAIL_CEILING)
         else:
-            passed = True
+            passed = bool(row["coverage_ci_upper"] < MUST_FAIL_CEILING)
         summary.loc[index, "passed"] = passed
     for index in summary.index[family]:
         cell = str(summary.loc[index, "cell"])
@@ -760,7 +776,7 @@ PROPERTY_RULES = (
                 "must fail",
                 statistic="S2",
                 judge=below_judge(lambda ctx: MUST_FAIL_CEILING),
-                applies=_is("interpolating_control", "stacked_control"),
+                applies=_is("stacked_control"),
             ),
         ),
     ),

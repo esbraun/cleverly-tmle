@@ -303,6 +303,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # adaptive_nuisance. The qualifier moves the support label alone, so every plot of a point
     # fit draws or refuses as it does without it.
     "point_tmle_adaptive_nuisance": sweep.fit_clustered_adaptive,
+    # The same qualifier on a cross-fitted clustered LTMLE at 20 clusters (row G07).
+    "ltmle_adaptive_nuisance": sweep.fit_clustered_ltmle_adaptive,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
@@ -366,6 +368,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_adaptive_nuisance": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
         "learners": "ValueError: no nuisance model here was",
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
