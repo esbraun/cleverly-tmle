@@ -180,9 +180,6 @@ def draw(
                 alternative="Draw the averaged comparisons with view='summary'.",
             )
         if page is not None:
-            from .._refusal import RefusalReason
-            from ..exceptions import CapabilityError
-
             raise CapabilityError(
                 "page= pages the covariates of the summary view; view='panels' draws every "
                 "covariate, so it has no pages",
