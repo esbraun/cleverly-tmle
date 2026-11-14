@@ -730,10 +730,14 @@ reports a bare `ate` settles the `"ate"` default. A multi-arm fit reports `ate[h
 | `tipping_gamma` | sensitivity | `"ate"` |
 | `refute` | diagnostics | `"ate"` |
 | `evalue` | sensitivity | `None` |
+| `marginal_bounds` | sensitivity | `None`, the fit's reported parameter |
 
 The library reads that default from the routed signature. `benchmark` takes `covariates` first and
 `estimand` by keyword, and the keyword default is as ambiguous as a positional one. `evalue`
 selects its own contrast from a `None` default, and defers when two contrasts qualify.
+`marginal_bounds` reads the [default parameter](#marginal-sensitivity-model-bounds) rule of its
+own section. It can bound an arm parameter the fit did not report, so a fit that reports none it
+can take defers rather than reads `unavailable`.
 
 The count of eligible reported parameters selects the answer.
 
@@ -2450,6 +2454,19 @@ with asymptotic probability at least `level`. Each standard error is the varianc
 influence curve, summed within clusters on a clustered fit. A fit with `repeats > 1` applies the
 median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
 narrower and is not shipped.
+
+**Reference distribution.** A clustered fit below the few-cluster threshold replaces $z$ with
+the fit's own reference, the Student $t$ quantile with $J - 2$ degrees of
+freedom over the clusters the bounded parameter reads (`reference_df` on the result). That is
+the rule of the fit's own clustered interval, except on a fold-evaluated fit, whose estimate reads
+$J - V$ while the bounds pool the cluster variance and keep $J - 2$. Those clustered limits stay
+descriptive.
+
+**Default parameter.** With no `estimand`, the bounds answer for the parameter the fit reported:
+the ATE when the fit reports it, else the one reported parameter they can take (`att` on an ATT
+fit, `rr` on a risk-ratio fit). A fit that reports two or more of them and no ATE, or none of
+them, has no default: the call raises and names the choices, and `result.sensitivity` reports the
+row as deferred until an `estimand` is passed.
 
 **Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain the null.
 The null is zero for a difference and one for a ratio. `limit_breakdown` reads the set

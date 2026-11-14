@@ -788,6 +788,9 @@ def test_the_ambiguous_default_is_read_from_every_routed_signature(point_result)
     # ``evalue`` declares an ``estimand`` and selects for itself from a ``None`` default,
     # which is why the predicate reads the default rather than the parameter's name.
     assert "evalue" in surfaces["sensitivity"] - found["sensitivity"]
+    # ``marginal_bounds`` resolves its ``None`` default to the fit's reported parameter and
+    # defers through its own branch of ``_estimand_candidates`` (Fix-15), not the predicate.
+    assert "marginal_bounds" in surfaces["sensitivity"] - found["sensitivity"]
 
 
 def test_a_sole_eligible_name_reaches_a_keyword_only_estimand_too(att_result) -> None:  # type: ignore[no-untyped-def]
