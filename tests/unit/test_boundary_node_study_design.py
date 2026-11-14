@@ -9,7 +9,9 @@ rows, each against a mutation that must turn it red.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,6 +26,7 @@ from tests.studies import fractional_glm
 from tests.studies.evidence import property_failures
 from tests.studies.evidence.red_cells import owner_ids
 from tests.studies.evidence.registry import registered
+from tests.studies.evidence.replication import invalid_rows
 
 PILOT = Path(__file__).resolve().parents[1] / "canonical" / "boundary_node_ltmle" / "pilot.csv.gz"
 
@@ -128,11 +131,18 @@ def test_the_paired_lower_end_is_positive_only_with_gains() -> None:
     assert pilot.mcnemar_lower(40, 0, 1_000) > pilot.mcnemar_lower(20, 20, 1_000)
 
 
-def test_the_newcombe_interval_contains_the_difference() -> None:
-    low, high = pilot.newcombe_interval(900, 1_000, 1_900, 2_000)
-    assert low < 0.9 - 0.95 < high
-    low, high = pilot.newcombe_interval(800, 1_000, 1_900, 2_000)
-    assert high < 0.0
+def test_the_oracle_gain_is_the_exact_lower_end_of_the_one_sided_gain() -> None:
+    """Clause (ii') reads ``b / N`` by its Clopper-Pearson lower end when ``c`` is 0."""
+    exact = stats.beta.ppf(0.005, 170, 1_002 - 170 + 1)
+    assert properties.oracle_gain_lower(170, 0, 1_002) == pytest.approx(exact, rel=1e-12)
+    assert properties.oracle_gain_lower(170, 0, 1_002) >= properties.ORACLE_GAIN_MARGIN
+    assert properties.oracle_gain_lower(0, 0, 1_002) == 0.0
+    # Mutation control: an oracle that loses draws the plug-in covers is read lower, not higher.
+    assert properties.oracle_gain_lower(170, 20, 1_002) < properties.oracle_gain_lower(
+        170, 0, 1_002
+    )
+    # Law B's reading in the first declared run, b = 13 of 2,056, fails the margin.
+    assert properties.oracle_gain_lower(13, 0, 2_056) < properties.ORACLE_GAIN_MARGIN
 
 
 # --------------------------------------------------------------------------- the pilot
@@ -145,7 +155,13 @@ def rows() -> pd.DataFrame:
     frame = pd.read_csv(PILOT, dtype={"lost": str, "withheld": str})
     frame["lost"] = frame["lost"].fillna("")
     frame["withheld"] = frame["withheld"].fillna("")
-    for column in ("firing", "supplemented_here", "supplemented_covered", "plugin_covered"):
+    for column in (
+        "firing",
+        "supplemented_here",
+        "supplemented_covered",
+        "plugin_covered",
+        "oracle_node_covered",
+    ):
         frame[column] = frame[column].fillna(False).astype(bool)
     return frame
 
@@ -167,10 +183,20 @@ def _control(rows: pd.DataFrame) -> pd.DataFrame:
     return rows[(rows["cell"] == "interior_n200") & (rows["target"] == "always")]
 
 
+def test_the_oracle_interval_contains_the_plugin_interval(rows: pd.DataFrame) -> None:
+    """Clause (ii')'s ``c = 0``: wherever the plug-in covers, the ``oracle_node`` interval does."""
+    shown = rows[rows["withheld"] == ""]
+    plugin = shown["plugin_covered"].astype(bool)
+    oracle = shown["oracle_node_covered"].fillna(False).astype(bool)
+    assert len(shown) > 40_000
+    assert not (plugin & ~oracle).any()
+
+
 def test_the_paired_control_has_power_at_the_declared_size(rows: pd.DataFrame) -> None:
     """Both clauses of ``paired_attributable`` at n = 200, R = 4,000, on the 2,000-draw pilot.
 
-    The predictive power draws the pilot's rates from their posteriors in each simulation.
+    Clause (ii') reads ``oracle_node`` against plug-in coverage on the firing draws. The
+    predictive power draws the pilot's rates from their posteriors in each simulation.
     """
     assert len(_control(rows)) == 2_000
     for predictive in (False, True):
@@ -185,6 +211,20 @@ def test_a_plugin_that_loses_nothing_has_no_power(rows: pd.DataFrame) -> None:
     cell["plugin_covered"] = cell["supplemented_covered"]
     power = pilot.control_power(cell, predictive=True, simulations=400)
     assert power["clause_i"] < 0.05 and power["clause_ii"] < 0.05, power
+
+
+def test_an_omitted_node_that_does_not_matter_fails_clause_ii(rows: pd.DataFrame) -> None:
+    """Mutation control: an oracle that covers as the plug-in does gives clause (ii') no power.
+
+    Law B's first cell is the natural witness: its flagged node carries about 0.03 of the
+    variance, and the clause has no power there.
+    """
+    cell = _control(rows).copy()
+    cell["oracle_node_covered"] = cell["plugin_covered"]
+    assert pilot.control_power(cell, predictive=True, simulations=400)["clause_ii"] < 0.05
+    held = rows[(rows["cell"] == "held_n200") & (rows["target"] == "always")].copy()
+    held["oracle_node_covered"] = held["oracle_node_covered"].fillna(False).astype(bool)
+    assert pilot.control_power(held, predictive=True, simulations=400)["clause_ii"] < 0.05
 
 
 #: Rows whose all-draw G1 pass probability at R = 4,000 is below 0.90 at the pilot rates. G1 on
@@ -536,15 +576,55 @@ def test_the_firing_floor_is_gated_where_600_firing_draws_are_expected() -> None
 
 def test_the_seeds_are_the_study_s_own() -> None:
     seeds = {s for record in registered() for s in (record.seed, record.resampling_seed)}
-    assert not {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED} & seeds
+    first = {study.FIRST_DECLARED_RUN["seed"], study.FIRST_DECLARED_RUN["resampling_seed"]}
+    assert not {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED} & (seeds | first)
     assert len({study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED}) == 3
+
+
+def test_the_redeclared_streams_are_fresh() -> None:
+    """The rerun draws neither the first declared run's samples nor its resamples (rev 3.3)."""
+    assert properties.SAMPLE_STREAM != "property_sample"
+    assert properties.SE_RATIO_STREAM != "firing_se_ratio"
+    cell = study.CELL_BY_NAME["interior_n200"]
+    redeclared = properties._draw((cell.name, 0))
+    first = laws.law_of(cell.variant).draw(cell.n, np.random.default_rng(_first_run_seed(cell, 0)))
+    assert not redeclared.equals(first)
+
+
+def _first_run_seed(cell: study.Cell, replicate: int) -> int:
+    from dataclasses import replace
+
+    from tests.studies.evidence.seeds import stream_seed
+
+    record = replace(
+        study.STUDY,
+        seed=study.FIRST_DECLARED_RUN["seed"],
+        resampling_seed=study.FIRST_DECLARED_RUN["resampling_seed"],
+    )
+    return stream_seed(record, "property_sample", study.FAMILY, cell.name, replicate)
+
+
+def test_the_first_declared_run_is_reproduced_by_its_recorded_stream() -> None:
+    """Draw 130 of the cross-fitted cell, the draw that stopped the first attempt, is the first
+    run's stream: the recorded seed and label still name the draws it read."""
+    cell = study.CELL_BY_NAME["interior_n200_crossfit"]
+    frame = laws.law_of(cell.variant).draw(
+        cell.n, np.random.default_rng(_first_run_seed(cell, 130)), cluster_size=cell.cluster_size
+    )
+    result = study.fit(frame, cell)
+    assert np.isfinite(result[study.TARGETS["always"]].psi)
 
 
 def test_declared_and_not_yet_registered() -> None:
     from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
 
     assert study.STUDY.slug not in {record.slug for record in registered()}
-    assert not study.STUDY.artifact("property-replicates.parquet").exists()
+    # The first declared run's artifacts stay in the tree until the rerun overwrites them; any
+    # committed record is that run's or this declaration's.
+    manifest = study.STUDY.artifact("manifest.json")
+    if manifest.exists():
+        configuration = json.loads(manifest.read_text())["configuration"]
+        assert configuration["seed"] in {study.FIRST_DECLARED_RUN["seed"], study.SEED}
     assert properties.__name__ in UNCOMMITTED_MODULES
     assert study.STUDY.publication_policy == "reporting"
     assert properties.FAILURE_BOUND == 0.05
@@ -561,15 +641,6 @@ def _separated_draw() -> tuple[pd.DataFrame, study.Cell]:
 def test_the_study_glm_fits_a_numerically_separated_draw() -> None:
     """The draw that lost its key in the first pilot fits: no lost-replicate source remains."""
     frame, cell = _separated_draw()
-    result = study.fit(frame, cell)
-    assert np.isfinite(result[study.TARGETS["always"]].psi)
-
-
-def test_the_draw_that_stopped_the_first_run_fits() -> None:
-    """Property draw 130 of the cross-fitted cell: a target separated once rounded, one value
-    ``4.2e-4`` from 1. The flagged learner continues and fits."""
-    cell = study.CELL_BY_NAME["interior_n200_crossfit"]
-    frame = properties._draw((cell.name, 130))
     result = study.fit(frame, cell)
     assert np.isfinite(result[study.TARGETS["always"]].psi)
 
@@ -617,14 +688,19 @@ def _rows(seed: int = 0, replicates: int = 4_000) -> pd.DataFrame:
         supplemented = fire | (rng.uniform(size=replicates) < 0.05)
         errors = rng.normal(size=replicates) * 0.05
         for target in study.TARGETS:
+            plugin = np.zeros(replicates, dtype=bool)
             for arm in study.ARMS:
                 name = study.cell_name(cell.name, target, arm)
                 covered = rng.uniform(size=replicates) < 0.96
                 if arm == "plugin":
                     # The plug-in misses more on firing draws: the control's two clauses hold.
                     covered = np.where(fire, rng.uniform(size=replicates) < 0.80, covered)
+                    plugin = covered
                 if arm == "supplemented":
                     covered = np.where(fire, True, covered)
+                if arm == "oracle_node":
+                    # The oracle interval contains the plug-in interval and covers most misses.
+                    covered = np.where(fire, plugin | (rng.uniform(size=replicates) < 0.9), covered)
                 out.append(
                     pd.DataFrame(
                         {
@@ -714,13 +790,127 @@ def test_a_plugin_that_covers_like_the_supplement_fails_clause_i(passing: pd.Dat
     assert not verdicts.loc[properties.CONTROL_CELL, "passed"]
 
 
-def test_a_plugin_that_loses_nothing_on_firing_draws_fails_clause_ii(passing: pd.DataFrame) -> None:
+def test_an_oracle_that_covers_like_the_plugin_fails_clause_ii(passing: pd.DataFrame) -> None:
     rows = passing.copy()
-    mask = rows["cell"] == properties.CONTROL_CELL
-    rows.loc[mask, "covered"] = (np.arange(mask.sum()) % 10 >= 2).astype(int)
+    control = rows.loc[rows["cell"] == properties.CONTROL_CELL, "covered"].to_numpy()
+    rows.loc[rows["cell"] == properties.PAIRED_ORACLE, "covered"] = control
     verdicts = _verdicts(rows)
-    assert verdicts.loc[properties.CONTROL_CELL, "newcombe_upper"] >= 0.0
+    assert verdicts.loc[properties.CONTROL_CELL, "mcnemar_lower"] > 0.0
+    assert verdicts.loc[properties.CONTROL_CELL, "oracle_gain_lower"] == 0.0
     assert not verdicts.loc[properties.CONTROL_CELL, "passed"]
+
+
+def test_an_oracle_gain_below_the_margin_fails_clause_ii(passing: pd.DataFrame) -> None:
+    """A gain that is real but smaller than 0.05 on the firing draws fails the clause."""
+    rows = passing.copy()
+    pair = rows[rows["cell"] == properties.CONTROL_CELL].set_index("replicate")
+    oracle = rows["cell"] == properties.PAIRED_ORACLE
+    gains = np.flatnonzero((pair["firing"] == 1).to_numpy() & (pair["covered"] == 0).to_numpy())
+    covered = pair["covered"].to_numpy().copy()
+    covered[gains[:40]] = 1
+    rows.loc[oracle, "covered"] = covered
+    verdicts = _verdicts(rows)
+    assert verdicts.loc[properties.CONTROL_CELL, "oracle_gain_lower"] > 0.0
+    assert verdicts.loc[properties.CONTROL_CELL, "oracle_gain_lower"] < 0.05
+    assert not verdicts.loc[properties.CONTROL_CELL, "passed"]
+
+
+def test_clause_ii_reads_no_non_firing_draw(passing: pd.DataFrame) -> None:
+    """The first declaration's clause (ii) read the plug-in's non-firing coverage; (ii') does not.
+
+    Mutation control: plug-in misses on non-firing draws, which turned the old clause red in the
+    declared run, leave clause (ii') where it was.
+    """
+    base = _verdicts(passing).loc[properties.CONTROL_CELL]
+    rows = passing.copy()
+    mask = (rows["cell"] == properties.CONTROL_CELL) & (rows["firing"] == 0)
+    rows.loc[mask, "covered"] = (np.arange(mask.sum()) % 5 > 0).astype(int)
+    moved = _verdicts(rows).loc[properties.CONTROL_CELL]
+    assert moved["oracle_gain_lower"] == base["oracle_gain_lower"]
+    assert moved["passed"]
+
+
+def _withheld_entries() -> list[dict[str, Any]]:
+    """A withheld target and a shown one of one draw, as :func:`study.draw_arms` writes them."""
+    nan = float("nan")
+    arm = {"std_error": nan, "low": nan, "high": nan, "covered": 0, "rejected": 0}
+    shown = {"std_error": 0.1, "low": 0.0, "high": 0.4, "covered": 1, "rejected": 0}
+    return [
+        {
+            "target": "always",
+            "truth": 0.2,
+            "psi": 0.0,
+            "withheld": "out_of_range_plugin",
+            "firing": True,
+            "multi_flag": True,
+            "supplemented_here": True,
+            **{name: dict(arm) for name in study.ARMS},
+        },
+        {
+            "target": "never",
+            "truth": 0.3,
+            "psi": 0.3,
+            "withheld": "",
+            "firing": False,
+            "multi_flag": False,
+            "supplemented_here": False,
+            **{name: dict(shown) for name in study.ARMS},
+        },
+    ]
+
+
+def test_a_withheld_target_is_a_withheld_miss_and_keeps_the_draw() -> None:
+    """A withheld target's rows carry SE NaN and read as misses; the row check keeps the draw.
+
+    Mutation control: the first declared run wrote the plug-in row with SE 0, and the row
+    check rejected the key, losing its valid ``never`` rows too.
+    """
+    entries = _withheld_entries()
+    rows = pd.DataFrame(properties.key_rows("interior_n100", 270, entries, 4_000))
+    withheld = rows[rows["withheld"] == 1]
+    assert len(withheld) == 3 and (withheld["covered"] == 0).all()
+    assert withheld["std_error"].isna().all()
+    assert (rows.loc[rows["withheld"] == 0, "covered"] == 1).all()
+    assert invalid_rows(rows, coverage=False) is None
+    zero = rows.copy()
+    zero.loc[zero["cell"] == "interior_n100__always__plugin", "std_error"] = 0.0
+    assert invalid_rows(zero, coverage=False) == "non-positive std_error for row (row 2)"
+    unflagged = rows.copy()
+    unflagged["withheld"] = 0
+    assert invalid_rows(unflagged, coverage=False) is not None
+
+
+def test_draw_arms_withholds_every_arm_of_a_withheld_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a first-run draw whose ``always`` estimate sits at 0, every arm reads a withheld miss."""
+    cell = study.CELL_BY_NAME["interior_n100"]
+    frame = laws.law_of(cell.variant).draw(
+        cell.n, np.random.default_rng(_first_run_seed(cell, 270))
+    )
+    entries = {
+        entry["target"]: entry
+        for entry in study.draw_arms(frame, cell, laws.law_of(cell.variant).truths())
+    }
+    always = entries["always"]
+    assert always["withheld"] and always["psi"] in (0.0, 1.0)
+    for arm in study.ARMS:
+        assert np.isnan(always[arm]["std_error"]) and always[arm]["covered"] == 0
+    assert not entries["never"]["withheld"] and entries["never"]["plugin"]["std_error"] > 0
+    rows = pd.DataFrame(properties.key_rows(cell.name, 270, list(entries.values()), 4_000))
+    assert invalid_rows(rows, coverage=False) is None
+
+
+def test_the_se_readings_skip_a_withheld_row(passing: pd.DataFrame) -> None:
+    """A cell with withheld rows restates its mean SE over the rows that show one."""
+    name = "interior_n100__always__plugin"
+    rows = passing.copy()
+    mask = (rows["cell"] == name) & (rows["replicate"] < 5)
+    rows.loc[mask, ["std_error", "covered", "withheld"]] = [np.nan, 0, 1]
+    verdicts = _verdicts(rows).loc[name]
+    assert verdicts["withheld_draws"] == 5
+    assert verdicts["mean_std_error"] == pytest.approx(0.05)
+    assert np.isfinite(verdicts["se_ratio"])
 
 
 def test_a_diagnostic_row_states_no_verdict(passing: pd.DataFrame) -> None:

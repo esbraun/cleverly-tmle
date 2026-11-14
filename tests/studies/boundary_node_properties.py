@@ -5,10 +5,12 @@ once, and writes nine rows: three targets by three arms
 (:func:`tests.studies.boundary_node_ltmle.draw_arms`). Beside the shared replicate columns a
 row records ``firing`` (node 4 of the target's firing regimen flagged), ``multi_flag``
 (firing, and another node flagged), ``supplemented`` (the estimate added the supplement at any
-node) and ``withheld`` (the estimate withheld its interval, so every arm reads a miss). A key whose fit raises is lost in all nine cells, and the declared
-rules read it as a miss wherever it could fall.
+node) and ``withheld`` (the estimate withheld its interval). A withheld target's three rows
+carry ``std_error`` NaN and read as misses; the other targets of the draw keep their rows. A key
+whose fit raises is lost in all nine cells, and the declared rules read it as a miss wherever it
+could fall.
 
-The gates are the statistics the supplement changes (plan rev 3.1):
+The gates are the statistics the supplement changes (plan rev 3.1, clause (ii') rev 3.3):
 
 ==========================  =====================================================================
 rule                        rows and threshold
@@ -23,9 +25,17 @@ rule                        rows and threshold
 ``paired gain``             the ``plugin`` row of law A, ``always``, :math:`n = 200`: on firing
                             draws the exact McNemar lower end of supplemented minus plug-in
                             coverage above 0 (clause (i))
-``plug-in loses coverage``  the same row: Newcombe's 99% interval of plug-in coverage on firing
-                            minus non-firing draws wholly below 0 (clause (ii))
+``node variance matters``   the same row: on the same firing draws, ``oracle_node`` minus
+                            plug-in coverage, the exact 99% lower end at least 0.05
+                            (clause (ii'))
 ==========================  =====================================================================
+
+Clause (ii') replaced the first declaration's clause (ii), which compared the plug-in's coverage
+on firing draws with its coverage on the non-firing draws of the same cell. Those draws hold one
+or two events at node 4 and under-cover for the rare-event reason (0.861 in the first declared
+run), so the clause measured the difference between two shortfalls. Clause (ii') asks whether
+the flagged node's true variance changes coverage where the node is flagged, and reads no
+non-firing draw.
 
 Every other row is ``diagnostic`` and publishes its readings without a verdict. Every row
 publishes the all-draw coverage and its exact interval, the firing, quiet and multi-flag
@@ -44,7 +54,6 @@ from typing import Any, Final
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import boundary_node_laws as laws
@@ -78,6 +87,13 @@ FIRING_FLOOR: Final[float] = 0.90
 ZERO_FLOOR: Final[float] = 0.92
 #: The over-coverage reading's threshold.
 OVER_COVERAGE: Final[float] = 0.99
+#: The exact 99% lower end that clause (ii') needs: the gap between nominal coverage and the
+#: study's coverage floor (0.95 against 0.90), plan 5.5 rev 3.3.
+ORACLE_GAIN_MARGIN: Final[float] = 0.05
+#: The ``stream_seed`` labels of the redeclared run (plan 5.5 rev 3.3): its property draws and
+#: its firing SE-ratio resamples are disjoint from the first declared run's and the pilot's.
+SAMPLE_STREAM: Final[str] = "property_sample_rev33"
+SE_RATIO_STREAM: Final[str] = "firing_se_ratio_rev33"
 #: The bootstrap resamples of the firing SE ratio's interval, a reading.
 SE_RATIO_RESAMPLES: Final[int] = 1_000
 
@@ -109,8 +125,9 @@ READING_COLUMNS: Final[tuple[str, ...]] = (
     "mcnemar_gained",
     "mcnemar_lost",
     "mcnemar_lower",
-    "newcombe_lower",
-    "newcombe_upper",
+    "oracle_gained",
+    "oracle_lost",
+    "oracle_gain_lower",
 )
 
 
@@ -129,9 +146,11 @@ FIRING_CELLS: Final[tuple[str, ...]] = tuple(
 ZERO_CELLS: Final[tuple[str, ...]] = tuple(
     _cell(cell.name, "always", "supplemented") for cell in study.CELLS if cell.zero
 )
-#: The control row of ``paired_attributable`` and the positive row it is paired with.
+#: The control row of ``paired_attributable``, the positive row it is paired with in clause
+#: (i), and the ``oracle_node`` row it is paired with in clause (ii').
 CONTROL_CELL: Final[str] = _cell(*study.PAIRED_CONTROL, "plugin")
 PAIRED_POSITIVE: Final[str] = _cell(*study.PAIRED_CONTROL, "supplemented")
+PAIRED_ORACLE: Final[str] = _cell(*study.PAIRED_CONTROL, "oracle_node")
 
 
 def _role(name: str) -> str:
@@ -156,27 +175,19 @@ def mcnemar_lower(gained: int, lost: int, trials: int, level: float = 0.99) -> f
     return (2.0 * low - 1.0) * discordant / trials
 
 
-def newcombe_interval(
-    x1: int, n1: int, x2: int, n2: int, level: float = 0.99
-) -> tuple[float, float]:
-    """Newcombe's hybrid score interval of :math:`p_1 - p_2` (two independent binomials)."""
-    if n1 == 0 or n2 == 0:
-        return (float("nan"), float("nan"))
-    z = float(stats.norm.ppf(1.0 - (1.0 - level) / 2.0))
+def oracle_gain_lower(gained: int, lost: int, trials: int, level: float = 0.99) -> float:
+    """The exact lower end of ``oracle_node`` minus plug-in coverage on the firing draws.
 
-    def wilson(x: int, n: int) -> tuple[float, float, float]:
-        p = x / n
-        centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-        half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-        return p, centre - half, centre + half
-
-    p1, l1, u1 = wilson(x1, n1)
-    p2, l2, u2 = wilson(x2, n2)
-    d = p1 - p2
-    return (
-        d - float(np.sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2)),
-        d + float(np.sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2)),
-    )
+    ``gained`` counts the draws the ``oracle_node`` interval covers and the plug-in misses,
+    ``lost`` the reverse. The ``oracle_node`` interval has the plug-in's centre and a larger
+    variance, so it contains the plug-in interval and ``lost`` is 0 by construction. The
+    difference is then ``gained / trials``, read by its Clopper-Pearson lower end (plan 5.5 rev
+    3.3). A nonzero ``lost`` is subtracted whole, which can only lower the reading.
+    """
+    if trials == 0:
+        return 0.0
+    low = clopper_pearson(gained, trials, confidence_level=level).low if gained else 0.0
+    return low - lost / trials
 
 
 # ------------------------------------------------------------------------------------- rows
@@ -185,7 +196,7 @@ def newcombe_interval(
 def _draw(key: tuple[str, int]) -> pd.DataFrame:
     name, replicate = key
     cell = study.CELL_BY_NAME[name]
-    seed = stream_seed(STUDY, "property_sample", FAMILY, name, replicate)
+    seed = stream_seed(STUDY, SAMPLE_STREAM, FAMILY, name, replicate)
     return laws.law_of(cell.variant).draw(
         cell.n, np.random.default_rng(seed), cluster_size=cell.cluster_size
     )
@@ -271,7 +282,7 @@ def declared_cells() -> tuple[Any, ...]:
                         treatment_learner=lambda: None,
                         n=cell.n,
                         replicates=PROPERTY_REPLICATES,
-                        seed=stream_seed(STUDY, "property_sample", FAMILY, cell.name),
+                        seed=stream_seed(STUDY, SAMPLE_STREAM, FAMILY, cell.name),
                         role=_role(name),
                         estimand=study.TARGETS[target],
                     )
@@ -293,8 +304,9 @@ def synthetic_columns(cell: Any, rng: np.random.Generator) -> dict[str, Any]:
 def synthetic_centre(cell: Any, columns: Mapping[str, Any], centre: float, scale: float) -> float:
     """A synthetic row's centre: the control misses on its firing draws and covers elsewhere.
 
-    The paired control's clauses read the plug-in's coverage on firing against non-firing
-    draws, so its synthetic rows lose coverage on the firing draws only, as the law does.
+    The paired control's clauses read the plug-in's coverage on firing draws against the
+    supplemented and ``oracle_node`` coverage on the same draws, so its synthetic rows lose
+    coverage on the firing draws only, as the law does.
     """
     if cell.role == "control":
         return centre if columns["firing"] else 0.0
@@ -347,28 +359,33 @@ def _proportion(hits: int, trials: int, level: float) -> tuple[float, float, flo
     return hits / trials, interval.low, interval.high
 
 
-def _paired(rows: pd.DataFrame, control: str, positive: str) -> pd.DataFrame:
-    """The control's rows beside the positive's ``covered``, joined on the replicate."""
-    left = rows.loc[(rows["property"] == FAMILY) & (rows["cell"] == control)]
-    right = rows.loc[(rows["property"] == FAMILY) & (rows["cell"] == positive)]
-    return left[["replicate", "covered", "firing"]].merge(
-        right[["replicate", "covered"]], on="replicate", suffixes=("", "_positive")
+def _paired(rows: pd.DataFrame) -> pd.DataFrame:
+    """The control's rows beside the positive's and the oracle's ``covered``, by replicate."""
+    family = rows.loc[rows["property"] == FAMILY]
+
+    def covered(cell: str, suffix: str) -> pd.DataFrame:
+        frame = family.loc[family["cell"] == cell, ["replicate", "covered"]]
+        return frame.rename(columns={"covered": f"covered{suffix}"})
+
+    left = family.loc[family["cell"] == CONTROL_CELL, ["replicate", "covered", "firing"]]
+    return left.merge(covered(PAIRED_POSITIVE, "_positive"), on="replicate").merge(
+        covered(PAIRED_ORACLE, "_oracle"), on="replicate"
     )
 
 
 def paired_counts(rows: pd.DataFrame) -> dict[str, int]:
-    """The paired control's counts: firing draws, gains, losses, plug-in hits by group."""
-    pair = _paired(rows, CONTROL_CELL, PAIRED_POSITIVE)
+    """The paired control's counts on firing draws: against the supplement and the oracle."""
+    pair = _paired(rows)
     fire = _flag(pair["firing"])
     plug = pair["covered"].to_numpy() > 0
     sup = pair["covered_positive"].to_numpy() > 0
+    oracle = pair["covered_oracle"].to_numpy() > 0
     return {
         "firing": int(fire.sum()),
-        "quiet": int((~fire).sum()),
         "gained": int(np.sum(fire & sup & ~plug)),
         "lost": int(np.sum(fire & ~sup & plug)),
-        "plug_firing": int(np.sum(fire & plug)),
-        "plug_quiet": int(np.sum(~fire & plug)),
+        "oracle_gained": int(np.sum(fire & oracle & ~plug)),
+        "oracle_lost": int(np.sum(fire & ~oracle & plug)),
     }
 
 
@@ -391,7 +408,11 @@ def firing_se_ratio(
 
 
 def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: float) -> None:
-    """Fill :data:`READING_COLUMNS` on every row of the family."""
+    """Fill :data:`READING_COLUMNS` on every row of the family.
+
+    A withheld row carries no standard error (NaN), so the shared ``mean_std_error`` and
+    ``se_ratio`` are restated over the rows that show one; the spread stays every draw's.
+    """
     family = rows.loc[rows["property"] == FAMILY]
     groups = dict(tuple(family.groupby("cell", sort=False)))
     for index in summary.index[summary["property"] == FAMILY]:
@@ -399,6 +420,12 @@ def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: flo
         cell_name, target, arm = name.split("__")
         cell = study.CELL_BY_NAME[cell_name]
         group = groups[name]
+        reported = group["std_error"].to_numpy(dtype=float)
+        if np.isnan(reported).any():
+            shown = reported[np.isfinite(reported)]
+            mean = float(shown.mean()) if shown.size else np.nan
+            summary.loc[index, "mean_std_error"] = mean
+            summary.loc[index, "se_ratio"] = mean / float(summary.loc[index, "empirical_se"])
         fire = _flag(group["firing"])
         quiet = ~fire & ~_flag(group["supplemented"])
         covered = group["covered"].to_numpy() > 0
@@ -420,7 +447,7 @@ def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: flo
             values[f"{prefix}_ci_upper"] = high
         values["firing_above_099"] = float(values["firing_ci_lower"] > OVER_COVERAGE)
         values["rare_event_limit"] = float(values["quiet_ci_lower"] < FIRING_FLOOR)
-        seed = stream_seed(STUDY, "firing_se_ratio", FAMILY, name)
+        seed = stream_seed(STUDY, SE_RATIO_STREAM, FAMILY, name)
         (
             values["firing_se_ratio"],
             values["firing_se_ratio_ci_lower"],
@@ -444,12 +471,10 @@ def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: flo
             values["mcnemar_lower"] = mcnemar_lower(
                 counts["gained"], counts["lost"], counts["firing"], level
             )
-            values["newcombe_lower"], values["newcombe_upper"] = newcombe_interval(
-                counts["plug_firing"],
-                counts["firing"],
-                counts["plug_quiet"],
-                counts["quiet"],
-                level,
+            values["oracle_gained"] = float(counts["oracle_gained"])
+            values["oracle_lost"] = float(counts["oracle_lost"])
+            values["oracle_gain_lower"] = oracle_gain_lower(
+                counts["oracle_gained"], counts["oracle_lost"], counts["firing"], level
             )
         for column, value in values.items():
             summary.loc[index, column] = value
@@ -473,7 +498,9 @@ def boundary_node_verdicts(summary: pd.DataFrame) -> None:
             if name in ZERO_CELLS:
                 passed = passed and bool(row["coverage_ci_lower"] >= ZERO_FLOOR)
         elif role == "control":
-            passed = bool(row["mcnemar_lower"] > 0.0) and bool(row["newcombe_upper"] < 0.0)
+            passed = bool(row["mcnemar_lower"] > 0.0) and bool(
+                row["oracle_gain_lower"] >= ORACLE_GAIN_MARGIN
+            )
         else:
             passed = True
         summary.loc[index, "passed"] = passed
@@ -529,31 +556,35 @@ def _gain_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
     return out
 
 
-def _loss_read(ctx: Context, row: pd.Series) -> Judged:
-    high = float(row["newcombe_upper"])
-    return Judged(-high, bool(high < 0.0))
+def _oracle_read(ctx: Context, row: pd.Series) -> Judged:
+    value = float(row["oracle_gain_lower"])
+    return Judged(value - ORACLE_GAIN_MARGIN, bool(value >= ORACLE_GAIN_MARGIN))
 
 
-def _loss_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-    """A lost draw is a plug-in miss: ``j`` of ``k`` among the firing draws, the rest not."""
+def _oracle_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+    """A lost draw is a firing draw both arms miss, or a non-firing draw: ``j`` of ``k`` fire."""
     counts = _control_counts(ctx)
     level = ctx.margins.confidence_level
-    k = ctx.k(row)
     out = []
-    for j in range(k + 1):
-        _, high = newcombe_interval(
-            counts["plug_firing"],
-            counts["firing"] + j,
-            counts["plug_quiet"],
-            counts["quiet"] + k - j,
-            level,
+    for j in range(ctx.k(row) + 1):
+        value = oracle_gain_lower(
+            counts["oracle_gained"], counts["oracle_lost"], counts["firing"] + j, level
         )
-        out.append((f"j={j} firing", Judged(-high, bool(high < 0.0))))
+        out.append(
+            (
+                f"j={j} firing",
+                Judged(value - ORACLE_GAIN_MARGIN, bool(value >= ORACLE_GAIN_MARGIN)),
+            )
+        )
     return out
 
 
 def _paired_reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
     return [(FAMILY, PAIRED_POSITIVE)]
+
+
+def _oracle_reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+    return [(FAMILY, PAIRED_ORACLE)]
 
 
 #: The failure accounting's declared rules: the verdicts of :func:`boundary_node_verdicts`.
@@ -587,12 +618,13 @@ PROPERTY_RULES = (
                 reads=_paired_reads,
             ),
             Clause(
-                "plug-in loses coverage",
-                "S2",
+                "node variance matters",
+                "S7",
                 cells(CONTROL_CELL),
-                _loss_read,
-                _loss_candidates,
+                _oracle_read,
+                _oracle_candidates,
                 imputation=SUPPORT,
+                reads=_oracle_reads,
             ),
         ),
     ),

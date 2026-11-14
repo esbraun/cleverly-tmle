@@ -15,8 +15,8 @@ Each row records whether node 4 of the target's firing regimen was flagged (``fi
 ``always`` for ``always`` and the contrast, ``never`` for ``never``) and whether another node was
 too (``multi_flag``). The fit and the arms are the study's own
 (:func:`tests.studies.boundary_node_ltmle.draw_arms`). :func:`summarize` reads the coverage of
-each arm on all, firing and non-firing draws, and :func:`control_power` the two clauses of the
-paired control at the pilot rates.
+each arm on all, firing and non-firing draws, and :func:`control_power` the power of the
+two clauses of the paired control at the pilot rates.
 
 Run with ``python -m tests.studies.boundary_node_pilot --output <file.csv.gz>``. Law A's cells
 fit the iterated-mean path; law B's (``held_n200``, ``held_zero_n200``) fit the hazard path,
@@ -128,7 +128,10 @@ def exact_interval(successes: int, trials: int, level: float = 0.99) -> tuple[fl
 
 
 mcnemar_lower = properties.mcnemar_lower
-newcombe_interval = properties.newcombe_interval
+oracle_gain_lower = properties.oracle_gain_lower
+
+#: The arms whose joint coverage on firing draws the paired clauses read.
+PAIRED_ARMS: Final[tuple[str, ...]] = ("supplemented", "plugin", "oracle_node")
 
 
 def control_power(
@@ -141,34 +144,34 @@ def control_power(
 ) -> dict[str, float]:
     """The power of both paired clauses at ``replicates`` draws, at the pilot rates.
 
-    Each simulated study draws the firing count, then the joint arm outcomes of the firing
-    draws and the plug-in coverage of the non-firing draws. At the pilot rates these come from
-    the pilot's empirical shares. With ``predictive`` each simulation first draws the rates
-    from their Jeffreys posteriors (a Dirichlet over the four joint outcomes, a Beta for the
-    firing share and for the non-firing coverage), so the power carries the pilot's own
-    uncertainty.
+    Each simulated study draws the firing count, then the joint coverage of the supplemented,
+    plug-in and ``oracle_node`` arms on each firing draw. Clause (i) reads supplemented against
+    plug-in, clause (ii') ``oracle_node`` against plug-in with its margin of
+    :data:`~tests.studies.boundary_node_properties.ORACLE_GAIN_MARGIN`. At the pilot rates the
+    draws come from the pilot's empirical shares. With ``predictive`` each simulation first
+    draws the rates from their Jeffreys posteriors (a Beta for the firing share, a Dirichlet over
+    the eight joint outcomes), so the power carries the pilot's own uncertainty.
     """
     rng = np.random.default_rng(seed)
     fire = rows["firing"].to_numpy(dtype=bool)
-    joint = rows.loc[fire, ["supplemented_covered", "plugin_covered"]].to_numpy(dtype=bool)
-    rest = rows.loc[~fire & (rows["lost"] == ""), "plugin_covered"].to_numpy(dtype=bool)
-    # The four joint outcomes on firing draws: (supplemented, plug-in) covered.
-    outcomes = np.array([[True, True], [True, False], [False, True], [False, False]])
+    joint = rows.loc[fire, [f"{arm}_covered" for arm in PAIRED_ARMS]].to_numpy(dtype=bool)
+    # The eight joint outcomes on firing draws, as (supplemented, plug-in, oracle) covered.
+    outcomes = np.array([[(code >> bit) & 1 for bit in (2, 1, 0)] for code in range(8)], bool)
     counts = np.array([np.sum(np.all(joint == outcome, axis=1)) for outcome in outcomes])
+    sup, plug, oracle = outcomes.T
     first = second = 0
     for _ in range(simulations):
         if predictive:
             share = rng.beta(fire.sum() + 0.5, (~fire).sum() + 0.5)
             shares = rng.dirichlet(counts + 0.5)
-            quiet_rate = rng.beta(rest.sum() + 0.5, (~rest).sum() + 0.5)
         else:
-            share, shares, quiet_rate = fire.mean(), counts / counts.sum(), rest.mean()
+            share, shares = fire.mean(), counts / counts.sum()
         m = rng.binomial(replicates, share)
-        both, gained, lost, _ = rng.multinomial(m, shares)
-        first += mcnemar_lower(int(gained), int(lost), m) > 0.0
-        quiet = rng.binomial(replicates - m, quiet_rate)
-        _, high = newcombe_interval(int(both + lost), m, quiet, replicates - m)
-        second += high < 0.0
+        drawn = rng.multinomial(m, shares)
+        gained, lost = int(drawn[sup & ~plug].sum()), int(drawn[~sup & plug].sum())
+        first += mcnemar_lower(gained, lost, m) > 0.0
+        gained, lost = int(drawn[oracle & ~plug].sum()), int(drawn[~oracle & plug].sum())
+        second += oracle_gain_lower(gained, lost, m) >= properties.ORACLE_GAIN_MARGIN
     return {"clause_i": first / simulations, "clause_ii": second / simulations}
 
 

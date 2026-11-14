@@ -140,7 +140,9 @@ def invalid_rows(
     The rules of the reference harness's ``study_invalid`` (RM39a2): a finite ``estimate``,
     ``inference_estimate`` and ``std_error``, a positive ``std_error``, ``ci_lower`` at most
     ``ci_upper``, and ``covered`` equal to the interval's coverage of ``truth``.  Only the
-    columns present are read.  A missing value breaks a rule.  ``coverage=False`` drops the
+    columns present are read.  A missing value breaks a rule, with one exception: a row whose
+    numeric ``withheld`` is 1 may carry a NaN ``std_error``, the reading of an estimate that
+    withheld its interval (``boundary-node-ltmle``); a zero or infinite one still breaks it.  ``coverage=False`` drops the
     last rule: the study computes a subject row's ``covered`` itself, so a disagreement there
     is a study defect, and ``schema.validate_replicates`` stops the run on it.
     """
@@ -158,12 +160,18 @@ def invalid_rows(
         scenario = f" of {frame['scenario'].iloc[row]}" if "scenario" in columns else ""
         return f"{estimand}{scenario} (row {row + 1})"
 
+    withheld = (
+        number("withheld") == 1.0 if "withheld" in columns else np.zeros(len(frame), dtype=bool)
+    )
+    excused = withheld & np.isnan(number("std_error")) if "std_error" in columns else withheld
     for column in ("estimate", "inference_estimate", "std_error"):
-        if column in columns and not np.isfinite(number(column)).all():
-            return f"non-finite {column} for {where(~np.isfinite(number(column)))}"
+        if column in columns:
+            finite = np.isfinite(number(column)) | (excused if column == "std_error" else False)
+            if not finite.all():
+                return f"non-finite {column} for {where(~finite)}"
     with np.errstate(invalid="ignore"):
         if "std_error" in columns:
-            positive = number("std_error") > 0
+            positive = (number("std_error") > 0) | excused
             if not positive.all():
                 return f"non-positive std_error for {where(~positive)}"
         if {"ci_lower", "ci_upper"} <= columns:

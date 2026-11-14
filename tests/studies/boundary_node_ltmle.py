@@ -32,7 +32,7 @@ Each row also records whether node 4 was flagged for the target's regimen (``fir
 ``always`` for ``always`` and the contrast, under ``never`` for ``never``), whether another
 node was (``multi_flag``), whether the estimate added the supplement at any node
 (``supplemented``), whether the estimate withheld its interval (``withheld``, then a miss in
-every arm), and the half-width of the arm's interval. The rules are those of
+every arm, with ``std_error`` NaN), and the half-width of the arm's interval. The rules are those of
 :mod:`tests.studies.boundary_node_properties`.
 
 Learners: GLM main terms for the node regressions (the study's quasi-binomial GLM) and an
@@ -67,11 +67,26 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 PRIMARY_REPLICATES: Final[int] = 1_000
 PRIMARY_N: Final[int] = 200
 PROPERTY_REPLICATES: Final[int] = 4_000
-SEED: Final[int] = 20264541
-RESAMPLING_SEED: Final[int] = 20264542
+#: The redeclaration's seeds (plan 5.5 rev 3.3), used by no other stream. The first declared
+#: run (:data:`FIRST_DECLARED_RUN`) drew from 20264541 and 20264542, so the rerun reads clause
+#: (ii') on draws that did not inform its design.
+SEED: Final[int] = 20264751
+RESAMPLING_SEED: Final[int] = 20264752
 SCENARIO: Final[str] = "interior_n200"
 FAMILY: Final[str] = "boundary_node"
 HORIZON: Final[int] = laws.HORIZON
+
+#: The first declared run, kept in history: the declaration it ran, the commit of its
+#: artifacts, and its seeds. Its paired clause (ii) compared the plug-in's firing coverage with
+#: its coverage on non-firing draws, which under-cover for the rare-event reason, and went red
+#: although the supplement gained 304 firing draws and lost none. This declaration replaces that
+#: clause with clause (ii') and is informed by the run.
+FIRST_DECLARED_RUN: Final[Mapping[str, Any]] = {
+    "declaration": "91cb39ae0469937a54aef7cf9cd8031faccb349d",
+    "artifacts": "cbbd634c9b9c6eaf2c20f4c5d8e2e30ad1f97039",
+    "seed": 20264541,
+    "resampling_seed": 20264542,
+}
 
 TARGETS: Final[dict[str, str]] = {
     "always": f"risk_regimen[always @ t={HORIZON}]",
@@ -389,8 +404,11 @@ def draw_arms(frame: pd.DataFrame, cell: Cell, truth: Mapping[str, float]) -> li
     """One draw's targets, each with its three arms, off one fit.
 
     Each entry holds the target, its truth, the point, the flags, and per arm the interval,
-    the standard error, ``covered`` (0 when the estimate withholds its interval) and
-    ``rejected``.
+    the standard error, ``covered`` and ``rejected``. When the estimate withholds its interval
+    every arm reads a withheld miss: ``covered`` and ``rejected`` 0, and the standard error and
+    interval NaN. The plug-in arm of an estimate at 0 or 1 has a curve variance of exactly 0,
+    which the row check would reject and lose the whole draw with it (the first declared run
+    lost 8 keys so); NaN on a withheld row is the one value the row check accepts there.
     """
     law = laws.law_of(cell.variant)
     result = fit(frame, cell)
@@ -424,6 +442,8 @@ def draw_arms(frame: pd.DataFrame, cell: Cell, truth: Mapping[str, float]) -> li
         for arm, version in versions.items():
             low, high = version.plugin_interval
             se = float(version.plugin_std_error)
+            if not shown:
+                low = high = se = float("nan")
             entry[arm] = {
                 "std_error": se,
                 "low": float(low),

@@ -11,9 +11,37 @@ margins, seeds and replicate counts are those of :mod:`tests.studies.boundary_no
 its run is committed; until then its property module is an uncommitted subject of the property
 differential.
 
-Order of the work (plan X54 rev 3.1, section 5.5): the laws and their declared grids; the pilot
-of :mod:`tests.studies.boundary_node_pilot` on its own seed stream, 2,000 draws of each of the
-eight cells, committed as ``pilot.csv.gz``; this declaration; the declared run. Budget: about
+Order of the work (plan X54 rev 3.1, section 5.5; rev 3.3 for this redeclaration): the laws and
+their declared grids; the pilot of :mod:`tests.studies.boundary_node_pilot` on its own seed
+stream, 2,000 draws of each of the eight cells, committed as ``pilot.csv.gz``; the first
+declaration and its declared run; this redeclaration; its declared run.
+
+The first declared run (declaration ``91cb39ae``, artifacts ``cbbd634c``, kept in history and in
+this directory until the rerun overwrites them; ``boundary_node_ltmle.FIRST_DECLARED_RUN``)
+followed the declared route for a failed paired clause. Its clause (ii) compared the plug-in's
+coverage on firing draws (0.845) with its coverage on the non-firing draws of the same cell
+(0.861), and its Newcombe interval, -0.0456 to +0.0122, did not lie below 0. Those non-firing
+draws are not a well-covered reference: they hold one or two events at node 4 and under-cover
+for the rare-event reason, so the clause compared the wrong groups and measured the difference
+between two shortfalls, while the supplement gained 304 firing draws and lost none. This
+redeclaration is informed by that run. It changes three things and nothing else:
+
+* clause (ii') replaces clause (ii): on the firing draws of the control, ``oracle_node`` minus
+  plug-in coverage, with its exact 99% lower end at least 0.05. The ``oracle_node`` interval has
+  the plug-in's centre and the flagged node's true variance added, so it contains the plug-in
+  interval and the paired difference is one-sided. The margin is the gap between nominal
+  coverage and the study's floor (0.95 against 0.90), set from the floor's meaning; the first
+  run's lower end, 0.134, would pass any margin up to 0.13. The clause reads no non-firing draw;
+* a withheld target's three rows carry ``std_error`` NaN and read as misses, and the draw's other
+  targets keep their rows. The first run wrote the plug-in row of an estimate at 0 or 1 with a
+  curve variance of 0, the row check rejected it, and 8 ``interior_n100`` keys were lost in all
+  nine cells. The row check now accepts NaN on a withheld row and nothing else;
+* fresh ``SEED`` and ``RESAMPLING_SEED`` and fresh property stream labels
+  (``boundary_node_properties.SAMPLE_STREAM`` and ``SE_RATIO_STREAM``), so the rerun reads the new
+  clause on draws that did not inform it.
+
+Every cell, R, gate, margin and owner other than these is unchanged, and the first run's rows
+serve only as a second pilot for the power of clause (ii'). Budget: about
 0.04 to 0.08 s per fit at the pilot (one fit per key, its three arms read off that fit), so 8
 cells by 4,000 draws plus the 1,000-draw primary is under 1 CPU-h of fitting; declared 6 CPU-h.
 
@@ -32,8 +60,8 @@ supplement changes:
   end of coverage on the firing draws at least 0.90;
 * ``zero-cell coverage`` on ``risk[always]`` of ``zero_n200`` and ``held_zero_n200``, where every
   draw fires: the exact 99% lower end of all-draw coverage at least 0.92;
-* ``paired gain`` and ``plug-in loses coverage`` on the ``plugin`` row of ``interior_n200``
-  ``always``, the ``paired_attributable`` control of plan B1.
+* ``paired gain`` (clause (i)) and ``node variance matters`` (clause (ii')) on the ``plugin``
+  row of ``interior_n200`` ``always``, the ``paired_attributable`` control of plan B1.
 
 All-draw coverage of every arm is published with its exact interval and its G1 reading
 (``all_draw_floor_met``), with the firing, quiet and multi-flag coverages, the SE ratio on the
@@ -44,8 +72,10 @@ measures the coverage of the hazard-path interval on draws with a flagged node; 
 bound rests on its unit witness (``tests/unit/test_boundary_node_variance.py``).
 
 Pilot readings at 2,000 draws per cell (``pilot.csv.gz``): supplemented coverage on firing draws
-0.957 to 1.000 in every gated row; plug-in coverage of the control 0.828 on firing draws against
-0.900 on non-firing draws, supplemented 0.999; quiet coverage of ``risk[always]`` 0.79 to 0.94
+0.957 to 1.000 in every gated row; on the control's 1,002 firing draws, plug-in coverage 0.828,
+supplemented 0.999 and ``oracle_node`` 0.998, the oracle covering 170 draws the plug-in misses
+and missing none it covers (clause (ii') lower end 0.140; the first declared run read 303 of
+1,958, lower end 0.134); quiet coverage of ``risk[always]`` 0.79 to 0.94
 in the law A interior cells; half-width ratio of ``risk[always]`` to the oracle-node interval
 1.6 to 1.9 in the law A interior cells, 3.4 in the zero cell, 1.07 to 1.08 on law B;
 standardized bias at most 0.09. Lost keys: 6 at ``n = 100`` and 3 cross-fitted, each because no
@@ -55,9 +85,11 @@ elsewhere.
 Pass probabilities (``tests/unit/test_boundary_node_study_design.py``, predictive: each
 simulation draws the pilot's rates from their posteriors). Every G2 row passes with probability
 at least 0.99 (all read 1.00) with the 95th percentile of its lost keys filled at the worst
-vertex. Every firing floor and zero cell reads at least 0.9999. The paired clauses have power
-1.00 and 0.993. The product over the 47 gated clauses (24 G2 rows, 19 firing floors, 2 zero
-cells, 2 paired clauses) is 0.993. In the primary, the bias legs of all three targets read 1.00;
+vertex. Every firing floor and zero cell reads at least 0.9999. The paired clauses (i) and (ii')
+have power 1.00 and 1.00 from the pilot, and clause (ii') also 1.00 from the first run's rates;
+on law B's first cell, where the flagged node carries about 0.03 of the variance, clause (ii')
+has power 0.00, so the clause can fail. The product over the 47 gated clauses (24 G2 rows, 19
+firing floors, 2 zero cells, 2 paired clauses) reads 1.00. In the primary, the bias legs of all three targets read 1.00;
 the coverage legs read 0.995, 0.945 and 1.00 for ``risk[always]``, ``risk[never]`` and the
 contrast; the SE-ratio leg of ``risk[never]`` reads 1.00, and those of ``risk[always]`` and the
 contrast read 0.00 and 0.05 (below). Each primary row's declared reading names the one leg it
@@ -101,8 +133,9 @@ defaults.
   failed. Diagnose it; nothing ships until it is fixed.
 * A red ``bias`` row is a defect suspect: the supplement does not move a point estimate, every
   learner is correctly specified, and the pilot read at most 0.09 SD.
-* A paired clause fails, or has no power at the declared law: the study cannot license the
-  construction and nothing ships. That is a design-test failure, redesigned under a fresh
+* A paired clause fails (the supplement does not change firing-draw coverage, clause (i), or
+  the true node variance changes it by less than 0.05, clause (ii')), or has no power at the
+  declared law: the study cannot license the construction and nothing ships. That is a design-test failure, redesigned under a fresh
   declaration, not a red cell.
 * A replication that raises is never redrawn. A recordable failure costs its key in every cell
   of its law under the declared bound of 0.05, and every declared rule reads a lost draw as a
