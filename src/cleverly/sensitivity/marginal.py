@@ -98,7 +98,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._continuous_survival_family import refuse_continuous_survival
-from .._inference_status import status_record
+from .._inference_status import status_record, supplies_inference
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
 from ..exceptions import CapabilityError
@@ -470,6 +470,65 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             roadmap=record.reopened_by,
         )
     return None
+
+
+def marginal_estimand_refusal(result: Any, estimand: str | None = None) -> Refusal | None:
+    r"""Why the bounds of ``estimand`` withhold their interval on ``result``, or ``None``.
+
+    The fit-level reasons are :func:`marginal_bound_refusal`'s; call it first.  This one is the
+    bounded estimate's own: its status withholds the interval (:func:`_withheld_status`), and
+    at :math:`\Gamma = 1` the set interval would be a confidence interval for that estimate.
+    ``None`` names the default estimand, which the capability row reads.  When the fit leaves
+    the caller a choice of estimand, no estimate is bound yet, so there is nothing to refuse:
+    the row defers and asks for ``estimand=``.
+    """
+    if estimand is None and len(default_estimand_candidates(result)) != 1:
+        return None
+    return _estimand_refusal(result, _resolve_target(result, estimand))
+
+
+def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:
+    withheld = _withheld_status(result, target)
+    if withheld is None:
+        return None
+    record = status_record(withheld)
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        f"the bound's interval is built from the influence curve of {target.name}, and that "
+        f"estimate withholds its interval ({withheld}): {record.reason}",
+        alternative=record.alternative or NO_ALTERNATIVE,
+        roadmap=record.reopened_by,
+    )
+
+
+def _withheld_status(result: Any, target: _Target) -> str | None:
+    """The status of ``target``'s estimate when it withholds the interval, else ``None``.
+
+    A reported estimate answers through its own status.  An unreported one withholds when
+    an arm it reads holds one observed outcome value in its rows, the cause the fit's
+    ``constant_arm_cell_plugin`` status names, because the bound's influence curve leaves out
+    that arm's outcome variance as the estimate's would.
+    """
+    from ..inference.influence import CONSTANT_ARM_CELL_STATUS, constant_outcome_cells
+
+    estimate = result.estimates.get(target.name)
+    if estimate is not None:
+        status = estimate.inference
+        # A selecting C-TMLE withholds for its selected mechanism, which the bounds refit.
+        if supplies_inference(status) or (
+            status in _SELECTION_STATUSES and _refits_mechanism(result)
+        ):
+            return None
+        return str(status)
+    data = result.data
+    rows = np.ones(data.n, dtype=bool)
+    if target.stratum is not None:
+        rows = np.asarray(data.strata) == target.stratum
+    constant = constant_outcome_cells(
+        data.outcome, data.treatment, rows, weights=data.weights, observed=data.observed
+    )
+    arms = {target.arm} if target.versus is None else {target.arm, target.versus}
+    return CONSTANT_ARM_CELL_STATUS if arms & {float(arm) for arm in constant} else None
 
 
 def _mechanism_unfitted(result: Any) -> bool:
@@ -1239,6 +1298,9 @@ def marginal_sensitivity_bounds(
         raise ValueError(f"level must lie in (0, 1); got {level!r}")
     grid = _gammas(gamma)
     target = _resolve_target(result, estimand)
+    withheld = _estimand_refusal(result, target)
+    if withheld is not None:
+        raise CapabilityError.from_refusal(withheld)
     cluster = result.data.cluster
     df = _reference_df(result, target)
     z = reference_quantile(1.0 - level, df)

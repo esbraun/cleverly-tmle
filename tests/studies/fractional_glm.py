@@ -20,11 +20,25 @@ while the fitted values and the deviance settle.  Every fit that converged befor
 same iterates and stops at the same step, because only the branch that raised changed.  A fit
 whose deviance has not settled still raises.
 
-No registered study that ran before the change moves, for two structural reasons.  No
-committed ``properties.csv`` has a failed replication, and no committed summary records a
-failure, so no committed run reached the branch that raised.  And no registered study puts this
-learner inside a ``SuperLearner`` library or a bootstrap refit, the two places where a raise
-would have been swallowed rather than failing the run.
+A fit whose binary target is completely separated also keeps its last iterate, with the same
+warning.  There the maximum-likelihood estimate does not exist: the coefficients grow without
+bound, the fitted values tend to 0 and 1 on the separated rows, and the deviance tends to zero
+geometrically, so its relative change never meets R's rule.  The learner detects the case
+directly and scale-free, by Albert and Anderson's (1984) characterization: the target is binary
+on the rows of positive weight and some linear predictor puts every such row strictly on the
+side of its class.  A small linear program decides that (:func:`completely_separated`), so the
+test does not depend on how far IRLS has run.  The solver works to its own feasibility
+tolerance: a design whose margin is near ``1e-9`` reads as not separated and keeps the deviance
+rule.  A fractional target never meets it, and neither
+does a quasi-complete separation, where some row must lie on the hyperplane; that case keeps the
+deviance rule above.  The last iterate approximates the limiting predictions, and a fit that
+converged before takes the same iterates and stops at the same step.
+
+Neither change moves a registered study that ran before it, for two structural reasons.  Only a
+fit that raised takes a new branch, and no committed failure record carries the text the learner
+raised, so no committed run reached it.  And no registered study puts this learner inside a ``SuperLearner``
+library or a bootstrap refit, the two places where a raise would have been swallowed rather
+than failing the run.
 """
 
 from __future__ import annotations
@@ -34,6 +48,7 @@ import warnings
 from typing import Any
 
 import numpy as np
+from scipy.optimize import linprog
 from scipy.special import expit, xlogy
 from sklearn.base import BaseEstimator
 
@@ -42,7 +57,7 @@ DEVIANCE_EPSILON = 1e-8
 
 
 class QuasiBinomialSeparationWarning(RuntimeWarning):
-    """The coefficients diverged while the deviance converged, so the last iterate is kept."""
+    """The coefficients diverged under separation, so the last iterate is kept."""
 
 
 def deviance(target: np.ndarray, fitted: np.ndarray, weights: np.ndarray) -> float:
@@ -52,6 +67,48 @@ def deviance(target: np.ndarray, fitted: np.ndarray, weights: np.ndarray) -> flo
     return float(2.0 * np.sum(weights * terms))
 
 
+def completely_separated(design: np.ndarray, target: np.ndarray, weights: np.ndarray) -> bool:
+    """Whether a hyperplane puts every positive-weight row strictly on the side of its class.
+
+    That is complete separation of a binary target (Albert and Anderson, 1984), the case in
+    which the maximum-likelihood estimate does not exist.  A strict separator can be scaled to a
+    margin of one, so the test is the feasibility of ``s_i x_i' b >= 1`` for every row with
+    positive weight, where ``s_i`` is ``+1`` for ``y_i = 1`` and ``-1`` for ``y_i = 0`` and
+    ``x_i`` includes the intercept column.  It reads the design and the target, not an iterate.
+    HiGHS decides feasibility to its own tolerance, so a separating margin near ``1e-9`` reads
+    as infeasible.
+    A target with a fractional value on such a row is never separated.
+
+    Parameters
+    ----------
+    design : ndarray
+        The ``(n, p)`` design, intercept column included.
+    target : ndarray
+        The ``(n,)`` target.
+    weights : ndarray
+        The ``(n,)`` row weights. Rows of zero weight do not count.
+
+    Returns
+    -------
+    bool
+        Whether the positive-weight rows are completely separated.
+    """
+    informative = weights > 0
+    observed = target[informative]
+    if not np.all((observed == 0.0) | (observed == 1.0)):
+        return False
+    signs = np.where(observed == 1.0, 1.0, -1.0)
+    rows = design[informative] * signs[:, None]
+    solution = linprog(
+        np.zeros(design.shape[1]),
+        A_ub=-rows,
+        b_ub=-np.ones(rows.shape[0]),
+        bounds=[(None, None)] * design.shape[1],
+        method="highs",
+    )
+    return bool(solution.status == 0)
+
+
 class QuasiBinomialGLM(BaseEstimator):
     """Small scikit-compatible unpenalized quasibinomial IRLS learner.
 
@@ -59,6 +116,11 @@ class QuasiBinomialGLM(BaseEstimator):
     outcome and fractional earlier pseudo-outcomes.  Scikit-learn's logistic classifier
     refuses fractional targets, so the canonical study carries the corresponding score
     solver rather than silently comparing different regression families.
+
+    Under complete separation of a binary target the maximum-likelihood estimate does not
+    exist, and the predictions tend to 0 and 1 on the separated rows.  The fit then keeps the
+    last iterate, which approximates those limits, with
+    :class:`QuasiBinomialSeparationWarning` (:func:`completely_separated`).
     """
 
     #: Unpenalized, and started from the weighted mean, so a row of integer weight ``c``
@@ -96,16 +158,25 @@ class QuasiBinomialGLM(BaseEstimator):
                 break
             coefficient = updated
         else:
+            last = expit(design @ coefficient)
             before = deviance(target, expit(design @ previous), weights)
-            after = deviance(target, expit(design @ coefficient), weights)
-            if abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON:
-                raise RuntimeError("quasibinomial IRLS did not converge")
-            warnings.warn(
-                f"quasibinomial IRLS coefficients did not converge in {self.max_iter} steps, "
-                "but the deviance did: quasi-complete separation, last iterate kept",
-                QuasiBinomialSeparationWarning,
-                stacklevel=2,
-            )
+            after = deviance(target, last, weights)
+            if after <= before and completely_separated(design, target, weights):
+                warnings.warn(
+                    f"quasibinomial IRLS coefficients did not converge in {self.max_iter} "
+                    "steps: complete separation, last iterate kept",
+                    QuasiBinomialSeparationWarning,
+                    stacklevel=2,
+                )
+            else:
+                if abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON:
+                    raise RuntimeError("quasibinomial IRLS did not converge")
+                warnings.warn(
+                    f"quasibinomial IRLS coefficients did not converge in {self.max_iter} "
+                    "steps, but the deviance did: quasi-complete separation, last iterate kept",
+                    QuasiBinomialSeparationWarning,
+                    stacklevel=2,
+                )
         self.coef_ = coefficient[1:][None, :]
         self.intercept_ = coefficient[:1]
         self.classes_ = np.array([0.0, 1.0])

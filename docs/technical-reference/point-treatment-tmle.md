@@ -451,9 +451,9 @@ In that column, "in sample" is `CrossFitting(enabled=False)`. The engine form is
 | sample, each role whose learner is a package `SuperLearner` with a classification task | three rows in each class of the role target | replace that learner. With exactly two rows in the class, the message also names fit in sample |
 | each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm | fit in sample, or collect more observations at the rare level |
 | each training complement, binary outcome | both outcome classes among the respondents | the same as the row above |
-| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target | the same as the row above |
+| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target. A binary outcome role asks it only of a class the complement holds: with none, the regression is the value and no Super Learner runs ([one value](#a-binary-outcome-regression-with-one-value)) | the same as the row above |
 
-The role targets are the outcome among respondents, the response indicator, and the treatment. The
+The role targets are the outcome among respondents (per arm under `outcome_by_arm=True`), the response indicator, and the treatment. The
 outcome target is the scaled outcome that the fit trains on. A complement failure names the repeat
 and the fold. It names no redraw, because the split reads no treatment and no outcome, and a fold
 count or a seed that happens to fit was chosen by reading them.
@@ -1023,6 +1023,41 @@ The evidence that the option does what it says is the fast tier. In
 intercept-only mechanism, the per-arm fit returns the truth to $10^{-10}$ and the pooled fit
 misses it by the exact targeting limit of its regression. A spy on the study's own fits checks
 that each arm's regression reads only that arm's rows and the covariates.
+
+### A binary outcome regression with one value
+
+A binary outcome regression whose training rows all hold 0, or all hold 1, is that value, and no
+learner runs there. One is the maximum-likelihood probability of the value the rows hold. A
+standard classifier such as `LogisticRegression` refuses such a target, and a learner that
+accepts it returns a value at or near the class. The targeting step starts a prediction of 0 or 1
+at its probability bound (`alpha`), as it does any prediction. This is the point-treatment form of
+the longitudinal rule in [a node with no event](longitudinal-tmle.md#a-node-with-no-event).
+
+| regression | result |
+| --- | --- |
+| the pooled outcome regression, cross-fitted | not reached. A training complement without both outcome classes is refused before any learner, as the preflight of [stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states |
+| the per-arm outcome regression (`outcome_by_arm=True`), one arm's training rows in a fold | that arm's regression in the fold is the value. With a package `SuperLearner`, the preflight asks two rows of a class only of a complement that holds at least one, because a complement with none fits no Super Learner. One row of a class is still refused |
+| the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, pooled or per arm, the rows outside a pair of folds | that pair's regression is the value. With a package `SuperLearner`, a pair that keeps one row of a class is refused after the fold draw and before any learner, and the refusal names the pair and `reduced_crossfit="pooled"` |
+| a treatment-mechanism regression | not read by this rule. A complement without an arm is a positivity failure, and the fit keeps its refusal |
+| the per-arm outcome regression of an in-sample fit, an arm whose observed outcomes hold one value | that arm's regression is the value. The estimates that read the arm withhold the interval through the `constant_arm_cell_plugin` status ([inference status](inference.md#inference-status)) |
+| the pooled outcome regression of an in-sample fit | not read by this rule |
+
+A constant fold changes no status. A sample arm whose outcomes hold one value takes
+`constant_arm_cell_plugin` with or without the rule. The nuisance report of the outcome model
+names `TMLE_CONSTANT_TARGET_IN_FOLD` in `fold_omission` and the one-based folds in
+`omitted_folds`, and the full summary adds a line for them. The model's row stays and reads every
+fold's predictions, so its log loss reads a fold's exact 0 or 1 at the report's clip of
+$10^{-12}$. The leave-two-out regressions are not reported, because the report reads the
+production predictions.
+
+`tests/unit/test_constant_target_in_fold.py` builds a fold of one value for the per-arm and the
+leave-two-out regressions, and an in-sample arm of one value. It checks the predictions, the
+targeting bound, the report and the status. Its mutations remove the rule and see the
+classifier's two-class error return. A second control passes the rule to the treatment-mechanism
+regression and sees the pinned refusal change, and a third restores the Super Learner preflight's
+two-row rule and sees the constant fold refused. `TestLeaveTwoOutSuperLearner` does the same
+for a leave-two-out pair, and its controls remove the pair check, which lets the Super Learner's
+own one-member error through, or the exemption, which refuses the constant pair.
 
 ### Treatment-mechanism covariates
 
