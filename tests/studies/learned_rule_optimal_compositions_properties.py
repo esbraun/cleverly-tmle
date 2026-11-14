@@ -9,10 +9,15 @@ mechanism and RM30's settings, and every cell reads the error against its label'
     (``<label>__declared``, nine in all), and each positive gets the two derived controls of
     :func:`~tests.studies.evidence.property_verdicts.calibration_controls`: the SE shrunken by
     :data:`SHRUNKEN_SE_FACTOR`, and noise of one efficiency-bound unit added to each estimate.
+    Each stratum label also carries ``<label>__unnormalised_curve_control``, the same fit read
+    with the SE of its stratum curve without the fold share ``1 / P_{n,v}(W2 = s)``, about half
+    the reported SE, which must fall below the band.
 ``weighted_target_control``
-    Its own draws of the ``weighted`` setting, read against the unweighted
-    :math:`\\Psi_{d_0}(P_0)`, 3.40 SEs below the cell's target. Its exact coverage interval must
-    lie wholly below the calibration floor.
+    Its own draws of the ``weighted`` setting, each read twice: against the unweighted
+    :math:`\\Psi_{d_0}(P_0)` (``target_gap_control``, 8.36 SEs below the target) and against
+    the weighted value of the unweighted rule :math:`\\Psi^w_{d_0}(P_w)`
+    (``unweighted_rule_control``, 2.05 SEs below). Each exact coverage interval must lie wholly
+    below the calibration floor.
 
 Every cell's summary also publishes the mean regret, the mean, smallest and largest
 ``rule_disagreement`` over its draws, and the standardized bias, coverage and SE ratio against
@@ -27,9 +32,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
+from tests.studies import _fold_evaluated_strata_law as fold_strata
 from tests.studies import _learned_rule_optimal_compositions_law as law
 from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence import property_verdicts
@@ -58,26 +65,33 @@ from tests.studies.learned_rule_optimal_compositions import (
     PRIMARY_N,
     PRIMARY_REPLICATES,
     PROPERTY_CELLS,
+    STRATUM_LABELS,
     STUDY,
-    TARGET_CONTROL,
     TARGET_FAMILY,
     TARGET_LABEL,
+    TARGET_TRUTHS,
+    UNNORMALISED,
 )
 
 base = law.base
 
 CALIBRATION_N = PRIMARY_N
-#: The draws of each setting's calibration label: the arm-pooled predictive rule of
-#: :func:`tests.studies.mtp_study_tools.smallest_replicates` (the smallest multiple of 400 whose
-#: family-wise pass probability over the nine positives is at least 0.95, each at least 0.90),
-#: read on the pilot of :mod:`tests.studies.learned_rule_optimal_compositions_pilot`
-#: (``test_learned_rule_optimal_compositions_design`` applies the rule to the committed pilot
-#: and requires this count). Each setting's draw serves all of its labels. On the 2,000-draw
-#: pilot every label passes the per-arm screen, the pooled SE ratio is 1.006 (labels 0.980 to
-#: 1.028) and the predictive spread ``tau`` 0.013, so the rule gives 8,400 (family-wise 0.955,
-#: per label 0.995). Against the fixed truths the pilot's standardized biases are -0.145 to
-#: 0.138, the regret's share of them, and its coverages 0.9415 to 0.9565.
-CALIBRATION_REPLICATES = 8_400
+#: The draws of each setting's calibration label, each draw serving all of the setting's labels.
+#: A positive passes when both its SE-ratio leg and its coverage leg pass, so the count is sized
+#: on the joint family (design review M2): the arm-pooled SE-ratio family of
+#: :func:`tests.studies.mtp_study_tools.pass_probabilities` (pooled mean and ``tau`` from
+#: :func:`~tests.studies.mtp_study_tools.replicates_from_pilot`) times the product of the nine
+#: coverage legs, each predictive over its pilot coverage, read on the pilot of
+#: :mod:`tests.studies.learned_rule_optimal_compositions_pilot`. On the 2,000-draw pilot every
+#: label passes the per-arm screen, the pooled SE ratio is 1.004 (labels 0.980 to 1.028) and
+#: ``tau`` 0.014. The SE-ratio rule alone gives 8,400 (0.951); the joint family first reaches
+#: 0.95 at 9,600 (0.952), which is marginal under a stress like T46's (the pooled mean one pooled
+#: pilot SE further from 1 and every coverage one pilot SE toward its nearer edge, read as known:
+#: 0.949), so the count is the next multiple of 400, 10,000 (joint 0.957, stressed 0.954).
+#: ``test_learned_rule_optimal_compositions_design`` recomputes all of it. The pooling is
+#: optimistic where labels' SE constructions differ: ``strata_s1`` (pilot 1.028) passes with
+#: about 0.79 at 10,000 if its true ratio is one pilot SD higher (the README's pooling caveat).
+CALIBRATION_REPLICATES = 10_000
 #: The ``weighted_target_control`` draws: the study floor of 1,000 as a multiple of 400; the
 #: design test computes the control's power at this count from the quadrature gap, the tilted
 #: curve's SD and n, and requires at least 0.90 (plan section 5).
@@ -130,6 +144,27 @@ def _draw(key: _Key) -> pd.DataFrame:
     return law.draw(setting, n, sample_seed)
 
 
+def target_truth(kind: str) -> float:
+    """The truth a target control reads: ``unweighted`` or ``unweighted_rule``."""
+    return {
+        "unweighted": law.unweighted_truth,
+        "unweighted_rule": law.unweighted_rule_truth,
+    }[kind]()
+
+
+def unnormalised_se(fitted: law.Measured, label: str) -> float:
+    """The SE of the stratum curve without its ``1 / P_{n,v}(W2 = s)`` normalisation.
+
+    The stored curve of the stratum parameter times each row's fold share, read with the
+    fold-evaluated variance rule (:func:`tests.studies._fold_evaluated_strata_law.curve_se`),
+    as ``learned-rule-strata`` builds the control.
+    """
+    result = fitted.results[label]
+    curve = np.asarray(fitted.estimate(label).influence_curve, dtype=float)
+    code = int(label[-1])
+    return fold_strata.curve_se(curve * fold_strata.fold_shares(result, code))
+
+
 def draw_cells(family: str, label: str) -> list[str]:
     """Every ``property/cell`` one draw writes, its derived controls included."""
     if family == TARGET_FAMILY:
@@ -138,6 +173,8 @@ def draw_cells(family: str, label: str) -> list[str]:
     for name in law.PARAMETERS[label]:
         positive = f"interval_calibration/{name}__{POSITIVE}"
         written += [positive, *DERIVED_CELLS[positive]]
+        if name in STRATUM_LABELS:
+            written.append(f"interval_calibration/{name}__{UNNORMALISED}")
     return written
 
 
@@ -148,25 +185,28 @@ def _cells_of(key: _Key) -> list[str]:
 def draw_rows(
     fitted: law.Measured, family: str, where: tuple[int, int, int]
 ) -> list[dict[str, Any]]:
-    """The rows one draw writes: a positive row per label, or the control's one row."""
+    """The rows one draw writes: a positive row per label and a control row per stratum label,
+    or the target controls' two rows."""
     replicate, n, requested = where
     rows = []
     if family == TARGET_FAMILY:
         estimate = fitted.estimate(TARGET_LABEL)
-        row = control_row(
-            property_name=family,
-            cell=f"{TARGET_LABEL}__{TARGET_CONTROL}",
-            replicate=replicate,
-            n=n,
-            requested=requested,
-            truth=law.unweighted_truth(),
-            estimate=float(estimate.psi),
-            standard_error=float(estimate.std_error),
-            critical=base.CRITICAL,
-            role="control",
-        )
-        row.update(law.harness_columns(fitted, TARGET_LABEL))
-        return [row]
+        for control, truth in TARGET_TRUTHS.items():
+            row = control_row(
+                property_name=family,
+                cell=f"{TARGET_LABEL}__{control}",
+                replicate=replicate,
+                n=n,
+                requested=requested,
+                truth=target_truth(truth),
+                estimate=float(estimate.psi),
+                standard_error=float(estimate.std_error),
+                critical=base.CRITICAL,
+                role="control",
+            )
+            row.update(law.harness_columns(fitted, TARGET_LABEL))
+            rows.append(row)
+        return rows
     for label in law.PARAMETERS[fitted.setting]:
         row = replicate_row(
             property_name=family,
@@ -181,6 +221,20 @@ def draw_rows(
         )
         row.update(law.harness_columns(fitted, label))
         rows.append(row)
+        if label in STRATUM_LABELS:
+            unnormalised = control_row(
+                property_name=family,
+                cell=f"{label}__{UNNORMALISED}",
+                replicate=replicate,
+                n=n,
+                requested=requested,
+                truth=law.truth(label),
+                estimate=float(fitted.estimate(label).psi),
+                standard_error=unnormalised_se(fitted, label),
+                critical=base.CRITICAL,
+            )
+            unnormalised.update(law.harness_columns(fitted, label))
+            rows.append(unnormalised)
     return rows
 
 
@@ -268,10 +322,11 @@ def generate_property_rows(
 
 
 def target_verdicts(summary: pd.DataFrame, *, floor: float) -> None:
-    """The ``weighted_target_control`` verdict: the control's coverage interval below ``floor``.
+    """The ``weighted_target_control`` verdicts: each control's coverage interval below ``floor``.
 
-    The control reads the coverage of the unweighted :math:`\\Psi_{d_0}` by the weighted fit,
-    whose target is the weighted optimum, so the interval must miss.
+    The controls read the coverage of the unweighted :math:`\\Psi_{d_0}` and of the weighted
+    value of the unweighted rule by the weighted fit, whose target is the weighted optimum, so
+    each interval must miss.
     """
     family = summary["property"] == TARGET_FAMILY
     roles = set(summary.loc[family, "role"].astype(str))
@@ -334,7 +389,7 @@ TARGET_RULE = pf.FamilyRule(
     shared="target_verdicts",
     clauses=(
         pf.proportion_clause(
-            "unweighted-truth coverage below the calibration floor",
+            "unweighted-target coverage below the calibration floor",
             statistic="S2",
             judge=pf.below_judge(_coverage_floor),
             applies=pf.roles("control"),

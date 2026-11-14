@@ -424,14 +424,18 @@ def test_no_pilot_seed_is_a_declared_seed() -> None:
 
 
 def test_the_first_seed_candidate_was_refused() -> None:
-    """20271421, the first candidate, would draw sample seeds of another X11 study."""
+    """20271421, the first candidate, would draw sample seeds of another X11 study.
+
+    At least the four it drew when it was refused: a later X11 study's seeds can only add to
+    them (``learned-rule-optimal-compositions`` adds one).
+    """
     import dataclasses
 
     record = dataclasses.replace(study.STUDY, seed=20271421, resampling_seed=20271422)
     seeds = base.declared_sample_seeds(
         record, study.PRIMARY_REPLICATES, properties.PROPERTY_DRAWS, properties.suffixes(record)
     )
-    assert len(seeds & _other_x11_sample_seeds()) == FIRST_CANDIDATE_CLASHES
+    assert len(seeds & _other_x11_sample_seeds()) >= FIRST_CANDIDATE_CLASHES
 
 
 # ---------------------------------------------------------------------------- the sizing

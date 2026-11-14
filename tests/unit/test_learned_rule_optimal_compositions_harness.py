@@ -42,18 +42,27 @@ class TestTheLaws:
 
     def test_the_weighted_draw_carries_the_weight(self) -> None:
         frame = law.draw("weighted", 200, 3)
-        expected = 1.0 + 1.5 * (frame["W1"] > 0)
+        expected = 1.0 + frame["A"] * frame["Y"]
         np.testing.assert_array_equal(frame["w"].to_numpy(), expected.to_numpy())
+
+    def test_only_the_weighted_setting_passes_the_weighted_mechanism(self) -> None:
+        frame = law.draw("weighted", 200, 3)
+        weighted = law.known_probabilities(frame, "weighted")
+        design = law.known_probabilities(frame, "strata")
+        np.testing.assert_allclose(weighted.sum(axis=1), 1.0)
+        assert (weighted[:, 1] > design[:, 1]).all()
+        np.testing.assert_array_equal(design, law.optimal.known_probabilities(frame))
 
     def test_the_intermediate_draw_is_the_intermediate_laws(self) -> None:
         pd.testing.assert_frame_equal(law.draw("intermediate", 50, 3), law.zlaw.draw(50, 3))
 
     def test_the_contrast_truth_is_the_value_minus_the_static_value(self) -> None:
+        """The static value is the contrast law's trapezoid of a smooth integrand (1e-9)."""
         limits = law.label_limits()
         for arm in (1, 0):
             assert limits[f"contrast_{arm}"]["truth"] == pytest.approx(
                 limits["strata_all"]["truth"] - law.contrast.static_value(float(arm), law.LAW),
-                abs=1e-12,
+                abs=1e-8,
             )
 
     def test_a_rule_of_nobody_has_the_untreated_value(self) -> None:
@@ -120,10 +129,27 @@ class TestThePropertyPath:
         for family, cells in study.PROPERTY_CELLS.items():
             assert set(rows.loc[rows["property"] == family, "cell"]) == set(cells)
 
-    def test_the_target_control_reads_the_unweighted_truth(self) -> None:
+    def test_each_target_control_reads_its_truth(self) -> None:
         rows = _property_rows()
         control = rows.loc[rows["property"] == study.TARGET_FAMILY]
-        assert (control["truth"] == law.unweighted_truth()).all()
+        truths = {
+            f"weighted__{study.TARGET_CONTROL}": law.unweighted_truth(),
+            f"weighted__{study.RULE_CONTROL}": law.unweighted_rule_truth(),
+        }
+        assert set(control["cell"]) == set(truths)
+        for cell, truth in truths.items():
+            assert (control.loc[control["cell"] == cell, "truth"] == truth).all()
+
+    def test_the_unnormalised_control_halves_the_stratum_se(self) -> None:
+        rows = _property_rows()
+        for label in study.STRATUM_LABELS:
+            positive = rows.loc[rows["cell"] == f"{label}__declared"].set_index("replicate")
+            control = rows.loc[rows["cell"] == f"{label}__{study.UNNORMALISED}"].set_index(
+                "replicate"
+            )
+            ratio = control["std_error"] / positive["std_error"]
+            assert ((ratio > 0.4) & (ratio < 0.6)).all(), ratio
+            assert (control["estimate"] == positive["estimate"]).all()
 
     def test_the_summary_publishes_every_cell(self) -> None:
         # Two draws per cell: a bootstrap resample can repeat one draw and divide by zero.
@@ -134,6 +160,14 @@ class TestThePropertyPath:
         for family, cells in study.PROPERTY_CELLS.items():
             assert {(family, cell) for cell in cells} <= published
         assert {"mean_regret", "rule_value_standardized_bias"} <= set(summary.columns)
+
+    def test_the_initial_estimate_is_finite_for_every_label(self) -> None:
+        for setting in law.SETTINGS:
+            fitted = _measured(setting)
+            for label in law.PARAMETERS[setting]:
+                initial = law.untargeted_estimate(fitted, label)
+                estimate = fitted.estimate(label)
+                assert abs(initial - estimate.psi) < 4 * estimate.std_error, (label, initial)
 
     def test_the_target_verdict_reads_the_declared_floor(self) -> None:
         summary = pd.DataFrame(

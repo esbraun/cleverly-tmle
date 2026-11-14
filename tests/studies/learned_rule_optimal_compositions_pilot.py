@@ -10,14 +10,18 @@ mean regret, the solver warnings and the mean CPU seconds of one draw of the set
 ``tests/unit/test_learned_rule_optimal_compositions_design.py`` reads the CSV and applies the
 arm-pooled predictive rule to set the calibration count.
 
-Every draw comes from ``stream_seed(PILOT_RECORD, "se_ratio_pilot", setting, r)`` and its fold
-seed from ``stream_seed(PILOT_RECORD, "se_ratio_pilot_folds", setting, r)``, where
-:data:`PILOT_RECORD` is the study's record at :data:`PILOT_SEED`, labels no declared stream
-reads; the design test checks the pilot's seeds against every declared learned-rule seed::
+Every draw comes from ``stream_seed(PILOT_RECORD, <stream>, setting, r)`` and its fold seed from
+``stream_seed(PILOT_RECORD, <fold stream>, setting, r)``, with the streams of :data:`STREAMS`:
+``se_ratio_pilot`` and ``se_ratio_pilot_folds``, except that the weighted setting, re-piloted
+when its weight became ``1 + A Y`` (design review M3), reads ``se_ratio_pilot_ay`` and
+``se_ratio_pilot_ay_folds``, so it shares no draw with the first weighted pilot.
+:data:`PILOT_RECORD` is the study's record at :data:`PILOT_SEED`, and its stream labels are
+ones no declared stream reads; the design test checks the pilot's seeds against every declared
+learned-rule seed::
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\
     python -m tests.studies.learned_rule_optimal_compositions_pilot --raw <scratch dir> \\
-        --jobs 4 [--summarize]
+        --jobs 4 [--settings weighted ...] [--summarize]
 """
 
 from __future__ import annotations
@@ -45,6 +49,11 @@ PILOT_RECORD = replace(study.STUDY, seed=PILOT_SEED, resampling_seed=PILOT_SEED 
 STREAM = "se_ratio_pilot"
 FOLD_STREAM = "se_ratio_pilot_folds"
 
+#: Each setting's sample and fold streams.
+STREAMS: dict[str, tuple[str, str]] = dict.fromkeys(law.SETTINGS, (STREAM, FOLD_STREAM)) | {
+    "weighted": ("se_ratio_pilot_ay", "se_ratio_pilot_ay_folds")
+}
+
 #: The draws of each setting: the plan's pilot of at least 2,000 per cell.
 PILOT_DRAWS = 2_000
 
@@ -57,16 +66,20 @@ CRITICAL = law.base.CRITICAL
 
 def sample_seed(setting: str, replicate: int) -> int:
     """The pilot's sample seed of one draw."""
-    return stream_seed(PILOT_RECORD, STREAM, setting, replicate)
+    return stream_seed(PILOT_RECORD, STREAMS[setting][0], setting, replicate)
+
+
+def fold_seed(setting: str, replicate: int) -> int:
+    """The pilot's fold seed of one draw."""
+    return stream_seed(PILOT_RECORD, STREAMS[setting][1], setting, replicate)
 
 
 def one(task: tuple[str, int]) -> dict[str, Any]:
     """Fit one pilot draw of ``setting`` and return its labels' readings."""
     setting, replicate = task
     frame = law.draw(setting, study.PRIMARY_N, sample_seed(setting, replicate))
-    fold_seed = stream_seed(PILOT_RECORD, FOLD_STREAM, setting, replicate)
     start = time.process_time()
-    fitted = law.measured(frame, setting, fold_seed)
+    fitted = law.measured(frame, setting, fold_seed(setting, replicate))
     seconds = time.process_time() - start
     labels = {}
     for label in law.PARAMETERS[setting]:
@@ -138,6 +151,7 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--cap", type=int, default=None)
     parser.add_argument("--summarize", action="store_true")
+    parser.add_argument("--settings", nargs="+", default=list(law.SETTINGS))
     arguments = parser.parse_args()
     arguments.raw.mkdir(parents=True, exist_ok=True)
     if arguments.summarize:
@@ -147,7 +161,7 @@ def main() -> None:
     if unset:
         raise SystemExit(f"set {', '.join(unset)} to 1: the pilot times one thread per fit")
     tasks = []
-    for setting in law.SETTINGS:
+    for setting in arguments.settings:
         path = arguments.raw / f"{setting}.jsonl"
         done = set()
         if path.exists():
