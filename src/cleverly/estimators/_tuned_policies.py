@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from .._planned_fits import sample_weight_attempts
 from .._typing import BoolArray, FloatArray
 from ..exceptions import CapabilityError, DataError, RefusalReason
 from ..interventions.policy import (
@@ -71,6 +72,7 @@ from ..interventions.tuning import (
     fit_tuner,
     refuse_outcome_tuners,
     tuned_cap_at_atoms,
+    tuner_fit_inputs,
     tuner_influence,
 )
 
@@ -624,6 +626,69 @@ def _assigned(policy: object, data: CausalData) -> tuple[FloatArray, ...]:
     return tuple(np.asarray(values, dtype=float) for _, values in evaluated)
 
 
+def check_point_tunings(policies: Sequence[object], data: CausalData, folds: Folds) -> None:
+    """Refuse, before any tuner is fitted, a tuner that reads the outcome and R-e4.
+
+    :func:`resolve_point_policies` and the planned-fit preview call it.
+
+    Parameters
+    ----------
+    policies : sequence of object
+        The declared policies, at least one tuned.
+    data : CausalData
+        The validated data.
+    folds : Folds
+        The outer split of the nuisance fits.
+
+    Raises
+    ------
+    CapabilityError
+        R-e3 for a tuner that reads the outcome, and R-e4 for the fold-average target on
+        one fold.
+    """
+    declared = tuple(policies)
+    refuse_outcome_tuners(
+        [
+            (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
+            for policy in declared
+            for _, tuned, _ in tuned_maps(policy)
+        ],
+        (str(data.outcome_name),),
+    )
+    if any(_policy_target(policy) == "fold_average" for policy in declared) and folds.is_single:
+        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
+
+
+def expanded_branches(policies: Sequence[object], folds: Folds) -> int:
+    """The policy branches of :attr:`PointTunedPolicies.expanded`, without fitting a tuner.
+
+    A fold-average policy expands into one policy per outer fold; every other policy is
+    one.  Each expanded policy has its declared policy's branches.
+
+    Parameters
+    ----------
+    policies : sequence of object
+        The declared policies, at a dose.
+    folds : Folds
+        The outer split.
+
+    Returns
+    -------
+    int
+        The branch count the classifier route fits one classifier for.
+    """
+    from ..interventions.policy import Scale, Shift, policy_branches
+
+    total = 0
+    for policy in policies:
+        # A tuned shift or scale is one deterministic branch; its branches refuse until fitted.
+        tuned_one = isinstance(policy, (Shift, Scale)) and bool(tuned_maps(policy))
+        per = 1 if tuned_one else len(policy_branches(policy))
+        fold_average = bool(tuned_maps(policy)) and _policy_target(policy) == "fold_average"
+        total += per * (folds.n_folds if fold_average else 1)
+    return total
+
+
 def resolve_point_policies(
     policies: Sequence[object], data: CausalData, folds: Folds
 ) -> PointTunedPolicies | None:
@@ -657,16 +722,7 @@ def resolve_point_policies(
     declared = tuple(policies)
     if not declares_tuned(declared):
         return None
-    refuse_outcome_tuners(
-        [
-            (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
-            for policy in declared
-            for _, tuned, _ in tuned_maps(policy)
-        ],
-        (str(data.outcome_name),),
-    )
-    if any(_policy_target(policy) == "fold_average" for policy in declared) and folds.is_single:
-        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
+    check_point_tunings(declared, data, folds)
     n = data.n
     everyone = np.ones(n, dtype=bool)
     owner = np.asarray(folds.assignment)
@@ -758,4 +814,104 @@ def resolve_point_policies(
         rows=np.column_stack(masks),
         by_fold=tuple(tuple(fold) for fold in by_fold) if population_folds else None,
         tunings=tuple(tunings),
+    )
+
+
+def learner_backed_tuners(policies: Sequence[object]) -> bool:
+    """Whether a tuned cap's boundary is a scikit-learn learner, the one tuner that fits.
+
+    A :class:`~cleverly.interventions.DoseQuantile` is a weighted quantile and a boundary
+    on :class:`~cleverly.interventions.LinearQuantileRegression` an in-house linear
+    program, so neither fits a learner.
+
+    Parameters
+    ----------
+    policies : sequence of object
+        The declared policies.
+
+    Returns
+    -------
+    bool
+        ``True`` when some tuned map's boundary is fitted by a learner.
+    """
+    return any(
+        isinstance(tuned.cap, SupportBoundary) and not tuned.cap.finite_dimensional
+        for policy in policies
+        for _, tuned, _ in tuned_maps(policy)
+    )
+
+
+def plan_tuner_fits(
+    policies: Sequence[object],
+    data: CausalData,
+    *,
+    folds: Folds | None = None,
+    in_sample: bool = True,
+    nominal_folds: int | None = None,
+) -> Any:
+    """The learner fits of every learner-backed tuner, counted without fitting.
+
+    :func:`in_sample_policies` fits each tuner on every row; :func:`resolve_point_policies`
+    fits it on every row and again on each outer training fold.  Each fit goes through the
+    shared validation step of :func:`~cleverly.interventions.tuning.fit_tuner`, so the
+    preview raises its refusals.  A boundary learner that takes no weights is fitted twice,
+    the first attempt raising (:func:`~cleverly._planned_fits.sample_weight_attempts`).
+
+    Parameters
+    ----------
+    policies : sequence of object
+        The declared policies, at a dose.
+    data : CausalData
+        The prepared data.
+    folds : Folds or None
+        The outer split of :func:`resolve_point_policies`, or ``None`` for the in-sample fit
+        alone.
+    in_sample : bool
+        Count the fit on every row.
+    nominal_folds : int or None
+        Count this many fold fits at nominal counts in place of ``folds``.
+
+    Returns
+    -------
+    Count
+        The fits and candidate fits.
+    """
+    from .._planned_fits import Count, count_nominal
+
+    count = Count()
+    n = data.n
+    everyone = np.ones(n, dtype=bool)
+    for policy in policies:
+        for component, tuned, _ in tuned_maps(policy):
+            cap = tuned.cap
+            if not (isinstance(cap, SupportBoundary) and not cap.finite_dimensional):
+                continue
+            source = _source(policy, component, data)
+            if in_sample:
+                count.add(_tuner_fit(cap, source, everyone, data))
+            if nominal_folds is not None:
+                attempts = sample_weight_attempts(cap.learner, data.weights)
+                count.add(
+                    count_nominal(cap.learner, source.dose, nominal_folds, task="regression"),
+                    attempts,
+                )
+            elif folds is not None and not folds.is_single:
+                for train, _ in folds:
+                    rows = np.zeros(n, dtype=bool)
+                    rows[train] = True
+                    count.add(_tuner_fit(cap, source, rows, data))
+    return count
+
+
+def _tuner_fit(cap: SupportBoundary, source: _Source, rows: BoolArray, data: CausalData) -> Any:
+    """One :func:`~cleverly.interventions.tuning.fit_tuner` call of a learner-backed boundary."""
+    from .._planned_fits import count_learner, needs_target
+
+    keep, _ = tuner_fit_inputs(cap, source.frame, rows, data.n)
+    dose = source.dose[keep] if needs_target(cap.learner) else None
+    return count_learner(
+        cap.learner,
+        dose,
+        seed_fixed=getattr(cap.learner, "random_state", None) is not None,
+        attempts=sample_weight_attempts(cap.learner, data.weights),
     )

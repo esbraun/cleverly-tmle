@@ -2844,6 +2844,414 @@ def fit_nuisances(
     )
 
 
+@dataclass(frozen=True)
+class PlannedRole:
+    """The counted fits of one nuisance of :func:`fit_nuisances`.
+
+    Parameters
+    ----------
+    role : str
+        The method field whose learner fits it.
+    what : str
+        The nuisance, in plain words.
+    count : Count
+        Its fits and candidate fits.
+    continuous : bool
+        Whether its target is continuous, so no fold of it can take a ``ConstantFit``.
+    """
+
+    role: str
+    what: str
+    count: Any
+    continuous: bool
+
+
+def classifier_branches(data: CausalData, policies: Sequence[object]) -> int:
+    """The classifiers per fold of :meth:`PolicySet.evaluate_by_classifier`: one per branch.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, with a treatment of one column.
+    policies : sequence of object
+        The policies the classifier route evaluates, tuned caps expanded.
+
+    Returns
+    -------
+    int
+        The number of policy branches.
+    """
+    from ..interventions.policy import _point_discrete_assignments, lazy_frame, policy_branches
+
+    if data.is_continuous_treatment:
+        return sum(len(policy_branches(policy)) for policy in policies)
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        )
+    )
+    levels = tuple(data.arm_label(code) for code in data.arm_codes)
+    everyone = np.ones(data.n, dtype=bool)
+    where = f"treatment {data.treatment_name!r}"
+    return sum(
+        len(_point_discrete_assignments(policy, data, levels, frame, everyone, where=where))
+        for policy in policies
+    )
+
+
+def plan_nuisances(
+    data: CausalData,
+    *,
+    outcome_learner: Learner,
+    treatment_learner: Learner,
+    missingness_learner: Learner | None,
+    intermediate_learner: Learner | None,
+    folds: Folds | None,
+    screen_treatment: bool = False,
+    screen_threshold: float = 0.1,
+    min_retain: int | None = None,
+    has_policies: bool = False,
+    classifier_fits: int = 0,
+    policy_ratio: str = "density",
+    density_bins: int | None = None,
+    fit_treatment: bool = True,
+    fit_treatment_observation: bool = True,
+    outcome_by_arm: bool = False,
+    fit_outcome: bool = True,
+    seed_fixed: bool = True,
+    nominal_folds: int | None = None,
+) -> list[PlannedRole]:
+    """The fits :func:`fit_nuisances` makes on these arguments, counted without fitting.
+
+    Mirrors the branches of :func:`fit_nuisances` and runs its checks that precede the
+    first learner (declared atoms).  Each role is counted per fold with
+    :func:`~cleverly._planned_fits.count_cross_fit`, which applies the constant-fold rule
+    where ``fit_nuisances`` passes ``constant_folds``.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    outcome_learner, treatment_learner : Learner
+        The resolved learners, as :func:`fit_nuisances` receives them.
+    missingness_learner, intermediate_learner : Learner or None
+        The resolved learners, or ``None`` where the fit passes none.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    screen_treatment : bool
+        Whether the treatment learner is wrapped in the correlation screener.
+    screen_threshold : float
+        The screener's threshold.
+    min_retain : int or None
+        The screener's floor.
+    has_policies : bool
+        Whether the fit declares policies.
+    classifier_fits : int
+        The classifiers per fold of the classifier ratio route: one per policy branch.
+    policy_ratio : str
+        ``"density"`` or ``"classifier"``.
+    density_bins : int or None
+        The bin count of a dose density.
+    fit_treatment : bool
+        As :func:`fit_nuisances`.
+    fit_treatment_observation : bool
+        As :func:`fit_nuisances`.
+    outcome_by_arm : bool
+        As :func:`fit_nuisances`.
+    fit_outcome : bool
+        As :func:`fit_nuisances`.
+    seed_fixed : bool
+        As :func:`~cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        Count every role at this many folds and its nominal counts, with no constant-fold
+        skip: a bootstrap replicate's draw.
+
+    Returns
+    -------
+    list of PlannedRole
+        One entry per nuisance the fit makes.
+    """
+    from .._planned_fits import Count, count_cross_fit, count_nominal
+    from ..learners.density import plan_conditional_density
+    from ..learners.density_ratio import plan_classifier_ratio
+
+    if data.treatment_kind == "vector":
+        # TODO(X106 phase 2): the vector-treatment routes (joint density, vector classifier).
+        raise NotImplementedError("TODO(X106 phase 2): vector treatments are not priced yet")
+    groups = data.cluster
+    recorded = data.treatment_recorded if data.has_missing_treatment else None
+    weights = np.asarray(data.weights, dtype=float)
+    out: list[PlannedRole] = []
+
+    def role(
+        learner: Learner,
+        target: FloatArray,
+        *,
+        task: Task,
+        fit_mask: BoolArray | None = None,
+        constant_skip: bool = False,
+        times: int = 1,
+    ) -> Count:
+        if nominal_folds is not None:
+            return count_nominal(learner, target, nominal_folds * times, task=task)
+        assert folds is not None
+        return count_cross_fit(
+            learner,
+            target,
+            folds,
+            task=task,
+            weights=weights,
+            fit_mask=fit_mask,
+            groups=groups,
+            constant_skip=constant_skip,
+            seed_fixed=seed_fixed,
+        )
+
+    treatment_model = (
+        _screened(treatment_learner, screen_threshold, min_retain)
+        if screen_treatment
+        else treatment_learner
+    )
+    if data.is_continuous_treatment and has_policies and policy_ratio == "classifier":
+        if data.dose_atoms and folds is not None:
+            check_declared_atoms(
+                data.treatment,
+                np.ones(data.n, dtype=bool),
+                data.dose_atoms,
+                folds,
+                node=data.treatment_name,
+            )
+        count = Count()
+        for _ in range(classifier_fits):
+            count.add(
+                plan_classifier_ratio(
+                    treatment_model,
+                    data.n,
+                    folds,
+                    groups=groups,
+                    seed_fixed=seed_fixed,
+                    nominal_folds=nominal_folds,
+                )
+            )
+        out.append(PlannedRole("treatment_learner", "policy ratio classifier", count, False))
+    elif data.is_continuous_treatment:
+        if data.dose_atoms:
+            if folds is not None:
+                check_declared_atoms(
+                    data.treatment,
+                    np.ones(data.n, dtype=bool),
+                    data.dose_atoms,
+                    folds,
+                    node=data.treatment_name,
+                )
+            out.extend(
+                plan_mixed_density(
+                    treatment_model,
+                    data,
+                    folds,
+                    density_bins=density_bins,
+                    seed_fixed=seed_fixed,
+                    nominal_folds=nominal_folds,
+                )
+            )
+        else:
+            out.append(
+                PlannedRole(
+                    "treatment_learner",
+                    "dose density",
+                    plan_conditional_density(
+                        treatment_model,
+                        data.treatment,
+                        weights,
+                        folds,
+                        n_bins=density_bins,
+                        groups=groups,
+                        seed_fixed=seed_fixed,
+                        nominal_folds=nominal_folds,
+                    ),
+                    False,
+                )
+            )
+    elif fit_treatment and data.known_treatment is not None and not divides_by_declaration(data):
+        out.append(
+            PlannedRole(
+                "treatment_learner",
+                "tilted treatment mechanism",
+                role(treatment_model, data.treatment, task="classification"),
+                False,
+            )
+        )
+    elif fit_treatment and data.known_treatment is not None:
+        pass
+    elif fit_treatment:
+        out.append(
+            PlannedRole(
+                "treatment_learner",
+                "treatment mechanism",
+                role(treatment_model, data.treatment, task="classification", fit_mask=recorded),
+                False,
+            )
+        )
+        if has_policies and policy_ratio == "classifier":
+            count = Count()
+            for _ in range(classifier_fits):
+                count.add(
+                    plan_classifier_ratio(
+                        treatment_model,
+                        data.n,
+                        folds,
+                        groups=groups,
+                        seed_fixed=seed_fixed,
+                        nominal_folds=nominal_folds,
+                    )
+                )
+            out.append(PlannedRole("treatment_learner", "policy ratio classifier", count, False))
+
+    if recorded is not None and fit_treatment_observation:
+        assert missingness_learner is not None
+        out.append(
+            PlannedRole(
+                "missingness_learner",
+                "treatment recorded",
+                role(missingness_learner, recorded.astype(float), task="classification"),
+                False,
+            )
+        )
+    if data.has_missing_outcome:
+        assert missingness_learner is not None
+        out.append(
+            PlannedRole(
+                "missingness_learner",
+                "outcome observed",
+                role(
+                    missingness_learner,
+                    data.observed.astype(float),
+                    task="classification",
+                    fit_mask=recorded,
+                ),
+                False,
+            )
+        )
+    if data.has_intermediate:
+        assert intermediate_learner is not None and data.intermediate is not None
+        out.append(
+            PlannedRole(
+                "intermediate_learner",
+                "intermediate mechanism",
+                role(intermediate_learner, data.intermediate, task="classification"),
+                False,
+            )
+        )
+    if fit_outcome:
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        # Only the fit's binary outcome ever takes a ConstantFit, and the scaler is the
+        # identity there, so the raw outcome reads the same folds as the scaled one.
+        target = np.asarray(data.outcome, dtype=float)
+        fit_mask = data.observed if recorded is None else data.observed & recorded
+        skip = outcome_task == "classification" and (
+            outcome_by_arm or (folds is not None and not folds.is_single)
+        )
+        if outcome_by_arm:
+            treatment = np.asarray(data.treatment, dtype=float)
+            count = Count()
+            for arm in data.arm_codes:
+                count.add(
+                    role(
+                        outcome_learner,
+                        target,
+                        task=outcome_task,
+                        fit_mask=np.asarray(fit_mask, dtype=bool) & (treatment == arm),
+                        constant_skip=skip,
+                    )
+                )
+            what = "outcome regression, one per arm"
+        else:
+            count = role(
+                outcome_learner, target, task=outcome_task, fit_mask=fit_mask, constant_skip=skip
+            )
+            what = "outcome regression"
+        out.append(PlannedRole("outcome_learner", what, count, outcome_task == "regression"))
+    return out
+
+
+def plan_mixed_density(
+    learner: Learner,
+    data: CausalData,
+    folds: Folds | None,
+    *,
+    density_bins: int | None,
+    seed_fixed: bool,
+    nominal_folds: int | None,
+) -> list[PlannedRole]:
+    """The fits :func:`fit_mixed_density` makes, counted without fitting.
+
+    The atom classifier per fold, and the continuous density per fold on the rows that hold
+    no atom when there are any.
+
+    Parameters
+    ----------
+    learner : Learner
+        The resolved treatment learner.
+    data : CausalData
+        The prepared data, with declared atoms.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    density_bins : int or None
+        The bin count of the continuous part.
+    seed_fixed : bool
+        As :func:`~cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        As :func:`plan_nuisances`.
+
+    Returns
+    -------
+    list of PlannedRole
+        The atom classifier and, when some row holds no atom, the density.
+    """
+    from .._planned_fits import count_cross_fit, count_nominal
+    from ..interventions.policy import _atom_index
+    from ..learners.density import plan_conditional_density
+
+    a = np.asarray(data.treatment, dtype=float).reshape(-1)
+    index = _atom_index(a, tuple(float(atom) for atom in data.dose_atoms))
+    none = index < 0
+    label = np.where(index >= 0, index + 1, 0).astype(float)
+    if nominal_folds is not None:
+        classifier = count_nominal(learner, label, nominal_folds, task="classification")
+    else:
+        assert folds is not None
+        classifier = count_cross_fit(
+            learner,
+            label,
+            folds,
+            task="classification",
+            weights=np.asarray(data.weights, dtype=float),
+            groups=data.cluster,
+            seed_fixed=seed_fixed,
+        )
+    out = [PlannedRole("treatment_learner", "dose atom classifier", classifier, False)]
+    if none.any():
+        out.append(
+            PlannedRole(
+                "treatment_learner",
+                "dose density",
+                plan_conditional_density(
+                    learner,
+                    a,
+                    np.asarray(data.weights, dtype=float),
+                    folds,
+                    n_bins=density_bins,
+                    groups=data.cluster,
+                    fit_mask=none,
+                    seed_fixed=seed_fixed,
+                    nominal_folds=nominal_folds,
+                ),
+                False,
+            )
+        )
+    return out
+
+
 def _check_companion(data: CausalData, companion: CausalData) -> None:
     """Refuse a companion this function cannot evaluate every nuisance at.
 

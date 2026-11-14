@@ -1109,6 +1109,90 @@ def fit_conditional_density(
     return density, report, shaped
 
 
+def plan_conditional_density(
+    learner: Learner,
+    treatment: FloatArray,
+    weights: FloatArray,
+    folds: Folds | None,
+    *,
+    n_bins: int | None = None,
+    edges: Sequence[float] | None = None,
+    groups: IntArray | None = None,
+    fit_mask: Any = None,
+    seed_fixed: bool = True,
+    nominal_folds: int | None = None,
+) -> Any:
+    """The fits :func:`fit_conditional_density` makes, counted without fitting.
+
+    One pooled hazard fit per fold, on the fold's long table.  The table's 0/1 target is
+    built only when the learner is a Super Learner, whose inner folds read it.
+
+    Parameters
+    ----------
+    learner : Learner
+        The resolved treatment learner.
+    treatment : ndarray
+        ``(n,)`` observed dose.
+    weights : ndarray
+        ``(n,)`` observation weights.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    n_bins : int or None
+        The bin count, as the fit takes it.
+    edges : sequence of float or None
+        Declared edges, as the fit takes them.
+    groups : ndarray or None
+        Cluster codes.
+    fit_mask : ndarray or None
+        The rows that hold a dose.
+    seed_fixed : bool
+        As :func:`cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        Count this many fits at the learner's nominal counts in place of ``folds``: a
+        bootstrap replicate's.
+
+    Returns
+    -------
+    Count
+        The fits and candidate fits.
+    """
+    from .._planned_fits import Count, count_learner, count_nominal, needs_target
+    from ._fitting import accepts_groups
+
+    del weights
+    if nominal_folds is not None:
+        return count_nominal(learner, np.array([0.0, 1.0]), nominal_folds, task="classification")
+    assert folds is not None
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
+    reads = needs_target(learner)
+    grid = _grid(a, mask, n_bins, edges, None) if reads else None
+    routed = groups if groups is not None and accepts_groups(learner) else None
+    out = Count()
+    trains = [np.arange(a.size, dtype=np.int64)] if folds.is_single else [t for t, _ in folds]
+    for rows in trains:
+        if mask is not None:
+            rows = rows[mask[rows]]
+        if grid is None:
+            out.add(count_learner(learner, None, seed_fixed=seed_fixed))
+            continue
+        bins = grid.bins[rows]
+        counts = np.minimum(bins, grid.n_hazards - 1) + 1
+        source = np.repeat(np.arange(bins.size, dtype=np.int64), counts)
+        offsets = np.repeat(np.cumsum(counts) - counts, counts)
+        index = np.arange(source.size, dtype=np.int64) - offsets
+        target = (index == bins[source]).astype(float)
+        out.add(
+            count_learner(
+                learner,
+                target,
+                groups=None if routed is None else np.asarray(routed)[rows][source],
+                seed_fixed=seed_fixed,
+            )
+        )
+    return out
+
+
 def warn_if_unresolved(
     density: ConditionalDensity,
     shifted: FloatArray,
