@@ -633,3 +633,13 @@ and a quantile between two infinite resamples reads `+inf`; a finite resample co
 value as before. No draw of the committed run reaches the branch: its firing groups hold hundreds of
 distinct errors. Only a perturbed law of the property differential, such as `two_point`, does. No
 seed, size, margin or verdict input moved, so a regeneration would write the same rows.
+
+## The primary failure bound of `boundary-node-ltmle`
+
+The declared run at `8169c609` used a primary `failure_bound` of 0.05, against the 0.01 per side
+that every registered study declares (RM39b2, `tests/unit/test_failure_accounting.py`). The record
+and the manifest's `configuration.failure_bound` now state 0.01. The run lost no primary
+replicate: `replicates.parquet` holds all 3,000 rows (1,000 replicates of three estimands) with no
+missing estimate or standard error, and the study commits no primary `failures.csv`. So no bound
+decided any primary verdict, and a run at 0.01 would write the same rows. The property phase's
+own bound, `property_failure_bound` 0.05, is a separate key and is unchanged.
