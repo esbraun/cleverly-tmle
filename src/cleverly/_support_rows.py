@@ -4709,6 +4709,18 @@ def _long_rows() -> tuple[SupportRow, ...]:
     return tuple(rows)
 
 
+#: What the censored continuous-policy rows were validated under (``mtp-pricing-censored``).
+_CENSORED_POLICY_LIMITS: Final[tuple[str, ...]] = (
+    "validated with a correctly specified main-terms logistic censoring model; a misspecified "
+    "censoring model biases the weights and is not measured",
+    "validated with per-node retention of at least 0.59 and cumulative retention above 0.20 at "
+    "three nodes, about 14% censored by the last node",
+    "validated on a 12% price rise that binds at the upper end of the declared support only",
+    "censoring must be at random given the history and the current treatment; the data cannot "
+    "check it",
+)
+
+
 def _continuous_dose_rows() -> list[SupportRow]:
     """The rows of the continuous-policy studies (X40): ``G39`` to ``G41``.
 
@@ -4719,8 +4731,10 @@ def _continuous_dose_rows() -> list[SupportRow]:
     ``G24.mtp.in_sample``. These rows hold the keys that no earlier row covers.
 
     ``G39`` is the classifier ratio route on a price with a declared support
-    (``mtp-pricing``), by engine and horizon. ``G40`` is the learned density at three and five
-    nodes. ``G41`` is a cap tuned on the data over a bounded outcome (``mtp-tuning``).
+    (``mtp-pricing``), by engine and horizon, and ``G39.<engine>.tau3_cross_fitted_censored``
+    adds censoring at each node (``mtp-pricing-censored``). ``G40`` is the learned density at
+    three and five nodes. ``G41`` is a cap tuned on the data over a bounded outcome
+    (``mtp-tuning``).
     """
     xf = ("cross_fitted",)
     pricing, tuning = ["mtp-pricing"], ["mtp-tuning"]
@@ -4805,6 +4819,26 @@ def _continuous_dose_rows() -> list[SupportRow]:
                 outcome=outcome,
                 ratio="classifier",
                 cells=cells,
+            )
+        )
+    # X77: censoring at a continuous policy node, the cross-fitted classifier route at three
+    # nodes. The key differs from ``G39.<engine>.tau3_cross_fitted`` only in ``missing``.
+    for engine, short in (("tmle", "ltmle"), ("sdr", "sdr")):
+        rows.append(
+            long_row(
+                f"G39.{short}.tau3_cross_fitted_censored",
+                ["mtp-pricing-censored"],
+                regimens=("mtp",),
+                engine=engine,
+                missing=("censoring",),
+                treatment=("continuous",) * 3,
+                splitting=xf,
+                ratio="classifier",
+                cells=[
+                    f"interval_calibration/censored_crossfit_{short}_tau3__correctly_specified",
+                    f"censoring_necessity/up_{short}_tau3__learned_censoring",
+                ],
+                limits=_CENSORED_POLICY_LIMITS,
             )
         )
     for nodes in (3, 5):
