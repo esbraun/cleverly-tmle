@@ -531,6 +531,33 @@ class ContinuousSurvivalTMLE:
         ContinuousSurvivalResult
             The targeted risks, their contrasts and the record.
         """
+        return self._fit_data(
+            self._container(data, time=time, event=event, treatment=treatment, baseline=baseline)
+        )
+
+    def _planned_fits(
+        self,
+        data: Any,
+        *,
+        time: str,
+        event: str,
+        treatment: str,
+        baseline: Sequence[str],
+    ) -> PlannedFits:
+        """The model fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        Takes :meth:`fit`'s arguments, runs its checks of the frame, and previews the
+        container as :meth:`_planned_fit_data` does.
+        """
+        return self._planned_fit_data(
+            self._container(data, time=time, event=event, treatment=treatment, baseline=baseline)
+        )
+
+    @staticmethod
+    def _container(
+        data: Any, *, time: str, event: str, treatment: str, baseline: Sequence[str]
+    ) -> Any:
+        """The validated container :meth:`fit` builds from a frame."""
         from ..utils.frames import as_frame, backend_of
         from .data import ContinuousSurvivalData
 
@@ -553,7 +580,7 @@ class ContinuousSurvivalTMLE:
             None,
             backend_of(frame),
         )
-        return self._fit_data(container)
+        return container
 
     def fit_data(self, data: Any) -> ContinuousSurvivalResult:
         """Fit a :class:`~cleverly.survival.data.ContinuousSurvivalData` container.
@@ -598,12 +625,26 @@ class ContinuousSurvivalTMLE:
         ContinuousSurvivalResult
             The fit of the copy.
         """
-        folds = _frozen_folds
-        override = self._fold_override
-        if folds is None and override is not None and override.size == len(data.time):
-            folds = override
+        folds = self._refit_folds(data, _frozen_folds)
         estimator = self._copy(random_state)
         return estimator._fit_data(data, folds=folds)
+
+    def _planned_refit(
+        self, data: Any, *, random_state: int | None, _frozen_folds: Any = None
+    ) -> PlannedFits:
+        """The model fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        :func:`cleverly._planned_fits.refit_plan` reads it.
+        """
+        folds = self._refit_folds(data, _frozen_folds)
+        return self._copy(random_state)._planned_fit_data(data, folds=folds)
+
+    def _refit_folds(self, data: Any, frozen: Any) -> Any:
+        """The outer labels a refit on ``data`` reuses, or ``None`` for a fresh draw."""
+        override = self._fold_override
+        if frozen is None and override is not None and override.size == len(data.time):
+            return override
+        return frozen
 
     def _copy(self, random_state: int | None) -> ContinuousSurvivalTMLE:
         """A copy at ``random_state`` that shares no mapping with this estimator."""
@@ -673,7 +714,7 @@ class ContinuousSurvivalTMLE:
             ),
         )
 
-    def _planned_fits(self, data: Any) -> PlannedFits:
+    def _planned_fit_data(self, data: Any, *, folds: Any = None) -> PlannedFits:
         """The model fits :meth:`fit_data` would make, counted without fitting.
 
         Runs the same checks before the first fit (:meth:`_initial_inputs`).  Per outer fold
@@ -687,6 +728,8 @@ class ContinuousSurvivalTMLE:
         ----------
         data : ContinuousSurvivalData
             The container.
+        folds : array-like or None
+            One outer label per row in place of a fresh draw, as :meth:`_fit_data` takes it.
 
         Returns
         -------
@@ -697,7 +740,7 @@ class ContinuousSurvivalTMLE:
         from .._summary._learners import learner_name
 
         seed = self._resolved_seed()
-        inputs = self._initial_inputs(data, seed)
+        inputs = self._initial_inputs(data, seed, folds=folds)
         A, D, n, codes, folds = inputs[1], inputs[4], inputs[6], inputs[7], inputs[14]
         hazard_library = tuple(seed_unset(member, seed) for member in self.hazard_library)
         censoring_library = tuple(seed_unset(member, seed) for member in self.censoring_library)
@@ -757,7 +800,13 @@ class ContinuousSurvivalTMLE:
                 "A hazard selection's refit is filed under the first member's class; the "
                 "winner is known only after the cross-validation."
             )
-        return builder.build("realized")
+        return builder.build(
+            "realized"
+            if self.random_state is not None
+            else "one draw"
+            if folds is None
+            else "outer realized"
+        )
 
     def _initial_inputs(
         self, data: Any, seed: int, *, folds: Any = None, retained: bool = False

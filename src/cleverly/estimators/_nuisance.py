@@ -2153,6 +2153,36 @@ def fit_mixed_density(
     }
 
 
+def refuse_nuisance_request(
+    data: CausalData, *, outcome_by_arm: bool, has_policies: bool, fit_treatment: bool
+) -> None:
+    """Refuse a nuisance request :func:`fit_nuisances` cannot fit, before its first learner.
+
+    :func:`fit_nuisances` and :func:`plan_nuisances` both call it: a per-arm outcome
+    regression of a dose, and a vector treatment without policies or a fitted mechanism.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    outcome_by_arm : bool
+        Whether the outcome regression is fitted per arm.
+    has_policies : bool
+        Whether the fit declares policies.
+    fit_treatment : bool
+        Whether the fit estimates the treatment mechanism.
+
+    Raises
+    ------
+    CapabilityError
+        For either request.
+    """
+    if outcome_by_arm:
+        _refuse_by_arm_dose(data)
+    if data.treatment_kind == "vector" and (not has_policies or not fit_treatment):
+        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
+
+
 def fit_nuisances(
     data: CausalData,
     *,
@@ -2307,8 +2337,12 @@ def fit_nuisances(
             "fit_nuisances was given a composite-indicator view. The view is for targeting "
             "and for the readers of a fitted result; fit the nuisances on the prepared data."
         )
-    if outcome_by_arm:
-        _refuse_by_arm_dose(data)
+    refuse_nuisance_request(
+        data,
+        outcome_by_arm=outcome_by_arm,
+        has_policies=bool(policies),
+        fit_treatment=fit_treatment,
+    )
     diagnostics: dict[str, Any] = {}
     treatment_fits: tuple[MechanismFit, ...] | None = None
     groups = data.cluster
@@ -2317,8 +2351,6 @@ def fit_nuisances(
     if companion is not None:
         _check_companion(data, companion)
     vector = data.treatment_kind == "vector"
-    if vector and (not policies or not fit_treatment):
-        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
     if not fit_treatment and (data.is_continuous_treatment or incremental or companion is not None):
         raise ValueError(
             "fit_treatment=False only supports discrete point-treatment nuisances without "
@@ -2928,12 +2960,14 @@ def plan_nuisances(
     fit_outcome: bool = True,
     seed_fixed: bool = True,
     nominal_folds: int | None = None,
+    n_jobs: int | None = None,
 ) -> list[PlannedRole]:
     """The fits :func:`fit_nuisances` makes on these arguments, counted without fitting.
 
     Mirrors the branches of :func:`fit_nuisances` and runs its checks that precede the
-    first learner (declared atoms).  Each role is counted per fold with
-    :func:`~cleverly._planned_fits.count_cross_fit`, which applies the constant-fold rule
+    first learner (the request checks of :func:`refuse_nuisance_request`, declared atoms,
+    and with ``n_jobs`` a dose density's bins and memory refusal).  Each role is counted per
+    fold with :func:`~cleverly._planned_fits.count_cross_fit`, which applies the constant-fold rule
     where ``fit_nuisances`` passes ``constant_folds``.
 
     Parameters
@@ -2977,6 +3011,9 @@ def plan_nuisances(
     nominal_folds : int or None
         Count every role at this many folds and its nominal counts, with no constant-fold
         skip: a bootstrap replicate's draw.
+    n_jobs : int or None
+        Parallel workers across the folds, as :func:`fit_nuisances` takes it.  ``None``
+        skips a density's memory refusal, for a count of draws the fit makes later.
 
     Returns
     -------
@@ -2988,8 +3025,9 @@ def plan_nuisances(
     from ..learners.density_ratio import plan_classifier_ratio
 
     vector = data.treatment_kind == "vector"
-    if vector and (not has_policies or not fit_treatment):
-        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
+    refuse_nuisance_request(
+        data, outcome_by_arm=outcome_by_arm, has_policies=has_policies, fit_treatment=fit_treatment
+    )
     groups = data.cluster
     recorded = data.treatment_recorded if data.has_missing_treatment else None
     weights = np.asarray(data.weights, dtype=float)
@@ -3047,6 +3085,7 @@ def plan_nuisances(
                 density_bins=density_bins,
                 seed_fixed=seed_fixed,
                 nominal_folds=nominal_folds,
+                n_jobs=n_jobs,
             )
         )
     elif vector or (data.is_continuous_treatment and has_policies and policy_ratio == "classifier"):
@@ -3089,6 +3128,7 @@ def plan_nuisances(
                     density_bins=density_bins,
                     seed_fixed=seed_fixed,
                     nominal_folds=nominal_folds,
+                    n_jobs=n_jobs,
                 )
             )
         else:
@@ -3105,6 +3145,8 @@ def plan_nuisances(
                         groups=groups,
                         seed_fixed=seed_fixed,
                         nominal_folds=nominal_folds,
+                        n_covariates=None if n_jobs is None else data.mechanism_covariates.shape[1],
+                        n_jobs=1 if n_jobs is None else n_jobs,
                     ),
                     False,
                 )
@@ -3219,6 +3261,7 @@ def plan_mixed_density(
     density_bins: int | None,
     seed_fixed: bool,
     nominal_folds: int | None,
+    n_jobs: int | None = None,
 ) -> list[PlannedRole]:
     """The fits :func:`fit_mixed_density` makes, counted without fitting.
 
@@ -3238,6 +3281,8 @@ def plan_mixed_density(
     seed_fixed : bool
         As :func:`~cleverly._planned_fits.count_learner`.
     nominal_folds : int or None
+        As :func:`plan_nuisances`.
+    n_jobs : int or None
         As :func:`plan_nuisances`.
 
     Returns
@@ -3282,6 +3327,8 @@ def plan_mixed_density(
                     fit_mask=none,
                     seed_fixed=seed_fixed,
                     nominal_folds=nominal_folds,
+                    n_covariates=None if n_jobs is None else data.mechanism_covariates.shape[1],
+                    n_jobs=1 if n_jobs is None else n_jobs,
                 ),
                 False,
             )
@@ -3693,6 +3740,7 @@ def plan_vector_treatment(
     density_bins: int | None,
     seed_fixed: bool,
     nominal_folds: int | None,
+    n_jobs: int | None = None,
 ) -> list[tuple[str, Any]]:
     """The fits of a vector treatment's density route, counted without fitting.
 
@@ -3717,6 +3765,8 @@ def plan_vector_treatment(
         As :func:`~cleverly._planned_fits.count_learner`.
     nominal_folds : int or None
         As :func:`plan_nuisances`.
+    n_jobs : int or None
+        As :func:`plan_nuisances`.
 
     Returns
     -------
@@ -3739,6 +3789,7 @@ def plan_vector_treatment(
             n_bins=density_bins,
             seed_fixed=seed_fixed,
             nominal_folds=nominal_folds,
+            n_jobs=n_jobs,
         )
     components = tuple(
         JointComponent(name, levels)
@@ -3764,4 +3815,5 @@ def plan_vector_treatment(
         groups=data.cluster,
         seed_fixed=seed_fixed,
         nominal_folds=nominal_folds,
+        n_jobs=n_jobs,
     )

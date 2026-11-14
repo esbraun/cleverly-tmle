@@ -5121,6 +5121,7 @@ def plan_vector_density(
     n_bins: int | None = None,
     seed_fixed: bool = True,
     nominal_folds: int | None = None,
+    n_jobs: int | None = None,
 ) -> list[tuple[str, Any]]:
     """The fits :meth:`PolicySet.evaluate_vector_density` makes, counted without fitting.
 
@@ -5144,6 +5145,8 @@ def plan_vector_density(
         As :func:`cleverly._planned_fits.count_learner`.
     nominal_folds : int or None
         As :func:`~cleverly.interventions.joint_density.plan_joint_density`.
+    n_jobs : int or None
+        As :func:`~cleverly.interventions.joint_density.plan_joint_density`.
 
     Returns
     -------
@@ -5164,6 +5167,7 @@ def plan_vector_density(
         groups=data.cluster,
         seed_fixed=seed_fixed,
         nominal_folds=nominal_folds,
+        n_jobs=n_jobs,
     )
 
 

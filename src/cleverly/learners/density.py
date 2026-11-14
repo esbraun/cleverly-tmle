@@ -887,6 +887,39 @@ def preflight_conditional_densities(
         retained += a.size * grid.n_total * 8 + cost.kept
 
 
+def _density_checks(
+    learner: Learner,
+    n_covariates: int,
+    treatment: FloatArray,
+    folds: Folds,
+    *,
+    n_bins: int | None,
+    edges: Sequence[float] | None,
+    mask: BoolArray | None,
+    name: str | None,
+    n_jobs: int,
+    retained: int,
+) -> _Grid:
+    """The bins of a density fit and its memory refusal, which precede its first learner.
+
+    :func:`fit_conditional_density` and :func:`plan_conditional_density` both call it, so a
+    preview raises what the fit raises before it builds a table.
+    """
+    grid = _grid(treatment, mask, n_bins, edges, name)
+    records, columns, rows_fitted = _table_size(learner, n_covariates, grid, mask)
+    _refuse_unaffordable(
+        records,
+        columns,
+        rows_fitted,
+        grid.n_total,
+        n_covariates,
+        _index_only(learner),
+        concurrent=_concurrent_folds(folds, n_jobs),
+        retained=retained,
+    )
+    return grid
+
+
 def _lookup(probabilities: FloatArray, edges: FloatArray, values: FloatArray) -> FloatArray:
     """The density of each row's bin probabilities at its ``(m,)`` values: ``(rows, m)``."""
     widths = np.diff(edges)
@@ -991,20 +1024,20 @@ def fit_conditional_density(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     sample_weight = np.asarray(weights, dtype=float).reshape(-1)
     mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
-    grid = _grid(a, mask, n_bins, edges, name)
-    n_total, n_hazards, bins = grid.n_total, grid.n_hazards, grid.bins
-    index_only = _index_only(learner)
-    records, columns, rows_fitted = _table_size(learner, w.shape[1], grid, mask)
-    _refuse_unaffordable(
-        records,
-        columns,
-        rows_fitted,
-        n_total,
+    grid = _density_checks(
+        learner,
         w.shape[1],
-        index_only,
-        concurrent=_concurrent_folds(folds, n_jobs),
+        a,
+        folds,
+        n_bins=n_bins,
+        edges=edges,
+        mask=mask,
+        name=name,
+        n_jobs=n_jobs,
         retained=retained,
     )
+    n_total, n_hazards, bins = grid.n_total, grid.n_hazards, grid.bins
+    index_only = _index_only(learner)
     designs = {} if predict_designs is None else dict(predict_designs)
     for key, (design, values) in designs.items():
         shape = (
@@ -1121,11 +1154,17 @@ def plan_conditional_density(
     fit_mask: Any = None,
     seed_fixed: bool = True,
     nominal_folds: int | None = None,
+    n_covariates: int | None = None,
+    n_jobs: int = 1,
+    name: str | None = None,
+    retained: int = 0,
 ) -> Any:
     """The fits :func:`fit_conditional_density` makes, counted without fitting.
 
     One pooled hazard fit per fold, on the fold's long table.  The table's 0/1 target is
-    built only when the learner is a Super Learner, whose inner folds read it.
+    built only when the learner is a Super Learner, whose inner folds read it.  Given
+    ``n_covariates``, it first runs the fit's checks before its first learner: the bin
+    edges and the memory refusal of the table.
 
     Parameters
     ----------
@@ -1150,6 +1189,15 @@ def plan_conditional_density(
     nominal_folds : int or None
         Count this many fits at the learner's nominal counts in place of ``folds``: a
         bootstrap replicate's.
+    n_covariates : int or None
+        The columns of the design the fit conditions on, which the memory refusal reads.
+        ``None`` skips the checks, for a caller that ran them already.
+    n_jobs : int
+        Parallel workers across the folds, as the fit takes it.
+    name : str or None
+        The dose's name, for the refusals.
+    retained : int
+        Bytes the fit's caller holds beside the table, as the fit takes it.
 
     Returns
     -------
@@ -1166,7 +1214,22 @@ def plan_conditional_density(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
     reads = needs_target(learner)
-    grid = _grid(a, mask, n_bins, edges, None) if reads else None
+    if n_covariates is not None:
+        checked = _density_checks(
+            learner,
+            n_covariates,
+            a,
+            folds,
+            n_bins=n_bins,
+            edges=edges,
+            mask=mask,
+            name=name,
+            n_jobs=n_jobs,
+            retained=retained,
+        )
+        grid = checked if reads else None
+    else:
+        grid = _grid(a, mask, n_bins, edges, None) if reads else None
     routed = groups if groups is not None and accepts_groups(learner) else None
     out = Count()
     trains = [np.arange(a.size, dtype=np.int64)] if folds.is_single else [t for t, _ in folds]

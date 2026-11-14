@@ -549,6 +549,50 @@ def _source(policy: object, component: str | None, data: CausalData) -> _Source:
     return _Source(natural[:, column], frame, column)
 
 
+def unpreviewed_point_checks() -> tuple[str, ...]:
+    """The checks a point preview of a learner-backed tuned cap leaves to the fit.
+
+    :meth:`cleverly.estimators.TMLE._planned_fits` lists them in
+    :attr:`~cleverly.PlannedFits.unpreviewed`.  The fit runs each one after the tuner's
+    first fit and before the first nuisance learner: the tuner fits (:func:`_fitted` and
+    :func:`~cleverly.interventions.tuning.fit_tuner`, whose weight refusal needs a fit), and
+    every refusal of the policies built from the tuned values, which the preview does not
+    build.  The list is the one the profiler witness of
+    ``tests/unit/test_planned_fits_parity.py`` finds.
+
+    Returns
+    -------
+    tuple of str
+        The qualified names.
+    """
+    from .._declarations import FunctionDeclaration
+    from .._planned_fits import qualified_names
+    from ..interventions.policy import (
+        ModifiedPolicy,
+        Piece,
+        _check_monotone,
+        _check_partition,
+        _check_pieces,
+        _per_row,
+        _refuse_undeclared_atoms,
+        check_continuous_policy,
+    )
+
+    return qualified_names(
+        _fitted,
+        fit_tuner,
+        Piece.__post_init__,
+        ModifiedPolicy.__post_init__,
+        _check_pieces,
+        FunctionDeclaration.check,
+        check_continuous_policy,
+        _refuse_undeclared_atoms,
+        _check_partition,
+        _check_monotone,
+        _per_row,
+    )
+
+
 def _fitted(
     policy: object, source: _Source, tuner: DoseQuantile | SupportBoundary, data: CausalData
 ) -> FittedTuner:

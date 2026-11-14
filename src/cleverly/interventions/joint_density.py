@@ -1772,12 +1772,14 @@ def plan_joint_density(
     groups: IntArray | None = None,
     seed_fixed: bool = True,
     nominal_folds: int | None = None,
+    n_jobs: int | None = None,
 ) -> list[tuple[str, Any]]:
     """The fits :func:`evaluate_joint_density` makes, counted without fitting.
 
     The categorical factor's classifier when the node holds more than one cell, then per
     dose its density on the rows that hold no atom and, with declared atoms, its atom
-    classifier, each cross-fitted on ``folds``.
+    classifier, each cross-fitted on ``folds``.  Given ``n_jobs``, it first runs the fit's
+    memory refusal of every dose's density (:func:`preflight_conditional_densities`).
 
     Parameters
     ----------
@@ -1801,6 +1803,9 @@ def plan_joint_density(
         Count this many fits of each factor at the learner's nominal counts: a bootstrap
         replicate's.
 
+    n_jobs : int or None
+        Parallel workers across the folds, as the fit takes it, or ``None`` to skip the
+        memory refusal, for a bootstrap replicate's count.
     Returns
     -------
     list of tuple
@@ -1808,6 +1813,22 @@ def plan_joint_density(
     """
     from .._planned_fits import count_cross_fit, count_nominal
     from ..learners.density import plan_conditional_density
+
+    fitted_doses = [k for k in range(len(inputs.doses)) if inputs.dose_edges[k] is not None]
+    if n_jobs is not None and nominal_folds is None and folds is not None and fitted_doses:
+        preflight_conditional_densities(
+            learner,
+            [(inputs.fit_designs[k].shape[1], inputs.natural_doses[:, k]) for k in fitted_doses],
+            folds,
+            n_bins=n_bins,
+            fit_mask=inputs.rows,
+            n_jobs=n_jobs,
+            names=[inputs.names[inputs.doses[k]] for k in fitted_doses],
+            predictions=[
+                inputs.requests.memory(k, len(inputs.dose_edges[k] or ()) - 1, folds)
+                for k in fitted_doses
+            ],
+        )
 
     def classifier(target: FloatArray) -> Any:
         if nominal_folds is not None:

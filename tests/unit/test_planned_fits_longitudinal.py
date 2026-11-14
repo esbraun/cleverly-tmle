@@ -445,8 +445,8 @@ def test_a_tuned_cap_is_priced_and_its_plan_checks_are_deferred(
         lambda: effect.estimate(method, **settings()),
     )
     support.check(found, plain=PLAIN | {"tuner": None})
-    assert "resolve_tuned_plans" in found.plan.unpreviewed
-    assert "_preflight_followers" in found.plan.unpreviewed
+    assert "fit_tuner" in found.plan.unpreviewed
+    assert "_require_regimen_followers" in found.plan.unpreviewed
     tuner_rows = [row for row in found.plan.rows if row.role == "tuner"]
     # A linear quantile regression is a linear program, which fits no learner.
     assert bool(tuner_rows) == (target == "fold_average")

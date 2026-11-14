@@ -530,7 +530,7 @@ def test_the_tuner_retry_counts_two_attempts() -> None:
     tuner = [row for row in plan.rows if row.role == "tuner"]
     # Once in sample at the preflight, then on every row and in three folds: two attempts each.
     assert sum(row.fits for row in tuner) == 2 * (1 + 1 + 3)
-    assert "in_sample_policies" in plan.unpreviewed
+    assert "fit_tuner" in plan.unpreviewed
 
 
 def test_the_folds_are_one_draw_without_a_seed() -> None:

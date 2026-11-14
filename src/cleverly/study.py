@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import (
@@ -6600,8 +6601,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             return plan_trial_effect(self, self._trial_method(normalized))
         assert self._study is not None
         if isinstance(self._study.data, ContinuousSurvivalData):
-            engine, _ = self._continuous_engine(normalized)
-            return engine._planned_fits(self._study.data)
+            engine, settings = self._continuous_engine(normalized)
+            with self._spelled_memory_refusal(settings):
+                return engine._planned_fit_data(self._study.data)
         if self.functional.longitudinal:
             return cast(
                 "PlannedFits",
@@ -6986,10 +6988,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
-        functional = self.functional
         engine, settings = self._continuous_engine(method)
-        try:
+        with self._spelled_memory_refusal(settings):
             return engine.fit_data(data)
+
+    @contextlib.contextmanager
+    def _spelled_memory_refusal(self, settings: dict[str, Any]) -> Iterator[None]:
+        """Spell the engine call of a continuous-time memory refusal in its alternative.
+
+        :meth:`_estimate_continuous` and :meth:`planned_fits` both run the engine's memory
+        check, so both raise the same record.
+        """
+        functional = self.functional
+        try:
+            yield
         except ContinuousSurvivalMemoryError as error:
             # The facade has no memory setting; spell the engine call that reproduces this fit,
             # so a user can set the budget there.

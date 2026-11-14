@@ -1699,6 +1699,7 @@ def plan_mechanism(
     hazard_pooling: str = "node",
     competing_learner: Learner | None = None,
     unresolved: int = 0,
+    n_jobs: int | None = None,
 ) -> list[tuple[str, str, Any]]:
     """The fits :func:`fit_mechanism` makes, counted without fitting.
 
@@ -1734,6 +1735,9 @@ def plan_mechanism(
         Plans not resolved yet, each holding a modified treatment policy at every continuous
         or mixed node: the tuned plans of a preview, whose maps need a fitted tuner.
 
+    n_jobs : int or None
+        As :func:`fit_mechanism`.  With it, a dose density's bins and memory refusal run
+        as the fit runs them; ``None`` skips them.
     Returns
     -------
     list of tuple
@@ -1750,6 +1754,12 @@ def plan_mechanism(
     out: list[tuple[str, str, Any]] = []
     fit_masks = data.regimen_masks(data.treatment)
     n_times = data.n_times
+
+    def covariates_at(time: int) -> int | None:
+        # The history the density conditions on, whose width the memory refusal reads.
+        if n_jobs is None or nominal is not None:
+            return None
+        return int(data.history_design(time).shape[1])
 
     def pooled(
         nodes: tuple[int, ...], at_risk: dict[int, BoolArray], target: Any, learner: Learner
@@ -1858,6 +1868,7 @@ def plan_mechanism(
                 groups=data.cluster,
                 seed_fixed=seed_fixed,
                 nominal_folds=nominal,
+                n_jobs=n_jobs,
             ):
                 out.append(("treatment", what, count))
         elif kind == "mixed" or ratio == "classifier":
@@ -1898,6 +1909,8 @@ def plan_mechanism(
                                 fit_mask=none,
                                 seed_fixed=seed_fixed,
                                 nominal_folds=nominal,
+                                n_covariates=covariates_at(time),
+                                n_jobs=1 if n_jobs is None else n_jobs,
                             ),
                         )
                     )
@@ -1923,6 +1936,8 @@ def plan_mechanism(
                             fit_mask=fit_at,
                             seed_fixed=seed_fixed,
                             nominal_folds=nominal,
+                            n_covariates=covariates_at(time),
+                            n_jobs=1 if n_jobs is None else n_jobs,
                         ),
                     )
                 )

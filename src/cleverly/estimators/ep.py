@@ -1343,13 +1343,21 @@ class EPEstimator:
         EPFit
             The refit.
         """
+        return self._refit_estimator(random_state).fit(data)
+
+    def _planned_refit(self, data: CausalData, *, random_state: int | None = None) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted."""
+        return self._refit_estimator(random_state)._planned_fits(data)
+
+    def _refit_estimator(self, random_state: int | None) -> EPEstimator:
+        """The configured copy :meth:`refit` fits."""
         estimator = copy.copy(self)
         estimator.tmle_kwargs = dict(self.tmle_kwargs)
         if random_state is not None:
             estimator.tmle_kwargs["random_state"] = random_state
         # A refit on other rows cannot reuse a split plan realised on these rows.
         estimator.tmle_kwargs["split_plan"] = None
-        return estimator.fit(data)
+        return estimator
 
     def with_basis(self, basis: Any) -> EPEstimator:
         """A copy whose sieve family is ``basis``, with the same size rule.

@@ -1932,19 +1932,34 @@ class TMLE:
             return "outer realized"
         return "one draw"
 
+    def _plan_deferred(self, data: CausalData, builder: PlanBuilder) -> None:
+        """Name the checks that read a learner-backed tuner's fitted map, which the fit runs."""
+        del data
+        if declares_tuned(self.policies) and learner_backed_tuners(self.policies):
+            from ._tuned_policies import unpreviewed_point_checks
+
+            builder.defer(*unpreviewed_point_checks())
+
+    def _planned_fit_single(
+        self, data: CausalData, *, intermediate_value: float | None = None
+    ) -> PlannedFits:
+        """The record of :meth:`_fit_single` on prepared data at one level, counted unfitted.
+
+        :meth:`refit` runs :meth:`_fit_single` once, so :meth:`_planned_refit` reads this.
+        """
+        engine = copy.copy(self)
+        engine._defers_learned_tuners = True
+        builder = PlanBuilder()
+        state = engine._plan_fold_state()
+        engine._plan_deferred(data, builder)
+        engine._plan_single(data, builder, state, intermediate_value)
+        return builder.build(state)
+
     def _plan_prepared(self, data: CausalData) -> PlannedFits:
         """The record of :meth:`_planned_fits` on prepared data."""
         builder = PlanBuilder()
         state = self._plan_fold_state()
-        if declares_tuned(self.policies) and learner_backed_tuners(self.policies):
-            builder.defer(
-                "in_sample_policies",
-                "preflight_vector_policies"
-                if data.treatment_kind == "vector"
-                else "preflight_point_policies",
-                "resolve_point_policies",
-                "fit_tuner",
-            )
+        self._plan_deferred(data, builder)
         if not data.has_intermediate:
             self._plan_single(data, builder, state, None)
             return builder.build(state)
@@ -2181,6 +2196,7 @@ class TMLE:
             density_bins=self.density_bins,
             outcome_by_arm=self.outcome_by_arm,
             seed_fixed=state == "realized",
+            n_jobs=self.n_jobs,
             **flags,
         )
         for item in roles:
@@ -2623,6 +2639,39 @@ class TMLE:
         TMLEResult
             The result of the whole fit on ``data``.
         """
+        estimator = self._refit_estimator(
+            data, random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
+        )
+        return estimator._fit_single(data, intermediate_value=intermediate_value)
+
+    def _planned_refit(
+        self,
+        data: CausalData,
+        *,
+        intermediate_value: float | None = None,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int] | None = None,
+    ) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        :func:`cleverly._planned_fits.refit_plan` reads it.  It configures the same copy as
+        :meth:`refit` and previews its :meth:`_fit_single`, so a refit refusal raises here.
+        """
+        estimator = self._refit_estimator(
+            data, random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
+        )
+        return estimator._planned_fit_single(data, intermediate_value=intermediate_value)
+
+    def _refit_estimator(
+        self,
+        data: CausalData,
+        *,
+        random_state: int | None,
+        frozen_folds: Sequence[Folds] | None,
+        frozen_seeds: Sequence[int] | None,
+    ) -> TMLE:
+        """The estimator :meth:`refit` fits: this one, or a configured copy."""
         estimator = self._configured_for_refit(data)
         if frozen_folds is not None:
             if estimator is self:
@@ -2641,7 +2690,7 @@ class TMLE:
             if estimator is self:
                 estimator = copy.copy(self)
             estimator.random_state = random_state
-        return estimator._fit_single(data, intermediate_value=intermediate_value)
+        return estimator
 
     def _configured_for_refit(self, data: CausalData) -> TMLE:
         """The estimator a refit on ``data`` runs, which is this one.

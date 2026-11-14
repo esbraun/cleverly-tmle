@@ -1752,21 +1752,6 @@ class _HazardBlock(NamedTuple):
     msm_fits: tuple[MSMRegimenFit, ...] = ()
 
 
-#: The checks a preview of a learner-backed tuned cap leaves to the fit, by function name:
-#: the tuner's fit, and every check after it that reads the tuned plans (plan 5.3).
-_TUNED_DEFERRED: tuple[str, ...] = (
-    "resolve_tuned_plans",
-    "fit_tuner",
-    "_refuse_fold_average_compositions",
-    "_resolve_tilts",
-    "_refuse_design",
-    "path_slots",
-    "preflight_known_mechanisms",
-    "_refuse_undeclared_policy_scale",
-    "_preflight_followers",
-)
-
-
 def _tuned_regimen(regimen: Any) -> bool:
     """Whether ``regimen`` holds a data-tuned cap."""
     return declares_tuned((regimen,))
@@ -6525,21 +6510,88 @@ class _SequentialEstimator:
             ),
         }
 
+    def _unpreviewed_checks(self, prepared: LongitudinalData) -> tuple[str, ...]:
+        """The checks a preview of a learner-backed tuned cap leaves to the fit.
+
+        :meth:`_preflight` with ``preview=True`` stops before the tuner's fit.  The fit then
+        runs, before its first nuisance learner, the tuner fits and every check that can
+        refuse the tuned plans: the policies built from the tuned values, the fold-average
+        compositions, the tilts, the declared factors against the bounds, the policy scale,
+        and the followers of each draw.  The list is the one the profiler witness of
+        ``tests/unit/test_planned_fits_parity.py`` finds, with the hazard paths and the
+        pooled designs added where the fit reaches them.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+
+        Returns
+        -------
+        tuple of str
+            The qualified names, for :attr:`~cleverly.PlannedFits.unpreviewed`.
+        """
+        from .._planned_fits import qualified_names
+        from ..interventions.policy import (
+            ModifiedPolicy,
+            Piece,
+            _check_monotone,
+            _check_partition,
+            _check_pieces,
+            _per_row,
+        )
+        from ..interventions.tuning import fit_tuner
+        from .regimen import _guarded, _resolve_tuned_plan
+        from .sequential import _check_policy_arm_support, _require_regimen_followers
+
+        cls = type(self)
+        checks: list[Any] = [
+            _resolve_tuned_plan,
+            _guarded,
+            fit_tuner,
+            Piece.__post_init__,
+            ModifiedPolicy.__post_init__,
+            _check_pieces,
+            _check_partition,
+            _check_monotone,
+            _per_row,
+            cls._refuse_fold_average_compositions,
+            cls._resolve_tilts,
+            preflight_known_mechanisms,
+            cls._refuse_undeclared_policy_scale,
+            _check_policy_arm_support,
+            _require_regimen_followers,
+        ]
+        if self.survival_model == "hazard" and is_multinode(prepared):
+            checks.append(path_slots)
+        if self.survival_model == "hazard" and self.hazard_pooling == "pooled":
+            checks.append(refuse_pooled_designs)
+        return qualified_names(*checks)
+
     def _plan_state(self, state: _Preflight) -> PlannedFits:
         """The record of :meth:`_planned_fits` from the resolved preflight."""
         prepared = state.prepared
         if state.learned is not None:
-            # TODO(X106 phase 4): a learned regimen, which estimate() does not reach.
-            raise NotImplementedError("TODO(X106 phase 4): a learned regimen is not priced")
+            # CausalStudy.identify declares no learned regimen, so no estimate call reaches
+            # one, and its inner rule folds have no count here.
+            raise CapabilityError(
+                "The planned-fit preview does not count a LearnedRegimen fit: "
+                "CausalStudy.identify does not declare a learned two-node regimen (X11 (b2) "
+                "in docs/roadmap.md), so no estimate call fits one.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Fit LTMLE(regimens=LearnedRegimen()) without a preview, or preview "
+                    "DynamicRegimen(..., rule_kind='known') through CausalStudy.planned_fits."
+                ),
+                roadmap="X11",
+            )
         builder = PlanBuilder()
         fold_state = self._plan_fold_state()
         seed_fixed = fold_state == "realized"
         plans: tuple[Any, ...]
         unresolved: tuple[Any, ...] = ()
         if state.plans is None:
-            builder.defer(*_TUNED_DEFERRED)
-            if self.survival_model == "hazard" and self.hazard_pooling == "pooled":
-                builder.defer("refuse_pooled_designs")
+            builder.defer(*self._unpreviewed_checks(prepared))
             declared = tuple(r for r in state.regimens if not _tuned_regimen(r))
             plans = tuple(resolve_plans(declared, prepared, allow_set_dose=self._allow_set_dose))
             unresolved = tuple(
@@ -6691,6 +6743,7 @@ class _SequentialEstimator:
             fit_rows=fit_rows,
             hazard_pooling=self.hazard_pooling,
             unresolved=unresolved,
+            n_jobs=self.n_jobs,
         ):
             add(factor, f"{scope}{what}", count)
 
@@ -7705,6 +7758,37 @@ class _SequentialEstimator:
         LongitudinalResult
             The result of the whole fit on ``data``.
         """
+        estimator = self._refit_estimator(
+            random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
+        )
+        return estimator.fit(data)
+
+    def _planned_refit(
+        self,
+        data: LongitudinalData,
+        *,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int | None] | None = None,
+    ) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        :func:`cleverly._planned_fits.refit_plan` reads it.  It refuses what :meth:`refit`
+        refuses and previews the fit of the same configured copy.
+        """
+        estimator = self._refit_estimator(
+            random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
+        )
+        return estimator._planned_fits(data)
+
+    def _refit_estimator(
+        self,
+        *,
+        random_state: int | None,
+        frozen_folds: Sequence[Folds] | None,
+        frozen_seeds: Sequence[int | None] | None,
+    ) -> _SequentialEstimator:
+        """The configured copy :meth:`refit` fits, after the learned-regimen refusal."""
         refuse_learned_regimen_result(self, "a refit")
         estimator = self._refit_template()
         if random_state is not None:
@@ -7713,7 +7797,7 @@ class _SequentialEstimator:
             estimator._frozen_folds = tuple(frozen_folds)
         if frozen_seeds is not None:
             estimator._frozen_seeds = tuple(frozen_seeds)  # type: ignore[arg-type]
-        return estimator.fit(data)
+        return estimator
 
     def _bootstrap_estimates(self, data: LongitudinalData) -> dict[str, tuple[float, float]]:
         """One bootstrap replicate: a full refit on the resample.

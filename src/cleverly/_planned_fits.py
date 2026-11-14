@@ -34,7 +34,7 @@ import inspect
 import warnings
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
@@ -143,7 +143,9 @@ class PlannedFits:
         draw.
     unpreviewed : tuple of str
         The checks ``estimate`` still runs after the point where the count stops, by
-        function name.  Empty for most calls.
+        qualified function name, such as ``"fit_tuner"`` or ``"Piece.__post_init__"``: the
+        fit of a tuned cap whose boundary is a learner, and each check that can refuse the
+        tuned values.  Empty for most calls.
     notes : tuple of str
         Plain sentences about what the counts include and leave out.
 
@@ -1120,6 +1122,25 @@ class PlanBuilder:
         )
 
 
+def qualified_names(*functions: Callable[..., Any]) -> tuple[str, ...]:
+    """The qualified names of ``functions``, as :attr:`PlannedFits.unpreviewed` lists them.
+
+    A method is named by the class that defines it, such as ``"Piece.__post_init__"``, and a
+    module function by its own name.
+
+    Parameters
+    ----------
+    *functions : callable
+        The checks.
+
+    Returns
+    -------
+    tuple of str
+        One name per function, in order.
+    """
+    return tuple(getattr(function, "__qualname__", repr(function)) for function in functions)
+
+
 def sample_weight_attempts(learner: Learner, weights: FloatArray | None) -> int:
     """Attempted fits of a tuner's boundary learner, which ``fit_tuner`` retries unweighted.
 
@@ -1162,12 +1183,16 @@ def sample_weight_attempts(learner: Learner, weights: FloatArray | None) -> int:
 def refit_plan(result: Any) -> PlannedFits:
     """The fits of one ``refit()`` of a fitted result on its own data.
 
-    The unit a refutation multiplies by its draw count.  It reads the result's recorded
-    splits and seeds, so its folds are ``"realized"``.
+    The unit a refutation multiplies by its draw count.  It prices the refit the
+    noise-covariate refutation runs, ``result.estimator.refit(result.data, ...)`` with the
+    fit's own seed and the recorded seed of every repeat, so the refit draws the original
+    folds and its folds are ``"realized"`` even when the fit was unseeded.  A continuous-time
+    fit refits at the seed its estimator records, and an adaptive TMLE fit of a trial with
+    external data reruns its method at the seed its provenance records.
 
     Parameters
     ----------
-    result : TMLEResult
+    result : TMLEResult, LongitudinalResult, ContinuousSurvivalResult or AdaptiveTMLEResult
         A fitted result.
 
     Returns
@@ -1177,8 +1202,47 @@ def refit_plan(result: Any) -> PlannedFits:
 
     Raises
     ------
-    NotImplementedError
-        Always, in this version.
+    CapabilityError
+        If the refit refuses the result, with the record the refit raises, or if the result
+        keeps no estimator to refit.
     """
-    # TODO(X106 phase 4): read the recorded splits and seeds through each engine's preview.
-    raise NotImplementedError("TODO(X106 phase 4): refit_plan is not priced yet")
+    from ._trial_family import AUGMENTED_TRIAL_FAMILY
+    from .exceptions import CapabilityError, RefusalReason
+
+    family = getattr(result, "assessment_family", None)
+    if family == AUGMENTED_TRIAL_FAMILY:
+        from .estimators.atmle_result import plan_trial_effect
+
+        seed = result.provenance.random_state
+        return plan_trial_effect(
+            result.identified_effect, result.method.with_overrides(random_state=seed)
+        )
+    estimator = getattr(result, "estimator", None)
+    planned_refit = getattr(estimator, "_planned_refit", None)
+    if estimator is None or planned_refit is None:
+        raise CapabilityError(
+            f"refit_plan does not count a refit of {type(result).__name__}: "
+            + (
+                "the result keeps no estimator configuration to refit."
+                if estimator is None
+                else f"{type(estimator).__name__} has no planned-fit preview."
+            ),
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Count the fits of the original call with CausalStudy.planned_fits, which a "
+                "refit on the same data repeats."
+            ),
+            roadmap="X106",
+        )
+    data = result.data
+    if family == "continuous_survival":
+        return cast("PlannedFits", planned_refit(data, random_state=estimator.random_state))
+    repeats = getattr(result, "repeats", None) or ()
+    seeds = [item.seed for item in repeats]
+    options: dict[str, Any] = {}
+    if hasattr(result, "intermediate_value"):
+        options["intermediate_value"] = result.intermediate_value
+    if seeds and all(seed is not None for seed in seeds):
+        options["random_state"] = seeds[0]
+        options["frozen_seeds"] = seeds
+    return cast("PlannedFits", planned_refit(data, **options))
