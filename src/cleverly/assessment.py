@@ -1038,14 +1038,31 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator in ("gcomp", "parametric_gformula"):
+    truncation = None
+    if family == "longitudinal":
         # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
-        # moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
+        # moves it; a SurvivalCTMLE or SurvivalDRTMLE replay would rerun a selection or a
+        # drift loop that no study measures. The call reads the same helper.
+        from .longitudinal.estimator import longitudinal_truncation_refusal
 
-        truncation = (
-            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
-        )
+        truncation = longitudinal_truncation_refusal(result)
+        # A learned-regimen fit refuses every surface that runs the fit again (F27): the
+        # truncation call raises this record before any other, and the facade's refute
+        # call raises it from this row. The free refute() reaches it at the refit, after
+        # its request checks.
+        from .longitudinal.learned import learned_regimen_refusal
+
+        learned = learned_regimen_refusal(result, "the truncation curve")
+        if learned is not None:
+            truncation = learned
+            refit = learned_regimen_refusal(result, "a refit")
+            rows = tuple(
+                replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refit)
+                if row.operation == "refute"
+                else row
+                for row in rows
+            )
+    if truncation is not None:
         rows = tuple(
             replace(
                 row,
@@ -1062,9 +1079,10 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
         # The truncation replay does not rebuild a hazard fit's regressions of the future on
         # covariates after baseline (H31), nor the weighted walk of each modified treatment
-        # policy (H25).
+        # policy (H25). The call raises the method's own refusal above before it reaches the
+        # replay, so that one stands.
         walk = hazard_replay(result)
-        if walk is not None:
+        if walk is not None and truncation is None:
             rows = tuple(
                 replace(
                     row,
@@ -5369,13 +5387,15 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) not in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        if (
+            operation == "evalue"
+            and _family(self._result)
+            not in ("structural", AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY)
+            and not _is_projection(self._result)
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
-            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand. A
+            # projection fit keeps its declared R9 row, which its call raises (Fix-15).
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 
@@ -5559,6 +5579,14 @@ class SensitivityFacade(_CapabilityFacade):
         tuple of str
             Eligible reported names, empty when the route settles its own estimand.
         """
+        if operation == "marginal_bounds":
+            # Its ``estimand=None`` resolves to the fit's own reported parameter, and the
+            # call raises when that leaves a choice (Fix-15), so the row defers on the same
+            # candidates rather than run on a parameter the fit did not report.
+            from .sensitivity.marginal import default_estimand_candidates
+
+            candidates = default_estimand_candidates(self._result)
+            return () if len(candidates) == 1 else candidates
         function, _ = self._routed_callable(operation)
         if not _defaults_to_ambiguous_estimand(function):
             return ()
@@ -5830,12 +5858,13 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        # A structural or adaptive TMLE fit declares every row refused, so an explicit
-        # estimand lifts none.
-        if not explicit_evalue or _family(self._result) in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        # A structural, adaptive TMLE, continuous-time survival or projection fit declares
+        # every row refused, so an explicit estimand lifts none.
+        if (
+            not explicit_evalue
+            or _family(self._result)
+            in ("structural", AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY)
+            or _is_projection(self._result)
         ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(
