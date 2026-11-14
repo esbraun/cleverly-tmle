@@ -81,7 +81,7 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from collections.abc import Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import numpy as np
 import pandas as pd
@@ -89,6 +89,7 @@ from scipy.special import gammaln
 from scipy.stats import norm, t
 from sklearn.linear_model import LogisticRegression
 
+from cleverly._typing import EstimandName
 from cleverly.estimators import TMLE
 from cleverly.inference.cluster import cross_validated_variance
 from cleverly.learners.crossfit import check_integrity
@@ -185,6 +186,10 @@ class Cell:
     def n(self) -> int:
         """The rows of one draw."""
         return self.clusters * ROWS_PER_CLUSTER[self.law]
+
+    def truth(self) -> dict[str, float]:
+        """The law's exact truths by estimand (:func:`law_truth`), read as a DGP's truths."""
+        return law_truth(self.law)
 
 
 CELLS: Final[tuple[Cell, ...]] = tuple(
@@ -468,7 +473,7 @@ def fit(
                 cv_evaluation=True,
                 targeting_scheme="pooled",
                 stratify_folds="none",
-                estimands=tuple(estimands),
+                estimands=tuple(cast(Sequence[EstimandName], estimands)),
                 simultaneous=False,
                 g_bounds=G_BOUNDS,
                 max_iter=100,

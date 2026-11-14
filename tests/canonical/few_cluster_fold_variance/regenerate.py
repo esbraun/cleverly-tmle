@@ -5,9 +5,8 @@ optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.d
 The record has no comparator, so the run starts no container. Laws, learners, cells, sizes,
 margins, seeds and replicate counts are those of :mod:`tests.studies.few_cluster_fold_variance`
 and :mod:`tests.studies.few_cluster_fold_variance_properties`, fixed before any run and
-recomputed by ``tests/unit/test_few_cluster_fold_variance_design.py``. The record is not in
-``registered()`` until its run is committed; until then its property module is an uncommitted
-subject of the property differential.
+recomputed by ``tests/unit/test_few_cluster_fold_variance_design.py``. The run was committed at
+``de658a44`` and the record is registered.
 
 Order of the work (plan X54 rev 3.5, sections 2.4, 3.3, 5.3, 5.8 and 9): the cells and arms; the
 pilot of :mod:`tests.studies.few_cluster_fold_variance_pilot` on its own seed stream, 400 draws

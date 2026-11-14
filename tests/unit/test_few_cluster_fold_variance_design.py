@@ -165,19 +165,24 @@ def test_the_cells_are_read_by_training_clusters() -> None:
 
 
 def test_the_seeds_are_the_study_s_own() -> None:
-    seeds = {s for record in registered() for s in (record.seed, record.resampling_seed)}
+    seeds = {
+        s
+        for record in registered()
+        if record.slug != study.STUDY.slug
+        for s in (record.seed, record.resampling_seed)
+    }
     assert not {study.SEED, study.RESAMPLING_SEED} & seeds
     pilot_seeds = {pilot.pilot_seed(c.name, r) for c in study.CELLS for r in range(3)}
     property_seeds = {properties._seed(c.name, r) for c in study.CELLS for r in range(3)}
     assert not pilot_seeds & property_seeds
 
 
-def test_declared_and_not_yet_registered() -> None:
+def test_registered_from_the_declared_run() -> None:
     from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
 
-    assert study.STUDY.slug not in {record.slug for record in registered()}
-    assert not study.STUDY.artifact("property-replicates.parquet").exists()
-    assert properties.__name__ in UNCOMMITTED_MODULES
+    assert study.STUDY.slug in {record.slug for record in registered()}
+    assert study.STUDY.artifact("property-replicates.parquet").exists()
+    assert properties.__name__ not in UNCOMMITTED_MODULES
     assert study.STUDY.publication_policy == "reporting"
     assert properties.FAILURE_BOUND == 0.05
     assert study.STUDY.failure_bound == {"cleverly": 0.05}
@@ -719,3 +724,39 @@ def test_a_control_that_does_not_do_its_job_withholds_the_licence(cell: str, arm
 
 def test_the_pilot_file_is_committed() -> None:
     assert Path(PILOT).exists()
+
+
+# ------------------------------------------------------------------------- the declared run
+
+
+def test_the_committed_run_takes_the_declared_routes() -> None:
+    """The registered verdicts, read through ``declared_route``, and the ledger's owner keys."""
+    from tests.studies.evidence.red_cells import CLAIMS
+
+    summary = pd.read_csv(study.STUDY.artifact("properties.csv"))
+    held = (study.RED_OWNER, study.TRAINING_FLOOR_READING)
+    owned: set[str] = set()
+    for arm in study.POSITIVE_ARMS:
+        route = properties.declared_route(summary, arm)
+        assert (route.outcome, route.floor, route.minimum) == (properties.TRAINING_FLOOR, 4, 4)
+        assert route.non_monotone == () and route.reasons == ()
+        assert set(route.owners.values()) == {held}
+        owned |= set(route.owners)
+    claimed = {key.key.split("/", 1)[1] for key in CLAIMS[study.RED_OWNER]}
+    assert owned == claimed
+    red = set(summary.loc[~summary["passed"].astype(bool), "cell"])
+    assert red == owned
+
+
+def test_the_predicted_reds_that_passed_are_the_known_floor_s_two() -> None:
+    """The pilot predicted a known floor of 6; two of its predicted reds passed, so it is 4."""
+    summary = pd.read_csv(study.STUDY.artifact("properties.csv")).set_index("cell")
+    passed = summary["passed"].astype(bool)
+    missed = {
+        arm: {c for c in cells if passed[study.cell_name(c, arm)]}
+        for arm, cells in study.PREDICTED_RED.items()
+    }
+    assert missed == {
+        "t_reference": set(),
+        "known_propensity": {"cluster_covariate__v2_j4", "equal10__v2_j8"},
+    }

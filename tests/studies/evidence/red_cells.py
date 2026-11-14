@@ -592,6 +592,17 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The declared negative control of ``sequential-baselines``: law ``X`` makes every
     # main-terms ``GLM`` wrong, so the calibration rule must fail.  Nothing is owed.
+    # The training-floor limit of the centred fold cluster variance (X54 part (e)): the three
+    # positive cells at 2 training clusters, below each configuration's floor of 4, held under
+    # the declared reading ``declared_route`` returns from the committed summary
+    # (few_cluster_fold_variance_properties.declared_route; the design test recomputes it).
+    "X54-training-floor": _keys(
+        "few-cluster-fold-variance",
+        "property",
+        "fold_variance_calibration/cluster_covariate__v2_j4__t_reference",
+        "fold_variance_calibration/equal10__v2_j4__t_reference",
+        "fold_variance_calibration/equal10__v2_j4__known_propensity",
+    ),
     "X41-negative-control": _keys(
         "sequential-baselines",
         "property",

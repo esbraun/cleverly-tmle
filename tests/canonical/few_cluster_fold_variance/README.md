@@ -17,8 +17,11 @@ It has no comparator.
 
 ## State of this directory
 
-Declared, not run. No artifact but the pilot is committed, so the record is not in
-`registered()`. The evidence page and the grid rows land with the registration, after the run.
+Registered. The declared run (declaration `76d8b965`, artifacts `de658a44`) took 24 minutes on 4
+cores and lost no replicate. `declared_route` reads a training floor of 4 in both
+configurations, and `MINIMUM_FOLD_TRAINING_CLUSTERS` ships it. Three positive cells at 2 training
+clusters are red, below that floor, and the red-cell owner `X54-training-floor` holds them. The
+known `cluster_covariate__v2_j4` and `equal10__v2_j8`, predicted red, passed.
 `regenerate.py` holds the declaration: the design changes from the pilot, the gates, the
 training floor, the pilot readings, the predicted red cells, the red-cell readings and the budget.
 

@@ -1657,11 +1657,11 @@ boundary-node-ltmle,boundary_node,firing floor,se_low
 boundary-node-ltmle,boundary_node,node variance matters,shift/3
 boundary-node-ltmle,boundary_node,paired gain,positive_diffuse
 boundary-node-ltmle,boundary_node,zero-cell coverage,coverage/0.925
-tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,all-draw coverage floor,none
-tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,deflated variance fails the positive rule,none
-tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,median paired iid/cluster se ratio under its ceiling,none
-tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,shown coverage in band,coverage/0.99
-tests.studies.few_cluster_fold_variance_properties,fold_variance_calibration,variance ratio lower end,se/0.9
+few-cluster-fold-variance,fold_variance_calibration,all-draw coverage floor,none
+few-cluster-fold-variance,fold_variance_calibration,deflated variance fails the positive rule,se_high
+few-cluster-fold-variance,fold_variance_calibration,median paired iid/cluster se ratio under its ceiling,pair_collapse
+few-cluster-fold-variance,fold_variance_calibration,shown coverage in band,none
+few-cluster-fold-variance,fold_variance_calibration,variance ratio lower end,se/0.05
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05

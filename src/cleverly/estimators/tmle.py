@@ -94,6 +94,7 @@ import numpy as np
 from .._inference_status import (
     CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
+    MINIMUM_FOLD_TRAINING_CLUSTERS,
     OUT_OF_RANGE_STATUS,
     InferenceStatus,
     supplies_inference,
@@ -192,6 +193,7 @@ from ..inference.cluster import (
     cross_validated_variance,
     fewest_clusters,
     influence_variance,
+    smallest_training_clusters,
     unequal_positive_cluster_mass,
 )
 from ..inference.influence import (
@@ -5430,6 +5432,20 @@ class TMLE:
         # that supplies inference also takes its Student t reference here, from the rows
         # each estimate reads, so no builder sets degrees of freedom of its own.
         status = self._inference_status(prepared)
+        if (
+            status == "influence_curve"
+            and self.cv_evaluation
+            and indices
+            and data.cluster is not None
+            and smallest_training_clusters(
+                data.cluster, indices, data.weights if data.is_weighted else None
+            )
+            < MINIMUM_FOLD_TRAINING_CLUSTERS[nuisance.treatment_mechanism]
+        ):
+            # X54 (e): the fold-evaluated variance is calibrated from the training-complement
+            # floor of the fit's mechanism (few-cluster-fold-variance). Below it the nuisances
+            # of some fold are fitted on too few clusters, and the interval is labelled.
+            status = "few_cluster_plugin"
         cluster_reference = (
             None
             if prepared.cluster is None

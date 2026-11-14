@@ -551,6 +551,23 @@ variance takes the centered variance of the cluster totals inside each fold
 at every cluster count. Without a learned rule it also needs clusters of equal denominator mass
 ([clusters of unequal mass](#clusters-of-unequal-mass)).
 
+The fold-evaluated variance is calibrated from 4 training clusters, with the propensity estimated
+or declared known. The training complement of a validation fold is every cluster outside it, so
+it holds the clusters that fit that fold's models. The
+[few-cluster fold variance study](method-evidence/few-cluster-fold-variance.md) measures 2 to 24
+training clusters at $V = 2$ and 5, with 2 to 6 clusters per validation fold, equal cluster sizes
+and parametric learners. Every cell passes from 4. At 2 training clusters, 5.5% of the `equal10`
+draws withhold their interval, which leaves all-draw coverage below 0.90, and the estimated
+propensity's covariate-law cell reads shown coverage 0.926, whose exact lower end sits below
+0.92. At 2 clusters per
+validation fold the cells with 8 and 16 training clusters pass, so the limit is the training
+complement.
+
+`MINIMUM_FOLD_TRAINING_CLUSTERS` keys the floor by mechanism, and a fit whose smallest training
+complement holds fewer positive-mass clusters takes `"few_cluster_plugin"`. With an estimated
+propensity on 2 to 8 training clusters, a few fits report very wide intervals: the variance ratio
+of the mean squared SE to the spread reads up to 15.7 while its 5%-trimmed form reads 0.94 to 2.2.
+
 Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
 what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
 
