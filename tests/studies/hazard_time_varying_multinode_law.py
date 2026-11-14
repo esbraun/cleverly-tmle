@@ -27,7 +27,8 @@ earlier treatment to the slot's level, or reads the held arm, misses.
 
 **Regimens.**  Always, never, the rule (treat when :math:`W_1 = 1` at node 1 and when
 :math:`L_k = +1` after) and the known policy :math:`q_1(1 \mid W_1) = 0.3 + 0.4 [W_1 = 1]` and
-:math:`q_k(1 \mid L_k, A_{k-1}) = 0.2 + 0.4 [L_k = +1] + 0.2 A_{k-1}` after.
+:math:`q_k(1 \mid L_k, A_{k-1}) = 0.05 + 0.3 [L_k = +1] + 0.6 A_{k-1}` after (plan X70
+rev 3.7: the large :math:`A_{k-1}` term lets a defect of the policy's prefix or slot show).
 
 **Truths.**  :math:`\psi_r(t) = E\,Q^r_1(H_1)` with
 :math:`Q^r_k(H_k) = \sum_a q_{r,k}(a \mid H_k)[\lambda(k \mid H_k, a) + (1 - \lambda(k \mid H_k,
@@ -147,11 +148,17 @@ def rule(node: int, w1: int, previous: int, l: int | None) -> float:
     return float(w1 == 1) if node == 1 else _flag(l)
 
 
+#: The known policy at ``k >= 2``: ``(base, L_k = +1 term, A_{k-1} term)``.  It keeps
+#: ``q_k`` in ``[0.05, 0.95]`` on every path.
+POLICY_LATER = (0.05, 0.3, 0.6)
+
+
 def policy(node: int, w1: int, previous: int, l: int | None) -> float:
-    """The known policy: ``0.3 + 0.4 [W1 = 1]``, then ``0.2 + 0.4 [L_k = +1] + 0.2 A_{k-1}``."""
+    """The known policy: ``0.3 + 0.4 [W1 = 1]``, then ``0.05 + 0.3 [L_k = +1] + 0.6 A_{k-1}``."""
     if node == 1:
         return 0.3 + 0.4 * w1
-    return 0.2 + 0.4 * _flag(l) + 0.2 * previous
+    base, covariate, prefix = POLICY_LATER
+    return base + covariate * _flag(l) + prefix * previous
 
 
 #: The regimens by label, in the order a fit reports them.
@@ -684,6 +691,7 @@ LAW = Law()
 __all__ = [
     "COEFFICIENTS",
     "LAW",
+    "POLICY_LATER",
     "REFERENCE",
     "REGIMENS",
     "Coefficients",

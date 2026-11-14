@@ -41,6 +41,7 @@ registration.
 
 from __future__ import annotations
 
+import importlib
 import json
 import time
 from collections.abc import Mapping
@@ -106,7 +107,8 @@ def _policy_node(node: int) -> Stochastic:
             p = 0.3 + 0.4 * np.asarray(frame["W1"], dtype=float)
         else:
             previous = np.nan_to_num(np.asarray(frame[f"A{node - 1}"], dtype=float), nan=0.0)
-            p = 0.2 + 0.4 * _flag(frame[f"L{node}"]) + 0.2 * previous
+            base, covariate, prefix = law.POLICY_LATER
+            p = base + covariate * _flag(frame[f"L{node}"]) + prefix * previous
         return np.column_stack([1.0 - p, p])
 
     return Stochastic(density, "q", density_kind="known")
@@ -192,10 +194,11 @@ DIFFERENCE_FITS = ("multinode",)
 DIFFERENCE_LABELS = ("multinode_contrast", "multinode_policy")
 DIFFERENCE_ARMS = ("paired_difference", "hazard_fit", "iterated_fit", "isotonic_difference")
 
-#: ``(cell label, configuration)`` of every robustness arm: eleven arms on the five
-#: configurations' fits.  The rule and policy ``outcome_correct`` arms are where a defect of
-#: the slot values shows: a correct mechanism repairs it, and on the static contrast the held
-#: slot, the current level and the level plan coincide for every follower.
+#: ``(cell label, configuration)`` of every targeted robustness arm: eleven arms on the five
+#: configurations' fits.  The policy arms show a defect of the policy's prefix or its slots
+#: under every configuration, since such a defect changes the mixture that defines the target;
+#: on the static contrast the held slot, the current level and the level plan coincide for every
+#: follower.
 DOUBLE_ROBUST_ARMS: tuple[tuple[str, str], ...] = (
     *(
         ("multinode_contrast", configuration)
@@ -220,14 +223,29 @@ DOUBLE_ROBUST_ARMS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+#: ``(cell label, configuration)`` of the untargeted robustness arms (plan X70 rev 3.7): the
+#: backward plug-in of the ``outcome_correct`` draws, whose hazard and continuation are correct,
+#: so its limit is the truth.  At a static or rule node the walk fits the slot's hazard to the
+#: followers' own events and repairs a slot defect under any mechanism; the untargeted plug-in
+#: keeps it, so these arms are where a defect of the rule's slots shows.
+UNTARGETED_ARMS: tuple[tuple[str, str], ...] = (
+    ("multinode_rule", "outcome_correct"),
+    ("multinode_policy", "outcome_correct"),
+)
+UNTARGETED_SUFFIX = "_untargeted"
+
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(
         cell
         for label in CALIBRATION_LABELS
         for cell in _cells(label, "correctly_specified", "shrunken_se_control", "noise_control")
     ),
-    "double_robustness": tuple(
-        f"{label}__{configuration}" for label, configuration in DOUBLE_ROBUST_ARMS
+    "double_robustness": (
+        *(f"{label}__{configuration}" for label, configuration in DOUBLE_ROBUST_ARMS),
+        *(
+            f"{label}__{configuration}{UNTARGETED_SUFFIX}"
+            for label, configuration in UNTARGETED_ARMS
+        ),
     ),
     "targeting_necessity": _cells(CONTRAST_LABEL, "targeted", "untargeted"),
     "root_n_and_efficiency": tuple(
@@ -304,7 +322,7 @@ CONFIGURATION = {
     "regimens": {
         "always / never": "every treatment set to 1 or 0",
         "rule": "treat when W1 = 1 at node 1 and when L_k = +1 after",
-        "policy": "P(A_1 = 1) = 0.3 + 0.4 W1; P(A_k = 1) = 0.2 + 0.4 [L_k = +1] + 0.2 A_{k-1}",
+        "policy": "P(A_1 = 1) = 0.3 + 0.4 W1; P(A_k = 1) = 0.05 + 0.3 [L_k = +1] + 0.6 A_{k-1}",
     },
 }
 
@@ -538,27 +556,98 @@ def truth_table() -> Mapping[str, Mapping[str, float]]:
 
 # ------------------------------------------------------------------ the smoke gate
 
-#: Where the smoke gate writes its record.
+#: Where the smoke gate writes its record, which is committed and read by the design test.
 SMOKE_OUTPUT = STUDY.artifacts / "smoke.json"
-#: The cost table's seconds per fit at n = 2,000 on one thread (plan X70, "(b2) cost inputs"),
-#: estimated from (b1)'s fits.  A smoke fit slower than :data:`COST_FACTOR` times its label's
-#: entry fails the gate, so the cost is re-declared before the runner brief.
-COST_SECONDS: dict[str, float] = {"multinode": 1.3, "crossfit": 1.8}
+
+#: Every smoke cell: ``name -> (kind, fit label, configuration, n)``.  ``hazard`` is the
+#: subject's fit, ``untargeted`` its backward plug-in with every walk skipped, and ``iterated``
+#: and ``isotonic`` the reported iterated-mean fits without and with ``isotonic=True``.  One
+#: cell per kind of fit the run makes: every configuration at n = 2,000, the cross-fitted label,
+#: the ladder's other rungs, the untargeted pass of the necessity control and of the untargeted
+#: robustness arms, and both iterated-mean fits of the difference family.
+SMOKE_CELLS: dict[str, tuple[str, str, str, int]] = {
+    **{
+        f"multinode/{configuration}": ("hazard", "multinode", configuration, PRIMARY_N)
+        for configuration in CONFIGURATIONS
+    },
+    "crossfit/both_correct": ("hazard", "crossfit", "both_correct", PRIMARY_N),
+    "multinode/n_1000": ("hazard", "multinode", "both_correct", 1_000),
+    "multinode/n_8000": ("hazard", "multinode", "both_correct", 8_000),
+    "untargeted/mechanism_correct": ("untargeted", "multinode", "mechanism_correct", PRIMARY_N),
+    "untargeted/outcome_correct": ("untargeted", "multinode", "outcome_correct", PRIMARY_N),
+    "iterated/both_correct": ("iterated", "multinode", "both_correct", PRIMARY_N),
+    "isotonic/both_correct": ("isotonic", "multinode", "both_correct", PRIMARY_N),
+}
+#: The cost table's seconds per fit on one thread, one entry per smoke cell (plan X70 rev 3.7,
+#: from the single-thread times of the implementation review).  ``mechanism_correct`` walks
+#: about five times as many steps as the other configurations.
+COST_SECONDS: dict[str, float] = {
+    "multinode/both_correct": 1.3,
+    "multinode/outcome_correct": 1.3,
+    "multinode/mechanism_correct": 2.5,
+    "multinode/continuation_wrong": 1.3,
+    "multinode/both_wrong": 1.5,
+    "crossfit/both_correct": 1.8,
+    "multinode/n_1000": 1.0,
+    "multinode/n_8000": 4.5,
+    "untargeted/mechanism_correct": 0.4,
+    "untargeted/outcome_correct": 0.4,
+    "iterated/both_correct": 0.5,
+    "isotonic/both_correct": 0.5,
+}
+#: A smoke fit slower than this many times its cell's cost fails the gate: twice the cost
+#: table, as the plan declares.  The table holds the measured times rounded up, so an idle
+#: machine sits near half the limit and a loaded runner keeps that headroom.
 COST_FACTOR = 2.0
 
 
-def _smoke_cell(fit_label: str, configuration: str, replicate: int) -> dict[str, Any]:
+_PROPERTIES = "tests.studies.hazard_time_varying_multinode_properties"
+
+
+def _smoke_fit(
+    kind: str, fit_label: str, configuration: str, frame: pd.DataFrame, properties: Any
+) -> Any:
+    """One smoke fit of one kind and its record.
+
+    Only ``hazard`` has node walks whose convergence the gate reads; the other kinds record
+    their unexpected warnings alone, as the property fits do.
+    """
+    if kind == "hazard":
+        return fit_recorded(fit_label, frame, configuration=configuration)
+    if kind == "untargeted":
+        result, record = recorded(
+            lambda: untargeted_fit(fit_label, frame, configuration=configuration)
+        )
+    else:
+        result, record = recorded(
+            lambda: properties.iterated_fit(fit_label, frame, isotonic=kind == "isotonic")
+        )
+    return result, FitRecord(True, record.unexpected_warnings)
+
+
+def _smoke_cell(name: str, replicate: int) -> dict[str, Any]:
     """One smoke fit on the pilot stream: its wall time, steps and the gate's readings."""
-    seed = stream_seed(STUDY, "pilot", "smoke", fit_label, configuration, replicate)
-    frame = law.LAW.draw(PRIMARY_N, seed)
+    kind, fit_label, configuration, n = SMOKE_CELLS[name]
+    # The properties module computes every exact truth on import: outside the timed fit.
+    properties = importlib.import_module(_PROPERTIES)
+    seed = stream_seed(STUDY, "pilot", "smoke", name, replicate)
+    frame = law.LAW.draw(n, seed)
     start = time.perf_counter()
     try:
-        result, record = fit_recorded(fit_label, frame, configuration=configuration)
+        result, record = _smoke_fit(kind, fit_label, configuration, frame, properties)
     except HeldCellError:
         return {"held": True, "failure": "", "seconds": time.perf_counter() - start}
     except Exception as error:  # a failure is a smoke finding, recorded with its class
         return {"held": False, "failure": type(error).__name__, "seconds": np.nan}
     seconds = time.perf_counter() - start
+    if kind != "hazard":
+        return {
+            "held": False,
+            "failure": "",
+            "seconds": seconds,
+            "converged": True,
+            "unexpected_warnings": list(record.unexpected_warnings),
+        }
     scores = [
         float(node.relative_score)
         for regimen_fit in result.fits.values()
@@ -575,26 +664,51 @@ def _smoke_cell(fit_label: str, configuration: str, replicate: int) -> dict[str,
     }
 
 
+def smoke_cleared(name: str, run: Mapping[str, Any]) -> bool:
+    """Whether one smoke fit meets the gate.
+
+    It holds no cell, raises nothing, converges, takes at most :data:`COST_FACTOR` times its
+    cell's :data:`COST_SECONDS`, and, for a fit with node walks, ends every walk at a relative
+    score of at most :data:`TOL`.
+
+    Parameters
+    ----------
+    name : str
+        The smoke cell, a key of :data:`SMOKE_CELLS`.
+    run : mapping
+        One run of the cell, as the smoke record holds it.
+
+    Returns
+    -------
+    bool
+        Whether the run meets the gate.
+    """
+    return bool(
+        not run["held"]
+        and not run["failure"]
+        and run.get("converged", False)
+        and run.get("largest_node_score", 0.0) <= TOL
+        and run["seconds"] <= COST_FACTOR * COST_SECONDS[name]
+    )
+
+
 def SMOKE_GATE(
     *,
     replicates: int = SMOKE_REPLICATES,
-    cells: tuple[tuple[str, str], ...] | None = None,
+    cells: tuple[str, ...] | None = None,
     output: Path | None = SMOKE_OUTPUT,
 ) -> dict[str, Any]:
-    """Fit ``replicates`` draws of each fit label and configuration and gate them.
+    """Fit ``replicates`` draws of each smoke cell and gate them (:func:`smoke_cleared`).
 
-    Every smoke fit must converge with every node walk's relative score at most :data:`TOL`,
-    hold no cell, raise nothing and take at most :data:`COST_FACTOR` times its fit label's
-    :data:`COST_SECONDS`.  The record holds each cell's wall times and node-walk step
-    counts and is written to ``output`` (``smoke.json`` beside the artifacts by default).
+    The record holds each fit's wall time and node-walk step count and is written to
+    ``output`` (``smoke.json`` beside the artifacts by default), which the design test reads.
 
     Parameters
     ----------
     replicates : int
         The draws per cell.
-    cells : tuple of tuple of str, optional
-        The ``(fit label, configuration)`` cells; every in-sample configuration and the
-        cross-fitted ``both_correct`` by default.
+    cells : tuple of str, optional
+        The cells, keys of :data:`SMOKE_CELLS`; every cell by default.
     output : Path, optional
         Where the record is written; ``None`` writes nothing.
 
@@ -603,24 +717,13 @@ def SMOKE_GATE(
     dict
         The record, with ``cleared``: whether every smoke fit met the gate.
     """
-    chosen = cells or (
-        *(("multinode", configuration) for configuration in CONFIGURATIONS),
-        ("crossfit", "both_correct"),
-    )
-    record: dict[str, Any] = {"replicates": replicates, "cells": {}}
+    record: dict[str, Any] = {"replicates": replicates, "cost_factor": COST_FACTOR, "cells": {}}
     cleared = True
-    for fit_label, configuration in chosen:
-        runs = [_smoke_cell(fit_label, configuration, r) for r in range(replicates)]
-        ok = all(
-            not run["held"]
-            and not run["failure"]
-            and run.get("converged", False)
-            and run.get("largest_node_score", np.inf) <= TOL
-            and run["seconds"] <= COST_FACTOR * COST_SECONDS[fit_label]
-            for run in runs
-        )
+    for name in cells or tuple(SMOKE_CELLS):
+        runs = [_smoke_cell(name, r) for r in range(replicates)]
+        ok = all(smoke_cleared(name, run) for run in runs)
         cleared = cleared and ok
-        record["cells"][f"{fit_label}/{configuration}"] = {"cleared": ok, "runs": runs}
+        record["cells"][name] = {"cleared": ok, "cost_seconds": COST_SECONDS[name], "runs": runs}
     record["cleared"] = cleared
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -629,3 +732,10 @@ def SMOKE_GATE(
 
 
 __all__ = ["SMOKE_GATE", "STUDY", "TRUTH", "draw_and_fit", "fit"]
+
+
+if __name__ == "__main__":  # pragma: no cover - the smoke step, run by hand before the pilot
+    gate = SMOKE_GATE()
+    print(f"smoke {'cleared' if gate['cleared'] else 'failed'}: {SMOKE_OUTPUT}")
+    if not gate["cleared"]:
+        raise SystemExit(1)

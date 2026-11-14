@@ -17,9 +17,11 @@ family                          cells, replications and size
                                 ``crossfit`` contrast and policy), each with the shrunken-SE
                                 and noise controls; :data:`CALIBRATION_REPLICATES` fits per
                                 fit label at n = 2,000
-``double_robustness``           eleven arms on the five configurations' fits
+``double_robustness``           eleven targeted arms on the five configurations' fits
                                 (:data:`~tests.studies.canonical_hazard_time_varying_multinode.
-                                DOUBLE_ROBUST_ARMS`); each configuration runs the largest count
+                                DOUBLE_ROBUST_ARMS`) and two untargeted ones, the rule's and
+                                the policy's backward plug-in on the ``outcome_correct`` draws
+                                (``UNTARGETED_ARMS``); each configuration runs the largest count
                                 among its arms, at least 1,200, at n = 2,000
 ``targeting_necessity``         ``multinode_contrast``: the targeted contrast of the
                                 ``mechanism_correct`` fits, and the untargeted backward
@@ -36,10 +38,12 @@ family                          cells, replications and size
 ==============================  ===========================================================
 
 The wrong hazard and continuation learners omit ``L``; the wrong mechanism drops ``L_k`` from
-the treatment and the retention models.  The rule and policy ``outcome_correct`` arms are where a
-defect of the slot values shows: under a correct mechanism the walk repairs any initial fit that
-is a function of :math:`(H_k, a)`, and on the static contrast the held slot, the current level and
-the level plan coincide for every follower.
+the treatment and the retention models.  A defect of the policy's prefix or slots changes the
+mixture that defines the target, so it shows on every policy arm.  At a static or rule node the
+walk fits the slot's hazard to the followers' own events and repairs a slot defect under any
+mechanism, so a defect of the rule's slots shows on the untargeted ``outcome_correct`` arms.  On
+the static contrast the held slot, the current level and the level plan coincide for every
+follower.
 
 The failure rule is the registry's: a replication that raises is never redrawn, and the shared
 harness refuses a cell that lost more than its bound.
@@ -93,6 +97,8 @@ STUDY = study.STUDY
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
 DOUBLE_ROBUST_ARMS = study.DOUBLE_ROBUST_ARMS
+UNTARGETED_ARMS = study.UNTARGETED_ARMS
+UNTARGETED_SUFFIX = study.UNTARGETED_SUFFIX
 #: The configurations that fit a wrong learner, each with its pilot label; their counts come
 #: from the committed 800-draw pilots (the design test), provisionally the floor.  The four
 #: pilots of plan X70 section 5.
@@ -359,6 +365,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             configuration_replicates(configuration),
             configuration,
         )
+    for label, configuration in UNTARGETED_ARMS:
+        add(
+            "double_robustness",
+            f"{label}__{configuration}{UNTARGETED_SUFFIX}",
+            "positive",
+            multinode,
+            ESTIMAND[label],
+            DOUBLE_ROBUST_N,
+            configuration_replicates(configuration),
+            configuration,
+        )
     for arm, role in (("targeted", "positive"), ("untargeted", "control")):
         add(
             "targeting_necessity",
@@ -464,6 +481,11 @@ def cells_of(key: _Key) -> list[str]:
         return names
     if family == "double_robustness":
         names = [f"{family}/{cell}__{configuration}" for cell in CONFIGURATION_ARMS[configuration]]
+        names += [
+            f"{family}/{cell}__{configuration}{UNTARGETED_SUFFIX}"
+            for cell, arm_configuration in UNTARGETED_ARMS
+            if arm_configuration == configuration
+        ]
         if configuration == NECESSITY_CONFIGURATION:
             names += [
                 f"targeting_necessity/{CONTRAST}__{arm}" for arm in ("targeted", "untargeted")
@@ -686,6 +708,18 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
         row(cell_label, f"{cell_label}__{configuration}", role, result[ESTIMAND[cell_label]])
         for cell_label in CONFIGURATION_ARMS[configuration]
     ]
+    untargeted = [cell for cell, arm in UNTARGETED_ARMS if arm == configuration]
+    if untargeted:
+        plug_in = records.untargeted(label, frame, configuration=configuration)
+        rows += [
+            row(
+                cell_label,
+                f"{cell_label}__{configuration}{UNTARGETED_SUFFIX}",
+                "positive",
+                plug_in[ESTIMAND[cell_label]],
+            )
+            for cell_label in untargeted
+        ]
     if configuration == NECESSITY_CONFIGURATION:
         estimate = result[ESTIMAND[CONTRAST]]
         plug_in = records.untargeted(label, frame, configuration=configuration)

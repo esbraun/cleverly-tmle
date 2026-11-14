@@ -39,10 +39,12 @@ verdict is seen.
   pilot: the band passed the pre-committed rule of the design test.  Any red band whose pointwise
   control covers is a defect suspect.  The band is never widened after a reading.
 * A red positive ``double_robustness`` cell is a defect suspect: each positive limit is the truth
-  on the exact sample (``test_every_positive_limit_is_the_truth``).  A red rule or policy
-  ``outcome_correct`` arm is a defect suspect of the slot values (the current-level prediction,
-  the policy read at the observed earlier treatment, the policy mixture at every policy node):
-  under a correct mechanism the walk would repair such a defect, so these arms are where it shows.
+  on the exact sample (``test_every_positive_limit_is_the_truth``).  A red policy arm is a defect
+  suspect of the policy's slots (the policy read at the observed earlier treatment, the policy
+  mixture at every policy node), which change the target under every configuration.  A red
+  untargeted ``outcome_correct`` arm (``__outcome_correct_untargeted``) is a defect suspect of the
+  slot hazards (the current-level prediction, the held slot), which the walk repairs at a static
+  or rule node; its limit is the truth (``test_the_untargeted_positive_limits_are_the_truth``).
   A red ``continuation_wrong`` arm is a defect suspect of the continuation fluctuation.  A
   ``both_wrong`` control that does not clear the margin is a failed control: the family's verdict
   is void and the study is a defect suspect that blocks the pull request.

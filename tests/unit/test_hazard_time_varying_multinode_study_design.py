@@ -18,6 +18,7 @@ weighted by its mass.
 from __future__ import annotations
 
 import itertools
+import json
 import re
 import warnings
 from collections import Counter
@@ -66,10 +67,17 @@ HAZARD_ALPHA = 0.9995
 #: alone (floor 1 SE, (b1)'s +1.369 SE witness).
 PLUG_IN_GAPS = {
     ("multinode_contrast", "mechanism_correct"): 7.676,
-    ("multinode_policy", "mechanism_correct"): 5.551,
+    ("multinode_policy", "mechanism_correct"): 6.165,
     ("multinode_contrast", "continuation_wrong"): 0.796,
-    ("multinode_policy", "continuation_wrong"): 0.383,
+    ("multinode_policy", "continuation_wrong"): 0.585,
 }
+#: The one declared shortfall (plan X70 rev 3.7): the covariate term's witness, the untargeted
+#: ``continuation_wrong`` contrast, against its 1 SE floor.  At ``T = 3`` only node 2's
+#: continuation reads a later ``L``.  Its arm discriminates it with probability 1 at spreads up
+#: to 1.5 SEs, and the 4.4 witness
+#: ``test_a_wrong_hazard_and_continuation_with_the_right_mechanism_is_exact`` carries the term
+#: on a law built for it.
+DECLARED_SHORTFALL = {("multinode_contrast", "continuation_wrong"): 0.796}
 #: The targeted both-wrong control's gap on the contrast.
 BOTH_WRONG_GAP = 7.026
 #: The baseline-only fit's gap on the contrast: always and never fitted with ``L`` dropped,
@@ -89,35 +97,47 @@ MUTATIONS: dict[str, Callable[[], AbstractContextManager[Any]]] = {
 }
 #: ``policy_risk`` is the policy's risk at the last node, which the policy-mixture witness reads.
 POLICY_RISK = "policy_risk"
-#: The exact limit of each mutation under ``outcome_correct`` (a correct mechanism repairs a
-#: slot defect), by ``(mutation, arm)``.  Plan X70 asks 3 SEs of the rule and policy arms, and
-#: when no coefficient inside the positivity and hazard limits reaches it, the largest gap
-#: reached, at least 1 SE.  The coefficients were searched over ``h_P``, ``h_A``, ``b_L`` and
-#: ``c_L`` within those limits before any pilot; these are the gaps at the declared ones.
-WITNESS_GAPS: dict[tuple[str, str], float] = {
-    ("level_plan", "multinode_rule"): 0.112,
-    ("level_plan", "multinode_policy"): 1.626,
-    ("held_slot", "multinode_rule"): -0.190,
-    ("held_slot", "multinode_policy"): -0.496,
-    ("policy_prefix", "multinode_policy"): 0.150,
-    ("observed_slot", "multinode_policy"): 2.157,
-    ("observed_slot", POLICY_RISK): 3.073,
+#: The exact limit of each mutation on the ``outcome_correct`` fit, targeted and untargeted, by
+#: ``(mutation, arm, targeted)``: a gated arm of the study reads each (the untargeted ones are
+#: the ``__outcome_correct_untargeted`` arms).  At a static or rule node every follower's
+#: observed ``A_k`` is the slot, so the walk fits the slot's hazard to the followers' own events
+#: and repairs a slot defect under any mechanism: the rule's targeted gaps are small, and its
+#: untargeted ones are not.  A defect of the policy's prefix or slots changes the mixture that
+#: defines the target, so the walk cannot repair it.
+WITNESS_GAPS: dict[tuple[str, str, bool], float] = {
+    ("level_plan", "multinode_rule", True): 0.112,
+    ("level_plan", "multinode_rule", False): -4.186,
+    ("level_plan", "multinode_policy", True): 0.857,
+    ("level_plan", "multinode_policy", False): -0.514,
+    ("held_slot", "multinode_rule", True): -0.190,
+    ("held_slot", "multinode_rule", False): 1.493,
+    ("held_slot", "multinode_policy", True): 1.325,
+    ("held_slot", "multinode_policy", False): 1.951,
+    ("policy_prefix", "multinode_policy", True): 1.143,
+    ("policy_prefix", "multinode_policy", False): 1.143,
+    ("observed_slot", "multinode_policy", True): 3.497,
+    ("observed_slot", POLICY_RISK, True): 4.359,
 }
-#: The witnesses below the plan's 1 SE fallback at the declared coefficients.  The rule's
-#: followers hold ``A_{k-1} != A_k`` only when ``L`` changes between nodes, which the Markov
-#: covariate makes rare (at most 0.35 SE at any coefficient searched), and the policy reads
-#: ``A_{k-1}`` through the plan's fixed 0.2 term (at most 0.4 SE).  The policy's held slot
-#: reached 1.3 SEs only at a baseline hazard that held a cell in 7% of the ladder's n = 1,000
-#: fits.  The 4.4 mutations of ``tests/unit/test_hazard_time_varying_multinode.py`` carry
-#: these components; the declaration states it before any run.
+#: The plan's floor of each component's witness: 3 SEs, or, where no coefficient inside the
+#: positivity and hazard limits reaches it, the largest gap reached and at least 1 SE.
+COMPONENT_FLOORS = {
+    "level_plan": 3.0,
+    "held_slot": 1.0,
+    "policy_prefix": 1.0,
+    "observed_slot": 3.0,
+}
+#: The measured witnesses under 1 SE.  Each component's largest witness meets its floor, so
+#: none of these is a shortfall: a component shows on another arm.
 BELOW_FALLBACK = frozenset(
     {
-        ("level_plan", "multinode_rule"),
-        ("held_slot", "multinode_rule"),
-        ("held_slot", "multinode_policy"),
-        ("policy_prefix", "multinode_policy"),
+        ("level_plan", "multinode_rule", True),
+        ("level_plan", "multinode_policy", True),
+        ("level_plan", "multinode_policy", False),
+        ("held_slot", "multinode_rule", True),
     }
 )
+#: The replicates of a robustness arm, which every witness above is read at.
+ARM_REPLICATES = 1_200
 
 
 def _quiet(function: Any, *args: Any, **kwargs: Any) -> Any:
@@ -157,12 +177,15 @@ def exact_fits() -> dict[tuple[str, bool], Any]:
 
 
 @pytest.fixture(scope="module")
-def mutated_fits() -> dict[str, Any]:
-    """The ``outcome_correct`` exact-sample fit under each slot mutation."""
+def mutated_fits() -> dict[tuple[str, bool], Any]:
+    """The ``outcome_correct`` exact-sample fit under each slot mutation, targeted or not."""
     out = {}
     for name, mutation in MUTATIONS.items():
-        with mutation():
-            out[name] = _quiet(study.exact_fit, "outcome_correct")
+        for targeted in (True, False):
+            with mutation():
+                out[(name, targeted)] = _quiet(
+                    study.exact_fit, "outcome_correct", targeted=targeted
+                )
     return out
 
 
@@ -255,7 +278,7 @@ class TestTheTruths:
     def test_the_declared_truths(self) -> None:
         np.testing.assert_allclose(
             [properties.TRUTHS[f"multinode_{arm}"] for arm in study.ARMS],
-            [-0.727560, -0.319157, -0.322477, 0.128960],
+            [-0.727560, -0.319157, -0.336952, 0.128960],
             atol=5e-6,
         )
         for arm in study.ARMS:
@@ -429,7 +452,7 @@ class TestTheEfficiencyBounds:
     def test_the_declared_bounds(self) -> None:
         np.testing.assert_allclose(
             [properties.EFFICIENCY_SD[f"multinode_{arm}"] for arm in study.ARMS],
-            [1.04046, 1.01905, 0.66815, 0.74827],
+            [1.04046, 1.01905, 0.59720, 0.74827],
             atol=5e-5,
         )
 
@@ -536,29 +559,78 @@ class TestTheRobustnessCells:
 
 
 class TestTheWitnesses:
-    def test_the_slot_witnesses(self, mutated_fits: dict[str, Any]) -> None:
-        """Each slot mutation's exact limit under ``outcome_correct``, against the plan's floor.
+    def test_the_slot_witnesses(self, mutated_fits: dict[tuple[str, bool], Any]) -> None:
+        """Each slot mutation's exact limit on the ``outcome_correct`` fit, against its floor.
 
-        The policy-mixture witness (the observed slot at nodes 2 and 3, on the policy's risk)
-        meets 3 SEs; on the policy contrast it and the level plan meet the 1 SE fallback.
-        :data:`BELOW_FALLBACK` names the four witnesses below 1 SE; each component keeps its
-        4.4 mutation.
+        Each component's largest witness meets the plan's floor: the level plan on the rule's
+        untargeted arm (-4.19 SEs), the held slot on the policy's untargeted arm (1.95), the
+        policy's prefix (1.14) and the policy mixture (3.50 on the contrast).
         """
-        for (mutation, arm), recorded in WITNESS_GAPS.items():
-            gap = _gap(mutated_fits[mutation], arm)
-            assert gap == pytest.approx(recorded, abs=1e-3), (mutation, arm)
-        assert abs(WITNESS_GAPS[("observed_slot", POLICY_RISK)]) >= 3.0
+        for (mutation, arm, targeted), recorded in WITNESS_GAPS.items():
+            gap = _gap(mutated_fits[(mutation, targeted)], arm)
+            assert gap == pytest.approx(recorded, abs=1e-3), (mutation, arm, targeted)
+        for component, floor in COMPONENT_FLOORS.items():
+            largest = max(
+                abs(gap)
+                for (mutation, arm, _), gap in WITNESS_GAPS.items()
+                if mutation == component and arm != POLICY_RISK
+            )
+            assert largest >= floor, (component, largest)
         below = {key for key, gap in WITNESS_GAPS.items() if abs(gap) < 1.0}
         assert below == BELOW_FALLBACK
-        policy = [gap for (_, arm), gap in WITNESS_GAPS.items() if arm == "multinode_policy"]
-        assert max(abs(gap) for gap in policy) >= 1.0
 
-    def test_a_static_arm_holds_one_slot(self, mutated_fits: dict[str, Any]) -> None:
+    def test_each_component_is_discriminated(self) -> None:
+        """Each component's largest witness on a declared arm clears the bias margin at the
+        arm's 1,200 replicates, with the two-check floor, at spreads of 1 and 1.5 SEs."""
+        for component in COMPONENT_FLOORS:
+            largest = max(
+                abs(gap)
+                for (mutation, arm, _), gap in WITNESS_GAPS.items()
+                if mutation == component and arm != POLICY_RISK
+            )
+            for spread in (1.0, 1.5):
+                probability = sizing.bias_discriminated_probability(
+                    MARGINS, largest / spread, ARM_REPLICATES
+                )
+                assert probability >= sizing.discrimination_floor(2), (component, spread)
+
+    def test_the_declared_shortfall_is_discriminated(
+        self, exact_fits: dict[tuple[str, bool], Any]
+    ) -> None:
+        """The one witness under its floor, the untargeted ``continuation_wrong`` contrast at
+        0.80 SE, is still discriminated at spreads up to 1.5 SEs."""
+        for (label, configuration), recorded in DECLARED_SHORTFALL.items():
+            gap = _gap(exact_fits[(configuration, False)], label)
+            assert gap == pytest.approx(recorded, abs=1e-3)
+            assert abs(gap) < 1.0
+            replicates = properties.configuration_replicates(configuration)
+            for spread in (1.0, 1.25, 1.5):
+                probability = sizing.bias_discriminated_probability(
+                    MARGINS, abs(gap) / spread, replicates
+                )
+                assert probability >= sizing.discrimination_floor(2), spread
+
+    def test_the_untargeted_positive_limits_are_the_truth(
+        self, mutated_fits: dict[tuple[str, bool], Any]
+    ) -> None:
+        """The untargeted robustness arms read the backward plug-in of the ``outcome_correct``
+        fit, whose hazard and continuation are correct: on the exact sample it is the truth."""
+        result = _quiet(study.exact_fit, "outcome_correct", targeted=False)
+        assert {f"{label}__{c}" for label, c in study.UNTARGETED_ARMS} == {
+            "multinode_rule__outcome_correct",
+            "multinode_policy__outcome_correct",
+        }
+        for name, value in study.TRUTH["multinode"].items():
+            assert result[name].psi == pytest.approx(value, abs=study.EXACT), name
+
+    def test_a_static_arm_holds_one_slot(self, mutated_fits: dict[tuple[str, bool], Any]) -> None:
         """The observed-slot and prefix mutations touch policy nodes only: a static arm or the
         rule holds one slot, so their limits are the truth under the mutation."""
         for mutation in ("observed_slot", "policy_prefix"):
-            for arm in ("multinode_contrast", "multinode_rule", "multinode_risk"):
-                assert _gap(mutated_fits[mutation], arm) == pytest.approx(0.0, abs=1e-5)
+            for targeted in (True, False):
+                for arm in ("multinode_contrast", "multinode_rule", "multinode_risk"):
+                    gap = _gap(mutated_fits[(mutation, targeted)], arm)
+                    assert gap == pytest.approx(0.0, abs=1e-5)
 
     def test_the_baseline_only_fit_misses(self) -> None:
         """``L_k`` confounds the later treatments: always and never fitted on the same law with
@@ -656,19 +728,48 @@ class TestTheSizes:
         assert study.PRIMARY_REPLICATES >= 1_000
 
 
+SMOKE = (
+    json.loads(study.SMOKE_OUTPUT.read_text(encoding="utf-8"))
+    if study.SMOKE_OUTPUT.exists()
+    else None
+)
+
+
 class TestTheSmokeGate:
     def test_the_cost_table(self) -> None:
-        """Plan X70's (b2) cost inputs: 1.3 s in sample and 1.8 s cross-fitted at n = 2,000."""
-        assert study.COST_SECONDS == {"multinode": 1.3, "crossfit": 1.8}
+        """One cost per smoke cell (plan X70 rev 3.7): ``mechanism_correct`` at 2.5 s, the other
+        configurations at 1.3 to 1.5 s, the cross-fitted label at 1.8 s."""
+        assert set(study.COST_SECONDS) == set(study.SMOKE_CELLS)
+        assert study.COST_SECONDS["multinode/mechanism_correct"] == 2.5
         assert study.COST_FACTOR == 2.0
-        assert set(study.COST_SECONDS) == set(study.FITS)
+        kinds = {kind for kind, *_ in study.SMOKE_CELLS.values()}
+        assert kinds == {"hazard", "untargeted", "iterated", "isotonic"}
+        sizes = {n for _, _, _, n in study.SMOKE_CELLS.values()}
+        assert sizes == set(study.RATE_SIZES)
+        configurations = {c for kind, _, c, _ in study.SMOKE_CELLS.values() if kind == "hazard"}
+        assert configurations == set(study.CONFIGURATIONS)
+
+    def test_the_committed_smoke_cleared(self) -> None:
+        """``smoke.json``, written by ``python -m
+        tests.studies.canonical_hazard_time_varying_multinode``, holds every cell at the
+        declared replicates, and every fit met the gate: converged, every node score at most
+        ``tol``, no held cell, no failure, and at most twice its cell's cost."""
+        assert SMOKE is not None, "the smoke has not been committed"
+        assert SMOKE["replicates"] == study.SMOKE_REPLICATES
+        assert set(SMOKE["cells"]) == set(study.SMOKE_CELLS)
+        for name, cell in SMOKE["cells"].items():
+            assert len(cell["runs"]) == study.SMOKE_REPLICATES, name
+            for run in cell["runs"]:
+                assert study.smoke_cleared(name, run), (name, run)
+                assert run["seconds"] <= study.COST_FACTOR * study.COST_SECONDS[name], name
+        assert SMOKE["cleared"] is True
 
     @pytest.mark.parametrize("seconds", [1.0, 2.7])
     def test_a_slow_fit_fails_the_gate(
         self, seconds: float, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        def cell(fit_label: str, configuration: str, replicate: int) -> dict[str, Any]:
-            del fit_label, configuration, replicate
+        def cell(name: str, replicate: int) -> dict[str, Any]:
+            del name, replicate
             return {
                 "held": False,
                 "failure": "",
@@ -680,8 +781,17 @@ class TestTheSmokeGate:
             }
 
         monkeypatch.setattr(study, "_smoke_cell", cell)
-        record = study.SMOKE_GATE(replicates=2, cells=(("multinode", "both_correct"),), output=None)
-        assert record["cleared"] is (seconds <= study.COST_FACTOR * study.COST_SECONDS["multinode"])
+        name = "multinode/both_correct"
+        record = study.SMOKE_GATE(replicates=2, cells=(name,), output=None)
+        assert record["cleared"] is (seconds <= study.COST_FACTOR * study.COST_SECONDS[name])
+
+    def test_a_stalled_walk_fails_the_gate(self) -> None:
+        run = {"held": False, "failure": "", "seconds": 0.1, "converged": True}
+        assert study.smoke_cleared("multinode/both_correct", {**run, "largest_node_score": 0.0})
+        assert not study.smoke_cleared(
+            "multinode/both_correct", {**run, "largest_node_score": 10 * study.TOL}
+        )
+        assert not study.smoke_cleared("multinode/both_correct", {**run, "converged": False})
 
 
 # ---------------------------------------------------------------------------- cells and seeds
