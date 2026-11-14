@@ -9620,11 +9620,10 @@ def _refit_bound(
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     recipe = draw.replay_recipe
-    if recipe.hazard is not None:
-        walked = [plan.label for plan in recipe.plans if plan.has_mtp]
-        if walked:
-            # Before any targeting: each policy had its own weighted walk (H25).
-            raise CapabilityError.from_refusal(hazard_mtp_replay_refusal(walked[0]))
+    walk = _hazard_mtp_walk(recipe)
+    if walk is not None:
+        # Before any targeting: each policy had its own weighted walk (H25).
+        raise CapabilityError.from_refusal(walk)
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     if recipe.hazard is not None and draw.initial_hazards is not None:
@@ -9895,6 +9894,38 @@ def _score_cell_truncation_counts(
             truncated += int(np.count_nonzero(clipped))
             evaluated += int(clipped.size)
     return truncated, evaluated
+
+
+def _hazard_mtp_walk(recipe: Any) -> Refusal | None:
+    """The H25 refusal when ``recipe`` holds a hazard plan with its own weighted walk."""
+    if recipe.hazard is None:
+        return None
+    walked = [plan.label for plan in recipe.plans if plan.has_mtp]
+    return hazard_mtp_replay_refusal(walked[0]) if walked else None
+
+
+def hazard_mtp_replay(result: LongitudinalResult) -> Refusal | None:
+    """Why no truncation replay of ``result`` runs, when a draw holds a policy walk (H25).
+
+    The capability row of ``truncation_curve`` reads this before any call, and the replay
+    raises the same record, so the row never reads available while the call refuses.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        The fit whose draws are read.
+
+    Returns
+    -------
+    Refusal or None
+        The record of the first modified treatment policy regimen of a hazard fit, or
+        ``None`` when no draw holds one.
+    """
+    for draw in result.repeats:
+        walk = _hazard_mtp_walk(draw.replay_recipe)
+        if walk is not None:
+            return walk
+    return None
 
 
 def longitudinal_truncation_curve(
