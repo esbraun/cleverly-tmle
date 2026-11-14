@@ -54,6 +54,7 @@ from cleverly.datasets import (
     make_instrument,
     make_linear_ate,
     make_longitudinal,
+    make_longitudinal_survival,
     make_missing_outcome,
     make_missing_outcome_binary,
     make_multi_arm,
@@ -64,6 +65,7 @@ from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, Refusal
 from cleverly.interventions import Incremental, ModifiedPolicy, Shift
+from cleverly.learners import make_folds
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -449,6 +451,27 @@ def fit_iptw_known() -> Any:
     frame = known_mechanism.point_frame()
     return (
         _iptw()
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            treatment_probabilities=frame[["p0", "p1"]].to_numpy(dtype=float),
+        )
+        .single()
+    )
+
+
+def fit_known_score() -> Any:
+    """A TMLE fit with a declared mechanism and the known-score ATT and ATC (X35).
+
+    The ATT and ATC rows weight by the declared probability, so every row that recomputes
+    them as an arm mean (the tilt and bound rows) must refuse them or skip them, and the
+    ATE rows answer as on any declared-mechanism fit.
+    """
+    frame = known_mechanism.point_frame()
+    return (
+        TMLE(**linear_in_sample(estimands=("ate", "att", "atc"), conditional_form="known_score"))
         .fit(
             frame,
             outcome="Y",
@@ -1279,6 +1302,30 @@ def fit_hazard_time_varying() -> Any:
     )
 
 
+def fit_hazard_multinode() -> Any:
+    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a))."""
+    frame, _ = make_longitudinal_survival(n=600, seed=12)
+    study = CausalStudy(
+        frame.drop(columns=["L2"]),
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="iterative",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_isotonic() -> Any:
     """The iterated-mean fit with its curve projected."""
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
@@ -1356,6 +1403,63 @@ def fit_gformula() -> Any:
         random_state=5,
         simultaneous=False,
     )
+
+
+def _constant_outcome_frame(n: int, seed: int) -> Any:
+    """``make_binary_outcome(n, seed)`` and the three-fold split a fit with ``random_state=0`` draws.
+
+    The split reads no outcome, so a frame can be shaped against it before the fit.
+    """
+    frame, _ = make_binary_outcome(n=n, seed=seed)
+    return frame, np.asarray(make_folds(n, 3, random_state=0).assignment)
+
+
+def fit_per_arm_constant_fold() -> Any:
+    """A cross-fitted per-arm fit whose arm-1 training rows of one fold hold ``Y = 0`` only.
+
+    Arm 1 keeps its events in fold 1 alone, so the fold that holds them out predicts 0 for arm
+    1 (the constant-target rule) while the other folds fit the learner.
+    """
+    frame, folds = _constant_outcome_frame(400, 17)
+    frame.loc[(frame["A"] == 1) & (folds != 0), "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            cross_fit=True,
+            n_folds=3,
+            outcome_by_arm=True,
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result.nuisance.outcome_constant_folds == (1,)
+    return result
+
+
+def fit_per_arm_constant_arm() -> Any:
+    """An in-sample per-arm fit whose arm 1 holds ``Y = 0`` only: its estimates withhold."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    frame.loc[frame["A"] == 1, "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(outcome_learner=LogisticRegression(max_iter=1000), outcome_by_arm=True)
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result["ate"].inference == "constant_arm_cell_plugin"
+    return result
+
+
+def fit_drtmle_constant_pair() -> Any:
+    """A foldwise DR-TMLE fit whose rows outside folds 1 and 2 hold ``Y = 1`` only."""
+    frame, folds = _constant_outcome_frame(240, 11)
+    frame.loc[folds == 2, "Y"] = 1
+    estimator = DRTMLE(
+        **linear_drtmle(
+            outcome_learner=LogisticRegression(max_iter=1000), n_folds=3, estimands=("ate",)
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    inner = result.nuisance.inner
+    assert inner is not None and np.all(inner.outcome[0].observed[folds == 1] == 1.0)
+    return result
 
 
 #: The roles of ``make_longitudinal``: two binary nodes, censored after each.
@@ -1737,6 +1841,10 @@ KINDS: dict[str, Kind] = {
     "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
     "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
     "binary": _kind(fit_binary, "marginal_bounds", *_ARM),
+    # A declared mechanism leaves no omitted confounder of the treatment, so benchmark
+    # refuses it, as on every declared-mechanism fit. The bound rows answer the ATE; their
+    # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).
+    "known_score": _kind(fit_known_score, *_LIVE, *_BOUND),
     "missing": _kind(fit_missing, "marginal_bounds", *_LIVE, *_TILT),
     "shift": _kind(fit_shift, *_LIVE),
     "cde": _kind(fit_cde, *_LIVE),
@@ -1798,6 +1906,16 @@ KINDS: dict[str, Kind] = {
     # One covariate, which benchmark cannot drop.
     "split_plan": _kind(fit_split_plan, "marginal_bounds", *_LIVE, *_BOUND),
     "drtmle_companion": _kind(fit_drtmle_companion, "marginal_bounds", *_LIVE, "corrections"),
+    # The constant-target rule (X54): a per-arm training fold of one outcome value predicts it.
+    "per_arm+constant_fold": _kind(fit_per_arm_constant_fold, *_ARM, "marginal_bounds"),
+    # An in-sample per-arm fit of a constant arm: the estimates that read it withhold their
+    # interval, so the E-value and the marginal bounds of the default ATE refuse with the
+    # constant-cell reason and the plug-in bound rows answer.
+    "per_arm+constant_arm": _kind(fit_per_arm_constant_arm, *_LIVE, *_PLUGIN_BOUND, "benchmark"),
+    # A foldwise DR-TMLE whose leave-two-out complement holds one outcome value.
+    "drtmle+constant_pair": _kind(
+        fit_drtmle_constant_pair, *_LIVE, "corrections", "evalue", "marginal_bounds"
+    ),
     "policy_means": _kind(fit_policy_means, *_LIVE),
     "natural_course_study": _kind(fit_natural_course_study, "marginal_bounds", *_LIVE),
     # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.
@@ -1829,6 +1947,9 @@ KINDS: dict[str, Kind] = {
     # The regressions of the future read targeted later hazards, which no truncation replay
     # rebuilds (H31), so the truncation row reads unavailable.
     "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
+    # A treatment at several nodes with baseline covariates walks every regimen path, and its
+    # truncation replay rebuilds the walk, so every point row runs.
+    "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
@@ -2271,6 +2392,8 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
         # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
+        # A TMLE fit with a declared mechanism has an outcome regression, so only the
+        # predicate's known-mechanism rule refuses its benchmark (X35).
         frozenset(
             {
                 "split_plan",
@@ -2278,13 +2401,15 @@ MUTATIONS: dict[str, Mutation] = {
                 "regime+missing",
                 "learned_rule",
                 "learned_rule+estimated_weights",
+                "known_score",
                 "learned_rule_known",
             }
         ),
         "("
         + _RAISED.format("benchmark")
         + "benchmark cannot drop every covariate"
-        + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule)",
+        + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
+        + "|benchmark declined: .*this fit's data declares the mechanism known)",
     ),
     "M9": Mutation(
         "the simulated-confounding row ignores the predicate",
