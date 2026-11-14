@@ -472,3 +472,52 @@ def test_continuous_learners_refuse_selectors_and_calibration_still_refuses(
         plt.close(ax.figure)
     with pytest.raises(CapabilityError, match="keeps no nuisance report"):
         plotting.calibration(floored)
+
+
+def test_overlap_refuses_censoring_panels_on_a_fit_with_no_censored_row() -> None:
+    frame = _frame()
+    # Every censored row becomes an event of cause 1 at its time.
+    frame["event"] = np.where(frame["event"] == 0, 1, frame["event"])
+    estimator = ContinuousSurvivalTMLE(
+        horizons=(1.0, 2.0),
+        arms={"treated": 1, "control": 0},
+        reference="control",
+        causes={1: "relapse", 2: "death"},
+        cross_fit=False,
+        random_state=0,
+    )
+    result = _quiet(
+        lambda: estimator.fit(
+            frame, time="time", event="event", treatment="treated", baseline=["x"]
+        )
+    )
+    # Witness: the stored retention is 1 everywhere, so the product panels would repeat pi.
+    assert np.all(result.record.retention_before == 1.0)
+    with pytest.raises(ValueError, match="no censored row"):
+        plotting.overlap(result, censoring=True)
+    plt.close(plotting.overlap(result))
+
+
+def _duplicated(result: Any) -> Any:
+    """The fit with its first hazard library listing one name twice, the second chosen."""
+    record = result.record
+    first = record.hazards[0]
+    name = first.names[0]
+    twice = dataclasses.replace(
+        first, names=(name, name, *first.names[2:]), losses=first.losses, chosen=1
+    )
+    hazards = (twice, *record.hazards[1:])
+    return dataclasses.replace(result, record=dataclasses.replace(record, hazards=hazards))
+
+
+def test_learners_mark_the_recorded_position_when_a_library_repeats_a_name(
+    floored: Any, drawn: list[Figure]
+) -> None:
+    twice = _duplicated(floored)
+    fig = _draw(drawn, plotting.learners, twice)
+    first = _selection_panels(fig)[0]
+    (marked,) = [c for c in first.collections if c.get_gid() == "cleverly-learner-chosen"]
+    assert np.asarray(marked.get_offsets())[0, 1] == 1
+    # The report keeps the chosen name only, which now names two candidates.
+    with pytest.raises(ValueError, match="lists more than once"):
+        plotting.learners(twice.diagnostics.nuisance_models())

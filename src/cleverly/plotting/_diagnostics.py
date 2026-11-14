@@ -867,7 +867,9 @@ def learners(
     ------
     ValueError
         When the source holds nothing to draw (no nuisance model was fitted by a Super
-        Learner), or ``ax`` is given for a figure of several panels.
+        Learner), when ``ax`` is given for a figure of several panels, or when a
+        continuous-time survival fit's report names a chosen candidate that its library
+        lists more than once.
     TypeError
         When the source is none of the above.
     CapabilityError

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
@@ -22,7 +22,7 @@ from ._overlap import Limit, _mirror
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from matplotlib.figure import Figure
 
-    from ..survival.diagnostics import ContinuousSurvivalNuisances, NuisanceSelection
+    from ..survival.diagnostics import ContinuousSurvivalNuisances
     from ..survival.result import ContinuousSurvivalResult
 
 #: The width one target time's boxes share.
@@ -50,19 +50,64 @@ def retention_before(record: Any) -> Any:
     return np.asarray(record.retention_before, dtype=float)
 
 
-def selections(source: Any) -> ContinuousSurvivalNuisances:
-    """The library selections of a fit, or the report that already holds them."""
-    from ..survival.diagnostics import nuisance_report
+class Selection(NamedTuple):
+    """One model's selection: its role, candidates, losses and the chosen position."""
+
+    role: str
+    members: tuple[str, ...]
+    losses: tuple[float, ...]
+    chosen: int
+
+
+class Selections(NamedTuple):
+    """Every selection of a fit, and whether the fit was cross-fitted."""
+
+    rows: tuple[Selection, ...]
+    cross_fitted: bool
+    n_folds: int
+
+
+def selections(source: Any) -> Selections:
+    """The library selections of a fit's record, or of the report that names them.
+
+    The record keeps each chosen position, which this reads. The report keeps the chosen
+    candidate's name only, so a library that lists that name twice is refused.
+    """
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(source, ContinuousSurvivalResult):
-        return nuisance_report(source)
-    return source
+        record = source.record
+        rows = [
+            Selection(f"hazard of cause {cause}", h.names, h.losses, int(h.chosen))
+            for cause, h in zip(source.causes, record.hazards, strict=True)
+        ]
+        c = record.censoring
+        rows.append(Selection("censoring hazard", c.names, c.losses, int(c.chosen)))
+        p = record.propensity
+        if p is None:
+            rows.append(Selection("treatment", (), (), -1))
+        else:
+            rows.append(Selection("treatment", p.names, p.losses, int(p.chosen)))
+        return Selections(tuple(rows), bool(record.cross_fitted), int(record.n_folds))
+    report: ContinuousSurvivalNuisances = source
+    found = []
+    for row in report.rows:
+        if not row.members:
+            found.append(Selection(row.role, (), (), -1))
+            continue
+        if row.members.count(row.chosen) != 1:
+            raise ValueError(
+                f"the {row.role} selection names its chosen candidate {row.chosen!r}, which "
+                "its library lists more than once, so the report cannot say which was chosen; "
+                "pass the fit itself, whose record keeps the chosen position"
+            )
+        found.append(Selection(row.role, row.members, row.losses, row.members.index(row.chosen)))
+    return Selections(tuple(found), bool(report.cross_fitted), int(report.n_folds))
 
 
-def chosen_index(row: NuisanceSelection) -> int:
+def chosen_index(row: Selection) -> int:
     """The position of the candidate the selection chose."""
-    return row.members.index(row.chosen)
+    return row.chosen
 
 
 def _predictions(record: Any, noun: str) -> str:
@@ -106,6 +151,12 @@ def overlap(
         )
     k = _target_index(result, horizon)
     record = result.record
+    if censoring and np.all(retention_before(record) == 1.0):
+        raise ValueError(
+            "censoring=True draws the probability of staying uncensored, and this fit "
+            "estimates it as 1 for every row before every target time: its data hold no "
+            "censored row before the last target time"
+        )
     arm = np.asarray(record.arm)
     pi = treatment_probabilities(record)
     reference, treated = result.arms
@@ -434,9 +485,15 @@ def learners(source: Any) -> Figure:
     if report.cross_fitted:
         subtitle += f". First fold's selection of {report.n_folds}"
     found = [
-        "Descriptive: each candidate's cross-validated loss, summed over the held-out rows; "
-        "no interval is drawn. Each selection keeps one candidate, so the chosen one is "
-        "marked and no weights are drawn. Panels do not share a scale."
+        "Descriptive: each candidate's cross-validated loss, summed over the folds; no "
+        "interval is drawn. A hazard's loss is the cross-validated partial likelihood of "
+        "Verweij and van Houwelingen: for each fold, the negative log partial likelihood "
+        "over every row minus that over the training rows, with the model fitted on the "
+        "training rows. The treatment model's loss is the log loss of its predictions on "
+        "each fold's held-out rows.",
+        "Each selection keeps one candidate, so the chosen one is marked and no weights are "
+        "drawn. Each panel's axis spans its own losses and does not start at zero, so panels "
+        "do not share a scale: read the printed values.",
     ]
     if report.cross_fitted:
         found.append(
