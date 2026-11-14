@@ -713,7 +713,8 @@ def balance(
     ------
     CapabilityError
         When the fit estimated no treatment mechanism or no weights, or ``diagnostic`` names
-        a check the fit omits, such as feedback on a survival fit.
+        a check the fit omits, such as feedback on a survival fit, or ``view="panels"`` is
+        asked of a continuous-time survival fit, which has no strata.
     DataError
         When the treatment, or a treatment node of a fit over time, is continuous.
     ValueError
