@@ -38,7 +38,11 @@ __all__ = [
     "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
+    "POLICY_CELLS",
+    "POLICY_NOTES",
+    "POLICY_STUDY",
     "SHORTFALLS",
+    "TAIL_NOTES",
     "T_BAND_CELLS",
     "T_BAND_STUDY",
     "UNMAPPED_BAND_CELLS",
@@ -2463,11 +2467,13 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     ),
     ("G39.ltmle.tau5", "wald"): (
         "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
+        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration). "
+        "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     ("G39.sdr.tau5", "wald"): (
         "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration)."
+        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration). "
+        "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
     # band; stochastic-categorical-ltmle's primary band cell, which BAND_CELLS maps here, passes.
@@ -2751,11 +2757,139 @@ T_BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
+#: The study whose cells license the ``wald_policy`` kind (``variance="policy_weighted"``).
+POLICY_STUDY: Final[str] = "mtp-policy-variance"
+
+
+def _policy(cell: str) -> str:
+    return f"{POLICY_STUDY}:{cell}"
+
+
+#: The ``mtp-policy-variance`` option cells that license ``wald_policy`` on each row (Fix-5 plan,
+#: section 7.3). Every cell passed its bias, its coverage floor and its SE-ratio clause, and its
+#: controls failed as declared. A row named here licenses ``wald_policy`` and cites the study;
+#: every other row leaves an option fit experimental. ``G39.*.tau3`` is not named: its
+#: configuration was held out for the variance-learner screen, so no gated cell measures it.
+POLICY_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    **{
+        f"G39.{engine}.tau{tau}": tuple(
+            _policy(f"policy_variance/pricing_{engine}_tau{tau}__{quantity}__option")
+            for quantity in ("ey", "ate")
+        )
+        for engine in ("ltmle", "sdr")
+        for tau in (2, 5)
+    },
+    "G10.continuous": (
+        _policy("policy_calibration/p4_ltmle__option"),
+        _policy("policy_variance/boundaries_ltmle_p4__ey__option"),
+        _policy("policy_variance/boundaries_ltmle_p4__ate__option"),
+    ),
+    "G24.mtp.in_sample": (
+        _policy("policy_calibration/p4_sdr__option"),
+        _policy("policy_variance/boundaries_sdr_p4__ey__option"),
+        _policy("policy_variance/boundaries_sdr_p4__ate__option"),
+    ),
+}
+
+#: The condition every ``wald_policy`` licence states (Fix-5 plan, section 3.3). The key cannot
+#: tell an exact ratio from a learned one, so the note carries the condition.
+_POLICY_CONDITION = (
+    "validated with an exact or known ratio; with a learned ratio the outcome model must be "
+    "consistent"
+)
+
+#: The notes of the ``variance="policy_weighted"`` readings on each row, from the committed
+#: ``mtp-policy-variance`` rows: the licence's reading and condition where :data:`POLICY_CELLS`
+#: names the row, and the screen reading where it does not.
+POLICY_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
+    "G39.ltmle.tau5": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative, SE ratio 1.113 to "
+        "1.117 (99% intervals 1.086 to 1.144), coverage 0.980 to 0.981; "
+        f"{_POLICY_CONDITION}. With a learned classifier ratio it reads coverage 0.970 to "
+        "0.972 and SE ratio 1.063 to 1.071 (reported, not gated)",
+    ),
+    "G39.sdr.tau5": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative, SE ratio 1.143 to "
+        "1.145 (99% intervals 1.117 to 1.173), coverage 0.983; "
+        f"{_POLICY_CONDITION}. With a learned classifier ratio it reads coverage 0.977 to "
+        "0.981 and SE ratio 1.092 to 1.098 (reported, not gated)",
+    ),
+    "G39.ltmle.tau2": (
+        "variance='policy_weighted' (mtp-policy-variance): calibrated, SE ratio 1.001 to "
+        f"1.019, coverage 0.952 to 0.954; {_POLICY_CONDITION}",
+    ),
+    "G39.sdr.tau2": (
+        "variance='policy_weighted' (mtp-policy-variance): calibrated, SE ratio 0.992 to "
+        f"0.995, coverage 0.945 to 0.952; {_POLICY_CONDITION}",
+    ),
+    "G39.ltmle.tau3": (
+        "variance='policy_weighted' is experimental on this row: no gated cell measures three "
+        "nodes. The held-out learner screen read SE ratio 1.079 to 1.085 and coverage 0.965 to "
+        "0.968 on 400 draws, which is not a gate",
+    ),
+    "G39.sdr.tau3": (
+        "variance='policy_weighted' is experimental on this row: no gated cell measures three "
+        "nodes. The held-out learner screen read SE ratio 1.081 to 1.087 and coverage 0.965 to "
+        "0.973 on 400 draws, which is not a gate",
+    ),
+    "G10.continuous": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
+        "1.054 to 1.084, coverage 0.965 to 0.972, with the correct or the primary outcome "
+        f"learners and the oracle hazard; {_POLICY_CONDITION}",
+    ),
+    "G24.mtp.in_sample": (
+        "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
+        "1.047 to 1.062, coverage 0.965 to 0.969, with a UnitRangePseudo or LinearRegression "
+        f"first node; {_POLICY_CONDITION}. With the default SuperLearner pseudo learner the "
+        "option covers 0.969 (reported)",
+    ),
+}
+
+#: Notes of the default Wald interval from the ``mtp-policy-variance`` tail-size twins (Fix-5
+#: plan, section 7.3). Each names a quantity whose committed cell sits below twice its tail size
+#: and the twin that reads the interval at the gated n. Each twin passed, so no row gains a
+#: shortfall. A note stands first in its row's limits, as ``_lh_note`` does.
+TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
+    "G39.ltmle.tau3": (
+        "X39-below-tail-size: the price_down rows are gated at n = 5,600, twice their tail size; "
+        "the 5,600-row twin reads coverage 0.952 to 0.955 and SE ratio 1.023 to 1.029",
+    ),
+    "G39.sdr.tau3": (
+        "X39-below-tail-size: the price_down rows are gated at n = 5,600, twice their tail size; "
+        "the 5,600-row twin reads coverage 0.945 to 0.947 and SE ratio 0.983 to 1.003",
+    ),
+    "G39.ltmle.tau5": (
+        "X39-below-tail-size: the price_up rows are gated at n = 5,000 by a margin of at least "
+        "72 rows. "
+        "The up_oracle_tau5 calibration cell is read by its 4,000-row twin: coverage 0.944, SE "
+        "ratio 0.984 (0.962 to 1.006). The up_learned_classifier_tau5 cell is a lower bound on "
+        "its tail size; its reporting twin reads coverage 0.941, SE ratio 0.978",
+    ),
+    "G10.continuous": (
+        "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5 calibration cell are below "
+        "the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
+        "coverage 0.947, SE ratio 1.009 (truth twin) and 1.001 (0.972 to 1.032)",
+    ),
+    "G24.mtp.in_sample": (
+        "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5_sdr calibration cell are "
+        "below the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
+        "coverage 0.951 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.024)",
+        "X40: the p4_sdr cell at n = 4,000 reads coverage 0.936 and SE ratio 0.920 (0.891 to "
+        "0.950), below its tail size; its 104,400-row twin reads SE ratio 0.990 (0.963 to 1.020) "
+        "and coverage 0.946. The p4 rows at n = 5,000 read an RMS ratio interval that "
+        "contains 1, so the committed shortfall reads as chance. With the default SuperLearner "
+        "pseudo learner the interval covers 0.944 (0.925 to 0.960), SE ratio 0.948 (0.905 to "
+        "0.996)",
+    ),
+}
+
+
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     """Attach the shortfall, limit, ``t`` band and band-draw tables to their rows.
 
-    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS` and
-    :data:`BAND_OPTION_DRAWS`. A ``t`` band cell measured the band at
+    The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS`,
+    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES` and
+    :data:`TAIL_NOTES`. A ``t`` band cell measured the band at
     :data:`DEFAULT_BAND_DRAWS` draws.
     """
     out = []
@@ -2763,7 +2897,23 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
         pairs = tuple(
             (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
         )
-        limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
+        limits = tuple(
+            dict.fromkeys(
+                (
+                    *TAIL_NOTES.get(row.id, ()),
+                    *row.limits,
+                    *MEASURED_LIMITS.get(row.id, ()),
+                    *POLICY_NOTES.get(row.id, ()),
+                )
+            )
+        )
+        if POLICY_CELLS.get(row.id):
+            row = replace(
+                row,
+                kinds=row.kinds | {"wald_policy"},
+                evidence=tuple(dict.fromkeys((*row.evidence, POLICY_STUDY))),
+                cells=tuple(dict.fromkeys((*row.cells, *POLICY_CELLS[row.id]))),
+            )
         if T_BAND_CELLS.get(row.id):
             options = (*row.band_options, T_BAND_OPTION) if "band" in row.kinds else ()
             row = replace(
@@ -4930,7 +5080,6 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                # Roadmap: X72.
                 "reference mean only. A static level or contrast is refused.",
             ),
         ),
@@ -5332,8 +5481,9 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
-#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``) and
-#: the working model over the hazard curve (``G60``).
+#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``),
+#: the working model over the hazard curve (``G60``) and a modified treatment policy on the
+#: hazard path (``G61``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5706,6 +5856,122 @@ def _hazard_msm_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
+    """A modified treatment policy on the hazard path of ``hazard-mtp`` (X70 part (c)): ``G61``.
+
+    ``LTMLE`` with a modified treatment policy at the baseline decision, ``survival_model=
+    "hazard"`` and ``targeting="one_step"`` keys ``mtp`` on the hazard ``LTMLE`` key, with the
+    baseline treatment held over the visits (a vector treatment has one visit).  The rows were
+    added because every declared verdict passed: 48 of 48 primary tests and 39 of 39 property
+    cells with a verdict (calibration with its controls on every ratio route, the simultaneous
+    band on two laws, robustness on every route, targeting necessity, the root-n rate and
+    power), with no failed fit.  The numbers are the committed results
+    (``tests/canonical/hazard_mtp``).
+    """
+    slug = ["hazard-mtp"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a logistic visit hazard and "
+        "dropout, one cause, and a deterministic policy that the natural course is compared "
+        "against. Correctly specified low-dimensional learners at n = 2,000; a wrong hazard "
+        "learner or wrong mechanisms only in the robustness cells. A flexible learner, a "
+        "stochastic policy, held cells, observation weights or clusters rest on the exact-law "
+        "tests alone. No comparator: no maintained package targets these hazards under a "
+        "policy."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "regimens": ("mtp",),
+        "survival_model": "hazard",
+        "targeting": "one_step",
+    }
+    continuous = ("continuous",) * 5
+    return (
+        long_row(
+            "G61.levels",
+            slug,
+            held=True,
+            treatment=("6",) * 5,
+            kinds=_LONG_BAND,
+            cells=["levels"],
+            limits=[
+                "A dose on six levels over five visits, moved up one level. The primary rows "
+                "read coverage 0.941 to 0.959 over 2,400 draws, the calibration cells SE ratio "
+                "1.005 and 1.018 over 4,400, and the max-t band over both curves joint "
+                "coverage 0.951.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.density",
+            slug,
+            held=True,
+            treatment=continuous,
+            kinds=_LONG_BAND,
+            cells=["gaussian_density"],
+            limits=[
+                "A Gaussian dose over five visits, truncated to [0, 5.5] and shifted by one with "
+                "the cap at 5.5, its ratio from the binned density at oracle_bins(n) bins. The "
+                "primary rows read coverage 0.944 to 0.956 over 2,400 draws, the calibration "
+                "cells SE ratio 0.997 and 1.000 over 4,400, and the band joint coverage 0.950. "
+                "On an unbounded dose the tail bins are wider than the shift and the influence "
+                "curve misses the efficient one by about a quarter of an efficiency SD at "
+                "n = 20,000; its reported rows carry no verdict.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.classifier",
+            slug,
+            held=True,
+            treatment=continuous,
+            ratio="classifier",
+            cells=["gaussian_classifier"],
+            limits=[
+                "A Gaussian dose over five visits shifted by one, its ratio from a logistic "
+                "classifier. The primary rows read coverage 0.940 to 0.955 over 2,400 draws and "
+                "the calibration cells SE ratio 0.995 and 1.016 over 4,400; no band is "
+                "validated on this route.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.cross_fitted",
+            slug,
+            held=True,
+            treatment=continuous,
+            ratio="classifier",
+            splitting=("cross_fitted",),
+            cells=["gaussian_crossfit"],
+            limits=[
+                "The classifier route on five outer folds. The calibration cells read SE ratio "
+                "1.000 and 1.006 over 4,400 draws, and the wrong-hazard cell a standardized "
+                "bias of -0.069 over 1,600; no band is validated on this route.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.vector",
+            slug,
+            treatment=("mixed",),
+            ratio="classifier",
+            cells=["vector"],
+            limits=[
+                "A binary arm beside a Gaussian dose at one visit, the dose shifted by one and "
+                "the arm kept, its ratio from a logistic classifier. The primary rows read "
+                "coverage 0.940 to 0.954 over 2,400 draws and the calibration cells SE ratio "
+                "0.980 and 0.996 over 4,400; a vector held over several visits cannot be "
+                "declared.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -5845,6 +6111,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_survival_ctmle_rows(),
         *_survival_dr_tmle_rows(),
         *_hazard_msm_rows(),
+        *_hazard_mtp_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
@@ -6231,6 +6498,9 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
     # hazard_msm_properties: the joint fit of the four survival-law coefficients.
     "G60.survival": (_band("hazard_msm", "survival_logit_coefficients"),),
+    # hazard_mtp_properties: each fit label's band over every risk and contrast of both curves.
+    "G61.levels": (_band("hazard_mtp", "levels_curve"),),
+    "G61.density": (_band("hazard_mtp", "gaussian_density_curve"),),
     # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
     # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
     "T14": (_band("tmle3_stratified", "crossfit_strata"),),

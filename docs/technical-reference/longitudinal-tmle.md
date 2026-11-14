@@ -1094,8 +1094,8 @@ node, and $t$ is a reported horizon.
 
 | item | contract |
 | --- | --- |
-| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, the outcome is a survival or competing-risk outcome, and no covariate is measured after baseline. Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
-| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy is refused |
+| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome, and no covariate is measured after baseline. Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy at the baseline decision is targeted by its own weighted walk ([a modified treatment policy on the hazard path](#a-modified-treatment-policy-on-the-hazard-path)) |
 | estimand | $\psi_{r,j}(t) = E \sum_a q_r(a \mid W) F_j(t \mid a, W)$, the estimand of the [held design](#one-baseline-treatment-held-over-the-nodes). Contrasts, ratios, the survival view, `rmst` and `rmtl` derive from it as on an iterated-mean fit. No parameter name changes |
 | identification | no unmeasured confounding of $A$ given $W$, censoring at random given $(A, W)$, and positivity. Moore and van der Laan (2009), Section 2. Cai and van der Laan (2020), Section 2 |
 | hazard | $\lambda_l(k \mid a, W) = P(\text{cause } l \text{ at } k \mid \text{uncensored through } k,\ \text{event-free before } k,\ A = a,\ W)$. Then $S(k) = \prod_{s \le k}(1 - \sum_l \lambda_l(s))$ and $F_j(t) = \sum_{k \le t} S(k - 1)\,\lambda_j(k)$ |
@@ -1160,7 +1160,7 @@ $\Sigma$. `test_the_bounded_walk_loss_never_rises` checks the walk loss of a bou
 | `result.fits[...].hazard` | the targeting record: the targets, the initial and final scores, the relative-score trace, and the fixed $\Sigma$ of a walk. A one-step fit shares one record between every reported parameter |
 | `diagnostics.score_equations()` | one `solver` row per regimen, cause and horizon, at the horizon node |
 | `diagnostics.nuisance_models()` | one `hazard` row per node and cause, which scores the pseudo-hazard $\rho_j$ the learner fitted |
-| `truncation_curve()` | a rerun of the targeting at each bound from the stored initial hazards. It refits no learner |
+| `truncation_curve()` | a rerun of the targeting at each bound from the stored initial hazards. It refits no learner. A fit with a modified treatment policy refuses it (H25) |
 | `n_bootstrap=` | shown with the label `experimental`. No support row lists `bootstrap` for a hazard fit |
 
 #### A working model over the hazard curve
@@ -1381,7 +1381,7 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
 | `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
 | `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence. With two and three causes, a full cell keeps the fitted shares, the maximum-likelihood fallback reads it over the causes alone, and a correct split survives a wrong treatment model. The upper clip keeps the cause ratios of a unit outside a full cell, and with one cause it equals the plain clip. Each has a deliberate mutation |
-| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11 and H14, by type and message, before any learner |
+| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H6, H8 to H10, H12, H14, H16, H19, H20 and H24 by type and message, before any learner, and H25 before any targeting. Also fits of the designs H7 and H11 refused |
 | `tests/unit/test_hazard_targeting_rules.py` | the targeting rules on both algorithms, and H13 |
 | `tests/unit/test_hazard_node_bounds.py` | bounded hazards: the refusals, the identities, the exact checks, the finite-sample witness, the held cells and the mutation controls |
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
@@ -1396,6 +1396,47 @@ cells. Its 15 paired comparisons with R `tmle3` `tmle_survival` pass under the d
 
 The registered study [point survival curve crossfit](method-evidence/point-survival-curve-crossfit.md)
 validates the one-step walk at five folds on the same exact laws. It has no comparator.
+
+### A modified treatment policy on the hazard path
+
+`survival_model="hazard"` takes a modified treatment policy at the baseline decision, on both
+algorithms. The node can be categorical, continuous, or a vector with a dose (a mixed node). A
+policy is a `Shift`, `Scale`, `ModifiedPolicy` or `JointPolicy`, deterministic or with a
+`Randomizer` over branches $b$ with probabilities $p_b$. The implementation is `mtp_slots`,
+`mtp_inputs` and `target_mtp` in `longitudinal/hazard.py`. The notation is that of
+[hazard-based survival targeting](#hazard-based-survival-targeting).
+
+| item | contract |
+| --- | --- |
+| estimand | $\psi_{d,j}(t) = E\bigl[\sum_b p_b\, F_j(t \mid d_b(A, W), W)\bigr]$. A deterministic policy has one branch with $p_1 = 1$ |
+| identification | no unmeasured confounding of $A$ given $W$, censoring at random given $(A, W)$, positivity of the policy ($g^d(a \mid W) > 0 \Rightarrow g(a \mid W) > 0$) and $G_k(A, W) > 0$. Díaz et al. (2023), Theorem 1, at one decision. The modified treatment policy support checks of the iterated-mean path run unchanged, before the survival model is read |
+| influence curve | $D_{d,j,t} = \sum_{k \le t} \sum_l \frac{r(A, W)}{G_k(A, W)}\,\kappa^l_{j,t}(k, A, W)\,R_k\,(dN_l(k) - \lambda_l(k \mid A, W)) + \sum_b p_b F_j(t \mid d_b(A, W), W) - \psi_{d,j}(t)$, with $r = g^d(A \mid W) / g(A \mid W)$ and $\kappa^l_{j,t}$ the bracket of the clever covariate above: $1\{k \le t\}[1\{l = j\} - (F_j(t) - F_j(k)) / S(k)]$. It is Result 1 of Díaz Muñoz and van der Laan (2012) with the outcome regression replaced by the smooth functional $F_j(t \mid a, W)$ of the hazards, whose conditional influence curve is (15) and (16) of Moore and van der Laan (2009). With a randomizer, $g^d$ is the mixture density over the branches |
+| weight | the covariate is $\kappa$ alone, and the loss of node $k$ for unit $i$ is weighted by $\omega_{ik} = w_i\, r(A_i, W_i) / G_k(A_i, W_i)$ at the observed treatment. The fit reads $\omega_k$ as $w$ times the plan's cumulative ratio numerator over the bounded cumulative mechanism of the plan, the convention of the iterated-mean path: at a categorical node the numerator is $g^d(A \mid W)$ and the cumulative holds $g(A \mid W)\,G_k$; at a continuous or mixed node the numerator is $r$ (`ratio=` chooses the density or the classifier route) and the cumulative holds $G_k$. The mechanism is evaluated at the plan only, never at a shifted treatment |
+| submodel | the fluctuation of the logits along $\kappa$ under the $\omega$-weighted log-likelihood. Its derivative is $P_n \sum_k \omega_k \sum_l \kappa^l R_k (dN_l - \lambda_l)$, the hazard part of $P_n D_{d,j,t}$, so a walk that solves the weighted scores solves the influence-curve equation. This is the weighted fluctuation Díaz et al. (2023) use for a modified treatment policy on the iterated-mean path. The estimate is the substitution estimator $P_n \sum_b p_b F^*_j(t \mid d_b(A, W), W)$ |
+| walks | the weights of two policies differ, so each modified treatment policy regimen is targeted by its own walk, over every horizon and cause of that regimen. A static arm, rule or known stochastic policy of the same fit keeps the shared unweighted walk. A contrast across walks takes the difference of the two substitution estimators and of their influence curves. Each one-step walk reports a non-decreasing curve, by the argument of "Monotonicity" in [hazard-based survival targeting](#hazard-based-survival-targeting), applied to its own state |
+| state | at a categorical node, the shipped state over treatment levels, with the policy's per-unit mixture over levels in place of $q$. At a continuous or mixed node, $1 + B$ slots per unit: slot 0 at the observed treatment, which carries the residual, and slot $b$ at the treatment branch $b$ assigns, which carries the plug-in. The hazard learner predicts each slot from its own design. At a mixed node, slot $b$'s design is the node-1 design with the observed treatment block replaced by `component_design(1, values=...)` at the branch's assignment |
+| held cells | at a categorical node, the shipped empty and full cells of node, level and cause, applied to every unit through the level its slot takes. At a continuous node the cell is (node, cause) with no dose in the key: when no follower at risk has an event of cause $j$ at node $k$, every slot is held at that node. At a mixed node the cell is (node, values of the categorical components, cause) and holds every slot whose categorical values match. A vector with no categorical component has the one cell (node, cause), as a continuous node. The holds then apply as "A hazard cell with no event" in [hazard-based survival targeting](#hazard-based-survival-targeting) states them |
+| remainder | a sum over nodes of products of the hazard error and the error of $r / G$, which is second order. The plug-in averages over the empirical law of $(A, W)$, so no term in the error of that law remains. The variance estimate is consistent when both the mechanism and the hazards are (Díaz Muñoz and van der Laan 2012, Section 4.3). No regression is fitted on an estimated index |
+| settings | competing causes, cross-fitting, and `targeting="iterative"`, whose Newton step and maximum-likelihood fallback read the weighted loss. With `n_folds > 1` the slot predictions are out of fold. Observation weights enter $\omega$. `node_bounds=`, clusters, the declared `stopping=` rules, `step_bound=` and `iterate=` pass to each walk as to the shared one |
+| refused | a tuned cap (H16), `msm=` beside a policy (H19), a `Separable` regimen beside a policy (H20), `hazard_pooling="pooled"` beside a policy (H24), and `truncation_curve()` or any other hazard replay of a fit with a policy (H25) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+
+`result.fits[...].hazard` holds each walk's record. Every parameter of one policy shares its walk's
+record, and the regimens of the shared walk share theirs. `diagnostics.nuisance_models()` scores the
+hazard learner at the observed treatment.
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_mtp.py` | on finite grid laws realised exactly, with censoring, a wrong hazard learner with the true mechanism gives the exact $\psi_{d,j}(t)$ within `1e-8` on both algorithms, at a categorical node, and at a continuous and a mixed node on the density and the classifier routes, for a deterministic policy and a randomizer, while its plug-in misses. The held-cell checks give the same for each of two competing causes. Mutations: dropping $r$ or $1/G$ from $\omega$ misses; an unweighted loss breaks the derivative identity; predicting the mixed slots at the observed components misses; reading the first branch of a randomizer misses; one walk shared by two policies misses; an unheld empty or full dose cell leaves a score the walk cannot solve; with observation weights that are not one, dropping $w$ from $\omega$ breaks the derivative identity; dropping the plug-in term from the influence curve misses. Also $\omega / w$ equals the iterated-mean clever covariate of the same plan at every node, each slot is predicted at its own design, the held cells hold every slot or level they key, the cross-fitted slot hazards equal a manual refit, and each one-step curve never decreases. The same exactness holds for the law as weighted data, for a vector of two doses (where it also equals the iterated-mean estimate), and for a mixed policy that sets the categorical component. With saturated hazards and the true mechanism the influence curve equals the iterated-mean curve within `1e-10` row by row, at each node kind, for a randomizer, and for contrasts with another policy walk and with a static arm. Bounded nodes with a zero and a positive floor, `iterate="best"` and `step_bound=` keep the estimate exact; a floored empty slot cell is excluded; `stopping="scaled_var"` stops at its rule; with `id=` the variance is that of the cluster-summed curve |
+| `tests/unit/test_hazard_refusals.py` | H16, H19, H20 and H24 by type and message, before any learner, H25 before any targeting, and fits of the designs that H7 and H11 refused |
+
+The [hazard modified-treatment-policy study](method-evidence/hazard-mtp.md) covers one-step fits
+of a deterministic policy beside the natural course, with correctly specified low-dimensional
+learners and one cause: a dose on six levels, a Gaussian dose on the density route (a bounded
+dose under a capped shift) and on the classifier route, in sample and on five folds, and a
+one-visit arm-and-dose vector. Support rows `G61` license their point estimates and Wald
+intervals, and the simultaneous band on the six-level and density fits. Another composition,
+such as `targeting="iterative"`, observation weights, clusters or `node_bounds=`, matches no row
+and is labelled `experimental`.
 
 ### The isotonic projection
 
@@ -2341,14 +2382,92 @@ mechanism.
 
 ### The interval under heavy cumulative density ratios
 
-The `SDR` interval runs short of nominal when the cumulative density ratios are heavy. The study
-cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio of 0.9408 at n = 4,000, with a 99%
-interval of 0.9060 to 0.9775, and a coverage of 0.9357. The `LTMLE` cell of the same plan reads a
-standard-error ratio of 0.9572. The cell uses a pseudo-outcome learner that projects onto [0, 1].
+Under a modified treatment policy whose cumulative density ratio $\prod_t r_t$ has a heavy tail, the
+default Wald interval of `LTMLE` and `SDR` runs short of nominal at sizes the usual studies use. The
+cause is the variance estimate, not the estimator. Its relative SD is large, and it is coupled with
+the error: a sample that holds none of the rare large-ratio rows reports a small standard error and
+also tends to miss.
 
-Treat this interval as experimental under the measured-shortfall standard. The study publishes the
-cell as `reporting`, and the red-cell owner `X40-sdr-heavy-ratios` records the measured numbers.
-The fit support key does not read the plan, so a fit carries no label of its own for this cell.
+On the five-node `price_down` plan of `mtp-pricing` at n = 5,000 the identity Wald interval
+covers 0.911 to 0.929 and, in the quarter of samples with the smallest standard error, 0.69 to 0.76
+([`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)). On the same rows the shipped
+range-logit interval of the two level rows covers 0.922 (`LTMLE`) and 0.937 (`SDR`). The
+percentile and BCa intervals do no better: the BCa interval covers 0.908 to 0.923, and the
+equal-tailed bootstrap-t at most 0.937 (`tests/diagnostics/fix5_heavy_ratios/probe1.csv`), so
+neither is validated for these fits.
+Each study gates a Wald reading only at an $n$ of at least twice the tail size of its quantity
+(`X39-below-tail-size` in the [roadmap](../roadmap.md)). In that regime the default twins of these
+rows pass the 0.90 floor.
+
+**`variance="policy_weighted"`.** The option keeps the estimate and reports the standard error
+from $\hat\sigma^2 = \max(\hat\sigma^2_{IC}, \hat\sigma^2_{pw})$. For $k \ge 1$ and integrable $f$, the
+change of measure from the observed treatment law $g$ to the intervened law $g^d$ gives
+
+$$
+E\left[r_t(A_t, H_t)^k f(A_t, H_t) \mid H_t\right]
+  = E\left[r_t(A^d_t, H_t)^{k-1} f(A^d_t, H_t) \mid H_t\right],
+$$
+
+with $A^d_t = d_t(A_t, H_t)$ the policy dose. It needs positivity and no invertibility of $d_t$, so
+a two-branch map and a map with an atom are covered.
+
+Applied backwards to the efficient influence
+curve with residuals $e_t = Q_{t+1}(A^d_{t+1}, H_{t+1}) - Q_t(A_t, H_t)$, it gives
+$\sigma^2 = E[b^2] + E[r_1(A^d_1, H_1) S_1(A^d_1, H_1)]$, where $b$ is the baseline term,
+$S_\tau = E[e_\tau^2 \mid A_\tau, H_\tau]$ and
+$S_t = E[e_t^2 + r_{t+1}(A^d_{t+1}, H_{t+1}) S_{t+1}(A^d_{t+1}, H_{t+1}) \mid A_t, H_t]$. This form
+holds when each $e_t$ has conditional mean zero, as at the truth.
+
+$\hat\sigma^2_{pw}$ replaces each
+conditional mean by a boosted-tree regression of depth 5, fitted on the observed $(A_t, H_t)$ and
+evaluated at the policy dose, with the fit's own $Q$ and $r$. A contrast reads the same recursion
+on the product of the two plans' residuals, with one plan's ratio evaluated at the other's
+policy dose. For a linear functional $\lambda$ of the levels the
+variance is $\max(\lambda^\top \hat\Sigma_{IC} \lambda, \lambda^\top \hat\Sigma_{pw} \lambda)$. A
+non-finite or non-positive $\hat\sigma^2_{pw}$ takes the influence-curve value, and
+`variance_source` records which one each estimate reports.
+When the default interval is on the
+range-logit scale, the option keeps that scale and widens the half-width to
+$\max(\text{default half-width}, z\,\widehat{SE}_{pw})$ on it; under a Student t reference the
+half-width is $\max(t_\nu \widehat{SE}_{IC}, z\,\widehat{SE}_{pw})$, so the degrees of freedom never
+apply to the policy-weighted variance.
+
+The guarantee needs no condition on the variance regressions: $\hat\sigma \ge \hat\sigma_{IC}$ in
+every sample, so the option's interval contains the default one, and its asymptotic coverage is at
+least nominal wherever the default is asymptotically valid. With an exact or known ratio the
+remainder is zero for any outcome model. With a learned ratio and a misspecified outcome model, the
+estimator gains a ratio-estimation term that neither variance estimates, so the coverage claim
+then needs a consistent outcome model. What the maximum buys at finite $n$ is measured, not proved:
+$\hat\sigma_{pw}$ reads the large-ratio rows' contribution through every row's policy dose, so it
+lifts the standard error in the samples where $\hat\sigma_{IC}$ is too small.
+
+The option is refused, before any learner fits, with cross-fitting, `repeats`, clusters, weights,
+right-censoring, a survival or repeated outcome, `msm=`, `simultaneous=True`, `n_bootstrap`,
+`ratio_trim`, a data-tuned cap, a learned or separable regimen, a treatment held from baseline, or
+a node that holds a vector of treatments. On a fit with the option, `covariance()` and `simultaneous_bands()` are refused,
+because the fit defines the variance of each linear functional as a maximum, which is not a
+covariance matrix. `contrast()`, `ratio()` and a `transform=` read the maximum for their gradient.
+`influence_curves` returns the curves, which do not carry the option's variance.
+
+**What it was validated against.** In [`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)
+with an exact ratio the option reads conservative on the five-node `price_down` rows (SE ratio
+1.113 to 1.145, coverage 0.980 to 0.983, and 0.953 to 0.958 in the lowest standard-error quartile), and on plan `p4` of law B
+(1.047 to 1.084, coverage 0.965 to 0.972). It reads calibrated at two nodes (0.992 to 1.019), where
+it widens the interval by about 1%. The support rows `G39.*.tau2`, `G39.*.tau5`, `G10.continuous`
+and `G24.mtp.in_sample` license it; at three nodes it stays experimental, because that
+configuration was held out for the screen that chose the regressions.
+
+**The `SDR` interval.** At n = 4,000 under plan `p4`, the `p4_sdr` cell of `mtp-boundaries` reads a
+standard-error ratio of 0.9408 (99% interval 0.9060 to 0.9775) and coverage of 0.9357 with a
+pseudo-outcome learner that projects onto [0, 1]; the re-run in `mtp-policy-variance` reads 0.920
+(0.891 to 0.950) and 0.936. The `LTMLE` cell of the same plan reads 0.9572. The shortfall grows
+when the pseudo-outcome regression is not projected. On 240 paired draws a projected rich basis
+gives an SE ratio of 0.982 and coverage of 0.950, and the same basis unprojected gives 0.799 and
+0.904 (`tests/diagnostics/fix5_heavy_ratios/probe4.csv`). The default `SuperLearner` pseudo learner
+covers 0.944 (99% interval 0.925 to 0.960) with an SE ratio of 0.948 (0.905 to 0.996) over 1,200
+draws. The fit support key does not read the plan or the pseudo learner, so `G24.mtp.in_sample`
+carries these numbers as notes, and `variance="policy_weighted"` covers 0.969 on the default
+`SuperLearner` cell.
 
 ### Choices that differ from LTMLE
 

@@ -56,6 +56,8 @@ KINDS = {
     "bootstrap_bca",
     "bootstrap_band",
     "derived",
+    # Fix-5: ``variance="policy_weighted"``, licensed from ``mtp-policy-variance``.
+    "wald_policy",
 }
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
 #: The options of X76 in a point key, at the values of a fit that declares none of them.

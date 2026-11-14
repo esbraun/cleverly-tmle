@@ -717,7 +717,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.  The
     # ``lmtp`` twins fit the same samples and pass the exactness gate, so they read the same
-    # shortfall and share the owner.
+    # shortfall and share the owner.  The heavy-weight fix closed the owner with ``variance="policy_weighted"``
+    # (``mtp-policy-variance``); the rows stay red as standing records of the default interval.
     "mtp-pricing-calibration": (
         *_keys(
             "mtp-pricing",
@@ -744,7 +745,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             ),
         ),
     ),
-    # The ``reporting`` SDR arm of plan p4. X40 owns it: the interval is labelled experimental.
+    # The ``reporting`` SDR arm of plan p4.  The heavy-weight fix closed the owner with
+    # ``variance="policy_weighted"`` (``mtp-policy-variance``); the cell stays as a standing record.
     "X40-sdr-heavy-ratios": (
         *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
     ),
@@ -855,6 +857,7 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "adaptive-tmle-trial": "the control and efficiency verdicts of controls.csv",
     "adaptive-tmle-selective": "the K6 control verdicts of controls.csv, which pass",
     "survival-ctmle": "the RMSE ratio gate against hazard LTMLE with the full treatment model",
+    "mtp-policy-variance": "the coverage-floor controls of the tail-size twins in coverage-controls.csv",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.

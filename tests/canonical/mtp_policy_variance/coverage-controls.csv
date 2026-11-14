@@ -1,0 +1,15 @@
+scenario,estimand,replicates,coverage,coverage_ci_upper,ceiling,passed
+atom_ltmle_tail,ate_regimen[p5 vs natural],1800,0.805,0.8284959042826967,0.9,True
+atom_sdr_tail,ate_regimen[p5 vs natural],1800,0.8016666666666666,0.8253256550321786,0.9,True
+p4_ltmle_tail,ate_regimen[p4 vs natural],1800,0.7883333333333333,0.8126185796578584,0.9,True
+p4_ltmle_tail,ey_regimen[p4],1800,0.7855555555555556,0.8099662024152093,0.9,True
+p4_sdr_tail,ate_regimen[p4 vs natural],1800,0.8161111111111111,0.8390435395018826,0.9,True
+p4_sdr_tail,ey_regimen[p4],1800,0.8044444444444444,0.8279677160235512,0.9,True
+pricing_ltmle_tau3_tail,ate_regimen[price_down vs natural_prices],1800,0.8111111111111111,0.8343009566840557,0.9,True
+pricing_ltmle_tau3_tail,ey_regimen[price_down],1800,0.8072222222222222,0.8306079027789401,0.9,True
+pricing_ltmle_tau5_tail,ate_regimen[price_down vs natural_prices],1800,0.7888888888888889,0.8131488500249553,0.9,True
+pricing_ltmle_tau5_tail,ey_regimen[price_down],1800,0.7894444444444444,0.8136790515718769,0.9,True
+pricing_sdr_tau3_tail,ate_regimen[price_down vs natural_prices],1800,0.7833333333333333,0.8078430817381359,0.9,True
+pricing_sdr_tau3_tail,ey_regimen[price_down],1800,0.795,0.818977237322754,0.9,True
+pricing_sdr_tau5_tail,ate_regimen[price_down vs natural_prices],1800,0.7905555555555556,0.814739247405134,0.9,True
+pricing_sdr_tau5_tail,ey_regimen[price_down],1800,0.7927777777777778,0.8168588043523901,0.9,True

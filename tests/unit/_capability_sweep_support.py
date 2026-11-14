@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -106,6 +107,20 @@ def fit_binary() -> Any:
     """A binary-outcome fit, ``make_binary_outcome(400, 17)``."""
     frame, _ = make_binary_outcome(n=400, seed=17)
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
+
+
+def fit_constant_arm_cell() -> Any:
+    """A binary fit whose treated arm shows one outcome value, so its estimates withhold.
+
+    Every treated row of ``make_binary_outcome(400, 17)`` takes ``Y = 1``. Each estimate that
+    reads the treated arm carries ``"constant_arm_cell_plugin"``, which reports no interval
+    and no p-value, and ``ey0`` keeps its range-logit interval.
+    """
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    frame.loc[frame["A"] == 1, "Y"] = 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
 
 
 def fit_missing() -> Any:
@@ -1008,6 +1023,9 @@ KINDS: dict[str, Kind] = {
     "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
     "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
     "binary": _kind(fit_binary, *_ARM),
+    # A withheld interval (Fix-3 PR 3): the E-value, which needs an interval, refuses by the
+    # status; the plug-in bound rows and the benchmark answer.
+    "constant_arm_cell": _kind(fit_constant_arm_cell, *_LIVE, *_PLUGIN_BOUND, "benchmark"),
     "missing": _kind(fit_missing, *_LIVE, *_TILT),
     "shift": _kind(fit_shift, *_LIVE),
     "cde": _kind(fit_cde, *_LIVE),

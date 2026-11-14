@@ -388,8 +388,8 @@ def covariate_balance(
     Raises
     ------
     CapabilityError
-        When the fit estimated no treatment mechanism, or reports no estimand weighted by
-        the probability of each unit's own arm.
+        When the fit estimated no treatment mechanism, reports no estimand weighted by
+        the probability of each unit's own arm, or is not a point-treatment fit.
     DataError
         When the treatment is continuous, which has no groups to compare, or the fit
         reports no estimate of ``estimand``.
@@ -427,6 +427,7 @@ def covariate_balance(
     from ..targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 
     refuse_augmented_trial(result, "covariate_balance", "report")
+    _refuse_sequential(result)
     if not result.nuisance.fits_treatment:
         raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     data = result.data
@@ -557,4 +558,37 @@ def covariate_balance(
         cross_fitted=bool(getattr(config, "cross_fit", False)),
         n_arms=len(arms),
         threshold=float(threshold),
+    )
+
+
+def _refuse_sequential(result: Any) -> None:
+    """Refuse the fits whose treatment is not one point-treatment model with its weights."""
+    from .._refusal import NO_ALTERNATIVE, RefusalReason
+    from ..exceptions import CapabilityError
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(result, LongitudinalResult):
+        what = (
+            "a longitudinal fit, whose weights multiply a treatment and a censoring model "
+            "at each node"
+        )
+    elif isinstance(result, ContinuousSurvivalResult):
+        what = (
+            "a continuous-time survival fit, whose weights also carry a censoring model over time"
+        )
+    elif not hasattr(result, "nuisance"):
+        raise CapabilityError(
+            "covariate_balance weighs the covariates by a point-treatment fit's treatment "
+            f"model; this {type(result).__name__} holds no such model.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    else:
+        return
+    raise CapabilityError(
+        "covariate_balance weighs the covariates by a point-treatment fit's treatment model; "
+        f"it does not yet weigh {what}.",
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative=NO_ALTERNATIVE,
+        roadmap="X100",
     )

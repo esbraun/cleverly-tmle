@@ -437,11 +437,13 @@ class TestTheWitness:
             "_interval_limits",
             [
                 (
-                    "low, high = wald_ci(center, self._plugin_std_error(), alpha, df=df, "
-                    "margin=margin)\n            return (float(np.exp(low)), float(np.exp(high)))",
-                    "low, high = wald_ci(center, self._plugin_std_error(), alpha, df=df)\n"
-                    "            return (float(np.exp(low)) - margin, float(np.exp(high)) + margin)",
-                )
+                    "low, high = self._half_width_interval(center, 1.0, alpha, df=df, margin=margin)",
+                    "low, high = self._half_width_interval(center, 1.0, alpha, df=df, margin=0.0)",
+                ),
+                (
+                    "return (float(np.exp(low)), float(np.exp(high)))",
+                    "return (float(np.exp(low)) - margin, float(np.exp(high)) + margin)",
+                ),
             ],
         )
         below, above = half_widths(estimate, estimate.ci)

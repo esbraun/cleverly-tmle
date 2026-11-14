@@ -173,7 +173,7 @@ def test_centring_every_rule_fails_the_second_moment_witness(
         influence_module,
         influence_module.ParameterEstimate,
         "_acceleration",
-        [('centered=self.covariance_rule == "centered"', "centered=True")],
+        [('centered=self.covariance_rule != "second_moment"', "centered=True")],
     )
     expect_failure(test_a_second_moment_estimate_reads_its_curve_uncentred)
 

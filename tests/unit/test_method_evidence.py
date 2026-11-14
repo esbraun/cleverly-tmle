@@ -1344,6 +1344,13 @@ class TestPublishedVerdicts:
             # the accounting row names ``worst case fails`` as the reason.
             worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    # A reported row of the family (``hazard-mtp``'s untruncated density
+                    # route) carries no claim, so it must not publish a red verdict.
+                    assert bool(row.passed) and bool(row.property_passed), (
+                        f"{row.cell} is a diagnostic row and publishes a verdict"
+                    )
+                    continue
                 # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
                 # cell ``correctly_specified`` and ``shift-policies`` names its control
                 # ``shrunken_se_control``, with no ``__`` at all, while the longitudinal
@@ -1529,6 +1536,44 @@ class TestPublishedVerdicts:
         for row in ssw.loc[ssw["property"] == "witness"].itertuples():
             assert bool(row.passed) is bool(row.coverage_ci_upper < 0.50), (
                 f"{row.cell} publishes passed={row.passed} against its own witness ceiling"
+            )
+
+        # ``mtp-policy-variance``: restated from the declaration in the driver's docstring
+        # rather than read from the properties module.  The clause reads the 99% SE-ratio
+        # interval: its lower end below 0.93 is red-narrow and above 1.25 red-wide, and the
+        # five-node price rows also need a coverage upper bound that reaches 0.95.
+        policy = published.loc[
+            published["property"].isin({"policy_variance", "policy_calibration"})
+        ]
+        for row in policy.itertuples():
+            kind = str(row.cell).rsplit("__", 1)[-1]
+            if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                expected = True
+            elif kind == "option":
+                expected = (
+                    bool(row.bias_equivalent)
+                    and row.coverage_ci_lower >= study.margins.coverage_floor
+                    and 0.93 <= row.se_ratio_ci_lower <= 1.25
+                    and (
+                        not str(row.cell).startswith(("pricing_ltmle_tau5", "pricing_sdr_tau5"))
+                        or row.coverage_ci_upper >= 0.95
+                    )
+                )
+                reading = "conservative" if row.se_ratio_ci_upper > 1.07 else "calibrated"
+                assert not expected or row.reading == reading, (
+                    f"{row.cell} reads {row.reading!r} against its SE-ratio interval"
+                )
+            elif kind == "wald":
+                expected = row.coverage_ci_upper < 0.95
+            elif kind == "coverage_floor_control":
+                expected = row.coverage_ci_upper < 0.90
+            elif kind == "inflated_se_control":
+                expected = row.se_ratio_ci_lower > 1.25
+            else:
+                assert kind in ("shrunken_se_control", "noise_control"), row.cell
+                expected = row.se_ratio_ci_upper < 0.93
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own clause"
             )
 
         correction = published.loc[published["property"] == "correction_necessity"]
@@ -1896,6 +1941,12 @@ SMALL_SAMPLE_TWO_LEG_PROPERTIES = frozenset(
 )
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # ``mtp-policy-variance``: an option positive answers to its bias, the coverage floor,
+        # the SE-ratio clause and (``tau5``) the nominal clause; each control to its own
+        # coverage or SE-ratio ceiling; the reported Wald rows carry the diagnostic role.
+        # Checked row by row below.
+        "policy_variance",
+        "policy_calibration",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
@@ -2094,6 +2145,11 @@ SAME_DRAW_FAMILIES = {
 #: refused, so no cell establishes that any of them is valid.
 DIAGNOSTIC_PROPERTIES = frozenset(
     {
+        # ``mtp-policy-variance``: the learned-classifier Wald twin, SDR's default pseudo
+        # learner and the option on the large twins at 400 draws, each reported with no verdict.
+        "reporting_calibration",
+        "sdr_default_pseudo",
+        "tail_option",
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
         "construction_diagnostic",
@@ -2258,6 +2314,16 @@ class TestNegativeControls:
         # its coverage and standard error are published and never gated.
         if label != "bias" and set(cell["scenario"]) <= set(study.point_only_scenarios):
             pytest.skip("a point-only cell gates neither coverage nor the standard error")
+        if (
+            label == "standard error"
+            and tuple(study.margins.se_ratio_sanity) == property_verdicts.UNION_MODEL_SE_BAND
+        ):
+            # ``mtp-policy-variance``: its truth rows are tail-size twins, declared to pass on
+            # bias and the coverage floor under the union-model SE screen, so an inflated SE
+            # is not their failure.  The SE calibration of the p4 and atom twins is gated by the
+            # study's interval-calibration twins; the pricing twins' SE ratio is published and
+            # gated nowhere, as the declaration states (Fix-5 plan 6.0).
+            pytest.skip("the truth rows declare the union-model SE screen")
         baseline = independent_performance_tests(cell, record=_cheap(study), n_jobs=1).set_index(
             "implementation"
         )

@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LogisticRegression
 
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
@@ -462,29 +463,41 @@ def test_one_column_readers_raise_at_a_mixed_node() -> None:
     assert data.node_values(1).shape == (data.n, 2)
 
 
-def test_hazard_targeting_refuses_a_vector_with_a_dose_by_name() -> None:
-    """``refuse_hazard_design`` reads the node kind, so a vector gets the H11 refusal."""
+def test_hazard_targeting_fits_a_policy_on_a_vector_with_a_dose() -> None:
+    """X70 part (c) closed H11 for a vector with a dose: a joint policy is fitted by hazard.
+
+    The shifted slots read the spliced component block, so the fit never reads the vector
+    through a one-column reader.
+    """
     rng = np.random.default_rng(0)
-    n = 200
+    n = 400
     frame = pd.DataFrame(
         {
             "W": rng.integers(0, 2, n).astype(float),
             "F": rng.integers(0, 2, n).astype(float),
             "D": rng.uniform(0.0, 2.0, n),
             "C1": 1.0,
-            "Y1": 0.0,
         }
     )
+    frame["Y1"] = (rng.uniform(size=n) < 0.2 + 0.1 * frame["D"]).astype(float)
     policy = JointPolicy("up", components={"D": Shift(0.5, cap=None)}, policy_kind="known")
-    with pytest.raises(CapabilityError, match="treatment 'F\\+D' is a vector with a dose"):
-        LTMLE({"up": policy}, n_folds=1, survival_model="hazard").fit(
-            frame,
-            treatment=[["F", "D"]],
-            continuous_treatment=["D"],
-            outcome=["Y1"],
-            baseline=["W"],
-            censoring=["C1"],
-        )
+    result = LTMLE(
+        {"up": policy},
+        n_folds=1,
+        survival_model="hazard",
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+    ).fit(
+        frame,
+        treatment=[["F", "D"]],
+        continuous_treatment=["D"],
+        outcome=["Y1"],
+        baseline=["W"],
+        censoring=["C1"],
+    )
+    fit = result.fits["up @ t=1"]
+    assert fit.hazard is not None and fit.hazard.converged
+    assert 0.0 < result.estimates["risk_regimen[up @ t=1]"].psi < 1.0
 
 
 #: The functions allowed to read ``.treatment[...]`` or call ``is_continuous_node``, each

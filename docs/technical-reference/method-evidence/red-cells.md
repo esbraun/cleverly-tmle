@@ -26,7 +26,7 @@ and the repo owner accepted it by a named exception on 2026-11-10
 (`ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`). The test fails if the cell turns
 green or the study is rerun, and it admits no other row.
 
-The ledger reads verdict rows and accounting rows only. Eleven study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Thirteen study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -44,6 +44,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [Adaptive TMLE with external data](adaptive-tmle-trial.md) | `gated` | the control and efficiency verdicts: the efficiency contrast on `a0`, and controls K1, K2, K3 and K5 | `controls.csv`. The test requires every row to pass |
 | [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) | `gated` | the K6 control verdicts | `controls.csv`. The test requires every row to pass |
 | [collaborative TMLE of a risk curve](survival-ctmle.md) | `reporting` | the RMSE ratio gate of the risk of arm 1 at OR 15 against hazard `LTMLE` with the full treatment model, when its upper bound exceeds 1 | the study page and `rmse-comparison.csv` |
+| [policy-weighted variance for heavy density ratios](mtp-policy-variance.md) | `gated` | the coverage-floor controls of the tail-size twins that do not fail the 0.90 floor | `coverage-controls.csv`. The test requires every row to pass |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.

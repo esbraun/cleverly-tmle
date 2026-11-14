@@ -119,10 +119,12 @@ separable-effects
 survival-ctmle
 survival-dr-tmle
 hazard-msm
+hazard-mtp
 continuous-time-survival
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
+mtp-policy-variance
 mtp-pricing
 mtp-tuning
 sequentially-doubly-robust-estimation

@@ -627,6 +627,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_drtmle import STUDY as CANONICAL_DRTMLE
     from tests.studies.canonical_full_refit_bootstrap import STUDY as FULL_REFIT_BOOTSTRAP
     from tests.studies.canonical_hazard_msm import STUDY as HAZARD_MSM
+    from tests.studies.canonical_hazard_mtp import STUDY as HAZARD_MTP
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
@@ -674,6 +675,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
     from tests.studies.canonical_mtp_tuning import STUDY as MTP_TUNING
     from tests.studies.canonical_multi_arm_ctmle_oat import (
@@ -854,6 +856,7 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_CTMLE,
         SURVIVAL_DR_TMLE,
         HAZARD_MSM,
+        HAZARD_MTP,
         CONTINUOUS_SURVIVAL,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
@@ -880,6 +883,7 @@ def registered() -> tuple[StudyRecord, ...]:
         MTP_BOUNDARIES,
         MTP_PRICING,
         MTP_TUNING,
+        MTP_POLICY_VARIANCE,
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,

@@ -334,6 +334,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
         "direct call with a malformed pair reaches it"
         for path in ("src/cleverly/inference/influence.py", "src/cleverly/inference/results.py")
     },
+    (
+        "src/cleverly/inference/influence.py",
+        "defined for independent rows only",
+    ): "low-level guard on a covariance_rule and cluster pair: every fit with "
+    "variance='policy_weighted' refuses id= upstream with a coded CapabilityError, so only a "
+    "direct call of make_estimate with a malformed pair reaches it",
     ("src/cleverly/datasets/longitudinal.py", "can only take a step function"): "data "
     "generator argument: a rule whose jump is not at split= is a malformed argument of a "
     "generator, and no estimator capability is involved",
