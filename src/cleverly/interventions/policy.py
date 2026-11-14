@@ -1584,8 +1584,9 @@ def _policy_steps(
     n : int
         Rows of the frame.
     bounds : tuple of ndarray or None
-        The declared support ``(lower, upper)`` on every row.  ``None`` reads the smallest
-        and largest observed dose over the fold's fitted training rows.
+        The declared support ``(lower, upper)`` on every row.  ``None`` declares none: the
+        support term of ``s_k`` is then always true, since an observed range is not a
+        support and the true ratio makes no jump at a sample's extreme.
     observed : ndarray
         ``(n,)`` observed dose.  It fills the rows the callable is not asked about.
 
@@ -1597,7 +1598,7 @@ def _policy_steps(
     """
     natural = np.asarray(observed, dtype=float).reshape(-1)
     maps: dict[int, list[LoweredMap]] = {}
-    declared = None
+    declared = (np.full(n, -np.inf), np.full(n, np.inf))
     if bounds is not None:
         lower = np.asarray(bounds[0], dtype=float).reshape(-1)
         upper = np.asarray(bounds[1], dtype=float).reshape(-1)
@@ -1615,11 +1616,7 @@ def _policy_steps(
         return maps[key]
 
     def steps(dose: FloatArray, rows: IntArray, fold: int, train: IntArray) -> FloatArray:
-        if declared is None:
-            seen = natural[train]
-            low, high = np.full(n, float(seen.min())), np.full(n, float(seen.max()))
-        else:
-            low, high = declared
+        low, high = declared
         x = natural.copy()
         x[rows] = np.asarray(dose, dtype=float).reshape(-1)
         columns: list[BoolArray] = []

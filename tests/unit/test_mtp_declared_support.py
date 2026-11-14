@@ -232,11 +232,11 @@ def test_t_a4_the_support_report_after_a_passing_check(ratio: str) -> None:
     assert undeclared.outside_declared_support is None
 
 
-@pytest.mark.parametrize("ratio", ["density"])
+@pytest.mark.parametrize("ratio", ["density", "classifier"])
 def test_t_a5_a_non_binding_declaration_leaves_the_estimate_bit_identical(ratio: str) -> None:
-    """The density route reads a support past every bin edge as no support.  The classifier
-    route is not bit-identical: its step columns read a declared support in place of the
-    fold's observed range (``test_classifier_policy_steps.py``, W11b)."""
+    """The density route reads a support past every bin edge as no support, and the
+    classifier route's support term is then true on every row, as with no declaration
+    (``test_classifier_policy_steps.py``, W11b)."""
     frame = law.point_frame()
     plain = _fit(frame, ratio).single()["ey_policy[inside]"]
     declared = _fit(frame, ratio, treatment_support=Support(-10.0, 10.0)).single()

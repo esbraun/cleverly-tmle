@@ -2359,7 +2359,7 @@ def _node_steps(
 
     Every branch of the plan's policy at the node lowers on the node's policy frame.  A plan
     with fold plans on several folds lowers each fold's own map.  The bounds are the node's
-    declared support, or the fold's fitted training rows, which are at risk.
+    declared support; a node without one adds no support term.
     """
     if frame is None:
         return None

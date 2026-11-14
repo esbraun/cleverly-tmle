@@ -474,9 +474,13 @@ the dose the row received: a ratio of two densities of the dose given the covari
 the fit learns that ratio directly. It stacks each observed row with its policy copy, the
 treatment learner learns to tell the two apart, and the ratio comes from its predicted odds.
 
-The learner also sees, for each row, whether the policy moved its dose and whether the moved dose stays
-inside the observed or declared range, so a cap or a piecewise policy is learned where it holds the
-dose. This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
+The learner also sees, for each row, whether the policy moved its dose and, when you declare the
+dose's range, whether the moved dose stays inside it. A cap or a piecewise policy is then learned
+where it holds the dose. Without a declared range the learner gets no edge to work from, because
+the smallest and largest doses in a sample are not limits of the dose. Declare the range with
+`treatment_support=` (below) when it is known.
+
+This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
 recorded on many rows, such as zero. The result's summary prints the route it used and why
 (`Policy ratio`). A learner that reads its input columns by position can set the class attribute
 `policy_steps = "omit"` to receive the plain design.

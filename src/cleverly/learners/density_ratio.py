@@ -136,7 +136,7 @@ def classifier_ratio(
         The policy's step columns, ``steps(dose, rows, fold, train)``: the indicators at
         which the true ratio can jump in the dose, as ``(rows.size, S)`` columns at the
         doses ``dose`` of the rows ``rows``, for outer fold ``fold`` (0 for a single fold),
-        with any empirical bound read from the fold's fitted training rows ``train``.  Every
+        whose fitted training rows are ``train``.  Every
         block of the stack is then ``[a, atom indicators, steps, H]``: the dose, one
         indicator per declared atom in ``atoms`` order, the step columns, and the history.
         A step column that is constant on a fold's stacked training rows, or equal there to
