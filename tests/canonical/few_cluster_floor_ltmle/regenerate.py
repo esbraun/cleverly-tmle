@@ -43,6 +43,8 @@ draws) are 9.9 and the package-GLM refits about 1; about 16.5 at R = 6,000. The 
 projects 13.1 CPU-h at the declared R (a three-draw smoke 15.2 at R = 6,000). The pilot's
 ``pilot-timing.csv`` projects it again from 400 draws, at the sized R and at 6,000. Declared 22 CPU-h, the plan's figure.
 
+**Failures**: as ``few-cluster-floor-tmle``. A 24-draw smoke of every cell lost no key.
+
 **Red-cell readings**: as ``few-cluster-floor-tmle``, owner ``X54-cluster-floor``. ``unequal40`` at 6 to 10 clusters may read
 all-draw coverage near 0.92, where G1 passes or fails by chance (plan 2.2); the floor reports
 the count honestly either way.

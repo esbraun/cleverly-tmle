@@ -61,6 +61,21 @@ pilot is about 4.5 CPU-h. Its ``pilot-timing.csv`` projects the run from 400 dra
 ``pilot-sizing.csv`` picks, read against 1.25 times the declared budget, and at R = 6,000. Declared 60 CPU-h (plan 5.1 declared 250, which assumed 0.15 s
 per jackknife refit; a refit here costs 0.005 to 0.02 s).
 
+**Failures.** A key that raises is a lost draw, never redrawn, and a miss in G1 by the
+accounting's worst case. The declared run records ``DataError`` (the package's data refusals:
+training support, GLM separation or a singular information matrix, and the DR-TMLE
+leave-two-out refusal of ``reduced_crossfit="foldwise"``, a ``DataError`` since the second
+pilot stopped on it as a bare ``ValueError``), ``numpy.linalg.LinAlgError`` with
+``QuasiBinomialConvergenceError``, and a plain ``ValueError`` or ``RuntimeError`` raised inside
+numpy, scipy, scikit-learn or statsmodels (:func:`cleverly.validation._failures.recordable`).
+``CapabilityError`` (a request the study must not make), ``AssertionError`` (the study's own
+checks) and every other class stop the run. ``drtmle_known`` keeps ``"foldwise"``: the shipped
+floor family ``drtmle_cross_fitted_known_mechanism`` is that configuration, as in the
+committed ``clustered-few-cluster-tmle`` study, so a draw it refuses is a lost draw of that
+family, not a reason to measure ``"pooled"``. The pilot records every exception of a key, so it
+lists any class this paragraph omits; a 24-draw smoke of every cell lost 11 keys, all
+``DataError``, at 4 and 5 clusters.
+
 **Red-cell readings** (declared before any run, owner ``X54-cluster-floor`` in
 ``docs/roadmap.md``). The policy is ``reporting``. A red below the family floor is held under
 one of three readings (:func:`tests.studies.few_cluster_floor.declared_route`). A positive cell

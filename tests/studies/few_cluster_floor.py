@@ -401,6 +401,35 @@ def timed(
     return run
 
 
+def recording_every_error(
+    fit_key: Callable[[Any, Any], list[dict[str, Any]]],
+) -> Callable[[Any, Any], list[dict[str, Any]]]:
+    """``fit_key`` with every exception recorded as a lost key (the pilot's, never a run's).
+
+    The pilot is diagnostic: a key that raises anything but ``MemoryError`` or an interrupt is
+    carried to the harness as already recorded, with its class, call and message, so
+    ``pilot-failures.csv`` lists it and the pilot never stops on one key. A declared run keeps
+    :func:`cleverly.validation._failures.recordable`, where an unknown class stops the run.
+    """
+    import types
+
+    from cleverly.validation._failures import failure_call
+    from tests.studies.evidence.replication import _Recorded
+
+    def run(key: Any, drawn: Any) -> list[dict[str, Any]]:
+        try:
+            return fit_key(key, drawn)
+        except MemoryError:
+            raise
+        except Exception as error:
+            failure = types.SimpleNamespace(
+                call=failure_call(error), error_type=type(error).__name__, message=str(error)
+            )
+            raise _Recorded(failure) from error
+
+    return run
+
+
 #: The readings :func:`floor_readings` adds to every row of the family.
 READING_COLUMNS: Final[tuple[str, ...]] = (
     "clusters",

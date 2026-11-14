@@ -147,15 +147,21 @@ def generate_property_rows(
     budget: int | None = None,
     stream: str = "property",
     timed: bool = False,
+    record_every: bool = False,
 ) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each cell for a pilot or a smoke.
 
     ``timed`` (the pilot's) keeps each key's CPU seconds on its rows
     (:data:`~tests.studies.few_cluster_floor.TIMING_COLUMNS`), which a run does not publish.
+    ``record_every`` (the pilot's) records every exception of a key as a lost key
+    (:func:`~tests.studies.few_cluster_floor.recording_every_error`).
     """
+    fit_one = floor.timed(_fit_key) if timed else _fit_key
+    if record_every:
+        fit_one = floor.recording_every_error(fit_one)
     outcomes = fit_properties(
         keys(budget, stream),
-        floor.timed(_fit_key) if timed else _fit_key,
+        fit_one,
         cells_of=_cells_of,
         cell_of=_cell_of,
         replicate_of=_replicate_of,

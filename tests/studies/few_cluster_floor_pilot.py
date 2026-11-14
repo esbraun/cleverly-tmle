@@ -11,9 +11,11 @@ file                       content
 =========================  ===================================================================
 ``pilot.csv.gz``           the rows
 ``pilot-failures.csv``     one row per lost key: fit, law, J, replicate, which key (main fit
-                           or (C)), exception class, call and message. Every lost main key is
-                           a main-fit failure: (C) and the package-GLM refit never raise out
-                           of a key (review B1)
+                           or (C)), record class, exception class, call and message. The pilot
+                           records every exception of a key, recordable or not, and never
+                           stops on one; a declared run stops on an unrecordable one. Every
+                           lost main key is a main-fit failure: (C) and the package-GLM
+                           refit never raise out of a key (review B1)
 ``pilot-summary.csv``      the study's own summary of the rows, which the design test reads
 ``pilot-cells.csv``        per cell: withheld share by trigger, lost share by cause, shown-only
                            and all-draw coverage, the SE ratio, the control's paired ratio,
@@ -87,7 +89,17 @@ def _families(which: str, module: ModuleType) -> dict[str, Any]:
 
 def failure_table(records: pd.DataFrame | None) -> pd.DataFrame:
     """One row per lost key, with the key's fit, law, count, kind and exception."""
-    columns = ["fit", "law", "clusters", "replicate", "key", "class", "call", "message"]
+    columns = [
+        "fit",
+        "law",
+        "clusters",
+        "replicate",
+        "key",
+        "class",
+        "exception",
+        "call",
+        "message",
+    ]
     if records is None or records.empty:
         return pd.DataFrame(columns=columns)
     out = []
@@ -105,6 +117,7 @@ def failure_table(records: pd.DataFrame | None) -> pd.DataFrame:
                     replicate,
                     "jackknife" if jackknife else "main",
                     str(record["class"]),
+                    str(record["message"]).split(":", 1)[0],
                     str(record["call"]),
                     str(record["message"])[:200],
                 ]
@@ -119,7 +132,7 @@ def cell_table(summary: pd.DataFrame, failures: pd.DataFrame) -> pd.DataFrame:
     rows = summary.loc[summary["property"].isin([floor.FAMILY, floor.CANDIDATE_FAMILY])].copy()
     causes: dict[tuple[str, str, int, str], str] = {}
     for (fit, law, clusters, key), group in failures.groupby(["fit", "law", "clusters", "key"]):
-        counts = group["class"].value_counts().sort_index()
+        counts = group["exception"].value_counts().sort_index()
         causes[(fit, law, int(clusters), key)] = ";".join(f"{k}={v}" for k, v in counts.items())
     lost_by_cause = []
     for _, row in rows.iterrows():
@@ -360,7 +373,7 @@ def run(which: str, output: Path | None = None, jobs: int = 1) -> dict[str, pd.D
     module = importlib.import_module(MODULES[which])
     with recording("cleverly", witness=module.PROPERTY_WITNESS) as recorded:
         rows = module.generate_property_rows(
-            n_jobs=jobs, budget=PILOT_DRAWS, stream="pilot", timed=True
+            n_jobs=jobs, budget=PILOT_DRAWS, stream="pilot", timed=True, record_every=True
         )
     records = property_failures.frame(recorded)
     stamped = property_failures.stamp(rows, records)

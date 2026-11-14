@@ -511,6 +511,34 @@ def _stub_estimate(replicate: int, clusters: int, **overrides):
     )
 
 
+def test_the_pilot_records_every_exception_of_a_key(monkeypatch):
+    """The pilot is diagnostic: an unrecordable error (here a bare ``ValueError`` from a study
+    module, which stops a declared run) is a lost key with its class and message."""
+    sizes, clusters, budget = "equal40", 10, 4
+
+    def estimate(frame, clusters, **overrides):
+        if int(frame) == 1 and not overrides:
+            raise ValueError("folds 1 and 3 together hold every trainable row of arm 0")
+        return _stub_estimate(int(frame), clusters, **overrides)
+
+    monkeypatch.setattr(study_b, "fit_estimate", estimate)
+    monkeypatch.setattr(properties_b, "_draw", lambda key: (key[2], {study_b.TARGET: 0.0}))
+    every = properties_b.keys
+    monkeypatch.setattr(
+        properties_b,
+        "keys",
+        lambda budget, stream: [k for k in every(budget, stream) if k[:2] == (sizes, clusters)],
+    )
+    with recording("cleverly", witness=properties_b.PROPERTY_WITNESS) as recorded_failures:
+        properties_b.generate_property_rows(n_jobs=1, budget=budget, record_every=True)
+    table = failure_table(property_failures.frame(recorded_failures))
+    assert table[["replicate", "key", "exception"]].values.tolist() == [[1, "main", "ValueError"]]
+    assert table["message"].iloc[0].startswith("ValueError: folds 1 and 3")
+    # Mutation control: without the pilot's wrapper the same error stops the loop.
+    with pytest.raises(ValueError), recording("cleverly", witness=properties_b.PROPERTY_WITNESS):
+        properties_b.generate_property_rows(n_jobs=1, budget=budget)
+
+
 #: The first pilot key whose study GLM raised a plain ``RuntimeError`` and stopped the S-b pilot
 #: at ``efb652fa``: the IRLS of a node regression on a target separated once rounded.
 STOPPED_PILOT_KEY = ("equal40", 4, 19, study_b.FIT, 400, "pilot")
@@ -571,7 +599,9 @@ def test_only_a_recordable_main_fit_error_is_a_lost_key(monkeypatch, error, reco
     assert table[["law", "clusters", "replicate", "key"]].values.tolist() == [
         [sizes, clusters, 2, "main"]
     ]
-    assert table["class"].iloc[0] == "fitting_failure"
+    assert table[["class", "exception"]].values.tolist() == [
+        ["fitting_failure", "QuasiBinomialConvergenceError"]
+    ]
     assert table["message"].iloc[0].startswith("QuasiBinomialConvergenceError: quasibinomial")
 
 
