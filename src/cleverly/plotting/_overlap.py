@@ -371,6 +371,8 @@ def _unread_overlap(result: Any) -> str | None:
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(result, LongitudinalResult):
+        if result.config.estimator in ("gcomp", "parametric_gformula"):
+            return None
         if bool(getattr(result.data, "treatment_held", False)):
             return (
                 "a survival fit of a treatment given once at baseline holds that treatment's "
@@ -393,7 +395,13 @@ def _not_a_propensity(result: Any) -> str:
     """Why a result outside X100 has no propensity this plot can draw, in words."""
     from ..effect_curves import EffectCurveResult
     from ..estimators.dose_response import DoseResponseResult
+    from ..longitudinal.estimator import LongitudinalResult
 
+    if isinstance(result, LongitudinalResult):
+        return (
+            "a g-computation or parametric g-formula fit estimates no treatment mechanism; "
+            "fit SequentialIPW or LTMLE for treatment probabilities"
+        )
     if isinstance(result, DoseResponseResult):
         return "a dose-response fit has a continuous treatment, which has no probability per arm"
     if isinstance(result, EffectCurveResult):
