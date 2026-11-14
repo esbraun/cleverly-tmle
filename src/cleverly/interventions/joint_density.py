@@ -73,8 +73,14 @@ but the last: the mass it sends integrates every later factor over the interval,
 those factors condition on the collapsed dose, and that integral is not a finite sum over
 preimages.  At the last dose, in the column order and in the policy's order, no later
 factor or dose map reads the dose, and the mass is the integral of its binned density over
-the interval: a finite sum over the bins (:func:`_collapse_paths`).  A categorical map
-that reads that dose is refused.  The classifier route takes such a piece at any dose.
+the interval: a finite sum over the bins (:func:`_collapse_paths`), each the closed-form
+integral of the reading over the bin's overlap with the interval.  A categorical map that
+reads that dose is refused.  The classifier route takes such a piece at any dose.
+
+Each dose's density is the binned density of :mod:`cleverly.learners.density`, read as a
+corrected log polygon on the refined grid.  The grid and its occupancy are read from every
+row at risk, and each component's declared support travels in :class:`NodeLayout` to the
+fit, which reads each row's density over its bounds on every frame it is evaluated at.
 
 The remainder of the estimator is the product of the ratio error and the outcome
 regression's error, as for a scalar continuous node.  No regression is fitted on an
@@ -1413,7 +1419,7 @@ def evaluate_joint_density(
     folds : Folds
         The outer split.
     n_bins : int or None
-        The bin count of each dose's density.
+        The core bin count of each dose's density, before the outer refinement.
     groups : ndarray or None
         Cluster codes.
     n_jobs : int

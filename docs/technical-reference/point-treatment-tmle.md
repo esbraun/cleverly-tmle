@@ -2408,19 +2408,23 @@ inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gat
 checks the tilt on `tests/discrete_law.py`. The registered study is
 [`policy-point-mtp`](method-evidence/point-modified-treatment-policies.md).
 
-The bin count limits the density route at a point treatment as it does at a longitudinal node. The
-default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`. A
-growing count is necessary for a consistent density, and the hazard learner must also be
-consistent.
+The density route at a point treatment uses the grid and the reading of a longitudinal node
+([the grid and reading paragraphs](longitudinal-tmle.md#modified-treatment-policies-at-a-node)):
+an equal-mass core of `density_bins` bins, refined in the outer bins, read as a corrected log
+frequency polygon whose segments break at empty bins, at bins of probability at most $10^{-10}$
+and at a declared support. The default `density_bins=None` grows the core count with the sample,
+`max(20, ceil(2 n^(1/3)))`, and the hazard learner must also be consistent. An explicit
+`density_bins=` is used as given, and the memory paragraph there applies here too.
 
-An explicit `density_bins=` is used as given. The memory paragraph of the
-[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) applies here
-too. A coarse count
-inflates the influence curve where the tail bins are wide, so the intervals are conservative.
-When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
-`density_bins=` higher. The
-[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
-measurements.
+`treatment_support=Support(lower, upper)` declares the support of the dose given the covariates.
+Besides the refusals of a dose or a policy outside it, it drives the reading: each row's bins are
+cut at its own bounds and the density is zero outside them, so a support edge that moves with the
+covariates is not read as a thin tail (`tests/unit/test_density_reconstruction.py`, W9). A coarse
+count inflates the influence curve where the tail bins are wide, so the intervals are
+conservative. When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
+`density_bins=` higher. The ratio enters the clever covariate unnormalised: the fit does not
+divide by its sample mean, so it is not the self-normalised weighting of Haneuse and Rotnitzky
+(2013), which is a different estimator.
 
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density
@@ -2511,7 +2515,7 @@ node of `LTMLE` and `SDR`.
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
 | `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
-| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`) |
+| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`). The density of the dose is read over each row's support |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.

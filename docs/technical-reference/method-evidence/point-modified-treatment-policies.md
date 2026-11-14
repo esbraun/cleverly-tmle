@@ -178,7 +178,7 @@ the committed results and checked at the precision printed.
 | limit | what it means for use |
 | --- | --- |
 | one law, one dose and two covariates | the evidence covers one bounded dose law with policies fixed before the run |
-| the density is an oracle | the ratio reads the generating density through a bin count that grows with $n$. The [bin count paragraph](../longitudinal-tmle.md#modified-treatment-policies-at-a-node) states why a fixed count is not consistent |
+| the density is an oracle | the ratio reads the generating density through a bin count that grows with $n$. The [grid paragraph](../longitudinal-tmle.md#modified-treatment-policies-at-a-node) states why a fixed count is not consistent |
 | one calibration cell is red under `reporting` | the `halve` cell's draw set sits in the upper tail of a calibrated cell's spread. On fresh draws the same fit reads an SE ratio of 0.999. The `mtp-point-calibration` owner holds it |
 | the paired rows are not an exactness check | the two fluctuations differ by construction, so the pairs read under the default margins |
 | a policy must be known and fixed | a policy learned from the sample, or one that depends on the law, is outside this evidence |

@@ -470,11 +470,24 @@ A shifted dose above the cap holds the row at its own dose. The example cap of 4
 the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
 observed dose and the policy assigns a dose above that maximum.
 
-The correction step needs the ratio of the density of each policy dose to the density of the
-observed dose. By default the fit estimates the dose density in `density_bins` bins. With
-`ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
-policy copy, and the ratio comes from its predicted odds. The classifier route fits no density,
-so it suits a flexible classifier when the bins are too coarse.
+The correction step needs, for each row, how much more or less common the policy dose is than
+the dose the row received: a ratio of two densities of the dose given the covariates. By default
+the fit estimates that density on a grid of dose intervals. `density_bins` sets their number, and
+the fit adds narrower intervals where the doses thin out. It then draws a smooth curve through the
+interval probabilities, so even a small shift changes the ratio. The estimate is only as good as
+the treatment learner behind it, so pass a flexible one, such as gradient boosting. A simple
+parametric learner can fit the narrow outer intervals poorly.
+
+When the possible doses depend on the covariates, declare that range with
+`Support(lower, upper)` from `cleverly.interventions`, where each bound is a number or a function
+of the covariates. Pass it as `treatment_support=` to `PointTreatment` or to `TMLE.fit`. Without
+it the fit cannot tell a hard limit from doses that are merely rare, and it spreads density past
+the limit, which distorts the ratio near it.
+
+With `ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
+policy copy, and the ratio comes from its predicted odds. This route fits no density. Like the
+default, it accepts doses that a declared `dose_atoms=` marks as recorded on many rows, such as
+zero.
 [Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
 states both routes.
 

@@ -702,11 +702,25 @@ previous reader had is not a citation; a page number is.
   `T46`) is licensed by van der Laan and Luedtke (2015), Section 7.2. Part (f2b) of
   [X11](roadmap.md#x11-learned-policy-follow-ups) must read the 2016 paper with this correction.
 - Scott (1979), *On optimal and data-based histograms*, *Biometrika* 66(3):605–610, DOI
-  [10.1093/biomet/66.3.605](https://doi.org/10.1093/biomet/66.3.605). The bin width that
-  minimises the integrated squared error of a histogram shrinks as $n^{-1/3}$. The default
-  `density_bins=None` follows that rate, `max(20, ceil(2 n^(1/3)))`. A growing count is
-  necessary for a consistent binned density, and the hazard learner must also be consistent. The
-  constant 2 is the Rice rule, which the source does not give.
+  [10.1093/biomet/66.3.605](https://doi.org/10.1093/biomet/66.3.605). Equation (5): the bin width
+  that minimises the integrated squared error of a fixed-width histogram, for a density with two
+  bounded continuous derivatives, shrinks as $n^{-1/3}$. The default `density_bins=None` follows
+  that order for the core count, `max(20, ceil(2 n^(1/3)))`. The source covers neither the
+  equal-mass core, nor the refined tail bins, nor the log-polygon reading, nor the error of a
+  density ratio, so the package cites it for the core count only. A growing count is necessary
+  for a consistent binned density, and the hazard learner must also be consistent. The constant 2
+  is the Rice rule, which the source does not give.
+- Díaz Muñoz & van der Laan (2011), *Super learner based conditional density estimation with
+  application to marginal structural models*, *The International Journal of Biostatistics* 7(1),
+  Article 38, DOI [10.2202/1557-4679.1356](https://doi.org/10.2202/1557-4679.1356). Section 2
+  builds the pooled-hazard histogram that `fit_conditional_density` fits, and relays Denby and
+  Mallows (2009): equal-mass bins oversmooth the tails. It gives no rate. The package's refined
+  grid answers that remark, and its log-polygon reading is its own.
+- Kooperberg & Stone (1991), *A study of logspline density estimation*, *Computational
+  Statistics & Data Analysis* 12(3):327–347, DOI
+  [10.1016/0167-9473(91)90115-I](https://doi.org/10.1016/0167-9473(91)90115-I). Section 2: a
+  log density that is linear beyond the extreme knots, so the density is exponential in the
+  tails. The package cites it as prior art for log-linear tails only; it states no rate.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).

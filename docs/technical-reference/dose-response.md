@@ -132,12 +132,16 @@ The route is the generic CV-TMLE theorem of Zheng and van der Laan (2011), Theor
 inputs are the canonical gradient and the second-order remainder above.
 
 1. Cross-fit $\bar Q$ and $g$ over `n_folds` folds. $g$ is the package's pooled-hazard binned
-   conditional density with `density_bins` bins. $\bar Q$ is any outcome learner, with the dose as a
-   feature.
+   conditional density on a core of `density_bins` bins, refined in the outer bins and read as a
+   corrected log frequency polygon
+   ([the grid and reading paragraphs](longitudinal-tmle.md#modified-treatment-policies-at-a-node)).
+   $\bar Q$ is any outcome learner, with the dose as a feature.
 2. Build one quadrature rule shared by every pair: a composite Gauss-Legendre rule with
-   `nodes_per_piece` nodes on each piece of the partition of $D$ at the density's bin edges, every
-   $a_0 \pm h$ inside $D$, and $D$'s endpoints. The weight is a polynomial on each piece and
-   $1/\hat g$ is constant there, so only $\bar Q$ and the logistic map add integration error.
+   `nodes_per_piece` nodes on each piece of the partition of $D$ at the density's bin edges and
+   bin centres, every $a_0 \pm h$ inside $D$, and $D$'s endpoints. The weight is a polynomial on
+   each piece and $\log \hat g$ is linear there, so $1/\hat g$ is smooth on every piece and the
+   rule integrates it with $\bar Q$ and the logistic map
+   (`tests/unit/test_density_reconstruction.py::test_the_dose_response_rule_breaks_at_the_bin_centres`).
 3. For each pair, fit one pooled one-dimensional fluctuation over all rows, with the out-of-fold
    clever covariate $H(A, W) = w_{h,a_0}(A)/\hat g(A \mid W)$:
    $\operatorname{logit} \bar Q^*(a, W) = \operatorname{logit} \bar Q(a, W) + \varepsilon H(a, W)$

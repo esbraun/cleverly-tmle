@@ -518,6 +518,12 @@ class Support:
     and a policy that assigns a dose outside it.  Each check reads the observed history,
     on which the estimator conditions, so it covers the histories the data record.
 
+    On the density route the declaration also drives the reading of the binned density
+    (:mod:`cleverly.learners.density`): each row's bins are cut at its own bounds, a bin
+    outside them breaks the row's segment, and the density is zero beyond them.  A support
+    edge that moves with the history is then not read as a thin tail.  The hazard fit does
+    not read the declaration.
+
     .. code-block:: python
 
         Support(0.0, lambda h: 6.0 + 2.0 * h["W2"])

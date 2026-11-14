@@ -535,7 +535,7 @@ class PointTreatment:
         The declared conditional support of a continuous dose, as
         :meth:`cleverly.TMLE.fit` takes it.  A vector treatment maps each continuous
         component to its support.  A modified treatment policy must assign each row a dose
-        inside it.
+        inside it, and the density route reads the dose's density over it.
     dose_atoms : sequence of float, or mapping of str to sequence of float
         The doses of a continuous treatment with a recorded point mass, as
         :meth:`cleverly.TMLE.fit` takes them.  A vector treatment maps each continuous

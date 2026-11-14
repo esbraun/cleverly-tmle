@@ -166,8 +166,8 @@ The oracle's bin count grows as $n^{2/3}$. A first run at a fixed 80 bins found 
 density ratio is not consistent at a fixed count, so the package default now grows with $n$
 and this study re-ran under a fresh declaration. At a growing count the ratio error falls
 faster than $n^{-1/2}$, which the cells with a wrong outcome regression need. The
-[bin count paragraph](../longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
-measurements.
+[grid paragraph](../longitudinal-tmle.md#modified-treatment-policies-at-a-node) states why a
+fixed count is not consistent.
 
 `classifier_route` estimates the ratio by stacked classification, with a logistic regression on
 the true log ratio, so the classifier is correctly specified. `inverse_necessity` fits `up then

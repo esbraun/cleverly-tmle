@@ -763,29 +763,40 @@ At a continuous node the treatment factor of the cumulative product is the ratio
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
-**The bin count of the density route.** A binned density at a fixed bin count is not
-consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
-errs most there. One draw of the `longitudinal-mtp` law, fitted with the exact bin probabilities so
-that the binning is the only error left, measured this error.
+**The grid of the density route.** The pooled-hazard fit gives each row a probability for each
+bin of a grid. The grid starts from `density_bins` equal-mass bins, the core. A core bin wider than
+$h$, the mean width of the interior core bins, is cut into pieces of width at most $h$. An empty
+run of pieces longer than $2h$, and longer than the span of the 20 observations on its inner side,
+becomes a gap bin of its own. The other pieces are merged from the outer end inward until each
+holds at least $\min(20, m)$ of the $m$ observations of its stretch. Core edges are never removed,
+so a fit has at least `density_bins` bins. `DensityDiagnostics.core_bins` reports the core count
+and `n_bins` the refined count.
 
-| bins | spread of the influence curve over the efficient one, n = 2,000 | the same, n = 8,000 |
-| ---: | --- | --- |
-| 20 | 1.62 | 1.72 |
-| 80 | 1.14 | 1.20 |
-| 160 | 1.04 | 1.13 |
-| 320 | 0.99 | 1.00 |
+A binned density at a fixed bin count is not consistent: a
+growing count is necessary, and the hazard learner must also be consistent. So the default
+`density_bins=None` grows the core count with the sample, `max(20, ceil(2 n^(1/3)))`. Scott (1979) derives that rate for a fixed-width histogram
+with two bounded derivatives, so for this grid and reading it is the package's own choice. An
+explicit `density_bins=` is used as given.
 
-At a fixed count the excess spread stays as $n$ grows. It falls as the count grows: at
-n = 2,000 it is 0.62 at 20 bins, 0.14 at 80 bins and 0.04 at 160 bins. So the
-default `density_bins=None` grows the count with the sample: `max(20, ceil(2 n^(1/3)))`, the rate
-of Scott (1979). An explicit `density_bins=` is used as given. `tests/unit/test_density_bins_consistency.py`
-shows the tail error shrinking with $n$ under the default, and a mutation that holds the count at
-20 fails it. The same file checks the default count through `fit_conditional_density` and
-through a `TMLE` fit at n = 2,000.
+**The reading of the density route.** The ratio reads each row's bin probabilities $p_b$ as a
+corrected log frequency polygon. Bin $b$ of width $w_b$ has a knot at its centre,
+$c_b = \log(p_b / w_b) - \varphi(s_b w_b)$ with $\varphi(x) = \log\{\sinh(x/2) / (x/2)\}$. The
+slope $s_b$ is the mean of the secants to the two neighbouring knots, or the one secant at the end
+of a run, and the knots are iterated to a fixed point. Between two centres the log density is
+linear, so an exponential law is read exactly on bins of any width.
+
+A run of linked bins, a segment, ends at an empty bin, at a bin of probability at most $10^{-10}$, and at a bin outside the
+row's declared support. Each segment is rescaled to its total probability, and a bin alone in its
+segment reads $p_b / w_b$. A declared support, `continuous_treatment={"A1": Support(lower, upper)}`,
+cuts each row's bins at its own bounds, so a support edge that depends on the history is not read
+as a thin tail. `tests/unit/test_density_reconstruction.py` holds the witnesses and their mutation
+controls, and `tests/unit/test_density_bins_consistency.py` shows the tail error shrinking with
+$n$ under the default, where a count held at 20, the equal-mass grid and a range-based width cap
+each fail.
 
 **The memory of the density route.** The pooled hazard design holds about $n (K + 1) / 2$
-records of the covariates and $K - 1$ bin columns, at 8 bytes each. At the default count it grows
-as $n^{5/3}$. The table gives the design at one covariate column.
+records of the covariates and $K - 1$ bin columns, at 8 bytes each, where $K$ is the refined bin
+count, which the fit computes before it counts. At the default count it grows as $n^{5/3}$. The table gives the design at one covariate column.
 
 | n | default bins | design |
 | ---: | ---: | ---: |
@@ -795,14 +806,19 @@ as $n^{5/3}$. The table gives the design at one covariate column.
 | 1,000,000 | 200 | 150 GiB |
 
 A fit counts the design before it allocates it. When the design exceeds the available memory, the
-fit raises `MethodConfigurationError`. The message gives the size and the largest bin count whose
-design fits in half of the memory. `cleverly.learners.density.hazard_design_bytes` gives the
+fit raises `MethodConfigurationError`. The message gives the size and the largest core count whose
+refined design fits in half of the memory. `cleverly.learners.density.hazard_design_bytes` gives the
 estimate. A learner copies its design, so the peak can be a multiple of the table.
 
-Two consequences follow. When the outcome regression is wrong, the bin error enters the bias at
-first order, so double robustness through the density alone needs a ratio error of
-$o(n^{-1/2})$, which a histogram does not give. When the outcome regression is right, a coarse
-count inflates the influence curve, and the intervals are conservative. When efficiency matters,
+Two consequences follow. When the outcome regression is wrong, the density's error enters the bias
+at first order, so double robustness through the density alone needs a ratio error of
+$o(n^{-1/2})$. When the outcome regression is right, a coarse count inflates the influence curve,
+and the intervals are conservative.
+
+Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023,
+arXiv v4, 2006.01366v4) needs the density ratios to stay bounded. That holds for a capped shift on
+a bounded dose and for a policy held below a declared support's upper end. An uncapped shift on an
+unbounded dose has an unbounded ratio and lies outside that theorem. When efficiency matters,
 use `ratio="classifier"` with a flexible classifier, or set `density_bins=` higher.
 
 `regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
@@ -2023,7 +2039,7 @@ step, and established argument.
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
 the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
 bounded. On a continuous node a binned density meets the mechanism-ratio rate only if its bin
-count grows with $n$ (see the bin count paragraph under modified treatment policies). Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
+count grows with $n$ (see the grid paragraph under modified treatment policies). Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
 shows that a sufficient condition stated in terms of the initial recursive learners can contain
 cross-time products between a mechanism error at node $t$ and regression errors at later nodes.
 The weighted row additionally needs weights that are known and bounded.

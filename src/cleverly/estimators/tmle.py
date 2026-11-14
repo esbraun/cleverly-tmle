@@ -1698,7 +1698,8 @@ class TMLE:
             (Díaz et al. 2023, Assumption 1).  A vector treatment maps each continuous
             component to its support, given the covariates, the categorical components and
             the doses before it in column order.  Each branch of a joint policy is checked
-            on the components it assigns.
+            on the components it assigns.  The density route reads each dose's density over
+            its declared support.
         dose_atoms : sequence of float, or mapping of str to sequence of float
             The doses with a recorded point mass, such as a list price.  The policy ratio
             is then taken against Lebesgue plus counting measure on these doses, on both
