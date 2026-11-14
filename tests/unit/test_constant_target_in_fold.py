@@ -33,12 +33,15 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators import _nuisance as nuisance_module
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.learners import Folds
+from cleverly.sensitivity import marginal_sensitivity_bounds
 from cleverly.utils.bounds import shrink_probabilities
 from cleverly.validation.nuisance import TMLE_CONSTANT_TARGET_IN_FOLD
 
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
 drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
+marginal_module = importlib.import_module("cleverly.sensitivity.marginal")
 
 #: The sklearn refusal of a one-class target, which the rule replaces in an outcome fold and
 #: which a mechanism fold keeps.
@@ -203,6 +206,46 @@ class TestPerArmInSample:
         assert result["ate"].inference == "constant_arm_cell_plugin"
         assert result["ey0"].inference != "constant_arm_cell_plugin"
         assert np.isfinite(result["ey0"].std_error)
+
+    @pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
+    @pytest.mark.parametrize("estimand", ["ate", "ey1", "att"])
+    def test_the_marginal_bounds_withhold_the_interval_of_a_withheld_estimate(
+        self, estimand: str
+    ) -> None:
+        """At gamma = 1 the set interval is a confidence interval for the estimate itself."""
+        result = self._fit(self._frame())
+        assert result[estimand].inference == "constant_arm_cell_plugin"
+        with pytest.raises(CapabilityError, match="constant_arm_cell_plugin") as raised:
+            marginal_sensitivity_bounds(result, gamma=(1.0, 2.0), estimand=estimand)
+        assert raised.value.refusal.reason is RefusalReason.INFERENCE_GAP
+        # Nonzero witness: the arm that fitted a learner keeps its bounds and interval.
+        bounds = marginal_sensitivity_bounds(result, gamma=(1.0, 2.0), estimand="ey0")
+        assert np.isfinite(bounds.rows[0].lower_limit)
+
+    @pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
+    def test_an_unreported_estimand_on_the_constant_arm_is_withheld(self) -> None:
+        estimator = TMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            outcome_by_arm=True,
+            estimands=["ey0"],
+        )
+        result = estimator.fit(self._frame(), outcome="Y", treatment="A").single()
+        assert "ate" not in result.estimates
+        with pytest.raises(CapabilityError, match="constant_arm_cell_plugin"):
+            marginal_sensitivity_bounds(result, gamma=(1.0,), estimand="ate")
+
+    @pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
+    def test_without_the_status_check_the_interval_returns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the bounds no longer read the estimate's status."""
+        monkeypatch.setattr(marginal_module, "_withheld_status", lambda *args: None)
+        result = self._fit(self._frame())
+        bounds = marginal_sensitivity_bounds(result, gamma=(1.0,), estimand="ate")
+        row = bounds.rows[0]
+        assert np.isfinite(row.lower_limit) and row.lower_limit < row.lower
 
     def test_without_the_rule_the_arm_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mutation control: the fold loop no longer receives ``constant_folds``."""

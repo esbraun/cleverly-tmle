@@ -2488,6 +2488,7 @@ largest grid $\Gamma$ at which the ratio is defined.
 | a longitudinal fit | `implementation_gap`, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a continuous treatment, a policy, a regime, an incremental intervention, an MSM, a structural nested mean model | `different_estimand` |
 | a fit whose estimate has no influence-curve inference | `inference_gap`. A selecting `CTMLE` is exempt, because the refit replaces its selected mechanism |
+| a bounded estimate whose own status withholds its interval, such as `constant_arm_cell_plugin`, or an unreported estimate that reads an arm with one observed outcome value | `inference_gap`, with the status text. At $\Gamma = 1$ the set interval would be a confidence interval for that estimate. `tests/unit/test_constant_target_in_fold.py` checks it, and its mutation drops the check and sees the interval return |
 
 **Evidence.** `tests/unit/test_marginal_sensitivity.py` solves the linear program on a finite law
 with `scipy.optimize.linprog`. On the same law, rows in exact proportion to the probabilities make
