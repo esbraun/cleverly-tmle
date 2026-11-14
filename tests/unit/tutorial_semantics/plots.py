@@ -178,7 +178,7 @@ def _check_exact(namespace: dict[str, Any]) -> None:
     assert result.simultaneous is not None
     assert figure_title(namespace["exact_curve_fig"]) == "Risk at the target times"
     support = namespace["exact_support"]
-    assert support.bounded_share < 0.0005, "the reading says the floor raised 0.000"
+    assert support.bounded_share == 0.0, "the reading says no weight was capped"
     assert namespace["retention"].loc["1%", 2.0] > 0.6
     title = figure_title(namespace["exact_overlap_fig"])
     assert title == "Predicted probability of treatment, by arm"

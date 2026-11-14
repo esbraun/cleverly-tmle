@@ -235,7 +235,8 @@ learners(exact_risks)
 
 `curve` draws each plan's risk of each event, one column per event, and the difference below.
 Each risk is a point at a time in `horizons=` with its 95% interval, and nothing is drawn between
-those times, because the fit estimates no risk there.
+those times, because the fit estimates no risk there. No simultaneous band is drawn, because this
+fit did not compute one; `simultaneous=True` adds it.
 
 `overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
 for each arm, the chance of that arm times the chance of staying in follow-up just before the last

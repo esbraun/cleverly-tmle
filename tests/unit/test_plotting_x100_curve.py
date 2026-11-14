@@ -8,6 +8,7 @@ asserts first that the fixture can tell the two apart.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterator
 from typing import Any
 
@@ -313,3 +314,97 @@ def test_truth_is_drawn_at_the_target_times(one_event: Any, drawn: list[Figure])
     ]
     assert [float(np.asarray(c.get_xdata())[0]) for c in crosses] == [1.0]
     assert [float(np.asarray(c.get_ydata())[0]) for c in crosses] == [0.2]
+
+
+WITHHELD = "risk_regimen[treated @ t=1]"
+
+
+def _withheld(result: Any) -> Any:
+    """The fit with one risk's interval withheld, as a fit that supplies no inference reports."""
+    estimates = dict(result.estimates)
+    estimates[WITHHELD] = dataclasses.replace(
+        estimates[WITHHELD], inference="estimated_mechanism_plugin"
+    )
+    return dataclasses.replace(result, estimates=estimates)
+
+
+def _check_withheld(fig: Figure, result: Any) -> None:
+    """No interval bar at the withheld risk, a hollow marker there, and the note."""
+    treated = matplotlib.colors.to_hex(_core.series_color(1))
+    found = _series(fig.axes[0])[1]  # control is drawn first, then treated
+    assert 1.0 not in set(found["interval"][0].tolist()), "an interval is drawn where withheld"
+    hollow = [
+        float(np.asarray(line.get_xdata())[0])
+        for line in fig.axes[0].get_lines()
+        if line.get_gid() == _core.GID_POINT
+        and matplotlib.colors.to_hex(line.get_color()) == treated
+        and matplotlib.colors.to_hex(line.get_markerfacecolor()) == _core.FACE
+    ]
+    assert hollow == [1.0]
+    assert any(
+        note.startswith("No interval is drawn where the fit withholds it")
+        for note in plotting.notes(fig)
+    )
+
+
+def test_a_withheld_interval_draws_a_hollow_marker_and_no_bar(
+    one_event: Any, drawn: list[Figure], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    withheld = _withheld(one_event)
+    # Witness: the estimate supplies no inference, while the fit's frame still holds a finite
+    # interval at that row, which a careless reader would draw.
+    assert not withheld.estimates[WITHHELD].supplies_inference
+    frame = one_event.curve()
+    row = frame[frame["parameter"] == WITHHELD].iloc[0]
+    assert np.isfinite([row["ci_lower"], row["ci_upper"]]).all()
+    monkeypatch.setattr(
+        _continuous_curve, "curve_frame", lambda result, view: one_event.curve(scale=view)
+    )
+    _check_withheld(_draw(drawn, plotting.curve, withheld, band="none"), withheld)
+    # Mutation control: a reader that keeps the frame's interval whatever the estimate says.
+    original = _continuous_curve.curve_rows
+
+    def kept(result: Any, view: str) -> Any:
+        rows, causes, limits = original(result, view)
+        frame = one_event.curve(scale=view).set_index("parameter")
+        rows = [
+            dataclasses.replace(
+                r,
+                lower=float(frame.loc[r.parameter, "ci_lower"]),
+                upper=float(frame.loc[r.parameter, "ci_upper"]),
+            )
+            for r in rows
+        ]
+        return rows, causes, limits
+
+    monkeypatch.setattr(_continuous_curve, "curve_rows", kept)
+    wrong = _draw(drawn, plotting.curve, withheld, band="none")
+    with pytest.raises(AssertionError):
+        _check_withheld(wrong, withheld)
+
+
+def test_a_non_finite_interval_draws_a_hollow_marker_and_says_so(
+    one_event: Any, drawn: list[Figure], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def gap(result: Any, view: str) -> Any:
+        out = result.curve(scale=view).copy()
+        out.loc[out["parameter"] == WITHHELD, "ci_upper"] = np.nan
+        return out
+
+    monkeypatch.setattr(_continuous_curve, "curve_frame", gap)
+    fig = _draw(drawn, plotting.curve, one_event, band="none")
+    treated = matplotlib.colors.to_hex(_core.series_color(1))
+    hollow = [
+        float(np.asarray(line.get_xdata())[0])
+        for line in fig.axes[0].get_lines()
+        if line.get_gid() == _core.GID_POINT
+        and matplotlib.colors.to_hex(line.get_color()) == treated
+        and matplotlib.colors.to_hex(line.get_markerfacecolor()) == _core.FACE
+    ]
+    assert hollow == [1.0]
+    assert any("no finite interval at time 1" in note for note in plotting.notes(fig))
+
+
+def test_outcome_label_is_refused(one_event: Any) -> None:
+    with pytest.raises(ValueError, match="outcome_label="):
+        plotting.curve(one_event, outcome_label="relapse")

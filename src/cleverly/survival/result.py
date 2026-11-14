@@ -1372,6 +1372,11 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         ------
         CapabilityError
             When the fit refuses the requested view, with the fit's own reason.
+        ValueError
+            When ``band=``, ``measure=``, ``scale=`` or ``cause=`` do not fit together or
+            the fit, such as ``band="bootstrap"`` or ``cause=`` with ``measure="rmst"``.
+        DataError
+            When ``cause=`` or ``regimens=`` names a cause or arm the fit does not hold.
         """
         from ..plotting import curve
 

@@ -408,6 +408,11 @@ def curve(
     if isinstance(obj, ContinuousSurvivalResult):
         if ax is not None:
             raise ValueError("curve() draws a continuous-time survival fit in several panels")
+        if outcome_label is not None:
+            raise ValueError(
+                "outcome_label= words the axis of a mean outcome; a continuous-time survival "
+                "fit draws risks, survival or restricted means, whose axes are named for them"
+            )
         from ._continuous_curve import curve as continuous_curve
 
         return continuous_curve(

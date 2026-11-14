@@ -378,10 +378,10 @@ def _notes(
             "nothing is drawn at other times. No simultaneous band covers a restricted mean, "
             "so each has its pointwise interval only."
         )
-    labels = {}
-    for x in xs:
-        at = [r.estimate.support.label for r in rows if r.x == x]
-        labels[x] = "experimental" if "experimental" in at else (at[0] if at else "")
+    labels = {
+        x: " and ".join(dict.fromkeys(r.estimate.support.label for r in rows if r.x == x))
+        for x in xs
+    }
     found.append("Support by time: " + ", ".join(f"{x:g} {labels[x]}" for x in xs) + ".")
     found += _support_notes([r.estimate for r in rows], "estimate")
     found += _withheld_notes([r.estimate for r in rows])
