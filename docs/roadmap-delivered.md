@@ -1,8 +1,9 @@
 # Delivered roadmap items
 
-An item leaves the [roadmap](roadmap.md) when it is delivered, or when the owner removes it from
-the plan. Code comments, tests and evidence pages still name such items by their IDs. The roadmap file at a commit that still held an
-item keeps its full contract, so each row below links that version. The newest removals come first.
+An item leaves the [roadmap](roadmap.md) when it is delivered, or when the owner removes it from the
+plan. Code comments, tests and evidence pages still name delivered items by their IDs. The roadmap
+file at a commit that still held an item keeps its full contract, so each row below links that
+version. The newest removals come first.
 
 | items | what they were | the roadmap that holds them |
 | --- | --- | --- |

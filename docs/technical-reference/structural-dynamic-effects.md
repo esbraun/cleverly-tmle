@@ -109,9 +109,9 @@ $$
 
 A contrast is the difference of two such levels. A feature that reads a covariate $L_t$ needs
 $E[\phi_t(H_t(\bar a))]$ in step 4. That mean depends on the law of $L_t$ under the regimen. The
-estimator does not estimate that law, so it refuses the level and names `LTMLE` and `SDR`, which
-estimate it. Lewis and Syrgkanis (2021), arXiv version, Corollary 9, gives the inference for
-that route.
+estimator does not estimate that law, so it refuses the level. `LTMLE` and `SDR` estimate the
+static value directly. Lewis and Syrgkanis (2021), arXiv version, Corollary 9, gives the inference
+for a blip-based static value of this kind.
 
 A static dose level is regular only under this model. The nonparametric model does not make a
 point dose pathwise differentiable. The estimator therefore requires each static dose and the
