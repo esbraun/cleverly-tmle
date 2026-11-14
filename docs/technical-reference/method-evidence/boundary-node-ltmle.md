@@ -169,9 +169,9 @@ These readings carry no verdict.
   on the firing draws of the law A cells, 3.2 times in the zero cell and 1.07 on law B
   (`width_ratio_to_oracle`).
   At n = 100 that reading is NaN for the always risk and the contrast. Those cells hold withheld
-  draws whose standard errors are NaN, and the reading takes a plain median. The fixed formula is
-  the median over firing draws where both standard errors are finite, and the study publishes the
-  committed value until its next declared run.
+  draws whose standard errors are NaN, and the reading takes a plain median. The corrected formula,
+  used at the next declared run, is the median over firing draws where both standard errors are
+  finite. Until then the page publishes the committed value.
 
 ## Sizing and the first declared run
 

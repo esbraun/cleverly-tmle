@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e) and (h), X77, X35, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |

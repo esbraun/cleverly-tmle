@@ -491,6 +491,10 @@ def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: flo
                 oracle[["replicate", "std_error"]], on="replicate", suffixes=("", "_oracle")
             )
             firing = joined.loc[_flag(joined["firing"])]
+            # Known defect, kept so the committed properties.csv recomputes: a withheld draw has
+            # a NaN standard error and np.median returns NaN for the whole cell (interior_n100,
+            # always and the contrast). The next declared run takes the median over firing draws
+            # where both standard errors are finite.
             values["width_ratio_to_oracle"] = (
                 float(np.median(firing["std_error"] / firing["std_error_oracle"]))
                 if len(firing)
