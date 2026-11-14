@@ -45,9 +45,11 @@ bias clause gates.
   :data:`PAIR_PILOT_DRAWS` paired draws per engine at the declared n, each positive's
   ``equivalence_power`` and each control's ``necessity_power`` at least 0.90 at
   :data:`PAIR_REPLICATES`.  Exit declared before the pilot: a larger n, or ``reporting`` with an
-  owner, never a weaker law.  The 200-draw pilots at n = 2,400 (:data:`PAIR_PILOT_READINGS`)
-  read positive biases 0.002 and 0.042 SD and controls displaced by 0.47 and 0.61 SD; every
-  power is above 0.9999, so R = 1,000 and the retention intercept 2.8 stand.
+  owner, never a weaker law.  The pilots at n = 2,400, extended from 200 to 800 paired
+  draws after the design review so that the powers hold with the pilot's own uncertainty
+  (:data:`PAIR_PILOT_READINGS`), read positive biases -0.027 and 0.028 SD and controls displaced
+  by 0.44 and 0.59 SD; every power is above 0.999, so R = 1,000 and the retention intercept 2.8
+  stand.
 
 The red-cell reading is in :mod:`tests.studies.canonical_mtp_pricing_censored`.
 """
@@ -110,6 +112,7 @@ assert tuple(CELLS) == study.CALIBRATION_LABELS
 PILOT_DRAWS = 400
 PILOT_DRAWS_READ = 2_800
 PAIR_PILOT_DRAWS = 200
+PAIR_PILOT_DRAWS_READ = 800
 #: The plan's fallback size, at which an arm's plug-in pass probability is read.
 TARGET_REPLICATES = 2_800
 #: Each arm's SE ratio on its 2,800-draw pilot (``diagnostic`` stream).
@@ -130,21 +133,21 @@ NOISE_SD: dict[str, float] = {
 }
 assert set(NOISE_SD) == set(CELLS)
 
-#: The pair pilots' readings (``tools.pair_reading``, 200 paired draws, ``diagnostic`` stream).
+#: The pair pilots' readings (``tools.pair_reading``, 800 paired draws, ``diagnostic`` stream).
 PAIR_PILOT_READINGS: dict[str, dict[str, float]] = {
     "necessity_ltmle_tau3": {
-        "positive_standardized_bias": 0.002075644680509305,
-        "control_standardized_bias": 0.5061164454214552,
-        "equivalence_power": 0.9999998954438447,
-        "necessity_power": 0.9999999833639209,
-        "displacement": 0.46869860202749836,
+        "positive_standardized_bias": -0.026965599690000796,
+        "control_standardized_bias": 0.43988781473074445,
+        "equivalence_power": 0.9999962171620166,
+        "necessity_power": 0.999697040144478,
+        "displacement": 0.43742581844867884,
     },
     "necessity_sdr_tau3": {
-        "positive_standardized_bias": 0.04224099396042749,
-        "control_standardized_bias": 0.7407867744721034,
-        "equivalence_power": 0.9999675280243919,
+        "positive_standardized_bias": 0.02792641953443513,
+        "control_standardized_bias": 0.6957057477085515,
+        "equivalence_power": 0.9999956408597638,
         "necessity_power": 1.0,
-        "displacement": 0.6120209562029517,
+        "displacement": 0.5890534914541791,
     },
 }
 
