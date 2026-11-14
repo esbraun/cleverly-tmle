@@ -240,10 +240,11 @@ class _RLoss:
 
     @cached_property
     def xu(self) -> FloatArray:
-        """The penalized columns of ``x``, copied on the first coefficients() call only.
+        """The penalized columns of ``x``, copied once, when coefficients() first needs them.
 
         Built lazily so that the full-row problem holds no copy while the fold problems are
-        solved; it is the same copy, values and layout, that each call used to make.
+        solved, and a problem with no unpenalized column never builds it. It is the same copy,
+        values and layout, that each call used to make.
         """
         return self.x[:, self.usable]
 
@@ -633,15 +634,15 @@ def select_working_model(
         for fold in np.unique(assignment):
             held = assignment == fold
             sub = _RLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
-            # Sliced once per fold: only the KKT residual of the final solution is read, so
-            # the fold paths compute none.
+            # The held rows are sliced once per fold, not once per penalty. The fold paths
+            # compute no KKT residual: only the final solution's is read.
             basis_held, multiplier_held = basis[held], multiplier[held]
             response_held = response[held]
             for k, coef in enumerate(sub.path(grid)):
                 fitted = multiplier_held * (basis_held @ coef)
                 loss[k] += float(np.sum((response_held - fitted) ** 2))
-            # Released before the next fold's problem is built, so the peak stays where the
-            # replaced code had it.
+            # Released before the next fold's problem is built, which keeps the peak below the
+            # replaced code's.
             del sub, basis_held, multiplier_held, response_held
     risk = loss / problem.total
     index = int(np.flatnonzero(risk == risk.min())[0])

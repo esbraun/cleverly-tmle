@@ -3,14 +3,15 @@
 ``select_working_model`` used to slice each inner fold's held rows, copy the penalized columns
 and compute a Karush-Kuhn-Tucker residual once per penalty. It now does each once. The
 arithmetic of every float that feeds a comparison (the risk minimum, the KKT acceptance) is
-unchanged, so every test here compares with exact equality, never a tolerance, against the
-replaced algorithm written out from the public lasso helpers.
+unchanged, so every comparison here is exact equality, never a tolerance, against the
+replaced algorithm written out from the public lasso helpers. The memory test is a bound.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import tracemalloc
+import weakref
 from collections.abc import Callable
 from typing import Any
 
@@ -186,7 +187,7 @@ def _mutant_risk(problem: Problem, *, slices_once: bool) -> np.ndarray:
 
 
 def test_the_equivalence_sees_the_defects_hoisting_could_introduce() -> None:
-    # Deliberate mutations of the three changes, each of which the exact comparison must
+    # Deliberate mutations near the changed code, each of which the exact comparison must
     # detect on an ordinary fixture: held slices taken once before the fold loop, the final
     # path stopped one penalty short, and a path that drops its warm start.
     problem = _problem("ordinary", 1)
@@ -322,13 +323,51 @@ def test_a_selection_peaks_below_the_replaced_code() -> None:
     # column copy and the release of each fold's state before the next keep it near 6.2.
     # Keeping a fold's problem into the next fold reads 9.6 and fails.
     basis, multiplier, response, k, inner = _problem("ordinary", 1, n=4000, columns=40)
-    tracemalloc.start()
+    tracing = tracemalloc.is_tracing()
+    if not tracing:
+        tracemalloc.start()
     try:
+        tracemalloc.reset_peak()
+        start = tracemalloc.get_traced_memory()[0]
         select_working_model(basis, multiplier, response, k, inner)
-        peak = tracemalloc.get_traced_memory()[1]
+        peak = tracemalloc.get_traced_memory()[1] - start
     finally:
-        tracemalloc.stop()
-    assert peak <= 7.9 * basis.nbytes
+        if not tracing:
+            tracemalloc.stop()
+    copies = peak / basis.nbytes
+    assert copies <= 7.9, f"the selection peaked at {copies:.2f} copies of the dictionary"
+
+
+def test_the_full_row_problem_holds_no_column_copy_while_the_folds_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A copy built for the full-row problem before the fold loop would stay alive beside
+    # every fold's own copy.
+    problems: list[weakref.ref[Any]] = []
+    holders: list[int] = []
+    init, path = atmle._RLoss.__init__, atmle._RLoss.path
+
+    def tracked_init(self: Any, *args: Any) -> None:
+        init(self, *args)
+        problems.append(weakref.ref(self))
+
+    def tracked_path(self: Any, grid: np.ndarray) -> list[np.ndarray]:
+        if self is not problems[0]():
+            holders.append(
+                sum(
+                    "xu" in vars(p)
+                    for ref in problems[1:]
+                    if (p := ref()) is not None and p is not self
+                )
+            )
+            holders.append(int("xu" in vars(problems[0]())))
+        return path(self, grid)
+
+    monkeypatch.setattr(atmle._RLoss, "__init__", tracked_init)
+    monkeypatch.setattr(atmle._RLoss, "path", tracked_path)
+    select_working_model(*_problem("ordinary", 1))
+    assert len(holders) == 2 * 5
+    assert not any(holders)
 
 
 # --- the public fit ---------------------------------------------------------------------------
@@ -394,7 +433,8 @@ def test_a_public_fit_is_unchanged_when_the_reference_selects(
 
 
 def test_the_public_comparison_sees_a_one_column_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Deliberate mutation: a selection that drops its last column or a selection of only the unpenalized columns that adds one, must change the fit, so the
+    # Deliberate mutation: the fit must change when a selection loses its last column (or
+    # gains the first penalized one, when it holds only the unpenalized columns), so the
     # exact comparison above has something to detect.
     frame = _frame(600, seed=3)
     shipped = _public_fit(frame, "cv").fit
