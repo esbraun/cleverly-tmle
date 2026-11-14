@@ -4481,10 +4481,14 @@ class PolicySet:
                     owners.append((index, probability))
                     columns.append(np.asarray(branch.assign(a, frame), dtype=float))
                     held.append(branch.held(a))
-                    # No density to read a flat bin from, but a policy that moves nobody
-                    # is as invisible here; the natural course is meant to move nobody.
-                    if not branch.identity and not np.any(columns[-1] != a):
-                        _warn(UNMOVED_WARNING, UserWarning, stacklevel=3)
+                    # The checks of the density route that read no density: a policy
+                    # that moves nobody, and a dose assigned outside the observed range.
+                    # The natural course is meant to move nobody.
+                    if not branch.identity:
+                        if not np.any(columns[-1] != a):
+                            _warn(UNMOVED_WARNING, UserWarning, stacklevel=3)
+                        label = str(getattr(policy, "name", ""))
+                        _warn_outside_support(label, branch.cap, columns[-1], a)
         else:
             levels = tuple(data.arm_label(code) for code in data.arm_codes)
             observed_codes = a.astype(np.int64)

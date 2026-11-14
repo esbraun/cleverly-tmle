@@ -1772,6 +1772,8 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
                 learner_folds=2,
                 random_state=0,
                 simultaneous=False,
+                # The report grades the binned density's estimated zeros.
+                ratio="density",
                 **IN_SAMPLE,
             )
 

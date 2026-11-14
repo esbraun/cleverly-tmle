@@ -31,7 +31,7 @@ from cleverly import (
 from cleverly import _ratio_route as route_module
 from cleverly.data import CausalData
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
-from cleverly.exceptions import DataWarning, MethodConfigurationError
+from cleverly.exceptions import DataWarning, MethodConfigurationError, PositivityWarning
 from cleverly.interventions import PolicySet, Shift
 from cleverly.learners import density as density_module
 from cleverly.learners import isolated_dose_clusters
@@ -407,6 +407,16 @@ def test_a_policy_that_moves_no_dose_warns_on_either_route(ratio: str | None) ->
     with pytest.warns(UserWarning, match="changes no row.s dose"):
         result = estimator.fit(frame, outcome="Y", treatment="A").single()
     assert result.config.ratio_route.route == (ratio or CLASSIFIER)
+
+
+@pytest.mark.parametrize("ratio", [None, DENSITY])
+def test_a_dose_past_the_observed_range_warns_on_either_route(ratio: str | None) -> None:
+    frame = _far_frame(far=0)
+    estimator = TMLE(
+        **kinds._learners(policies=[Shift(3.0, cap=None)], ratio=ratio, q_bounds=(-30.0, 40.0))
+    )
+    with pytest.warns(PositivityWarning, match="above the largest one observed"):
+        estimator.fit(frame, outcome="Y", treatment="A")
 
 
 def _censored_panel(n: int = 600, seed: int = 0) -> pd.DataFrame:
