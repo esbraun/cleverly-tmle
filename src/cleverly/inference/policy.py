@@ -47,8 +47,10 @@ __all__ = [
     "VarianceSource",
 ]
 
-#: Which variance an estimate under ``variance="policy_weighted"`` reports.
-VarianceSource = Literal["influence_curve", "policy_weighted"]
+#: Which variance an estimate reports: the curve's, the policy-weighted one under
+#: ``variance="policy_weighted"``, or the curve's plus the boundary-node supplement
+#: (:mod:`cleverly.inference.node_variance`).
+VarianceSource = Literal["influence_curve", "policy_weighted", "boundary_node"]
 
 #: A policy-weighted variance at or below this multiple of the influence-curve variance is
 #: treated as degenerate, and the estimate keeps the influence-curve variance.

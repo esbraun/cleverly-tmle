@@ -196,13 +196,18 @@ EVENT_FREE_LEARNERS = {
 
 @pytest.mark.parametrize("target", ["mean", "contrast"])
 def test_the_study_path_reports_constant_node_parameters(target: str) -> None:
-    """A narrowed family with a constant-node parameter returns, and its band leaves it out."""
+    """A narrowed family with a constant-node parameter returns, and its band leaves it out.
+
+    The control arm's risk is exactly zero at horizons 1 and 2, on its bound, so it and its
+    contrasts take ``out_of_range_plugin``; the boundary-node supplement (X54 part (i)) does not
+    lift a bound.
+    """
     estimand = (
         RegimeMean(regimens={"treated": 1, "control": 0})
         if target == "mean"
         else RegimeContrast(regimens={"treated": 1, "control": 0}, reference="treated")
     )
-    with pytest.warns(DataWarning, match="constant_node_plugin"):
+    with pytest.warns(DataWarning, match="out_of_range_plugin"):
         result = CausalStudy(_event_free_frame(), design=EVENT_FREE_DESIGN).estimate(
             estimand, cross_fit=False, **EVENT_FREE_LEARNERS
         )

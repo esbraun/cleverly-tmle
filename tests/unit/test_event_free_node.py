@@ -25,7 +25,7 @@ from cleverly._summary import vocabulary
 from cleverly.datasets import make_longitudinal
 from cleverly.estimators import _nuisance
 from cleverly.exceptions import CapabilityError, DataWarning
-from cleverly.longitudinal import LTMLE, LongitudinalData
+from cleverly.longitudinal import LTMLE, SDR, LongitudinalData
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.estimator import constant_node_parameters
 from cleverly.msm import MSM
@@ -49,6 +49,23 @@ def _data(n: int = 600, seed: int = 1) -> LongitudinalData:
 
 def _estimator(**kwargs: Any) -> LTMLE:
     return LTMLE(
+        {"treated": 1, "control": 0},
+        outcome_learner=LogisticRegression(max_iter=1000),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        random_state=0,
+        **kwargs,
+    )
+
+
+def _withholding(**kwargs: Any) -> SDR:
+    """The same fit by ``SDR``, which keeps ``constant_node_plugin`` at a constant node.
+
+    An ``LTMLE`` fit adds the boundary-node supplement instead (X54 part (i),
+    ``tests/unit/test_boundary_node_variance.py``), so the status tests below read SDR.
+    """
+    return SDR(
         {"treated": 1, "control": 0},
         outcome_learner=LogisticRegression(max_iter=1000),
         pseudo_learner=LinearRegression(),
@@ -175,7 +192,7 @@ CONSTANT_NODE = (
 
 def _reported(**kwargs: Any) -> Any:
     with pytest.warns(DataWarning, match="constant_node_plugin"):
-        return _estimator(n_folds=1, **kwargs).fit(_data())
+        return _withholding(n_folds=1, **kwargs).fit(_data())
 
 
 def test_a_constant_node_parameter_reports_no_interval() -> None:
@@ -231,26 +248,30 @@ def test_a_constant_node_parameter_reports_no_interval() -> None:
     assert curve.loc[curve["inference"] == "influence_curve", "plugin_std_err"].isna().all()
 
 
-def test_removing_the_stamp_reports_a_zero_width_interval(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation control: without the status the risk of zero reports the interval [0, 0].
+def test_removing_the_supplement_reports_a_zero_width_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation control: without the range check and the supplement, the risk reads [0, 0].
 
-    A risk of exactly zero lies on its bound, so without the stamp it falls back on
-    ``out_of_range_plugin``, which names the wrong cause. With that range check removed as well,
-    the zero-width interval shows.
+    On an ``LTMLE`` fit a risk of exactly zero lies on its bound, so it takes
+    ``out_of_range_plugin`` whether or not its node is flagged. With the range check removed,
+    the supplement still gives it a positive standard error. With the supplement removed as
+    well, the plug-in interval of a zero curve, the zero-width interval, shows.
     """
+    from cleverly.inference import influence as influence_module
     from cleverly.longitudinal import estimator as estimator_module
 
-    monkeypatch.setattr(estimator_module, "constant_nodes", lambda fit: ())
-    result = _estimator(n_folds=1).fit(_data())
-    estimate = result["risk_regimen[control @ t=1]"]
+    estimate = _estimator(n_folds=1).fit(_data())["risk_regimen[control @ t=1]"]
     assert estimate.inference == OUT_OF_RANGE_STATUS
-    from cleverly.inference import influence as influence_module
-
+    assert estimate.node is not None
     for module in (estimator_module, influence_module):
         monkeypatch.setattr(module, "bounded_status", lambda status, *args, **kwargs: status)
-    result = _estimator(n_folds=1).fit(_data())
-    estimate = result["risk_regimen[control @ t=1]"]
+    estimate = _estimator(n_folds=1).fit(_data())["risk_regimen[control @ t=1]"]
     assert estimate.supplies_inference
+    assert estimate.std_error == pytest.approx(np.sqrt(estimate.node.node_variance))
+    assert estimate.std_error > 0.0
+    monkeypatch.setattr(estimator_module, "boundary_loadings", lambda *args, **kwargs: None)
+    estimate = _estimator(n_folds=1).fit(_data())["risk_regimen[control @ t=1]"]
     assert estimate.std_error == 0.0
     assert estimate.ci == (0.0, 0.0)
 
@@ -278,7 +299,7 @@ def _competing_data(n: int = 800, seed: int = 2) -> LongitudinalData:
 def test_a_total_of_constant_node_incidences_reports_no_standard_error() -> None:
     """The witness for ``incidence_total()``: a sum of flagged incidences is a diagnostic."""
     with pytest.warns(DataWarning, match="constant_node_plugin"):
-        result = _estimator(n_folds=1).fit(_competing_data())
+        result = _withholding(n_folds=1).fit(_competing_data())
     totals = result.incidence_total()
     flagged = totals[totals["inference"] == "constant_node_plugin"]
     assert set(zip(flagged["regimen"], flagged["time"], strict=True)) == {
@@ -301,7 +322,7 @@ def test_a_total_without_the_row_status_reports_zero(monkeypatch: pytest.MonkeyP
         estimator_module, "inference_status", lambda estimates, names: "influence_curve"
     )
     with pytest.warns(DataWarning):
-        result = _estimator(n_folds=1).fit(_competing_data())
+        result = _withholding(n_folds=1).fit(_competing_data())
     totals = result.incidence_total()
     assert "inference" not in totals.columns
     zero = totals[(totals["regimen"] == "control") & (totals["time"] <= 2.0)]
@@ -311,7 +332,7 @@ def test_a_total_without_the_row_status_reports_zero(monkeypatch: pytest.MonkeyP
 def test_a_flagged_reference_arm_flags_every_contrast_against_it() -> None:
     """A contrast whose *reference* reads a constant node takes the status through ``base``."""
     with pytest.warns(DataWarning, match="constant_node_plugin"):
-        result = LTMLE(
+        result = SDR(
             {"treated": 1, "control": 0},
             reference="control",
             outcome_learner=LogisticRegression(max_iter=1000),
@@ -340,7 +361,9 @@ def test_dropping_base_from_the_stamp_leaves_the_reference_contrast_inferential(
 
     real = estimator_module._parameter_status
     monkeypatch.setattr(
-        estimator_module, "_parameter_status", lambda inference, *read: real(inference, read[0])
+        estimator_module,
+        "_parameter_status",
+        lambda inference, *read, **kwargs: real(inference, read[0], **kwargs),
     )
     mutate(
         monkeypatch,
@@ -355,7 +378,7 @@ def test_dropping_base_from_the_stamp_leaves_the_reference_contrast_inferential(
         ],
     )
     with pytest.warns(DataWarning):
-        result = LTMLE(
+        result = SDR(
             {"treated": 1, "control": 0},
             reference="control",
             outcome_learner=LogisticRegression(max_iter=1000),

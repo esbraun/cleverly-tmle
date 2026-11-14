@@ -231,6 +231,18 @@ POLICY_VARIANCE_BAND_REFUSAL = Refusal(
     ),
 )
 
+#: Why no band covers an estimate with the boundary-node supplement (X54 part (i)).
+BOUNDARY_NODE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() draws its multiplier process from the influence curves, and an "
+    "estimate with the boundary-node supplement adds a variance that the curves do not "
+    "carry, so the band's critical value would not cover it.",
+    alternative=(
+        "Report the pointwise intervals, or report horizons at which the followers of every "
+        "regimen hold both outcome values."
+    ),
+)
+
 #: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
 KNOWN_REGIME_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
@@ -919,7 +931,8 @@ def band_member(estimate: ParameterEstimate) -> bool:
     An estimate that supplies inference does, and so does a bounded estimate on or outside its
     range (status ``"out_of_range_plugin"``), which keeps the band behaviour it had before the
     status: the logit band refuses it and the identity band covers it.  Every other withheld
-    estimate leaves the band.
+    estimate leaves the band, and so does an estimate with the boundary-node supplement,
+    whose added variance the band's multiplier process does not carry.
 
     Parameters
     ----------
@@ -931,6 +944,8 @@ def band_member(estimate: ParameterEstimate) -> bool:
     bool
         ``True`` for a member.
     """
+    if getattr(estimate, "node", None) is not None:
+        return False
     return bool(estimate.supplies_inference) or str(estimate.inference) == OUT_OF_RANGE_STATUS
 
 
@@ -974,6 +989,8 @@ def _checked_items(
         raise CapabilityError.from_refusal(KNOWN_REGIME_BAND_REFUSAL)
     if any(estimate.covariance_rule == "policy_weighted" for _, estimate in items):
         raise CapabilityError.from_refusal(POLICY_VARIANCE_BAND_REFUSAL)
+    if any(estimate.node is not None for _, estimate in items):
+        raise CapabilityError.from_refusal(BOUNDARY_NODE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

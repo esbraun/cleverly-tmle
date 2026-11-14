@@ -205,6 +205,7 @@ from .ratio_trim import RatioTrim
 from .regimen import DynamicRegimen, Plan, Regimen, RegimenSpec
 
 if TYPE_CHECKING:
+    from ..inference.node_variance import NodeLoadings
     from .hazard import HazardFit
 
 __all__ = [
@@ -776,6 +777,21 @@ class SequentialStep:
         return self.targeted if self.marginal is None else self.marginal
 
 
+class BoundaryCell(NamedTuple):
+    """One node cell whose regression read a constant 0 or 1, as the node supplement reads it."""
+
+    #: The one-based node.
+    time: int
+    #: ``(n,)`` the rows the cell's regression was fitted on.
+    rows: BoolArray
+    #: The value the cell's target held there, 0 or 1.
+    value: float
+    #: How many residuals of the cell the curve drops: one at an iterated-mean node, and on a
+    #: hazard fit the number of causes held at zero plus one when the all-cause hazard is held
+    #: at one.
+    terms: int = 1
+
+
 class ScoredNode(NamedTuple):
     """One node whose score a fit solved, as the diagnostics read it."""
 
@@ -908,6 +924,10 @@ class RegimenFit:
     #: all hold an event.  :func:`constant_nodes` reports them.  Empty on an iterated-mean
     #: fit.
     hazard_constant_nodes: tuple[int, ...] = ()
+    #: The cells of :attr:`hazard_constant_nodes` at the levels the regimen reads, each with
+    #: its rows, for the boundary-node supplement (:func:`boundary_cells`).  Empty on an
+    #: iterated-mean fit.
+    hazard_boundary: tuple[BoundaryCell, ...] = ()
     #: On an :class:`~cleverly.longitudinal.IPSI` fit, the ``(n, T)`` mechanism term of the
     #: influence function at each node (Kennedy 2019, Appendix Lemmas 3 and 4): zero at a
     #: node that is not a tilt or whose treatment mechanism is declared.  The uncentered
@@ -3956,6 +3976,126 @@ def constant_nodes(fit: RegimenFit) -> tuple[int, ...]:
             step.trained_on,
         )
         is not None
+    )
+
+
+def boundary_cells(fit: RegimenFit) -> tuple[BoundaryCell, ...]:
+    """The flagged cells of a targeted ``LTMLE`` fit, with their rows and coefficients' source.
+
+    An iterated-mean fit flags each node whose regression target held one value on its fitted
+    rows (:func:`constant_nodes`), with those rows.  A hazard fit flags each cell of
+    :attr:`RegimenFit.hazard_boundary`.
+
+    Parameters
+    ----------
+    fit : RegimenFit
+        One regimen's fit at one cause and horizon, iterated-mean or hazard.
+
+    Returns
+    -------
+    tuple of BoundaryCell
+        The cells, in time order.
+    """
+    if fit.hazard_clever is not None:
+        return fit.hazard_boundary
+    cells = []
+    for step in fit.steps:
+        target = step.pseudo_outcome if step.regression_target is None else step.regression_target
+        value = constant_target(target, step.trained_on)
+        if value is not None:
+            cells.append(BoundaryCell(step.time, np.asarray(step.trained_on, dtype=bool), value))
+    return tuple(cells)
+
+
+def boundary_coefficient(fit: RegimenFit, time: int) -> FloatArray:
+    """``(n,)`` :math:`C_{t,i}`, the coefficient of node ``time``'s residual in the scaled curve.
+
+    The observation weight times the clever covariate of the node: the step's ``clever`` on
+    an iterated-mean fit, and the hazard fit's clever weight at the node, which bounds the
+    absolute coefficient of every residual of the node's cell (the survival factor that
+    multiplies it lies in ``[-1, 1]``).
+    """
+    weights = np.asarray(fit.obs_weights, dtype=float)
+    if fit.hazard_clever is not None:
+        return np.asarray(weights * fit.hazard_clever[:, time - 1], dtype=float)
+    step = next(step for step in fit.steps if step.time == time)
+    return np.asarray(weights * step.clever, dtype=float)
+
+
+def boundary_loadings(
+    levels: Sequence[tuple[str, RegimenFit]],
+    *,
+    weights: FloatArray,
+    cluster: IntArray | None,
+    alpha: float,
+    scale: float = 1.0,
+) -> NodeLoadings | None:
+    r"""The boundary-node loadings of a fit's levels, or ``None`` when no level read a flagged node.
+
+    For each flagged cell of each level fit (:func:`boundary_cells`), :math:`m_t` is the
+    number of independent units with a positive-weight row in the cell: rows when
+    unclustered, clusters when clustered.  The loading of unit :math:`u` is
+    :math:`\ell = s_t \sum_{i \in R_t \cap u} k\,|C_{t,i}|`, with
+    :math:`s_t^2 = \hat h_U(1 - \hat h_U)` at :func:`~cleverly.inference.node_variance.hazard_bound`
+    of :math:`m_t`, :math:`k` the cell's dropped residuals (Minkowski over them) and
+    :math:`C_{t,i}` the node coefficient (:func:`boundary_coefficient`), times ``scale``, the
+    outcome range that carries the scaled curve onto the outcome's scale.
+
+    Parameters
+    ----------
+    levels : sequence of tuple
+        ``(name, fit)`` of every reported level, in report order.
+    weights : ndarray
+        ``(n,)`` the observation weights of the fit.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes, or ``None`` for independent rows.
+    alpha : float
+        The two-sided level of the fit's intervals.
+    scale : float, default=1.0
+        The outcome range.
+
+    Returns
+    -------
+    NodeLoadings or None
+        The loadings of the levels with at least one flagged cell.
+    """
+    from ..inference.node_variance import BoundaryNode, NodeLoadings, hazard_bound
+
+    flagged = [(name, fit, boundary_cells(fit)) for name, fit in levels]
+    flagged = [(name, fit, cells) for name, fit, cells in flagged if cells]
+    if not flagged:
+        return None
+    w = np.asarray(weights, dtype=float)
+    n = int(w.shape[0])
+    if cluster is None:
+        units = np.arange(n)
+        n_units = n
+    else:
+        _, units = np.unique(np.asarray(cluster), return_inverse=True)
+        n_units = int(units.max()) + 1
+    times = tuple(sorted({cell.time for _, _, cells in flagged for cell in cells}))
+    column = {time: position for position, time in enumerate(times)}
+    loadings = np.zeros((n_units, len(flagged), len(times)))
+    nodes: list[BoundaryNode] = []
+    for position, (name, fit, cells) in enumerate(flagged):
+        for cell in cells:
+            rows = np.asarray(cell.rows, dtype=bool) & (w > 0.0)
+            m = int(np.unique(units[rows]).size)
+            if m == 0:
+                continue
+            bound = hazard_bound(m, alpha)
+            spread = float(np.sqrt(bound * (1.0 - bound)))
+            coefficient = np.abs(boundary_coefficient(fit, cell.time)) * rows
+            per_unit = np.bincount(units, weights=coefficient, minlength=n_units)
+            loadings[:, position, column[cell.time]] += abs(scale) * cell.terms * spread * per_unit
+            nodes.append(BoundaryNode(name, cell.time, cell.value, m, bound))
+    return NodeLoadings(
+        levels=tuple(name for name, _, _ in flagged),
+        loadings=loadings,
+        times=times,
+        clustered=cluster is not None,
+        n=n,
+        nodes=tuple(nodes),
     )
 
 

@@ -102,13 +102,19 @@ def test_m_a_clipped_cell_stalls_the_walk(one_step: Any) -> None:
     assert not mutated.converged
 
 
-def test_the_parameters_reading_the_cell_take_the_constant_node_status(one_step: Any) -> None:
+def test_the_parameters_reading_the_cell_add_the_boundary_node_supplement(one_step: Any) -> None:
+    """A hazard LTMLE fit is inside the supplement's reach (X54 part (i)): the parameters that
+    read the held cell keep the fit status and add the node variance."""
     for label in REGIMENS:
         for horizon in HORIZONS:
             expected = (3,) if label == "a1" and horizon >= 3 else ()
             assert constant_nodes(one_step.fits[f"{label} @ t={horizon}"]) == expected
             estimate = one_step[f"risk_regimen[{label} @ t={horizon}]"]
-            assert (estimate.inference == "constant_node_plugin") == bool(expected)
+            assert estimate.inference != "constant_node_plugin"
+            assert (estimate.node is not None) == bool(expected)
+            if expected:
+                assert estimate.node.node_variance > 0.0
+                assert {node.node for node in estimate.node.loadings.nodes} == {3}
             assert np.isfinite(estimate.plugin_std_error)
 
 

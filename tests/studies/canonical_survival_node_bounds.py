@@ -250,6 +250,13 @@ def refuse_constant_nodes(model: str, result: Any) -> None:
     """
     for name in ESTIMANDS[model]:
         status = result[name].inference
+        if result[name].node is not None:
+            # The boundary-node supplement (X54 part (i)) reads the same constant node, so the
+            # draw stays the lost replicate it was when the study was registered.
+            raise DataError(
+                f"{name} reads a constant node and adds the boundary-node supplement, not the "
+                "influence curve alone (constant_node_plugin before X54 part (i))"
+            )
         if status != "influence_curve":
             raise DataError(
                 f"{name} reports the inference status {status!r}, not the influence curve"

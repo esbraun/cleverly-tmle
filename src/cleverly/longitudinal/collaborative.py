@@ -1480,6 +1480,9 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("collaborative_tmle", "greedy")
+    #: A constant node keeps the constant-node status: the mechanism is selected along the
+    #: fit, and no study measures the boundary-node supplement with that selection.
+    _boundary_kind: ClassVar[str | None] = "collaborative"
 
     def __init__(
         self,

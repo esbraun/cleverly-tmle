@@ -73,6 +73,7 @@ from sklearn.base import clone
 
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
+    BOUNDARY_NODE_OUT_OF_REACH,
     CONSTANT_NODE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     PARAMETER_STATUSES,
@@ -318,6 +319,7 @@ from .sequential import (
     NodeBound,
     RegimenFit,
     _filled_matrix,
+    boundary_loadings,
     constant_nodes,
     fit_mechanism,
     fit_regimen,
@@ -338,6 +340,7 @@ __all__ = [
     "ParametricGFormula",
     "SequentialGComputation",
     "SequentialIPW",
+    "boundary_node_parameters",
     "constant_node_parameters",
     "gcomp",
     "gformula",
@@ -1383,6 +1386,11 @@ class _LongitudinalReplayRecipe:
     #: The resolved node bounds of a TMLE fit by cause, ``None`` unless the fit declared any.
     #: A replay refits the bounded nodes with the same bounds.
     node_bounds: dict[str | None, dict[int, NodeBound]] | None = None
+    #: ``None`` when a constant node takes the boundary-node supplement, else the key of
+    #: :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` that keeps the
+    #: constant-node status (:meth:`_SequentialEstimator._boundary_reach`). A replay reads it,
+    #: so it stamps what the fit stamped.
+    boundary_reach: str | None = None
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
@@ -4243,6 +4251,7 @@ def _estimates(
     inference: InferenceStatus,
     classification: Classification | None = None,
     policy: _PolicyMatrix | None = None,
+    boundary_reach: str | None = None,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -4270,6 +4279,12 @@ def _estimates(
         the fits in the order of ``fits``, on the targeting scale
         (:func:`_policy_matrix`).  Every estimate then reads the larger of its
         influence-curve variance and its gradient's quadratic form in this matrix.
+    boundary_reach : str or None, default None
+        ``None`` when a parameter whose recursion read a constant node takes the
+        boundary-node supplement (:func:`~cleverly.longitudinal.sequential.boundary_loadings`),
+        else the key of :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` under
+        which it keeps the constant-node status.  Under ``policy`` it is
+        ``"policy_weighted"``.
 
     Returns
     -------
@@ -4307,17 +4322,51 @@ def _estimates(
     index: dict[str, tuple[str, str | None, int]] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
     level_of: dict[int, ParameterEstimate] = {}
+    level_name = {
+        id(fit): parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
+        for fit in fits.values()
+    }
+    supplemented = boundary_reach is None
+    node = (
+        boundary_loadings(
+            [(level_name[id(fit)], fit) for fit in fits.values()],
+            weights=np.asarray(data.weights, dtype=float),
+            cluster=data.cluster,
+            alpha=alpha_sig,
+            scale=float(scaler.range),
+        )
+        if supplemented
+        else None
+    )
+
+    def node_carried(*weights: tuple[RegimenFit, float]) -> dict[str, Any]:
+        """The ``make_estimate`` arguments of the node supplement, for a gradient over levels."""
+        if node is None:
+            return {}
+        positions = {name: position for position, name in enumerate(node.levels)}
+        gradient = np.zeros(len(node.levels))
+        reads = False
+        for fit, weight in weights:
+            position = positions.get(level_name[id(fit)])
+            if position is not None:
+                gradient[position] += weight
+                reads = True
+        return {"node": node, "node_gradient": gradient} if reads else {}
+
     for fit in fits.values():
-        name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
+        name = level_name[id(fit)]
         index[name] = (fit.regimen.label, fit.cause, fit.horizon)
         contributors[name] = (fit,)
         level = scaler.unscale_level(fit.psi_scaled)
         bounds = parameter_bounds("mean", data.family)
-        status = bounded_status(_parameter_status(inference, fit), level, bounds)
+        status = bounded_status(
+            _parameter_status(inference, fit, supplemented=supplemented), level, bounds
+        )
         estimates[name] = make_estimate(
             name,
             level,
             scaler.unscale_influence(fit.influence_curve_scaled),
+            **node_carried((fit, 1.0)),
             n=data.n,
             cluster=data.cluster,
             scale="level",
@@ -4348,7 +4397,7 @@ def _estimates(
         status = bounded_status(
             precedent_status(
                 (
-                    _parameter_status(inference, fit, base),
+                    _parameter_status(inference, fit, base, supplemented=supplemented),
                     level_of[id(fit)].inference,
                     level_of[id(base)].inference,
                 )
@@ -4360,6 +4409,7 @@ def _estimates(
             name,
             difference,
             scaler.unscale_influence(fit.influence_curve_scaled - base.influence_curve_scaled),
+            **node_carried((fit, 1.0), (base, -1.0)),
             n=data.n,
             cluster=data.cluster,
             scale="difference",
@@ -4592,17 +4642,22 @@ def _policy_matrix(
     return _PolicyMatrix(matrix, natural_levels(data, list(fits.values()), by_label))
 
 
-def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
+def _parameter_status(
+    inference: InferenceStatus, *read: RegimenFit, supplemented: bool = False
+) -> InferenceStatus:
     """The status of a parameter that reads ``read``: the fit's, or the constant-node one.
 
     A fit with a node regression read as a constant 0 or 1 (:func:`constant_nodes`) has an
     identically zero curve term at that node, so its plug-in standard error leaves that
-    node's variance out.  The parameter, and a contrast that reads it, take
+    node's variance out.  Inside the reach of the boundary-node supplement
+    (``supplemented``), the estimate adds a bound on that variance
+    (:func:`~cleverly.longitudinal.sequential.boundary_loadings`) and keeps the fit status.
+    Outside it, the parameter, and a contrast that reads it, take
     :data:`~cleverly._inference_status.CONSTANT_NODE_STATUS`.  A fit status that withholds
     inference already, such as ``"few_cluster_plugin"``, comes first in the table and so
     stays.  This is the one fitted quantity a status reads.
     """
-    if any(constant_nodes(fit) for fit in read):
+    if any(constant_nodes(fit) for fit in read) and not supplemented:
         return precedent_status((inference, CONSTANT_NODE_STATUS))
     return inference
 
@@ -4612,26 +4667,94 @@ def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> Inferenc
 _WARNED_NAMES = 10
 
 
-def _warn_parameter_statuses(estimates: Mapping[str, ParameterEstimate]) -> None:
-    """Warn once per parameter status of the fit, with a count and the first names.
+def _warn_parameter_statuses(
+    estimates: Mapping[str, ParameterEstimate], boundary_reach: str | None = None
+) -> None:
+    r"""Warn once per parameter status of the fit, with a count and the first names.
 
-    The text after the names is the status record's reason, as ``summary()`` prints it.
+    The text after the names is the status record's reason, as ``summary()`` prints it.  A
+    constant-node warning names the kind of fit that keeps the status (``boundary_reach``).
+    Estimates with the boundary-node supplement get one warning of their own, with each flagged
+    node's unit count :math:`m_t` and hazard bound :math:`\hat h_U`.
     """
+    _warn_boundary_nodes(estimates)
     for status in sorted(PARAMETER_STATUSES):
         names = [name for name, estimate in estimates.items() if estimate.inference == status]
         if not names:
             continue
         shown = ", ".join(names[:_WARNED_NAMES])
         more = f", and {len(names) - _WARNED_NAMES} more" if len(names) > _WARNED_NAMES else ""
+        kind = ""
+        if (
+            status == CONSTANT_NODE_STATUS
+            and boundary_reach is not None
+            and boundary_reach in BOUNDARY_NODE_OUT_OF_REACH
+        ):
+            what, why = BOUNDARY_NODE_OUT_OF_REACH[boundary_reach]
+            kind = f" This fit is {what}: {why}."
         _warn(
             f"{len(names)} reported parameter(s) take the {status!r} status: {shown}{more} "
             "(constant_node_parameters(result) lists them). "
             + status_record(status).reason
+            + kind
             + " Report horizons at which the followers of every regimen hold both outcome "
             "values, or declare a coarser grid, for intervals there",
             DataWarning,
             stacklevel=3,
         )
+
+
+def _warn_boundary_nodes(estimates: Mapping[str, ParameterEstimate]) -> None:
+    """Warn once when estimates add the boundary-node supplement, naming the flagged nodes."""
+    names = [name for name, estimate in estimates.items() if estimate.node is not None]
+    if not names:
+        return
+    shown = ", ".join(names[:_WARNED_NAMES])
+    more = f", and {len(names) - _WARNED_NAMES} more" if len(names) > _WARNED_NAMES else ""
+    seen: list[Any] = []
+    for name in names:
+        record = estimates[name].node
+        assert record is not None
+        if not any(record.loadings is other for other in seen):
+            seen.append(record.loadings)
+    nodes = [node for loadings in seen for node in loadings.nodes]
+    listed = "; ".join(
+        f"{node.level} node {node.node} (held {node.value:g}): {node.units} units, hazard bound "
+        f"{node.bound:.3g}"
+        for node in nodes[:_WARNED_NAMES]
+    )
+    extra = f"; and {len(nodes) - _WARNED_NAMES} more" if len(nodes) > _WARNED_NAMES else ""
+    _warn(
+        f"{len(names)} reported parameter(s) read a node regression that held one value, 0 or "
+        f"1, on its fitted rows: {shown}{more} (boundary_node_parameters(result) lists "
+        f"them). Their variance adds the node's variance at the exact one-sided binomial "
+        f"bound of its hazard over the node's independent units, so their intervals are "
+        f"wider and can be conservative. Flagged nodes: {listed}{extra}. The simultaneous "
+        "band leaves these parameters out",
+        DataWarning,
+        stacklevel=4,
+    )
+
+
+def boundary_node_parameters(result: LongitudinalResult) -> tuple[str, ...]:
+    """The reported parameters whose variance adds the boundary-node supplement.
+
+    A parameter of an ``LTMLE`` iterated-mean or hazard fit whose recursion read a node
+    regression as a constant 0 or 1 keeps the fit's status and adds a bound on that node's
+    variance (:mod:`cleverly.inference.node_variance`).  Its ``node`` record holds the
+    supplement and the fit's per-unit loadings.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        A fitted longitudinal result.
+
+    Returns
+    -------
+    tuple of str
+        The parameter names, in report order.
+    """
+    return tuple(name for name, estimate in result.estimates.items() if estimate.node is not None)
 
 
 def constant_node_parameters(result: LongitudinalResult) -> tuple[str, ...]:
@@ -4738,6 +4861,10 @@ class _SequentialEstimator:
 
     #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: the recursion :func:`_run_recursion` runs.
     _estimator: ClassVar[str]
+    #: The key of :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` a subclass of
+    #: :class:`LTMLE` whose curve is not the plain LTMLE curve declares, or ``None``. Every
+    #: other estimator is keyed by :attr:`_estimator` (:meth:`_boundary_reach`).
+    _boundary_kind: ClassVar[str | None] = None
     #: The survival model, the hazard targeting algorithm, its first step and the isotonic
     #: projection.  Only :class:`LTMLE` takes them, so every other estimator keeps the
     #: iterated-mean recursion and reports its curve unprojected.
@@ -5701,6 +5828,13 @@ class _SequentialEstimator:
                 classification=classification,
                 node_bounds=resolved_bounds,
                 separable=separable,
+                boundary_reach=self._boundary_reach(
+                    prepared,
+                    plans,
+                    repeated=repeated,
+                    learned=learned is not None,
+                    separable=bool(separable),
+                ),
             )
             for folds, seed in draws
         ]
@@ -5777,7 +5911,7 @@ class _SequentialEstimator:
             if not repeated
             else median_estimates(with_precedent_status([r.estimates for r in repeats]))
         )
-        _warn_parameter_statuses(estimates)
+        _warn_parameter_statuses(estimates, repeats[0].replay_recipe.boundary_reach)
         if self._estimator in _RANGE_CAUSE and parameter_index is not None:
             # Without a working model every draw files each name under the same
             # (regimen, cause, horizon) index, so draw 0's index gives each level's horizon.
@@ -6034,6 +6168,7 @@ class _SequentialEstimator:
         classification: Classification | None = None,
         node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
         separable: tuple[SeparablePlan, ...] = (),
+        boundary_reach: str | None = None,
     ) -> _DrawOutcome:
         """One complete single-draw fit at one fold assignment.
 
@@ -6076,14 +6211,17 @@ class _SequentialEstimator:
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
         targeting["node_bounds"] = node_bounds
-        replay_recipe = _replay_recipe(
-            plans,
-            outcome_learner,
-            pseudo_learner,
-            **targeting,
-            n_jobs=self.n_jobs,
-            estimator=self._estimator,
-            normalization=self._normalization(),
+        replay_recipe = replace(
+            _replay_recipe(
+                plans,
+                outcome_learner,
+                pseudo_learner,
+                **targeting,
+                n_jobs=self.n_jobs,
+                estimator=self._estimator,
+                normalization=self._normalization(),
+            ),
+            boundary_reach=boundary_reach,
         )
         hazard = self.survival_model == "hazard"
         # A hazard fit reads the censoring factors at every level of the baseline treatment,
@@ -6256,6 +6394,7 @@ class _SequentialEstimator:
                     inference=status,
                     classification=classification,
                     policy=policy,
+                    boundary_reach=boundary_reach,
                 )
                 if model is None
                 else _msm_estimates(
@@ -6277,6 +6416,7 @@ class _SequentialEstimator:
                     alpha_sig=self.alpha_sig,
                     inference=status,
                     classification=classification,
+                    boundary_reach=boundary_reach,
                 ).estimates
                 if moves
                 else None
@@ -6579,8 +6719,15 @@ class _SequentialEstimator:
             parameter.
         """
         refit = self._replicate_estimator().fit(data)
+        # The curve's own standard error: a boundary-node supplement is not part of the
+        # influence curve, and the frequency fast path reads the curve alone.
         return {
-            name: (estimate.psi, estimate.plugin_std_error)
+            name: (
+                estimate.psi,
+                estimate.plugin_std_error
+                if estimate.node is None
+                else float(np.sqrt(max(estimate.node.influence_variance, 0.0))),
+            )
             for name, estimate in refit.estimates.items()
         }
 
@@ -7078,6 +7225,56 @@ class _SequentialEstimator:
             f"reference={self.reference!r} is not one of the declared regimens "
             f"{[regimen.label for regimen in regimens]}"
         )
+
+    def _boundary_reach(
+        self,
+        data: LongitudinalData,
+        plans: Sequence[Plan],
+        *,
+        repeated: bool,
+        learned: bool,
+        separable: bool,
+    ) -> str | None:
+        """Whether a constant node of this fit takes the boundary-node supplement.
+
+        ``None`` on an ``LTMLE`` iterated-mean or hazard fit of a binary outcome or event with
+        one draw, static, dynamic, known stochastic or modified-treatment-policy regimens and
+        the default variance.  Otherwise the key of
+        :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` that keeps the
+        constant-node status, which the fit's warning reads (X54 part (i)).
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared data of the fit.
+        plans : sequence of Plan
+            The resolved plans.
+        repeated : bool
+            Whether the fit combines several fold draws.
+        learned : bool
+            Whether the fit learns its regimen.
+        separable : bool
+            Whether the fit reports separable interventions.
+
+        Returns
+        -------
+        str or None
+            The out-of-reach key, or ``None``.
+        """
+        if self._boundary_kind is not None:
+            return self._boundary_kind
+        if self._estimator != "tmle":
+            return self._estimator
+        checks = (
+            ("repeats", repeated),
+            ("policy_weighted", self.variance == "policy_weighted"),
+            ("separable", separable),
+            ("learned_rule", learned),
+            ("fold_average", any(plan.fold_average for plan in plans)),
+            ("isotonic", bool(self.isotonic)),
+            ("continuous", data.family != "binomial"),
+        )
+        return next((key for key, applies in checks if applies), None)
 
     def _refuse_fold_average_compositions(self, plans: Sequence[Plan]) -> None:
         """Refuse a fold-average target with a working model, the bootstrap, or a targeting option.
@@ -9607,6 +9804,7 @@ def _refit_bound(
             reference,
             alpha_sig=result.config.alpha_sig,
             inference=status,
+            boundary_reach=recipe.boundary_reach,
             policy=(
                 _policy_matrix(
                     result.data,

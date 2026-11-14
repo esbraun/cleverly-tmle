@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._inference_status import (
+    BOUNDARY_NODE_BAND_NOTE,
     MINIMUM_INTERVAL_CLUSTERS,
     NO_CONSTANT_ARM_BANDS,
     NO_KNOWN_REGIME_BANDS,
@@ -436,8 +437,19 @@ def _bands(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTable,
     if bands.support.label == vocabulary.EXPERIMENTAL:
         sentences.append(vocabulary.NOTE_TEXTS["bands_experimental"])
     outside = [name for name in result.estimates if name not in bands.bands]
+    # An estimate with the boundary-node supplement has an interval, and the band leaves it
+    # out for another reason (X54 part (i)).
+    supplemented = [
+        name
+        for name in outside
+        if getattr(result.estimates[name], "node", None) is not None
+        and result.estimates[name].supplies_inference
+    ]
+    outside = [name for name in outside if name not in supplemented]
     if outside:
         sentences.append(vocabulary.NOTE_TEXTS["bands_leave_out"].format(names=", ".join(outside)))
+    if supplemented:
+        sentences.append(BOUNDARY_NODE_BAND_NOTE.format(names=", ".join(supplemented)))
     return table, note("simultaneous_bands", " ".join(sentences))
 
 

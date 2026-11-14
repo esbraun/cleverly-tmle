@@ -105,7 +105,7 @@ from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM
 from .pooled_hazards import refuse_pooled_designs, stacked_design
 from .regimen import Plan
-from .sequential import NodeBound, RegimenFit
+from .sequential import BoundaryCell, NodeBound, RegimenFit
 
 __all__ = [
     "HAZARD_BOUND_EXCLUDES_DATA",
@@ -473,6 +473,27 @@ class HazardInputs:
         read = np.any(self.q[regimen] > 0.0, axis=0)
         flagged = (self.empty.any(axis=2) | self.full)[:horizon][:, read].any(axis=1)
         return tuple(int(k) + 1 for k in np.flatnonzero(flagged))
+
+    def boundary_cells(self, regimen: int, horizon: int) -> tuple[BoundaryCell, ...]:
+        """The cells of :meth:`constant_nodes`, each with its rows, for the node supplement.
+
+        A cell is a node and an observed level ``regimen`` reads.  Its rows are the rows at
+        risk at the node with that observed level and positive weight.  Its dropped residuals
+        are the causes held at zero, plus one when the all-cause hazard is held at one.
+        """
+        read = np.any(self.q[regimen] > 0.0, axis=0)
+        cells: list[BoundaryCell] = []
+        for k in range(min(horizon, self.n_times)):
+            for level in np.flatnonzero(read):
+                empty = int(np.sum(self.empty[k, level]))
+                full = bool(self.full[k, level])
+                if not (empty or full):
+                    continue
+                rows = self.at_risk[:, k] & (self.observed == level) & (self.weights > 0.0)
+                cells.append(
+                    BoundaryCell(k + 1, rows, 1.0 if full and not empty else 0.0, empty + full)
+                )
+        return tuple(cells)
 
 
 def clip_logits(
@@ -2605,6 +2626,7 @@ def _cell_fits(
                     hazard=record,
                     hazard_clever=clever,
                     hazard_constant_nodes=inputs.constant_nodes(r, t),
+                    hazard_boundary=inputs.boundary_cells(r, t),
                 )
     return out
 

@@ -202,6 +202,14 @@ POLICY_COVARIANCE_REFUSAL = (
 )
 
 
+#: Why an estimate with the boundary-node supplement has no joint covariance matrix.
+NODE_COVARIANCE_REFUSAL = (
+    "the boundary-node supplement bounds the variance of each functional of the levels by a "
+    "per-unit sum of absolute loadings, which is not a quadratic form, so no covariance "
+    "matrix carries it."
+)
+
+
 def shared_policy(estimates: Mapping[str, ParameterEstimate], names: Sequence[str]) -> Any:
     """The one policy-weighted covariance the selected estimates share.
 
@@ -241,26 +249,78 @@ def shared_policy(estimates: Mapping[str, ParameterEstimate], names: Sequence[st
     return first
 
 
-def _reported_stack(estimate: ParameterEstimate) -> FloatArray:
-    """The reported-scale curve, followed by the reported-scale policy gradient.
+def shared_node(estimates: Mapping[str, ParameterEstimate], names: Sequence[str]) -> Any:
+    """The one set of boundary-node loadings the selected estimates share, or ``None``.
 
-    A contrast, a ratio and a transform act linearly on the curve. The policy gradient over
-    the fit's levels moves under the same map, so stacking the two lets one computation
-    carry both. Only the ``"policy_weighted"`` rule reads it.
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The estimates of one fit.
+    names : sequence of str
+        The selected names.
+
+    Returns
+    -------
+    NodeLoadings or None
+        The loadings of the selected estimates that carry the boundary-node supplement, or
+        ``None`` when none does. A selected estimate without one reads no flagged node, so
+        it enters a derived estimate's node gradient with zeros.
+
+    Raises
+    ------
+    CapabilityError
+        When the selected estimates carry loadings of different fits.
     """
-    assert estimate.policy is not None
-    return np.concatenate(
-        [
-            _reported_vector(estimate, estimate.influence_curve),
-            _reported_vector(estimate, estimate.policy.gradient),
-        ]
-    )
+    records = [estimates[name].node for name in names if estimates[name].node is not None]
+    if not records:
+        return None
+    first = records[0].loadings  # type: ignore[union-attr]
+    if any(not first.same_as(record.loadings) for record in records[1:]):  # type: ignore[union-attr]
+        raise CapabilityError(
+            f"the selected estimates {list(names)} read the boundary-node loadings of "
+            "different fits, so no joint node bound is defined.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Select estimates of one fit.",
+        )
+    return first
 
 
-def _split_stack(vector: FloatArray, policy: Any) -> tuple[FloatArray, dict[str, Any]]:
-    """The curve, and the ``make_estimate`` arguments of the gradient, from a stacked vector."""
-    k = len(policy.names)
-    return vector[:-k], {"policy": policy, "gradient": vector[-k:]}
+def _reported_stack(
+    estimate: ParameterEstimate, policy: Any = None, node: Any = None
+) -> FloatArray:
+    """The reported-scale curve, followed by the reported-scale gradients it carries.
+
+    A contrast, a ratio and a transform act linearly on the curve. The policy gradient and the
+    boundary-node gradient over the fit's levels move under the same map, so stacking them
+    below the curve lets one computation carry all of them. An estimate without a node record
+    carries a zero node gradient: it reads no flagged node.
+    """
+    parts = [_reported_vector(estimate, estimate.influence_curve)]
+    if policy is not None:
+        assert estimate.policy is not None
+        parts.append(_reported_vector(estimate, estimate.policy.gradient))
+    if node is not None:
+        if estimate.node is None:
+            parts.append(np.zeros(len(node.levels)))
+        else:
+            parts.append(_reported_vector(estimate, estimate.node.gradient))
+    return np.concatenate(parts)
+
+
+def _split_stack(
+    vector: FloatArray, policy: Any = None, node: Any = None
+) -> tuple[FloatArray, dict[str, Any]]:
+    """The curve, and the ``make_estimate`` arguments of the gradients, from a stacked vector."""
+    carried: dict[str, Any] = {}
+    if node is not None:
+        k = len(node.levels)
+        carried.update(node=node, node_gradient=vector[-k:])
+        vector = vector[:-k]
+    if policy is not None:
+        k = len(policy.names)
+        carried.update(policy=policy, gradient=vector[-k:])
+        vector = vector[:-k]
+    return vector, carried
 
 
 def estimate_covariance(
@@ -284,6 +344,16 @@ def estimate_covariance(
             alternative=(
                 "Call contrast() for the variance of a smooth function of the estimates, or "
                 "refit with variance='influence_curve' for the covariance matrix."
+            ),
+        )
+    supplemented = [name for name in chosen if estimates[name].node is not None]
+    if supplemented:
+        raise CapabilityError(
+            f"{supplemented} add a boundary-node variance: " + NODE_COVARIANCE_REFUSAL,
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Call contrast() for the variance of a smooth function of the estimates, or "
+                "report horizons at which the followers hold both outcome values."
             ),
         )
     curves = np.column_stack([estimates[name].influence_curve for name in chosen])
@@ -335,12 +405,14 @@ def smooth_contrast(
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
     policy = shared_policy(estimates, chosen) if rule == "policy_weighted" else None
-    if policy is None:
+    node = shared_node(estimates, chosen)
+    if policy is None and node is None:
         curves = [_reported_curve(estimates[key]) for key in chosen]
     else:
-        # Under the policy-weighted rule each input's gradient over the fit's levels rides
-        # below its curve, so the delta method's one linear map carries both.
-        curves = [_reported_stack(estimates[key]) for key in chosen]
+        # Under the policy-weighted rule, or with a boundary-node supplement, each input's
+        # gradient over the fit's levels rides below its curve, so the delta method's one
+        # linear map carries both.
+        curves = [_reported_stack(estimates[key], policy, node) for key in chosen]
     value, curve = delta_method(
         function,
         [estimates[key].psi for key in chosen],
@@ -358,8 +430,8 @@ def smooth_contrast(
     if transform is not None:
         curve = _transform_slope(value, transform) * curve
     carried: dict[str, Any] = {}
-    if policy is not None:
-        curve, carried = _split_stack(curve, policy)
+    if policy is not None or node is not None:
+        curve, carried = _split_stack(curve, policy, node)
     estimate = make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
@@ -461,6 +533,8 @@ def transform_estimate(
             "gradient": slope * estimate.policy.gradient,
         }
     )
+    if estimate.node is not None:
+        carried.update(node=estimate.node.loadings, node_gradient=slope * estimate.node.gradient)
     mapped = make_estimate(
         estimate.name,
         estimate.psi,
@@ -1007,15 +1081,16 @@ def ratio_contrast(
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
     policy = shared_policy(estimates, chosen) if rule == "policy_weighted" else None
+    node = shared_node(estimates, chosen)
     top, bottom = estimates[numerator], estimates[denominator]
-    if policy is None:
+    if policy is None and node is None:
         psi_a, ic_a = top.psi, _reported_curve(top)
         psi_b, ic_b = bottom.psi, _reported_curve(bottom)
     else:
-        # The log-ratio curves are linear in the input curves, so the policy gradients ride
-        # along.
-        psi_a, ic_a = top.psi, _reported_stack(top)
-        psi_b, ic_b = bottom.psi, _reported_stack(bottom)
+        # The log-ratio curves are linear in the input curves, so the policy and node
+        # gradients ride along.
+        psi_a, ic_a = top.psi, _reported_stack(top, policy, node)
+        psi_b, ic_b = bottom.psi, _reported_stack(bottom, policy, node)
     if complement:
         psi_a, ic_a = 1.0 - psi_a, -ic_a
         psi_b, ic_b = 1.0 - psi_b, -ic_b
@@ -1034,8 +1109,8 @@ def ratio_contrast(
             f"{view}{numerator}={psi_a:.6g} and {view}{denominator}={psi_b:.6g}"
         ) from None
     carried: dict[str, Any] = {}
-    if policy is not None:
-        curve, carried = _split_stack(curve, policy)
+    if policy is not None or node is not None:
+        curve, carried = _split_stack(curve, policy, node)
     return make_estimate(
         name,
         float(np.exp(log_psi)),
