@@ -388,6 +388,34 @@ def test_an_option_fit_with_few_driving_rows_warns_with_the_note() -> None:
         estimator.fit(frame, outcome="Y", **pricing.roles(5))
 
 
+def test_a_default_fit_the_option_accepts_is_advised_to_use_it() -> None:
+    """The ``"available"`` advice of plan 4.4 reaches a default in-sample MTP fit."""
+    frame = common.sample(1500, 11, 5)
+    estimator = LTMLE(common.regimens(pricing.LABELS, 5), **_settings())
+    with pytest.warns(SparseInfluenceWarning) as caught:
+        estimator.fit(frame, outcome="Y", **pricing.roles(5))
+    text = " ".join(
+        str(w.message) for w in caught if issubclass(w.category, SparseInfluenceWarning)
+    )
+    assert "variance='policy_weighted' adds a standard error" in text
+    assert "bootstrap_interval='bca'" not in text
+
+
+def test_control_a_fit_the_option_refuses_keeps_the_bootstrap_advice() -> None:
+    """A percentile bootstrap is a setting the option refuses, so the advice stays BCa."""
+    frame = common.sample(1500, 11, 5)
+    estimator = LTMLE(
+        common.regimens(pricing.LABELS, 5), **_settings(n_bootstrap=19, random_state=0)
+    )
+    with pytest.warns(SparseInfluenceWarning) as caught:
+        estimator.fit(frame, outcome="Y", **pricing.roles(5))
+    text = " ".join(
+        str(w.message) for w in caught if issubclass(w.category, SparseInfluenceWarning)
+    )
+    assert "policy_weighted" not in text
+    assert "bootstrap_interval='bca'" in text
+
+
 # ----------------------------------------------------------------------------- witness 4
 
 
@@ -557,13 +585,19 @@ def test_a_failed_diagonal_fails_every_form_that_reads_it() -> None:
 # ----------------------------------------------------------------------------- witness 8
 
 
-def test_the_option_reads_its_own_kind_and_is_experimental() -> None:
+def test_the_option_reads_its_own_kind_from_the_licensing_rows() -> None:
+    """Fix-5 7.3: ``G39.*.tau2`` and ``.tau5`` license ``wald_policy``; ``.tau3`` does not."""
     result = option_fit()
     for estimate in result.estimates.values():
+        assert estimate.support.label == "supported", estimate.support.reason
+        assert "mtp-policy-variance" in estimate.support.evidence
+    # Three nodes were held out for the variance-learner screen, so no row licenses the kind
+    # there, while the default variance on the same configuration stays licensed.
+    held_out = _fit(tau=3, variance="policy_weighted")
+    for estimate in held_out.estimates.values():
         assert estimate.support.label == "experimental"
         assert "licenses no Wald interval, policy-weighted variance" in estimate.support.reason
-    # The same configuration with the default variance is licensed: the kind is what moves.
-    assert default_fit()[DOWN].support.label == "supported"
+    assert _fit(tau=3)[DOWN].support.label == "supported"
 
 
 # ----------------------------------------------------------------------------- witness 7
