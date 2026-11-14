@@ -1653,6 +1653,22 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.mtp_density_tails_properties,cluster_warning,at least 26 of 30 C draws warn,control_concentrated
+tests.studies.mtp_density_tails_properties,cluster_warning,at most 6 of 220 G and T draws warn,positive_diffuse
+tests.studies.mtp_density_tails_properties,cluster_warning,eager helper breaks the G and T clause,pair_collapse
+tests.studies.mtp_density_tails_properties,cluster_warning,gap-disabled helper misses the C clause,pair_collapse
+tests.studies.mtp_density_tails_properties,ic_gap,"2,000 median at or below its bound",positive_diffuse
+tests.studies.mtp_density_tails_properties,ic_gap,"20,000 median at most 0.6 of the 2,000 median",affine
+tests.studies.mtp_density_tails_properties,ic_gap,"control 2,000 median above its bound",pair_collapse
+tests.studies.mtp_density_tails_properties,ic_gap,"control 20,000 gap above its bound",pair_collapse
+tests.studies.mtp_density_tails_properties,ic_gap,control median falls less than 0.6,centre/control/0
+tests.studies.mtp_density_tails_properties,ic_gap,"every 20,000 gap at or below its bound",positive_diffuse
+tests.studies.mtp_density_tails_properties,interval_calibration,both-wrong coverage below band,pair_collapse
+tests.studies.mtp_density_tails_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.mtp_density_tails_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.mtp_density_tails_properties,interval_calibration,pre-fix coverage below band,pair_collapse
+tests.studies.mtp_density_tails_properties,interval_calibration,se ratio below band,se_high
+tests.studies.mtp_density_tails_properties,interval_calibration,se ratio in calibration band,affine
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias
 parametric-gformula,ice_necessity,least displacement over labels,control_concentrated

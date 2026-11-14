@@ -537,8 +537,10 @@ class Clause:
         The statistic type (rev 3 section 4): ``S1``, ``S1f`` and ``S2`` to ``S15``, and
         ``S7s``, the S7 gain of a band over its identity-scale control, whose pair is a
         positive cell and a ``scale_control`` cell rather than a positive and a control,
-        ``S7r``, the S7 gain of a ``t`` band over its ``reference_control`` cell, and
-        ``S9m``, the ratio of two paired arms' mean standard errors.
+        ``S7r``, the S7 gain of a ``t`` band over its ``reference_control`` cell,
+        ``S9m``, the ratio of two paired arms' mean standard errors, ``S10m``, ``S10x`` and
+        ``S10r``, the median, largest and ratio of median IC gaps, and ``S3c``, a count of
+        warned draws.
     applies : Callable
         Whether the clause is part of a summary row's verdict.
     read : Callable
