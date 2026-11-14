@@ -830,7 +830,11 @@ class TestReportedScaleNoEffectNull:
             def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
                 value = 2.0 if test == "negative_control_outcome" else placebo_values[self.calls]
                 self.calls += 1
-                return {alias: SimpleNamespace(psi=value, plugin_std_error=0.1)}
+                # A real ratio estimate, since the negative control reads its Wald test.
+                estimate = dataclasses.replace(
+                    fitted[estimand], psi=value, log_psi=float(np.log(value)), variance=0.01
+                )
+                return {alias: estimate}
 
         controlled = dataclasses.replace(result, estimator=RatioRefit())
         report = refute(controlled, random_state=0, **request)[test]
@@ -838,10 +842,18 @@ class TestReportedScaleNoEffectNull:
         expected = np.log(2.0) / 0.1 if test == "negative_control_outcome" else 0.0
         assert report.statistic == pytest.approx(expected, abs=1e-9)
         # A raw-scale comparison measures the distance from one as a unit, not log 2.
-        refute_module = importlib.import_module("cleverly.validation.refute")
-        monkeypatch.setattr(
-            refute_module, "_no_effect_difference", lambda value, null: value - null
-        )
+        if test == "negative_control_outcome":
+            # The control reads its estimate's Wald test, which maps the null to log 1.
+            from cleverly.inference import ParameterEstimate
+
+            monkeypatch.setattr(
+                ParameterEstimate, "_null_inference_value", lambda self, null: (null, null)
+            )
+        else:
+            refute_module = importlib.import_module("cleverly.validation.refute")
+            monkeypatch.setattr(
+                refute_module, "_no_effect_difference", lambda value, null: value - null
+            )
         controlled = dataclasses.replace(result, estimator=RatioRefit())
         mutated = refute(controlled, random_state=0, **request)[test]
         assert mutated.statistic != pytest.approx(expected, abs=1e-6)
