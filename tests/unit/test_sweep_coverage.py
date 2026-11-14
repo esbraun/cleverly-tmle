@@ -111,12 +111,10 @@ UNSWEPT: Mapping[str, Exemption] = {
         (
             "engine:collaborative_tmle/derivative/None",
             "engine:collaborative_tmle/discrete/None",
-            "engine:collaborative_tmle/greedy",
             "engine:collaborative_tmle/greedy/None",
             "engine:collaborative_tmle/lasso/None",
             "engine:collaborative_tmle/learners/None",
             "engine:collaborative_tmle/oat/per_arm/parametric_stack",
-            "engine:drtmle/univariate",
             "engine:sdr",
             "engine:snmm",
         ),
