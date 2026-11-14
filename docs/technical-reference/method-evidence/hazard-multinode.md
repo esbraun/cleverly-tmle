@@ -39,13 +39,15 @@ $(k, W_1, W_2, A_k, A_{k-1})$, with $A_0 = 0$.
 
 `base` is the law of plan X70 section 4.3. `four` has the same form with its own coefficients.
 The shipped fit holds the cell of the units at risk with one treatment prefix at zero when none
-of them has the event, or at one when all of them do. A regimen that reads a held cell reports
-no interval. The policy reads all 16 prefixes at node 4, and the expected count of held cells
+of them has the event, or at one when all of them do. A regimen that reads a held cell adds
+the cell's boundary-node variance to its interval
+([a node with no event](../longitudinal-tmle.md#a-node-with-no-event)). When the study ran it
+reported no interval there. The policy reads all 16 prefixes at node 4, and the expected count of held cells
 in a `four` draw of 2,000 rows is about $2 \times 10^{-9}$. The plan asked for five nodes, but at
 five nodes the policy reads 32 prefixes, and a held cell was expected in about one fit in 500.
 
-A held fit is never read as coverage. The study turns every fit with an estimate that lacks the
-influence-curve interval into a lost replicate under the failure bound of 0.01, on the primary,
+A held fit is never read as coverage. The study turns every fit with an estimate whose interval is not
+the influence-curve interval alone into a lost replicate under the failure bound of 0.01, on the primary,
 property and pilot paths alike. The design test sums the expected held fits over every fit set
 and pilot label at its own size: about 6.6 over the study and its pilot, all on `base`, whose
 expected count per draw is $1.5 \times 10^{-4}$ at 2,000 rows and $10^{-3}$ at 1,600. The chance
@@ -416,7 +418,7 @@ from the committed results and checked at the precision printed.
 | --- | --- |
 | a binary treatment and no covariate after baseline | a treatment with more than two levels is not measured, and a covariate measured after baseline beside a treatment at several nodes is part (b2) of plan X70, refused until then (H2) |
 | finite covariates and low-dimensional learners | the evidence covers correct or misspecified logistic learners. A flexible learner is outside it |
-| held cells | the laws keep every treatment prefix populated at n = 2,000, and a held draw is a lost replicate. A policy over many nodes on a small sample holds cells and then reports no interval; held cells rest on `tests/unit/test_hazard_multinode.py` |
+| held cells | the laws keep every treatment prefix populated at n = 2,000, and a held draw is a lost replicate. A policy over many nodes on a small sample holds cells, whose intervals then add the boundary-node variance; held cells rest on `tests/unit/test_hazard_multinode.py` |
 | the one-step walk on regimen curves | the gated regimen cells use the per-horizon walk. The one-step walk is reported at 200 draws over `always`, `never` and `policy` on `base`, with no verdict, and takes 30 to 160 seconds a fit when a policy is present |
 | one cause | the competing-risk path rests on the exact-law tests of `tests/unit/test_hazard_multinode.py` |
 | one fold | every fit uses `n_folds=1`; cross-fitted path hazards rest on the unit tests |
