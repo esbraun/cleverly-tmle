@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -25,6 +26,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -54,6 +56,7 @@ from cleverly.datasets import (
     make_instrument,
     make_linear_ate,
     make_longitudinal,
+    make_longitudinal_survival,
     make_missing_outcome,
     make_missing_outcome_binary,
     make_multi_arm,
@@ -62,8 +65,8 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, Refusal
-from cleverly.interventions import Incremental, ModifiedPolicy, Shift
+from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, Refusal
+from cleverly.interventions import Incremental, ModifiedPolicy, Shift, Static
 from cleverly.learners import make_folds
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
@@ -349,6 +352,69 @@ def fit_learned_rule_level() -> Any:
     )
 
 
+def _optimal_rule(
+    frame: pd.DataFrame | None = None, fit: dict[str, Any] | None = None, **overrides: Any
+) -> Any:
+    """The fit of the value of the optimal rule (X11 (f), (f3)) on the learned-rule law.
+
+    Every optimal-value kind answers the read rows, ``refute`` and ``truncation_curve``.
+    The rows, weighted and in-sample kinds also answer the point rows of the asymmetric
+    omitted-variable bound (X11 (f3)); the others keep their (n2) refusals, and
+    ``benchmark`` refuses on every kind.
+    """
+    frame = learned_rule_support.law_frame() if frame is None else frame
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InSampleLearnerWarning)
+        return (
+            learned_rule_support.learned_tmle(estimands=["ey_optimal_rule"], **overrides)
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=learned_rule_support.COVARIATES,
+                **({} if fit is None else fit),
+            )
+            .single()
+        )
+
+
+def fit_optimal_rule() -> Any:
+    """The base optimal-value fit, with the law's treatment probabilities supplied."""
+    frame = learned_rule_support.law_frame()
+    g1 = expit(0.3 * frame["W1"].to_numpy() - 0.2 * frame["W2"].to_numpy())
+    return _optimal_rule(frame, {"treatment_probabilities": np.column_stack([1.0 - g1, g1])})
+
+
+def fit_optimal_rule_weights() -> Any:
+    """The weighted optimal-value fit, with a weight in the covariates alone."""
+    frame = learned_rule_support.law_frame().assign(w=lambda f: 1.0 + 1.5 * (f["W1"] > 0))
+    return _optimal_rule(frame, {"weights": "w"})
+
+
+def fit_optimal_rule_strata() -> Any:
+    """The optimal-value fit stratified on the baseline covariate ``W2``."""
+    return _optimal_rule(fit={"strata": ["W2"]})
+
+
+def fit_optimal_rule_known_regimes() -> Any:
+    """The optimal value beside the known regimes ``Static(1)`` and ``Static(0)``."""
+    return _optimal_rule(interventions=[Static(1), Static(0)])
+
+
+def fit_optimal_rule_in_sample() -> Any:
+    """The in-sample optimal-value fit (``cross_fit=False``, condition C5a)."""
+    return _optimal_rule(cross_fit=False, cv_evaluation=False)
+
+
+def fit_optimal_rule_intermediate() -> Any:
+    """The optimal value with the intermediate held at ``Z = 0`` (X11 (j), (f3))."""
+    from tests.unit.test_learned_rule_intermediate import fit_cde as fit_learned_cde
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InSampleLearnerWarning)
+        return fit_learned_cde(estimands=["ey_optimal_rule"])[0.0]
+
+
 def fit_weighted() -> Any:
     """``make_linear_ate(400, 2)`` with nonconstant observation weights of mean one."""
     frame = _linear_frame()
@@ -456,6 +522,29 @@ def fit_iptw_known() -> Any:
             treatment="A",
             covariates=["W1", "W2"],
             treatment_probabilities=frame[["p0", "p1"]].to_numpy(dtype=float),
+        )
+        .single()
+    )
+
+
+def fit_tmle_known_sample_weights() -> Any:
+    """A weighted TMLE whose declared mechanism is read in the sample (Fix-16).
+
+    The weight reads the treatment, so the fit estimates the tilted law's mechanism as
+    ``g0 r / sum g0 r`` from the declaration and a weighted classifier.
+    """
+    frame = known_mechanism.point_frame()
+    frame["w"] = frame["wt"] * (1.0 + frame["A"])
+    return (
+        TMLE(**linear_in_sample())
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            weights="w",
+            treatment_probabilities={0.0: "p0", 1.0: "p1"},
+            mechanism_law="sample",
         )
         .single()
     )
@@ -906,8 +995,8 @@ def fit_learned_rule_known() -> Any:
     return learned_rule_support.fit(interventions=[Static(1)])
 
 
-def fit_optimal_rule() -> Any:
-    """The fold-evaluated value of the optimal rule, ``ey_optimal_rule`` (X11 (f), family P12)."""
+def fit_optimal_rule_estimated_g() -> Any:
+    """The fold-evaluated value of the optimal rule with g estimated (X11 (f), family P12)."""
     return learned_rule_support.fit(estimands=["ey_optimal_rule"])
 
 
@@ -1195,6 +1284,32 @@ def fit_ltmle() -> Any:
     )
 
 
+def _fit_mtp_censored(estimator: str) -> Any:
+    """A three-node continuous-treatment policy fit with dropout after each node, five folds.
+
+    Law P-C of ``mtp-pricing-censored`` at 600 rows: a modified policy on a continuous
+    treatment, the learned classifier ratio and a logistic censoring factor, cross-fitted as the
+    supported rows ``G39.<engine>.tau3_cross_fitted_censored`` are (X77).
+    """
+    from tests.studies import canonical_mtp_pricing_censored as censored
+    from tests.studies import mtp_pricing_censored_common as law_pc
+
+    return censored.fit(
+        law_pc.sample(600, 3),
+        estimator=estimator,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+    )
+
+
+def fit_ltmle_mtp_censored() -> Any:
+    return _fit_mtp_censored("ltmle")
+
+
+def fit_sdr_mtp_censored() -> Any:
+    return _fit_mtp_censored("sdr")
+
+
 def _fit_point_survival(**settings: Any) -> Any:
     """A two-arm survival curve fit on ``make_point_survival(600, 3)``, in sample."""
     frame, _ = make_point_survival(n=600, seed=3, n_times=4)
@@ -1210,6 +1325,40 @@ def _fit_point_survival(**settings: Any) -> Any:
         simultaneous=False,
         **IN_SAMPLE,
         **settings,
+    )
+
+
+def fit_ltmle_known_sample_weights() -> Any:
+    """A weighted LTMLE whose declared node factors are read in the sample (Fix-16).
+
+    The censored SMART law with a weight that reads ``L0``, ``A1`` and ``C1``: the first
+    treatment and retention nodes are estimated tilts, and the second retention, one for every
+    unit still observed, is divided by.
+    """
+    frame = known_mechanism.smart_frame(censoring=True)
+    frame["w"] = (1.0 + frame["L0"]) * (1.0 + 2.0 * frame["A1"]) * (1.0 + frame["C1"])
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["L0"],
+            time_varying=[[], ["L1"]],
+            censoring=["C1", "C2"],
+            weights="w",
+            treatment_probabilities=known_mechanism.SMART_TREATMENT,
+            censoring_probabilities=known_mechanism.SMART_CENSORING,
+            mechanism_law="sample",
+        ),
+    )
+    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -1345,6 +1494,30 @@ def fit_hazard_time_varying() -> Any:
         pseudo_learner=LinearRegression(),
         survival_model="hazard",
         targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
+def fit_hazard_multinode() -> Any:
+    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a))."""
+    frame, _ = make_longitudinal_survival(n=600, seed=12)
+    study = CausalStudy(
+        frame.drop(columns=["L2"]),
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="iterative",
         random_state=5,
         simultaneous=False,
         **IN_SAMPLE,
@@ -1747,7 +1920,7 @@ def fit_separable() -> Any:
     return LTMLE(regimens, **settings).fit(frame, **law.fit_columns())
 
 
-def fit_continuous_survival() -> Any:
+def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
@@ -1769,11 +1942,21 @@ def fit_continuous_survival() -> Any:
     )
     return ContinuousSurvivalTMLE(
         [0.5, 1.0],
+        restricted_horizons=restricted_horizons,
         cross_fit=False,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
         random_state=0,
     ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+
+
+def fit_continuous_survival_restricted() -> Any:
+    """The continuous-time fit above with a restricted horizon at its last target time.
+
+    The walk also targets each arm's restricted mean time lost to each cause, so the fit
+    reports restricted means and their influence curves beside the risks.
+    """
+    return fit_continuous_survival(restricted_horizons=(1.0,))
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -1843,6 +2026,7 @@ _ARM = (*_LIVE, *_BOUND, "benchmark")
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, "marginal_bounds", *_ARM),
+    "tmle_known_sample_weights": _kind(fit_tmle_known_sample_weights, *_LIVE, *_BOUND),
     # AdaptiveIPTW fits no outcome regression: the bound, tilt, refit and truncation rows
     # refuse it by name, and the rows that read the treatment mechanism run. The E-value
     # runs on the fit whose mechanism is declared, because it needs an interval.
@@ -1879,6 +2063,15 @@ KINDS: dict[str, Kind] = {
     # At a level of the intermediate the omitted-variable rows refuse, as on the
     # controlled direct effect, and simulated_confounding refuses by name (X11 (j4)).
     "learned_rule+level": _kind(fit_learned_rule_level, *_LIVE),
+    # The value of the optimal rule and its compositions (X11 (f), (f3)). The asymmetric
+    # point bound runs where the learned-rule bound does; strata, known regimes and an
+    # intermediate keep their (n2) refusals, and benchmark refuses (X11 (n2)).
+    "optimal_rule": _kind(fit_optimal_rule, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+weights": _kind(fit_optimal_rule_weights, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+strata": _kind(fit_optimal_rule_strata, *_LIVE),
+    "optimal_rule+known_regimes": _kind(fit_optimal_rule_known_regimes, *_LIVE),
+    "optimal_rule+in_sample": _kind(fit_optimal_rule_in_sample, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+intermediate": _kind(fit_optimal_rule_intermediate, *_LIVE),
     "weighted": _kind(fit_weighted, "marginal_bounds", *_ARM),
     "stratified": _kind(fit_stratified, "marginal_bounds", *_ARM),
     "clustered": _kind(fit_clustered, "marginal_bounds", *_ARM),
@@ -1953,6 +2146,9 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, *_POINT),
+    # The declared mechanism read in the weighted sample: an estimated tilt, so the rows of
+    # an estimated mechanism run. The benchmark refuses (its refit would divide by g0).
+    "ltmle_known_sample_weights": _kind(fit_ltmle_known_sample_weights, *_READ, *_POINT),
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     # Horizons 2 to 4 carry the boundary-node supplement; every row the hazard fit answers runs.
     "ltmle_boundary_node": _kind(fit_ltmle_boundary_node, *_READ, *_POINT),
@@ -1966,7 +2162,14 @@ KINDS: dict[str, Kind] = {
     # The regressions of the future read targeted later hazards, which no truncation replay
     # rebuilds (H31), so the truncation row reads unavailable.
     "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
+    # A treatment at several nodes with baseline covariates walks every regimen path, and its
+    # truncation replay rebuilds the walk, so every point row runs.
+    "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
+    # A modified policy on a continuous treatment with dropout (X77). Every sensitivity row
+    # refuses a longitudinal fit by name; SDR solves no score equation.
+    "ltmle_mtp_censored": _kind(fit_ltmle_mtp_censored, *_READ, *_POINT),
+    "sdr_mtp_censored": _kind(fit_sdr_mtp_censored, "nuisance_models", "support", *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
     # The baselines fit no fluctuation, so no score equation. A g-computation estimate reads
@@ -1997,7 +2200,7 @@ KINDS: dict[str, Kind] = {
     "rr_tilt": _kind(fit_rr_tilt, *_LIVE),
     # The point bound holds the fold rules fixed; the benchmark refit relearns them.
     "learned_rule_known": _kind(fit_learned_rule_known, *_LIVE, *_PLUGIN_BOUND),
-    "optimal_rule": _kind(fit_optimal_rule, *_LIVE),
+    "optimal_rule+estimated_g": _kind(fit_optimal_rule_estimated_g, *_LIVE, *_PLUGIN_BOUND),
     # A projection coefficient has no refutation or sensitivity derivation (R9, P1).
     "cate_projection": _kind(fit_cate_projection, *_READ, "truncation_curve"),
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
@@ -2021,17 +2224,37 @@ KINDS: dict[str, Kind] = {
     "eliminated": _kind(fit_eliminated, *_READ, *_POINT),
     "separable": _kind(fit_separable, *_READ, *_POINT),
     "learned_regimen": _kind(fit_learned_regimen, *_READ),
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, refits=False),
+    # The E-value reads the risk ratio of the pair of risks the sweep names.
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, "evalue", refits=False),
+    "continuous_survival+restricted": _kind(
+        fit_continuous_survival_restricted, *_READ, "evalue", refits=False
+    ),
 }
 
 
 # ------------------------------------------------------------------------- the sweep
 
 
+def _first_estimand(result: Any) -> Any:
+    """The first estimate's name, or a continuous-time fit's first pair of the arms' risks.
+
+    The E-value of a continuous-time fit reads the ratio of two arms' risks at one cause and
+    time, so it names the pair rather than one estimate.
+    """
+    if getattr(result, "assessment_family", None) == "continuous_survival":
+        index = result._risk_index()
+        first, (arm, *place) = next(iter(index.items()))
+        other = next(
+            name for name, key in index.items() if key[0] != arm and list(key[1:]) == place
+        )
+        return (first, other)
+    return next(iter(result.estimates))
+
+
 def _fillers(result: Any) -> dict[str, Callable[[], Any]]:
     """The value the sweep supplies for each argument a row can defer on."""
     return {
-        "estimand": lambda: next(iter(result.estimates)),
+        "estimand": lambda: _first_estimand(result),
         "covariates": lambda: list(omitted_variable._benchmark_covariates(result.data)[:1]),
         "grid": lambda: _GRID,
         "bounds": lambda: (0.05,),
@@ -2046,17 +2269,18 @@ def _facades(result: Any) -> tuple[Any, Any]:
     return result.diagnostics, result.sensitivity
 
 
-def _estimand_choice(result: Any, facade: Any, operation: str) -> str:
+def _estimand_choice(result: Any, facade: Any, operation: str) -> Any:
     """The estimand the sweep supplies: the deferred row's own first candidate.
 
     A row that defers on its estimand names the candidates it chooses between, and the
     first reported estimate need not be one of them: a PAR fit reports ``par``, which the
-    marginal bound cannot take, so it offers every arm parameter instead (Fix-15).
+    marginal bound cannot take, so it offers every arm parameter instead (Fix-15). With no
+    candidates the filler answers: the first estimate, or a continuous-time fit's pair.
     """
     candidates = facade._estimand_candidates(operation)
     if candidates:
         return str(candidates[0])
-    return str(next(iter(result.estimates)))
+    return _first_estimand(result)
 
 
 def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
@@ -2276,6 +2500,9 @@ class Mutation:
 #: them a tilt.
 DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing")
 
+#: The kinds of the value of the optimal rule (X11 (f), (f3)).
+OPTIMAL_RULE_KINDS = tuple(kind for kind in KINDS if kind.startswith("optimal_rule"))
+
 #: What the sweep reports for a row that reads available while its call refuses.
 _RAISED = "{} reads available, and its call raised "
 
@@ -2287,8 +2514,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M1": Mutation(
         "the tilt rows ignore every rule the rows did not read before RM23",
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
-        # The learned-rule kind came after RM23. Its tilt rule is one the pre-RM23 rows did
-        # not read, so M1 makes its tilt rows read available while both calls refuse.
+        # The learned-rule kinds came after RM23. Their tilt rule is one the pre-RM23 rows did
+        # not read, so M1 makes their tilt rows read available while both calls refuse.
         frozenset(
             (
                 *DECLINED_TILT_KINDS,
@@ -2296,7 +2523,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule+estimated_weights",
                 "learned_rule+level",
                 "learned_rule_known",
-                "optimal_rule",
+                *OPTIMAL_RULE_KINDS,
             )
         ),
         _RAISED.format("missingness") + "missingness_tilt ",
@@ -2327,6 +2554,9 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle_known_sample_weights",
+                "ltmle_mtp_censored",
+                "sdr_mtp_censored",
                 "gcomp",
                 "ipw",
                 "gformula",
@@ -2343,6 +2573,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "separable",
                 # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
                 "learned_rule+level",
+                # The value at an intermediate level has no exact placebo null (X11 (j4)).
+                "optimal_rule+intermediate",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
@@ -2386,7 +2618,10 @@ MUTATIONS: dict[str, Mutation] = {
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
-        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
+        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)),
+        # and so does a fit of the value of the optimal rule (X11 (f3)).
+        # A declared mechanism read in the weighted sample refuses it too (Fix-16): the
+        # refit would still divide by the declaration.
         # A TMLE fit with a declared mechanism has an outcome regression, so only the
         # predicate's known-mechanism rule refuses its benchmark (X35).
         frozenset(
@@ -2396,6 +2631,13 @@ MUTATIONS: dict[str, Mutation] = {
                 "regime+missing",
                 "learned_rule",
                 "learned_rule+estimated_weights",
+                # The bound of the value of the optimal rule runs, and its benchmark refit
+                # refuses (X11 (f3), (n2)).
+                "optimal_rule",
+                "optimal_rule+weights",
+                "optimal_rule+in_sample",
+                "optimal_rule+estimated_g",
+                "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
             }
@@ -2404,6 +2646,7 @@ MUTATIONS: dict[str, Mutation] = {
         + _RAISED.format("benchmark")
         + "benchmark cannot drop every covariate"
         + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
+        + "|benchmark declined: .*would still divide by the declared mechanism"
         + "|benchmark declined: .*this fit's data declares the mechanism known)",
     ),
     "M9": Mutation(

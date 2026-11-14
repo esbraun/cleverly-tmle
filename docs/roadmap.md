@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e) and (h), X77, X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e) and (h), X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -82,7 +82,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
-| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
+| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c), (a) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the support, score, nuisance and influence diagnostics shipped | the shipped `ContinuousSurvivalTMLE` and its record |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
@@ -91,7 +91,6 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X77](#x77-censored-data-for-continuous-price-policies) Censored data for continuous price policies | 3 | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor |
 | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) Data-tuned policies beyond the shipped tuned caps | 3 | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies |
 | [X99](#x99-history-dependent-treatment-effects-by-targeted-estimation) History-dependent treatment effects by targeted estimation | 5 | source audit: no targeted estimator of these effects has been read here | the shipped `LTMLE` sequential regression; the shipped `StructuralNestedMean` defines the target |
 | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) Settings of the stacked and natural-course contracts | 6 | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) |
@@ -101,7 +100,7 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X11](#x11-learned-policy-follow-ups) Learned-policy follow-ups | 3 | natural extension for parts (f3), (i2), (j2), (j4), (n2) and part (b2) beyond two nodes; published support for part (f2b); source audit for parts (c2), (d2) and the other compositions of part (b2) | the shipped learned-rule value |
+| [X11](#x11-learned-policy-follow-ups) Learned-policy follow-ups | 3 | natural extension for parts (f4), (i2), (j2), (j4), (n2) and part (b2) beyond two nodes; published support for part (f2b); source audit for parts (c2), (d2) and the other compositions of part (b2) | the shipped learned-rule value |
 | [P1](#p1-ep-learner) EP learner compositions | 6 | preprint support, read first-hand | the shipped EP learner and `ConditionalContrast` |
 | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) Fold-evaluated CV-TMLE with baseline strata | 6 | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); the regime means are implemented and read experimental | the shipped fold-evaluated estimate and the shipped stratified fluctuation |
 | [X64](#x64-intervention-and-policy-declarations) Intervention and policy declarations | 6 | natural extension for parts (a) to (d); no new theory for part (e) | the shipped intervention declarations |
@@ -794,13 +793,15 @@ efficient estimators.
 risks of competing causes under a binary baseline treatment, with no time grid (X91 part (g)).
 The registered study
 [continuous-time survival TMLE](technical-reference/method-evidence/continuous-time-survival.md)
-gates its default cross-fitted fit at n = 1,000. This item holds what remains.
+gates its default cross-fitted fit at n = 1,000, and
+[continuous-time survival restricted means and risk ratios](technical-reference/method-evidence/continuous-survival-functionals.md)
+gates the same fit with one restricted horizon. This item holds what remains.
 
 | part | what to add | base |
 | --- | --- | --- |
 | (a) the early-time standard error | at the first quartile of the event times the influence-curve standard error ran up to 8% below the sampling spread at n = 1,000 (5% at 4,000) and coverage fell to 0.88, while the estimates were unbiased with the efficient spread. The fit labels a time by which fewer than 40% of the events have happened experimental. A diagnosis, then a corrected variance or a declared finite-sample rule, would lift the label | the study's `early-time.csv`; the pilot at n = 4,000 in `tests/studies/continuous_survival_pilot.csv.gz` |
 | (b) one event type and more than two causes | a study of each; both run today and read experimental | Rytgaard and van der Laan (2024), Section 3.1, covers any number of causes |
-| (c) the result's curve, contrasts, ratios and RMST | `curve()`, `contrast()`, `to_dict()`, `ratio()`, `rmst()` and `evalue` on `ContinuousSurvivalResult`, and a study of the risk ratio and the band | the influence curves the result already holds |
+| (c) the band of a fit with restricted means | `curve()`, `contrast()`, `to_dict()`, `ratio()`, `rmtl()`, `rmst()` and `evalue` ship on `ContinuousSurvivalResult`, and `restricted_horizons=` targets each restricted mean. The registered study [continuous-time survival restricted means and risk ratios](technical-reference/method-evidence/continuous-survival-functionals.md) gates the risks, risk ratios and restricted means of a fit with one restricted horizon at the last target time. Its declared band row over every risk and risk difference runs as a second phase after the band thread's PR 2; until then the band reads experimental | the study's declaration in `tests/studies/continuous_survival_functionals_properties.py` |
 | (d) a bootstrap | a full-refit bootstrap of the continuous-time fit | none read |
 | (e) time-varying treatment and covariates | the continuous-time intensity model and its targeting | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5) |
 | (f) a comparator | `concrete` 1.0.5 implements the form of Rytgaard, Eriksson and van der Laan (2023), tilts only each unit's received arm, which a mutation test shows is not doubly robust, and is archived. Pin it by commit before any paired cell | the `concrete` source |
@@ -812,8 +813,8 @@ gates its default cross-fitted fit at n = 1,000. This item holds what remains.
 diagnostics and `diagnostics.influence()` read the fit's record and influence curves
 ([continuous-time survival](technical-reference/continuous-time-survival.md#assessment)). This item
 holds the operations that refit or retarget the fit. The omitted-variable, marginal and tilt bounds
-wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation), and the E-value for
-[X6](#x6-continuous-time-survival-and-competing-risks) part (c).
+wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation). The E-value of a risk
+ratio of the fit runs.
 
 | part | what to add | base |
 | --- | --- | --- |
@@ -830,12 +831,13 @@ claims to perturb.
 `LTMLE` with `survival_model="hazard"` supports one baseline treatment held over every node: a
 categorical treatment under any regimen, and a modified treatment policy on a categorical, continuous
 or mixed treatment. With `targeting="one_step"` such a design may also declare covariates measured
-after baseline. The
+after baseline. It also supports a categorical treatment at several nodes under static arms, known
+rules and known policies, on a design with baseline covariates only. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
-list each design it refuses. H1 and H2 name `survival_model="iterated_mean"` with
+list each design it refuses. H2 names `survival_model="iterated_mean"` with
 `isotonic=True` as the working alternative.
 
-Parts (d), (c) and (b1) are delivered. The subsection "A working model over the hazard curve" of
+Parts (d), (c), (a) and (b1) are delivered. The subsection "A working model over the hazard curve" of
 [hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
 states part (d), and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
 validates it, with support rows `G60`.
@@ -843,20 +845,25 @@ validates it, with support rows `G60`.
 states part (c), and the
 [hazard modified-treatment-policy study](technical-reference/method-evidence/hazard-mtp.md)
 validates it, with support rows `G61`.
+
+[A treatment at several nodes on the hazard path](technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
+states part (a), and the
+[hazard multi-node study](technical-reference/method-evidence/hazard-multinode.md)
+validates it with `targeting="iterative"`, with support rows `G62`.
 [Covariates after baseline on the hazard path](technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)
 states part (b1), a held baseline treatment with covariates after baseline, and the
 [hazard covariates-after-baseline study](technical-reference/method-evidence/hazard-time-varying.md)
 validates it, with support rows `G63.held`. Each study reports the agreement of the hazard fit
-and the iterated-mean fit, as the acceptance below asks. Parts (a) and (b2) remain.
+and the iterated-mean fit, as the acceptance below asks. Part (b2) remains.
 
 The shipped one-step hazard walk is correct but slow when an enumerated policy shares its paths
 with other regimens. On one three-node draw of n = 2,000, the regimens {always, never} took 0.6 s,
 {policy, stay} took 33.5 s, and {always, never, policy} took 96 s over 10,776 steps. The same fits
-take about 1.4 s with `targeting="iterative"`.
+take about 1.4 s with `targeting="iterative"`. The multi-node study reports the one-step walk on
+200 draws and gates the iterative fit only.
 
 | part | what to add | published source |
 | --- | --- | --- |
-| (a) a treatment at several nodes | a hazard model and a fluctuation of the treatment mechanism at each decision node | Stitelman, De Gruttola and van der Laan (2012), *The International Journal of Biostatistics* 8(1) |
 | (b2) covariates after baseline on a design with a treatment at several nodes | a fluctuation of the hazards and of a regression that integrates each later covariate out, at each decision node | Rytgaard, Gerds and van der Laan (2022), *The Annals of Statistics* 50(5) |
 | (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the loss weight | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
 | (d) a working model over the hazard curve | MSM coefficients over regimen and horizon cells from the targeted hazards | Rosenblum and van der Laan (2010), *The International Journal of Biostatistics* 6(2) |
@@ -919,7 +926,7 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (b2),
-(c2), (d2), (f3), (j2) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
+(c2), (d2), (f4), (j2) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
 own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
@@ -928,9 +935,9 @@ own contract, witnesses and registered study before it ships, as the learned-rul
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f). The 2021 correction (DOI 10.1214/20-AOS2031) repairs the proof of Lemma 6 and strengthens the step from (C6) to (C7), Theorem 7 and the sufficient conditions for (C4) and (C5) to almost-sure versions, so this part reads the paper with it | published support |
-| (f3) the value of the optimal rule with weights, with strata, beside known regimes, in sample, with an intermediate, and its sensitivity analyses | `estimands=["ey_optimal_rule"]` with `weights=`, `strata=`, `interventions=`, `reference=`, `cross_fit=False` or `intermediate=`, and the omitted-variable bound and `simulated_confounding` of such a fit | under `weights=` no witness covers the regret, and the fit would target the optimum over the weighted population. A stratum value, a contrast and a level of the intermediate add the regret to a claim that no witness checks. The in-sample fit adds the regret of the full-sample rule to condition C5a. Both analyses hold the fold rules fixed, and confounding also moves which rule is optimal | natural extension |
+| (f4) the relearning replay of the value of the optimal rule beside known regimes or with strata | `simulated_confounding` of a fit of `estimands=["ey_optimal_rule"]` with `interventions=` or `strata=` | each cell relearns the rule. Beside known regimes the replay would also rebuild every known regime and its contrast with the relearned rule on the perturbed table, and with strata it would report each stratum's fold-evaluated optimal value of the perturbed table. Each needs a witness that a cell equals a manual relearning refit of those values | natural extension |
 | (j2) rule learners with an intermediate | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` with `intermediate=` | the shipped pseudo-outcome does not read $Z$. The rule at $Z = z$ needs $1\{Z = z\}(2A - 1)/(g\,q)\,(Y - \bar Q(A, z, W)) + \bar Q(1, z, W) - \bar Q(0, z, W)$, the first-node loss of Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Section 4, under the static later rule, and its own exact witness | natural extension |
-| (j4) the placebo and the simulated confounding of a level of a learned-rule fit with an intermediate | `refute(..., tests=("placebo",))` on the learned-rule value, a known-regime value beside it or a stratum alias, with `intermediate=`; `simulated_confounding` of `LearnedRuleValue(intermediate=z)` | the placebo permutes $A$ alone, so every rule's value at level $z$ is $E_W E(Y \mid Z = z, W)$, not $E[Y]$. That reference needs its own outcome regression of $Y$ on $(Z, W)$, which no refit reads, and a witness on a law where $Z$ moves $Y$ given $W$. The replay would freeze the rules learned at the level and flip the treatment or the intermediate, which needs a witness that a frozen rule at a level reproduces the fit and moves with the latent | natural extension |
+| (j4) the placebo and the simulated confounding of a level of a learned-rule fit with an intermediate | `refute(..., tests=("placebo",))` on the learned-rule value, a known-regime value beside it or a stratum alias, with `intermediate=`; `simulated_confounding` of `LearnedRuleValue(intermediate=z)` or of `OptimalRuleValue(intermediate=z)` | the placebo permutes $A$ alone, so every rule's value at level $z$ is $E_W E(Y \mid Z = z, W)$, not $E[Y]$. That reference needs its own outcome regression of $Y$ on $(Z, W)$, which no refit reads, and a witness on a law where $Z$ moves $Y$ given $W$. The replay would freeze the rules learned at the level and flip the treatment or the intermediate, which needs a witness that a frozen rule at a level reproduces the fit and moves with the latent. The replay of the value of the optimal rule at a level would relearn the rules there and needs the same witness for the relearned rules | natural extension |
 
 A rule learned on separate training data and frozen before evaluation is a known rule.
 `Rule(..., rule_kind="known")` and `DynamicRegimen(..., rule_kind="known")` evaluate it, and the
@@ -1043,8 +1050,8 @@ the in-sample fit, fold targeting, several splits, weights, clusters, more than 
 regimes beside the rule and a known $g$ read experimental. Rule learners with an intermediate are
 part (j2). On the method layer `LearnedRuleValue(intermediate=z)` with
 `PointTreatment(intermediate=...)` fits the same engine fit and reports level $z$ (part (j3)). The
-placebo and the simulated confounding of a level are part (j4). The value of the optimal rule with an intermediate joins
-part (f3), and the bound joins part (n2).
+placebo and the simulated confounding of a level are part (j4). The value of the optimal rule at a level runs too, and the
+bound joins part (n2).
 
 The value of the optimal rule, part (f), now ships
 ([the value of the optimal rule](technical-reference/point-treatment-tmle.md#learned-rules)).
@@ -1065,9 +1072,18 @@ $O_P(1/n)$ there (mean 0.00138, about 0.09 estimate SDs), and a learner whose li
 the optimal rule misses $\Psi_{d_0}$ (coverage 0.09 at n = 2,500). An estimated $g$, a rule
 learner, clusters, several splits, fold targeting, the stacked report and more than two arms
 read experimental, and the study reports the estimated-$g$ cell and a partially exceptional law
-with no claim. Weights, strata, known regimes, the in-sample fit and the two sensitivity analyses
-that hold the rules fixed are part (f3). The online estimator that holds at an exceptional law is
-part (f2b).
+with no claim.
+
+Weights (the optimal value of the weighted population), strata (each stratum's
+optimal value), known regimes (the contrasts `ate_optimal_rule`), the in-sample fit and an
+intermediate held at a level run too. The
+[optimal-compositions study](technical-reference/method-evidence/learned-rule-optimal-compositions.md)
+calibrates each with known $g$ at n = 2,000, so those fits read supported (rows `T57`); the
+weighted row needs the weighted population's own mechanism supplied. The
+[omitted-variable bound](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+of the optimal value is an asymmetric point bound, whose lower side is the learned-rule bound and
+whose upper side adds the bound over every rule, and its `simulated_confounding` relearns the rule
+in each cell. The online estimator that holds at an exceptional law is part (f2b).
 
 With `repeats` above 1 on rows the fit reports
 the mean over the splits ([the mean over splits](technical-reference/point-treatment-tmle.md#learned-rules)).
@@ -1115,12 +1131,15 @@ every row, which the fit stores. Part (n2) is what remains of that part: the lim
 benchmark, the bound of the mean over splits, the bound with baseline strata, the bound of
 the stacked report, the bound of a contrast with a known regime, the bound over more than two
 arms and the bound with an intermediate. The in-sample fit of part (a) has one rule, so its bound publishes limits.
-Its benchmark is well posed and not built, and part (n2) holds it too.
+Its benchmark is well posed and not built, and part (n2) holds it too. The bound of the value of
+the optimal rule, whose lower side is the learned-rule bound, refuses in each of these settings
+with the learned-rule reason and beside known regimes, and part (n2) also holds its limits, its
+doubly robust $\nu^2_{\sup}$ and its benchmark.
 
 | part | the request that the contract refuses | step | readiness |
 | --- | --- | --- | --- |
 | (i2) the mean over splits with clusters | `repeats` above 1 with `id=` | a variance for the mean of cluster curves centred on different partitions, which lose about $2V - V/R - 1$ cluster degrees of freedom. No finite-sample correction is derived | natural extension |
-| (n2) the limits, the benchmark, the mean over splits, the strata, the stacked report, the contrasts, more than two arms and the intermediate of the learned-rule bound | the one-sided limits and the confidence-limit robustness value of the omitted-variable bound on a learned-rule fit, `benchmark()` there, the bound with `repeats` above 1, with `strata=`, under `cv_evaluation=False`, over more than two arms or with `intermediate=`, and the bound of `ate_learned_rule` | the estimate of $\nu^2$ applies $V - 1$ of the $V$ fold rules to rows they were learned on, so its curve needs a Donsker-type condition that C5 excludes, and a limit at the common limiting rule needs a margin rate that C3 does not give. A conservative option is recorded and not built: $\nu^2_{\rm diag} = V^{-1}\sum_v E[1\{A = d_v(W)\} / g(A \mid W)^2]$, estimated for each rule on its own validation rows only, is at least $\nu^2$, because $g^{\star 2} \le g^\star$. The benchmark needs a short-model refit that holds all $V$ rules fixed at every row, which `FrozenLearnedRule` does not hold. On the in-sample fit of part (a) the one rule is the rule of every row, so `FrozenLearnedRule` holds it and a short model that keeps it fixed is well posed. That benchmark is not built either. The bound of the mean over $R$ splits (`repeats` above 1) is well posed, since that mean is linear in $\bar Q$ with representer $\bar g^\star / g$, $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$. It needs a choice of $g$ and $\sigma^2$ across splits, and refuses until then. The bound with `strata=` needs the combined representer restricted to each fold's stratum rows for a stratum value, and a witness that the marginal share mixture's bias is the combined representer's, and refuses until then. The bound of the stacked report averages the fold rules with the weights $W_v/W$ in place of $1/V$, and refuses until a witness checks its bias against that representer. The bound of a contrast with a known regime has the combined representer minus the known regime's, and refuses until a witness checks its bias against that difference. Over more than two arms the combined representer averages the fold rules' one-hot densities over every arm, $g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}$, and the bound refuses until a witness checks the bias of a learned argmax rule against it. With an intermediate the combined representer at level $z$ averages $1\{a = d^z_v(w)\}1\{Z = z\}/(g\,q)$ over the level's fold rules, and the bound refuses until a witness checks its bias | natural extension |
+| (n2) the limits, the benchmark, the mean over splits, the strata, the stacked report, the contrasts, more than two arms and the intermediate of the learned-rule bound | the one-sided limits and the confidence-limit robustness value of the omitted-variable bound on a learned-rule fit, `benchmark()` there, the bound with `repeats` above 1, with `strata=`, under `cv_evaluation=False`, over more than two arms or with `intermediate=`, and the bound of `ate_learned_rule`; on a fit of the value of the optimal rule, the bound in those settings and beside known regimes, its limits, `nu2_estimator="doubly_robust"` and `benchmark()` | the estimate of $\nu^2$ applies $V - 1$ of the $V$ fold rules to rows they were learned on, so its curve needs a Donsker-type condition that C5 excludes, and a limit at the common limiting rule needs a margin rate that C3 does not give. A conservative option is recorded and not built: $\nu^2_{\rm diag} = V^{-1}\sum_v E[1\{A = d_v(W)\} / g(A \mid W)^2]$, estimated for each rule on its own validation rows only, is at least $\nu^2$, because $g^{\star 2} \le g^\star$. The benchmark needs a short-model refit that holds all $V$ rules fixed at every row, which `FrozenLearnedRule` does not hold. On the in-sample fit of part (a) the one rule is the rule of every row, so `FrozenLearnedRule` holds it and a short model that keeps it fixed is well posed. That benchmark is not built either. The bound of the mean over $R$ splits (`repeats` above 1) is well posed, since that mean is linear in $\bar Q$ with representer $\bar g^\star / g$, $\bar g^\star = (RV)^{-1}\sum_{r,v} 1\{a = d_{rv}\}$. It needs a choice of $g$ and $\sigma^2$ across splits, and refuses until then. The bound with `strata=` needs the combined representer restricted to each fold's stratum rows for a stratum value, and a witness that the marginal share mixture's bias is the combined representer's, and refuses until then. The bound of the stacked report averages the fold rules with the weights $W_v/W$ in place of $1/V$, and refuses until a witness checks its bias against that representer. The bound of a contrast with a known regime has the combined representer minus the known regime's, and refuses until a witness checks its bias against that difference. Over more than two arms the combined representer averages the fold rules' one-hot densities over every arm, $g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}$, and the bound refuses until a witness checks the bias of a learned argmax rule against it. With an intermediate the combined representer at level $z$ averages $1\{a = d^z_v(w)\}1\{Z = z\}/(g\,q)$ over the level's fold rules, and the bound refuses until a witness checks its bias. The upper side of the bound of the optimal value reads $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$, a maximum over arms that is not differentiable where two arms' probabilities tie, so its limits and a doubly robust estimate need a curve that no source here gives, and its benchmark needs gains that a witness relates to the uniform strengths | natural extension |
 
 ### X28. Fold-evaluated CV-TMLE with baseline strata
 
@@ -1377,7 +1396,7 @@ refuse the other parts before any learner.
 
 | part | request | step |
 | --- | --- | --- |
-| (a) | observation weights on the randomized missing-outcome `DRTMLE` | known weights in each targeting equation, with the reduced regressions and $\pi$ fitted under weighted loss. The transport argument of the [DR-TMLE supported estimands](technical-reference/dr-tmle/supported-estimands.md) page states this step. The declared mechanism is the tilted-law mechanism only when the weights depend on $W$ alone. The contract requires that condition. Base: Díaz and van der Laan (2017), Section 2.1 and Equation (1) |
+| (a) | observation weights on the randomized missing-outcome `DRTMLE` | known weights in each targeting equation, with the reduced regressions and $\pi$ fitted under weighted loss. The transport argument of the [DR-TMLE supported estimands](technical-reference/dr-tmle/supported-estimands.md) page states this step. The declared mechanism is the tilted-law mechanism under `mechanism_law="target"`, which holds when the randomization precedes the sampling the weights undo or the weights depend on $W$ alone. The contract requires that reading; under `"sample"` the mechanism is an estimated tilt and the randomized construction does not apply. Base: Díaz and van der Laan (2017), Section 2.1 and Equation (1) |
 | (b) | `evaluation=` on the randomized missing-outcome `DRTMLE` | a diagnostic only, as X50 part (d). No new theory is needed |
 | (c) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and `CTMLE` | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships. No shipped method reaches this refusal |
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
@@ -1492,19 +1511,6 @@ the compositions in the table below before any learner. The refusals name this i
 
 Acceptance: a pre-fit refusal test for each request that stays refused until its part ships. Each
 part that ships needs an exact-law check with a nonzero witness for the derivative term.
-
-### X77. Censored data for continuous price policies
-
-A longitudinal fit of a continuous-node policy with a censoring factor runs. It carries the
-experimental label. The `mtp-pricing` study draws complete data, so its support rows cover
-complete data only (`src/cleverly/_support_rows.py`). The longitudinal rows of categorical
-treatments cover censored fits.
-
-| what to add | evidence |
-| --- | --- |
-| a censoring draw on the `mtp-pricing` law, with the censoring factor learned beside the classifier price ratio | a registered study cell per engine at three nodes, with its red cells reported, and support rows with `missing=("censoring",)` |
-
-Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`.
 
 ### X78. Bounded node fits under a working model
 

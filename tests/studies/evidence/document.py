@@ -922,10 +922,10 @@ def measured(row: Any) -> str:
             f"min arm share {render(float(row.mean_min_arm_share))}, "
             f"lost-arm share {render(float(row.lost_arm_share))}"
         )
-    if family == "optimal_target_control":
-        # X11 PR I: the control answers to a coverage ceiling on the optimal value. Its coverage
-        # of the realized rule value and its mean regret are published beside it, read by no
-        # verdict.
+    if family in {"optimal_target_control", "weighted_target_control"}:
+        # X11 PR I and X11 (f3): the control answers to a coverage ceiling on a value other than
+        # its fit's target. Its coverage of the realized rule value and its mean regret are
+        # published beside it, read by no verdict.
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}, mean regret "
@@ -994,8 +994,9 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
-    if family == "iterated_mean_difference":
-        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+    if family in {"iterated_mean_difference", "one_step_walk"}:
+        # hazard-msm (X70 part (d)), and hazard-multinode's one-step walk (X70 part (a)):
+        # reported with no verdict.  A paired difference prints its
         # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
         # row the share of draws whose iterated-mean risk curve decreases.
         cell = str(row.cell)
@@ -1110,6 +1111,12 @@ _BIAS_GATED = frozenset(
         "patience_bias",
         "ordered_late_confounder",
         "ordered_whole_path",
+        # Fix-16: the bias positives and controls of ``known-mechanism-sample-weights``.
+        "sample_bias",
+        "target_reading_control",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "both_misspecified",
     }
 )
 

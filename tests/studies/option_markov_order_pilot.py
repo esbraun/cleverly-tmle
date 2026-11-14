@@ -3,7 +3,8 @@
 Before the declaration every gated calibration cell is read on :data:`CALIBRATION_DRAWS` pilot
 draws at the declared n and learners, with the full-history fit beside it on the same draws, and
 the necessity control and the double-robustness pair on :data:`DRAWS` draws each.  The draws
-come from :data:`PILOT_SEED`, a stream no study draws from, and each draw is fitted by
+come from :data:`PILOT_SEED`, a stream no study drew from when it ran (``hazard-multinode``
+later declared the same root), and each draw is fitted by
 :func:`tests.studies._option_markov_law.fit` exactly as the property phase fits it.
 
 The committed summary :data:`SUMMARY` holds one row per pilot cell (a setting and an estimand):

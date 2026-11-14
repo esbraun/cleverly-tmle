@@ -283,6 +283,9 @@ def exact_fit(spec: ExactFit) -> Any:
                 frame[f"p_{label}"] = multi.G_EXACT[w, j]
             fit_kwargs["treatment_probabilities"] = {label: f"p_{label}" for label in multi.LABELS}
         estimator_kwargs = {"estimands": support.MULTI_ESTIMANDS, "reference": support.REFERENCE}
+    if spec.known and spec.weighted:
+        # The weights read W only, so the declaration is the tilted law's mechanism.
+        fit_kwargs["mechanism_law"] = "target"
     if spec.design == "saturated":
         w = frame["W"].to_numpy()
         frame = frame.assign(W1=(w == 1).astype(float), W2=(w == 2).astype(float))

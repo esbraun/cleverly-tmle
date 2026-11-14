@@ -1939,6 +1939,13 @@ BIAS_GATED_PROPERTIES = frozenset(
         "ordered_late_confounder",
         "ordered_whole_path",
         "instrument_slow_outcome",
+        # Fix-16 (``known-mechanism-sample-weights``): the ``"sample"`` positives' bias inside
+        # the margin; the ``"target"`` reading and the both-wrong fit outside it.
+        "sample_bias",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "target_reading_control",
+        "both_misspecified",
     }
 )
 
@@ -2022,6 +2029,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # X11 PR I (``learned-rule-optimal-value``): a control whose learner's limit rule is not
         # the optimal rule answers to a coverage ceiling on the optimal value.
         "optimal_target_control",
+        # X11 (f3) (``learned-rule-optimal-compositions``): the weighted fit read against the
+        # unweighted optimal value and against the weighted value of the unweighted rule, each a
+        # control that answers to a coverage ceiling.
+        "weighted_target_control",
         # Calibration families with no efficiency claim: the positive arm answers to the
         # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
         # Checked row by row below.
@@ -2114,6 +2125,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
+    # ``hazard-multinode`` (design review a, F9): the power cell reads the rejection of zero on
+    # the ``base`` calibration fits, and the necessity pair compares the targeted contrast with
+    # the plug-in of the initial hazards of the ``base`` ``mechanism_correct`` robustness fits,
+    # as ``hazard-time-varying``'s does.  No claim reads two verdicts jointly.
+    "hazard-multinode": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
     # ``hazard-time-varying`` (design review b1, f11a): the power cell reads the rejection of
     # zero on the ``one_cause`` calibration fits, and the necessity pair compares the targeted
     # contrast with the untargeted backward plug-in of the ``one_cause`` ``mechanism_correct``
@@ -2165,6 +2184,25 @@ SAME_DRAW_FAMILIES = {
                 "late_confounder_stop",
                 "ordered_late_confounder",
                 "ordered_whole_path",
+            }
+        ),
+    ),
+    # ``known-mechanism-sample-weights`` (Fix-16): every cell of a size reads one draw stream,
+    # the paired design of method-benchmarking.md, so each control's paired difference against
+    # its ``sample_misspecified`` partner is a difference on the same draws.  The study declared
+    # it (design review m4).
+    "known-mechanism-sample-weights": (
+        frozenset(
+            {"interval_calibration", "sample_bias", "sample_misspecified", "target_reading_control"}
+        ),
+        frozenset(
+            {
+                "both_misspecified",
+                "interval_calibration",
+                "sample_bias",
+                "sample_misspecified",
+                "target_reading_control",
+                "tilt_misspecified",
             }
         ),
     ),
@@ -2251,6 +2289,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # working model on the same draws, and the iterated-mean curve's decreasing share, each
         # reported with no verdict.
         "iterated_mean_difference",
+        # X70 part (a) (``hazard-multinode``): the one-step walk over regimen curves beside the
+        # per-horizon fit of the same regimens on the same draws, reported with no verdict.
+        "one_step_walk",
         # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
         # nuisance errors, the oracle Hessian checks and the split-stability readings, each
         # reported with no verdict.

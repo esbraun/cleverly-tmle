@@ -82,7 +82,7 @@ guard is a plain `TMLE`, bit for bit.
 
 | keyword | status |
 | --- | --- |
-| a declared known mechanism | complete data at every `guard` and reduction, in sample and with `cross_fit=True`, under both `reduced_crossfit` settings and with `n_bootstrap=`. It is Theorem 1 at `g_n ≡ g_0`. See [a known treatment mechanism](theorem.md#a-known-treatment-mechanism) |
+| a declared known mechanism | complete data at every `guard` and reduction, in sample and with `cross_fit=True`, under both `reduced_crossfit` settings and with `n_bootstrap=`. It is Theorem 1 at `g_n ≡ g_0`. See [a known treatment mechanism](theorem.md#a-known-treatment-mechanism). Beside non-constant weights this needs `mechanism_law="target"`. Under `"sample"` a non-empty `guard` and an `evaluation=` companion refuse before any learner, and `guard=()` fits the ordinary TMLE on the estimated tilt ([weights](../point-treatment-tmle.md#known-treatment-mechanism)) |
 | `delta=`, randomized | `randomized=True`, or data that declares a known mechanism, selects Díaz & van der Laan (2017)'s missing-outcome construction, at any number of arms. Above two arms, the fit applies the construction to each arm indicator and stacks the arm estimators. The conditions are below. |
 | `delta=`, observational | without `randomized=` or a declared mechanism, a non-empty `guard` selects the [composite indicator](theorem.md#observational-missing-data-the-composite-indicator), at any number of arms |
 | `treatment_delta=` | a declared missing treatment, with or without `delta=`, selects the composite indicator at every `guard`. `guard=()` is the composite TMLE. The arm means and their contrasts (`ey`, `ate`, `rr`, `or`) at every `guard`, and regime means and arm-indexed `msm=` coefficients on `TMLE`; the table below gives the compositions |
@@ -140,7 +140,10 @@ Ordinary `TMLE` admits a cross-fitted missing-outcome fit only under its
 two things at once. The reduced regressions must be `P_w`-conditional expectations, which weighted
 loss gives. The mechanism they condition on and divide by must be the `P_w` mechanism, which holds
 because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the
-whole expansion at two tilted laws, and keeps the wrong transport as a control that fails.
+whole expansion at two tilted laws, and keeps the wrong transport as a control that fails. A
+declared mechanism is the `P_w` mechanism only under `mechanism_law="target"`; under `"sample"`
+`nuisance.propensity` is the estimated tilt, which the reduced regressions do not yet read, so a
+guarded fit refuses.
 
 `tests/unit/test_simulated_confounding.py` adds the applied evidence. It refits nonuniform-weight
 complete-outcome fits for each binary parameter DR-TMLE can replay: the arm means, the ATE, the

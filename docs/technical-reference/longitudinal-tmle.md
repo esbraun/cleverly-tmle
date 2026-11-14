@@ -763,6 +763,23 @@ At a continuous node the treatment factor of the cumulative product is the ratio
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
+**Censoring at a continuous node.** With `censoring=`, the censoring indicator is part of the
+intervention at each node and the plan sets it to one. Díaz, Williams, Hoffman and Schenck (2023),
+arXiv v4, Section 3, identify the mean by Theorem 1 with that component set to one. The condition
+adds positivity of staying uncensored and censoring at random given $(H_t, A_t)$. By the chain
+rule the joint ratio of node $t$ is
+
+$$r_t = \frac{g^d_t(A_t \mid H_t)}{g_t(A_t \mid H_t)} \cdot \frac{1\{C_t = 1\}}{P(C_t = 1 \mid A_t, H_t)},$$
+
+with the retention evaluated at the **observed** treatment. The policy ratio sits in the numerator
+of the cumulative product and the learned retention in the bounded denominator, so `g_bounds`
+reaches the retention and not the policy ratio. The classifier trains on the units uncensored
+through $t - 1$. The exact-law witnesses and their four mutation controls are in
+`tests/unit/test_longitudinal_mtp_censored.py`. The
+[censored continuous-policy study](method-evidence/mtp-pricing-censored.md) supports `LTMLE` and
+`SDR` at three cross-fitted nodes on the classifier route (`G39.<engine>.tau3_cross_fitted_censored`).
+Other censored continuous-policy keys stay experimental.
+
 **The bin count of the density route.** A binned density at a fixed bin count is not
 consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
 errs most there. One draw of the `longitudinal-mtp` law, fitted with the exact bin probabilities so
@@ -824,8 +841,9 @@ above. So they test the targeting with a nearly exact ratio and not the default 
 ### Limits of the continuous-policy evidence
 
 The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
-[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
-test the continuous policies of this section. They publish these limits.
+[`mtp-pricing`](method-evidence/mtp-pricing.md), [`mtp-pricing-censored`](method-evidence/mtp-pricing-censored.md)
+and [`mtp-tuning`](method-evidence/mtp-tuning.md) test the continuous policies of this section.
+They publish these limits.
 
 | limit | what it means for use |
 | --- | --- |
@@ -833,6 +851,7 @@ test the continuous policies of this section. They publish these limits.
 | the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
 | the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
 | the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+| censoring at a continuous policy node is covered at three cross-fitted nodes on the classifier route only | `mtp-pricing-censored` validates `LTMLE` and `SDR` with a correctly specified main-terms logistic censoring model, per-node retention of at least 0.58 and one plan. In-sample fits, the density route, other node counts, a continuous outcome, survival outcomes and pooled censoring with a continuous policy stay experimental. Its `lmtp` comparison is pending and would read this package's own joint ratio, so it cannot check the retention model |
 
 ### Vector nodes with a continuous component
 
@@ -1150,8 +1169,8 @@ node, and $t$ is a reported horizon.
 
 | item | contract |
 | --- | --- |
-| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome. A covariate measured after baseline is taken under `targeting="one_step"` ([covariates after baseline on the hazard path](#covariates-after-baseline-on-the-hazard-path)). Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
-| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy at the baseline decision is targeted by its own weighted walk ([a modified treatment policy on the hazard path](#a-modified-treatment-policy-on-the-hazard-path)) |
+| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`), or a categorical treatment at several nodes with baseline covariates only ([a treatment at several nodes on the hazard path](#a-treatment-at-several-nodes-on-the-hazard-path)). The held treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome. On a held design a covariate measured after baseline is taken under `targeting="one_step"` ([covariates after baseline on the hazard path](#covariates-after-baseline-on-the-hazard-path)). Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy at the baseline decision is targeted by its own weighted walk ([a modified treatment policy on the hazard path](#a-modified-treatment-policy-on-the-hazard-path)). With a treatment at several nodes, a regimen sets a static arm, a known rule of $W$ or a known policy at each node |
 | estimand | $\psi_{r,j}(t) = E \sum_a q_r(a \mid W) F_j(t \mid a, W)$, the estimand of the [held design](#one-baseline-treatment-held-over-the-nodes). Contrasts, ratios, the survival view, `rmst` and `rmtl` derive from it as on an iterated-mean fit. No parameter name changes |
 | identification | no unmeasured confounding of $A$ given $W$, censoring at random given $(A, W)$, and positivity. Moore and van der Laan (2009), Section 2. Cai and van der Laan (2020), Section 2 |
 | hazard | $\lambda_l(k \mid a, W) = P(\text{cause } l \text{ at } k \mid \text{uncensored through } k,\ \text{event-free before } k,\ A = a,\ W)$. Then $S(k) = \prod_{s \le k}(1 - \sum_l \lambda_l(s))$ and $F_j(t) = \sum_{k \le t} S(k - 1)\,\lambda_j(k)$ |
@@ -1442,7 +1461,7 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
 | `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
 | `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence. With two and three causes, a full cell keeps the fitted shares, the maximum-likelihood fallback reads it over the causes alone, and a correct split survives a wrong treatment model. The upper clip keeps the cause ratios of a unit outside a full cell, and with one cause it equals the plain clip. Each has a deliberate mutation |
-| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H6, H8 to H10, H12, H14, H16, H19, H20 and H24 by type and message, before any learner, and H25 before any targeting. Also fits of the designs H7 and H11 refused |
+| `tests/unit/test_hazard_refusals.py` | each refusal H2 to H6, H8 to H10, H12, H14 to H16, H18 to H24 and H26 by type and message, before any learner, and H25 before any targeting. Also fits of the designs H1, H7 and H11 refused |
 | `tests/unit/test_hazard_targeting_rules.py` | the targeting rules on both algorithms, and H13 |
 | `tests/unit/test_hazard_node_bounds.py` | bounded hazards: the refusals, the identities, the exact checks, the finite-sample witness, the held cells and the mutation controls |
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
@@ -1558,6 +1577,48 @@ intervals, and the simultaneous band on the one-cause and two-cause fits. The su
 these fits with its `later_covariates` option, so no row of the hazard engine above covers them.
 Another composition, such as a rule or known policy, observation weights, clusters,
 `node_bounds=` or a Markov order, matches no row and is labelled `experimental`.
+
+### A treatment at several nodes on the hazard path
+
+`survival_model="hazard"` takes a categorical treatment at several nodes,
+$O = (W, A_1, C_1, Y_1, \ldots, A_T, C_T, Y_T)$ with no covariate measured after baseline, on both
+algorithms. A regimen sets a known density $q_{r,k}(a_k \mid \bar a_{k-1}, W)$ at each node: one-hot
+for a static arm or a known rule of $W$, and the declared density for a known stochastic policy. The
+implementation is `path_slots` and the multi-node branches of `longitudinal/hazard.py`. The notation
+is that of [hazard-based survival targeting](#hazard-based-survival-targeting), with a treatment path
+$u = (u_1, \ldots, u_T)$ and $\lambda_l(k \mid \bar u_k, W)$ the hazard given the treatment history
+through node $k$.
+
+| item | contract |
+| --- | --- |
+| estimand | $\psi_{r,j}(t) = E \sum_u q_r(u \mid W)\, F_j(t \mid u, W)$ with $q_r(u \mid W) = \prod_k q_{r,k}(u_k \mid \bar u_{k-1}, W)$ and $F_j(t \mid u, W)$ built from $\lambda(\cdot \mid \bar u_k, W)$ as in the held case |
+| identification | sequential randomization of $A_k$ given $(W, \bar A_{k-1})$ among the units at risk, censoring at random given $(W, \bar A_k)$, and positivity of the regimen along every path it puts mass on. This is the g-formula of a longitudinal design without covariates after baseline |
+| influence curve | $D_{r,j,t} = \sum_{k \le t} \sum_l \bigl[\sum_{u:\, \bar u_k = \bar A_k} \frac{q_r(u \mid W)}{\prod_{s \le k} g_s(u_s \mid \bar u_{s-1}, W)\, c_s(\bar u_s, W)}\, \kappa^l_{j,t}(k, u, W)\bigr] R_k\,(dN_l(k) - \lambda_l(k \mid \bar A_k, W)) + \sum_u q_r(u \mid W) F_j(t \mid u, W) - \psi_{r,j}(t)$, with $\kappa^l_{j,t}(k, u, W) = 1\{k \le t\}[1\{l = j\} - (F_j(t \mid u) - F_j(k \mid u)) / S(k \mid u)]$ read on path $u$'s own curve. The inner sum runs over the paths that agree with the observed history through $k$. It is the discrete-time special case of the canonical gradient of Rytgaard, Gerds and van der Laan (2022), Theorem 1, display (19), with no covariate intensity: only the event intensities carry a term, and the treatment and censoring factors enter the weight $h^G$ alone. On a held design the inner sum has one term and the curve is the held one |
+| submodel | the multinomial logistic fluctuation of the held case, with direction $\sum_{u:\, \bar u_k = \bar s_k} q_r(u \mid W) \kappa_r(k, u, W) / \overline{gc}_k(u, W)$ at slot $s$ and node $k$. The treatment and censoring factors are never fluctuated (Rytgaard, Gerds and van der Laan 2022, Section 5.2) |
+| slots | every slot is a full treatment path for every unit, built from the regimen on every row: a static arm broadcasts its labels, a rule is evaluated on $W$, and a policy contributes every path with positive mass for some unit, enumerated node by node from the declared density at each counterfactual prefix, with prefixes of zero mass pruned. Each regimen owns its slots, so a path two regimens share is two slots, each carrying only its own regimen's mass |
+| one law | one hazard $\lambda(k \mid \bar a_k, W)$ appears in every slot whose prefix through $k$ is $\bar a_k$. The initial copies are equal, and the direction is summed over the prefix class, so every copy moves by the same amount and the state stays one law. The plug-in is then a substitution estimator |
+| at risk | the risk set at node $k$ is the units at risk whose observed history through $k$ matches some slot's prefix. A unit that left every slot keeps no residual, and its own hazard on a path that no slot follows is never moved |
+| mechanism | the weight of slot $u$ needs $g_s(u_s \mid \bar u_{s-1}, W)$ and $c_s(\bar u_s, W)$ at the slot's own history, also where it differs from the unit's observed history. Each slot is filed as an internal static plan with the slot's codes, so an estimated mechanism is predicted at that history and the cumulative $\prod_{s \le k} g_s c_s$ is the iterated-mean cumulative of that plan, with `g_bounds` on the product. A declared factor is one value per row at the observed history, so it can stand only where every history agrees: the treatment probabilities of the first node, declared in the mapping form `treatment_probabilities={first column: {level: column or array}}` (an array over every node is refused even with missing later columns). A declared treatment factor at a later node, or declared retention at any node, is refused (H26); with it the copies of one hazard drift apart across units and the estimate misses the truth while the walk converges. The cumulative diagnostics read the mechanism at the observed history |
+| cap (H17) | when a regimen draws from a known policy, the fit refuses before any learner if the predicted traced (`tracemalloc`, not resident) peak $(a + bJ)\,nTU + c\,nUp$ passes 2 GiB, where $U$ counts the slots over every regimen and $p$ the design columns. The walk state and its copies hold $(n, T, U, J)$ arrays, and the curves, weights and copy structure hold $(n, T, U)$ arrays that do not grow with the causes. Eight whole one-step fits at `iterate="best"` give $a \approx 145$ and $b \approx 132$ bytes by least squares; `PATH_SLOT_BYTES` $a = 165$ and `PATH_STATE_BYTES` $b = 150$ with the design floor put the prediction 13 to 42 per cent above every measured peak (13 to 20 per cent except at the 44-column fixture, where the floor adds), with no growth of the bytes per value in $T$ or $U$ up to $U = 128$. A design with 44 columns peaked no higher than one with 5, and `PATH_DESIGN_BYTES` $c = 8$ is a floor. A static arm or rule adds one slot per regimen, as an arm adds one level on the held design, which has no cap, so a fit without a policy draw is never capped |
+| held cells | a cell is (node $k$, prefix value $\bar a_k$, cause), and its followers are the units at risk at $k$, of positive weight, whose observed history through $k$ is $\bar a_k$. When followers exist and none has an event of that cause, every copy of that hazard is held at zero; a full cell holds every copy at all-cause one. A prefix with no follower holds nothing |
+| remainder | a sum over nodes of products of the hazard error and the error of the cumulative path weight $q_r / \overline{gc}$ (Rytgaard, Gerds and van der Laan 2022, display (13) and Remark 1), so the estimate is consistent when either every hazard or every treatment and censoring factor is consistent. Asymptotic linearity follows under a remainder of $o_P(n^{-1/2})$ and a Donsker condition (their Theorem 2) |
+| settings | competing causes, observation weights, clusters, cross-fitting, `node_bounds=`, `stopping=`, `step_bound=`, `iterate=`, `msm=` and `truncation_curve()` act on the walk as on a held design |
+| refused | `markov_order=` (H23), a continuous or mixed node (H22), a modified treatment policy at the first node (H21) or after it (H15), a declared treatment factor after the first node or declared retention at any node, which also covers a tilt of a declared mechanism there (H26), and `hazard_pooling="pooled"`, a `Separable` regimen, `SurvivalCTMLE` and `SurvivalDRTMLE` (H18) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_multinode.py` | on an exact law with two and three binary nodes, realised exactly as weighted data, a wrong hazard learner with the true mechanism gives the exact $\psi_{r,j}(t)$ within `1e-8` on both algorithms for a static arm, a rule of $W$, a policy that reads the earlier arm, and a regimen that draws at node 1 and then stays, while its plug-in misses. The same holds for each of two competing causes and for a working model over four two-node paths. The copies of one hazard are bit-equal after the walk, and with saturated hazards the influence curve equals the iterated-mean curve within `1e-10`. Declared first-node treatment probabilities give the same exactness, and the true mechanism declared at every node, or the true retention declared, is refused before any learner (H26). Mutations: dropping the plug-in term, slots read from the observed plan values, each slot's later treatment factor read at the unit's observed history (the walk converges and the estimate misses), copies updated apart, slot mass counted twice, a wrong node-1 weight, a residual kept for a deviated unit, and a working model targeting the cells, each miss or break an identity. Also an empty prefix cell holds every copy, a treatment that never changes reduces to the held fit, the settings above carry over, the cluster variance is that of the summed curve, the cross-fitted path hazards equal a manual refit, the replay at the fitted bound is bit-identical, H17 fires before any learner when a policy draws, and static arms past the same predicted peak reach the learners |
+| `tests/unit/test_hazard_refusals.py` | H15, H18, H21, H22, H23 and H26 by type and message, before any learner |
+
+The registered study [treatment at several nodes on the hazard path](method-evidence/hazard-multinode.md)
+measures this fit on a three-node and a four-node law with a binary treatment, one cause and
+logistic learners, in sample, at n = 2,000. Its regimen fits use `targeting="iterative"`, and the
+support rows `G62.three_node` and `G62.four_node` license static arms, known rules and known
+policies there, with the simultaneous band. `G62.msm` licenses a working model over the static
+paths of three nodes with `targeting="one_step"`. The one-step walk over regimen curves is reported
+on 200 draws with no verdict, so a one-step regimen fit matches no row. A cross-fitted or
+competing-risk fit, another node count, or a treatment with more than two levels also matches
+no row. Each is labelled `experimental`.
 
 ### The isotonic projection
 
@@ -1697,6 +1758,39 @@ pins the refusal, the flat curve and the estimated-censoring case.
 | static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, held and time-to-event designs, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
 | a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
 | a continuous node | refused. A known density is not supported |
+
+**Weights.** A weighted fit estimates the regimen mean in the tilted law
+$dP_w = w\,dP/E[w]$ and divides by that law's node factors. At a treatment node Bayes' rule gives
+$P_w(A_t=a\mid H_t) \propto g_{0,t}(a\mid H_t)\,E[w\mid A_t=a,H_t]$, and a retention node is the
+same with $C_t$ given $(H_t, A_t)$. Beside non-constant weights a declared node therefore needs
+`mechanism_law=`, as in the [point case](point-treatment-tmle.md#known-treatment-mechanism). A
+node whose every declared value is 0 or 1, such as a retention of one for every unit still
+observed, is the same law under both readings and needs none, and constant weights tilt nothing.
+
+| `mechanism_law` | at each declared node with a value in $(0,1)$ |
+| --- | --- |
+| `"target"` | the fit divides by the declaration, and everything above holds in $P_w$ |
+| `"sample"` | the fit estimates the tilted factor as the normalised product of the declaration and the node learner's classification on the rows at risk, with weights $w$ over the declared probability of what each row did, normalised to mean one in each training fold. A treatment or retention factor reads the classifier at each plan's history and the declaration at the observed row |
+
+A `"sample"` node is an estimated factor: it is not a known factor in
+`LongitudinalConfig.known_factors`, the support key or the summary, and `g_bounds` truncates it
+like any estimate. The remainder is then the ordinary product of the factor errors and the outcome
+errors, so the interval holds when both are consistent at a product rate faster than
+$n^{-1/2}$, and the fit is not efficient in the model in which the declaration is known. The node
+learner must accept `sample_weight`. `LTMLE` refuses an odds tilt (`Incremental`) at a
+`"sample"` node, because it reads a tilt as a known policy only from a declaration it divides by;
+`IPSI` estimates that tilt with its mechanism term. The parametric g-formula draws the natural
+treatment at a `"sample"` node from the same product. `tests/unit/test_known_mechanism_weights_longitudinal.py`
+checks LTMLE, SDR and IPSI against a longhand g-formula on $P_w$ on the censored SMART law with a
+weight that reads $L_0$, $A_1$, $C_1$ and $L_1$, with mutation controls for the training rows,
+`fit_rows`, the plan history of the retention and the declared factor.
+The registered study
+[a declared treatment mechanism beside sample-reading weights](method-evidence/known-mechanism-sample-weights.md)
+measures cross-fitted `LTMLE` under `"sample"` on a two-node law with a continuous outcome and a
+weight that tilts the first node, at n = 4,000 (support row `G64`, which requires the
+qualifier `tilted_mechanism` and so covers no ordinary weighted fit). The interval is calibrated with
+every nuisance correct, the estimate stays unbiased with the first node regression wrong, and the
+`"target"` reading is biased.
 
 The nuisance report shows `LONGITUDINAL_KNOWN_MECHANISM` in place of each declared node's row.
 `LongitudinalConfig.known_factors` names the declared treatment and censoring columns, and the
