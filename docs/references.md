@@ -1605,8 +1605,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
   (the linear structural nested mean model), Lemma 6 (the policy value from the blips), and
   Theorem 8 (the normal limit with a linear blip). It cites the arXiv version for Theorem 4 and
   Theorem 8 (the variance estimator and product rates) and Corollary 9 (the inference for a
-  policy value). The roadmap item X72 cites Lemma 6 and Corollary 9. The proceedings version has
-  no policy-value inference.
+  policy value). The proceedings version has no policy-value inference.
 - Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
@@ -1623,7 +1622,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Ertefaie, Hejazi & van der Laan (2023), *Nonparametric inverse-probability-weighted estimators
   based on the highly adaptive lasso*, *Biometrics* 79(2):1029–1041. Section 3, Theorem 1,
   gives asymptotic linearity of IPW with an undersmoothed HAL propensity at one time point, for a
-  binary treatment. F35 in the roadmap cites it as the starting point for a longitudinal result.
+  binary treatment. The sequential-baselines page cites it for the one-time-point limit.
 - Robins (1986), *A new approach to causal inference in mortality studies with a sustained
   exposure period: application to control of the healthy worker survivor effect*, *Mathematical
   Modelling* 7:1393–1512. Section 3D, p. 1412, states the g-computation algorithm in words.

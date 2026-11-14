@@ -211,13 +211,12 @@ _MSM_REFUSAL = Refusal(
     alternative="Declare it where the regimens are: LTMLE(regimens, msm=MSM(...)).",
 )
 _COVARIATE_FEATURE_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.API_REDIRECTION,
     "a blip feature reads a time-varying covariate, so a static level needs the counterfactual "
     "law of that covariate under the regimen, which this estimator does not estimate. The "
     "blips and the reference mean E[Y(0)] are reported.",
     alternative="Fit the static contrast with LTMLE or SDR, or declare blip features that read "
     "baseline columns and earlier treatments only.",
-    roadmap="X72",
 )
 
 
