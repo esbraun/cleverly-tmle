@@ -92,8 +92,8 @@ JACKKNIFE_LEARNER_REFUSAL: Final[str] = (
     "cluster_variance='jackknife' refits every nuisance with one cluster left out and redoes "
     "the targeting. Its variance agrees with the influence-curve variance to first order when "
     "each nuisance is a finite-dimensional model fitted by smooth estimating equations: a "
-    "GLM, a Super Learner of GLMs, or a declared known mechanism. {what} is not, and no result "
-    "read here shows that leave-one-cluster-out refits of {what} linearize. Fang et al. "
+    "GLM, a Super Learner of GLMs, or a declared known mechanism. {what} is not, and no "
+    "published result shows that leave-one-cluster-out refits of {what} linearize. Fang et al. "
     "(arXiv:2510.08438, Section 3.3) use Cox models only and prove no result."
 )
 

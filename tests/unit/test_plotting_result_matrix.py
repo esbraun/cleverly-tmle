@@ -396,6 +396,9 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # jackknife interval, and influence() says its curve is not the reported variance.
     "point_tmle_jackknife": sweep.fit_tmle_jackknife,
     "ltmle_jackknife": sweep.fit_ltmle_jackknife_cross_fitted,
+    # A leave-one-cluster-out refit withholds, so the jackknife reports no interval: the
+    # interval plots read the withheld status, and influence() refuses.
+    "point_tmle_jackknife_withheld": sweep.fit_tmle_jackknife_refit_withheld,
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -418,6 +421,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "point_tmle_jackknife_withheld": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "ValueError: ate: this estimate's interval is",
         "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "draws",
