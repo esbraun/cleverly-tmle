@@ -30,6 +30,8 @@ from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import registered
 from tests.studies.evidence.replication import recording
+from tests.studies.few_cluster_floor_pilot import failure_table
+from tests.studies.fractional_glm import QuasiBinomialConvergenceError
 
 STUDIES = (
     (study_a, properties_a),
@@ -507,6 +509,70 @@ def _stub_estimate(replicate: int, clusters: int, **overrides):
         influence_curve=rng.normal(0.0, 0.5, size=clusters * study_b.CLUSTER_SIZE),
         jackknife=record if "cluster_variance" in overrides else None,
     )
+
+
+#: The first pilot key whose study GLM raised a plain ``RuntimeError`` and stopped the S-b pilot
+#: at ``efb652fa``: the IRLS of a node regression on a target separated once rounded.
+STOPPED_PILOT_KEY = ("equal40", 4, 19, study_b.FIT, 400, "pilot")
+
+
+def test_the_study_glm_continues_on_a_target_separated_once_rounded():
+    """The S-b pilot stopped on this key; ``numerical_separation=True`` fits it (the
+    ``boundary-node-ltmle`` precedent), and the flag off reproduces the stop."""
+    frame, _ = properties_b._draw(STOPPED_PILOT_KEY)
+    fitted = study_b.subject(4)
+    for learner in (fitted.outcome_learner, fitted.pseudo_learner):
+        assert learner.numerical_separation
+    settings = study_a.ltmle_settings()
+    assert settings["outcome_learner"].numerical_separation
+    assert settings["pseudo_learner"].numerical_separation
+    assert np.isfinite(study_b.fit_estimate(frame, 4).psi)
+    off = floor.ParametricQuasiBinomialGLM(numerical_separation=False)
+    with pytest.raises(RuntimeError, match="did not converge") as raised:
+        study_b.fit_estimate(frame, 4, outcome_learner=off, pseudo_learner=off)
+    assert type(raised.value) is RuntimeError
+
+
+@pytest.mark.parametrize(
+    ("error", "recorded"),
+    [
+        (QuasiBinomialConvergenceError("quasibinomial IRLS did not converge"), True),
+        (RuntimeError("quasibinomial IRLS did not converge"), False),
+    ],
+)
+def test_only_a_recordable_main_fit_error_is_a_lost_key(monkeypatch, error, recorded):
+    """A study GLM that still fails raises the recordable error: the pilot records the key
+    as lost with its cause in ``pilot-failures.csv``. A plain error stops the run."""
+    sizes, clusters, budget = "equal40", 10, 6
+
+    def estimate(frame, clusters, **overrides):
+        if int(frame) == 2 and not overrides:
+            raise error
+        return _stub_estimate(int(frame), clusters, **overrides)
+
+    monkeypatch.setattr(study_b, "fit_estimate", estimate)
+    monkeypatch.setattr(properties_b, "_draw", lambda key: (key[2], {study_b.TARGET: 0.0}))
+    every = properties_b.keys
+    monkeypatch.setattr(
+        properties_b,
+        "keys",
+        lambda budget, stream: [k for k in every(budget, stream) if k[:2] == (sizes, clusters)],
+    )
+    if not recorded:
+        with (
+            pytest.raises(RuntimeError),
+            recording("cleverly", witness=properties_b.PROPERTY_WITNESS),
+        ):
+            properties_b.generate_property_rows(n_jobs=1, budget=budget)
+        return
+    with recording("cleverly", witness=properties_b.PROPERTY_WITNESS) as recorded_failures:
+        properties_b.generate_property_rows(n_jobs=1, budget=budget)
+    table = failure_table(property_failures.frame(recorded_failures))
+    assert table[["law", "clusters", "replicate", "key"]].values.tolist() == [
+        [sizes, clusters, 2, "main"]
+    ]
+    assert table["class"].iloc[0] == "fitting_failure"
+    assert table["message"].iloc[0].startswith("QuasiBinomialConvergenceError: quasibinomial")
 
 
 def test_lost_draws_are_misses_under_the_accounting(monkeypatch):

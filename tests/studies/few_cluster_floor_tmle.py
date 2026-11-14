@@ -34,8 +34,9 @@ fit                             construction
                                 :math:`V = \min(5, J)`, the exact propensity declared known
 ``tmle_stacked_d5_*``           ``tmle_stacked`` with three noise columns, ``unequal_informative``;
                                 configurations of ``tmle_stacked`` in part (c) only (M2)
-``ltmle_in_sample``             in-sample ``LTMLE`` on one node, the study quasibinomial GLM and
-                                the exact propensity (no projection slack)
+``ltmle_in_sample``             in-sample ``LTMLE`` on one node, the study quasibinomial GLM
+                                (``numerical_separation=True``) and the exact propensity (no
+                                projection slack)
 ==============================  ==========================================================
 
 Every TMLE outcome regression is the unpenalized logistic regression in the fit's covariates.
@@ -358,7 +359,7 @@ CONFIGURATION = {
     "outcome_learner": "unpenalized logistic regression (C=1e6) in the fit's covariates",
     "estimated_treatment": "binomial main-terms GLM",
     "known_treatment": "treatment_probabilities= the law's exact propensity",
-    "ltmle_learners": "study quasibinomial GLM; exact propensity",
+    "ltmle_learners": "study quasibinomial GLM (numerical_separation=True); exact propensity",
     "package_glm": "the same LTMLE draw with cleverly.learners.GLM node regressions (reported)",
     "noise_columns": list(NOISE_COLUMNS),
     "g_bounds": list(G_BOUNDS),
@@ -467,8 +468,8 @@ def ltmle_settings(*, package_glm: bool = False) -> dict[str, Any]:
     if package_glm:
         return {"outcome_learner": GLM(), "pseudo_learner": GLM()}
     return {
-        "outcome_learner": floor.ParametricQuasiBinomialGLM(),
-        "pseudo_learner": floor.ParametricQuasiBinomialGLM(),
+        "outcome_learner": floor.ParametricQuasiBinomialGLM(numerical_separation=True),
+        "pseudo_learner": floor.ParametricQuasiBinomialGLM(numerical_separation=True),
         "treatment_learner": floor.ParametricExactPropensity(),
     }
 

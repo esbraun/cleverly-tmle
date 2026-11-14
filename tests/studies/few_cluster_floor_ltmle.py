@@ -17,7 +17,11 @@ scaled latent, at ``equal40`` (40 rows per cluster) and ``unequal40`` (sizes uni
 the study quasibinomial GLM for every node regression. The learners are the subject's,
 declared parametric (:class:`~tests.studies.few_cluster_floor.ParametricQuasiBinomialGLM`,
 :class:`~tests.studies.few_cluster_floor.ParametricKnownMechanism`) so the jackknife admits
-them; the declaration changes no fit. Each positive row also carries the same draw refitted
+them; the declaration changes no fit. The GLM runs with ``numerical_separation=True``, the
+``boundary-node-ltmle`` setting: on a target separated once rounded it keeps its last iterate
+or continues IRLS, and a fit that still fails raises the recordable
+``QuasiBinomialConvergenceError``, a lost key. Without it the first pilot stopped at
+``equal40``, 4 clusters, pilot replicate 19. Each positive row also carries the same draw refitted
 with :class:`cleverly.learners.GLM` node regressions (``package_glm_*`` columns, reported, M2).
 
 **Arms** (``few_cluster_reference``). ``t_reference`` (positive, (A)), ``iid_t_control``
@@ -216,7 +220,10 @@ CONFIGURATION = {
     "ladder": list(LADDER),
     "cross_fit": True,
     "outer_folds": "min(5, J) whole-cluster folds",
-    "learners": "study quasibinomial GLM node regressions; the law's own mechanisms",
+    "learners": (
+        "study quasibinomial GLM node regressions (numerical_separation=True); "
+        "the law's own mechanisms"
+    ),
     "package_glm": "the same draw with cleverly.learners.GLM node regressions (reported)",
     "regimens": list(REGIMENS),
     "target": TARGET,
@@ -237,8 +244,12 @@ def draw(sizes: str, clusters: int, seed: int) -> tuple[pd.DataFrame, dict[str, 
 
 def subject(clusters: int, *, package_glm: bool = False, **overrides: Any) -> LTMLE:
     """The ``canonical-ltmle-crossfit`` subject at ``clusters``, its learners declared parametric."""
-    outcome: Any = GLM() if package_glm else floor.ParametricQuasiBinomialGLM()
-    pseudo: Any = GLM() if package_glm else floor.ParametricQuasiBinomialGLM()
+    outcome: Any = (
+        GLM() if package_glm else floor.ParametricQuasiBinomialGLM(numerical_separation=True)
+    )
+    pseudo: Any = (
+        GLM() if package_glm else floor.ParametricQuasiBinomialGLM(numerical_separation=True)
+    )
     settings: dict[str, Any] = {
         "reference": REFERENCE,
         "outcome_learner": outcome,

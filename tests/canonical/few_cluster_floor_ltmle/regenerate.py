@@ -26,7 +26,9 @@ coverage split by whether the package GLM raised, M2 and Q15).
 is the smallest ladder count from which every ladder count passes; a failure at or above 20
 keeps the current floor of 20 and is diagnosed as a defect suspect. A passing floor certifies an
 all-draw coverage whose exact 99% lower end is at least 0.90, with the study quasibinomial GLM
-(which keeps the separated last iterate); the package GLM's raised share is reported beside it.
+at ``numerical_separation=True`` (it keeps the separated last iterate, also for a target separated
+once rounded, and a fit that still fails is a lost key); the package GLM's raised share is
+reported beside it.
 
 **Part (c)** (plan 5.7): (B) on every draw, (C) on the first 2,000 draws at 10 clusters or more
 (below 10 every one of the :math:`\\min(5, J)` folds holds one cluster, R5 refuses, and (C) reads
