@@ -162,6 +162,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X92](#x92-plots-and-visualizations) Plots of a longitudinal fit, and targeting-curve options | 6 | no new theory | the shipped `cleverly.plotting` and targeting curves |
+| [X100](#x100-plots-for-survival-adaptive-and-longitudinal-fits) Plots for survival, adaptive and longitudinal fits | 3 | no new theory | the shipped `cleverly.plotting`; the continuous-time curve on X6 |
 
 ## Future investigations
 
@@ -1884,10 +1885,9 @@ numbers the object already holds and never draws an interval or band the fit did
 The figure carries no notes: `cleverly.plotting.notes(fig)` gives the reason for a withheld
 interval and says when a result is experimental.
 
-Four requests stay open, and each refusal names this item:
+Three requests stay open, and each refusal names this item:
 
 - the truncation curve of a longitudinal fit, whose limits bound a cumulative probability;
-- the overlap of a longitudinal fit's treatment probabilities, one per time point; and
 - a targeting curve fitted with `target_weights=True` or a declared stopping rule. The curve's
   fluctuation carries one weight column under the relative stopping test only.
 - a targeting curve on an ATE fit with `targeting_scheme="fold"` or `cv_evaluation=True`. The
@@ -1901,6 +1901,30 @@ that proof.
 
 Acceptance: structural tests that read the plot's artists, one honesty test with a mutation
 control per applicable rule, a docstring example and a render check.
+
+### X100. Plots for survival, adaptive and longitudinal fits
+
+Several plots refuse a fit family whose numbers the fit already holds. Each refusal names this
+item:
+
+- `curve` for a continuous-time survival fit: each arm's risk, or cumulative incidence by cause,
+  with its interval and band at the target times only, since a risk between target times is not
+  targeted; the restricted mean survival and time lost at the restricted horizons;
+- `overlap` for a treatment given once at baseline in a survival fit, for an adaptive TMLE fit
+  (its treatment and trial-membership probabilities), and for a longitudinal or structural nested
+  mean fit, one panel per time point, each with the probability of staying under observation;
+- `weights` for a continuous-time survival fit, whose weights invert each row's treatment
+  probability times its probability of staying uncensored over time;
+- `learners` and `calibration` for a longitudinal fit (one choice per node and role), a
+  continuous-time survival fit (its hazard and treatment library selections) and an adaptive
+  TMLE fit, and the collaborative selection path of a time-to-event TMLE;
+- `balance` (covariate balance) for a longitudinal and a continuous-time survival fit, whose
+  weights carry a treatment and a censoring model over time. Its estimand needs a source read
+  first.
+
+Acceptance: the plot result matrix (`tests/unit/test_plotting_result_matrix.py`) draws each cell
+this item names, structural tests read each figure's artists against the fit's stored numbers, and
+each honesty rule has a mutation control.
 
 ### R1. Nested Riesz engine and initial catalog
 
