@@ -118,8 +118,8 @@ influence curve at the untargeted fits. That is the curve that R `ltmle` reports
 `gcomp=TRUE`. The diagnostic curve of IPW is the fixed-mechanism curve. No result gives the
 asymptotic linearity of either estimator with data-adaptive nuisances over several time points.
 Ertefaie, Hejazi & van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed HAL
-propensity at one time point only. [F35](../roadmap.md#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances)
-reopens the status when such a result exists.
+propensity at one time point only. For an interval with data-adaptive learners, fit `LTMLE` or
+`SDR`.
 
 The full-refit bootstrap runs and reports `bootstrap sd` with no percentile inference, as for
 `SDR`. No registered study measures it for the baselines.

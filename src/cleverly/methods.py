@@ -176,13 +176,12 @@ SDR_TILT_REFUSAL = Refusal(
 #: ``refuse_repeated_outcome``).  ``{name}`` is the refusing class and ``{kinds}`` the
 #: estimators that fit one, which ``repeated_outcome_refusal`` fills in.
 REPEATED_OUTCOME_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
+    RefusalReason.API_REDIRECTION,
     "{name} has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])).",
     alternative=(
         "{kinds} fit{verb} one. Each horizon is the end-of-study fit of the panel truncated "
         "after it."
     ),
-    roadmap="X71",
 )
 #: Why an estimator with no logistic node fluctuation refuses ``node_bounds=``. The condition
 #: holds ``{estimator}``, which :func:`node_bounds_refusal` fills in.

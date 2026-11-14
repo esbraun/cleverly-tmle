@@ -2308,10 +2308,12 @@ class TestRefusals:
             ParametricGFormula({"a": 1}, pseudo_learner=GLM())
         assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
-    def test_cross_fitting_is_an_implementation_gap(self) -> None:
+    def test_cross_fitting_redirects_to_ltmle_or_sdr(self) -> None:
         with pytest.raises(CapabilityError, match="fits in sample") as raised:
             ParametricGFormula({"a": 1}, n_folds=2)
-        assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+        assert raised.value.refusal.roadmap is None
+        assert "fit LTMLE or SDR" in str(raised.value)
 
     def test_a_working_model_is_refused(self) -> None:
         from tests.unit.test_longitudinal_msm import DOSE
@@ -2359,8 +2361,9 @@ class TestRefusals:
         }
         with pytest.raises(CapabilityError, match="no per-horizon reduction") as raised:
             ParametricGFormula({"a": 1}, outcome_learner=NeverFit()).fit(panel(), **roles)
-        assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert "X71" in str(raised.value)
+        assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+        assert raised.value.refusal.roadmap is None
+        assert "LTMLE" in str(raised.value)
 
     def test_a_binomial_glm_on_an_unbounded_outcome_is_refused(self) -> None:
         frame = panel_f(200, seed=3)
@@ -2423,7 +2426,7 @@ class TestStatus:
         assert estimate.inference == "adaptive_baseline_plugin"
         assert np.isfinite(estimate.plugin_std_error)
         assert result.simulation.parametric is False
-        with pytest.raises(CapabilityError, match="F35"):
+        with pytest.raises(CapabilityError, match="fit LTMLE or SDR"):
             _ = estimate.std_error
 
     def test_a_learner_the_estimate_does_not_read_leaves_the_status(self) -> None:
@@ -2657,7 +2660,7 @@ class TestSurface:
 
 
 def test_a_mixed_treatment_node_is_refused_before_any_learner() -> None:
-    """A vector node with a dose has no joint natural-treatment model yet (X73 (b))."""
+    """A vector node with a dose has no joint natural-treatment model; the refusal names LTMLE."""
     from .. import discrete_law_longitudinal_mtp as mixed_law
     from .. import longitudinal_mtp as mixed_mtp
 
@@ -2666,4 +2669,6 @@ def test_a_mixed_treatment_node_is_refused_before_any_learner() -> None:
         ParametricGFormula(plans, reference="natural", n_draws=2).fit(
             mixed_law.mixed_frame("end"), **mixed_mtp.MIXED_COLUMNS
         )
-    assert raised.value.refusal.roadmap == "X73"
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert raised.value.refusal.roadmap is None
+    assert "LTMLE or SDR" in str(raised.value)

@@ -69,9 +69,9 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X71, X73, X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
-| 5 | further estimands and designs, in this order: X5, X2, X7 |
+| 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
 
 The readiness labels are defined under
@@ -82,7 +82,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
-| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; part (d) shipped | the shipped hazard targeting on a held baseline treatment |
+| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d) and (c) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
 
@@ -91,12 +91,9 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X77](#x77-censored-data-for-continuous-price-policies) Censored data for continuous price policies | 3 | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor |
-| [X71](#x71-repeated-outcomes-for-the-sequential-baselines) Repeated outcomes for the sequential baselines | 3 | no new theory | the shipped `LTMLE` repeated outcome and the shipped sequential baselines |
-| [X73](#x73-pooled-over-time-parametric-g-formula-models) Pooled-over-time parametric g-formula models | 3 | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` |
 | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) Data-tuned policies beyond the shipped tuned caps | 3 | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies |
+| [X99](#x99-history-dependent-treatment-effects-by-targeted-estimation) History-dependent treatment effects by targeted estimation | 5 | source audit: no targeted estimator of these effects has been read here | the shipped `LTMLE` sequential regression; the shipped `StructuralNestedMean` defines the target |
 | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) Settings of the stacked and natural-course contracts | 6 | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) |
-| [X72](#x72-static-regimen-values-from-structural-blips-with-time-varying-features) Static regimen values from structural blips with time-varying features | 6 | published support for identification; the inference result is a preprint | the shipped `StructuralNestedMean`; the shipped `LTMLE` |
-| [X74](#x74-assessment-and-study-integration-for-the-structural-nested-mean-model) Assessment and study integration for the structural nested mean model | 6 | no new theory | X82 part D; the shipped `StructuralNestedMean` |
 | [X78](#x78-bounded-node-fits-under-a-working-model) Bounded node fits under a working model | 6 | the bounded form of a pooled fluctuation is not written | the shipped `node_bounds=` and `msm=` of `LTMLE` |
 
 ### Policies and conditional effects
@@ -164,6 +161,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X92](#x92-plots-and-visualizations) Plots of a longitudinal fit, and targeting-curve options | 6 | no new theory | the shipped `cleverly.plotting` and targeting curves |
+| [X100](#x100-plots-for-survival-adaptive-and-longitudinal-fits) Plots for survival, adaptive and longitudinal fits | 3 | no new theory | the shipped `cleverly.plotting`; the continuous-time curve on X6 |
 
 ## Future investigations
 
@@ -207,8 +205,6 @@ It moved each part that an established method or a natural extension carries to 
 | Fold policies that read the treatment or the outcome | outer folds stratified on the treatment or the outcome | asymptotic | unstratified folds, `stratify_by="none"`, which is the default. A split that reads $A$ or $Y$ refuses before any learner | [F32](#f32-fold-policies-that-read-the-treatment-or-the-outcome) |
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, of a controlled direct effect, and the standardized ATT and ATC E-value on a gaussian outcome | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
-| Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
-| Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
 | Unsmoothed dose-response curve | an interval for the curve $\theta(a_0) = E\{\bar Q(a_0, W)\}$ at a fixed dose of a continuous treatment, by an undersmoothed or adaptively smoothed CV-TMLE with an estimated treatment density, and a band over a continuum of doses | adaptive-optimum inference; asymptotic | `DoseResponseTMLE` reports the kernel-smoothed curve at declared bandwidths, with pointwise intervals and a band over the declared pairs | [F39](#f39-unsmoothed-dose-response-curve) |
 | Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale | adaptive-optimum inference for the interval; regularity for the other two | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
 | Intervals for a constant arm cell or an estimate on its bound | an interval for a mean of a yes/no outcome whose treatment arm holds one observed outcome value in its stratum, or whose estimate lies on its bound, and for every contrast that reads it | asymptotic | the point estimate stands under the `constant_arm_cell_plugin` or `out_of_range_plugin` status, with no interval, p-value or band ([small-sample scale](technical-reference/inference.md#small-sample-scale)) | [F41](#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
@@ -801,22 +797,33 @@ gates its default cross-fitted fit at n = 1,000. This item holds what remains.
 
 ### X70. Hazard targeting beyond a held baseline treatment
 
-`LTMLE` with `survival_model="hazard"` supports one categorical baseline treatment held over every
-node, with baseline covariates only. The
+`LTMLE` with `survival_model="hazard"` supports one baseline treatment held over every node, with
+baseline covariates only: a categorical treatment under any regimen, and a modified treatment policy
+on a categorical, continuous or mixed treatment. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
-list each design it refuses. Each refusal names `survival_model="iterated_mean"` with
-`isotonic=True` as the working alternative. Part (d) is delivered: the subsection "A working
-model over the hazard curve" of
+list each design it refuses. H1 and H2 name `survival_model="iterated_mean"` with
+`isotonic=True` as the working alternative.
+
+Parts (d) and (c) are delivered. The subsection "A working model over the hazard curve" of
 [hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
-states it, and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
-validates it, with support rows `G60`. That study reports the agreement of the hazard fit and the
+states part (d), and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
+validates it, with support rows `G60`.
+[A modified treatment policy on the hazard path](technical-reference/longitudinal-tmle.md#a-modified-treatment-policy-on-the-hazard-path)
+states part (c), and the
+[hazard modified-treatment-policy study](technical-reference/method-evidence/hazard-mtp.md)
+validates it, with support rows `G61`. Each study reports the agreement of the hazard fit and the
 iterated-mean fit, as the acceptance below asks.
+
+The shipped one-step hazard walk is correct but slow when an enumerated policy shares its paths
+with other regimens. On one three-node draw of n = 2,000, the regimens {always, never} took 0.6 s,
+{policy, stay} took 33.5 s, and {always, never, policy} took 96 s over 10,776 steps. The same fits
+take about 1.4 s with `targeting="iterative"`.
 
 | part | what to add | published source |
 | --- | --- | --- |
 | (a) a treatment at several nodes | a hazard model and a fluctuation of the treatment mechanism at each decision node | Stitelman, De Gruttola and van der Laan (2012), *The International Journal of Biostatistics* 8(1) |
 | (b) covariates after baseline | a model and a fluctuation of each later covariate, beside the event and censoring hazards | Stitelman, De Gruttola and van der Laan (2012) |
-| (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the clever covariate | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
+| (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the loss weight | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
 | (d) a working model over the hazard curve | MSM coefficients over regimen and horizon cells from the targeted hazards | Rosenblum and van der Laan (2010), *The International Journal of Biostatistics* 6(2) |
 
 Acceptance:
@@ -1431,82 +1438,6 @@ request checks in `sensitivity/` refuse each request before any refit.
 
 Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness for each part.
 
-### X71. Repeated outcomes for the sequential baselines
-
-`SequentialGComputation`, `SequentialIPW` and `ParametricGFormula` refuse a repeated outcome,
-declared with `outcome=Repeated([...])`, before any learner. `LTMLE` fits one: each horizon is the
-end-of-study fit of the panel truncated after it
-([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The same
-reduction applies to each baseline, and its stacked estimating equation covers several horizons
-as it covers several plans.
-
-| part | what to add | evidence |
-| --- | --- | --- |
-| (a) | `gcomp` and `ipw` in `REPEATED_OUTCOME_KINDS`, with the per-horizon fit of the truncated panel | `tests/unit/test_repeated_outcome_subclasses.py` requires each horizon's estimate and curve to equal the end-of-study fit of the truncated panel |
-| (b) | `parametric_gformula` in `REPEATED_OUTCOME_KINDS`, with one simulation of the truncated panel per horizon. Each horizon fits the covariate and outcome models of its own truncated panel | the same reduction test, which exempts `ParametricGFormula` until this part ships |
-
-Acceptance: the exact reduction test for all three estimators, and a registered property study of the
-repeated-outcome cells.
-
-### X72. Static regimen values from structural blips with time-varying features
-
-`StructuralNestedMean` fits blips whose features read baseline columns, earlier treatments and
-time-varying covariates. A feature that reads a time-varying covariate allows the blip coefficients
-and the reference mean `ey_reference` only. The estimator refuses a static level, a static
-contrast and `check_model` for such a fit with `IMPLEMENTATION_GAP` and this item.
-
-The static value needs the regimen mean of the feature, $E[\phi_t(H_t(\bar a))]$. That mean
-depends on the law of the covariates under the regimen, which the estimator does not fit.
-Lewis and Syrgkanis (2021), supplement Lemma 6, identifies the value from the blips and that law.
-Their arXiv version, Corollary 9, gives the inference. The proceedings version has no such result.
-
-| part | what to add | published source |
-| --- | --- | --- |
-| (a) | static levels and contrasts when a feature reads a time-varying covariate | the supplement, Lemma 6, and the arXiv version, Corollary 9 |
-| (b) | a stack of the blip coefficients with the `LTMLE` intermediate means $E[\phi_t(H_t(\bar a))]$, as an alternative route to part (a) | a natural extension of the sequential regression of [`LTMLE`](technical-reference/longitudinal-tmle.md) |
-| (c) | the model check for the contrasts of parts (a) and (b) | the same joint Wald construction as the shipped check |
-
-Acceptance: a written derivation of the influence curve under the [Eligibility](#eligibility)
-conditions, an exact-law witness whose feature reads a covariate with a nonzero effect on the
-contrast, a mutation control that drops the covariate-law term, and a registered study cell.
-
-### X74. Assessment and study integration for the structural nested mean model
-
-`StructuralNestedMeanResult` declares the `structural` assessment family
-([X82](#x82-refutation-and-sensitivity-checks-for-every-estimator) part D). `CausalStudy` offers no
-method that fits `StructuralNestedMean`.
-
-| part | what to add | evidence |
-| --- | --- | --- |
-| (b) | a `CausalStudy` method for the estimator, whose study report carries the structural label | a study test that the label reaches the study report |
-
-Acceptance: the study test of part (b).
-
-### X73. Pooled-over-time parametric g-formula models
-
-This row has two parts. Part (a) adds pooled models. Part (b) adds a vector treatment node
-with a dose component.
-
-`ParametricGFormula` fits one model per node and covariate. `gfoRmula` and `pygformula` fit one
-pooled model per covariate over all time rows, with lag and cumulative-average terms of the
-history. A pooled model restricts the node-specific models, so it needs fewer parameters and it
-extrapolates over time. This row adds the pooled form to the shipped estimator.
-
-| what to add | evidence |
-| --- | --- |
-| a pooled `GLM` for each covariate and for the outcome or hazard, fitted on long rows. Each row carries the time, the lag and the cumulative-average terms of the history that the caller declares. The score of a unit is the sum over its rows, and the information is the sum over all rows. The stacked equations, the score-function derivative and the simulation error stay as in [the shipped page](technical-reference/parametric-gformula.md) | exact laws on which the pooled model is correct, with the complex-step Gateaux check of the curve, and a mutation control that scores each row as a unit. A nonzero witness for each history term |
-
-Acceptance: the exact-law witnesses of the pooled model, the mutation controls, and a registered study
-cell for a law with a lag term.
-
-`ParametricGFormula` refuses a mixed treatment node today (`GFORMULA_MIXED_NODE_REFUSAL`). A
-mixed node holds a categorical component and a dose, and the simulation draws one natural
-treatment column per node.
-
-| what to add | evidence |
-| --- | --- |
-| (b) a joint natural-treatment model of a mixed node: the categorical component first, then each dose given the component, with the score of each factor in the stacked equations. The draw of a `JointPolicy` reads the drawn components | exact laws with a mixed node, the complex-step Gateaux check of the curve, and a mutation control that drops the dose factor's score |
-
 ### X75. Data-tuned policies beyond the shipped tuned caps
 
 The shipped data-tuned caps tune one cap at a continuous node on training rows. Each fit refuses
@@ -1541,6 +1472,27 @@ Acceptance: the registered cells, and a support case in `tests/studies/support_c
 
 `LTMLE` refuses `node_bounds=` beside `msm=` (R-i3). A working model over regimens pools one
 fluctuation across the regimens, and that fluctuation has no bounded form yet.
+
+### X99. History-dependent treatment effects by targeted estimation
+
+`StructuralNestedMean` reports how the effect of the treatment at node $t$ varies with the history
+up to $t$, as the coefficients of a linear blip model, by g-estimation. No targeted estimator in
+the package reports that effect. A working model over regimens, `LTMLE(msm=...)`, describes
+contrasts between whole regimens, not the effect at one node given the history that led to it.
+The owner asked for a targeted form on 2026-11-14.
+
+| part | what to add | what it needs |
+| --- | --- | --- |
+| (a) | a targeted estimator of the blip at node $t$, the effect of the node-$t$ treatment given the history with later treatment held at the reference, as a projection on declared history features | a published targeted or efficient-influence-curve construction for this parameter, read first-hand, with its identification and remainder conditions |
+| (b) | its interval and its registered study, with `StructuralNestedMean` on the same law as a related comparison where the blip model holds | part (a) |
+
+The target is the projection of the blip on the declared features, so it stays defined when the
+linear blip model is wrong. A source that targets only the coefficients of a correct blip model
+covers a smaller claim, and the contract states which one ships.
+
+Acceptance: a source audit that names the base result, exact-law checks of the influence curve
+with a nonzero witness for each history feature, a mutation control that drops the later-node
+terms, and a registered study.
 
 ### X80. Ratio trimming on the hazard path
 
@@ -1906,10 +1858,9 @@ numbers the object already holds and never draws an interval or band the fit did
 The figure carries no notes: `cleverly.plotting.notes(fig)` gives the reason for a withheld
 interval and says when a result is experimental.
 
-Four requests stay open, and each refusal names this item:
+Three requests stay open, and each refusal names this item:
 
 - the truncation curve of a longitudinal fit, whose limits bound a cumulative probability;
-- the overlap of a longitudinal fit's treatment probabilities, one per time point; and
 - a targeting curve fitted with `target_weights=True` or a declared stopping rule. The curve's
   fluctuation carries one weight column under the relative stopping test only.
 - a targeting curve on an ATE fit with `targeting_scheme="fold"` or `cv_evaluation=True`. The
@@ -1923,6 +1874,30 @@ that proof.
 
 Acceptance: structural tests that read the plot's artists, one honesty test with a mutation
 control per applicable rule, a docstring example and a render check.
+
+### X100. Plots for survival, adaptive and longitudinal fits
+
+Several plots refuse a fit family whose numbers the fit already holds. Each refusal names this
+item:
+
+- `curve` for a continuous-time survival fit: each arm's risk, or cumulative incidence by cause,
+  with its interval and band at the target times only, since a risk between target times is not
+  targeted; the restricted mean survival and time lost at the restricted horizons;
+- `overlap` for a treatment given once at baseline in a survival fit, for an adaptive TMLE fit
+  (its treatment and trial-membership probabilities), and for a longitudinal or structural nested
+  mean fit, one panel per time point, each with the probability of staying under observation;
+- `weights` for a continuous-time survival fit, whose weights invert each row's treatment
+  probability times its probability of staying uncensored over time;
+- `learners` and `calibration` for a longitudinal fit (one choice per node and role), a
+  continuous-time survival fit (its hazard and treatment library selections) and an adaptive
+  TMLE fit, and the collaborative selection path of a time-to-event TMLE;
+- `balance` (covariate balance) for a longitudinal and a continuous-time survival fit, whose
+  weights carry a treatment and a censoring model over time. Its estimand needs a source read
+  first.
+
+Acceptance: the plot result matrix (`tests/unit/test_plotting_result_matrix.py`) draws each cell
+this item names, structural tests read each figure's artists against the fit's stored numbers, and
+each honesty rule has a mutation control.
 
 ### R1. Nested Riesz engine and initial catalog
 
@@ -2685,31 +2660,6 @@ applies that bound to each arm. The requests below refuse before any computation
 The open question for the ATT and ATC row is a bounding factor for the causal risk ratio among the
 treated or the controls. The first source to read is the published eAppendix of Ding and
 VanderWeele (2016). A cited factor removes that exclusion only.
-
-### F35. Inference for sequential baselines with data-adaptive nuisances
-
-`SequentialGComputation` and `SequentialIPW` report an interval only when every regression they
-read is a `GLM`. The interval is then the stacked estimating equation of the parametric fits.
-With another learner the estimator solves no efficient influence-curve equation. Its first-order
-bias is then of the order of the learner's error.
-
-| kept claim | kind | missing argument |
-| --- | --- | --- |
-| an interval for sequential g-computation with a data-adaptive outcome learner | asymptotic | an asymptotic-linearity theorem for the iterated conditional expectation plug-in over several time points, such as an undersmoothing result. No source read here derives one |
-| an interval for longitudinal IPW with a data-adaptive mechanism learner | asymptotic | the same result for the cumulative weights. Ertefaie, Hejazi and van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed highly adaptive lasso propensity at a single time point only |
-| a cross-fitted baseline, `n_folds` above 1 | asymptotic | the same result for cross-fitted nuisances. Cross-fitting does not remove the first-order bias of a plug-in or IPW estimate, so the in-sample result does not carry over |
-
-### F36. Locally efficient g-estimation of the structural nested mean model
-
-`StructuralNestedMean` solves the unweighted g-estimating equation. Its instrument is the residual
-treatment $\tilde Z_{t,t}$. The semiparametric efficient estimator of a structural nested mean
-model weights that instrument by the conditional variance of the outcome residual. The shipped
-estimator is not that one, and no result read for this item ranks its variance against the
-variance of `LTMLE`. The weighted instrument also needs a nuisance for that variance.
-
-| kept claim | kind | missing argument |
-| --- | --- | --- |
-| an interval for the blips from the variance-weighted g-estimator, with a cross-fitted variance nuisance | efficiency | the efficient influence function of the linear structural nested mean model, and a limit theorem for the cross-fitted weighted estimator. No source read for this item states either |
 
 ### F39. Unsmoothed dose-response curve
 

@@ -458,7 +458,7 @@ def _pair_support(configured: Support, below_floor: bool) -> Support:
     if not below_floor:
         return configured
     record = STATUS_RECORDS["low_dose_support_plugin"]
-    assert record.shown_reason is not None
+    assert record.shown_reason is not None and record.reopened_by is not None
     reasons = (configured.reason,) if configured.label == "experimental" else ()
     evidence = configured.evidence if configured.label == "experimental" else ()
     return Support(

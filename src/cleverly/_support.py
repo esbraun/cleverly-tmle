@@ -1423,7 +1423,8 @@ def support_for(
         for name, shown in STATUS_RECORDS.items():
             if name in applied and shown.shown_reason is not None:
                 reasons.append(shown.shown_reason)
-                evidence.append(shown.reopened_by)
+                if shown.reopened_by is not None:
+                    evidence.append(shown.reopened_by)
     if reasons:
         return Support(
             "experimental",

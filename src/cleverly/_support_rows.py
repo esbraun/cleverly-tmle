@@ -5154,7 +5154,6 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                # Roadmap: X72.
                 "reference mean only. A static level or contrast is refused.",
             ),
         ),
@@ -5556,8 +5555,9 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: structural nested mean model (``G42``), the categorical tilt (``G43``) and the long-horizon
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
-#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``) and
-#: the working model over the hazard curve (``G60``).
+#: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``),
+#: the working model over the hazard curve (``G60``) and a modified treatment policy on the
+#: hazard path (``G61``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -5930,6 +5930,122 @@ def _hazard_msm_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
+    """A modified treatment policy on the hazard path of ``hazard-mtp`` (X70 part (c)): ``G61``.
+
+    ``LTMLE`` with a modified treatment policy at the baseline decision, ``survival_model=
+    "hazard"`` and ``targeting="one_step"`` keys ``mtp`` on the hazard ``LTMLE`` key, with the
+    baseline treatment held over the visits (a vector treatment has one visit).  The rows were
+    added because every declared verdict passed: 48 of 48 primary tests and 39 of 39 property
+    cells with a verdict (calibration with its controls on every ratio route, the simultaneous
+    band on two laws, robustness on every route, targeting necessity, the root-n rate and
+    power), with no failed fit.  The numbers are the committed results
+    (``tests/canonical/hazard_mtp``).
+    """
+    slug = ["hazard-mtp"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a logistic visit hazard and "
+        "dropout, one cause, and a deterministic policy that the natural course is compared "
+        "against. Correctly specified low-dimensional learners at n = 2,000; a wrong hazard "
+        "learner or wrong mechanisms only in the robustness cells. A flexible learner, a "
+        "stochastic policy, held cells, observation weights or clusters rest on the exact-law "
+        "tests alone. No comparator: no maintained package targets these hazards under a "
+        "policy."
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "regimens": ("mtp",),
+        "survival_model": "hazard",
+        "targeting": "one_step",
+    }
+    continuous = ("continuous",) * 5
+    return (
+        long_row(
+            "G61.levels",
+            slug,
+            held=True,
+            treatment=("6",) * 5,
+            kinds=_LONG_BAND,
+            cells=["levels"],
+            limits=[
+                "A dose on six levels over five visits, moved up one level. The primary rows "
+                "read coverage 0.941 to 0.959 over 2,400 draws, the calibration cells SE ratio "
+                "1.005 and 1.018 over 4,400, and the max-t band over both curves joint "
+                "coverage 0.951.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.density",
+            slug,
+            held=True,
+            treatment=continuous,
+            kinds=_LONG_BAND,
+            cells=["gaussian_density"],
+            limits=[
+                "A Gaussian dose over five visits, truncated to [0, 5.5] and shifted by one with "
+                "the cap at 5.5, its ratio from the binned density at oracle_bins(n) bins. The "
+                "primary rows read coverage 0.944 to 0.956 over 2,400 draws, the calibration "
+                "cells SE ratio 0.997 and 1.000 over 4,400, and the band joint coverage 0.950. "
+                "On an unbounded dose the tail bins are wider than the shift and the influence "
+                "curve misses the efficient one by about a quarter of an efficiency SD at "
+                "n = 20,000; its reported rows carry no verdict.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.classifier",
+            slug,
+            held=True,
+            treatment=continuous,
+            ratio="classifier",
+            cells=["gaussian_classifier"],
+            limits=[
+                "A Gaussian dose over five visits shifted by one, its ratio from a logistic "
+                "classifier. The primary rows read coverage 0.940 to 0.955 over 2,400 draws and "
+                "the calibration cells SE ratio 0.995 and 1.016 over 4,400; no band is "
+                "validated on this route.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.cross_fitted",
+            slug,
+            held=True,
+            treatment=continuous,
+            ratio="classifier",
+            splitting=("cross_fitted",),
+            cells=["gaussian_crossfit"],
+            limits=[
+                "The classifier route on five outer folds. The calibration cells read SE ratio "
+                "1.000 and 1.006 over 4,400 draws, and the wrong-hazard cell a standardized "
+                "bias of -0.069 over 1,600; no band is validated on this route.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G61.vector",
+            slug,
+            treatment=("mixed",),
+            ratio="classifier",
+            cells=["vector"],
+            limits=[
+                "A binary arm beside a Gaussian dose at one visit, the dose shifted by one and "
+                "the arm kept, its ratio from a logistic classifier. The primary rows read "
+                "coverage 0.940 to 0.954 over 2,400 draws and the calibration cells SE ratio "
+                "0.980 and 0.996 over 4,400; a vector held over several visits cannot be "
+                "declared.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -6069,6 +6185,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_survival_ctmle_rows(),
         *_survival_dr_tmle_rows(),
         *_hazard_msm_rows(),
+        *_hazard_mtp_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
@@ -6448,6 +6565,9 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     "G46.tmle.binary_k5": (_band("long_horizon_ltmle", "k5"),),
     # hazard_msm_properties: the joint fit of the four survival-law coefficients.
     "G60.survival": (_band("hazard_msm", "survival_logit_coefficients"),),
+    # hazard_mtp_properties: each fit label's band over every risk and contrast of both curves.
+    "G61.levels": (_band("hazard_mtp", "levels_curve"),),
+    "G61.density": (_band("hazard_mtp", "gaussian_density_curve"),),
     # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
     # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
     "T14": (_band("tmle3_stratified", "crossfit_strata"),),

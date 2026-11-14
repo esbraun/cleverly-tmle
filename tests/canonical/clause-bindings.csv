@@ -1816,6 +1816,25 @@ hazard-msm,simultaneous_coverage,joint coverage in calibration band,se_low
 hazard-msm,targeting_necessity,bias discriminated,pair_collapse
 hazard-msm,targeting_necessity,bias equivalent,bias
 hazard-msm,targeting_necessity,least displacement over labels,control_concentrated
+hazard-mtp,double_robustness,bias discriminated,pair_collapse
+hazard-mtp,double_robustness,bias equivalent,bias
+hazard-mtp,double_robustness,se ratio in union band,se/0.05
+hazard-mtp,interval_calibration,coverage in calibration band,shift/0.7
+hazard-mtp,interval_calibration,efficiency above band,pair_collapse
+hazard-mtp,interval_calibration,efficiency empirical in efficiency band,mixed/3
+hazard-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+hazard-mtp,interval_calibration,se ratio below band,se_high
+hazard-mtp,interval_calibration,se ratio in calibration band,se/0.9
+hazard-mtp,power,rejection floor,rejection/0.01
+hazard-mtp,root_n_and_efficiency,bias equivalent,bias
+hazard-mtp,root_n_and_efficiency,coverage floor,coverage/0.5
+hazard-mtp,root_n_and_efficiency,se ratio sanity,se_high
+hazard-mtp,root_n_rate,slope in root-n band,contract
+hazard-mtp,simultaneous_coverage,joint coverage below nominal,se_high
+hazard-mtp,simultaneous_coverage,joint coverage in calibration band,se_low
+hazard-mtp,targeting_necessity,bias discriminated,pair_collapse
+hazard-mtp,targeting_necessity,bias equivalent,bias
+hazard-mtp,targeting_necessity,least displacement over labels,control_concentrated
 option-stopping-ltmle,interval_calibration,coverage in calibration band,shift/0.7
 option-stopping-ltmle,interval_calibration,noise se ratio below band,se_high
 option-stopping-ltmle,interval_calibration,se ratio below band,se_high
