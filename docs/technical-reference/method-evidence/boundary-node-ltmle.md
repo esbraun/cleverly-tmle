@@ -236,8 +236,8 @@ from the committed results and checked at the precision printed.
 | `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound. No cell of this study reads it |
 | `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound. No cell of this study reads it |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude. No cell of this study reads it |
-| `margin:subject_failure_bound` | 0.0500 | declared share of replications a cell may lose to a recordable fitting failure |
-| `margin:subject_failures_allowed` | 50 | the same bound, in primary replications |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limitations
 
