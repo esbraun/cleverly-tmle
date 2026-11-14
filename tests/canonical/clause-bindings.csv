@@ -1904,3 +1904,9 @@ mtp-policy-variance,interval_calibration,se ratio in calibration band,se/0.05
 mtp-policy-variance,policy_calibration,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage reaches nominal,coverage/0.925
+tests.studies.known_sample_weights_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.known_sample_weights_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.known_sample_weights_properties,interval_calibration,se ratio below band,se_high
+tests.studies.known_sample_weights_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.known_sample_weights_properties,sample_bias,bias equivalent,bias
+tests.studies.known_sample_weights_properties,target_reading_control,bias discriminated,control_diffuse
