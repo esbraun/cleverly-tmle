@@ -50,7 +50,7 @@ The primary rows report 25 targets of each fit: each arm's risk of each cause an
 difference at the median and upper quartile, each cause's risk ratio there on the log scale, and
 at $\tau$ the RMTL of each arm and cause, the RMST of each arm and their differences. Each row
 takes the primary rule: coverage above 0.90, the SE ratio inside (0.8, 1.2) and the bias within
-0.2 SD. The pilot of 800 draws on its own stream sets the count by the shared primary rule
+0.2 SD. The pilot of 3,200 draws on its own stream sets the count by the shared primary rule
 before the run, about 6,000 to 7,200 at the registered study's coverages.
 
 ## Agreement with the canonical implementation

@@ -55,7 +55,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 #: The plan's pilot (X6 plan rev 2, 5.4), on its own stream.
-PILOT_REPLICATES = 800
+PILOT_REPLICATES = 3_200
 #: The placeholder until the pilot is committed; then the shared primary rule's count from it
 #: (:func:`tests.studies.continuous_survival_functionals_pilot.primary_count`).
 PENDING_REPLICATES = 0

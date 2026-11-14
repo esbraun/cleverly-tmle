@@ -11,8 +11,10 @@ The committed rows size both instruments (``tests/unit/test_continuous_survival_
 * the primary count, by :func:`~tests.studies.repeated_sizing.primary_replicates` on the 25
   gated targets' covered counts and standardized biases (:func:`primary_count`);
 * the calibration cell, whose fit and estimand (the RMST difference) are the primary's, by the
-  at-target rule of ``guide/studies.md``: an 800-draw pilot leaves the SE ratio's predictive SD
-  near half the band, so the pooled rule cannot size it (:func:`calibration_check`).
+  at-target rule of ``guide/studies.md``, with the plug-in check at the pilot's own SE ratio
+  (:func:`calibration_check`).  The first 800 draws read a plug-in pass probability of 0.54 at
+  3,200 replicates (SE ratio 1.035), so the guide's rule extended the pilot to 3,200 draws on
+  the same stream.
 
 Run it as ``python -m tests.studies.continuous_survival_functionals_pilot --jobs N``.  It writes
 the file after every block of :data:`BLOCK` draws, so ``--resume`` continues an interrupted run

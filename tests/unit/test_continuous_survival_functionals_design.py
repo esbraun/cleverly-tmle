@@ -25,7 +25,7 @@ STUDIES = Path(__file__).resolve().parents[1] / "studies"
 
 
 def test_the_declaration_is_the_plans() -> None:
-    assert study.PILOT_REPLICATES == 800
+    assert study.PILOT_REPLICATES == 3_200
     assert study.STUDY.replicates == study.PRIMARY_REPLICATES
     assert study.PRIMARY_N == 1_000 == study.STUDY.n
     assert study.TAU == law.TIMES[2] == 2.32
