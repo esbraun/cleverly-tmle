@@ -1286,6 +1286,13 @@ mtp-pricing,interval_calibration,se ratio in calibration band,none
 mtp-pricing,ratio_necessity,bias discriminated,pair_collapse
 mtp-pricing,ratio_necessity,bias equivalent,bias
 mtp-pricing,ratio_necessity,least displacement over labels,control_concentrated
+mtp-pricing-censored,censoring_necessity,bias discriminated,pair_collapse
+mtp-pricing-censored,censoring_necessity,bias equivalent,bias
+mtp-pricing-censored,censoring_necessity,least displacement over labels,control_concentrated
+mtp-pricing-censored,interval_calibration,coverage in calibration band,shift/0.7
+mtp-pricing-censored,interval_calibration,noise se ratio below band,se_high
+mtp-pricing-censored,interval_calibration,se ratio below band,se_high
+mtp-pricing-censored,interval_calibration,se ratio in calibration band,se/0.05
 mtp-tuning,interval_calibration,coverage in calibration band,bias
 mtp-tuning,interval_calibration,noise se ratio below band,se_high
 mtp-tuning,interval_calibration,population truth se ratio below band,se_high
@@ -1966,3 +1973,12 @@ mtp-policy-variance,interval_calibration,se ratio in calibration band,se/0.05
 mtp-policy-variance,policy_calibration,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage reaches nominal,coverage/0.925
+known-mechanism-sample-weights,both_misspecified,bias discriminated,affine
+known-mechanism-sample-weights,interval_calibration,coverage in calibration band,bias
+known-mechanism-sample-weights,interval_calibration,noise se ratio below band,se_high
+known-mechanism-sample-weights,interval_calibration,se ratio below band,se_high
+known-mechanism-sample-weights,interval_calibration,se ratio in calibration band,se/0.05
+known-mechanism-sample-weights,sample_bias,bias equivalent,bias
+known-mechanism-sample-weights,sample_misspecified,bias equivalent,bias
+known-mechanism-sample-weights,target_reading_control,bias discriminated,shift/0.7
+known-mechanism-sample-weights,tilt_misspecified,bias equivalent,bias

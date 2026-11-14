@@ -527,6 +527,29 @@ def fit_iptw_known() -> Any:
     )
 
 
+def fit_tmle_known_sample_weights() -> Any:
+    """A weighted TMLE whose declared mechanism is read in the sample (Fix-16).
+
+    The weight reads the treatment, so the fit estimates the tilted law's mechanism as
+    ``g0 r / sum g0 r`` from the declaration and a weighted classifier.
+    """
+    frame = known_mechanism.point_frame()
+    frame["w"] = frame["wt"] * (1.0 + frame["A"])
+    return (
+        TMLE(**linear_in_sample())
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            weights="w",
+            treatment_probabilities={0.0: "p0", 1.0: "p1"},
+            mechanism_law="sample",
+        )
+        .single()
+    )
+
+
 def fit_known_score() -> Any:
     """A TMLE fit with a declared mechanism and the known-score ATT and ATC (X35).
 
@@ -1261,6 +1284,32 @@ def fit_ltmle() -> Any:
     )
 
 
+def _fit_mtp_censored(estimator: str) -> Any:
+    """A three-node continuous-treatment policy fit with dropout after each node, five folds.
+
+    Law P-C of ``mtp-pricing-censored`` at 600 rows: a modified policy on a continuous
+    treatment, the learned classifier ratio and a logistic censoring factor, cross-fitted as the
+    supported rows ``G39.<engine>.tau3_cross_fitted_censored`` are (X77).
+    """
+    from tests.studies import canonical_mtp_pricing_censored as censored
+    from tests.studies import mtp_pricing_censored_common as law_pc
+
+    return censored.fit(
+        law_pc.sample(600, 3),
+        estimator=estimator,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+    )
+
+
+def fit_ltmle_mtp_censored() -> Any:
+    return _fit_mtp_censored("ltmle")
+
+
+def fit_sdr_mtp_censored() -> Any:
+    return _fit_mtp_censored("sdr")
+
+
 def _fit_point_survival(**settings: Any) -> Any:
     """A two-arm survival curve fit on ``make_point_survival(600, 3)``, in sample."""
     frame, _ = make_point_survival(n=600, seed=3, n_times=4)
@@ -1276,6 +1325,40 @@ def _fit_point_survival(**settings: Any) -> Any:
         simultaneous=False,
         **IN_SAMPLE,
         **settings,
+    )
+
+
+def fit_ltmle_known_sample_weights() -> Any:
+    """A weighted LTMLE whose declared node factors are read in the sample (Fix-16).
+
+    The censored SMART law with a weight that reads ``L0``, ``A1`` and ``C1``: the first
+    treatment and retention nodes are estimated tilts, and the second retention, one for every
+    unit still observed, is divided by.
+    """
+    frame = known_mechanism.smart_frame(censoring=True)
+    frame["w"] = (1.0 + frame["L0"]) * (1.0 + 2.0 * frame["A1"]) * (1.0 + frame["C1"])
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["L0"],
+            time_varying=[[], ["L1"]],
+            censoring=["C1", "C2"],
+            weights="w",
+            treatment_probabilities=known_mechanism.SMART_TREATMENT,
+            censoring_probabilities=known_mechanism.SMART_CENSORING,
+            mechanism_law="sample",
+        ),
+    )
+    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -1883,6 +1966,7 @@ _ARM = (*_LIVE, *_BOUND, "benchmark")
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, "marginal_bounds", *_ARM),
+    "tmle_known_sample_weights": _kind(fit_tmle_known_sample_weights, *_LIVE, *_BOUND),
     # AdaptiveIPTW fits no outcome regression: the bound, tilt, refit and truncation rows
     # refuse it by name, and the rows that read the treatment mechanism run. The E-value
     # runs on the fit whose mechanism is declared, because it needs an interval.
@@ -2002,6 +2086,9 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, *_POINT),
+    # The declared mechanism read in the weighted sample: an estimated tilt, so the rows of
+    # an estimated mechanism run. The benchmark refuses (its refit would divide by g0).
+    "ltmle_known_sample_weights": _kind(fit_ltmle_known_sample_weights, *_READ, *_POINT),
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
@@ -2015,6 +2102,10 @@ KINDS: dict[str, Kind] = {
     # truncation replay rebuilds the walk, so every point row runs.
     "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
+    # A modified policy on a continuous treatment with dropout (X77). Every sensitivity row
+    # refuses a longitudinal fit by name; SDR solves no score equation.
+    "ltmle_mtp_censored": _kind(fit_ltmle_mtp_censored, *_READ, *_POINT),
+    "sdr_mtp_censored": _kind(fit_sdr_mtp_censored, "nuisance_models", "support", *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
     # The baselines fit no fluctuation, so no score equation. A g-computation estimate reads
@@ -2378,6 +2469,9 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle_known_sample_weights",
+                "ltmle_mtp_censored",
+                "sdr_mtp_censored",
                 "gcomp",
                 "ipw",
                 "gformula",
@@ -2441,6 +2535,8 @@ MUTATIONS: dict[str, Mutation] = {
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
         # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)),
         # and so does a fit of the value of the optimal rule (X11 (f3)).
+        # A declared mechanism read in the weighted sample refuses it too (Fix-16): the
+        # refit would still divide by the declaration.
         # A TMLE fit with a declared mechanism has an outcome regression, so only the
         # predicate's known-mechanism rule refuses its benchmark (X35).
         frozenset(
@@ -2456,6 +2552,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "optimal_rule+weights",
                 "optimal_rule+in_sample",
                 "optimal_rule+estimated_g",
+                "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
             }
@@ -2464,6 +2561,7 @@ MUTATIONS: dict[str, Mutation] = {
         + _RAISED.format("benchmark")
         + "benchmark cannot drop every covariate"
         + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
+        + "|benchmark declined: .*would still divide by the declared mechanism"
         + "|benchmark declined: .*this fit's data declares the mechanism known)",
     ),
     "M9": Mutation(

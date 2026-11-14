@@ -151,6 +151,29 @@ def point_truth(arms: int = 2, *, weighted: bool = False) -> dict[str, float]:
     return truth
 
 
+class ReplicaFolds:
+    """A mixin whose outer folds each hold an exact replica of the law.
+
+    Row ``i`` goes to fold ``k mod V``, where ``k`` counts the rows before it with the same
+    ``(cell, arm, Y)``.  Every such group is a multiple of ten rows, so each fold's empirical
+    law is the law and the cross-fitted estimate is exact too.  A weight that is a function of
+    ``(W, A, Y)`` is constant on each group, so each fold is also a replica of a weighted law.
+    The package draws its folds from a seed alone, so a test that needs this split overrides
+    ``_folds``.
+    """
+
+    def _folds(self, data: Any, seed: int | None = None) -> Any:
+        from cleverly.learners.crossfit import Folds
+
+        keys = np.column_stack([data.covariates, data.treatment, data.outcome])
+        _, groups = np.unique(keys, axis=0, return_inverse=True)
+        order = np.zeros(data.n, dtype=np.int64)
+        for group in np.unique(groups):
+            rows = np.flatnonzero(groups == group)
+            order[rows] = np.arange(rows.size)
+        return Folds(order % self.n_folds, self.n_folds)  # type: ignore[attr-defined]
+
+
 class FixedMechanism(BaseEstimator, ClassifierMixin):
     """A treatment "learner" that returns the law's mechanism, read from ``(W1, W2)``.
 
@@ -265,6 +288,40 @@ class CellMeanClassifier(BaseEstimator, ClassifierMixin):
         assert design.shape[1] == self.widths_
         one = np.array([self.table_[tuple(row)] for row in design])
         return np.column_stack([1.0 - one, one])
+
+
+class WeightedCellClassifier(BaseEstimator, ClassifierMixin):
+    """A treatment learner that returns the weighted arm shares in each design cell.
+
+    For every distinct design row it receives, it returns the ``sample_weight``-weighted share
+    of each class among the training rows of that cell, so on an exact law its weighted fit
+    returns the weighted conditional law exactly.  Unlike :class:`CellMeanClassifier` it reads
+    the weights: a ``mechanism_law="sample"`` fit hands it ``w / g0(A | W)``, and it then
+    returns the tilt ``r(a | W) = P_v(A = a | W)`` exactly.  ``sample_weight=None`` gives the
+    unweighted shares.
+    """
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> WeightedCellClassifier:
+        design = np.asarray(design, dtype=float)
+        target = np.asarray(target, dtype=float)
+        weights = (
+            np.ones(target.shape[0])
+            if sample_weight is None
+            else np.asarray(sample_weight, dtype=float)
+        )
+        self.classes_ = np.unique(target)
+        self.widths_ = design.shape[1]
+        self.table_ = {}
+        for key in {tuple(row) for row in design}:
+            rows = np.all(design == np.array(key), axis=1)
+            mass = np.array([weights[rows & (target == level)].sum() for level in self.classes_])
+            self.table_[key] = mass / mass.sum()
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        design = np.asarray(design, dtype=float)
+        assert design.shape[1] == self.widths_
+        return np.array([self.table_[tuple(row)] for row in design], dtype=float)
 
 
 class RawScaleOutcome(BaseEstimator):

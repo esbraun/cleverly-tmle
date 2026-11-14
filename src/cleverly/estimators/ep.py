@@ -53,6 +53,7 @@ from .._typing import FloatArray, IntArray
 from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
+from ..data.known_mechanism import divides_by_declaration
 from ..effect_modification import EffectModification, modifier_frame
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..learners._fitting import clone_learner, fit_learner, seed_unset
@@ -1308,7 +1309,7 @@ class EPEstimator:
             missing=bool(np.any(np.asarray(data.observed) < 0.5)),
             by_arm=bool(self.tmle_kwargs.get("outcome_by_arm", False)),
             arms=int(data.n_arms),
-            known_mechanism=data.known_treatment is not None,
+            known_mechanism=divides_by_declaration(data),
         )
         stem = (
             "conditional average treatment effect"

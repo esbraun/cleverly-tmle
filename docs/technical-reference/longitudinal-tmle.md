@@ -763,6 +763,23 @@ At a continuous node the treatment factor of the cumulative product is the ratio
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
+**Censoring at a continuous node.** With `censoring=`, the censoring indicator is part of the
+intervention at each node and the plan sets it to one. Díaz, Williams, Hoffman and Schenck (2023),
+arXiv v4, Section 3, identify the mean by Theorem 1 with that component set to one. The condition
+adds positivity of staying uncensored and censoring at random given $(H_t, A_t)$. By the chain
+rule the joint ratio of node $t$ is
+
+$$r_t = \frac{g^d_t(A_t \mid H_t)}{g_t(A_t \mid H_t)} \cdot \frac{1\{C_t = 1\}}{P(C_t = 1 \mid A_t, H_t)},$$
+
+with the retention evaluated at the **observed** treatment. The policy ratio sits in the numerator
+of the cumulative product and the learned retention in the bounded denominator, so `g_bounds`
+reaches the retention and not the policy ratio. The classifier trains on the units uncensored
+through $t - 1$. The exact-law witnesses and their four mutation controls are in
+`tests/unit/test_longitudinal_mtp_censored.py`. The
+[censored continuous-policy study](method-evidence/mtp-pricing-censored.md) supports `LTMLE` and
+`SDR` at three cross-fitted nodes on the classifier route (`G39.<engine>.tau3_cross_fitted_censored`).
+Other censored continuous-policy keys stay experimental.
+
 **The bin count of the density route.** A binned density at a fixed bin count is not
 consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
 errs most there. One draw of the `longitudinal-mtp` law, fitted with the exact bin probabilities so
@@ -824,8 +841,9 @@ above. So they test the targeting with a nearly exact ratio and not the default 
 ### Limits of the continuous-policy evidence
 
 The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
-[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
-test the continuous policies of this section. They publish these limits.
+[`mtp-pricing`](method-evidence/mtp-pricing.md), [`mtp-pricing-censored`](method-evidence/mtp-pricing-censored.md)
+and [`mtp-tuning`](method-evidence/mtp-tuning.md) test the continuous policies of this section.
+They publish these limits.
 
 | limit | what it means for use |
 | --- | --- |
@@ -833,6 +851,7 @@ test the continuous policies of this section. They publish these limits.
 | the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
 | the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
 | the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+| censoring at a continuous policy node is covered at three cross-fitted nodes on the classifier route only | `mtp-pricing-censored` validates `LTMLE` and `SDR` with a correctly specified main-terms logistic censoring model, per-node retention of at least 0.58 and one plan. In-sample fits, the density route, other node counts, a continuous outcome, survival outcomes and pooled censoring with a continuous policy stay experimental. Its `lmtp` comparison is pending and would read this package's own joint ratio, so it cannot check the retention model |
 
 ### Vector nodes with a continuous component
 
@@ -1680,6 +1699,39 @@ pins the refusal, the flat curve and the estimated-censoring case.
 | static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, held and time-to-event designs, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
 | a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
 | a continuous node | refused. A known density is not supported |
+
+**Weights.** A weighted fit estimates the regimen mean in the tilted law
+$dP_w = w\,dP/E[w]$ and divides by that law's node factors. At a treatment node Bayes' rule gives
+$P_w(A_t=a\mid H_t) \propto g_{0,t}(a\mid H_t)\,E[w\mid A_t=a,H_t]$, and a retention node is the
+same with $C_t$ given $(H_t, A_t)$. Beside non-constant weights a declared node therefore needs
+`mechanism_law=`, as in the [point case](point-treatment-tmle.md#known-treatment-mechanism). A
+node whose every declared value is 0 or 1, such as a retention of one for every unit still
+observed, is the same law under both readings and needs none, and constant weights tilt nothing.
+
+| `mechanism_law` | at each declared node with a value in $(0,1)$ |
+| --- | --- |
+| `"target"` | the fit divides by the declaration, and everything above holds in $P_w$ |
+| `"sample"` | the fit estimates the tilted factor as the normalised product of the declaration and the node learner's classification on the rows at risk, with weights $w$ over the declared probability of what each row did, normalised to mean one in each training fold. A treatment or retention factor reads the classifier at each plan's history and the declaration at the observed row |
+
+A `"sample"` node is an estimated factor: it is not a known factor in
+`LongitudinalConfig.known_factors`, the support key or the summary, and `g_bounds` truncates it
+like any estimate. The remainder is then the ordinary product of the factor errors and the outcome
+errors, so the interval holds when both are consistent at a product rate faster than
+$n^{-1/2}$, and the fit is not efficient in the model in which the declaration is known. The node
+learner must accept `sample_weight`. `LTMLE` refuses an odds tilt (`Incremental`) at a
+`"sample"` node, because it reads a tilt as a known policy only from a declaration it divides by;
+`IPSI` estimates that tilt with its mechanism term. The parametric g-formula draws the natural
+treatment at a `"sample"` node from the same product. `tests/unit/test_known_mechanism_weights_longitudinal.py`
+checks LTMLE, SDR and IPSI against a longhand g-formula on $P_w$ on the censored SMART law with a
+weight that reads $L_0$, $A_1$, $C_1$ and $L_1$, with mutation controls for the training rows,
+`fit_rows`, the plan history of the retention and the declared factor.
+The registered study
+[a declared treatment mechanism beside sample-reading weights](method-evidence/known-mechanism-sample-weights.md)
+measures cross-fitted `LTMLE` under `"sample"` on a two-node law with a continuous outcome and a
+weight that tilts the first node, at n = 4,000 (support row `G64`, which requires the
+qualifier `tilted_mechanism` and so covers no ordinary weighted fit). The interval is calibrated with
+every nuisance correct, the estimate stays unbiased with the first node regression wrong, and the
+`"target"` reading is biased.
 
 The nuisance report shows `LONGITUDINAL_KNOWN_MECHANISM` in place of each declared node's row.
 `LongitudinalConfig.known_factors` names the declared treatment and censoring columns, and the

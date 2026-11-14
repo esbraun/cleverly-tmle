@@ -306,6 +306,9 @@ def _roles(data: pd.DataFrame, **flags: bool) -> dict[str, Any]:
         roles["treatment_probabilities"] = {
             float(index): column for index, column in enumerate(levels)
         }
+        if "w" in data:
+            # The declared probabilities are the tilted law's mechanism (the shipped reading).
+            roles["mechanism_law"] = "target"
     if flags.get("dose"):
         roles["treatment_kind"] = "continuous"
     return roles
@@ -2839,6 +2842,34 @@ def _hazard_mtp_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _known_sample_weights_cases() -> tuple[RowCase, ...]:
+    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T56`` and ``G64``.
+
+    Each runs the study's own fit of the gated setting on a draw of its law.
+    """
+    module, slug = "known_sample_weights_law", "known-mechanism-sample-weights"
+    return (
+        _observed(
+            "T56",
+            slug,
+            "sample_correct",
+            f"{module}.py:459",
+            module,
+            lambda law: law.draw(400, 0),
+            lambda law, frame: law.fit(frame, "sample_correct"),
+        ),
+        _observed(
+            "G64",
+            slug,
+            "ltmle_sample",
+            f"{module}.py:789",
+            module,
+            lambda law: law.draw_longitudinal(400, 0),
+            lambda law, frame: law.fit_longitudinal(frame, "ltmle_sample"),
+        ),
+    )
+
+
 def _hazard_multinode_cases() -> tuple[RowCase, ...]:
     """The cases of ``hazard-multinode`` (X70 part (a)): ``G62``.
 
@@ -2983,6 +3014,23 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
                 lambda module, label=label: _study("mtp_pricing_common").sample(
                     400, 0, module.CELLS[label][0]
                 ),
+                lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
+    # X77: the cross-fitted classifier fits of ``mtp-pricing-censored``, with censoring.
+    censored = "mtp_pricing_censored_properties"
+    for row, label in (
+        ("G39.ltmle.tau3_cross_fitted_censored", "censored_crossfit_ltmle_tau3"),
+        ("G39.sdr.tau3_cross_fitted_censored", "censored_crossfit_sdr_tau3"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-pricing-censored",
+                f"{label}__correctly_specified",
+                f"{censored}.py:217",
+                censored,
+                lambda module: _study("mtp_pricing_censored_common").sample(400, 0),
                 lambda module, frame, label=label: module.calibration_fit(label, frame),
             )
         )
@@ -3499,6 +3547,7 @@ CASES: tuple[RowCase, ...] = (
     *_survival_dr_tmle_cases(),
     *_hazard_msm_cases(),
     *_hazard_mtp_cases(),
+    *_known_sample_weights_cases(),
     *_hazard_multinode_cases(),
     *_hazard_time_varying_cases(),
     *_projection_cases(),

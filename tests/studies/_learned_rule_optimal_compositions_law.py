@@ -521,7 +521,9 @@ def fit(frame: pd.DataFrame, setting: str, fold_seed: int) -> Any:
         "treatment_probabilities": known_probabilities(frame, setting),
     }
     if setting == "weighted":
+        # The supplied g_w is the weighted population's own mechanism (Fix-16 "target").
         arguments["weights"] = "w"
+        arguments["mechanism_law"] = "target"
     elif setting == "strata":
         arguments["strata"] = ["W2"]
     elif setting == "intermediate":

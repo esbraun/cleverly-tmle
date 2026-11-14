@@ -325,6 +325,21 @@ ARMS: dict[str, str] = {
         "the mean purchase under the 12% price rise at 3 nodes, SDR cross-fitted over five folds"
     ),
     "up_tau3": "the mean purchase under the 12% price rise at 3 nodes",
+    **{
+        f"censored_crossfit_{estimator}_tau3": (
+            "the mean purchase under the 12% price rise at 3 nodes with dropout after each "
+            f"price, {estimator.upper()} cross-fitted over five folds with a learned classifier "
+            "and a learned censoring model"
+        )
+        for estimator in ("ltmle", "sdr")
+    },
+    **{
+        f"up_{estimator}_tau3": (
+            "the mean purchase under the 12% price rise at 3 nodes with dropout after each "
+            f"price, {estimator.upper()} cross-fitted over five folds"
+        )
+        for estimator in ("ltmle", "sdr")
+    },
     "up_tau5": "the mean purchase under the 12% price rise at 5 nodes",
     "population_dose_quantile_tau2": "the population target of the dose-quantile cap, one fold",
     "population_quantile_regression_tau2": (
@@ -1773,6 +1788,14 @@ ARMS.update(
     }
 )
 
+#: The labels of ``known-mechanism-sample-weights`` (Fix-16): one draw stream per law and size.
+#: Mirrored from ``tests.studies.canonical_known_sample_weights``, which this module cannot
+#: import.
+_KSW_LABELS = {
+    **{f"sw_n{n}": f"law SW at n = {n:,}, the ATE" for n in (1_000, 4_000, 16_000)},
+    "lw_n4000": "law LW at n = 4,000, the always-versus-never contrast",
+}
+ARMS.update({label: f"{words}, mechanism_law='sample'" for label, words in _KSW_LABELS.items()})
 #: The labels of ``hazard-time-varying``: the contrast or the risk at the last visit of one fit
 #: label, a fit label's band over every estimate, and a fit label's own draws.  Mirrored from
 #: ``tests.studies.hazard_time_varying_properties``, which this module cannot import.
@@ -1970,6 +1993,9 @@ IMPLEMENTATIONS: dict[str, str] = {
         "`cleverly` LTMLE and SDR under price policies that bind at a declared support"
     ),
     "cleverly-mtp-tuning": "`cleverly` LTMLE and SDR under a shift with a tuned cap",
+    "cleverly-mtp-pricing-censored": (
+        "`cleverly` LTMLE and SDR under a continuous-treatment modified policy with censoring"
+    ),
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -2207,6 +2233,13 @@ SCENARIOS: dict[str, str] = {
             f"{estimator.upper()}"
         )
         for t in (2, 3, 5)
+        for estimator in ("ltmle", "sdr")
+    },
+    **{
+        f"censored_{estimator}_tau3": (
+            "3-node pricing law with engagement feedback and informative dropout after each "
+            f"price, {estimator.upper()}"
+        )
         for estimator in ("ltmle", "sdr")
     },
     "population_quantile_ltmle": "two-node law Q with a dose-quantile cap, LTMLE",
@@ -2633,6 +2666,9 @@ PROPERTIES: dict[str, str] = {
         "three fold draws reduce the ATE's sensitivity to the realized fold assignment"
     ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
+    "censoring_necessity": (
+        "the censoring factor reaches the weights: without it a wrong outcome model is biased"
+    ),
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"
     ),
@@ -3650,6 +3686,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("ratio_necessity", "learned_classifier"): (
         "the declared classifier estimates the density ratio, with the outcome misspecified",
         "bias interval inside the equivalence margin",
+    ),
+    ("censoring_necessity", "learned_censoring"): (
+        "a learned censoring model enters the weights, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("censoring_necessity", "prior_censoring_control"): (
+        "the same fit replaces the censoring model with the marginal retention rate, with the "
+        "outcome misspecified",
+        "bias interval must fall entirely outside the margin",
     ),
     ("double_robustness", "outcome_wrong_learned_classifier"): (
         "the outcome is misspecified and the declared classifier estimates the density ratio",
@@ -10708,6 +10753,82 @@ for _twin, _words in _PV_LARGE.items():
                 _DIAGNOSTIC_REQUIRED,
             )
 
+
+#: ``known-mechanism-sample-weights`` (Fix-16): a declared treatment mechanism read in the
+#: weighted sample (``mechanism_law="sample"``).  The laws and fits are those of
+#: ``tests/studies/known_sample_weights_law.py``, which this module cannot import.
+_KSW_SLUG = "known-mechanism-sample-weights"
+STUDY_SCENARIOS[(_KSW_SLUG, "SW")] = (
+    "a binary outcome, W1 normal and W2 binary, a declared randomization by W2 and a weight "
+    "that reads the arm and W1; mechanism_law='sample' with a correct logistic outcome "
+    "regression and a correct main-terms tilt classifier, five folds"
+)
+_KSW_BIAS = "99% interval of the standardized bias inside the margin"
+_KSW_BEYOND = "99% interval of the standardized bias wholly outside the margin"
+_KSW_SW_WRONG_Q = "the main-terms outcome regression on (A, W1, W2)"
+_KSW_LW_WRONG_Q = "an intercept-only regression at node one"
+PROPERTIES.update(
+    {
+        "sample_bias": (
+            "with every nuisance correct, mechanism_law='sample' estimates the weight-tilted "
+            "parameter without bias"
+        ),
+        "target_reading_control": (
+            "reading the declaration as the tilted law's mechanism ('target') when the weights "
+            "tilt it, with a wrong outcome regression, is biased"
+        ),
+        "sample_misspecified": (
+            "with the outcome regression wrong and the tilt classifier correct, "
+            "mechanism_law='sample' stays unbiased"
+        ),
+        "tilt_misspecified": (
+            "with the tilt classifier wrong and the outcome regression correct, "
+            "mechanism_law='sample' stays unbiased"
+        ),
+        "both_misspecified": (
+            "with both the outcome regression and the tilt classifier wrong, "
+            "mechanism_law='sample' is biased"
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("sample_bias", label): (
+                f"{words}, mechanism_law='sample' with every nuisance correct",
+                _KSW_BIAS,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        **{
+            ("target_reading_control", label): (
+                f"{words}, mechanism_law='target' (dividing by the declaration) with "
+                f"{_KSW_LW_WRONG_Q if label.startswith('lw') else _KSW_SW_WRONG_Q}",
+                _KSW_BEYOND,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        **{
+            ("sample_misspecified", label): (
+                f"{words}, mechanism_law='sample' with "
+                f"{_KSW_LW_WRONG_Q if label.startswith('lw') else _KSW_SW_WRONG_Q} and the "
+                "correct tilt classifier",
+                _KSW_BIAS,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        ("tilt_misspecified", "sw_n4000"): (
+            "law SW at n = 4,000, the ATE, mechanism_law='sample' with the correct outcome "
+            "regression and a tilt classifier on W2 alone",
+            _KSW_BIAS,
+        ),
+        ("both_misspecified", "sw_n4000"): (
+            f"law SW at n = 4,000, the ATE, mechanism_law='sample' with {_KSW_SW_WRONG_Q} and "
+            "a tilt classifier on W2 alone",
+            _KSW_BEYOND,
+        ),
+    }
+)
 #: ``hazard-time-varying``: static and modified plans on the hazard path with a binary
 #: time-varying covariate after baseline, one backward pass per plan.  The laws and fits are those
 #: of ``tests/studies/hazard_time_varying_law.py`` and

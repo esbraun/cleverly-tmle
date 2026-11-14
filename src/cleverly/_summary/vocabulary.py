@@ -462,6 +462,7 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "strata": "baseline strata",
         "known_mechanism": "a known treatment mechanism",
+        "tilted_mechanism": "a known treatment mechanism read in the weighted sample",
         "unequal_clusters": "clusters of unequal size",
         "known_regimes": "the fixed rules reported beside the learned rule",
         "rule_learner_blip": "a rule learner",
