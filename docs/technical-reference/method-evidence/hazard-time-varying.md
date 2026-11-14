@@ -59,6 +59,12 @@ that the influence curve of that fit is the efficient influence function. The `i
 label adds one fit at n = 40,000 per fit label, whose influence-curve SD is read against the
 bound, and the design test reads it from the committed pilot.
 
+Over the four fit labels in that pilot, the median gap of the five fits at n = 2,000 runs from
+0.080 (`three_arm` risk) to 0.150 (`one_cause` contrast), against a bound of 0.3. At n = 20,000
+the gap lies between 0.024 and 0.066, against a bound of 0.1, and between 0.20 and 0.46 times
+its median at n = 2,000, against the halving rule's 0.5. At n = 40,000 each fit's influence-curve SD is between 0.985 (`crossfit` contrast) and
+1.003 times the efficiency bound.
+
 | cell | estimand | truth | efficiency bound |
 | --- | --- | --- | --- |
 | `one_cause_contrast` | always minus never, by visit 5 | -0.4582 | 1.063 |
@@ -96,7 +102,33 @@ treatment level at a visit has an event of a cause, every estimate that reads th
 reports the plug-in without an interval. The study turns such a fit into a lost replicate on
 every path, charged to the cell's failure bound of 0.01. The rarest cell is level 2 at visit 1
 on `three_arm`, with mass 0.0065 per unit, and the design test puts the expected count of held
-fits over the whole study and its pilot at 0.05.
+fits over the whole study and its pilot at 0.05. The committed pilot held no draw of any label.
+
+Every fit of the committed pilot converged to `tol` = $10^{-10}$, and no draw was refused or
+held. The pilot rows record each fit's accepted steps over every node walk of every regimen and
+the warnings outside the expected `SparseInfluenceWarning`, but not its time. The seconds below
+are each label's wall time from its pilot commit on the runner's 4 cores, times 4, over its
+draws.
+
+| pilot label | draws | walk steps: mean (most) | draws with an unexpected warning | core-seconds a draw |
+| --- | --- | --- | --- | --- |
+| `calibration_one_cause` | 8,000 | 1,016 (1,874) | 2 | 1.22 |
+| `calibration_competing` | 8,000 | 984 (1,936) | 1 | 2.40 |
+| `calibration_three_arm` | 8,000 | 748 (928) | 2 | 1.70 |
+| `calibration_crossfit` | 8,000 | 1,214 (3,698) | 8 | 1.62 |
+| `wrong_learner_one_cause` | 800 | 3,847 (5,376) | 0 | 2.83 |
+| `wrong_learner_continuation` | 800 | 1,713 (2,985) | 0 | 1.81 |
+| `wrong_learner_competing` | 800 | 2,644 (3,611) | 1 | 4.14 |
+| `wrong_learner_three_arm` | 800 | 1,154 (1,382) | 0 | 2.26 |
+| `fits_differ_one_cause` | 200 | 1,014 (1,507) | 0 | 1.76 |
+| `fits_differ_competing` | 200 | 987 (1,311) | 0 | 3.04 |
+| `fits_differ_mechanism_correct` | 200 | 3,772 (5,273) | 0 | 3.16 |
+
+The `one_cause` and `competing` calibration draws fit the band as well. A `wrong_learner` draw's
+time includes its untargeted pass, and a `fits_differ` draw's time its iterated-mean fits. The
+28 `ic_gap` fits took 344 core-seconds. Node 1's walk moved its estimates by a mean of 0.04
+(`one_cause`), 0.07 (`competing`), 0.06 (`three_arm`) and 0.17 (`crossfit`) of their standard
+errors, at most 1.5.
 
 No maintained package targets discrete-time hazards with covariates after baseline. R `ltmle`
 and `lmtp` estimate the same estimand by the iterated-mean algorithm, which the in-package
@@ -111,7 +143,7 @@ comparator, and its agreement block stays empty.
 The primary rows draw 2,400 samples of 2,000 rows for each of `one_cause`, `competing` and
 `three_arm` and report every risk and contrast of each fit. The shared primary rule
 (`repeated_sizing.primary_replicates`) sets that count from the committed calibration pilots of
-these fit labels, so 2,400 is provisional until they are committed.
+these fit labels, and at the committed pilots it gives 2,400.
 
 ## Agreement with the canonical implementation
 
@@ -125,7 +157,7 @@ these fit labels, so 2,400 is provisional until they are committed.
 
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
-| `interval_calibration` | the contrast and the regimen's risk of each fit label, with the shrunken-SE and noise controls on the `one_cause` contrast | 4,000 at n = 2,000 (provisional) | an SE ratio or coverage interval outside its band, or an efficiency ratio outside its band |
+| `interval_calibration` | the contrast and the regimen's risk of each fit label, with the shrunken-SE and noise controls on the `one_cause` contrast | 4,800 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside its band |
 | `simultaneous_coverage` | the band over every estimate of the `one_cause` and `competing` fits, node-1 risks included, and its pointwise control | the calibration fits | joint coverage outside the calibration band |
 | `double_robustness` | the `one_cause` contrast with both sides correct, the outcome side correct, the mechanism correct, the continuation alone wrong, and both wrong; the `competing` and `three_arm` contrasts with the mechanism correct | 1,200 at n = 2,000; each arm with a wrong learner as its own pilot sets | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
 | `targeting_necessity` | the `one_cause` contrast of the `mechanism_correct` robustness fits, targeted and as the untargeted backward plug-in of the same draws | those fits' count | the targeted bias outside the margin, or the plug-in inside it |
@@ -135,19 +167,30 @@ these fit labels, so 2,400 is provisional until they are committed.
 | every family | `smallest_kish`, `largest_relative_sd` and `largest_edgeworth_loss`: the influence-curve measures of each row's fit over its estimates | as the cell | nothing: recorded beside the verdicts |
 | `iterated_mean_difference` | on `one_cause` and `competing`: the hazard estimate minus the iterated-mean estimate of the same draw, without and with `isotonic=True`, each fit against the truth, and the largest decrease of the iterated-mean curve. On `competing`, each fit's largest sum of the two cumulative incidences minus one. On the `one_cause` `mechanism_correct` draws, the same paired difference with every regression omitting $L$ | 800 at n = 2,000, and the robustness draws | nothing: the family is reported with no verdict |
 
-The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.smallest_replicates`
-over the eight arms, read at the committed calibration pilot of 8,000 draws per fit label. At a
-calibrated pilot it gives 4,000. The design test checks that the shrunken-SE and noise controls
-leave their bands at the declared count, and that the power cell has power on the calibration
-fits. The necessity cells read the `mechanism_correct` robustness fits and the power cell the
+The calibration count is the arm-pooled SE-ratio rule of `mtp_study_tools.replicates_from_pilot`
+over the eight arms, read at the committed calibration pilot of 8,000 draws per fit label, none
+held. The pilot's SE ratios run from 0.995 (`one_cause` contrast) to 1.024 (`crossfit`
+contrast), with mean 1.004. The rule gives 4,800 replicates, with per-cell and family-wise pass
+probabilities 0.994 and 0.954. At 4,800 replicates the shrunken-SE control (standard errors
+scaled by 0.7) leaves the SE-ratio band, and the noise control leaves the efficiency band, with
+probability above 0.999999. The power cell's design power at n = 2,000 rounds to one. The
+necessity cells read the `mechanism_correct` robustness fits and the power cell the
 calibration fits, so neither adds a fit set.
 
-The bands read the node-1 risks, whose influence curves have Kish counts of 20 to 24 and a
-predicted Wald coverage loss of about 0.009 each. Their losses do not average out of a maximum,
+The bands read the node-1 risks, whose influence curves had a median smallest Kish count of 19
+in the calibration pilots (5% quantile 12 to 13) and a median predicted Wald coverage loss of
+0.011. Their losses do not average out of a maximum,
 so the `one_cause` and `competing` calibration pilots fit the band, as the declared fits do. A
 rule fixed before the pilot is read then requires the declared band cell to pass with
 probability at least 0.90 at the pilot's joint coverage plus and minus one standard error. If it
 does not, the declaration stops for a diagnosis, and the band is not widened.
+
+The band covered every estimate in 94.65% of the `one_cause` pilot draws (15 estimates) and
+95.08% of the `competing` draws (24 estimates), each with a standard error of 0.25 points. The
+pointwise intervals covered every estimate at once in 61.6% and 49.8%. At the pilot's joint
+coverage minus one standard error, the 99% interval of the declared cell at 4,800 replicates
+lies inside the band with probability above 0.9999 on both fit labels, against the 0.90 the
+rule requires.
 
 | arm | untargeted plug-in, efficiency SEs at n = 2,000 | what it witnesses |
 | --- | --- | --- |
@@ -180,6 +223,13 @@ pilot was read, has no cap, and stops the study above 4,000. The `outcome_correc
 with censoring weights that omit $L_k$, and its own bias is not piloted: the `both_correct`
 reading is its proxy, and at 1,200 replicates it tolerates a standardized bias of 0.108.
 
+The pilot's standardized biases of the targeted contrast, with one standard error added, are
+0.061 for the `one_cause` `mechanism_correct` arm (1,000 pooled draws), 0.077 for
+`continuation_wrong`, 0.076 for the `competing` arm and 0.037 for the `three_arm` arm, so every
+arm takes 1,200 replicates, and so does the targeted necessity arm. The `both_correct` reading
+is 0.024. The untargeted plug-ins sit at +4.18, +1.41, +3.22 and +3.59 efficiency SEs from the
+truth, against exact-sample limits of +4.23, +1.37, +3.20 and +3.63.
+
 With correctly specified learners the hazard fit and the iterated-mean fit are both efficient,
 so they differ by $o_P(n^{-1/2})$. The study reports their agreement, the share of decreasing
 iterated-mean curves with its interval, and on `competing` how far each fit's incidences sum
@@ -187,6 +237,15 @@ above one. The decrease and coherence rows record zero as a reference, not a tru
 values are negative, and the hazard fit's sum is at most one by construction. So only each
 reading's share above zero and its largest value are reported, with no floor: X70 reports the agreement of the two fits instead of requiring a gap
 (the owner's decision of 2026-11-13).
+
+In the committed pilot of 200 draws per fit label, the standard deviation of the paired
+difference, over the efficiency-bound standard error, is 0.148 for the `one_cause` contrast and
+0.143 for its risk, and 0.139 and 0.142 on `competing`. No iterated-mean curve decreased in any
+of the 400 draws (99% interval for the share 0 to 0.026 per fit label), so `isotonic=True`
+changed no estimate and its ratios equal these. On the `one_cause` `mechanism_correct` draws,
+with every regression omitting $L$, the ratios are 0.126 for the contrast and 0.047 for the
+risk. On `competing` no fit's incidences summed above one in any draw: each fit's largest sum
+minus one was at most -0.289, with median -0.341.
 
 ## Limitations
 

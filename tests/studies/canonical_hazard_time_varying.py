@@ -485,8 +485,9 @@ def final_score(walk: Any) -> float:
 
 
 #: The warnings a fit is expected to raise, with why.  ``SparseInfluenceWarning`` names the
-#: risks at node 1, which are near 0.02: their influence curves have Kish counts of 20 to 24 and
-#: skewness of 9 to 10, and the package's Edgeworth loss is about 0.009 each.  Those estimates
+#: risks at node 1, which are near 0.02: their influence curves have skewness of 9 to 10, a
+#: median smallest Kish count of 19 in the calibration pilot, and a median Edgeworth loss of
+#: 0.011.  Those estimates
 #: carry verdicts: every primary row reads every estimand, and the gated
 #: ``simultaneous_coverage`` bands read every estimate of ``one_cause`` and ``competing``.  The
 #: primary coverage floor of 0.90 absorbs a loss of 0.01, and the band's own pilot rule decides

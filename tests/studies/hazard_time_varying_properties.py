@@ -118,14 +118,14 @@ from tests.studies.evidence.simultaneous import (
 )
 
 STUDY = study.STUDY
-#: The replicates of a positive robustness arm, and of each wrong-learner arm until its
-#: 800-draw pilot sizes it under the rule of plan X70 rev 2.7 (the design test recomputes it
-#: once the pilot is committed).
+#: The replicates of a positive robustness arm, and the floor of each wrong-learner arm's
+#: count under the rule of plan X70 rev 2.7.
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
 DOUBLE_ROBUST_ARMS = study.DOUBLE_ROBUST_ARMS
 #: The arms that fit a wrong outcome learner with the correct mechanism, each with its pilot
-#: label and its replicates: provisional until the pilot label is committed.
+#: label and its replicates: the rule of plan X70 rev 2.7 at the committed 800-draw pilot
+#: (the design test), 1,200 for every arm.
 WRONG_LEARNER_ARMS: dict[tuple[str, str], str] = {
     ("one_cause", "mechanism_correct"): "wrong_learner_one_cause",
     ("one_cause", "continuation_wrong"): "wrong_learner_continuation",

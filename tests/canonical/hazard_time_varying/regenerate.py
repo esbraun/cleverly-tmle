@@ -27,8 +27,9 @@ is re-sized, re-drawn or downgraded after a verdict is seen.
   curve: the truths are exact sums over the law's support and every learner is correctly
   specified (the continuation is the cell mean over ``(W, A, L_k, s)``, the true regression of
   the future on these Markov laws).  Diagnose it against ``tests/unit/test_hazard_time_varying.py``,
-  fix a defect, and re-run under a fresh declaration.  A node-1 risk reads few events (Kish 20
-  to 24, Edgeworth loss about 0.009, recorded per row in ``largest_edgeworth_loss``); the
+  fix a defect, and re-run under a fresh declaration.  A node-1 risk reads few events (in the
+  calibration pilot a median smallest Kish count of 19 and a median Edgeworth loss of 0.011,
+  recorded per row in ``largest_edgeworth_loss``); the
   primary coverage floor of 0.90 absorbs that loss, so a red node-1 coverage row is read as any
   other.
 * A red calibration row, in the words of the plans guide (``guide/studies.md``, Red cells): "A
