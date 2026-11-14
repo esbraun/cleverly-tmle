@@ -1,0 +1,210 @@
+{
+  "schema_version": 2,
+  "study": "treatment at several nodes on the hazard path",
+  "slug": "hazard-multinode",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "5ba870d8200548344f558399a1deb53c8a466312",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 2000,
+    "seed": 20261115,
+    "resampling_seed": 2026111501,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "base": [
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[always @ t=3]",
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[never @ t=3]",
+        "risk_regimen[rule @ t=1]",
+        "risk_regimen[rule @ t=2]",
+        "risk_regimen[rule @ t=3]",
+        "risk_regimen[policy @ t=1]",
+        "risk_regimen[policy @ t=2]",
+        "risk_regimen[policy @ t=3]",
+        "risk_regimen[stay @ t=1]",
+        "risk_regimen[stay @ t=2]",
+        "risk_regimen[stay @ t=3]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]",
+        "ate_regimen[rule vs never @ t=1]",
+        "ate_regimen[rule vs never @ t=2]",
+        "ate_regimen[rule vs never @ t=3]",
+        "ate_regimen[policy vs never @ t=1]",
+        "ate_regimen[policy vs never @ t=2]",
+        "ate_regimen[policy vs never @ t=3]",
+        "ate_regimen[stay vs never @ t=1]",
+        "ate_regimen[stay vs never @ t=2]",
+        "ate_regimen[stay vs never @ t=3]"
+      ],
+      "four": [
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[always @ t=3]",
+        "risk_regimen[always @ t=4]",
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[never @ t=3]",
+        "risk_regimen[never @ t=4]",
+        "risk_regimen[policy @ t=1]",
+        "risk_regimen[policy @ t=2]",
+        "risk_regimen[policy @ t=3]",
+        "risk_regimen[policy @ t=4]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]",
+        "ate_regimen[always vs never @ t=4]",
+        "ate_regimen[policy vs never @ t=1]",
+        "ate_regimen[policy vs never @ t=2]",
+        "ate_regimen[policy vs never @ t=3]",
+        "ate_regimen[policy vs never @ t=4]"
+      ],
+      "msm": [
+        "msm_regimen[(intercept)]",
+        "msm_regimen[dose]",
+        "msm_regimen[t]",
+        "msm_regimen[dose_W1]"
+      ]
+    },
+    "construction": "a binary treatment at every node, slots over full treatment paths with shared prefix updates; the per-horizon walk over every regimen, the one-step walk for the working model and the reported onestep fit label",
+    "survival_model": "hazard",
+    "targeting": {
+      "base": "iterative",
+      "four": "iterative",
+      "msm": "one_step",
+      "onestep": "one_step"
+    },
+    "tol": 1e-10,
+    "g_bounds": 0.001,
+    "fits": {
+      "base": [
+        "base",
+        [
+          "always",
+          "never",
+          "rule",
+          "policy",
+          "stay"
+        ],
+        false
+      ],
+      "four": [
+        "four",
+        [
+          "always",
+          "never",
+          "policy"
+        ],
+        false
+      ],
+      "msm": [
+        "base",
+        [
+          "p000",
+          "p001",
+          "p010",
+          "p011",
+          "p100",
+          "p101",
+          "p110",
+          "p111"
+        ],
+        true
+      ],
+      "onestep": [
+        "base",
+        [
+          "always",
+          "never",
+          "policy"
+        ],
+        false
+      ]
+    },
+    "working_model": "logit m = b0 + b1 d + b2 t + b3 d W1 over (static path, node), uniform h",
+    "outcome_learner": "unpenalized logistic regression on W1, W2, A1..Ak per node",
+    "treatment_learner": "unpenalized logistic regression on W1, W2, A1..A(k-1) per node",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, A1..Ak per node",
+    "regimens": {
+      "always": "treat at every node",
+      "never": "treat at no node",
+      "rule": "treat at every node when W2 >= 2 (known rule)",
+      "policy": "treat with probability 0.3 + 0.4 A(k-1) + 0.1 W1 (known policy, A0 = 0)",
+      "stay": "treat at node 1 with probability 0.3 + 0.2 W1, then keep the previous arm",
+      "pXYZ": "the static path X, Y, Z (msm)"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_hazard_multinode.py": "db75eac89b37590502c49ebb02609dd8664b08a824e22f6f46de70292d284d3b",
+    "tests/studies/hazard_multinode_properties.py": "37ad29e643bc8988155e68508ae743df437309eb856a6ee926d8e0d942d422e0",
+    "tests/studies/hazard_multinode_law.py": "db5f3cfdfea15a3c4eaa0cc529eee79b2401d5b47d50b8c7c96262a8066cf64c",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "src/cleverly/longitudinal/hazard.py": "6931c7903adfafbbd187df95dc58acc23c9cdcbf161622df7f0ce7cb09d8b073",
+    "src/cleverly/msm.py": "2846a29655dd80c6850917229c84afe4d6195094d5b07511e4a4dfc5fba08721",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "1167356fe67ff14c53c62266c6140c880e0f14af90eaf3914571c6f85dfc1505",
+    "tests/studies/evidence/property_verdicts.py": "80dd5aa45bdb65f5b8526861035d1012c389d0e6e492eb46febc40fa65a2316e",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "0407058d966ab0c455baeab27608b8090015271c512b779e966165e79a97ffc5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "2345c32e2571158cdb2419bcdcd5472869942efe532cefad349218bcbeff37ab",
+    "summary.csv": "2af05765328becb2de42a9e83552bbf15fcf7790811baf0b152546f6eae7849a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "43cbb753c27986d7dc638449f99404bf41f47c432f412ed0e63fbf619db26861",
+    "property-replicates.parquet": "7d2bcb3063012625757a3b5274b0682c9669db38e3508b4ca051834cecaa5662",
+    "properties.csv": "e53f622cfbe20169c055fb6d42d37a8f3aee0da0cd1baf6348946fd9d006b616",
+    "property-failures.csv": "bc44f28b6263350ac3611dd528c15afff1ec61af308998d1bd573fc2658297c7",
+    "property-failure-accounting.csv": "84b951c42580bf74cea3b13b7c3820d605e08e54b03564950cf4d92fc3e31dc1",
+    "property-failure-witnesses.parquet": "1b16f4c5a92f14cb70869aeda41c914344d1bef852da833f625b1bb320041157"
+  }
+}
