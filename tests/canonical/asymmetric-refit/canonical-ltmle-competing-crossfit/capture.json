@@ -1,0 +1,38 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 220,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion",
+      "properties/overfit"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 420,
+    "seconds_capture": 0.98,
+    "seconds_fit": 257.43,
+    "stage": "refits",
+    "study": "canonical-ltmle-competing-crossfit"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 15,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion",
+      "properties/overfit"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 39,
+    "seconds_capture": 0.94,
+    "seconds_fit": 40.06,
+    "stage": "scope",
+    "study": "canonical-ltmle-competing-crossfit"
+  }
+}

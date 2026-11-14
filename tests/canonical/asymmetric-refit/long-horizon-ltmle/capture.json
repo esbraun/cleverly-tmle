@@ -1,0 +1,56 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/interval_calibration",
+      "properties/root_n_and_efficiency",
+      "properties/double_robustness",
+      "properties/targeting_necessity",
+      "properties/censoring_necessity",
+      "properties/rule_necessity",
+      "properties/policy_necessity",
+      "properties/type_i_error",
+      "properties/power",
+      "properties/simultaneous_coverage",
+      "properties/support_loss",
+      "properties/learned_mechanism"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 4.94,
+    "seconds_fit": 2.5,
+    "stage": "refits",
+    "study": "long-horizon-ltmle"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 51,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/interval_calibration",
+      "properties/root_n_and_efficiency",
+      "properties/double_robustness",
+      "properties/targeting_necessity",
+      "properties/censoring_necessity",
+      "properties/rule_necessity",
+      "properties/policy_necessity",
+      "properties/type_i_error",
+      "properties/power",
+      "properties/simultaneous_coverage",
+      "properties/support_loss",
+      "properties/learned_mechanism"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 87,
+    "seconds_capture": 5.15,
+    "seconds_fit": 29.25,
+    "stage": "scope",
+    "study": "long-horizon-ltmle"
+  }
+}

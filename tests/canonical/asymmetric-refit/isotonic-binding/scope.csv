@@ -1,0 +1,5 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,LG2/risk_regimen[never @ t=1],0,0.2555205154854519,0.018250799476920657,0.2555205154854519,0.018250799476920657,ok,range_logit,,-7.4296698566486674e-05,0.050000000000000003,0.22141780540452033,0.29289974828613535,0.21974960582162495,0.29129142514927886,,,,,
+scope,property,binding_witness/never_t1,0,0,1,0,1,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/projected_t1__correctly_specified,0,0.26608174404023599,0.017832927258600653,0.26608174404023599,0.017832927258600653,ok,range_logit,,0.001282528965872466,0.050000000000000003,0.23262006884957598,0.30245961226616769,0.23112984887445612,0.30103363920601589,,,,,
+scope,property,material_move/never_t1,0,0,1,0,1,ok,own,,,,,,,,,,,,

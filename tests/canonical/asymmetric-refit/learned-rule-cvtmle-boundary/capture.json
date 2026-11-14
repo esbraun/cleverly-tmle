@@ -1,0 +1,30 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 0.01,
+    "seconds_fit": 0.05,
+    "stage": "refits",
+    "study": "learned-rule-cvtmle-boundary"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 2,
+    "primary_captured": true,
+    "property_calls": [],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 2,
+    "seconds_capture": 0.02,
+    "seconds_fit": 0.46,
+    "stage": "scope",
+    "study": "learned-rule-cvtmle-boundary"
+  }
+}

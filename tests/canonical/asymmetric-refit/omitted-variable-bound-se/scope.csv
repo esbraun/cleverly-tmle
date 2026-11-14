@@ -1,0 +1,13 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,linear/atc_lower,0,0.57199131051205421,0.067958206034817378,0.57199131051205421,0.067958206034817378,ok,own,,,,,,,,,,,,
+scope,primary,linear/atc_upper,0,2.4650689581049603,0.069695583911824149,2.4650689581049603,0.069695583911824149,ok,own,,,,,,,,,,,,
+scope,primary,linear/ate_lower,0,0.59232956219850552,0.06569494656444104,0.59232956219850552,0.06569494656444104,ok,own,,,,,,,,,,,,
+scope,primary,linear/ate_upper,0,2.4543400646576292,0.068389477899791731,2.4543400646576292,0.068389477899791731,ok,own,,,,,,,,,,,,
+scope,primary,linear/att_lower,0,0.58315051227280379,0.067543218573948197,0.58315051227280379,0.067543218573948197,ok,own,,,,,,,,,,,,
+scope,primary,linear/att_upper,0,2.4722541543048937,0.070606906222500987,2.4722541543048937,0.070606906222500987,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/atc_lower__correctly_specified,0,0.48082553510003856,0.072326274643300853,0.48082553510003878,0.072326274643300853,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/atc_upper__correctly_specified,0,2.462404638389657,0.074395470036723102,2.4624046383896574,0.074395470036723102,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/ate_lower__correctly_specified,0,0.51840789158234946,0.069065760553057381,0.51840789158234946,0.069065760553057381,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/ate_upper__correctly_specified,0,2.4531478142356988,0.070649663535734195,2.4531478142356988,0.070649663535734195,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/att_lower__correctly_specified,0,0.51323041015389881,0.072088742496819805,0.51323041015389881,0.072088742496819805,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/att_upper__correctly_specified,0,2.4860897939007818,0.072829581510459415,2.4860897939007818,0.072829581510459415,ok,own,,,,,,,,,,,,

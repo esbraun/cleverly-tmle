@@ -1,0 +1,46 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/crossfit_1500",
+      "properties/crossfit_500",
+      "properties/crossfit_8000",
+      "properties/crossfit_pseudo_true",
+      "properties/crossfit_generated_design",
+      "properties/repeats",
+      "properties/crossfit_null"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 4.56,
+    "seconds_fit": 1.23,
+    "stage": "refits",
+    "study": "ctmle-oat-per-arm-parametric-crossfit"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 8,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/crossfit_1500",
+      "properties/crossfit_500",
+      "properties/crossfit_8000",
+      "properties/crossfit_pseudo_true",
+      "properties/crossfit_generated_design",
+      "properties/repeats",
+      "properties/crossfit_null"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 25,
+    "seconds_capture": 4.61,
+    "seconds_fit": 1.82,
+    "stage": "scope",
+    "study": "ctmle-oat-per-arm-parametric-crossfit"
+  }
+}

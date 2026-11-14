@@ -1,0 +1,9 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,SH1/ate_lower,0,0.63515614088480277,0.025016003355130902,0.63515614088480299,0.025016003355130899,ok,own,,,,,,,,,,,,
+scope,primary,SH1/ate_upper,0,1.285797373453186,0.024332539118775615,1.2857973734531862,0.024332539118775601,ok,own,,,,,,,,,,,,
+scope,primary,SH2/ate_lower,0,0.039203182828922795,0.010672198554979377,0.039203182828922802,0.010672198554979299,ok,own,,,,,,,,,,,,
+scope,primary,SH2/ate_upper,0,0.2558249089456186,0.010719262923185166,0.2558249089456186,0.0107192629231851,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/SH1_ate_lower__correctly_specified,0,0.67184769833505475,0.024838628136022892,0.67184769833505464,0.024838628136022889,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/SH1_ate_upper__correctly_specified,0,1.3206546552580316,0.025266883607286038,1.3206546552580316,0.025266883607286038,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/SH2_ate_lower__correctly_specified,0,0.0061048196767734663,0.010449696631607502,0.0061048196767734542,0.010449696631607502,ok,own,,,,,,,,,,,,
+scope,property,interval_calibration/SH2_ate_upper__correctly_specified,0,0.22778351574336106,0.010654628945282324,0.22778351574336106,0.010654628945282324,ok,own,,,,,,,,,,,,
