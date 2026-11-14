@@ -1037,7 +1037,7 @@ the longitudinal rule in [a node with no event](longitudinal-tmle.md#a-node-with
 | --- | --- |
 | the pooled outcome regression, cross-fitted | not reached. A training complement without both outcome classes is refused before any learner, as the preflight of [stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states |
 | the per-arm outcome regression (`outcome_by_arm=True`), one arm's training rows in a fold | that arm's regression in the fold is the value. With a package `SuperLearner`, the preflight asks two rows of a class only of a complement that holds at least one, because a complement with none fits no Super Learner. One row of a class is still refused |
-| the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, pooled or per arm, the rows outside a pair of folds | that pair's regression is the value |
+| the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, pooled or per arm, the rows outside a pair of folds | that pair's regression is the value. With a package `SuperLearner`, a pair that keeps one row of a class is refused after the fold draw and before any learner, and the refusal names the pair and `reduced_crossfit="pooled"` |
 | a treatment-mechanism regression | not read by this rule. A complement without an arm is a positivity failure, and the fit keeps its refusal |
 | the per-arm outcome regression of an in-sample fit, an arm whose observed outcomes hold one value | that arm's regression is the value. The estimates that read the arm withhold the interval through the `constant_arm_cell_plugin` status ([inference status](inference.md#inference-status)) |
 | the pooled outcome regression of an in-sample fit | not read by this rule |
@@ -1055,7 +1055,9 @@ leave-two-out regressions, and an in-sample arm of one value. It checks the pred
 targeting bound, the report and the status. Its mutations remove the rule and see the
 classifier's two-class error return. A second control passes the rule to the treatment-mechanism
 regression and sees the pinned refusal change, and a third restores the Super Learner preflight's
-two-row rule and sees the constant fold refused.
+two-row rule and sees the constant fold refused. `TestLeaveTwoOutSuperLearner` does the same
+for a leave-two-out pair, and its controls remove the pair check, which lets the Super Learner's
+own one-member error through, or the exemption, which refuses the constant pair.
 
 ### Treatment-mechanism covariates
 

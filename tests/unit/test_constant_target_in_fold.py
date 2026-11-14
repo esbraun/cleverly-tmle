@@ -375,17 +375,17 @@ K_DRTMLE = 4
 
 
 def _drtmle(**settings: Any) -> DRTMLE:
-    return DRTMLE(
-        outcome_learner=LogisticRegression(),
-        treatment_learner=LogisticRegression(),
-        reduced_outcome_learner=LinearRegression(),
-        reduced_mechanism_residual_learner=LinearRegression(),
-        n_folds=K_DRTMLE,
-        reduced_crossfit="foldwise",
-        estimands=["ate"],
-        random_state=0,
-        **settings,
-    )
+    defaults: dict[str, Any] = {
+        "outcome_learner": LogisticRegression(),
+        "treatment_learner": LogisticRegression(),
+        "reduced_outcome_learner": LinearRegression(),
+        "reduced_mechanism_residual_learner": LinearRegression(),
+        "n_folds": K_DRTMLE,
+        "reduced_crossfit": "foldwise",
+        "estimands": ["ate"],
+        "random_state": 0,
+    }
+    return DRTMLE(**{**defaults, **settings})
 
 
 def _pair_frame(n: int = 160) -> tuple[pd.DataFrame, np.ndarray]:
@@ -459,6 +459,80 @@ class TestLeaveTwoOutOutcome:
             _drtmle().fit(frame, outcome="Y", treatment="A")
 
 
+def _super_learner_drtmle() -> DRTMLE:
+    return _drtmle(outcome_learner=_super_learner(), outcome_by_arm=True)
+
+
+def _lone_pair_frame() -> pd.DataFrame:
+    """Arm 1 keeps one ``Y = 0`` row outside folds 1 and 2 (one-based)."""
+    frame, assignment = _per_arm_pair_frame()
+    lone = int(np.flatnonzero((frame["A"].to_numpy() == 1) & (assignment == 2))[0])
+    frame.loc[lone, "Y"] = 0.0
+    return frame
+
+
+#: The leave-two-out refusal of a pair that keeps one row of an outcome class.
+LONE_PAIR = (
+    r"folds 0 and 1 leave 1 respondent\(s\) in arm 1 with outcome 0 outside them.*"
+    r"reduced_crossfit='pooled'"
+)
+
+
+class TestLeaveTwoOutSuperLearner:
+    """A package Super Learner on the pairs: no row of a class takes the rule, one refuses."""
+
+    def test_a_pair_without_a_class_takes_the_rule(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        frame, assignment = _per_arm_pair_frame()
+        _fixed_split(monkeypatch, assignment, K_DRTMLE)
+        result = _super_learner_drtmle().fit(frame, outcome="Y", treatment="A").single()
+        inner = result.nuisance.inner
+        assert inner is not None
+        assert np.all(inner.outcome[0].arms[1.0][assignment == 1] == 1.0)
+        assert np.all(inner.outcome[0].arms[1.0][assignment == 2] < 1.0)
+        assert np.isfinite(result["ate"].psi)
+
+    def test_one_row_of_a_class_is_refused_before_any_learner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, assignment = _per_arm_pair_frame()
+        _fixed_split(monkeypatch, assignment, K_DRTMLE)
+        fitted: list[object] = []
+        _wrap_cross_fit(monkeypatch, fitted.append)
+        with pytest.raises(ValueError, match=LONE_PAIR):
+            _super_learner_drtmle().fit(_lone_pair_frame(), outcome="Y", treatment="A")
+        assert fitted == []
+
+    def test_without_the_check_the_super_learner_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the leave-two-out check no longer reads the Super Learner roles."""
+        original = drtmle_module.refuse_untrainable_leave_two_out
+        monkeypatch.setattr(
+            drtmle_module,
+            "refuse_untrainable_leave_two_out",
+            lambda data, folds, **_: original(data, folds),
+        )
+        _, assignment = _per_arm_pair_frame()
+        _fixed_split(monkeypatch, assignment, K_DRTMLE)
+        with pytest.raises(ValueError, match="the rarer class has only 1 member"):
+            _super_learner_drtmle().fit(_lone_pair_frame(), outcome="Y", treatment="A")
+
+    def test_without_the_exemption_the_constant_pair_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the outcome role loses the binary count-0 exemption."""
+        original = drtmle_module.DRTMLE._leave_two_out_super_learner_roles
+
+        def renamed(self: Any, data: Any) -> Any:
+            return tuple(("mutated", *rest) for _, *rest in original(self, data))
+
+        monkeypatch.setattr(drtmle_module.DRTMLE, "_leave_two_out_super_learner_roles", renamed)
+        frame, assignment = _per_arm_pair_frame()
+        _fixed_split(monkeypatch, assignment, K_DRTMLE)
+        with pytest.raises(ValueError, match="folds 0 and 1 leave 0 respondent"):
+            _super_learner_drtmle().fit(frame, outcome="Y", treatment="A")
+
+
 # ------------------------------------------------------------------ never the mechanism
 
 
@@ -478,7 +552,7 @@ def _mechanism_refusal(monkeypatch: pytest.MonkeyPatch, *, preflight: bool) -> s
     frame, assignment = _arm_pair_frame()
     _fixed_split(monkeypatch, assignment, K_DRTMLE)
     if not preflight:
-        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a: None)
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a, **k: None)
     with pytest.raises(ValueError) as raised:
         _drtmle().fit(frame, outcome="Y", treatment="A")
     return str(raised.value)
