@@ -1885,3 +1885,21 @@ mtp-policy-variance,interval_calibration,se ratio in calibration band,se/0.05
 mtp-policy-variance,policy_calibration,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage floor,coverage/0.5
 mtp-policy-variance,policy_variance,coverage reaches nominal,coverage/0.925
+tests.studies.known_score_att_properties,efficiency_gain,atc spread ratio under its boundary,positive_diffuse
+tests.studies.known_score_att_properties,efficiency_gain,atc_zero_gain spread ratio reaches its boundary,control_concentrated
+tests.studies.known_score_att_properties,efficiency_gain,att spread ratio under its boundary,positive_diffuse
+tests.studies.known_score_att_properties,efficiency_gain,att_zero_gain spread ratio reaches its boundary,affine
+tests.studies.known_score_att_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.known_score_att_properties,interval_calibration,efficiency above band,pair_collapse
+tests.studies.known_score_att_properties,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+tests.studies.known_score_att_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+tests.studies.known_score_att_properties,interval_calibration,se ratio below band,se_high
+tests.studies.known_score_att_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.known_score_att_properties,known_score_accuracy,bias discriminated,pair_collapse
+tests.studies.known_score_att_properties,known_score_accuracy,bias equivalent,bias
+tests.studies.known_score_att_properties,known_score_accuracy,coverage floor,coverage/0.5
+tests.studies.known_score_att_properties,known_score_accuracy,se ratio in band,se_high
+tests.studies.known_score_att_properties,root_n_and_efficiency,bias equivalent,bias
+tests.studies.known_score_att_properties,root_n_and_efficiency,coverage floor,coverage/0.5
+tests.studies.known_score_att_properties,root_n_and_efficiency,se ratio sanity,se_high
+tests.studies.known_score_att_properties,root_n_rate,slope in root-n band,contract

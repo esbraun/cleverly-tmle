@@ -90,7 +90,11 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
 #: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``) and the three X39
 #: long-horizon studies bind to their committed rows, so they are subjects by slug.
-SYNTHETIC_MODULES = ("tests.studies.longitudinal_sdr_properties",)
+#: ``known_score_att_properties`` (X35) runs on synthetic rows until its declared run commits.
+SYNTHETIC_MODULES = (
+    "tests.studies.longitudinal_sdr_properties",
+    "tests.studies.known_score_att_properties",
+)
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
 SYNTHETIC_SEED = 20_261_016
