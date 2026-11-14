@@ -181,6 +181,15 @@ class TestRefusalsBeforeAnyLearner:
         with pytest.raises(CapabilityError, match="working-model coefficient"):
             projection_fit.sensitivity.evalue()
 
+    def test_r9_the_evalue_row_a_request_resolves_is_the_declared_row(
+        self, projection_fit: Any
+    ) -> None:
+        """The E-value rebuilt its row per request and read the generic arm-contrast refusal."""
+        facade = projection_fit.sensitivity
+        resolved = facade._capability_for_arguments("evalue", {})
+        assert resolved.refusal == facade.capability("evalue").refusal
+        assert resolved.refusal.roadmap == "P1"
+
 
 #: Every free sensitivity or refutation function, called the way a user would on a fit.
 FREE_FUNCTIONS = {

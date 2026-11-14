@@ -5184,12 +5184,14 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) not in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
+        if (
+            operation == "evalue"
+            and _family(self._result) not in ("structural", AUGMENTED_TRIAL_FAMILY)
+            and not _is_projection(self._result)
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
-            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand. A
+            # projection fit keeps its declared R9 row, which its call raises (Fix-15).
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 

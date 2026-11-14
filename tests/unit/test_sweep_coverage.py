@@ -78,93 +78,45 @@ def _exempt(reason: str, owner: str, names: Iterable[str]) -> dict[str, Exemptio
 #: Each element no kind fits, by its tagged name (see :func:`covered`).
 UNSWEPT: Mapping[str, Exemption] = {
     **_exempt(
-        "a fit result class with no kind; it needs a kind, or an assessment declaration that "
-        "says why it has none",
+        "a fit result class with no assessment facade: it declares no assessment_family, no "
+        "diagnostics or sensitivity facade and no assess(), so it has no capability row to ask",
+        "Fix-15",
+        ("result:DoseResponseResult", "result:VariableImportanceResult"),
+    ),
+    **_exempt(
+        "the effect curve's assessment surface (CurveDiagnostics) has no sensitivity facade, no "
+        "combined report (assess) and no per-request row resolution, so the sweep's instrument "
+        "cannot ask it; tests/unit/test_curve_assessment.py checks its rows directly",
         "Fix-15",
         (
-            "result:AdaptiveTMLEResult",
-            "result:DoseResponseResult",
             "result:EffectCurveResult",
-            "result:StructuralNestedMeanResult",
-            "result:VariableImportanceResult",
+            "method:effect_modification/ep",
+            "method:effect_modification/tmle",
         ),
+    ),
+    **_exempt(
+        "the structural nested mean result has a sensitivity facade but no diagnostics facade "
+        "(its diagnostics field is the fit-time StructuralDiagnostics report) and no assess(), "
+        "so the structural diagnostics rows have no call for the sweep to ask",
+        "Fix-15",
+        (
+            "result:StructuralNestedMeanResult",
+            "method:structural/snmm",
+            "engine:snmm",
+            "family:blips",
+        ),
+    ),
+    **_exempt(
+        "a LearnedRegimen fit's truncation_curve and refute rows read available while both "
+        "calls refuse it (refuse_learned_regimen_result, F27), so its kind would fail the "
+        "sweep until the longitudinal rows quote that refusal",
+        "Fix-15",
+        ("family:learned",),
     ),
     **_exempt(
         "the continuous-time survival result has no assessment facades",
         "X101",
         ("result:ContinuousSurvivalResult",),
-    ),
-    **_exempt(
-        "a fitted method with no kind",
-        "Fix-15",
-        (
-            "method:augmented_trial/atmle",
-            "method:effect_modification/ep",
-            "method:effect_modification/tmle",
-            "method:longitudinal/sdr",
-            "method:structural/snmm",
-        ),
-    ),
-    **_exempt(
-        "a registered engine with no kind",
-        "Fix-15",
-        (
-            "engine:collaborative_tmle/derivative/None",
-            "engine:collaborative_tmle/discrete/None",
-            "engine:collaborative_tmle/greedy/None",
-            "engine:collaborative_tmle/lasso/None",
-            "engine:collaborative_tmle/learners/None",
-            "engine:collaborative_tmle/oat/per_arm/parametric_stack",
-            "engine:sdr",
-            "engine:snmm",
-        ),
-    ),
-    **_exempt(
-        "a target family with no kind",
-        "Fix-15",
-        (
-            "family:P8",
-            "family:P12",
-            "family:P13",
-            "family:P14",
-            "family:blips",
-            "family:competing",
-            "family:learned",
-            "family:msm",
-            "family:mtp",
-            "family:repeated",
-            "family:separable",
-            "family:stochastic",
-        ),
-    ),
-    **_exempt(
-        "a registered point estimand with no kind",
-        "Fix-15",
-        (
-            "estimand:ate_learned_rule",
-            "estimand:ate_rr_tilt",
-            "estimand:cate_projection",
-            "estimand:ey_known_regime",
-            "estimand:ey_optimal_rule",
-            "estimand:ey_rr_tilt",
-            "estimand:log_crr_projection",
-        ),
-    ),
-    **_exempt(
-        "a registered support-key value with no kind",
-        "Fix-15",
-        (
-            "dependence:t",
-            "missing:eliminated",
-            "splitting:cross_fitted",
-            "splitting:fold_targeted_evaluated",
-            "splitting:repeated",
-            "treatment:3",
-            "treatment:6",
-            "treatment:arms4",
-            "treatment:mixed",
-            "treatment:vector",
-        ),
     ),
 }
 
