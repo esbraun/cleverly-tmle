@@ -1522,7 +1522,11 @@ MUTATIONS: dict[str, Mutation] = {
         "the omitted-variable rows ignore a fit that reports no parameter to bound",
         _without_bound_parameters,
         # Part G2a moved these kinds past the earlier rules, so this rule alone refuses them.
-        frozenset({"natural_course_study", "natural_course", "rr+missing", "par+missing"}),
+        # The single-ratio kinds of Fix-15 report only a risk or odds ratio, so this rule
+        # alone refuses them too.
+        frozenset(
+            {"natural_course_study", "natural_course", "rr+missing", "par+missing", "rr", "or"}
+        ),
         _RAISED.format("omitted_confounding") + "the omitted-variable bound applies",
     ),
 }
