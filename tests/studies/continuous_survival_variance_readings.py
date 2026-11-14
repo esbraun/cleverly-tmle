@@ -381,7 +381,9 @@ def floor_values(table: pd.DataFrame) -> Mapping[str, Any]:
             primary["median_rel_sd"].tolist(), primary["passed"].astype(bool).tolist()
         ),
         "share_floor": share,
-        "r_cal": rel_sd_floor(early["median_rel_sd"].tolist(), early["passed"].astype(bool).tolist())
+        "r_cal": rel_sd_floor(
+            early["median_rel_sd"].tolist(), early["passed"].astype(bool).tolist()
+        )
         if share == 0.25
         else None,
         "measured_n": 500 if bool(v3["passed"].all()) else 1_000,

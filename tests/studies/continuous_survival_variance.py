@@ -352,9 +352,7 @@ def _replicate(
         **registered.readings(result),
         **early_readings(result, scenario, no_square),
     }
-    return [
-        {**row, **extra} for row in result_rows(result, truth, scenario, replicate, no_square)
-    ]
+    return [{**row, **extra} for row in result_rows(result, truth, scenario, replicate, no_square)]
 
 
 def draw_and_fit(
