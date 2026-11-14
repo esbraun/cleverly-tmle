@@ -81,8 +81,9 @@ def pilot_seed(cell: str, replicate: int) -> int:
     return stream_seed(study.STUDY, "pilot", cell, replicate)
 
 
-def _one(key: tuple[str, int]) -> list[dict[str, Any]]:
-    cell, replicate = key
+def _one(cell: str, replicate: int) -> list[dict[str, Any]]:
+    # ``map_parallel`` splats a tuple payload, so the key ``(cell, replicate)`` arrives as two
+    # arguments.
     name, n, _ = study.ALL_CELLS[cell]
     law = laws.LAWS[name]
     truth = laws.truth(name)
