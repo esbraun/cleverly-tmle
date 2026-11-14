@@ -94,6 +94,20 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
                 ),
             )
         )
+    switched = [
+        name
+        for name, estimate in result.estimates.items()
+        if estimate.variance_source == "predictable_variation"
+    ]
+    if switched:
+        notes.append(
+            note(
+                "continuous_switched_variance",
+                vocabulary.NOTE_TEXTS["continuous_switched_variance"].format(
+                    names=", ".join(switched)
+                ),
+            )
+        )
     sections = []
     if detail == "full":
         lines = vocabulary.CONTINUOUS_TARGETING_LINES

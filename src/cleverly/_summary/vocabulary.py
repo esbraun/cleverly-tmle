@@ -4772,6 +4772,7 @@ CONTINUOUS_ASSUMPTIONS: Final[tuple[str, ...]] = (
 CONTINUOUS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "continuous_not_converged": "warning",
+        "continuous_switched_variance": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_NOTE_CODES})
@@ -4782,6 +4783,11 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The update stopped after {steps} steps before every mean score fell below "
             "its stopping rule; the largest is {worst} times the rule. The intervals may be "
             "too narrow. result.record.standardized_score lists every target."
+        ),
+        "continuous_switched_variance": (
+            "The standard error of {names} comes from the model-based variance of the event "
+            "process, because few events carry its usual variance and the model-based one is "
+            "larger. estimate.variance_source names the variance of each estimate."
         ),
     }
 )

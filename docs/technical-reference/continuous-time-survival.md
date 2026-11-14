@@ -85,13 +85,83 @@ still for that step and tries the step again; the pair moves on the next step. T
 
 ## Inference
 
-Each interval is a Wald interval with the empirical variance of the influence curve. A risk is
-a mean bounded by 0 and 1, so its interval is formed on the logit scale and mapped back, as for
-every unclustered bounded mean ([small-sample scale](inference.md#small-sample-scale)). A risk
-difference uses the difference of the two curves on its own scale, and a risk ratio is built on
-the log scale. The study's committed rows were written under the identity interval of a risk. On
-the same estimates and standard errors the logit interval moves no group's coverage by more than
-0.008 and changes no verdict (`tests/canonical/interval-audit-screen.csv`).
+Each interval is a Wald interval. A risk is a mean bounded by 0 and 1, so its interval is formed
+on the logit scale and mapped back, as for every unclustered bounded mean ([small-sample
+scale](inference.md#small-sample-scale)). A risk difference uses the difference of the two curves
+on its own scale, and a risk ratio is built on the log scale. The study's committed rows were
+written under the identity interval of a risk. On the same estimates and standard errors the logit
+interval moves no group's coverage by more than 0.008 and changes no verdict
+(`tests/canonical/interval-audit-screen.csv`).
+
+### The switched variance
+
+The default, `variance="switched"`, reports the influence-curve variance $\hat\sigma^2_{IC}$
+unless the curve is sparse, and then the larger of it and the predictable variation
+$\hat\sigma^2_{pv}$ of the curve's martingale part:
+
+$$
+\hat\sigma^2 =
+\begin{cases}
+  \max(\hat\sigma^2_{IC},\, g^\top \hat\Sigma_{pv}\, g) & \text{if } r > 0.125,\\
+  \hat\sigma^2_{IC} & \text{otherwise,}
+\end{cases}
+$$
+
+where $r = \sqrt{(\hat\kappa - 1)/n}$ is the relative standard deviation of the estimate's own
+influence-curve variance (`variance_rel_sd` of `cleverly.inference.sparse.influence_row`) and $g$
+is the estimate's gradient over the targeted levels. The influence-curve variance squares the
+realized martingale increments $\int c(u)\,dM(u)$. The predictable variation integrates their
+conditional variance under the fitted law instead:
+
+$$
+\hat\Sigma_{pv} = \widehat{\mathrm{Cov}}_n(\hat F) + P_n \sum_a \sum_{u_m}
+  S(u_m^-)\, \pi_a S_c(u_m^-)\, w_a(u_m)^2\, V_a(u_m),
+\qquad
+V_{pq} = \sum_l c_{lp} c_{lq}\, d\Lambda_l - \Big(\sum_l c_{lp}\, d\Lambda_l\Big)\Big(\sum_l c_{lq}\, d\Lambda_l\Big),
+$$
+
+with $c_{lp}$ the clever covariate of target $p$ for cause $l$, $w_a = 1/\max(\pi_a S_c, \text{floor})$
+and $V$ the covariance of one multinomial jump of the causes. The martingale block is zero
+across arms. `predictable_covariance` in `cleverly.survival._targeting` computes the whole matrix
+in one pass, and the result stores it as `result.predictable` on the scale of the influence-curve
+variance (divided by $n - 1$). At the true nuisances $\hat\Sigma_{pv}$ and the influence curve's
+covariance have the same expectation; `tests/unit/test_continuous_survival_variance.py` checks
+the identity on an exact law to $10^{-14}$, with a mutation control for the multinomial square,
+the left limit $S(u^-)$, the cross-arm block, the floored weight and the cross-cause entries.
+
+Three properties follow. The switched variance is never below the influence-curve variance, so
+its interval at the same centre contains the influence-curve interval and keeps its double
+robustness. Because $r$ falls like $1/\sqrt n$, it equals the influence-curve variance with
+probability tending to one. The threshold 0.125, close to a Kish count of 64, was chosen after
+the X39 truth pilots were read (`cleverly.inference.sparse`); here it selects an estimator, and it
+was not tuned on these laws. `variance="influence_curve"` reports the influence-curve variance
+alone. Each estimate keeps both variances in `estimate.switched` and names the one it reports in
+`estimate.variance_source`.
+
+`contrast()`, `ratio()`, `rmtl()` and `rmst()` take the switched variance of a derived estimate
+from the stored matrix, with the switch read on that estimate's own influence curve. A generic
+`cleverly.inference.smooth_contrast` or `ratio_contrast` of switched estimates refuses, because it
+holds no matrix; the refusal names `ContinuousSurvivalResult.contrast` and
+`variance="influence_curve"`. The sup-t band takes its critical value from the curves
+standardized by their influence-curve standard errors and its half-widths from the reported ones.
+
+### Why the early-time interval under-covers
+
+In the registered study at the first quartile ($t = 0.46$, n = 1,000, 7,586 fits) the estimates
+had the efficient spread, but treated cause 2, with about 16 expected events, covered 0.881 with a
+mean standard error 8% below its spread (`early-time.csv`). Two mechanisms are at work. In a
+sparse cell a few squared increments carry the influence-curve variance: its standard error varied
+by 30% between draws and moved with the estimate, so the misses were one-sided. A smaller excess
+spread appears at control cause 1, whose weights are heaviest. The predictable variation repairs
+the first: it varies less between draws and does not hinge on whether the few events occurred. Its
+level is biased low by the fitted hazards in sparse cells (11% for treated cause 2 at the median in
+1,040 exploratory fits), and for that reason the switched variance raises the influence-curve
+variance and never replaces it with a smaller one. On exploratory fits its gain over the influence
+curve came mostly from a wider interval in the rows where the curve is sparse, not from per-draw
+information at matched width. The study
+[continuous-time survival switched variance](method-evidence/continuous-survival-variance.md)
+decides on fresh laws whether the switched variance stays the default. It is declared and has not
+run.
 
 With `simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
 reports the selected models, the steps, whether the stopping rule held, each target's final
@@ -178,16 +248,29 @@ gates the default cross-fitted fit at n = 1,000 on one law with two causes, at t
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
 that configuration: cross-fitted, the default libraries and settings, at least 1,000 units, two
 causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
-cause have happened
-(`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
-ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
-early reads experimental. The time condition is calibrated on this one law and does not read
-how many events each arm and cause has. No registered study measures a risk ratio, an odds ratio,
-a restricted mean, a smooth contrast, or any estimate of a fit with `restricted_horizons=`, whose
-extra targets move its risks, so each of these reads experimental. `tests/unit/test_continuous_survival.py` checks the influence curve
-against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
-control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
-checks the restricted mean's curve against the Gateaux derivative of the same law and the weighted
+cause have happened (`cleverly.survival.result.continuous_survival_support`). At the lower
+quartile the standard error ran up to 8% below the sampling spread and coverage fell to 0.88, so
+an estimate at a time that early reads experimental. The time condition is calibrated on this one
+law and does not read how many events each arm and cause has.
+
+The registered study's rows were written under the influence-curve variance. On exploratory fits
+of its law the switched variance widened the gated rows' intervals by 0% to 4.7%, and the study
+regenerates under the switched default once the switched-variance study ships it. That study also
+sets a floor on `variance_rel_sd`: a risk or risk difference whose curve is sparser than every
+gated row that passed reads experimental. Until the study runs the floor is pending and labels no
+estimate.
+
+No registered study measures a risk ratio, an odds ratio, a restricted mean, a smooth contrast,
+or any estimate of a fit with `restricted_horizons=`, whose extra targets move its risks, so each
+of these reads experimental.
+
+`tests/unit/test_continuous_survival.py` checks the influence curve against the Gateaux
+derivative of an exact law, the path and the stopping rule, and a mutation control for each
+censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py` checks
+the restricted mean's curve against the Gateaux derivative of the same law and the weighted
 direction against a sum over grid points, with the term $W(u) F_j(u)$ dropped as a mutation. It
 also checks that the walk removes the bias of a restricted mean under a wrong hazard, and that a
 restricted mean left out of the direction stays unsolved and biased.
+`tests/unit/test_continuous_survival_variance.py` checks the predictable-variation covariance
+against the influence curve's on an exact law, the switch on both sides of its threshold, and the
+derived estimates against the stored ones.

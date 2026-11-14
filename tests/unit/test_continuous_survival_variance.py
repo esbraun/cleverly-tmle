@@ -411,7 +411,7 @@ def test_the_switch_reads_the_relative_sd_threshold(monkeypatch: pytest.MonkeyPa
 
 def test_a_fit_reports_both_sources() -> None:
     """The engine's switch fires on one estimate and not another of the same fit."""
-    switched, _ = _fits(seed=1)
+    switched, influence = _fits(seed=1)
     sources = {estimate.variance_source for estimate in switched.values()}
     assert sources == {"influence_curve", "predictable_variation"}
     for estimate in switched.values():
@@ -421,6 +421,14 @@ def test_a_fit_reports_both_sources() -> None:
         row = estimate.to_dict()
         assert row["variance_source"] == estimate.variance_source
         assert row["variance_rel_sd"] == record.relative_sd
+    # The summary names exactly the estimates that report the predictable variation; the
+    # influence-curve fit of the same data fires no such note.
+    named = [n for n, e in switched.items() if e.variance_source == "predictable_variation"]
+    summary = switched.summary()
+    assert "continuous_switched_variance" in summary.note_codes
+    text = str(summary)
+    assert all(name in text for name in named)
+    assert "continuous_switched_variance" not in influence.summary().note_codes
 
 
 # ------------------------------------------------------------------------ T-a11
