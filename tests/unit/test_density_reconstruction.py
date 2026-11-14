@@ -899,9 +899,29 @@ def test_w9ab_a_declared_support_is_read_row_by_row(name: str) -> None:
             assert smallest >= 0.85 and error <= 0.02, (d, smallest, error)
 
 
-def test_w9ab_ignoring_the_declared_support_fails() -> None:
-    assert min(_support_reading("U", 2000, d, support=False)[0] for d in range(5)) < 0.85
-    assert min(_support_reading("B", 2000, d, support=False)[0] for d in range(5)) < 0.85
+def _without_support(name: str) -> tuple[float, float]:
+    readings = [_support_reading(name, 2000, d, support=False) for d in range(5)]
+    return min(r[0] for r in readings), max(r[2] for r in readings)
+
+
+@pytest.mark.parametrize("name", ["U", "B"])
+def test_w9ab_ignoring_the_declared_support_fails(name: str) -> None:
+    """Without the declaration the reading loses accuracy near each row's bound, and the
+    floor still breaks the row's segment at its clipped bins, so it does not collapse."""
+    smallest, error = _without_support(name)
+    assert smallest < 0.85
+    assert smallest >= 0.01 and error <= 1.0, (smallest, error)
+
+
+@pytest.mark.parametrize("name", ["U", "B"])
+def test_w9ab_without_the_floor_an_undeclared_support_collapses(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control: with the floor at zero, the clipped bins beyond each row's bound join its
+    segment, and the reading at the rows' own doses falls by orders of magnitude."""
+    monkeypatch.setattr(_knots, "__kwdefaults__", {**_knots.__kwdefaults__, "floor": 0.0})
+    smallest, error = _without_support(name)
+    assert smallest < 1e-6 or error > 1e4, (smallest, error)
 
 
 def test_w9c_a_straddling_bin_is_read_over_its_supported_part() -> None:
