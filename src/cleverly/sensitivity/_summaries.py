@@ -526,11 +526,11 @@ def robustness_summary(value: RobustnessValue, detail: Detail) -> Summary:
     sections: list[SummarySection] = []
     if detail == "full":
         settings = [
-            f"Bias scale sqrt(sigma^2 nu^2): {value['max_bias']:.4g}.",
-            *(
-                (f"Bias scale of the upper side: {value['max_bias_upper']:.4g}.",)
-                if "max_bias_upper" in value
-                else ()
+            (
+                "Bias scale of the upper side sqrt(sigma^2 nu^2_sup), with nu^2_sup = "
+                f"E[max_a 1/g(a | W)]: {value['max_bias']:.4g}."
+                if value.get("side") == "upper"
+                else f"Bias scale sqrt(sigma^2 nu^2): {value['max_bias']:.4g}."
             ),
             _nu2_setting(value.get("nu2_estimator", "doubly_robust"), value.get("nu2_correction")),
             f"Null value: {_null(null)}.",

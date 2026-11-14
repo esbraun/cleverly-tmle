@@ -7,8 +7,8 @@ of these fixed rules fold-wise with the ``1/V`` weights of the learned-rule reco
 reading is confounding of the value of these fixed rules, not of the learned-rule procedure.
 
 The value of the optimal rule moves with the rule, so its replay relearns the rule in every
-cell on the fit's own folds and seed (X11 (f3)), and each cell estimates the optimal value of
-its perturbed law.
+cell on the fit's own folds and repeat seeds (X11 (f3)), and each cell estimates the optimal
+value of its perturbed law.
 """
 
 from __future__ import annotations
@@ -111,8 +111,8 @@ def validate_optimal_rule_replay(
     Every cell refits the stored estimator, which carries the declared
     :class:`~cleverly.interventions.LearnedRule`, so the cell relearns the rule on the
     perturbed table.  The cell keeps the fit's folds, one stored split per repeat, and the
-    fit's seed, so the anchor cell reproduces the fit and a nonzero cell differs from it only
-    through the perturbed table and the rules that table teaches (X11 (f3)).
+    fit's repeat seeds, so the anchor cell reproduces the fit and a nonzero cell differs from it
+    only through the perturbed table and the rules that table teaches (X11 (f3)).
 
     Parameters
     ----------

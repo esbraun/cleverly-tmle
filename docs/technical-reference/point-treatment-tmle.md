@@ -2132,7 +2132,7 @@ estimator, which is valid there, is a different estimator, and
 | `ey_learned_rule` or `ate_learned_rule` beside it, or `ate_optimal_rule` without it | refused as a declaration, row 2: the names would read one estimate as two targets |
 | strata with `id=`, a rule learner with `intermediate=`, and every other row of the table below | refused as for the learned-rule value with the same setting, with the same text |
 | the omitted-variable bound | an asymmetric point bound on rows, known weights, clusters, fold targeting and in sample, with the strengths read uniformly over every regime. Its lower side is the learned-rule bound and its upper side reads $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$ ([the point bound of the value of the optimal rule](validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)). The limits and `benchmark()` refuse, and strata, known regimes, an intermediate and the other learned-rule (n2) settings refuse with the learned-rule reason |
-| `simulated_confounding` | each cell relearns the rule on the fit's folds and seed, so it reads the optimal value of its perturbed law ([the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface)). Known regimes, strata and an intermediate refuse. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
+| `simulated_confounding` | each cell relearns the rule on the fit's folds and repeat seeds, so it reads the optimal value of its perturbed law ([the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface)). Known regimes, strata and an intermediate refuse. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
 
 Every composition decomposes the error as above, under the setting's law:
 
@@ -2433,7 +2433,7 @@ with $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$
 ([the point bound of the value of the optimal rule](validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)).
 Its limits refuse, the in-sample fit's included, and so do `benchmark()` and the settings above
 that the learned-rule bound refuses, each with the learned-rule reason, and known regimes beside
-it. Its `simulated_confounding` relearns the rule in every cell on the fit's folds and seed, at any
+it. Its `simulated_confounding` relearns the rule in every cell on the fit's folds and repeat seeds, at any
 `repeats`, and refuses known regimes, strata and an intermediate.
 
 The E-value and the missingness tilt read `unavailable`, because the package does not implement

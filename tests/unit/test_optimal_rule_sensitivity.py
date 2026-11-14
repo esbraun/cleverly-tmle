@@ -15,12 +15,14 @@ the bound over every rule, :math:`\theta \le \theta_s + B_{\sup}` with
   mutations: the first needs :math:`\theta > \theta_s` and the second :math:`\theta < \theta_s`.
 * :class:`TestTheLowerSideIsTheLearnedRuleBound` is W-ovb3, bit for bit.
 * :class:`TestEachSideHasItsRobustnessValue` is W-ovb4.
+* :class:`TestTheUpperScaleReadsTheFitsMechanism` checks each component of
+  :math:`\hat\nu^2_{\sup}` (weights, truncation, missingness) against a wrong variant.
 * :class:`TestTheBoundRefusals` and :class:`TestTheBoundReports` pin the refusals, the
   withheld limits, the summaries and the plots.
 
 **The relearning replay.**  Every cell of ``simulated_confounding`` refits the stored
-estimator, which relearns the rule, on the fit's folds and seed, with the known mechanism of
-the flipped treatment.  :class:`TestTheRelearningReplay` is W-sc1 and W-sc2.
+estimator, which relearns the rule, on the fit's folds and repeat seeds, with the known mechanism
+of the flipped treatment.  :class:`TestTheRelearningReplay` is W-sc1 and W-sc2.
 """
 
 from __future__ import annotations
@@ -38,16 +40,23 @@ import pandas as pd
 import pytest
 from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.ensemble import RandomForestClassifier
 
 import cleverly.sensitivity.omitted_variable as ov
 from cleverly import CausalStudy, OptimalRuleValue, PointTreatment
 from cleverly.estimators import TMLE
-from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, RefusalReason
-from cleverly.interventions import LearnedRule
+from cleverly.exceptions import (
+    CapabilityError,
+    InSampleLearnerWarning,
+    PositivityWarning,
+    RefusalReason,
+)
+from cleverly.interventions import LearnedRule, Rule
 from cleverly.interventions.learned import (
     OPTIMAL_RULE_BENCHMARK_REFUSAL,
     OPTIMAL_RULE_DOUBLY_ROBUST_NU2,
     OPTIMAL_RULE_LIMITS,
+    OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL,
     OPTIMAL_RULE_REPLAY_STRATA_REFUSAL,
     OPTIMAL_RULE_TARGET,
     fold_rules,
@@ -55,11 +64,13 @@ from cleverly.interventions.learned import (
 from cleverly.plotting import confounding, sensitivity
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity.simulated_confounding import flipped_mechanism
+from cleverly.utils.bounds import g_bounds_for
 from tests.unit import _learned_rule_support as support
 from tests.unit._confounding_support import forbid_draw_and_refit
 from tests.unit._confounding_support import replacement as _replacement
 from tests.unit.test_learned_rule_bound import REPLICATES, ParityRule
 from tests.unit.test_learned_rule_optimal import _pairs
+from tests.unit.test_learned_rule_optimal_compositions import _pairs as _composition_pairs
 
 matplotlib.use("Agg")
 
@@ -448,6 +459,87 @@ class TestTheLowerSideIsTheLearnedRuleBound:
 # --------------------------------------------------------------------------- W-ovb4
 
 
+def _direct_nu2_sup(result: Any, *, weighted: bool = True, bounded: bool = True) -> float:
+    r""":math:`E_n[\max_a 1/g(a \mid W)]` from the fit's propensity, or a wrong variant."""
+    nuisance = result.repeats[0].nuisance
+    config = result.config
+    bounds = g_bounds_for("regime", config.g_bounds, config.g_bounds_conditional)
+    g = nuisance.bounded_propensity(bounds if bounded else (1e-12, 1.0 - 1e-12))
+    largest = (1.0 / g).max(axis=1)
+    return float(np.average(largest, weights=result.data.weights if weighted else None))
+
+
+def _missing_outcome_fit() -> Any:
+    """An in-sample known-rule fit with missing outcomes, whose regime submodel reads ``pR``.
+
+    Every learned-rule fit refuses missing outcomes (F27), so the missingness factor of
+    :func:`ov._sup_rule_nu2` is checked on the regime fit whose submodel it shares.
+    """
+    frame = support.law_frame(400, 2)
+    draw = np.random.default_rng(5).uniform(size=len(frame))
+    missing = draw < expit(-1.2 + 0.8 * frame["W1"] + 0.5 * frame["A"])
+    frame.loc[missing, "Y"] = np.nan
+    frame["R"] = (~missing).astype(float)
+    rule = Rule(lambda w: (w["W1"] > 0).astype(int), name="w1", rule_kind="known")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InSampleLearnerWarning)
+        return (
+            TMLE(
+                interventions=[rule],
+                outcome_learner=support.outcome_learner(),
+                treatment_learner=support.treatment_learner(),
+                cross_fit=False,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=support.COVARIATES, delta="R")
+            .single()
+        )
+
+
+class TestTheUpperScaleReadsTheFitsMechanism:
+    """``nu2_upper`` is the weighted mean of ``max_a 1/(g pR)`` under the bounded mechanism.
+
+    Each witness has a nonzero gap from the variant that drops one component.
+    """
+
+    def test_a_weighted_fit_takes_the_weighted_mean(self) -> None:
+        result = _pair("weights")[1]
+        elements = ov.sensitivity_elements(result, OPTIMAL)
+        direct = _direct_nu2_sup(result)
+        assert elements.nu2_upper == pytest.approx(direct, rel=1e-12)
+        assert abs(_direct_nu2_sup(result, weighted=False) - direct) > 0.01
+
+    def test_a_binding_truncation_bounds_the_mechanism(self) -> None:
+        with pytest.warns(PositivityWarning, match="outside the truncation bounds"):
+            result = support.fit(estimands=[OPTIMAL_RULE_TARGET], g_bounds=(0.42, 0.58))
+        elements = ov.sensitivity_elements(result, OPTIMAL)
+        direct = _direct_nu2_sup(result)
+        assert elements.nu2_upper == pytest.approx(direct, rel=1e-12)
+        assert abs(_direct_nu2_sup(result, bounded=False) - direct) > 0.01
+
+    def test_missing_outcomes_divide_by_the_recording_probability(self) -> None:
+        result = _missing_outcome_fit()
+        nuisance, config = result.repeats[0].nuisance, result.config
+        bounds = g_bounds_for("regime", config.g_bounds, config.g_bounds_conditional)
+        value = ov._sup_rule_nu2(
+            result.data,
+            nuisance,
+            "regime",
+            bounds,
+            None,
+            config.reference_arm,
+            result.data.weights,
+            config.missingness_bound,
+        )
+        g = nuisance.bounded_propensity(bounds)
+        recorded = nuisance.bounded_missingness(config.missingness_bound)
+        assert recorded is not None
+        direct = float(np.average((1.0 / (g * recorded)).max(axis=1), weights=result.data.weights))
+        assert value == pytest.approx(direct, rel=1e-12)
+        without = float(np.average((1.0 / g).max(axis=1), weights=result.data.weights))
+        assert direct - without > 0.5
+
+
 class TestEachSideHasItsRobustnessValue:
     """W-ovb4: each side reaches the null at its own strength, and the two differ."""
 
@@ -554,7 +646,8 @@ class TestTheBoundReports:
         assert any("nu^2_sup = E[max_a 1/g(a | W)]" in line for line in settings)
         value = ov.robustness_value(result, OPTIMAL)
         assert "optimal_rule_bound" in [n.code for n in value.summary().notes]
-        assert value["max_bias_upper"] == bounds.max_bias_upper
+        # The default null lies below the estimate, so the value is solved on the lower side.
+        assert value["side"] == "lower" and value["max_bias"] == bounds.max_bias
         elements = ov.sensitivity_elements(result, OPTIMAL)
         labels = [row[0].text for row in elements.summary().tables[0].rows]
         assert "bias scale of the upper side" in labels
@@ -577,6 +670,26 @@ class TestTheBoundReports:
         # side the bound moves toward.
         figure = confounding(contour, null=0.5 if bound == "lower" else 0.7)
         assert figure.axes
+
+    def test_the_upper_robustness_value_draws_on_the_upper_contour(self, result: Any) -> None:
+        """A null above the estimate solves the upper side, with that side's scale and labels."""
+        elements = ov.sensitivity_elements(result, OPTIMAL)
+        assert elements.max_bias_upper is not None
+        assert elements.max_bias_upper > elements.max_bias + 0.01
+        null = float(result[OPTIMAL].psi) + 0.05
+        value = ov.robustness_value(result, OPTIMAL, null_hypothesis=null)
+        assert value["side"] == "upper"
+        assert value["max_bias"] == elements.max_bias_upper
+        assert value["nu2_estimator"] == "plugin" and value["nu2_correction"] is None
+        settings = value.summary(detail="full").section("Settings").lines
+        assert any(line.startswith("Bias scale of the upper side") for line in settings)
+        assert not any(line.startswith("Bias scale sqrt(sigma^2 nu^2):") for line in settings)
+        upper = ov.contour_data(result, OPTIMAL, bound="upper", grid_size=4)
+        assert confounding(upper, robustness=value, null=null).axes
+        # The mutation: the lower contour, whose scale the value was not solved on, refuses.
+        lower = ov.contour_data(result, OPTIMAL, bound="lower", grid_size=4)
+        with pytest.raises(ValueError, match=re.escape("bound='upper'")):
+            confounding(lower, robustness=value, null=null)
 
     def test_sensitivity_refuses_the_bound_with_a_reason(self, result: Any) -> None:
         with pytest.raises(TypeError):
@@ -678,6 +791,52 @@ class TestTheRelearningReplay:
         assert abs(stale[OPTIMAL].psi - flipped.estimate) > 5e-4
         assert max(abs(cell.displacement) for cell in surface.cells) > 5e-3
 
+    def test_an_unseeded_stochastic_fit_replays_with_its_own_seeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cell's refit, run on the fit's own table, reproduces the stored estimate exactly.
+
+        The surface reports the stored estimate at its zero cell without a refit, so the
+        witness reruns a cell's refit, with the keywords the surface passed, on the unperturbed
+        table.  An unseeded random forest draws new trees unless the replay keeps the fit's
+        repeat seeds.  The mutation, the same refit without them, moves the estimate.
+        """
+        result = (
+            _study(support.law_frame(n=403))
+            .identify(OptimalRuleValue())
+            .estimate(
+                outcome_learner=RandomForestClassifier(n_estimators=20, min_samples_leaf=20),
+                treatment_learner=support.treatment_learner(),
+                n_folds=5,
+                cv_evaluation=True,
+                simultaneous=False,
+            )
+        )
+        assert result.estimator.random_state is None
+        seeds = [repeat.seed for repeat in result.repeats]
+        assert all(seed is not None for seed in seeds)
+        refit = type(result.estimator).refit
+        calls: list[dict[str, Any]] = []
+
+        def spy(estimator: Any, data: Any, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            return refit(estimator, data, **kwargs)
+
+        monkeypatch.setattr(type(result.estimator), "refit", spy)
+        grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
+        surface = simulated_confounding(result, estimand=OPTIMAL, grid=grid)
+        assert surface.complete and len(calls) == 1
+        keywords = calls[0]
+        assert keywords["frozen_seeds"] == seeds
+        replay = refit(result.estimator, result.data, **keywords)
+        assert replay[OPTIMAL].psi == result[OPTIMAL].psi
+        stale = refit(
+            result.estimator,
+            result.data,
+            **{key: value for key, value in keywords.items() if key != "frozen_seeds"},
+        )
+        assert abs(stale[OPTIMAL].psi - result[OPTIMAL].psi) > 1e-4
+
     def test_the_summary_states_the_relearning_reading(self) -> None:
         surface = _surface()
         assert "optimal_rule_reading" in [n.code for n in surface.summary().notes]
@@ -709,3 +868,25 @@ class TestTheRelearningReplay:
             simulated_confounding(result, estimand=OPTIMAL, grid=_GRID)
         assert OPTIMAL_RULE_REPLAY_STRATA_REFUSAL.condition in str(caught.value)
         assert "X11 (f4) in docs/roadmap.md" in str(caught.value)
+
+    @pytest.mark.parametrize(
+        ("name", "condition"),
+        [
+            ("known_regimes", OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL.condition),
+            ("method_intermediate_0", "relearning replay at a level of the intermediate"),
+        ],
+    )
+    def test_known_regimes_and_an_intermediate_refuse_before_any_draw(
+        self, monkeypatch: pytest.MonkeyPatch, name: str, condition: str
+    ) -> None:
+        """The public path refuses both, with its reason and roadmap part."""
+        result = _composition_pairs(name)[1]
+        assert not result.sensitivity.capability("simulated_confounding").available
+        forbid_draw_and_refit(monkeypatch, result.estimator)
+        with pytest.raises(CapabilityError) as caught:
+            estimand = next(key for key in result.estimates if key.startswith("ey_optimal_rule"))
+            simulated_confounding(result, estimand=estimand, grid=_GRID)
+        message = " ".join(str(caught.value).split())
+        assert " ".join(condition.split()) in message
+        part = "f4" if name == "known_regimes" else "j4"
+        assert f"X11 ({part}) in docs/roadmap.md" in message

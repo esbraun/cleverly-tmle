@@ -392,7 +392,9 @@ estimate could move to under left-out common causes of a stated strength, reads 
 holding for every rule. Its range reaches further above the estimate than below it, because hidden
 causes could also make another rule the best one, and it has no confidence limits.
 `simulated_confounding` learns the rule again in each simulated scenario, so the rule moves with
-the confounding. Neither runs with `strata=` or an intermediate.
+the confounding. The
+[refusals of the value of the optimal rule](../technical-reference/scope-and-refusals.md#not-written-yet)
+list the settings where neither runs.
 [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 

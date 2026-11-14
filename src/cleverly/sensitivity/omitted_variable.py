@@ -1440,7 +1440,16 @@ def _combined_elements(draws: tuple[_Draw, ...], result: TMLEResult) -> Sensitiv
             if any(value is None for value in corrections)
             else float(np.median(cast("list[float]", corrections)))
         ),
+        nu2_upper=_median_or_none([draw.elements.nu2_upper for draw in draws]),
+        max_bias_upper=_median_or_none([draw.elements.max_bias_upper for draw in draws]),
     )
+
+
+def _median_or_none(values: list[float | None]) -> float | None:
+    """The median of the draws' values, or ``None`` when any draw has none."""
+    if any(value is None for value in values):
+        return None
+    return float(np.median(cast("list[float]", values)))
 
 
 def _resolved_nu2_estimator(nu2_estimator: str) -> str:
@@ -3599,6 +3608,9 @@ def robustness_value(
         qualify. When :attr:`SensitivityBounds.features` is not empty, such as on a fit
         with a second mechanism, a stratum, a regime, a shift, or an MSM coefficient, also
         ``"limit_licensed"`` and ``"limit_sentence"``, which mark the limit descriptive.
+        On a fit of the value of the optimal rule, also ``"side"``, the side of the
+        asymmetric bound that faces the null, and ``"max_bias"`` and ``"nu2_estimator"``
+        are that side's, as ``contour_data(..., bound=side)`` reports them.
 
     Raises
     ------
@@ -3626,9 +3638,24 @@ def robustness_value(
     )
     status = estimate.inference
     values: dict[str, Any] = {"inference": status} if is_labelled(status) else {}
-    if elements.nu2_estimator != "doubly_robust":
-        values["nu2_estimator"] = elements.nu2_estimator
-        values["nu2_correction"] = elements.nu2_correction
+    # On the bound of the value of the optimal rule (X11 (f3)) the value is solved on the side
+    # that faces the null, and it records that side's scale and estimator of nu^2, which are
+    # the ones contour_data(..., bound=side) reports.
+    side: str | None = None
+    scale, estimator, correction = (
+        elements.max_bias,
+        elements.nu2_estimator,
+        elements.nu2_correction,
+    )
+    if elements.max_bias_upper is not None:
+        side = "upper" if null_hypothesis > float(estimate.psi) else "lower"
+        if side == "upper":
+            scale, estimator, correction = elements.max_bias_upper, "plugin", None
+    if estimator != "doubly_robust":
+        values["nu2_estimator"] = estimator
+        values["nu2_correction"] = correction
+    if side is not None:
+        values["side"] = side
     context: dict[str, Any] = {
         "estimand": estimand,
         "psi": float(estimate.psi),
@@ -3640,12 +3667,7 @@ def robustness_value(
         refusal = elements.limit_refusal
         values |= {
             "rv": rv,
-            "max_bias": elements.max_bias,
-            **(
-                {}
-                if elements.max_bias_upper is None
-                else {"max_bias_upper": elements.max_bias_upper}
-            ),
+            "max_bias": scale,
             "limit_refusal": (
                 refusal.text if refusal is not None else _ZERO_BIAS_LIMITS_REFUSAL + "."
             ),
