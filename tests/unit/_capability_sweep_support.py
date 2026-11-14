@@ -1067,6 +1067,35 @@ def fit_gformula() -> Any:
     )
 
 
+def fit_continuous_survival() -> Any:
+    """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
+
+    One main-terms Cox model for each hazard and the default treatment selection, so the fit
+    selects nothing by cross-validated partial likelihood and runs in well under a second.
+    """
+    from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
+
+    rng = np.random.default_rng(0)
+    n = 300
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    h1 = np.exp(-1.5 + 0.5 * w - a)
+    h2 = np.exp(-2.0 - 0.5 * w - 0.5 * a)
+    t = rng.exponential(1 / (h1 + h2))
+    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
+    c = rng.exponential(1 / 0.15, n)
+    frame = pd.DataFrame(
+        {"time": np.minimum(t, c), "event": np.where(t <= c, cause, 0), "A": a, "W": w}
+    )
+    return ContinuousSurvivalTMLE(
+        [0.5, 1.0],
+        cross_fit=False,
+        hazard_library=[CoxHazard("main")],
+        censoring_library=[CoxHazard("main")],
+        random_state=0,
+    ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -1240,6 +1269,7 @@ KINDS: dict[str, Kind] = {
     "ipw": _kind(fit_ipw, "nuisance_models", "support", *_POINT),
     # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
     "gformula": _kind(fit_gformula, "nuisance_models", "support", "refute"),
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, refits=False),
 }
 
 

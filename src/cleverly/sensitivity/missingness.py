@@ -83,6 +83,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
@@ -528,6 +529,7 @@ def missingness_tilt(
         ``summary()`` prints one table per estimand.
     """
     refuse_augmented_trial(result, "missingness_tilt", "bound")
+    refuse_continuous_survival(result, "missingness_tilt")
     payload = _tilt_payload(result, gamma, estimands, arm_gamma)
     data = result.data
     names = tuple(dict.fromkeys(payload["estimand"]))
@@ -1244,6 +1246,7 @@ def tipping_gamma(
         when the search detects no crossing.
     """
     refuse_augmented_trial(result, "tipping_gamma", "bound")
+    refuse_continuous_survival(result, "tipping_gamma")
     refusal = fit_wide_tilt_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)

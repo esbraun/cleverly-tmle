@@ -143,6 +143,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
 from ..estimators._strata import stratum_probabilities
@@ -601,6 +602,7 @@ def correction_check(
     checked at the composite indicator and the composite mechanism it was targeted with.
     """
     refuse_augmented_trial(result, "correction_check", "report")
+    refuse_continuous_survival(result, "correction_check")
     data = result.data
     weights = np.asarray(data.weights, dtype=float).reshape(-1)
     reference = _reference_se(result) if std_error is None else float(std_error)
