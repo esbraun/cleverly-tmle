@@ -578,3 +578,28 @@ def test_a_key_of_several_scenarios_writes_each_ones_groups() -> None:
     )
     assert names((("z0", "z1"), 0, 2000)) == {"z0/ey0", "z0/ate", "z1/ey0"}
     assert names((("z1",), 0, 2000)) == {"z1/ey0"}
+
+
+def test_a_key_writes_the_reported_scenarios_its_study_owner_names() -> None:
+    """``mtp-policy-variance`` publishes ``<twin>_policy`` from the twin's own fit, and no key
+    has that cell; the study's ``owner`` maps it back, so the refits select the twin's keys
+    (the ``refits:4`` of its four ``*_policy`` differences).  Without the mapping a key
+    writes its own scenario only."""
+    from tests.studies.evidence import asymmetric_refit as refit
+    from tests.studies.evidence import band_rerun
+
+    scenarios = {"t": ("ey",), "t_policy": ("ate",), "u": ("ey",)}
+    owners = refit.owned_scenarios(scenarios, lambda name: name.removesuffix("_policy"))
+    assert owners == {"t": ("t", "t_policy"), "u": ("u",)}
+    names = refit._ScenarioGroups(lambda key: key[0], scenarios, owners)
+    assert names(("t", 0)) == {"t/ey", "t_policy/ate"}
+    assert refit._ScenarioGroups(lambda key: key[0], scenarios)(("t", 0)) == {"t/ey"}
+    record = band_rerun.record_for("mtp-policy-variance")
+    (job,) = refit.capture_primary(record)
+    written = set().union(*(job.names_of(key) for key in job.keys))
+    declared = {f"{s}/{e}" for s, estimands in record.scenarios.items() for e in estimands}
+    assert declared <= written, sorted(declared - written)
+    wanted = {"atom_ltmle_tail_policy/ate_regimen[p5 vs natural]"}
+    chosen = refit.select(job, replicates=refit.REFIT_REPLICATES, names=wanted)
+    assert {job.cell_of(job.keys[i]) for i in chosen} == {"atom_ltmle_tail"}
+    assert len(chosen) == refit.REFIT_REPLICATES

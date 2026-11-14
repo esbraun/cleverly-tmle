@@ -319,21 +319,50 @@ def _second(key: Sequence[Any]) -> int:
     return int(key[1])
 
 
+def owned_scenarios(
+    scenarios: Mapping[str, tuple[str, ...]], owner: Callable[[str], str] | None
+) -> dict[str, tuple[str, ...]]:
+    """Each fitted scenario to the scenarios its key writes: itself, and every declared scenario
+    whose ``owner`` (the study module's ``owner(scenario)``, when it defines one) names it."""
+    out: dict[str, list[str]] = {}
+    for scenario in scenarios:
+        fitted = scenario if owner is None else str(owner(scenario))
+        out.setdefault(fitted, []).append(scenario)
+    return {fitted: tuple(written) for fitted, written in out.items()}
+
+
 @dataclass(frozen=True)
 class _ScenarioGroups:
-    """The ``scenario/estimand`` groups a primary key writes: each estimand its scenario
-    reports."""
+    """The ``scenario/estimand`` groups a primary key writes: each estimand of each scenario
+    its fit writes.
+
+    Parameters
+    ----------
+    cell_of : Callable
+        The key's cell.
+    scenarios : Mapping
+        Each declared scenario's estimands.
+    owners : Mapping or None, default=None
+        Each fitted scenario to the scenarios its key writes (:func:`owned_scenarios`);
+        ``None`` when each key writes its own scenario only.
+    """
 
     cell_of: Callable[[Any], str]
     scenarios: Mapping[str, tuple[str, ...]]
+    owners: Mapping[str, tuple[str, ...]] | None = None
 
     def __call__(self, key: Any) -> set[str]:
         # A key that fits several scenarios on one draw names its cell ``a;b``
         # (``canonical_cde_tmle``, ``canonical_point_survival``): it writes each one's groups.
+        # A key can also write a reported scenario of another name (``mtp-policy-variance``
+        # publishes ``<twin>_policy`` from the twin's fit), which the study's ``owner`` names.
         return {
-            f"{scenario}/{estimand}"
+            f"{written}/{estimand}"
             for scenario in str(self.cell_of(key)).split(";")
-            for estimand in self.scenarios.get(scenario, ())
+            for written in (
+                (scenario,) if self.owners is None else self.owners.get(scenario, (scenario,))
+            )
+            for estimand in self.scenarios.get(written, ())
         }
 
 
@@ -342,6 +371,8 @@ def capture_primary(record: StudyRecord) -> list[Job]:
     module = record.runner()
     jobs: list[Job] = []
     scenarios = {str(s): tuple(e) for s, e in record.scenarios.items()}
+    owner = getattr(module, "owner", None)
+    owners = owned_scenarios(scenarios, owner) if callable(owner) else None
 
     def recorder(keys: Sequence[Any], fit_one: Any, **options: Any) -> Any:
         cell_of = options.get("cell_of") or _first
@@ -357,7 +388,7 @@ def capture_primary(record: StudyRecord) -> list[Job]:
                 options.get("replicate_of") or _second,
                 options.get("draw"),
                 options.get("seed_of"),
-                _ScenarioGroups(cell_of, scenarios),
+                _ScenarioGroups(cell_of, scenarios, owners),
             )
         )
         raise _Captured
@@ -684,6 +715,15 @@ def run_study(
         summary["rows"] = 0
     if stage == "settle":
         summary["groups"] = sorted(names or ())
+    if names:
+        written: set[str] = set()
+        for job in [*property_jobs, *primary_jobs]:
+            for key in job.keys:
+                written |= job.names_of(key)
+        unselected = sorted(names - written)
+        if unselected:  # a group no captured key writes: the screen will read it as missing
+            summary["unselected_groups"] = unselected
+            print(f"{slug}: no captured key writes {unselected}", flush=True)
     _write(frame, output / slug / name)
     capture_path = output / slug / CAPTURE_FILE
     previous = json.loads(capture_path.read_text()) if capture_path.exists() else {}
