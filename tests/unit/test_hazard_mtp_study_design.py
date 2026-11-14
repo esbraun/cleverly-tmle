@@ -1164,9 +1164,8 @@ class TestTheCells:
         assert written | rate == declared
         assert filled | rate == declared
 
-    def test_the_study_is_not_yet_registered(self) -> None:
-        # Registration comes with the artifacts, the evidence page and the grid row.
-        assert study.STUDY.slug not in {record.slug for record in registered()}
+    def test_the_study_is_registered(self) -> None:
+        assert study.STUDY in registered()
 
     def test_the_seeds_are_distinct(self) -> None:
         from tests.studies import canonical_hazard_msm

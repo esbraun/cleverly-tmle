@@ -421,8 +421,10 @@ Each message points to the default model, which fits those designs.
 A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
 model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.
 Each such plan gets its own correction of the hazards, so with `targeting="one_step"` its curve
-never dips. No registered study measures this fit yet, so its results are labelled
-`experimental`.
+never dips. The [hazard policy study](../technical-reference/method-evidence/hazard-mtp.md)
+measures such fits in sample and with cross-fitting. With `ratio="density"`, which bins the
+dose to compare the shifted and the observed dose, it covers only a dose with a fixed range,
+because on an unbounded dose the outer bins are wider than the shift.
 
 A few settings cannot be combined with such a plan, and
 [the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
