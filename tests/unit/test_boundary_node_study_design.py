@@ -373,22 +373,70 @@ def _primary_legs(group: pd.DataFrame, simulations: int = 200, seed: int = 0) ->
 
 
 def test_the_primary_passes_or_carries_its_declared_reading(rows: pd.DataFrame) -> None:
-    """Each primary row passes its bias and coverage legs, and its SE-ratio leg too or else it
-    is declared red under an owner that the roadmap lists.
+    """Each leg a primary row's reading does not name passes; each named leg is declared.
 
-    The record's margins are the harness defaults; no band is widened for the bound.
+    The SE-ratio legs of ``risk[always]`` and the contrast are predicted red under
+    ``X54-supplement-width``. The coverage leg of ``risk[never]`` is predicted to pass (0.945)
+    and is declared under ``X54-rare-event-coverage`` if it is red. The record's margins are
+    the harness defaults; no band is widened for the bound.
     """
     assert study.STUDY.margins.se_ratio_sanity == (0.80, 1.20)
-    assert set(study.PRIMARY_RED_READINGS) <= set(study.ESTIMANDS)
-    assert set(study.PRIMARY_RED_READINGS.values()) <= set(owner_ids())
+    assert set(study.PRIMARY_RED_READINGS) == set(study.ESTIMANDS)
+    assert {reading.owner for reading in study.PRIMARY_RED_READINGS.values()} <= set(owner_ids())
     for target, estimand in study.TARGETS.items():
         group = rows[(rows["cell"] == study.SCENARIO) & (rows["target"] == target)]
-        bias, coverage, ratio = _primary_legs(group)
-        assert bias >= 0.99 and coverage >= 0.90, (target, bias, coverage)
-        if estimand in study.PRIMARY_RED_READINGS:
-            assert ratio < 0.10, (target, ratio)
+        chances = dict(zip(study.PRIMARY_LEGS, _primary_legs(group), strict=True))
+        reading = study.PRIMARY_RED_READINGS[estimand]
+        assert "bias_equivalent" not in reading.legs
+        assert chances["bias_equivalent"] >= 0.99, (target, chances)
+        for leg in study.PRIMARY_LEGS:
+            if leg not in reading.legs:
+                assert chances[leg] >= 0.90, (target, leg, chances)
+        if target in ("always", "contrast"):
+            assert reading.legs == ("se_calibrated",)
+            assert chances["se_calibrated"] < 0.10, (target, chances)
         else:
-            assert ratio >= 0.90, (target, ratio)
+            assert reading.legs == ("coverage_valid",)
+            assert chances["coverage_valid"] >= 0.90, (target, chances)
+
+
+def _performance(**failed: str) -> pd.DataFrame:
+    """A ``performance-tests.csv`` whose every leg passes but the ``estimand=leg`` ones."""
+    frame = pd.DataFrame({"estimand": list(study.ESTIMANDS)})
+    for leg in study.PRIMARY_LEGS:
+        frame[leg] = True
+    for target, leg in failed.items():
+        frame.loc[frame["estimand"] == study.TARGETS[target], leg] = False
+    return frame
+
+
+def test_an_owned_leg_failure_is_covered_and_any_other_is_not() -> None:
+    """c-m1: a width owner claims the SE-ratio leg only, the rare-event owner coverage only."""
+    assert study.unowned_primary_failures(_performance()) == []
+    assert (
+        study.unowned_primary_failures(
+            _performance(always="se_calibrated", contrast="se_calibrated", never="coverage_valid")
+        )
+        == []
+    )
+    for target, leg in (
+        ("always", "bias_equivalent"),
+        ("always", "coverage_valid"),
+        ("contrast", "coverage_valid"),
+        ("never", "se_calibrated"),
+        ("never", "bias_equivalent"),
+    ):
+        (failure,) = study.unowned_primary_failures(_performance(**{target: leg}))
+        assert study.TARGETS[target] in failure and leg in failure
+
+
+def test_a_registered_primary_fails_only_its_owned_legs() -> None:
+    """At registration, the committed primary rows fail no leg outside their readings."""
+    path = study.STUDY.artifact("performance-tests.csv")
+    if not path.exists():
+        pytest.skip("the study has not run")
+    frame = pd.read_csv(path)
+    assert study.unowned_primary_failures(frame[frame["implementation"] == "cleverly"]) == []
 
 
 def test_the_primary_legs_see_a_short_standard_error(rows: pd.DataFrame) -> None:

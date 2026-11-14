@@ -597,6 +597,50 @@ def test_a_fit_without_a_flagged_node_is_unchanged(monkeypatch: pytest.MonkeyPat
         assert estimate.ci == plain[name].ci
 
 
+#: ``psi``, ``std_error`` and ``ci`` of two estimates of ``_frame()``, recorded from the commit
+#: before the supplement (``709e2207``) with the learners of ``_fit``, by fit path. The fixture
+#: flags no node. The tolerance admits library rounding only.
+PRE_SUPPLEMENT: dict[bool, dict[str, tuple[float, float, tuple[float, float]]]] = {
+    False: {
+        "risk_regimen[treated @ t=4]": (
+            0.8835426362569585,
+            0.02503143700937427,
+            (0.8248575193489014, 0.9243670913010469),
+        ),
+        "ate_regimen[control vs treated @ t=3]": (
+            -0.11442882504741175,
+            0.04445029202003762,
+            (-0.20154979650897364, -0.027307853585849848),
+        ),
+    },
+    True: {
+        "risk_regimen[treated @ t=4]": (
+            0.8835205157696322,
+            0.025042400307972685,
+            (0.8248076513458013, 0.9243611638516065),
+        ),
+        "ate_regimen[control vs treated @ t=3]": (
+            -0.11457490292560912,
+            0.04449399759972208,
+            (-0.20178153574927601, -0.027368270101942233),
+        ),
+    },
+}
+
+
+@pytest.mark.parametrize("hazard", [False, True], ids=["iterated_mean", "hazard"])
+def test_a_fit_without_a_flagged_node_matches_the_pre_supplement_commit(hazard: bool) -> None:
+    """m4: off the event, the estimate, its SE and its interval are those of ``709e2207``."""
+    result = _fit(_frame(), hazard=hazard)
+    assert boundary_node_parameters(result) == ()
+    for name, (psi, std_error, ci) in PRE_SUPPLEMENT[hazard].items():
+        estimate = result[name]
+        assert estimate.node is None
+        assert estimate.psi == pytest.approx(psi, rel=1e-9)
+        assert estimate.std_error == pytest.approx(std_error, rel=1e-9)
+        assert estimate.ci == pytest.approx(ci, rel=1e-9)
+
+
 def test_the_band_leaves_a_supplemented_estimate_out_and_refuses_it_by_name() -> None:
     data = _frame(quiet={1: (2,)})
     result = _fit(data, simultaneous=True)

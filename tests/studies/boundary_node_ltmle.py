@@ -81,14 +81,80 @@ TARGETS: Final[dict[str, str]] = {
 #: The regimen whose node 4 a target's ``firing`` reads.
 FIRING_REGIMEN: Final[dict[str, str]] = {"always": "always", "never": "never", "contrast": "always"}
 ESTIMANDS: Final[tuple[str, ...]] = tuple(TARGETS.values())
-#: The primary truth rows declared red before the run, each with its red-cell owner in the
-#: roadmap: the SE-ratio leg of a supplemented row reads the width of a one-sided bound, so it is
-#: predicted above the sanity band's upper end of 1.20 (``regenerate.py``). The coverage and bias
-#: legs of these rows stay binding, and ``risk[never]``'s row is predicted to pass.
-PRIMARY_RED_READINGS: Final[dict[str, str]] = {
-    TARGETS["always"]: "X54-supplement-width",
-    TARGETS["contrast"]: "X54-supplement-width",
+#: The legs of a primary truth row, as ``performance-tests.csv`` publishes them.
+PRIMARY_LEGS: Final[tuple[str, ...]] = ("bias_equivalent", "coverage_valid", "se_calibrated")
+
+
+@dataclasses.dataclass(frozen=True)
+class RedReading:
+    """A primary row's declared red reading: its roadmap owner and the legs the owner may hold.
+
+    Parameters
+    ----------
+    owner : str
+        The ``id`` of the row's owner in the roadmap's "Red-cell owners" table.
+    legs : tuple of str
+        The legs of :data:`PRIMARY_LEGS` whose failure the reading explains. A failure of any
+        other leg is not covered by the owner and is a defect suspect.
+    reason : str
+        Why the leg can fail with no defect.
+    """
+
+    owner: str
+    legs: tuple[str, ...]
+    reason: str
+
+
+#: The readings declared before the run for the primary rows (``regenerate.py``). The owner of
+#: a red row claims the whole row in the red-cell ledger, so :func:`unowned_primary_failures`
+#: keeps a bias or coverage failure from hiding under a width owner.
+PRIMARY_RED_READINGS: Final[dict[str, RedReading]] = {
+    TARGETS["always"]: RedReading(
+        "X54-supplement-width",
+        ("se_calibrated",),
+        "the supplement adds a flagged node's variance at the one-sided bound of its hazard, so "
+        "the SE ratio is predicted above 1.20",
+    ),
+    TARGETS["contrast"]: RedReading(
+        "X54-supplement-width",
+        ("se_calibrated",),
+        "the contrast reads the supplemented risk under always, so its SE ratio is predicted "
+        "near or above 1.20",
+    ),
+    TARGETS["never"]: RedReading(
+        "X54-rare-event-coverage",
+        ("coverage_valid",),
+        "node 4 is flagged under never on one draw in ten, so most draws show the ordinary "
+        "interval at a node with one or two events: F31's rare-event limit, the reading the "
+        "property family gives a quiet-draw shortfall (rare_event_limit)",
+    ),
 }
+
+
+def unowned_primary_failures(performance: pd.DataFrame) -> list[str]:
+    """Every failed primary leg that no declared reading covers, one sentence each.
+
+    Parameters
+    ----------
+    performance : DataFrame
+        The study's ``performance-tests.csv``: one row per estimand, with the boolean columns of
+        :data:`PRIMARY_LEGS`.
+
+    Returns
+    -------
+    list of str
+        Empty when each failed leg is one its row's reading names.
+    """
+    out = []
+    for row in performance.itertuples(index=False):
+        reading = PRIMARY_RED_READINGS.get(str(row.estimand))
+        allowed = () if reading is None else reading.legs
+        for leg in PRIMARY_LEGS:
+            if not bool(getattr(row, leg)) and leg not in allowed:
+                out.append(f"{row.estimand}: {leg} failed, and no declared reading covers it")
+    return out
+
+
 ARMS: Final[tuple[str, ...]] = ("supplemented", "plugin", "oracle_node")
 
 

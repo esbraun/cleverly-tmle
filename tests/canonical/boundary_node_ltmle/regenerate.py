@@ -58,7 +58,8 @@ vertex. Every firing floor and zero cell reads at least 0.9999. The paired claus
 cells, 2 paired clauses) is 0.993. In the primary, the bias legs of all three targets read 1.00;
 the coverage legs read 0.995, 0.945 and 1.00 for ``risk[always]``, ``risk[never]`` and the
 contrast; the SE-ratio leg of ``risk[never]`` reads 1.00, and those of ``risk[always]`` and the
-contrast read 0.00 and 0.05 (below).
+contrast read 0.00 and 0.05 (below). Each primary row's declared reading names the one leg it
+covers (``boundary_node_ltmle.PRIMARY_RED_READINGS``).
 
 Red-cell readings (declared before any run). The record is ``reporting``, so a red gated verdict
 is published, and it takes the route of plan section 5.8 named here. No cell is re-sized,
@@ -71,8 +72,17 @@ defaults.
   its hazard, not at the hazard, so this is the bound's width cost and no defect. Both rows are
   declared here under the roadmap's red-cell owner ``X54-supplement-width``
   (``boundary_node_ltmle.PRIMARY_RED_READINGS``), and the claims are added to
-  ``tests/studies/evidence/red_cells.py`` with the run. A red coverage or bias leg of a primary
-  row is not covered by that reading: it is a defect suspect.
+  ``tests/studies/evidence/red_cells.py`` with the run. That owner covers the SE-ratio leg
+  only. A red coverage or bias leg of these rows is a defect suspect, and at registration
+  ``boundary_node_ltmle.unowned_primary_failures`` must find no such leg in
+  ``performance-tests.csv`` (``test_a_registered_primary_fails_only_its_owned_legs``).
+* The primary coverage leg of ``risk[never]`` is predicted to pass (pilot coverage 0.940, pass
+  probability 0.945). If it is red, it takes the one reading this study gives a shortfall of
+  the ordinary interval in the rare-event regime, the property family's ``rare_event_limit``:
+  node 4 is flagged under ``never`` on one draw in ten, so most draws show the ordinary interval
+  at a node with one or two events. It is recorded under roadmap F31, owned in the red-cell
+  ledger by ``X54-rare-event-coverage``. That owner covers the coverage leg only; a red bias or
+  SE-ratio leg of the row is a defect suspect.
 * Every gated statistic passes and the paired control passes: the supplement ships on both
   paths. A quiet coverage whose exact lower end is below 0.90 (``rare_event_limit``) in an
   interior cell, predicted at ``interior_n100``, ``interior_n200`` and the cross-fitted cell, is

@@ -1096,8 +1096,10 @@ coefficient bound rests on its unit witness. A draw on which no node is flagged 
 keeps the ordinary interval at a node with one or two events. The study publishes that coverage
 and declares a shortfall there as F31's rare-event limit, not as a failure of the supplement.
 The primary's standard-error ratio for the risk under `always` and for the contrast is declared
-red before the run under the owner `X54-supplement-width`: a one-sided bound is wider than the
-node's own variance (`tests/canonical/boundary_node_ltmle/regenerate.py`).
+red before the run under the owner `X54-supplement-width`, because a one-sided bound is wider
+than the node's own variance. A red coverage leg of the risk under `never` would be the same
+rare-event limit, owned by `X54-rare-event-coverage`. Each owner covers that one leg only
+(`tests/canonical/boundary_node_ltmle/regenerate.py`).
 
 The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
 one fold draw, the default variance, and no isotonic projection, fold average, learned rule or
