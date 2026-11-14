@@ -733,7 +733,8 @@ class NuisanceEstimates:
     #: The one-based folds whose training rows held a single value of a binary outcome, so
     #: that the fold's outcome regression is that value and no learner ran there
     #: (:class:`ConstantFit`).  On a per-arm regression a fold counts when any arm's model
-    #: is constant.  Empty on an in-sample fit, which never takes the rule.
+    #: is constant.  Empty on an in-sample fit: a per-arm in-sample regression takes the rule
+    #: on an arm with one outcome value, and the constant-cell status reports it.
     outcome_constant_folds: tuple[int, ...] = ()
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
@@ -2637,11 +2638,13 @@ def fit_nuisances(
                 _pooled_rule_arm, arms=tuple(arms), levels=tuple(levels)
             )
         outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
-        # A cross-fitted binary outcome whose training fold holds one value predicts that
-        # value there, as the longitudinal recursion does (``ConstantFit``).  An in-sample fit
-        # does not take the rule: a whole-sample arm with one value withholds its interval
-        # through the constant-cell status instead.
-        if outcome_task == "classification" and not folds.is_single:
+        # A binary outcome whose training rows hold one value predicts that value there, as
+        # the longitudinal recursion does (``ConstantFit``): one is the maximum-likelihood
+        # probability of the value.  Cross-fitted, that is a training fold.  In sample it is a
+        # per-arm regression whose arm holds one value; the fit then withholds the interval
+        # through the constant-cell status.  A pooled in-sample regression of a sample with
+        # one outcome value is left to the learner.
+        if outcome_task == "classification" and (not folds.is_single or outcome_by_arm):
             outcome_constant = []
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
@@ -2754,7 +2757,7 @@ def fit_nuisances(
         outcome_probes={key: outcome_out[f"probe:{key}"] for key in probes},
         fold_plug_in_rules=fold_rules,
         fold_plug_in_rules_by_level=fold_rules_by_level,
-        outcome_constant_folds=tuple(sorted(set(outcome_constant or ()))),
+        outcome_constant_folds=tuple(sorted({fold for fold in outcome_constant or () if fold})),
     )
 
 

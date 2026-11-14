@@ -5,9 +5,10 @@ The rule is the point-treatment twin of the longitudinal one
 maximum-likelihood probability of the one value is 1, so the fold's regression is that value
 (:class:`~cleverly.estimators._nuisance.ConstantFit`) and no learner runs.  It reaches the
 per-arm outcome regression of ``TMLE(outcome_by_arm=True)`` and the leave-two-out outcome
-regressions of ``DRTMLE(reduced_crossfit="foldwise")``.  A pooled outcome regression never
-reaches it, because a training complement without both outcome classes is refused before any
-learner (``_preflight_training_support``).
+regressions of ``DRTMLE(reduced_crossfit="foldwise")``, and in sample a per-arm regression
+whose arm holds one value.  A cross-fitted pooled outcome regression never reaches it, because a
+training complement without both outcome classes is refused before any learner
+(``_preflight_training_support``).
 
 It never reaches a treatment-mechanism regression.  A complement without an arm is a
 positivity failure, and predicting a probability of 1 for the other arm would move the
@@ -166,6 +167,48 @@ class TestPerArmOutcome:
         assert by_arm.nuisance.outcome_constant_folds == (1, 2, 3)
         assert by_arm["ate"].inference == "constant_arm_cell_plugin"
         assert by_arm["ey0"].inference != "constant_arm_cell_plugin"
+
+
+class TestPerArmInSample:
+    """In sample, a per-arm regression whose arm holds one outcome value is that value.
+
+    One is the maximum-likelihood probability of the value, as in a training fold.  The
+    estimate reads a constant arm cell, so its interval is withheld.
+    """
+
+    @staticmethod
+    def _fit(frame: pd.DataFrame) -> Any:
+        estimator = TMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            outcome_by_arm=True,
+        )
+        return estimator.fit(frame, outcome="Y", treatment="A").single()
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        frame, _ = _per_arm_frame()
+        frame.loc[frame["A"] == 1, "Y"] = 0.0
+        return frame
+
+    @pytest.mark.filterwarnings("ignore::cleverly.exceptions.ConvergenceWarning")
+    def test_the_arm_predicts_its_one_value(self) -> None:
+        result = self._fit(self._frame())
+        nuisance = result.nuisance
+        assert np.all(nuisance.outcome.arms[1.0] == 0.0)
+        # Nonzero witness: the other arm fitted a learner.
+        assert np.all(nuisance.outcome.arms[0.0] > 0.0)
+        assert nuisance.outcome_constant_folds == ()
+        assert result["ate"].inference == "constant_arm_cell_plugin"
+        assert result["ey0"].inference != "constant_arm_cell_plugin"
+        assert np.isfinite(result["ey0"].std_error)
+
+    def test_without_the_rule_the_arm_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Mutation control: the fold loop no longer receives ``constant_folds``."""
+        _wrap_cross_fit(monkeypatch, _without_constant_folds)
+        with pytest.raises(ValueError, match=TWO_CLASSES):
+            self._fit(self._frame())
 
 
 # ------------------------------------------------------------------ DR-TMLE, leave two out

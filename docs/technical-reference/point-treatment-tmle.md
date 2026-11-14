@@ -1040,7 +1040,8 @@ of the longitudinal rule in
 | the per-arm outcome regression (`outcome_by_arm=True`), one arm's training rows in a fold | that arm's regression in the fold is the value |
 | the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, the rows outside a pair of folds | that pair's regression is the value |
 | a treatment-mechanism regression | not read by this rule. A complement without an arm is a positivity failure, and the fit keeps its refusal |
-| an in-sample fit | not read by this rule. An arm whose observed outcomes hold one value withholds the interval through the `constant_arm_cell_plugin` status ([inference status](inference.md#inference-status)) |
+| the per-arm outcome regression of an in-sample fit, an arm whose observed outcomes hold one value | that arm's regression is the value. The estimates that read the arm withhold the interval through the `constant_arm_cell_plugin` status ([inference status](inference.md#inference-status)) |
+| the pooled outcome regression of an in-sample fit | not read by this rule |
 
 A constant fold changes no status. A sample arm whose outcomes hold one value takes
 `constant_arm_cell_plugin` with or without the rule. The nuisance report of the outcome model
@@ -1050,7 +1051,7 @@ every fold's predictions. The leave-two-out regressions are not reported, becaus
 the production predictions.
 
 `tests/unit/test_constant_target_in_fold.py` builds a fold of one value for the per-arm and the
-leave-two-out regressions and checks the predictions, the report and the status. Its mutation
+leave-two-out regressions, and an in-sample arm of one value, and checks the predictions, the report and the status. Its mutation
 removes the rule and sees the classifier's two-class error return. A second control passes the
 rule to the treatment-mechanism regression and sees the pinned refusal change.
 
