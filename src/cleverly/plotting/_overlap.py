@@ -154,7 +154,7 @@ def overlap(
     regimen: str | None = None,
     nodes: Sequence[int] | None = None,
     censoring: bool = False,
-    horizon: int | None = None,
+    horizon: float | None = None,
     cause: str | None = None,
     time_label: str = "Time point",
     title: str | Literal[False] | None = None,
@@ -197,11 +197,18 @@ def overlap(
     * An adaptive TMLE fit with external data draws the treatment probability on the trial
       rows, and the probability of being in the trial for trial against external rows,
       with the floor its positivity warning checks.
+    * A continuous-time survival fit draws the predicted probability of the treated arm,
+      units given it above and units given the reference arm below. Its floor bounds the
+      product of the treatment probability and the probability of staying uncensored, so
+      ``censoring=True`` adds that product just before the chosen target time for the units
+      given each arm, with the floor.
 
     Parameters
     ----------
-    result : TMLEResult or LongitudinalResult or StructuralNestedMeanResult or AdaptiveTMLEResult
-        A fitted result with an estimated treatment mechanism.
+    result : TMLEResult or another fitted result
+        A fitted result with an estimated treatment mechanism: a ``TMLEResult``,
+        ``LongitudinalResult``, ``StructuralNestedMeanResult``, ``AdaptiveTMLEResult`` or
+        ``ContinuousSurvivalResult``.
     treatment_label : str or None, default=None
         Words for the treatment in the axis label: ``"Predicted probability of smoking =
         1"``, or with ``labels=`` ``"Predicted probability of smoking: smoking mothers"``.
@@ -210,7 +217,7 @@ def overlap(
         Words for each arm, keyed by the arm's level as in the data, such as
         ``{1: "offered", 0: "not offered"}``. Each names its group of units on its own. On
         a fit with a treatment at several time points, words for each regimen keyed by its
-        label.
+        label. On a continuous-time survival fit, words for each arm keyed by its label.
     regimen : str or None, default=None
         On a fit with a treatment at several time points, the one regimen to draw; every
         regimen of the result, one block of panels each, when omitted. A result with more
@@ -222,9 +229,10 @@ def overlap(
         On a longitudinal or survival fit with censoring, also draw the probability of
         staying under observation: the cumulative product with the treatment probability
         for a baseline treatment, each time point's probability for a treatment over time.
-    horizon : int or None, default=None
+    horizon : float or None, default=None
         The horizon of the cumulative product ``censoring=True`` draws for a baseline
-        treatment; the largest when omitted.
+        treatment, or the target time on a continuous-time survival fit; the largest when
+        omitted.
     cause : str or None, default=None
         The cause of that product under competing events; the first when omitted.
     time_label : str, default="Time point"
@@ -256,16 +264,16 @@ def overlap(
     ------
     CapabilityError
         When the fit estimated no treatment mechanism; when a time point's treatment is a
-        dose or a policy whose weight is a density ratio, which has no probability per arm;
-        or for a continuous-time survival fit, whose probabilities this plot does not
-        draw yet.
+        dose or a policy whose weight is a density ratio, which has no probability per arm.
     DataError
         When the treatment is continuous, which has no probability per arm; when the
-        regimen, a time point, the horizon or the cause is not in the result; or when a fit
-        over time holds more than three regimens and ``regimen`` is omitted.
+        regimen, a time point, the horizon, the target time or the cause is not in the
+        result; or when a fit over time holds more than three regimens and ``regimen`` is
+        omitted.
     ValueError
-        When ``censoring=True`` and the fit has no censoring, or a keyword for a fit over
-        time is given for one that is not.
+        When ``censoring=True`` and the fit has no censoring, a keyword for a fit over
+        time is given for one that is not, or a continuous-time survival fit is given
+        ``horizon`` without ``censoring=True``.
 
     See Also
     --------
@@ -323,24 +331,14 @@ def overlap(
     if drawn is not None:
         return drawn
     if not hasattr(result, "repeats") or not hasattr(result, "nuisance"):
-        from .._refusal import NO_ALTERNATIVE, RefusalReason
+        from .._refusal import RefusalReason
         from ..exceptions import CapabilityError
 
-        gap = _unread_overlap(result)
-        if gap is None:
-            raise CapabilityError(
-                "overlap() draws a point-treatment fit's predicted probability of treatment; "
-                + _not_a_propensity(result)
-                + ".",
-                reason=RefusalReason.INVALID_DECLARATION,
-            )
         raise CapabilityError(
             "overlap() draws a point-treatment fit's predicted probability of treatment; "
-            + gap
-            + ", which this plot does not draw yet.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=NO_ALTERNATIVE,
-            roadmap="X100",
+            + _not_a_propensity(result)
+            + ".",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if regimen is not None or nodes is not None or censoring or horizon is not None or cause:
         raise ValueError(
@@ -479,17 +477,8 @@ def _limits(result: Any) -> list[Limit]:
 __all__ = ["overlap"]
 
 
-def _unread_overlap(result: Any) -> str | None:
-    """What a fit X100 will draw holds in place of one propensity, or ``None``."""
-    from ..survival.result import ContinuousSurvivalResult
-
-    if isinstance(result, ContinuousSurvivalResult):
-        return "a continuous-time survival fit does not keep each row's treatment probability"
-    return None
-
-
 def _not_a_propensity(result: Any) -> str:
-    """Why a result outside X100 has no propensity this plot can draw, in words."""
+    """Why a result has no propensity this plot can draw, in words."""
     from ..effect_curves import EffectCurveResult
     from ..estimators.dose_response import DoseResponseResult
     from ..longitudinal.estimator import LongitudinalResult

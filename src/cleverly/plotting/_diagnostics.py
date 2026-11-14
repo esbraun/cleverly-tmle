@@ -812,12 +812,20 @@ def learners(
     panels per nuisance role that a Super Learner fitted: the ensemble weights stacked at
     each time point above, each candidate's cross-validated risk below.
 
+    A continuous-time survival fit, or its ``diagnostics.nuisance_models()``, draws one panel
+    per hazard (each cause, then censoring) and one for the treatment model: each
+    candidate's cross-validated loss, with the candidate the fit chose marked. Each
+    selection keeps one candidate, so no weights are drawn. A cross-fitted fit draws the
+    first fold's selections, the ones it keeps.
+
     Parameters
     ----------
-    source : SuperLearnerDiagnostics or CTMLESelection or TMLEResult or LongitudinalResult
-        What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``. A
-        ``NuisanceModelReport``, a fit's ``NuisanceDiagnostics`` and a longitudinal fit's
-        ``diagnostics.nuisance_models()`` are accepted too.
+    source : SuperLearnerDiagnostics or CTMLESelection or a fitted result
+        What to plot: one of the first two, or a ``TMLEResult``, ``LongitudinalResult`` or
+        ``ContinuousSurvivalResult``. A fitted ``SuperLearner`` holds the first as
+        ``diagnostics_``. A ``NuisanceModelReport``, a fit's ``NuisanceDiagnostics`` and a
+        longitudinal or continuous-time survival fit's ``diagnostics.nuisance_models()`` are
+        accepted too.
     regimen : str or None, default=None
         On a longitudinal fit or its nuisance report, the regimen whose outcome regressions
         are drawn; the first when omitted. The treatment and censoring models serve every
@@ -852,19 +860,21 @@ def learners(
     -------
     Figure
         Two panels per Super Learner, one for a collaborative selection, one per arm and
-        horizon for a survival collaborative fit, two per role for a longitudinal fit.
+        horizon for a survival collaborative fit, two per role for a longitudinal fit, one
+        per selected model for a continuous-time survival fit.
 
     Raises
     ------
     ValueError
         When the source holds nothing to draw (no nuisance model was fitted by a Super
-        Learner), or ``ax`` is given for a figure of several panels.
+        Learner), when ``ax`` is given for a figure of several panels, or when a
+        continuous-time survival fit's report names a chosen candidate that its library
+        lists more than once.
     TypeError
         When the source is none of the above.
     CapabilityError
         When the source is an adaptive TMLE fit or its nuisance report, which keep no
-        candidate risks or weights, or a continuous-time survival fit, whose library
-        selections this plot does not draw yet.
+        candidate risks or weights.
     DataError
         When the regimen, horizon or cause is not in a longitudinal report.
 
@@ -880,7 +890,8 @@ def learners(
     the figure before you publish it. For this plot the notes say the risks are descriptive
     and what the criterion adds to the loss. On a longitudinal fit they also say that the
     weights are averaged over folds, which draw and which regimen's outcome regressions are
-    drawn.
+    drawn. On a continuous-time survival fit they say which fold's selections are drawn and
+    which model has no panel.
 
     Examples
     --------
@@ -906,7 +917,16 @@ def learners(
     """
     role = None
     from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.diagnostics import ContinuousSurvivalNuisances
+    from ..survival.result import ContinuousSurvivalResult
 
+    if isinstance(source, (ContinuousSurvivalResult, ContinuousSurvivalNuisances)):
+        if ax is not None:
+            raise ValueError("learners() draws one panel per selection; ax= is not accepted")
+        _selectors_unused(regimen, horizon, cause)
+        from . import _continuous
+
+        return _continuous.learners(source)
     if isinstance(source, LongitudinalResult) and source.selection is not None:
         if ax is not None:
             raise ValueError("learners() draws one panel per arm and horizon; ax= is not accepted")
@@ -993,20 +1013,12 @@ def _refuse_unread(source: Any, plot: str) -> None:
     from ..exceptions import CapabilityError
     from ..survival.result import ContinuousSurvivalResult
 
-    if isinstance(source, ContinuousSurvivalResult):
-        if plot == "calibration":
-            raise CapabilityError(
-                "calibration() draws a nuisance report's calibration table; a continuous-time "
-                "survival fit keeps no nuisance report, only its library selections in "
-                "result.record.",
-                reason=RefusalReason.INVALID_DECLARATION,
-            )
+    if isinstance(source, ContinuousSurvivalResult) and plot == "calibration":
         raise CapabilityError(
-            f"{plot}() does not yet draw a continuous-time survival fit's hazard and "
-            "treatment library selections.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Read them in result.record.",
-            roadmap="X100",
+            "calibration() draws a nuisance report's calibration table; a continuous-time "
+            "survival fit keeps no nuisance report, only its library selections in "
+            "result.record.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if isinstance(source, (AdaptiveTMLEResult, AdaptiveTMLENuisanceReport)):
         reads, held = (
