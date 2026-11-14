@@ -117,6 +117,67 @@ def fit_missing() -> Any:
     )
 
 
+def _single_estimand(name: str, frame: Any) -> Any:
+    return (
+        TMLE(**linear_in_sample(estimands=(name,))).fit(frame, outcome="Y", treatment="A").single()
+    )
+
+
+def fit_att() -> Any:
+    """A fit that reports the ATT alone (Fix-15: a bare marginal bound reads ``att``)."""
+    return _single_estimand("att", _linear_frame())
+
+
+def fit_atc() -> Any:
+    """A fit that reports the ATC alone."""
+    return _single_estimand("atc", _linear_frame())
+
+
+def fit_rr() -> Any:
+    """A binary-outcome fit that reports the risk ratio alone, ``make_binary_outcome(400, 17)``."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return _single_estimand("rr", frame)
+
+
+def fit_or() -> Any:
+    """A binary-outcome fit that reports the odds ratio alone."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return _single_estimand("or", frame)
+
+
+def _survival_study_fit(method: Any, n: int = 600, *, mechanisms: bool = True) -> Any:
+    from cleverly import RegimeContrast
+    from tests.unit.test_survival_drtmle import sample_frame
+
+    study = CausalStudy(
+        sample_frame(n, 21, n_times=3),
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    effect = study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0"))
+    settings: dict[str, Any] = {"outcome_learner": LogisticRegression(max_iter=1000)}
+    if mechanisms:
+        settings["treatment_learner"] = LogisticRegression(max_iter=1000)
+        settings["censoring_learner"] = LogisticRegression(max_iter=1000)
+    return effect.estimate(method=method, cross_fit=False, random_state=0, **settings)
+
+
+def fit_survival_drtmle() -> Any:
+    """A drift-corrected survival TMLE (``SurvivalDRTMLE``) through the study layer.
+
+    Its truncation curve and simulated confounding refuse (X62), and the rows say so.
+    """
+    from cleverly.methods import DRTMLEMethod
+
+    return _survival_study_fit(DRTMLEMethod())
+
+
+def fit_survival_ctmle() -> Any:
+    """A collaborative survival TMLE (``SurvivalCTMLE``) through the study layer."""
+    from cleverly.methods import CollaborativeTMLEMethod
+
+    return _survival_study_fit(CollaborativeTMLEMethod(selection_folds=2), n=300, mechanisms=False)
+
+
 def dose_frame() -> Any:
     """The continuous-dose law of ``make_shift_dose(300, 0)``."""
     frame, _ = make_shift_dose(n=300, seed=0)
@@ -1086,6 +1147,15 @@ KINDS: dict[str, Kind] = {
     "ipw": _kind(fit_ipw, "nuisance_models", "support", *_POINT),
     # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
     "gformula": _kind(fit_gformula, "nuisance_models", "support", "refute"),
+    # A direct fit records no identification, so simulated confounding reads unavailable.
+    "att": _kind(fit_att, *_LIVE, *_BOUND, "benchmark", "marginal_bounds"),
+    "atc": _kind(fit_atc, *_LIVE, *_BOUND, "benchmark", "marginal_bounds"),
+    # The omitted-variable bound covers linear functionals; a ratio refuses it.
+    "rr": _kind(fit_rr, *_LIVE, "evalue", "marginal_bounds"),
+    "or": _kind(fit_or, *_LIVE, "evalue", "marginal_bounds"),
+    # No truncation curve and no replay (X62), so only the reading rows and refute run.
+    "survival_drtmle": _kind(fit_survival_drtmle, *_READ, "refute"),
+    "survival_ctmle": _kind(fit_survival_ctmle, *_READ, "refute"),
 }
 
 

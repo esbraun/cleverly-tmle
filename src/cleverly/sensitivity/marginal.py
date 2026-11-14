@@ -99,7 +99,7 @@ from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
 from ..exceptions import CapabilityError
-from ..inference.cluster import influence_variance
+from ..inference.cluster import cluster_reference_df, influence_variance
 from ..inference.delta import reference_quantile
 from ..utils.frames import emit_frame
 
@@ -218,6 +218,9 @@ class MarginalSensitivityBounds:
     scale : {"identity", "log"}
         The scale of the standard errors. A risk ratio or an odds ratio reports its ends
         and limits on the ratio scale and its standard errors on the log scale.
+    reference_df : int or None
+        The degrees of freedom of the Student t reference of the limits, the fit's own rule
+        over the rows the bounded parameter reads; ``None`` for the normal reference.
 
     Attributes
     ----------
@@ -236,6 +239,7 @@ class MarginalSensitivityBounds:
     limit_reading: Resolution | None = field(default=None, compare=False)
     backend: str | None = None
     scale: str = "identity"
+    reference_df: int | None = None
 
     @property
     def breakdown(self) -> float | None:
@@ -800,6 +804,61 @@ def _named_targets(result: TMLEResult) -> dict[str, _Target]:
     return out
 
 
+def default_estimand_candidates(result: TMLEResult) -> tuple[str, ...]:
+    """The parameters a call without ``estimand`` chooses between.
+
+    ``("ate",)`` when the fit reports the ATE; else the reported parameters the bounds can
+    take; else, when the fit reports none of them (a PAR or natural-course fit), every
+    parameter the bounds can take. One candidate settles the default; two or more leave a
+    choice the caller makes, which the sensitivity facade reports as a deferral.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The point-treatment fit to bound.
+
+    Returns
+    -------
+    tuple of str
+        The candidate names, in the order the fit reports them.
+    """
+    named = _named_targets(result)
+    if "ate" in result.estimates and "ate" in named:
+        return ("ate",)
+    reported = tuple(name for name in result.estimates if name in named)
+    return reported if reported else tuple(named)
+
+
+def _default_estimand(result: TMLEResult) -> str:
+    """The parameter a call without ``estimand`` bounds: the fit's own reported one."""
+    candidates = default_estimand_candidates(result)
+    if len(candidates) == 1:
+        return candidates[0]
+    raise ValueError(
+        "marginal_sensitivity_bounds answers for one estimand, and this fit leaves a "
+        f"choice: pass estimand= with one of {list(candidates)}. A call without it bounds "
+        "only the one parameter the fit reported, never a parameter it did not report."
+    )
+
+
+def _reference_df(result: TMLEResult, target: _Target) -> int | None:
+    """The t reference of the bounds' limits: the fit's own rule over the target's rows.
+
+    A clustered fit studentizes each estimate on ``J - 2`` degrees of freedom below the
+    few-cluster threshold (:func:`~cleverly.inference.cluster.cluster_reference_df`), over
+    the rows the estimate reads. The bound endpoints are means of influence curves over the
+    same rows, so their limits take the same reference; ``None`` is the normal one.
+    """
+    data = result.data
+    if data.cluster is None:
+        return None
+    rows = None
+    if target.stratum is not None:
+        rows = np.asarray(data.strata) == target.stratum
+    weights = data.weights if getattr(data, "is_weighted", False) else None
+    return cluster_reference_df(data.cluster, weights, rows=rows)
+
+
 def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
     """The parameter an ``estimand`` name asks for, with ``None`` read as the default."""
     from ._parameters import stratum_parameter
@@ -807,14 +866,7 @@ def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
     data = result.data
     named = _named_targets(result)
     if estimand is None:
-        if data.is_binary_treatment:
-            return named["ate"]
-        # A fit with more than two arms has no single ATE: take its first reported
-        # marginal contrast or mean, else the first contrast against the reference.
-        for name in result.estimates:
-            if name in named and not named[name].ratio:
-                return named[name]
-        return next(target for target in named.values() if target.stem == "ate")
+        estimand = _default_estimand(result)
     if estimand in named:
         target = named[estimand]
     else:
@@ -1117,8 +1169,9 @@ def marginal_sensitivity_bounds(
         the treated or the controls (``"att"``, ``"atc"``, two arms only), a ratio
         (``"rr"``, ``"or"``), any of these against a named reference arm, or a
         stratum-conditional alias such as ``"ate[V=1]"``. The fit need not have reported
-        it. ``None`` bounds the ATE of a two-arm fit, and the first reported contrast or
-        mean of a fit with more arms.
+        it. ``None`` bounds the fit's own reported parameter: the ATE when the fit reports
+        it, else the one reported parameter the bounds can take. A fit that reports two or
+        more of them and no ATE (or none of them) raises ``ValueError`` naming the choices.
     level : float, default=0.95
         The coverage level of the set interval.
     quantile_learner : callable, optional
@@ -1183,7 +1236,8 @@ def marginal_sensitivity_bounds(
     grid = _gammas(gamma)
     target = _resolve_target(result, estimand)
     cluster = result.data.cluster
-    z = reference_quantile(1.0 - level)
+    df = _reference_df(result, target)
+    z = reference_quantile(1.0 - level, df)
     outcome_kind = "binary" if result.data.family == "binomial" else "continuous"
     rows: list[MarginalSensitivityRow] = []
     quantile_names: set[str] = set()
@@ -1254,4 +1308,5 @@ def marginal_sensitivity_bounds(
         ),
         backend=result.data.backend,
         scale="log" if target.ratio else "identity",
+        reference_df=df,
     )

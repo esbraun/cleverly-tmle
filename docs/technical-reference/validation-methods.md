@@ -2451,6 +2451,18 @@ influence curve, summed within clusters on a clustered fit. A fit with `repeats 
 median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
 narrower and is not shipped.
 
+**Reference distribution.** A clustered fit below the few-cluster threshold replaces $z$ with
+the fit's own reference, the Student $t$ quantile with $J - 2$ degrees of
+freedom over the clusters the bounded parameter reads (`reference_df` on the result), so at
+$\Gamma = 1$ the set interval is as wide as the fit's interval. Those clustered limits stay
+descriptive.
+
+**Default parameter.** With no `estimand`, the bounds answer for the parameter the fit reported:
+the ATE when the fit reports it, else the one reported parameter they can take (`att` on an ATT
+fit, `rr` on a risk-ratio fit). A fit that reports two or more of them and no ATE, or none of
+them, has no default: the call raises and names the choices, and `result.sensitivity` reports the
+row as deferred until an `estimand` is passed.
+
 **Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain the null.
 The null is zero for a difference and one for a ratio. `limit_breakdown` reads the set
 interval. An arm mean has no null, so both are `None`.
