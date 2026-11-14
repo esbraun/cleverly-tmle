@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import itertools
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -987,66 +988,45 @@ def _fit_key(fit_label: str, monkeypatch: pytest.MonkeyPatch) -> Any:
     return keys[-1], result
 
 
-def _axis_exists() -> bool:
-    """Whether the support key has gained the ``later_covariates`` option."""
-    import inspect
-
-    from cleverly._support_rows import long_row
-
-    return study.LATER_COVARIATES_AXIS in inspect.signature(long_row).parameters
-
-
 class TestTheSupportRows:
-    @pytest.mark.parametrize("row", study.declared_support_rows(), ids=lambda row: row.id)
-    def test_each_declared_row_covers_its_fit(
+    @pytest.mark.parametrize("row", study.support_rows(), ids=lambda row: row.id)
+    def test_each_row_covers_its_fit_and_licenses_it(
         self, row: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         key, result = _fit_key(study.G63_FITS[row.id], monkeypatch)
         assert key.is_covered_by(row.key), key.differing_axes(row.key)
+        assert dict(row.key.options)["later_covariates"] is True
         assert row.evidence == (study.STUDY.slug,)
+        assert row.cells == study.G63_CELLS[row.id]
         assert set(row.cells) <= set(properties.ESTIMAND)
-        labels = {estimate.support.label for estimate in result.estimates.values()}
-        assert labels == {"experimental"}
+        supports = {(e.support.label, e.support.row) for e in result.estimates.values()}
+        assert supports == {("supported", row.id)}
 
-    def test_the_rows_are_not_yet_support_rows(self) -> None:
-        ids = {row.id for row in LONGITUDINAL_ROWS}
-        assert not ids & set(study.G63_FITS)
+    def test_no_other_row_covers_these_fits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The ``later_covariates`` option keeps every fit off the baseline hazard rows.
 
-    def test_the_key_needs_an_axis_for_covariates_after_baseline(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Why registration adds a key axis: today a registered row covers these keys.
-
-        ``G31`` and ``G32`` license held hazard fits without covariates after baseline.  Their
-        keys cover the in-sample, competing and cross-fitted fits here, which only the X70
-        condition keeps ``experimental``; a ``G63.held`` row with the same key would collide.
-        Once the key gains the ``later_covariates`` option
-        (:data:`~tests.studies.canonical_hazard_time_varying.LATER_COVARIATES_AXIS`), the test
-        flips: every declared row must name the axis as True and no registered row may cover
-        these fits.
+        Without it ``G31`` and ``G32`` (held hazard fits without covariates after baseline)
+        would cover the in-sample, competing and cross-fitted fits here.
         """
-        covering = {}
-        for row_id in ("G63.held.in_sample", "G63.held.competing", "G63.held.cross_fitted"):
-            key, _ = _fit_key(study.G63_FITS[row_id], monkeypatch)
-            covering[row_id] = {row.id for row in LONGITUDINAL_ROWS if key.is_covered_by(row.key)}
-        if _axis_exists():
-            for row in study.declared_support_rows():
-                assert getattr(row.key, study.LATER_COVARIATES_AXIS) is True, row.id
-            assert not any(covering.values()), covering
-            return
-        assert covering == {
-            "G63.held.in_sample": {"G31.survival"},
-            "G63.held.competing": {"G31.competing"},
-            "G63.held.cross_fitted": {"G32.survival"},
-        }
+        for row_id, fit_label in study.G63_FITS.items():
+            key, _ = _fit_key(fit_label, monkeypatch)
+            covering = {row.id for row in LONGITUDINAL_ROWS if key.is_covered_by(row.key)}
+            assert covering == {row_id}
+            options = tuple(
+                (name, False if name == "later_covariates" else value)
+                for name, value in key.options
+            )
+            unmarked = replace(key, options=options)
+            assert not any(unmarked.is_covered_by(row.key) for row in study.support_rows())
 
     def test_the_rows_say_what_the_key_cannot(self) -> None:
         """The banded rows license the gated band, and every row limits its covariate law."""
-        from cleverly._support_rows import _LONG_BAND, _LONG_WALD
+        from cleverly._support_rows import _LONG_BAND, _LONG_WALD, BAND_CELLS
 
-        for row in study.declared_support_rows():
+        for row in study.support_rows():
             kinds = _LONG_BAND if row.id in study.G63_BANDED else _LONG_WALD
             assert frozenset(row.kinds) == kinds, row.id
+            assert (row.id in BAND_CELLS) == (row.id in study.G63_BANDED), row.id
             text = " ".join(row.limits)
             assert "binary" in text and "Markov" in text and "Regimens:" in text, row.id
         banded = {study.G63_FITS[row_id] for row_id in study.G63_BANDED}
@@ -1079,9 +1059,8 @@ class TestTheCells:
         assert written | rate == declared
         assert filled | rate == declared
 
-    def test_the_study_is_not_yet_registered(self) -> None:
-        # Registration comes with the artifacts, the evidence page and the grid row.
-        assert study.STUDY.slug not in {record.slug for record in registered()}
+    def test_the_study_is_registered(self) -> None:
+        assert study.STUDY in registered()
 
     def test_the_seeds_are_distinct(self) -> None:
         from tests.studies import canonical_hazard_msm, canonical_hazard_mtp

@@ -346,8 +346,10 @@ class SupportKey:
         policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm,
         the ``isotonic`` projection, whether the fit declares ``node_bounds``, the
         ``hazard_pooling``, whether it declares a ``ratio_trim``, whether the data declare a
-        ``markov_order``, whether a regimen has a ``tuned_cap``, and the ``stopping``,
-        ``step_bound`` and ``iterate`` of a point key. No key holds the band's
+        ``markov_order``, whether a regimen has a ``tuned_cap``, the ``stopping``,
+        ``step_bound`` and ``iterate`` of a point key, and ``later_covariates``: whether a
+        hazard fit (``survival_model="hazard"``) has a covariate block at a node after the
+        first. No key holds the band's
         ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
         are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
@@ -1004,6 +1006,13 @@ def longitudinal_key(
             ("markov_order", getattr(data, "markov_order", None) is not None),
             ("tuned_cap", tuned_cap),
             *_stopping_options(estimator).items(),
+            # A hazard fit with a covariate block at a node after the first runs the backward
+            # pass (X70 part (b1)), a different estimator from the baseline hazard engine.
+            (
+                "later_covariates",
+                estimator.survival_model == "hazard"
+                and any(getattr(data, "time_varying_names", ())[1:]),
+            ),
         ),
     )
     learners = {

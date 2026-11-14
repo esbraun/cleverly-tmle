@@ -435,8 +435,11 @@ A covariate declared at the first time point only is measured before the treatme
 ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in
 `baseline=`. Under `markov_order=` the hazard model, like the default fit, drops that covariate
 at later time points. `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen refuse it; declare it
-in `baseline=` for those. No registered study measures the hazard fit with covariates after baseline
-yet, so its results are labelled `experimental`.
+in `baseline=` for those. The
+[covariates-after-baseline study](../technical-reference/method-evidence/hazard-time-varying.md)
+measures the hazard fit with one yes-or-no covariate per later time point, for two fixed
+treatments with one or two event types, in sample and with cross-fitting, and for a policy that
+moves everyone up one treatment level.
 [Covariates after baseline on the hazard path](../technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)
 gives the exact estimand, the settings it refuses, and its checks.
 

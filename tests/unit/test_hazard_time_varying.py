@@ -1458,8 +1458,33 @@ def test_the_pooled_trigger_reads_blocks_after_the_first_node() -> None:
         ).fit(law.frame(), **law.columns())
 
 
-def test_a_hazard_fit_with_later_covariates_stays_experimental() -> None:
+def test_a_hazard_fit_with_later_covariates_reads_no_baseline_hazard_row() -> None:
+    """The key marks ``later_covariates``, so no row of the baseline hazard engine covers it.
+
+    This weighted law-as-data fit matches no ``G63`` row either (its weights and node count
+    differ), so it reads ``experimental``; the same design with its block at node 1 does not
+    carry the option.
+    """
     law = HeldLaw(n_times=2)
     result = fit(law, STATIC)
-    statuses = {estimate.support.label for estimate in result.estimates.values()}
-    assert statuses == {"experimental"}
+    supports = [estimate.support for estimate in result.estimates.values()]
+    assert {support.label for support in supports} == {"experimental"}
+    assert {support.row for support in supports} == {None}
+    from cleverly import _support
+
+    keys = {}
+    for l1_only in (False, True):
+        frame, columns = _l1_or_l2(law, l1_only)
+        data = LongitudinalData.from_frame(frame, **columns)
+        estimator = LTMLE(STATIC, survival_model="hazard", targeting="one_step")
+        key, _ = _support.longitudinal_key(
+            estimator,
+            data,
+            outcome_kind="survival",
+            cross_fitted=False,
+            known_factors=(),
+            has_msm=False,
+            regimen_kinds=("static",),
+        )
+        keys[l1_only] = dict(key.options)["later_covariates"]
+    assert keys == {False: True, True: False}

@@ -56,7 +56,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cleverly._support_rows import _LONG_BAND, _LONG_WALD, long_row
 from cleverly.exceptions import DataError
 from cleverly.interventions import ModifiedPolicy, Piece
 from cleverly.longitudinal import LTMLE
@@ -277,7 +276,7 @@ STUDY = StudyRecord(
     slug="hazard-time-varying",
     artifacts=ROOT / "tests" / "canonical" / "hazard_time_varying",
     document="docs/technical-reference/method-evidence/hazard-time-varying.md",
-    anchor="hazard-time-varying",
+    anchor="covariates-after-baseline-on-the-hazard-path",
     scenarios=ESTIMANDS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -327,90 +326,34 @@ CONFIGURATION = {
     },
 }
 
-#: The support rows this study will license once it passes and is registered (plan X70 3.4:
-#: ``G63.held.*``, the ``G50.in_sample`` pattern).  Until then every fit with covariates after
-#: baseline on the hazard path is labelled ``experimental`` by the X70 condition of
-#: :mod:`cleverly.longitudinal.hazard_backward`, and the rows stay out of
-#: :data:`cleverly._support_rows.LONGITUDINAL_ROWS`, whose evidence must be registered.  The
-#: support key has no axis for covariates after baseline, so a held hazard fit without them on
-#: the same design has the same key, and ``G31`` and ``G32`` cover these fits today
-#: (``tests/unit/test_hazard_time_varying_study_design.py``).  The chosen registration path is
-#: a new key option :data:`LATER_COVARIATES_AXIS`, ``("later_covariates", bool)``, computed as
-#: ``survival_model == "hazard"`` and a ``time_varying=`` block at a node after the first, with
-#: ``long_row(..., later_covariates=False)`` as the default; these rows then pass True.  Every
-#: existing row keeps False, which is right: before (b1) every hazard fit with covariates after
-#: baseline was refused (H2), and the iterated-mean path keeps False whatever its design.  The
-#: axis and the removal of the X70 condition land in one change, never the condition first, or
-#: ``G31`` and ``G32`` would license fits this study has not covered.  The rows'
-#: ``limits`` state what the key cannot: the covariate type and law and the regimen kinds the
-#: evidence covers.
-G63_CELLS: dict[str, tuple[str, ...]] = {
-    "G63.held.in_sample": ("one_cause_contrast", "one_cause_risk"),
-    "G63.held.competing": ("competing_contrast", "competing_risk"),
-    "G63.held.mtp": ("three_arm_contrast", "three_arm_risk"),
-    "G63.held.cross_fitted": ("crossfit_contrast", "crossfit_risk"),
-}
-#: The key option registration adds (see :data:`G63_CELLS`).
-LATER_COVARIATES_AXIS = "later_covariates"
-#: The rows whose fit labels carry a gated ``simultaneous_coverage`` band.
-G63_BANDED = ("G63.held.in_sample", "G63.held.competing")
-#: What every ``G63.held`` row's evidence does not cover, which the key cannot say.
-G63_LIMITS = (
-    "Evidence covers one scalar binary covariate per node after baseline on Markov laws (each "
-    "factor at node k reads L_k only); a continuous, multivariate or non-Markov L_k rests on "
-    "tests/unit/test_hazard_time_varying.py.",
-    "Evidence covers targeting='one_step' with correctly specified or misspecified logistic and "
-    "cell-mean learners, without observation weights, clusters or node_bounds.",
-)
-#: Row id -> what that row's regimens cover.
-G63_REGIMEN_LIMITS = {
-    "G63.held.in_sample": "Regimens: static arms only; a rule or known policy on a held design "
-    "rests on the unit tests.",
-    "G63.held.competing": "Regimens: static arms only, two causes.",
-    "G63.held.mtp": "Regimens: one modified treatment policy at node 1 on a three-level "
-    "treatment, against the natural course.",
-    "G63.held.cross_fitted": "Regimens: static arms only. The cross-fitted stitch has the same "
-    "limit as the in-sample one under parametric learners, so it rests on the unit tests.",
-}
-#: Row id -> the fit label whose fit the row's key is read from.
+#: The support rows this study licenses (plan X70 3.4: ``G63.held.*``), each with the fit label
+#: whose fit its key is read from.  They live in :data:`cleverly._support_rows.LONGITUDINAL_ROWS`
+#: and carry the key option ``later_covariates``, which only a hazard fit with a ``time_varying=``
+#: block at a node after the first sets, so no row of the baseline hazard engine (``G31``,
+#: ``G32``) covers these fits.
 G63_FITS = {
     "G63.held.in_sample": "one_cause",
     "G63.held.competing": "competing",
     "G63.held.mtp": "three_arm",
     "G63.held.cross_fitted": "crossfit",
 }
+#: Row id -> the cells that license it.
+G63_CELLS: dict[str, tuple[str, ...]] = {
+    "G63.held.in_sample": ("one_cause_contrast", "one_cause_risk"),
+    "G63.held.competing": ("competing_contrast", "competing_risk"),
+    "G63.held.mtp": ("three_arm_contrast", "three_arm_risk"),
+    "G63.held.cross_fitted": ("crossfit_contrast", "crossfit_risk"),
+}
+#: The rows whose fit labels carry a gated ``simultaneous_coverage`` band.
+G63_BANDED = ("G63.held.in_sample", "G63.held.competing")
 
 
-def declared_support_rows() -> tuple[Any, ...]:
-    """The ``G63.held.*`` rows as :func:`~cleverly._support_rows.long_row` would build them.
+def support_rows() -> tuple[Any, ...]:
+    """The registered ``G63.held.*`` rows, in :data:`G63_FITS` order."""
+    from cleverly._support_rows import LONGITUDINAL_ROWS
 
-    Each row's key is that of its fit label's fit; the design test checks it against a fit.
-    The rows whose fit labels carry the gated band take ``_LONG_BAND``.
-    """
-    common: dict[str, Any] = {
-        "held": True,
-        "survival_model": "hazard",
-        "targeting": ALGORITHM,
-        "cells": (),
-    }
-    rows = []
-    for row_id, fit_label in G63_FITS.items():
-        current = law_of(fit_label)
-        _, folds = FITS[fit_label]
-        rows.append(
-            long_row(
-                row_id,
-                [STUDY.slug],
-                outcome_kind="survival" if current.causes == 1 else "competing",
-                regimens=("mtp",) if current.arms == 3 else ("static",),
-                treatment=(str(current.arms),) * current.n_times,
-                splitting=("cross_fitted",) if folds > 1 else ("in_sample",),
-                kinds=_LONG_BAND if row_id in G63_BANDED else _LONG_WALD,
-                limits=(*G63_LIMITS, G63_REGIMEN_LIMITS[row_id]),
-                **{**common, "cells": G63_CELLS[row_id]},
-            )
-        )
-    return tuple(rows)
+    rows = {row.id: row for row in LONGITUDINAL_ROWS}
+    return tuple(rows[row_id] for row_id in G63_FITS)
 
 
 #: Every nuisance configuration: ``(hazard correct, continuation correct, censoring correct)``.

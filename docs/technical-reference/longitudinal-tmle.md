@@ -1490,7 +1490,15 @@ each unit's incidences and the all-cause survival from the same hazards sum to o
 | --- | --- |
 | `tests/unit/test_hazard_time_varying.py` | on law (H) of `tests/discrete_law_hazard_time_varying.py` passed as weighted data, a wrong hazard and a wrong continuation (both without $L_k$) with the true mechanism give the enumerated truth within `1e-8` at one and two causes, for static arms, a rule, a known policy, an odds tilt at node 1, a "one level up" policy on three arms and a shift of a continuous dose; the untargeted pass misses. A hazard that reads $L_k$ but is misspecified, with a constant continuation, is exact too: the one witness whose covariate term is first order at the initial fit (without $L_k$ in the hazard, every fitted $Q_{k+1}$ is a function of $(W, A)$ and the covariate term is zero there). Saturated learners leave every walk still, and the influence curve equals the iterated-mean curve and the exact EIF within `1e-10`. The regrouping and soft-hazard identities, the held-cell variant, the panel rows and scale, and $w h^r_k$ against the iterated-mean clever covariate. Mutations, each detected by more than `1e-3` and with a control on which its term vanishes: the curve or the panel without the covariate term, without the hazard term, a weight with its own node's retention, a stale pseudo-outcome, a hard at-risk set, $\kappa$ without its tail (on a fit reporting the last horizon only, since a walk over every horizon masks it), and the observed slot at a policy node. Also a coherent curve on a draw where the iterated-mean curve decreases, held continuation cells, $L_1$ alone (also under pooled censoring on the iterated-mean path), `node_bounds=` and an excluded cell, five folds on 20,000 draws within four standard errors, a continuous $L_k$ against a Gauss-Hermite truth, clusters, `iterate="best"` and the bootstrap, the nuisance-report omissions, a walk stopped short, H6 and H28 to H31, and `markov_order=0` on law (H): with saturated outcome learners and a wrong treatment model the fit is exact, and a window whose first arm skips the held treatment (the pre-Fix-12 `window_arm_start`) misses by more than `1e-3` |
 
-No registered study covers this fit yet, so its rows are labelled `experimental`.
+The [hazard covariates-after-baseline study](method-evidence/hazard-time-varying.md) covers
+one-step fits with one binary covariate per node after baseline on Markov laws, with correctly
+specified or misspecified low-dimensional learners: two static arms with one cause and with two
+causes, in sample and on five folds, and a policy one level up at node 1 against the natural
+course on three levels. Support rows `G63.held` license their point estimates and Wald
+intervals, and the simultaneous band on the one-cause and two-cause fits. The support key marks
+these fits with its `later_covariates` option, so no row of the hazard engine above covers them.
+Another composition, such as a rule or known policy, observation weights, clusters,
+`node_bounds=` or a Markov order, matches no row and is labelled `experimental`.
 
 ### The isotonic projection
 

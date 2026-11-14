@@ -265,20 +265,6 @@ def hazard_replay_refusal() -> Refusal:
     return HAZARD_TIME_VARYING_REPLAY_REFUSAL
 
 
-#: The condition that keeps a hazard fit with covariates after baseline experimental: its
-#: registered study (``hazard-time-varying``) has not run.  A support classification reads it.
-HAZARD_TIME_VARYING_CONDITION = Refusal(
-    RefusalReason.INFERENCE_GAP,
-    "A hazard fit (survival_model='hazard') with covariates measured after baseline has no "
-    "registered simulation study yet, so the coverage of its intervals is not measured.",
-    alternative=(
-        "survival_model='iterated_mean' with isotonic=True has registered studies on designs "
-        "with covariates after baseline."
-    ),
-    roadmap="X70",
-)
-
-
 # ------------------------------------------------------------------------ the slots
 
 

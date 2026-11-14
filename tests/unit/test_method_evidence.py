@@ -2068,6 +2068,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
+    # ``hazard-time-varying`` (design review b1, f11a): the power cell reads the rejection of
+    # zero on the ``one_cause`` calibration fits, and the necessity pair compares the targeted
+    # contrast with the untargeted backward plug-in of the ``one_cause`` ``mechanism_correct``
+    # robustness fits, as ``adaptive-iptw``'s does.  No claim reads two verdicts jointly.
+    "hazard-time-varying": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
     "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
     # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
     # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
