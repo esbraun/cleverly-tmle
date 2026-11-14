@@ -403,6 +403,7 @@ row. A move to `gated` is a separate registry decision.
 | [Patience on the cross-validated C-TMLE path](option-patience.md) | 7 | 0 |
 | [Binding isotonic projection of a survival curve](isotonic-binding.md) | 6 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
+| [censored continuous-treatment modified policies](mtp-pricing-censored.md) | 16 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | 78 | 0 |

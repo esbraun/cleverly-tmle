@@ -1,0 +1,139 @@
+{
+  "schema_version": 2,
+  "study": "censored boundary-binding price plans",
+  "slug": "mtp-pricing-censored",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mtp-pricing-censored",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "f860021cd4b916ed21909c6af1c66e7997fd6c88",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2400,
+    "seed": 20267701,
+    "resampling_seed": 2026770101,
+    "scenario_seed_owners": {
+      "censored_sdr_tau3": "censored_ltmle_tau3"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-mtp-pricing-censored": 0.01,
+      "lmtp": 0.01
+    },
+    "scenarios": {
+      "censored_ltmle_tau3": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ate_regimen[price_up vs natural_prices]"
+      ],
+      "censored_sdr_tau3": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ate_regimen[price_up vs natural_prices]"
+      ]
+    },
+    "construction": "ordinary, one fold",
+    "g_bounds": [
+      0.001,
+      1.0
+    ],
+    "support": "Support(4 + 2 L_t, 8 + 2 L_t) at every A_t",
+    "outcome_learner": "QuasiBinomialGLM at the last node; LinearRegression at earlier nodes",
+    "ltmle_alpha": 0.99999,
+    "treatment_learner": "OracleRatio (the exact ratio on the classifier route)",
+    "censoring_learner": "LogisticRegression(C=1e6), main terms of the node's history design",
+    "censoring": "C_t ~ Bernoulli(expit(2.8 + 0.5 W1 + 0.8 L_t -0.6 (A_t - c_t))), monotone",
+    "plans": [
+      "natural_prices",
+      "price_up"
+    ],
+    "horizon": 3,
+    "reference": "natural_prices",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mtp_pricing_censored.py": "547e29d46580e209cb7f3fc0f0ff6e6ac8ee9061f3036a5e93129b8c3c21ca42",
+    "tests/studies/mtp_pricing_censored_properties.py": "90edb317aae09f94f78810aa81ece5ee480efe609384c4e05840e6ce939d6182",
+    "tests/studies/mtp_pricing_censored_common.py": "a2abf964d437060006a7bf52c03777a4efe5171e95f1b7cedff691fa263ff2b9",
+    "tests/studies/canonical_mtp_pricing.py": "e7882b1e7b1508d2694fa1dabf2bb7d09170f00b2d17e882aa28fedf879e899a",
+    "tests/studies/mtp_pricing_properties.py": "a002f3576110dfe4e755092eec5619065fcfe418abf0326f6a1445d0fc0e773d",
+    "tests/studies/mtp_pricing_common.py": "5da8c15baaee240013f43988653f9ed2fdf6b3e8a538a7ac99a3b6e343d70e3a",
+    "tests/studies/mtp_study_tools.py": "b7bb5aefd466fbc69bd490ca2f8043c1b7654d209f0cdb54d5a3e8953cc903b9",
+    "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/law_q_tuned.py": "f79cd1f308db26c789e57356bccd441b53c47e1ae0400e2672e174cc2211fd53",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/canonical_mtp_tuning.py": "054db8330af91a0b2eb1f078105c64d282f3fae207459cc1a818dfea0bfd568c",
+    "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
+    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "d0065927709d66af91faf24de5d3f79901d90fc2376898be400558fcc14fb8d1",
+    "summary.csv": "4a698d9a6b532d8d75d0e0e1595637f8d9513bc34e636516ece7a69953bdada1",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "29ee26c310082e5243f51d5b9d4e9ad3d43140d4f89942bf9b0d58c273bcc88e",
+    "property-replicates.parquet": "481ea258f00f17e48c16977e20ff544d1867614ad3a0cfaebc4d3f3cbc765f5e",
+    "properties.csv": "61c6a9bedaaa5dd9bd3954c3f13ead9c8544d80ac24706bac6510a4cca7efcb1"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "lmtp",
+    "reason": "the lmtp 1.5.4 runs read the joint ratio this package computed and the censoring columns; they run on the local study queue after the merge (X77 plan section 5), and the method merges on its Python evidence",
+    "metadata": {},
+    "declared_sources_sha256": {
+      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+      "tests/canonical/mtp_pricing_runner.R": "bf9a74c295d03771069e79fb87d6a03893cee3bee2f038065547d94b149e7257",
+      "tests/canonical/lmtp_mtp_adapter.R": "65638b0db4fca5fa709720faf25da839350a6e32f11aa20723f9aadca534d583",
+      "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
+      "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}

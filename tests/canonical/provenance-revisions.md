@@ -597,3 +597,12 @@ for 3,000, 2,000 or 1,200 replicates (0 of 23, 38 and 72 rows pass). The records
 the `reporting` policy, so the run published these rows either way. The declaration moves no
 row and no verdict: it keeps the reference's own truth rows out of the red-cell ledger, as it
 does for every study that carries one, and the exact parity gates stay the comparator's claim.
+
+## Registration edits after the `mtp-pricing-censored` run (X77)
+
+The declared run of `mtp-pricing-censored` ran at `f860021c`. Its Python modules then took
+result-neutral edits: the record's `name` became "censored continuous-treatment modified policies"
+and its `anchor` followed, the module docstrings gained the cell-to-claim reading, the descriptions
+and clause bindings were added, and the interval audit screens the study. The manifest keeps the
+name the run recorded, "censored boundary-binding price plans". No seed, size, learner, margin, law
+or verdict input moved, so a regeneration would write the same rows.

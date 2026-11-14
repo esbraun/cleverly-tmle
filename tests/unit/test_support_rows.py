@@ -577,6 +577,33 @@ class TestLongitudinalControls:
         for built in (stochastic, static):
             assert classify_key(built.key, built.learners).row.id == "G08.in_sample"  # type: ignore[union-attr]
 
+    @pytest.mark.parametrize("engine", ["ltmle", "sdr"])
+    def test_censored_continuous_policy_fits_off_the_study_stay_experimental(
+        self, engine: str
+    ) -> None:
+        # X77: the censored rows cover the cross-fitted classifier route only. The study's own
+        # in-sample primary fit (exact ratio, one fold) and the density route with censoring
+        # read experimental and name the nearest row.
+        from tests.studies import canonical_mtp_pricing_censored as study
+        from tests.studies import mtp_pricing_censored_common as law
+        from tests.studies.support_cases import capture
+
+        row = f"G39.{engine}.tau3_cross_fitted_censored"
+        crossfit = self.observed(row)
+        assert classify_key(crossfit.key, crossfit.learners).label == "supported"
+        primary = capture(lambda: study.fit(law.sample(400, 0), estimator=engine))
+        assert primary.key.missing == ("censoring",)
+        assert primary.key.splitting == ("in_sample",)
+        in_sample = classify_key(primary.key, primary.learners)
+        assert in_sample.label == "experimental"
+        assert in_sample.nearest == (f"G39.{engine}.tau3", ("missing",))
+        options = tuple(
+            (name, "density" if name == "ratio" else value) for name, value in crossfit.key.options
+        )
+        density = classify_key(replace(crossfit.key, options=options), crossfit.learners)
+        assert density.label == "experimental"
+        assert density.nearest == (row, ("options",))
+
 
 class TestRegimenKinds:
     @staticmethod

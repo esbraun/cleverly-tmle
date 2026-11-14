@@ -325,6 +325,21 @@ ARMS: dict[str, str] = {
         "the mean purchase under the 12% price rise at 3 nodes, SDR cross-fitted over five folds"
     ),
     "up_tau3": "the mean purchase under the 12% price rise at 3 nodes",
+    **{
+        f"censored_crossfit_{estimator}_tau3": (
+            "the mean purchase under the 12% price rise at 3 nodes with dropout after each "
+            f"price, {estimator.upper()} cross-fitted over five folds with a learned classifier "
+            "and a learned censoring model"
+        )
+        for estimator in ("ltmle", "sdr")
+    },
+    **{
+        f"up_{estimator}_tau3": (
+            "the mean purchase under the 12% price rise at 3 nodes with dropout after each "
+            f"price, {estimator.upper()} cross-fitted over five folds"
+        )
+        for estimator in ("ltmle", "sdr")
+    },
     "up_tau5": "the mean purchase under the 12% price rise at 5 nodes",
     "population_dose_quantile_tau2": "the population target of the dose-quantile cap, one fold",
     "population_quantile_regression_tau2": (
@@ -1800,6 +1815,9 @@ IMPLEMENTATIONS: dict[str, str] = {
         "`cleverly` LTMLE and SDR under price policies that bind at a declared support"
     ),
     "cleverly-mtp-tuning": "`cleverly` LTMLE and SDR under a shift with a tuned cap",
+    "cleverly-mtp-pricing-censored": (
+        "`cleverly` LTMLE and SDR under a continuous-treatment modified policy with censoring"
+    ),
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -2037,6 +2055,13 @@ SCENARIOS: dict[str, str] = {
             f"{estimator.upper()}"
         )
         for t in (2, 3, 5)
+        for estimator in ("ltmle", "sdr")
+    },
+    **{
+        f"censored_{estimator}_tau3": (
+            "3-node pricing law with engagement feedback and informative dropout after each "
+            f"price, {estimator.upper()}"
+        )
         for estimator in ("ltmle", "sdr")
     },
     "population_quantile_ltmle": "two-node law Q with a dose-quantile cap, LTMLE",
@@ -2463,6 +2488,9 @@ PROPERTIES: dict[str, str] = {
         "three fold draws reduce the ATE's sensitivity to the realized fold assignment"
     ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
+    "censoring_necessity": (
+        "the censoring factor reaches the weights: without it a wrong outcome model is biased"
+    ),
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"
     ),
@@ -3475,6 +3503,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("ratio_necessity", "learned_classifier"): (
         "the declared classifier estimates the density ratio, with the outcome misspecified",
         "bias interval inside the equivalence margin",
+    ),
+    ("censoring_necessity", "learned_censoring"): (
+        "a learned censoring model enters the weights, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("censoring_necessity", "prior_censoring_control"): (
+        "the same fit replaces the censoring model with the marginal retention rate, with the "
+        "outcome misspecified",
+        "bias interval must fall entirely outside the margin",
     ),
     ("double_robustness", "outcome_wrong_learned_classifier"): (
         "the outcome is misspecified and the declared classifier estimates the density ratio",

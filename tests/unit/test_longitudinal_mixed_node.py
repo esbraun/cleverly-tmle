@@ -1146,16 +1146,18 @@ def test_a_restricted_mechanism_trains_a_mixed_node_on_its_fold_rows(ratio: str)
 # ------------------------------------------------------------------ SDR (review MEDIUM-2)
 
 
-def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
+def _sdr_fit(ratio: str, *, design: str = "end", copies: int = 1, monkeypatch: Any = None) -> Any:
     """SDR at both mixed nodes of the exact law, with ``copies`` copies of the frame.
 
     With two copies, fold ``k`` holds copy ``k``, so each training complement is one exact
     copy of the law: the training-fold mechanism (``fit_rows``) and the out-of-fold
-    predictions are then exact too.
+    predictions are then exact too.  ``design="censored"`` reads ``C1`` after node 1, whose
+    retention depends on the node's dose, so the pseudo-outcome's weights carry the censoring
+    factor at the observed dose (X77).
     """
     from cleverly.learners import Folds
 
-    frame = pd.concat([law.mixed_frame("end")] * copies, ignore_index=True)
+    frame = pd.concat([law.mixed_frame(design)] * copies, ignore_index=True)
     configuration = settings(ratio=ratio, n_folds=copies)
     configuration.pop("simultaneous")
     if copies > 1:
@@ -1165,42 +1167,47 @@ def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
     exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
     with warnings.catch_warnings(), exact:
         warnings.simplefilter("ignore")
+        declared = dict(COLUMNS)
+        if design == "censored":
+            declared["censoring"] = ["C1", "C2"]
         return SDR(mtp.mixed_regimens(LABELS), reference=LABELS[0], **configuration).fit(
-            frame, **COLUMNS
+            frame, **declared
         )
 
 
-def sdr_deviation(result: Any, copies: int = 1) -> float:
+def sdr_deviation(result: Any, copies: int = 1, design: str = "end") -> float:
     """The largest error of an SDR mean, or of its curve on any copy of the exact frame."""
-    size = len(law.mixed_frame("end"))
-    rows = law.mixed_first_row_of("end")
+    size = len(law.mixed_frame(design))
+    rows = law.mixed_first_row_of(design)
     worst = 0.0
     for name, label, horizon in names(LABELS):
-        worst = max(worst, abs(result.psi(name) - law.mixed_truth(label, "end", horizon)))
-        eif = law.mixed_eif(label, "end", horizon)
+        worst = max(worst, abs(result.psi(name) - law.mixed_truth(label, design, horizon)))
+        eif = law.mixed_eif(label, design, horizon)
         for copy in range(copies):
             curve = result.influence_curves[name][copy * size + rows]
             worst = max(worst, float(np.max(np.abs(curve - eif))))
     return worst
 
 
+@pytest.mark.parametrize("design", ["end", "censored"])
 @pytest.mark.parametrize("ratio", ["classifier", "density"])
 def test_sdr_at_both_mixed_nodes_equals_the_g_formula_and_its_gateaux_derivative(
-    ratio: str,
+    ratio: str, design: str
 ) -> None:
     """SDR reads the same mixed-node ratio as LTMLE, on both routes, in sample."""
-    result = _sdr_fit(ratio)
+    result = _sdr_fit(ratio, design=design)
     assert [result.data.node_kind(time) for time in (1, 2)] == ["mixed", "mixed"]
-    assert sdr_deviation(result) < EXACT
+    assert sdr_deviation(result, design=design) < EXACT
 
 
+@pytest.mark.parametrize("design", ["end", "censored"])
 @pytest.mark.parametrize("ratio", ["classifier", "density"])
 def test_cross_fitted_sdr_at_mixed_nodes_is_exact_when_each_fold_is_the_law(
-    ratio: str, monkeypatch: pytest.MonkeyPatch
+    ratio: str, design: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two folds, each one exact copy: the training-fold recursion reads ``fit_rows``."""
-    result = _sdr_fit(ratio, copies=2, monkeypatch=monkeypatch)
-    assert sdr_deviation(result, copies=2) < EXACT
+    result = _sdr_fit(ratio, design=design, copies=2, monkeypatch=monkeypatch)
+    assert sdr_deviation(result, copies=2, design=design) < EXACT
 
 
 # ------------------------------------------------------------------ ratio_trim (X33 part d)

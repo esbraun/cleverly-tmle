@@ -1262,6 +1262,13 @@ mtp-pricing,interval_calibration,se ratio in calibration band,none
 mtp-pricing,ratio_necessity,bias discriminated,pair_collapse
 mtp-pricing,ratio_necessity,bias equivalent,bias
 mtp-pricing,ratio_necessity,least displacement over labels,control_concentrated
+mtp-pricing-censored,censoring_necessity,bias discriminated,pair_collapse
+mtp-pricing-censored,censoring_necessity,bias equivalent,bias
+mtp-pricing-censored,censoring_necessity,least displacement over labels,control_concentrated
+mtp-pricing-censored,interval_calibration,coverage in calibration band,shift/0.7
+mtp-pricing-censored,interval_calibration,noise se ratio below band,se_high
+mtp-pricing-censored,interval_calibration,se ratio below band,se_high
+mtp-pricing-censored,interval_calibration,se ratio in calibration band,se/0.05
 mtp-tuning,interval_calibration,coverage in calibration band,bias
 mtp-tuning,interval_calibration,noise se ratio below band,se_high
 mtp-tuning,interval_calibration,population truth se ratio below band,se_high

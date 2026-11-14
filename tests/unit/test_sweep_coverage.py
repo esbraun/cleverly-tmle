@@ -96,7 +96,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "method:augmented_trial/atmle",
             "method:effect_modification/ep",
             "method:effect_modification/tmle",
-            "method:longitudinal/sdr",
             "method:structural/snmm",
         ),
     ),
@@ -110,7 +109,6 @@ UNSWEPT: Mapping[str, Exemption] = {
             "engine:collaborative_tmle/lasso/None",
             "engine:collaborative_tmle/learners/None",
             "engine:collaborative_tmle/oat/per_arm/parametric_stack",
-            "engine:sdr",
             "engine:snmm",
         ),
     ),
@@ -149,7 +147,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         (
             "dependence:t",
             "missing:eliminated",
-            "splitting:cross_fitted",
             "splitting:fold_targeted_evaluated",
             "splitting:repeated",
             "treatment:6",

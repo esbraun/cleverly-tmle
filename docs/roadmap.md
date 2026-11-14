@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X35, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -91,7 +91,6 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X77](#x77-censored-data-for-continuous-price-policies) Censored data for continuous price policies | 3 | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor |
 | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) Data-tuned policies beyond the shipped tuned caps | 3 | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies |
 | [X99](#x99-history-dependent-treatment-effects-by-targeted-estimation) History-dependent treatment effects by targeted estimation | 5 | source audit: no targeted estimator of these effects has been read here | the shipped `LTMLE` sequential regression; the shipped `StructuralNestedMean` defines the target |
 | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) Settings of the stacked and natural-course contracts | 6 | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) |
@@ -1507,19 +1506,6 @@ the compositions in the table below before any learner. The refusals name this i
 
 Acceptance: a pre-fit refusal test for each request that stays refused until its part ships. Each
 part that ships needs an exact-law check with a nonzero witness for the derivative term.
-
-### X77. Censored data for continuous price policies
-
-A longitudinal fit of a continuous-node policy with a censoring factor runs. It carries the
-experimental label. The `mtp-pricing` study draws complete data, so its support rows cover
-complete data only (`src/cleverly/_support_rows.py`). The longitudinal rows of categorical
-treatments cover censored fits.
-
-| what to add | evidence |
-| --- | --- |
-| a censoring draw on the `mtp-pricing` law, with the censoring factor learned beside the classifier price ratio | a registered study cell per engine at three nodes, with its red cells reported, and support rows with `missing=("censoring",)` |
-
-Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`.
 
 ### X78. Bounded node fits under a working model
 

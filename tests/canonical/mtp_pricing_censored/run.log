@@ -1,0 +1,21 @@
+=== mtp-pricing-censored declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/mtp_pricing_censored/regenerate.py --output /tmp/x77-run-stEY --jobs 4
+commit: f860021cd4b916ed21909c6af1c66e7997fd6c88; upstream f860021cd4b916ed21909c6af1c66e7997fd6c88
+clean tree: True
+cleverly 0.2.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 23, sha256 515d858593883c69cefdc7906e83b84a755658ed97ee4926d2eab587d2a0e227
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-14T06:31:59+00:00
+finished: 2026-11-14T07:59:38+00:00
+wall seconds: 5259.2
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 412d0c00c2335439f0d01b4d62931f4c8acce7df24bd4df877845a54a83c87f2
+sha256 performance-tests.csv: 29ee26c310082e5243f51d5b9d4e9ad3d43140d4f89942bf9b0d58c273bcc88e
+sha256 properties.csv: 61c6a9bedaaa5dd9bd3954c3f13ead9c8544d80ac24706bac6510a4cca7efcb1
+sha256 property-replicates.parquet: 481ea258f00f17e48c16977e20ff544d1867614ad3a0cfaebc4d3f3cbc765f5e
+sha256 replicates.parquet: d0065927709d66af91faf24de5d3f79901d90fc2376898be400558fcc14fb8d1
+sha256 summary.csv: 4a698d9a6b532d8d75d0e0e1595637f8d9513bc34e636516ece7a69953bdada1
+

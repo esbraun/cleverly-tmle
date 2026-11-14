@@ -2910,6 +2910,23 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
                 lambda module, frame, label=label: module.calibration_fit(label, frame),
             )
         )
+    # X77: the cross-fitted classifier fits of ``mtp-pricing-censored``, with censoring.
+    censored = "mtp_pricing_censored_properties"
+    for row, label in (
+        ("G39.ltmle.tau3_cross_fitted_censored", "censored_crossfit_ltmle_tau3"),
+        ("G39.sdr.tau3_cross_fitted_censored", "censored_crossfit_sdr_tau3"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-pricing-censored",
+                f"{label}__correctly_specified",
+                f"{censored}.py:217",
+                censored,
+                lambda module: _study("mtp_pricing_censored_common").sample(400, 0),
+                lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
     # Fix-5: the option fits of ``mtp-policy-variance`` that license ``wald_policy``.
     policy = "mtp_policy_variance_properties"
     for row, family, label in (
