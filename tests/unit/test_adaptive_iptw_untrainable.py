@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.data.known_mechanism import KnownMechanism
 from cleverly.estimators import AdaptiveIPTW
 from cleverly.estimators.iptw import refuse_untrainable_mechanism_pairs
 from cleverly.exceptions import DataError
@@ -165,7 +166,11 @@ def test_the_predicate_reads_the_rows_outside_each_pair() -> None:
     # A known mechanism, or the natural course, estimates no treatment factor.
     refuse_untrainable_mechanism_pairs(one, folds, treatment=False)
     refuse_untrainable_mechanism_pairs(
-        one.__class__(**{**vars(one), "known_treatment": object()}), folds, treatment=True
+        one.__class__(
+            **{**vars(one), "known_treatment": KnownMechanism(np.full((6, 2), 0.5), "array")}
+        ),
+        folds,
+        treatment=True,
     )
 
 

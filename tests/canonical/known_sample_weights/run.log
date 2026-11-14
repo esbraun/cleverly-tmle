@@ -1,0 +1,21 @@
+=== known-mechanism-sample-weights declared run
+command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/known_sample_weights/regenerate.py --output /root/ksw-run --jobs 4
+commit: 26b53828ea78573357ee5e88296065a97704c6cf; upstream 26b53828ea78573357ee5e88296065a97704c6cf
+clean tree: True
+cleverly 0.2.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 e8b13bf1f94386b10a931c837a9edc46ee17de9cb73e6550a4f58505fadedbf0
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-14T10:19:36+00:00
+finished: 2026-11-14T10:28:22+00:00
+wall seconds: 526.7
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: a59fdf35c1243853f15e1b44bb7df55c6c2a738033e6a51e4e82bd55e7e045c1
+sha256 performance-tests.csv: 93f07f050975fb1e985dfa748a6614b761bc9dab4583768ceb95670cdba14f31
+sha256 properties.csv: c6b02a00042b42c92059c71eb789a50d6932ab095ee57ae3130a126809142c46
+sha256 property-replicates.parquet: b45c18ed2f0e9b23e14dfbf9cef7dbeecc5f4fb71d73589631d23910f99c8591
+sha256 replicates.parquet: 199adf79f65fd274b084f1ea3a92223bba47d6c232bd2e7c1b4bbc0711329839
+sha256 summary.csv: df31fb6d43d5966359f03ad9df32d7dedc836845587db52ba28515431a134994
+

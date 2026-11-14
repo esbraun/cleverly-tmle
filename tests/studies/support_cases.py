@@ -306,6 +306,9 @@ def _roles(data: pd.DataFrame, **flags: bool) -> dict[str, Any]:
         roles["treatment_probabilities"] = {
             float(index): column for index, column in enumerate(levels)
         }
+        if "w" in data:
+            # The declared probabilities are the tilted law's mechanism (the shipped reading).
+            roles["mechanism_law"] = "target"
     if flags.get("dose"):
         roles["treatment_kind"] = "continuous"
     return roles
@@ -2814,6 +2817,34 @@ def _hazard_mtp_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _known_sample_weights_cases() -> tuple[RowCase, ...]:
+    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T56`` and ``G64``.
+
+    Each runs the study's own fit of the gated setting on a draw of its law.
+    """
+    module, slug = "known_sample_weights_law", "known-mechanism-sample-weights"
+    return (
+        _observed(
+            "T56",
+            slug,
+            "sample_correct",
+            f"{module}.py:459",
+            module,
+            lambda law: law.draw(400, 0),
+            lambda law, frame: law.fit(frame, "sample_correct"),
+        ),
+        _observed(
+            "G64",
+            slug,
+            "ltmle_sample",
+            f"{module}.py:789",
+            module,
+            lambda law: law.draw_longitudinal(400, 0),
+            lambda law, frame: law.fit_longitudinal(frame, "ltmle_sample"),
+        ),
+    )
+
+
 def _hazard_multinode_cases() -> tuple[RowCase, ...]:
     """The cases of ``hazard-multinode`` (X70 part (a)): ``G62``.
 
@@ -3490,6 +3521,7 @@ CASES: tuple[RowCase, ...] = (
     *_survival_dr_tmle_cases(),
     *_hazard_msm_cases(),
     *_hazard_mtp_cases(),
+    *_known_sample_weights_cases(),
     *_hazard_multinode_cases(),
     *_hazard_time_varying_cases(),
     *_projection_cases(),

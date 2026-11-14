@@ -133,7 +133,11 @@ from ..data.known_mechanism import (
     KNOWN_SCORE_ESTIMATED_REFUSAL,
     KNOWN_SCORE_NO_TARGET_REFUSAL,
     KNOWN_SCREEN_REFUSAL,
+    MechanismLaw,
+    divides_by_declaration,
     moved_known_values_refusal,
+    refuse_ambiguous_weighted_declaration,
+    unweighted_tilt_refusal,
 )
 from ..data.treatment_covariates import known_and_restricted
 from ..data.validate import MISSING_OUTCOME_DECLARATION
@@ -240,6 +244,7 @@ from ..interventions.learned import (
     FrozenLearnedRule,
     LearnedRule,
     _learned_rule_regimes,
+    _unweighted_member,
     check_fold_rules,
     ep_rule_condition,
     frozen_level_refusal,
@@ -1652,6 +1657,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
         treatment_support: Support | Mapping[str, Support] | None = None,
@@ -1742,7 +1748,21 @@ class TMLE:
             carried on the data, so a bootstrap replicate reads the known values of its own
             rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
             attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a
-            container that already declares one refuses a second.
+            container that already declares one refuses a second.  Beside non-constant
+            ``weights`` it needs ``mechanism_law``.
+        mechanism_law : {"target", "sample"} or None
+            How ``treatment_probabilities`` is read beside non-constant ``weights``, where it
+            is required, since a weighted fit divides by the treatment mechanism of the
+            weight-tilted population.  ``"target"``: the declared probabilities hold in that
+            population (randomization before sampling, as in a case-cohort subsample of a
+            trial, or weights that read the covariates only), and the fit divides by them.
+            ``"sample"``: they hold in the rows as drawn and the weights may read the
+            treatment.  The fit then estimates the tilted mechanism as the declaration times
+            a classification of the treatment by ``treatment_learner``, fitted with weights
+            ``w / g0(A | W)`` on the same folds, and the fit counts as an estimated-mechanism
+            fit: its interval needs the outcome regression and that classifier consistent at
+            a product rate.  ``DRTMLE`` with a guard or ``evaluation=``, and
+            ``AdaptiveIPTW``, refuse ``"sample"``.  See :mod:`cleverly.data.known_mechanism`.
         treatment_covariates : Sequence[str] or None
             The adjustment columns that the treatment mechanism reads, a subset of
             ``covariates``.  ``None`` reads all of them.  The outcome regression, the
@@ -1777,6 +1797,7 @@ class TMLE:
             treatment_kind=treatment_kind,
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            mechanism_law=mechanism_law,
             treatment_covariates=treatment_covariates,
             continuous_treatment=continuous_treatment,
         ).with_dose_declarations(treatment_support, dose_atoms)
@@ -1986,6 +2007,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
         treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
@@ -2021,7 +2043,15 @@ class TMLE:
             if treatment_covariates is not None:
                 data = data.with_treatment_covariates(treatment_covariates)
             if treatment_probabilities is not None:
-                return data.with_known_mechanism(treatment_probabilities)
+                return data.with_known_mechanism(
+                    treatment_probabilities, mechanism_law=mechanism_law
+                )
+            if mechanism_law is not None:
+                raise ValueError(
+                    "mechanism_law= at fit reads the treatment_probabilities= passed beside "
+                    "it, and this call passes none. A declaration on the CausalData carries "
+                    "its own mechanism_law."
+                )
             return data
         if not is_dataframe(data):
             raise TypeError(
@@ -2051,6 +2081,7 @@ class TMLE:
             ),
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            mechanism_law=mechanism_law,
             treatment_covariates=treatment_covariates,
             continuous_treatment=continuous_treatment,
         )
@@ -2290,20 +2321,33 @@ class TMLE:
 
         Raises
         ------
+        DataError
+            For a declaration beside non-constant weights that names no
+            ``mechanism_law``, which a container built by hand can carry.
         CapabilityError
             For ``CTMLE``, and for ``policies=`` with ``ratio="classifier"``, which
-            learns the ratio the declaration fixes.
+            learns the ratio the declaration fixes.  Both stay refused under either
+            ``mechanism_law``.
         MethodConfigurationError
-            For ``screen_treatment=True``, which conflicts with the declaration.
+            For ``screen_treatment=True``, which conflicts with the declaration, and under
+            ``mechanism_law="sample"`` beside weights for a treatment learner whose fit
+            takes no ``sample_weight``, since the tilt classifier is defined by its weights.
         """
         if data.known_treatment is None:
             return
+        refuse_ambiguous_weighted_declaration(data.known_treatment, data.weights)
         if self._assessment_method == "collaborative_tmle":
             raise CapabilityError.from_refusal(KNOWN_CTMLE_REFUSAL)
         if self.policies and self.ratio == "classifier":
             raise CapabilityError.from_refusal(KNOWN_POLICY_CLASSIFIER_REFUSAL)
         if self.screen_treatment:
             raise MethodConfigurationError.from_refusal(KNOWN_SCREEN_REFUSAL)
+        if not divides_by_declaration(data):
+            member = _unweighted_member(
+                self._resolve_learner(self.treatment_learner, task="classification")
+            )
+            if member is not None:
+                raise MethodConfigurationError.from_refusal(unweighted_tilt_refusal(member))
 
     def _refuse_known_score(self, data: CausalData, estimands: Sequence[str]) -> None:
         """Refuse ``conditional_form="known_score"`` where it has no derivation or no effect.
@@ -2322,13 +2366,16 @@ class TMLE:
         Raises
         ------
         CapabilityError
-            Without a declared treatment mechanism.
+            Without a declared treatment mechanism the fit divides by: none, or one read in
+            the sample beside weights that tilt the law.
         MethodConfigurationError
             When neither ``att`` nor ``atc`` is requested.
         """
         if self._conditional_form() != "known_score":
             return
-        if data.known_treatment is None:
+        # A declaration read in the sample beside tilting weights is not the weighted law's
+        # mechanism: the fit estimates that mechanism, so the form has no interval (Fix-16).
+        if not divides_by_declaration(data):
             raise CapabilityError.from_refusal(KNOWN_SCORE_ESTIMATED_REFUSAL)
         if not any(parameter_stem(name) in ("att", "atc") for name in estimands):
             raise MethodConfigurationError.from_refusal(KNOWN_SCORE_NO_TARGET_REFUSAL)
@@ -2357,7 +2404,9 @@ class TMLE:
             If a bound pair would move a known value.
         """
         known = data.known_treatment
-        if known is None:
+        if known is None or not divides_by_declaration(data):
+            # Under mechanism_law="sample" beside weights the fit divides by an estimate,
+            # which the bounds truncate as any estimated mechanism.
             return
         mean = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
         conditional = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
@@ -4843,7 +4892,7 @@ class TMLE:
             fits_treatment=not _is_natural_course(data, estimands),
             treatment_mechanism=(
                 "known"
-                if data.known_treatment is not None and not _is_natural_course(data, estimands)
+                if divides_by_declaration(data) and not _is_natural_course(data, estimands)
                 else "estimated"
             ),
             continuous_treatment=_has_no_arms(data),
@@ -7244,6 +7293,7 @@ def tmle(
     id: Any = None,
     covariate_names: Sequence[str] | None = None,
     g1W: Any = None,
+    mechanism_law: MechanismLaw | None = None,
     **kwargs: Any,
 ) -> TMLEResultSet:
     """Array-oriented entry point, mirroring ``tmle(Y, A, W, ...)`` in R.
@@ -7253,7 +7303,8 @@ def tmle(
     :class:`TMLE` may be passed through.  ``DeltaA`` is the treatment observation
     indicator in R ``drtmle``'s spelling, beside ``Delta`` for the outcome.  ``g1W`` is
     R's known ``P(A = 1 | W)``, read as the ``(n,)`` form of ``treatment_probabilities=``
-    at two arms; it replaces the treatment learner.
+    at two arms; it replaces the treatment learner.  Beside non-constant ``obsWeights`` it
+    needs ``mechanism_law``, as :meth:`TMLE.fit` describes.
 
     >>> import numpy as np
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -7287,6 +7338,7 @@ def tmle(
         family=kwargs.get("family", "auto"),
         treatment_delta=DeltaA,
         treatment_probabilities=g1W,
+        mechanism_law=mechanism_law,
     )
     estimator = TMLE(**kwargs)
     return estimator.fit(data)
