@@ -216,6 +216,25 @@ from the committed results and checked at the precision printed.
 | `margin:subject_failure_bound` | 0.0100 | the failed-fit bound of the committed run |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals |
 | `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
+| `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
+| `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound |
+| `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude |
+| `margin:minimum_power` | 0.8000 | rejection lower bound a power control must clear |
+| `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
+| `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical SDs |
+| `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound |
+| `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict |
+| `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit |
+| `margin:se_ratio_sanity_lower` | 0.8000 | SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
+| `margin:subject_failures_allowed` | 10 | failed primary fits that bound allows |
+| `margin:type_i_ceiling` | 0.1000 | largest size a one-sided type-I bound may establish |
 
 ## Limitations
 
