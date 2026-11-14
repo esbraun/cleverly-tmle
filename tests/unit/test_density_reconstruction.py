@@ -17,7 +17,8 @@ between the fit and the truth.
 - W6: the remainder with a wrong outcome regression.
 - W7, W10: the longitudinal fits read the point fit's density; occupancy travels with edges.
 - W8: the flat-bin share.
-- W9a to W9c, W9e: a covariate-dependent declared support.
+- W9a to W9c, W9e, W9f: a covariate-dependent declared support, and on a vector node the
+  support of its last dose read on each design's chain-rule frame.
 - W12: the knots are computed once per density instance and are not pickled.
 """
 
@@ -33,11 +34,12 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+import cleverly.interventions.joint_density as joint_module
 import cleverly.learners.density as density_module
 from cleverly.dose_response import DoseResponse
 from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_mixed_density
-from cleverly.interventions import ModifiedPolicy, Piece, Shift, Support
+from cleverly.interventions import JointPolicy, ModifiedPolicy, Piece, Shift, Support
 from cleverly.learners import Folds
 from cleverly.learners.density import (
     TAIL_ROWS,
@@ -1013,6 +1015,110 @@ def test_w9e_without_the_support_the_continuous_part_fails() -> None:
     assert mixed.continuous is not None
     share = mixed.continuous.density_at(a)[~at_atom] / law.pdf("B", a, w1, w2)[~at_atom]
     assert share.min() < 0.85
+
+
+def _flag_on(a: Any, h: Any) -> np.ndarray:
+    return np.ones(len(a))
+
+
+def _flagged_upper(h: Any) -> np.ndarray:
+    """Law B's ``u = 6 + 2 F``, with the flag ``F`` in the place of ``W2``."""
+    return law.upper("B", 0.0, np.asarray(h["F"], dtype=float))
+
+
+def _vector_support_readings() -> list[tuple[np.ndarray, ConditionalDensity]]:
+    """The last dose of a vector node, read on the bounds the joint density route delivers.
+
+    The node is ``(F, A)`` with ``F`` law B's binary ``W2`` and ``A | W1, F`` law B, so the
+    declared support of ``A`` reads the flag from the chain-rule frame.  The policy sets the
+    flag on, so the route reads ``A`` at its observed design and at the design ``F = 1``.
+    Each design's exact bin masses, through the learner's clip, are read on the edges,
+    occupancy and bounds the route passes, one ``(flag, density)`` pair per design.
+    """
+    frame = law.draw("B", 2000, 7701).rename(columns={"W2": "F"})
+    seen: list[dict[str, Any]] = []
+    real = joint_module.fit_conditional_density
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return real(*args, **kwargs)
+
+    policy = JointPolicy(
+        "flag on",
+        components={"F": ModifiedPolicy("on", apply=_flag_on, policy_kind="known")},
+        policy_kind="known",
+    )
+    with pytest.MonkeyPatch.context() as patch, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        patch.setattr(joint_module, "fit_conditional_density", spy)
+        TMLE(
+            policies=[policy],
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            ratio="density",
+            cross_fit=False,
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["F", "A"],
+            covariates=["W1"],
+            continuous_treatment=["A"],
+            treatment_support={"A": Support(0.0, _flagged_upper)},
+        )
+    (call,) = seen
+    w1, flag = frame["W1"].to_numpy(), frame["F"].to_numpy()
+    edges, occupied = np.asarray(call["edges"]), call["occupied"]
+    designs = [(flag, call["support"])]
+    for key, entry in call["predict_designs"].items():
+        if key[0] == ("cell", (1,)):
+            designs.append((np.ones(flag.size), entry[2]))
+    assert len(designs) == 2
+    return [
+        (
+            values,
+            ConditionalDensity(
+                law.through_clip(law.bin_probabilities("B", edges, w1, values)),
+                edges,
+                occupied,
+                bounds,
+            ),
+        )
+        for values, bounds in designs
+    ]
+
+
+def _vector_support_check(readings: list[tuple[np.ndarray, ConditionalDensity]]) -> list[str]:
+    frame = law.draw("B", 2000, 7701)
+    w1, a = frame["W1"].to_numpy(), frame["A"].to_numpy()
+    failed = []
+    for values, density in readings:
+        share = density.density_at(a) / law.pdf("B", a, w1, values)
+        above = law.upper("B", w1, values) + 1e-6
+        if share.min() < 0.85:
+            failed.append(f"share {share.min():.3g}")
+        if not np.all(density.density_at(above) == 0.0):
+            failed.append("mass above the bound")
+    return failed
+
+
+def test_w9f_a_vector_dose_reads_its_support_on_each_design_frame() -> None:
+    """The bounds come from the chain-rule frame of each design: ``u = 6`` or ``8`` by the
+    observed flag, and ``8`` on every row at the design that sets the flag on."""
+    readings = _vector_support_readings()
+    for values, density in readings:
+        assert density.support is not None
+        np.testing.assert_array_equal(density.support[1], law.upper("B", 0.0, values))
+    assert _vector_support_check(readings) == []
+
+
+def test_w9f_without_the_frame_support_the_vector_dose_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control: a layout that drops each dose's declared support reads past the bounds."""
+    monkeypatch.setattr(joint_module.NodeLayout, "support_on", lambda self, *args: None)
+    failed = _vector_support_check(_vector_support_readings())
+    assert any(reason.startswith("share") for reason in failed), failed
+    assert "mass above the bound" in failed, failed
 
 
 # ------------------------------------------------------------------ W10
