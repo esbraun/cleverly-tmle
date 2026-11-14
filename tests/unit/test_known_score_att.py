@@ -73,6 +73,8 @@ def _binary_fit(form: str, *, weights: str | None = None, probs: Any = None) -> 
         cells = law.cell_weights(law.WEIGHT_FUNCTIONS[weights])
         frame = frame.assign(w=law.row_weights(cells))
         kwargs["weights"] = "w"
+        # The weights read W alone, so the declared G holds in the tilted law.
+        kwargs["mechanism_law"] = "target"
     g = dgp.g[frame["W"].to_numpy().astype(int)]
     return (
         TMLE(

@@ -25,7 +25,7 @@
     "resampling_seed": 20264752,
     "publication_policy": "reporting",
     "failure_bound": {
-      "cleverly": 0.05
+      "cleverly": 0.01
     },
     "scenarios": {
       "interior_n200": [

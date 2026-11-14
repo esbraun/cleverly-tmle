@@ -698,6 +698,21 @@ def test_an_empty_prefix_cell_holds_every_copy() -> None:
             EMPTY.truth(_treat_w_truth, t), abs=EXACT
         )
     assert result.fits["always @ t=3"].hazard_constant_nodes == (2,)
+    # The boundary supplement reads the same cell, with the rows its hold was read from: the
+    # units at risk at node 2 whose observed prefix is (1, 1).  Both regimens read it.
+    frame = EMPTY.frame()
+    followers = (
+        inputs.at_risk[:, 1]
+        & (frame["A1"].to_numpy() == 1)
+        & (frame["A2"].to_numpy() == 1)
+        & (inputs.weights > 0.0)
+    )
+    assert followers.any()
+    for label in ("always", "treat W"):
+        (cell,) = result.fits[f"{label} @ t=3"].hazard_boundary
+        assert (cell.time, cell.value, cell.terms) == (2, 0.0, 1)
+        assert np.array_equal(cell.rows, followers)
+    assert result.fits["always @ t=1"].hazard_boundary == ()
 
 
 # ------------------------------------------------------------------------- reductions
@@ -1020,10 +1035,10 @@ def test_h26_true_declared_probabilities_after_the_first_node_are_refused(factor
     """
     treat, retain = _declared(LAW)
     if factor == "treatment":
-        declared = {"treatment_probabilities": treat}
+        declared = {"treatment_probabilities": treat, "mechanism_law": "target"}
         message = "treatment_probabilities= declares the treatment probabilities of 'A2' at node 2"
     else:
-        declared = {"censoring_probabilities": retain}
+        declared = {"censoring_probabilities": retain, "mechanism_law": "target"}
         message = "censoring_probabilities= declares the retention probabilities of 'C1' at node 1"
     learners = {
         name: _Untouched() for name in ("outcome_learner", "treatment_learner", "censoring_learner")
@@ -1044,7 +1059,9 @@ def test_declared_first_node_probabilities_give_the_truth(targeting: str) -> Non
         LAW,
         labels,
         targeting=targeting,
-        columns={"treatment_probabilities": first},
+        # The law as data weights its support points by their mass, so the declared
+        # probabilities are the weighted population's.
+        columns={"treatment_probabilities": first, "mechanism_law": "target"},
     )
     assert miss(result, LAW, labels) < EXACT
 
