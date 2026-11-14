@@ -29,6 +29,7 @@ from ._support import (
 from .learners.glm import GLM
 
 __all__ = [
+    "ADAPTIVE_NUISANCE_SHORTFALLS",
     "BAND_CELLS",
     "BAND_OPTION_DRAWS",
     "DEFAULT_BAND_DRAWS",
@@ -46,6 +47,7 @@ __all__ = [
     "T_BAND_CELLS",
     "T_BAND_STUDY",
     "UNMAPPED_BAND_CELLS",
+    "AdaptiveNuisanceShortfall",
     "TheoryAnchor",
     "default_options",
     "long_row",
@@ -2501,6 +2503,58 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "band_reference='t' is supported on this row (band-t-reference)."
     ),
 }
+
+
+@dataclass(frozen=True)
+class AdaptiveNuisanceShortfall:
+    """A measured few-cluster limit of a ``t``-tier row for fits with an adaptive learner.
+
+    X54 part (h) measures the default learner library at 10, 20 and 40 clusters
+    (``few-cluster-adaptive-learners``). Where a configuration fails the caveat rule of its
+    declaration, its row takes an entry here, and a fit whose key carries ``adaptive_nuisance``
+    and that reads fewer than ``below`` positive-mass clusters becomes experimental with
+    :meth:`sentence`. Its interval stays shown.
+
+    Parameters
+    ----------
+    below : int
+        The smallest cluster count at which the configuration passed; the limit holds below it.
+    counts : str
+        The measured counts that failed, as the sentence names them, such as ``"10"``.
+    splitting : str
+        The configuration in words, such as ``"in-sample TMLE"``.
+    """
+
+    below: int
+    counts: str
+    splitting: str
+
+    def sentence(self, row_id: str) -> str:
+        """The reason the estimate carries, naming the row, the counts and the study.
+
+        Parameters
+        ----------
+        row_id : str
+            The id of the matched row.
+
+        Returns
+        -------
+        str
+            One sentence.
+        """
+        return (
+            f"Row {row_id} is measured with parametric nuisance learners only below 40 "
+            "clusters: the registered few-cluster evidence with the default learner library "
+            f"fails at {self.counts} clusters for {self.splitting} "
+            "(few-cluster-adaptive-learners)."
+        )
+
+
+#: The rows whose adaptive-learner fits carry a measured few-cluster limit, by row id (X54 part
+#: (h), plan sections 3.5 and 5.8). Empty until ``few-cluster-adaptive-learners`` registers:
+#: before its run no adaptive-learner limit is measured, and a fit with ``adaptive_nuisance``
+#: keeps its row's label. Its registration adds one entry for each configuration that fails.
+ADAPTIVE_NUISANCE_SHORTFALLS: Final[Mapping[str, AdaptiveNuisanceShortfall]] = {}
 
 
 #: The measured numbers of the red cells that leave a row supported with a stated limit, by row id

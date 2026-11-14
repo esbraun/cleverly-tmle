@@ -149,7 +149,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         "a registered support-key value with no kind",
         "Fix-15",
         (
-            "dependence:t",
             "missing:eliminated",
             "splitting:cross_fitted",
             "splitting:fold_targeted_evaluated",

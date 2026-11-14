@@ -126,6 +126,9 @@ class QuasiBinomialGLM(BaseEstimator):
     #: Unpenalized, and started from the weighted mean, so a row of integer weight ``c``
     #: fits as ``c`` copies of the row (:mod:`cleverly.longitudinal.frequency`).
     frequency_exact = True
+    #: A fixed-dimension model that selects nothing, as :func:`cleverly._support.learner_family`
+    #: reads it, so a few-cluster fit with this learner carries no ``adaptive_nuisance``.
+    cleverly_learner_family = "parametric"
 
     def __init__(self, *, max_iter: int = 100, tol: float = 1e-10) -> None:
         self.max_iter = max_iter

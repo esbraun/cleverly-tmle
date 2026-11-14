@@ -465,6 +465,10 @@ class OracleTreatment(BaseEstimator):
     plugged in, any remaining discrepancy is the estimator's own.
     """
 
+    #: A known mechanism fits nothing, so :func:`cleverly._support.learner_family` reads it as
+    #: parametric and a few-cluster fit with it carries no ``adaptive_nuisance``.
+    cleverly_learner_family = "parametric"
+
     def __init__(self, dgp: Any) -> None:
         self.dgp = dgp
 

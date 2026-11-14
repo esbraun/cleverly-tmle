@@ -205,6 +205,10 @@ class KnownLongitudinalMechanism(BaseEstimator):
     design columns moves them by between 0.08 and 0.64, against a tolerance of ``1e-12``.
     """
 
+    #: A known mechanism fits nothing, so :func:`cleverly._support.learner_family` reads it as
+    #: parametric and a few-cluster fit with it carries no ``adaptive_nuisance``.
+    cleverly_learner_family = "parametric"
+
     def __init__(self, kind: str) -> None:
         self.kind = kind
 

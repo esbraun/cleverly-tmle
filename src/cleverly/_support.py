@@ -38,11 +38,13 @@ from ._inference_status import (
 from ._refusal import Refusal
 
 __all__ = [
+    "ADAPTIVE_NUISANCE",
     "DEFAULT_BAND_OPTION",
     "KEY_AXES",
     "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
+    "SOFT_QUALIFIERS",
     "T_BAND_OPTION",
     "UNCLASSIFIED",
     "UNMEASURED_BAND_OPTION",
@@ -55,6 +57,8 @@ __all__ = [
     "SupportKey",
     "SupportLabel",
     "SupportRow",
+    "adaptive_nuisance",
+    "adaptive_nuisance_shortfall",
     "band_shape",
     "classify",
     "classify_key",
@@ -65,6 +69,7 @@ __all__ = [
     "in_sample_learned_rule_learners",
     "learner_family",
     "longitudinal_key",
+    "nuisance_family",
     "point_key",
     "record_fit",
     "record_refusal_site",
@@ -333,7 +338,9 @@ class SupportKey:
         ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
         ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
-        holds the known factors.
+        holds the known factors. A clustered key on the ``t`` tier adds ``adaptive_nuisance``
+        when a nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`); a
+        row that does not declare it still covers the fit (:data:`SOFT_QUALIFIERS`).
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
@@ -381,8 +388,9 @@ class SupportKey:
     def is_covered_by(self, row_key: SupportKey) -> bool:
         """Whether ``row_key`` covers this key.
 
-        Every axis must be equal, except the family axis: the row covers the fit when the row's
-        families include every family of the fit.
+        Every axis must be equal, except the family axis, where the row covers the fit when the
+        row's families include every family of the fit, and the qualifier axis, where a soft
+        qualifier (:data:`SOFT_QUALIFIERS`) the row does not declare is ignored.
 
         Parameters
         ----------
@@ -417,6 +425,11 @@ class SupportKey:
         for name in KEY_AXES:
             if name == "family":
                 if not self.family <= other.family:
+                    differing.append(name)
+            elif name == "qualifiers":
+                # A soft qualifier the row does not declare is not a difference.
+                soft = SOFT_QUALIFIERS - other.qualifiers
+                if self.qualifiers - soft != other.qualifiers:
                     differing.append(name)
             elif mine[name] != theirs[name]:
                 differing.append(name)
@@ -536,6 +549,133 @@ def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
     if getattr(type(learner), LEARNER_FAMILY_MARKER, None) == "parametric":
         return "parametric"
     return "parametric" if type(learner) in _parametric_classes() else "adaptive"
+
+
+#: The qualifier of a clustered fit on the ``t`` tier whose nuisance learners include a
+#: data-adaptive one (X54 part (h)). :func:`adaptive_nuisance` decides it. A row that does not
+#: declare it still covers a fit that carries it (:data:`SOFT_QUALIFIERS`), so the qualifier
+#: changes a label only through a measured shortfall in
+#: :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`.
+ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
+
+#: Qualifiers that a row which does not declare them still covers. Each records a property of
+#: the fit that a registered study reads as a measured limit, not as a configuration the rows
+#: must name.
+SOFT_QUALIFIERS: Final[frozenset[str]] = frozenset({ADAPTIVE_NUISANCE})
+
+
+def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
+    """The family of a nuisance learner, with a Super Learner of parametric candidates parametric.
+
+    :func:`learner_family` reads every Super Learner as adaptive, because it selects. For the
+    few-cluster reading of X54 part (h) a Super Learner whose every candidate is parametric is
+    a convex combination of finite-dimensional fits, which the registered parametric evidence
+    covers (plan section 3.5). A Super Learner without a library uses the default library,
+    which is adaptive.
+
+    Parameters
+    ----------
+    learner : object or None
+        The learner as passed to the estimator. ``None`` selects the default library.
+
+    Returns
+    -------
+    str
+        ``"parametric"`` or ``"adaptive"``.
+
+    Examples
+    --------
+    >>> from sklearn.tree import DecisionTreeRegressor
+    >>> from cleverly._support import nuisance_family
+    >>> from cleverly.learners import GLM, SuperLearner
+    >>> nuisance_family(SuperLearner(library=[GLM(), GLM(family="gaussian")]))
+    'parametric'
+    >>> nuisance_family(SuperLearner(library=[GLM(), DecisionTreeRegressor()]))
+    'adaptive'
+    >>> nuisance_family(None)
+    'adaptive'
+    """
+    from .learners.super_learner import SuperLearner
+
+    if type(learner) is SuperLearner:
+        library = learner.library
+        if library is None:
+            return "adaptive"
+        candidates = [
+            item[1] if isinstance(item, tuple) and len(item) == 2 else item for item in library
+        ]
+        if candidates and all(learner_family(c) == "parametric" for c in candidates):
+            return "parametric"
+        return "adaptive"
+    return learner_family(learner)
+
+
+def adaptive_nuisance(learners: Iterable[Any]) -> bool:
+    """Whether any learner a fit uses is data-adaptive, by :func:`nuisance_family`.
+
+    Parameters
+    ----------
+    learners : iterable of object or None
+        The learners the fit uses, as passed to the estimator, with each fallback resolved.
+
+    Returns
+    -------
+    bool
+        ``True`` when one of them is adaptive.
+    """
+    return any(nuisance_family(learner) == "adaptive" for learner in learners)
+
+
+def _point_nuisance_learners(estimator: Any, data: Any) -> list[Any]:
+    """The learners a point fit uses: outcome, then treatment, missingness and intermediate.
+
+    The treatment learner is not used when the data declare the treatment probabilities. The
+    missingness learner falls back to the treatment learner, as the estimator resolves it, and
+    is used only with a missing outcome or treatment. The DR-TMLE reduced regressions are not
+    read: no study measures a DR-TMLE fit with adaptive learners at few clusters, so no
+    shortfall can name its row.
+    """
+    used = [estimator.outcome_learner]
+    treatment = getattr(estimator, "treatment_learner", None)
+    if getattr(data, "known_treatment", None) is None:
+        used.append(treatment)
+    if getattr(data, "has_missing_outcome", False) or getattr(data, "has_missing_treatment", False):
+        missingness = getattr(estimator, "missingness_learner", None)
+        used.append(treatment if missingness is None else missingness)
+    if getattr(data, "has_intermediate", False):
+        used.append(getattr(estimator, "intermediate_learner", None))
+    return used
+
+
+def _longitudinal_nuisance_learners(
+    estimator: Any, data: Any, known_factors: Iterable[str]
+) -> list[Any]:
+    """The learners a longitudinal fit uses, with each fallback resolved as the estimator does.
+
+    The pseudo-outcome learner falls back to the outcome learner, and the censoring learner to
+    the treatment learner. A mechanism whose every factor the data declare known is not fitted.
+    """
+    known = set(known_factors)
+    outcome = estimator.outcome_learner
+    pseudo = getattr(estimator, "pseudo_learner", None)
+    used = [outcome, outcome if pseudo is None else pseudo]
+    treatment = getattr(estimator, "treatment_learner", None)
+    decisions = [
+        data.decision_name(time)
+        for time in range(1, data.n_times + 1)
+        if not data.is_held_node(time)
+    ]
+    if getattr(data, "treatment_held", False) or not set(decisions) <= known:
+        used.append(treatment)
+    censoring_names = list(getattr(data, "censoring_names", None) or ())
+    if censoring_names and not set(censoring_names) <= known:
+        censoring = getattr(estimator, "censoring_learner", None)
+        used.append(treatment if censoring is None else censoring)
+    if getattr(data, "eliminated", ()):
+        competing = getattr(estimator, "competing_learner", None)
+        if competing is not None:
+            used.append(competing)
+    return used
 
 
 def _adaptive_iptw_learners(estimator: Any, data: Any) -> dict[str, str]:
@@ -838,6 +978,11 @@ def point_key(
             # never covers it.
             options["tuned_cap"] = True
 
+    dependence = _dependence(_positive_mass_clusters(data), MINIMUM_INTERVAL_CLUSTERS)
+    if dependence == "t" and adaptive_nuisance(_point_nuisance_learners(estimator, data)):
+        # X54 part (h): the few-cluster evidence of every t-tier row fits parametric nuisances.
+        qualifiers.add(ADAPTIVE_NUISANCE)
+
     key = SupportKey(
         kind="point",
         engine=engine,
@@ -847,7 +992,7 @@ def point_key(
         treatment=treatment,
         weighting=_weighting(data),
         splitting=tuple(splitting),
-        dependence=_dependence(_positive_mass_clusters(data), MINIMUM_INTERVAL_CLUSTERS),
+        dependence=dependence,
         qualifiers=frozenset(qualifiers),
         options=tuple(sorted((name, _option(value)) for name, value in options.items())),
     )
@@ -955,6 +1100,17 @@ def longitudinal_key(
             (data.node_kind(time), node) for time, node in enumerate(data.treatment_levels, 1)
         )
     )
+    dependence = _dependence(_positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS)
+    qualifiers = (
+        (*known_factors, f"separable_first_cause_{separable_first}")
+        if separable_first is not None
+        else tuple(known_factors)
+    )
+    if dependence == "t" and adaptive_nuisance(
+        _longitudinal_nuisance_learners(estimator, data, qualifiers)
+    ):
+        # X54 part (h), as for a point fit.
+        qualifiers = (*qualifiers, ADAPTIVE_NUISANCE)
     key = SupportKey(
         kind="longitudinal",
         engine=getattr(estimator, "_support_engine", None) or (str(estimator._estimator),),
@@ -984,14 +1140,8 @@ def longitudinal_key(
             if cross_fitted
             else ("in_sample",)
         ),
-        dependence=_dependence(
-            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        ),
-        qualifiers=frozenset(
-            (*known_factors, f"separable_first_cause_{separable_first}")
-            if separable_first is not None
-            else known_factors
-        ),
+        dependence=dependence,
+        qualifiers=frozenset(qualifiers),
         options=(
             ("normalization", _option(estimator._normalization())),
             ("ratio", _option(getattr(estimator, "ratio", "density"))),
@@ -1217,6 +1367,10 @@ class Classification:
         axes. ``None`` when there are no rows.
     conditions : tuple of Refusal
         The group-A conditions the fit meets. Each one makes the fit experimental.
+    clusters : int or None
+        The fewest positive-mass clusters one estimate of the fit reads, or ``None`` without
+        clusters. A measured limit that holds below a cluster count reads it
+        (:data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`).
     """
 
     key: SupportKey
@@ -1224,6 +1378,7 @@ class Classification:
     row: SupportRow | None = None
     nearest: tuple[str, tuple[str, ...]] | None = None
     conditions: tuple[Refusal, ...] = ()
+    clusters: int | None = None
 
     @property
     def label(self) -> SupportLabel:
@@ -1237,6 +1392,7 @@ def classify_key(
     conditions: Sequence[Refusal] = (),
     *,
     rows: Sequence[SupportRow] | None = None,
+    clusters: int | None = None,
 ) -> Classification:
     """Match a key against the rows. It never raises for an unmatched key.
 
@@ -1250,6 +1406,8 @@ def classify_key(
         The group-A conditions the fit meets.
     rows : sequence of SupportRow or None, default None
         The rows to match. ``None`` reads :func:`registered_rows`.
+    clusters : int or None, default None
+        The fit's fewest positive-mass clusters, carried to :attr:`Classification.clusters`.
 
     Returns
     -------
@@ -1266,7 +1424,7 @@ def classify_key(
     if len(matched) > 1:
         raise RuntimeError(f"support rows {[row.id for row in matched]} all match one fit")
     if matched:
-        return Classification(key, learners, matched[0], None, tuple(conditions))
+        return Classification(key, learners, matched[0], None, tuple(conditions), clusters)
     nearest: tuple[str, tuple[str, ...]] | None = None
     for row in table:
         differing = key.differing_axes(row.key)
@@ -1278,7 +1436,7 @@ def classify_key(
             differing = (*differing, "learners")
         if nearest is None or len(differing) < len(nearest[1]):
             nearest = (row.id, differing)
-    return Classification(key, learners, None, nearest, tuple(conditions))
+    return Classification(key, learners, None, nearest, tuple(conditions), clusters)
 
 
 _KIND_NAMES: Final[Mapping[str, str]] = {
@@ -1410,6 +1568,10 @@ def support_for(
             reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
     else:
         reasons.extend(text for shortfall_kind, text in row.shortfalls if shortfall_kind == kind)
+        adaptive = adaptive_nuisance_shortfall(classification, kind)
+        if adaptive is not None:
+            reasons.append(adaptive)
+            evidence.append("F28")
     for condition in classification.conditions:
         reasons.append(_sentence(condition.condition))
         if condition.roadmap is not None:
@@ -1441,6 +1603,39 @@ def support_for(
     )
 
 
+def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> str | None:
+    """The measured few-cluster shortfall of a fit with an adaptive nuisance learner, if any.
+
+    A fit whose key carries ``adaptive_nuisance`` and whose row has an entry in
+    :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS` takes the entry's sentence for
+    every kind but ``point`` when it reads fewer positive-mass clusters than the entry's
+    ``below`` count. The sentence makes the estimate experimental; its interval stays shown
+    (X54 part (h), plan section 3.5).
+
+    Parameters
+    ----------
+    classification : Classification
+        The fit's classification.
+    kind : str
+        The kind the estimate needs from its row.
+
+    Returns
+    -------
+    str or None
+        The sentence, or ``None`` when no shortfall applies.
+    """
+    from ._support_rows import ADAPTIVE_NUISANCE_SHORTFALLS
+
+    row = classification.row
+    if row is None or kind == "point" or ADAPTIVE_NUISANCE not in classification.key.qualifiers:
+        return None
+    entry = ADAPTIVE_NUISANCE_SHORTFALLS.get(row.id)
+    clusters = classification.clusters
+    if entry is None or clusters is None or clusters >= entry.below:
+        return None
+    return entry.sentence(row.id)
+
+
 def classify(
     estimator: Any,
     data: Any,
@@ -1466,7 +1661,7 @@ def classify(
         The row or the nearest row, with the key and the conditions.
     """
     key, learners = point_key(estimator, data, estimands)
-    return classify_key(key, learners, conditions)
+    return classify_key(key, learners, conditions, clusters=_positive_mass_clusters(data))
 
 
 def band_shape(
@@ -1865,7 +2060,7 @@ def classify_longitudinal_fit(
             tuned_cap=tuned_cap,
             separable_first=separable_first,
         )
-        classification = classify_key(key, learners)
+        classification = classify_key(key, learners, clusters=_positive_mass_clusters(data))
     except Exception as error:
         directory = recording_directory()
         if directory is not None:

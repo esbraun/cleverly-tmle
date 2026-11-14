@@ -299,6 +299,10 @@ def _structural_nested_mean() -> Any:
 FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_repeats": _point_tmle,
     "point_tmle_bootstrap": _point_bootstrap,
+    # X54 part (h): a t-tier clustered fit with an adaptive outcome learner, whose key carries
+    # adaptive_nuisance. The qualifier moves the support label alone, so every plot of a point
+    # fit draws or refuses as it does without it.
+    "point_tmle_adaptive_nuisance": sweep.fit_clustered_adaptive,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
@@ -354,6 +358,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "draws",
+    },
+    "point_tmle_adaptive_nuisance": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "ltmle_repeats": {
         "forest": "draws",

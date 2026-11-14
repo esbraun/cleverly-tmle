@@ -320,6 +320,25 @@ def fit_clustered() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
 
 
+def fit_clustered_adaptive() -> Any:
+    """A binary ``make_clustered(200, cluster_size=10)`` fit with a classification tree outcome.
+
+    20 clusters put the fit on the ``t`` tier, where row ``T11.in_sample`` covers it, and the
+    tree is a data-adaptive nuisance learner, so its key carries ``adaptive_nuisance`` (X54
+    part (h)). The qualifier moves only the support label
+    (:func:`cleverly._support.adaptive_nuisance_shortfall`), so every row that the 40-cluster
+    linear fit answers runs here.
+    """
+    from sklearn.tree import DecisionTreeClassifier
+
+    frame, _ = make_clustered(n=200, cluster_size=10, seed=7, family="binomial")
+    settings = linear_in_sample(
+        outcome_learner=DecisionTreeClassifier(max_depth=3, min_samples_leaf=10, random_state=0),
+        estimands=("ey1", "ey0", "ate"),
+    )
+    return TMLE(**settings).fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
 def fit_incremental() -> Any:
     """An incremental fit with complete outcomes, whose estimand contains the propensity."""
     return (
@@ -1235,6 +1254,9 @@ KINDS: dict[str, Kind] = {
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
+    # The t tier with an adaptive outcome learner: the adaptive_nuisance qualifier changes the
+    # support label alone, so every row of the clustered fit answers (X54 part (h)).
+    "clustered+adaptive_nuisance": _kind(fit_clustered_adaptive, *_ARM),
     "drtmle": _kind(fit_drtmle, *_LIVE, "corrections"),
     # Both refit the treatment mechanism on their own rows, because randomized=True.
     "drtmle+missing": _kind(fit_drtmle_missing, *_LIVE, *_TILT, "corrections"),
