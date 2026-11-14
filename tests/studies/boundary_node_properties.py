@@ -433,10 +433,29 @@ def firing_se_ratio(
         return (float("nan"), float("nan"), float("nan"))
     rng = np.random.default_rng(seed)
     picks = rng.integers(0, errors.size, (SE_RATIO_RESAMPLES, errors.size))
-    ratios = reported[picks].mean(axis=1) / errors[picks].std(axis=1, ddof=1)
+    # A resample, or the sample itself, can hold one error value repeated (a perturbed law
+    # with two support points does), so its spread is 0 and its ratio is +inf: an interval
+    # wider than any spread. The ratio is then defined, and a finite resample is unchanged.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratios = reported[picks].mean(axis=1) / errors[picks].std(axis=1, ddof=1)
+        point = reported.mean() / errors.std(ddof=1)
     tail = (1.0 - level) / 2.0
-    low, high = np.quantile(ratios, [tail, 1.0 - tail])
-    return float(reported.mean() / errors.std(ddof=1)), float(low), float(high)
+    low, high = (_upper_quantile(ratios, q) for q in (tail, 1.0 - tail))
+    return float(point), low, high
+
+
+def _upper_quantile(values: np.ndarray, q: float) -> float:
+    """``np.quantile(values, q)``, read as +inf where it would interpolate between two +inf.
+
+    Linear interpolation between two infinite neighbours computes ``inf - inf`` and returns
+    NaN; the quantile there is +inf. Every finite neighbour pair gives NumPy's own value.
+    """
+    ordered = np.sort(values)
+    position = q * (ordered.size - 1)
+    if np.isposinf(ordered[int(np.floor(position))]):
+        return float("inf")
+    with np.errstate(invalid="ignore"):
+        return float(np.quantile(ordered, q))
 
 
 def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: float) -> None:

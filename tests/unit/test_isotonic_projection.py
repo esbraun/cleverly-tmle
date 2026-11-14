@@ -112,9 +112,18 @@ def test_e9_the_projection_is_pava_and_lmtps_transcription(pair: tuple[Any, Any]
 
 
 def _identical_influence(plain: Any, projected: Any) -> bool:
+    """Equal curves, and equal standard errors outside the boundary-node supplement.
+
+    An isotonic fit lies outside the supplement's reach, so where the plain fit adds it at a
+    constant node the projected estimate keeps the constant-node status instead.
+    """
     return all(
         np.array_equal(plain[name].influence_curve, projected[name].influence_curve)
-        and plain[name].plugin_std_error == projected[name].plugin_std_error
+        and (
+            plain[name].plugin_std_error == projected[name].plugin_std_error
+            if plain[name].node is None
+            else projected[name].inference == "constant_node_plugin"
+        )
         for name in plain.estimates
     )
 
@@ -166,12 +175,25 @@ def test_e9_curve_band_limits_are_projected_and_contrast_bands_kept(
 
 
 def test_e9_a_monotone_curve_is_left_bit_for_bit() -> None:
-    """Seed 0 has no violation, and the projection is then the identity."""
+    """Seed 0 has no violation, and the projection is then the identity.
+
+    The levels and curves agree bit for bit. The plain fit adds the boundary-node supplement at
+    a constant node, and an isotonic fit lies outside its reach (``BOUNDARY_NODE_OUT_OF_REACH``),
+    so an estimate reading such a node keeps the constant-node status there and only its
+    interval differs. Seed 0 has one, which witnesses that branch.
+    """
     plain, projected = _fit(0), _fit(0, isotonic=True)
     assert projected.isotonic_moves == ()
+    supplemented = [name for name in plain.estimates if plain[name].node is not None]
+    assert supplemented
     for name in plain.estimates:
         assert projected[name].psi == plain[name].psi
-        assert projected[name].plugin_interval == plain[name].plugin_interval
+        assert np.array_equal(projected[name].influence_curve, plain[name].influence_curve)
+        assert projected[name].node is None
+        if name in supplemented:
+            assert projected[name].inference == "constant_node_plugin"
+        else:
+            assert projected[name].plugin_interval == plain[name].plugin_interval
 
 
 @pytest.mark.parametrize(
