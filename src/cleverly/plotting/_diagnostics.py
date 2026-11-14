@@ -875,7 +875,7 @@ def learners(
 
 def _refuse_unread(source: Any, plot: str) -> None:
     """Refuse the fits and reports whose nuisance models this plot does not draw yet."""
-    from .._refusal import NO_ALTERNATIVE, RefusalReason
+    from .._refusal import RefusalReason
     from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
     from ..exceptions import CapabilityError
     from ..longitudinal.estimator import LongitudinalResult
@@ -885,16 +885,26 @@ def _refuse_unread(source: Any, plot: str) -> None:
     if isinstance(source, (LongitudinalResult, LongitudinalNuisanceDiagnostics)):
         what = "a longitudinal fit's nuisance models, one per node and role"
     elif isinstance(source, ContinuousSurvivalResult):
-        what = "a continuous-time survival fit's hazard and treatment models"
+        if plot == "calibration":
+            raise CapabilityError(
+                "calibration() draws a nuisance report's calibration table; a continuous-time "
+                "survival fit keeps no nuisance report, only its library selections in "
+                "result.record.",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        what = "a continuous-time survival fit's hazard and treatment library selections"
     elif isinstance(source, (AdaptiveTMLEResult, AdaptiveTMLENuisanceReport)):
         what = "an adaptive TMLE fit's nuisance models"
     else:
         return
     raise CapabilityError(
-        f"{plot}() does not yet draw {what}; read them with the fit's "
-        "diagnostics.nuisance_models() or summary(detail='full').",
+        f"{plot}() does not yet draw {what}.",
         reason=RefusalReason.IMPLEMENTATION_GAP,
-        alternative=NO_ALTERNATIVE,
+        alternative=(
+            "Read them in result.record."
+            if isinstance(source, ContinuousSurvivalResult)
+            else "Read them with the fit's diagnostics.nuisance_models()."
+        ),
         roadmap="X100",
     )
 
@@ -1046,7 +1056,7 @@ def repeats(
 
         raise CapabilityError(
             "repeats() draws the estimate of each cross-fitting split of a fit run with "
-            f"repeats=; this {type(result).__name__} has no repeated splits",
+            f"repeats=; this {type(result).__name__} has no repeated splits.",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     draws = tuple(result.repeats)
@@ -1327,8 +1337,12 @@ def bootstrap(
         if getattr(result, "bootstrap", None) is None:
             raise ValueError("this fit holds no bootstrap replicates; fit with n_bootstrap > 0")
         replicates = result.bootstrap
-    else:
+    elif hasattr(source, "draws"):
         replicates = source
+    else:
+        raise TypeError(
+            f"bootstrap() takes a fitted result or its BootstrapResult; got {type(source).__name__}"
+        )
     held = list(replicates.draws)
     if name is None:
         ordered = [alias for alias in (result.estimates if result else ()) if alias in held]

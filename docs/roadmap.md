@@ -1960,8 +1960,10 @@ item:
   with its interval and band at the target times only, since a risk between target times is not
   targeted; the restricted mean survival and time lost at the restricted horizons;
 - `overlap` for a treatment given once at baseline in a survival fit, for an adaptive TMLE fit
-  (its treatment and trial-membership probabilities), and for a longitudinal fit, one panel per
-  time point, each with the probability of staying under observation;
+  (its treatment and trial-membership probabilities), and for a longitudinal or structural nested
+  mean fit, one panel per time point, each with the probability of staying under observation;
+- `weights` for a continuous-time survival fit, whose weights invert each row's treatment
+  probability times its probability of staying uncensored over time;
 - `learners` and `calibration` for a longitudinal fit (one choice per node and role), a
   continuous-time survival fit (its hazard and treatment library selections) and an adaptive
   TMLE fit, and the collaborative selection path of a time-to-event TMLE;

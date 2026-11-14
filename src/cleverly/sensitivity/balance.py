@@ -388,8 +388,8 @@ def covariate_balance(
     Raises
     ------
     CapabilityError
-        When the fit estimated no treatment mechanism, or reports no estimand weighted by
-        the probability of each unit's own arm.
+        When the fit estimated no treatment mechanism, reports no estimand weighted by
+        the probability of each unit's own arm, or is not a point-treatment fit.
     DataError
         When the treatment is continuous, which has no groups to compare, or the fit
         reports no estimate of ``estimand``.
@@ -577,11 +577,17 @@ def _refuse_sequential(result: Any) -> None:
         what = (
             "a continuous-time survival fit, whose weights also carry a censoring model over time"
         )
+    elif not hasattr(result, "nuisance"):
+        raise CapabilityError(
+            "covariate_balance weighs the covariates by a point-treatment fit's treatment "
+            f"model; this {type(result).__name__} holds no such model.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     else:
         return
     raise CapabilityError(
         "covariate_balance weighs the covariates by a point-treatment fit's treatment model; "
-        f"it does not weigh {what} yet.",
+        f"it does not yet weigh {what}.",
         reason=RefusalReason.IMPLEMENTATION_GAP,
         alternative=NO_ALTERNATIVE,
         roadmap="X100",
