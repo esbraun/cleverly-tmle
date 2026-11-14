@@ -8,3 +8,4 @@ WALL wrong_learner_node 315s
 WALL both_wrong_base 19s
 WALL fits_differ_base 81s
 WALL fits_differ_four 96s
+WALL fits_differ_mechanism_correct 78s
