@@ -1605,7 +1605,8 @@ weight that reads $L_0$, $A_1$, $C_1$ and $L_1$, with mutation controls for the 
 The registered study
 [a declared treatment mechanism beside sample-reading weights](method-evidence/known-mechanism-sample-weights.md)
 measures cross-fitted `LTMLE` under `"sample"` on a two-node law with a continuous outcome and a
-weight that tilts the first node, at n = 4,000 (support row `G62`). The interval is calibrated with
+weight that tilts the first node, at n = 4,000 (support row `G62`, which requires the
+qualifier `tilted_mechanism` and so covers no ordinary weighted fit). The interval is calibrated with
 every nuisance correct, the estimate stays unbiased with the first node regression wrong, and the
 `"target"` reading is biased.
 

@@ -318,6 +318,25 @@ def divides_by_declaration(data: Any) -> bool:
     return not (known.law == "sample" and _tilts(getattr(data, "weights", None)))
 
 
+def estimates_declared_tilt(data: Any) -> bool:
+    """Whether a point fit on ``data`` estimates the weight-tilted mechanism of a declaration.
+
+    True exactly when ``data`` declares a treatment mechanism that the fit does not divide by:
+    a ``"sample"`` declaration beside weights that tilt the law.
+
+    Parameters
+    ----------
+    data : Any
+        The prepared data.
+
+    Returns
+    -------
+    bool
+        Whether the fit's mechanism is the declaration times a weighted classification.
+    """
+    return getattr(data, "known_treatment", None) is not None and not divides_by_declaration(data)
+
+
 #: How close to 0 or 1 a declared node value must be for the declaration to read the same
 #: under both readings.
 _DEGENERATE_TOLERANCE = 1e-12

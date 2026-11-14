@@ -153,7 +153,7 @@ def point_row(
     dependence : str, default "iid"
         The dependence axis.
     qualifiers : iterable of str, default ()
-        ``strata`` and ``known_mechanism``.
+        ``strata``, ``known_mechanism`` and ``tilted_mechanism``.
     options : mapping of str to Any or None, default None
         Overrides of :func:`default_options`.
     engine : tuple of str, default ("tmle",)
@@ -3570,8 +3570,9 @@ def _known_sample_weights_point_rows() -> tuple[SupportRow, ...]:
     """A declared mechanism read in the weighted sample on point TMLE (Fix-16): ``T55``.
 
     ``mechanism_law="sample"`` estimates the tilted mechanism from the declaration and a
-    weighted classification, so the fit keys as an estimated-mechanism weighted fit with no
-    ``known_mechanism`` qualifier.  The row was added because every declared verdict of
+    weighted classification, so the fit keys with the ``tilted_mechanism`` qualifier and no
+    ``known_mechanism``: the row covers that route only, never an ordinary weighted fit.
+    The row was added because every declared verdict of
     ``known-mechanism-sample-weights`` passed: 3 of 3 primary tests and the 26 gated property
     cells, with no failed fit (``tests/canonical/known_sample_weights``).
     """
@@ -3582,6 +3583,7 @@ def _known_sample_weights_point_rows() -> tuple[SupportRow, ...]:
             families=("P1",),
             weighting="fixed",
             splitting=("stacked",),
+            qualifiers=["tilted_mechanism"],
             cells=[
                 "interval_calibration/sw_n1000__correctly_specified",
                 "interval_calibration/sw_n4000__correctly_specified",
@@ -3738,7 +3740,8 @@ def long_row(
     dependence : str, default "iid"
         The dependence axis.
     qualifiers : iterable of str, default ()
-        The known treatment and censoring factors.
+        The known treatment and censoring factors, and ``tilted_mechanism`` for a declared node
+        read in the weighted sample.
     engine : str or tuple of str, default "tmle"
         ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
         class that records one, such as ``("collaborative_tmle", "greedy")``.
@@ -6015,8 +6018,9 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
 def _known_sample_weights_long_rows() -> tuple[SupportRow, ...]:
     """A declared node mechanism read in the weighted sample on LTMLE (Fix-16): ``G62``.
 
-    A ``"sample"`` node is an estimated factor, so the fit keys as a weighted cross-fitted
-    ``LTMLE`` with no known factor.  The row was added because every declared verdict of
+    A ``"sample"`` node is an estimated factor of its own construction, so the fit keys with
+    the ``tilted_mechanism`` qualifier and no known factor: the row covers that route only.
+    The row was added because every declared verdict of
     ``known-mechanism-sample-weights`` passed (``tests/canonical/known_sample_weights``).
     """
     return (
@@ -6027,6 +6031,7 @@ def _known_sample_weights_long_rows() -> tuple[SupportRow, ...]:
             missing=("complete",),
             weighting="fixed",
             splitting=("cross_fitted",),
+            qualifiers=["tilted_mechanism"],
             cells=[
                 "interval_calibration/lw_n4000__correctly_specified",
                 "sample_misspecified/lw_n4000",

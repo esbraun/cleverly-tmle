@@ -15,7 +15,9 @@ The declared run passed every gated verdict, with no failed fit: 3 of 3 primary 
 26 property cells. No external package implements the tilted mechanism from a declaration, so
 no canonical implementation is compared. The fast tier's exact-law tests
 (`tests/unit/test_known_mechanism_weights.py` and
-`tests/unit/test_known_mechanism_weights_longitudinal.py`) pin the construction.
+`tests/unit/test_known_mechanism_weights_longitudinal.py`) pin the construction. Its support rows
+`T55` and `G62` require the `tilted_mechanism` qualifier, so they cover the `"sample"` route only.
+An ordinary weighted fit with an estimated mechanism keys apart, and this study does not license it.
 
 ## The laws
 

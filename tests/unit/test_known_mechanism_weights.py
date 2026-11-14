@@ -476,6 +476,9 @@ def test_w7_a_sample_fit_reads_estimated_and_a_target_fit_reads_known() -> None:
     target_key, _ = _support.point_key(target.estimator, target.data, ("ate",))
     assert "known_mechanism" not in sample_key.qualifiers
     assert "known_mechanism" in target_key.qualifiers
+    # The tilted route keys apart, so its rows never cover an ordinary weighted fit.
+    assert "tilted_mechanism" in sample_key.qualifiers
+    assert "tilted_mechanism" not in target_key.qualifiers
     # The refutation fingerprint keeps the treatment learner, which fitted the tilt.
     sample_fit = fit_configuration(sample, "ate")
     target_fit = fit_configuration(target, "ate")

@@ -602,6 +602,9 @@ def test_w10_the_key_and_the_summary_carry_no_known_tilted_factor() -> None:
     assert sample.config.support_key is not None and target.config.support_key is not None
     assert "A1" not in sample.config.support_key.qualifiers
     assert {"A1", "C1", "A2", "C2"} <= set(target.config.support_key.qualifiers)
+    # The tilted route keys apart, so its rows never cover an ordinary weighted fit.
+    assert "tilted_mechanism" in sample.config.support_key.qualifiers
+    assert "tilted_mechanism" not in target.config.support_key.qualifiers
     sample_lines = " ".join(sample.summary(detail="full").section("Settings").lines)
     target_lines = " ".join(target.summary(detail="full").section("Settings").lines)
     assert "A1, C1, A2, C2" in target_lines

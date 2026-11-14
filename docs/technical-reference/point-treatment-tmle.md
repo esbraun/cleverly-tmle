@@ -1306,8 +1306,9 @@ The registered study
 measures the `"sample"` fit on a binary law whose weight reads $A$ and $W_1$, cross-fitted on five
 folds with parametric learners. The interval is calibrated at n = 1,000, 4,000 and 16,000 when both
 nuisances are correct, the estimate stays unbiased with either the outcome regression or the tilt
-classifier wrong, and the `"target"` reading of the same declaration is biased. Its support row is
-`T55`.
+classifier wrong, and the `"target"` reading of the same declaration is biased. Its support row
+`T55` requires the support-key qualifier `tilted_mechanism`, so it covers this route and not an
+ordinary weighted fit with an estimated mechanism.
 
 The causal reading needs one more condition when the weight reads $Y$. The tilted parameter
 $E_w[\bar Q_w(a,W)]$ is computed from $P_w$, and it equals a counterfactual mean of the target
