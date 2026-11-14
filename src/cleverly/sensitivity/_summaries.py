@@ -185,10 +185,17 @@ def _joint_note(features: Sequence[str]) -> Note | None:
     return note("joint_strength", TEXTS["joint_strength"].format(mechanisms=named))
 
 
-def _learned_rule_note(features: Sequence[str]) -> Note | None:
-    """What a bound of a learned-rule value holds fixed, or ``None`` on any other bound."""
+def _learned_rule_note(features: Sequence[str], optimal: bool = False) -> Note | None:
+    """How a bound of a rule's value reads, or ``None`` on any other bound.
+
+    A bound of a learned-rule value holds the fold rules fixed.  A bound of the value of
+    the optimal rule (``optimal``, X11 (f3)) reads the strengths uniformly over every rule
+    and is asymmetric.
+    """
     if "learned_rule" not in features:
         return None
+    if optimal:
+        return note("optimal_rule_bound", TEXTS["optimal_rule_bound"])
     return note("learned_rule_bound", TEXTS["learned_rule_bound"])
 
 
@@ -220,6 +227,8 @@ def _limits_withheld(refusal: MechanismRefusal | None) -> Note:
         key = "limits_withheld_consistent"
     elif refusal.key == "learned_rule":
         key = "limits_withheld_learned_rule"
+    elif refusal.key == "optimal_rule":
+        key = "limits_withheld_optimal_rule"
     elif refusal.key == "configuration":
         key = "limits_withheld_configuration"
     elif refusal.key in _CORRECTION_KEYS:
@@ -390,7 +399,7 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
     joint = _joint_note(bounds.features)
     if joint is not None:
         notes.append(joint)
-    learned = _learned_rule_note(bounds.features)
+    learned = _learned_rule_note(bounds.features, bounds.max_bias_upper is not None)
     if learned is not None:
         notes.append(learned)
     if bounds.assumption is not None:
@@ -405,6 +414,14 @@ def bounds_summary(bounds: SensitivityBounds, detail: Detail) -> Summary:
             assumptions.append(_formal(bounds.assumption))
         settings = [
             f"Bias scale sqrt(sigma^2 nu^2): {bounds.max_bias:.4g}.",
+            *(
+                ()
+                if bounds.max_bias_upper is None
+                else (
+                    "Bias scale of the upper side sqrt(sigma^2 nu^2_sup), with nu^2_sup = "
+                    f"E[max_a 1/g(a | W)] by plug-in: {bounds.max_bias_upper:.4g}.",
+                )
+            ),
             _nu2_setting(bounds.nu2_estimator, bounds.nu2_correction, bounds.plugin_mechanism),
             f"Null value: {_null(null)}.",
             f"Confidence level of the limits: {level}.",
@@ -502,12 +519,19 @@ def robustness_summary(value: RobustnessValue, detail: Detail) -> Summary:
         notes.append(_limits_withheld(value.refusal))
         if value.refusal is not None and value.refusal.key == "learned_rule":
             notes.append(note("learned_rule_bound", TEXTS["learned_rule_bound"]))
+        if value.refusal is not None and value.refusal.key == "optimal_rule":
+            notes.append(note("optimal_rule_bound", TEXTS["optimal_rule_bound"]))
     elif value.get("limit_licensed") is False:
         notes.append(_descriptive("limit robustness value"))
     sections: list[SummarySection] = []
     if detail == "full":
         settings = [
             f"Bias scale sqrt(sigma^2 nu^2): {value['max_bias']:.4g}.",
+            *(
+                (f"Bias scale of the upper side: {value['max_bias_upper']:.4g}.",)
+                if "max_bias_upper" in value
+                else ()
+            ),
             _nu2_setting(value.get("nu2_estimator", "doubly_robust"), value.get("nu2_correction")),
             f"Null value: {_null(null)}.",
         ]
@@ -568,6 +592,15 @@ def elements_summary(elements: SensitivityElements, detail: Detail) -> Summary:
         (_label("average squared weight"), _number(elements.nu2, decimals)),
         (_label("bias scale"), _number(elements.max_bias, decimals)),
     ]
+    if elements.nu2_upper is not None and elements.max_bias_upper is not None:
+        # The upper side of the bound of the value of the optimal rule (X11 (f3)).
+        rows += [
+            (
+                _label("largest average squared weight of any rule"),
+                _number(elements.nu2_upper, decimals),
+            ),
+            (_label("bias scale of the upper side"), _number(elements.max_bias_upper, decimals)),
+        ]
     if elements.nu2_correction is not None:
         rows.append((_label("plug-in correction"), _number(elements.nu2_correction, decimals)))
     tables = [SummaryTable(("", "value"), tuple(rows))]
@@ -577,7 +610,7 @@ def elements_summary(elements: SensitivityElements, detail: Detail) -> Summary:
     joint = _joint_note(elements.features)
     if joint is not None:
         notes.append(joint)
-    learned = _learned_rule_note(elements.features)
+    learned = _learned_rule_note(elements.features, elements.max_bias_upper is not None)
     if learned is not None:
         notes.append(learned)
     sections: list[SummarySection] = []
@@ -1323,6 +1356,8 @@ def _surface_caveats(result: SimulatedConfoundingResult) -> list[Note]:
         notes.append(note("incremental_reading", TEXTS["incremental_reading"]))
     if result.estimand.startswith("ey_learned_rule["):
         notes.append(note("learned_rule_reading", TEXTS["learned_rule_reading"]))
+    if result.estimand.startswith("ey_optimal_rule["):
+        notes.append(note("optimal_rule_reading", TEXTS["optimal_rule_reading"]))
     if result.observation_reads is not None:
         reads = _names(result.observation_reads) or "nothing"
         notes.append(note("observation_reads", TEXTS["observation_reads"].format(reads=reads)))

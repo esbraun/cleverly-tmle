@@ -77,7 +77,11 @@ __all__ = [
     "LOSSES",
     "OPTIMAL_CONTRAST_TARGET",
     "OPTIMAL_REPLAY_TARGET_KIND",
-    "OPTIMAL_RULE_SENSITIVITY_REFUSAL",
+    "OPTIMAL_RULE_BENCHMARK_REFUSAL",
+    "OPTIMAL_RULE_DOUBLY_ROBUST_NU2",
+    "OPTIMAL_RULE_LIMITS",
+    "OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL",
+    "OPTIMAL_RULE_REPLAY_STRATA_REFUSAL",
     "OPTIMAL_RULE_TARGET",
     "OPTIMAL_TARGET_KIND",
     "RULE_CLASS",
@@ -286,20 +290,70 @@ LEARNED_RULE_TILT_REFUSAL = (
 _X11 = "X11 ({part}) in docs/roadmap.md"
 _F27 = "F27 in docs/roadmap.md"
 
-#: Why the omitted-variable bound and simulated confounding refuse a fit of the value of the
-#: optimal rule (X11 (f3)).  Both hold the fit's fold rules fixed, so they read the value of
-#: those fixed rules, which is the learned-rule value.
-OPTIMAL_RULE_SENSITIVITY_REFUSAL = Refusal(
+#: Why ``benchmark`` refuses a fit of the value of the optimal rule (X11 (f3)).  The bound
+#: itself reads the fit's fold rules and the treatment mechanism and needs no refit.
+OPTIMAL_RULE_BENCHMARK_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "the omitted-variable bound and simulated confounding of a learned-rule fit hold the "
-    "fit's fold rules fixed, so they read confounding of the value of those fixed rules. "
-    "This fit reports the value of the optimal rule, and confounding also moves which rule "
-    "is optimal, so neither analysis bounds or replays that target, and no analysis of it "
-    f"is built ({_X11.format(part='f3')}).",
+    "benchmark of the value of the optimal rule is not built. It refits the model without "
+    "the named covariates, and on a learned-rule fit the refit relearns the rule, so the "
+    "short model's gain statistics would compare the values of different rules, and no "
+    "witness relates them to the uniform strengths the bound of the optimal value reads "
+    f"({_X11_N2}).",
     alternative=(
-        "Fit the learned-rule value on the same data (estimands=None, or LearnedRuleValue in "
-        "a study) and run the analysis on that fit, which reads the value of the fixed rules."
+        "Read omitted_variable_bounds() and robustness_value() at declared strengths, which "
+        "refit nothing."
     ),
+    roadmap="X11",
+)
+
+#: Why the omitted-variable bound of the value of the optimal rule publishes no confidence
+#: limit (X11 (f3)).  The in-sample fit refuses them too, unlike the learned-rule value.
+OPTIMAL_RULE_LIMITS = (
+    "a fit of the value of the optimal rule: its omitted-variable bound is a point bound. The "
+    "upper side reads nu^2_sup = E[max_a 1/g(a | W)], a maximum over arms that is not "
+    "differentiable where two arms' probabilities tie, so it has no influence curve, and the "
+    "lower side is the learned-rule point bound, whose fold rules read rows they were learned "
+    f"on ({_X11_N2})."
+)
+
+#: Why ``nu2_estimator="doubly_robust"`` refuses the bound of the optimal value (X11 (f3)).
+OPTIMAL_RULE_DOUBLY_ROBUST_NU2 = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "the omitted-variable bound of the value of the optimal rule reads nu^2_sup = "
+    "E[max_a 1/g(a | W)] on its upper side, and a doubly robust estimate of it needs the "
+    "influence function of a maximum over arms, which is not differentiable where two arms' "
+    f"probabilities tie ({_X11_N2}).",
+    alternative=(
+        "Pass nu2_estimator='auto', which reads the plug-in nu^2_sup on the upper side and the "
+        "doubly robust learned-rule nu^2 on the lower side, or nu2_estimator='plugin' for both."
+    ),
+    roadmap="X11",
+)
+
+#: Why ``simulated_confounding`` refuses a fit of the value of the optimal rule beside known
+#: regimes (X11 (f4)).
+OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "simulated_confounding of the value of the optimal rule beside known regimes "
+    "(interventions=) is not built. Each cell relearns the rule, and the replay would also "
+    "rebuild every known regime and its contrast with the relearned rule on the perturbed "
+    f"table, which no witness checks ({_X11.format(part='f4')}).",
+    alternative=(
+        "Replay the value of the optimal rule on a fit without interventions=, and each known "
+        "regime on a fit of TMLE(interventions=[...])."
+    ),
+    roadmap="X11",
+)
+
+#: Why ``simulated_confounding`` refuses a fit of the value of the optimal rule with
+#: baseline strata (X11 (f4)).
+OPTIMAL_RULE_REPLAY_STRATA_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "simulated_confounding of the value of the optimal rule with baseline strata (strata=) is "
+    "not built. Each cell would relearn the rule and report every stratum's fold-evaluated "
+    "optimal value on the perturbed table, and no witness checks a relearning replay of "
+    f"stratum values ({_X11.format(part='f4')}).",
+    alternative="Replay the value of the optimal rule on a fit without strata=.",
     roadmap="X11",
 )
 

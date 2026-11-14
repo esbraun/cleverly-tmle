@@ -23,7 +23,8 @@ from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..interventions.learned import (
-    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
+    OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL,
+    OPTIMAL_RULE_REPLAY_STRATA_REFUSAL,
     learned_rule_splits_refusal,
     reports_optimal_rule,
 )
@@ -56,7 +57,12 @@ from ._simulated_confounding_incremental import (
     natural_incremental_means,
     validate_incremental_replay,
 )
-from ._simulated_confounding_learned import LEARNED_RULE_TARGETS, validate_learned_rule_replay
+from ._simulated_confounding_learned import (
+    LEARNED_RULE_TARGETS,
+    OPTIMAL_RULE_REPLAY_TARGETS,
+    validate_learned_rule_replay,
+    validate_optimal_rule_replay,
+)
 from ._simulated_confounding_longitudinal import longitudinal_fit_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -301,9 +307,12 @@ def _refuse_learned_rule_splits(result: Any) -> Refusal | None:
 
     The replay freezes one realized rule per row, and a fit of ``repeats`` above 1 has one
     rule per row in each split.  A learned-rule fit reports one parameter, so the boundary
-    is fit-wide.
+    is fit-wide.  A fit of the value of the optimal rule passes: its replay relearns the
+    rule with one refit per stored split and holds no rule per row (X11 (f3)).
     """
     if getattr(result.config, "parameter_axis", None) != "learned_rule":
+        return None
+    if reports_optimal_rule(result):
         return None
     return learned_rule_splits_refusal("simulated_confounding", result.n_repeats)
 
@@ -336,13 +345,35 @@ def _refuse_learned_rule_level(result: Any) -> Refusal | None:
 
 
 def _refuse_optimal_rule(result: Any) -> Refusal | None:
-    """Refuse a fit of the value of the optimal rule (X11 (f3)).
+    """Refuse the compositions of the value of the optimal rule the replay does not build.
 
-    The replay holds the fit's realized rules fixed, so it reads the value of those fixed
-    rules, and confounding also moves which rule is optimal.  The fit reports one
-    parameter, so the boundary is fit-wide.
+    The replay of the value of the optimal rule relearns the rule in every cell (X11 (f3)),
+    so each cell estimates the optimal value of its perturbed law.  It refuses a fit beside
+    known regimes, whose regimes and contrasts would be rebuilt beside a relearned rule, a
+    fit with baseline strata, and a fit at a level of an intermediate, which no witness
+    checks.  The fit reports one parameter per regime, so the boundary is fit-wide.
     """
-    return OPTIMAL_RULE_SENSITIVITY_REFUSAL if reports_optimal_rule(result) else None
+    if not reports_optimal_rule(result):
+        return None
+    regimes = result.repeats[0].nuisance.regimes
+    if regimes is not None and len(regimes.names) > 1:
+        return OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL
+    if result.data.has_strata:
+        return OPTIMAL_RULE_REPLAY_STRATA_REFUSAL
+    if declares_intermediate(result):
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "simulated_confounding of the value of the optimal rule with the intermediate "
+            f"held at a level (here Z = {result.intermediate_value:g}) is not built. Each cell "
+            "would relearn the rule at that level and flip the treatment or the "
+            "intermediate, and no witness checks a relearning replay at a level of the "
+            "intermediate (X11 (j4) in docs/roadmap.md).",
+            alternative=(
+                "Replay the value of the optimal rule on a design without an intermediate."
+            ),
+            roadmap="X11",
+        )
+    return None
 
 
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
@@ -622,7 +653,10 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
             (key.estimand in _BINARY_PARAMETER_TARGETS and key.axis == "arm")
             or fixed_key_axis(key) is not None
             or (key.estimand in INCREMENTAL_TARGETS and key.axis == "ipsi")
-            or (key.estimand in LEARNED_RULE_TARGETS and key.axis == "learned_rule")
+            or (
+                key.estimand in LEARNED_RULE_TARGETS | OPTIMAL_RULE_REPLAY_TARGETS
+                and key.axis == "learned_rule"
+            )
         )
         and _replay_refusal(result.estimator, key.estimand) is None
     )
@@ -1736,6 +1770,9 @@ def _validated_parameter(
     frozen_folds: tuple[Any, ...] | None = None
     if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
+    elif key.estimand in OPTIMAL_RULE_REPLAY_TARGETS:
+        # Branches before the frozen replay: the value of the optimal rule relearns the rule.
+        estimator, frozen_folds = validate_optimal_rule_replay(result, estimand, key)
     elif key.estimand in LEARNED_RULE_TARGETS:
         estimator, frozen_folds = validate_learned_rule_replay(result, estimand, key)
     elif treatment_family in {"binary", "categorical"} and key.estimand in INCREMENTAL_TARGETS:

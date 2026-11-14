@@ -4000,6 +4000,8 @@ T4_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "incremental_reading": "note",
         "learned_rule_reading": "note",
         "learned_rule_bound": "note",
+        "optimal_rule_reading": "note",
+        "optimal_rule_bound": "note",
         "observation_reads": "note",
         "bounded_rows": "note",
         "redrawn_folds": "note",
@@ -4224,6 +4226,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The bound keeps the rules the fit learned fixed, so it reads confounding of the "
             "value of those fixed rules, not of the procedure that learned them."
         ),
+        "optimal_rule_reading": (
+            "Each cell learns the rule again from its altered data, so it reads confounding "
+            "of the value of the best rule, and the rule itself moves with the confounding."
+        ),
+        "optimal_rule_bound": (
+            "The bound reads the strengths as limits that hold for every rule, random rules "
+            "included. Its lower side is the bound of the value of the rules the fit learned, "
+            "and its upper side adds the largest bias any rule can carry, so the interval is "
+            "not symmetric."
+        ),
         "observation_reads": (
             "The cells that move the treatment are valid only if whether a value is recorded "
             "depends on {reads} alone, as declared."
@@ -4268,6 +4280,13 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "value is a point bound, because the estimate of the average squared weight "
             "applies each fold's rule to rows that rule was learned on, and no standard "
             "error is derived for that. {alternative}"
+        ),
+        "limits_withheld_optimal_rule": (
+            "No one-sided limits or limit robustness value: the bound of the value of the "
+            "best rule is a point bound. Its upper side reads the average of the largest "
+            "inverse treatment probability over arms, a maximum with no derived standard "
+            "error, and its lower side is the point bound of the learned rules' value. "
+            "{alternative}"
         ),
         "limits_withheld_zero": (
             "No one-sided limits or limit robustness value: the bias scale is zero on this "

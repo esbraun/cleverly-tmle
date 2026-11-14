@@ -306,14 +306,14 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
         "ey_ipsi": "incremental mean, replayed on the ipsi axis for a marginal request",
         "ate_ipsi": "incremental contrast, replayed on the ipsi axis for a marginal request",
         "msm": "working-model coefficient, replayed on the msm axis under ordinary TMLE",
+        "ey_optimal_rule": (
+            "optimal-rule value, replayed on the learned-rule axis with the rule relearned in "
+            "every cell on the fit's folds and seed (X11 (f3))"
+        ),
     }
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
         "ey_learned_rule": "learned-rule value: a replay relearns the rules, so its target moves",
-        "ey_optimal_rule": (
-            "optimal-rule value: the replay holds the fold rules fixed, and confounding also "
-            "moves which rule is optimal (X11 (f3))"
-        ),
         "ey_known_regime": (
             "known regime beside a learned rule: no study request declares one, and a direct TMLE "
             "fit carries no identification metadata, so the surface never meets it"
@@ -323,8 +323,8 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
             "fit carries no identification metadata, so the surface never meets it"
         ),
         "ate_optimal_rule": (
-            "contrast of the optimal-rule value with a known regime: the fit reports "
-            "ey_optimal_rule, whose refusal is fit-wide (X11 (f3))"
+            "contrast of the optimal-rule value with a known regime: the fit declares known "
+            "regimes, which the relearning replay refuses fit-wide (X11 (f3))"
         ),
         "ey_rr_tilt": "risk-ratio tilt mean: no replay reading of its rule is declared",
         "ate_rr_tilt": "risk-ratio tilt contrast: refused fit-wide for the same reason",

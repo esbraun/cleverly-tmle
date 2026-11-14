@@ -53,7 +53,7 @@ from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import LearnedRule, Static
 from cleverly.interventions.learned import (
     OPTIMAL_REPLAY_TARGET_KIND,
-    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
+    OPTIMAL_RULE_BENCHMARK_REFUSAL,
     OPTIMAL_RULE_TARGET,
     OPTIMAL_TARGET_KIND,
     TARGET_KIND,
@@ -62,8 +62,8 @@ from cleverly.interventions.learned import (
     frozen_rule_replay,
     optimal_rule_requested,
 )
+from cleverly.sensitivity import _simulated_confounding_request as request_module
 from cleverly.sensitivity import evalue
-from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.omitted_variable import (
     benchmark_refusal,
     fit_wide_bound_refusal,
@@ -759,29 +759,28 @@ class TestTheRuleDisagreement:
 
 
 class TestTheAssessments:
-    """The analyses that hold the fold rules fixed refuse; the refutations run."""
+    """The bound and the relearning replay run (X11 (f3)); benchmark keeps (n2)."""
 
     @pytest.fixture(scope="class")
     def result(self) -> Any:
         return support.fit(estimands=[OPTIMAL_RULE_TARGET])
 
-    def test_the_bound_refuses(self, result: Any) -> None:
-        assert fit_wide_bound_refusal(result) is OPTIMAL_RULE_SENSITIVITY_REFUSAL
-        assert benchmark_refusal(result, ["W2"]) is OPTIMAL_RULE_SENSITIVITY_REFUSAL
-        for operation in ("omitted_confounding", "robustness_value", "benchmark", "contour"):
-            row = result.sensitivity.capability(operation)
-            assert not row.available, operation
-            assert "X11 (f3) in docs/roadmap.md" in (row.reason or ""), operation
-        assert fit_wide_bound_refusal(support.fit()) is None
+    def test_the_bound_runs_and_benchmark_refuses(self, result: Any) -> None:
+        assert fit_wide_bound_refusal(result) is None
+        assert benchmark_refusal(result, ["W2"]) is OPTIMAL_RULE_BENCHMARK_REFUSAL
+        for operation in ("omitted_confounding", "robustness_value", "contour"):
+            assert result.sensitivity.capability(operation).available, operation
+        row = result.sensitivity.capability("benchmark")
+        assert not row.available
+        assert "X11 (n2) in docs/roadmap.md" in (row.reason or "")
 
-    def test_simulated_confounding_refuses(self, result: Any) -> None:
-        refusal = simulated_confounding_refusal(result, OPTIMAL)
-        assert refusal is OPTIMAL_RULE_SENSITIVITY_REFUSAL
-        assert simulated_confounding_refusal(support.fit(), LEARNED) is not refusal
-        # At repeats above 1 the optimal refusal comes first: the splits refusal's remedy,
-        # a refit at repeats=1, would be refused by the optimal rule.
-        _, repeated = _pairs("repeats")
-        assert simulated_confounding_refusal(repeated, OPTIMAL) is refusal
+    def test_the_replay_admits_the_optimal_value_and_its_splits(self, result: Any) -> None:
+        assert request_module._refuse_optimal_rule(result) is None
+        # The relearning replay holds no rule per row, so repeats above 1 pass; the frozen
+        # learned-rule replay keeps its splits refusal.
+        learned, repeated = _pairs("repeats")
+        assert request_module._refuse_learned_rule_splits(repeated) is None
+        assert request_module._refuse_learned_rule_splits(learned) is not None
 
     def test_the_remedy_runs(self, result: Any) -> None:
         learned = support.fit()

@@ -355,9 +355,10 @@ def _optimal_rule(
 ) -> Any:
     """The fit of the value of the optimal rule (X11 (f), (f3)) on the learned-rule law.
 
-    Every optimal-value kind answers the read rows, ``refute`` and ``truncation_curve``,
-    and refuses the bound rows with ``OPTIMAL_RULE_SENSITIVITY_REFUSAL`` until X11 PR 3
-    ships the bound of the optimal value.
+    Every optimal-value kind answers the read rows, ``refute`` and ``truncation_curve``.
+    The rows, weighted and in-sample kinds also answer the point rows of the asymmetric
+    omitted-variable bound (X11 (f3)); the others keep their (n2) refusals, and
+    ``benchmark`` refuses on every kind.
     """
     frame = learned_rule_support.law_frame() if frame is None else frame
     with warnings.catch_warnings():
@@ -1299,13 +1300,14 @@ KINDS: dict[str, Kind] = {
     # At a level of the intermediate the omitted-variable rows refuse, as on the
     # controlled direct effect, and simulated_confounding refuses by name (X11 (j4)).
     "learned_rule+level": _kind(fit_learned_rule_level, *_LIVE),
-    # The value of the optimal rule and its compositions (X11 (f), (f3)). The bound rows
-    # refuse with OPTIMAL_RULE_SENSITIVITY_REFUSAL until X11 PR 3 ships the bound.
-    "optimal_rule": _kind(fit_optimal_rule, *_LIVE),
-    "optimal_rule+weights": _kind(fit_optimal_rule_weights, *_LIVE),
+    # The value of the optimal rule and its compositions (X11 (f), (f3)). The asymmetric
+    # point bound runs where the learned-rule bound does; strata, known regimes and an
+    # intermediate keep their (n2) refusals, and benchmark refuses (X11 (n2)).
+    "optimal_rule": _kind(fit_optimal_rule, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+weights": _kind(fit_optimal_rule_weights, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+strata": _kind(fit_optimal_rule_strata, *_LIVE),
     "optimal_rule+known_regimes": _kind(fit_optimal_rule_known_regimes, *_LIVE),
-    "optimal_rule+in_sample": _kind(fit_optimal_rule_in_sample, *_LIVE),
+    "optimal_rule+in_sample": _kind(fit_optimal_rule_in_sample, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+intermediate": _kind(fit_optimal_rule_intermediate, *_LIVE),
     "weighted": _kind(fit_weighted, "marginal_bounds", *_ARM),
     "stratified": _kind(fit_stratified, "marginal_bounds", *_ARM),
@@ -1749,7 +1751,8 @@ MUTATIONS: dict[str, Mutation] = {
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
-        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
+        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)),
+        # and so does a fit of the value of the optimal rule (X11 (f3)).
         frozenset(
             {
                 "split_plan",
@@ -1757,6 +1760,11 @@ MUTATIONS: dict[str, Mutation] = {
                 "regime+missing",
                 "learned_rule",
                 "learned_rule+estimated_weights",
+                # The bound of the value of the optimal rule runs, and its benchmark refit
+                # refuses (X11 (f3), (n2)).
+                "optimal_rule",
+                "optimal_rule+weights",
+                "optimal_rule+in_sample",
             }
         ),
         "("

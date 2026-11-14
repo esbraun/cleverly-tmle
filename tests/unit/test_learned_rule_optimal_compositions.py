@@ -75,12 +75,14 @@ from cleverly.interventions import LearnedRule, Static
 from cleverly.interventions.learned import (
     CONTRAST_TARGETS,
     OPTIMAL_CONTRAST_TARGET,
-    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
+    OPTIMAL_RULE_BENCHMARK_REFUSAL,
+    OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL,
+    OPTIMAL_RULE_REPLAY_STRATA_REFUSAL,
     OPTIMAL_RULE_TARGET,
     freeze_learned_rule,
     frozen_rule_replay,
 )
-from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
+from cleverly.sensitivity import _simulated_confounding_request as request_module
 from cleverly.sensitivity.omitted_variable import benchmark_refusal, fit_wide_bound_refusal
 from cleverly.targets import TARGETS
 from tests import discrete_law as exact
@@ -1021,18 +1023,48 @@ SENSITIVITY_COMPOSITIONS = (
 )
 
 
-class TestTheSensitivityAnalysesStillRefuse:
-    """The omitted-variable bound and ``simulated_confounding`` keep the optimal refusal."""
+#: What the bound of each composition answers (X11 (f3)): ``None`` runs, and a fragment
+#: names the setting of the (n2) refusal it keeps.
+BOUND_VERDICTS: dict[str, str | None] = {
+    "weights": None,
+    "estimated_weights": None,
+    "strata": "the value of the optimal rule with baseline strata (strata=) is not built",
+    "known_regimes": "the value of the optimal rule beside known regimes (interventions=)",
+    "in_sample": None,
+    "intermediate_0": "the value of the optimal rule with an intermediate (intermediate=",
+    "method_intermediate_1": "the value of the optimal rule with an intermediate (intermediate=",
+}
+
+
+class TestTheSensitivityAnalysesOfEachComposition:
+    """The bound and the relearning replay run where the plan admits them (X11 (f3))."""
 
     @pytest.mark.parametrize("name", SENSITIVITY_COMPOSITIONS)
-    def test_the_bound_refuses_every_composition(self, name: str) -> None:
+    def test_the_bound_runs_or_keeps_its_n2_refusal(self, name: str) -> None:
         _, optimal = _pairs(name)
-        assert fit_wide_bound_refusal(optimal) is OPTIMAL_RULE_SENSITIVITY_REFUSAL
-        assert benchmark_refusal(optimal, ["W2"]) is OPTIMAL_RULE_SENSITIVITY_REFUSAL
+        refusal = fit_wide_bound_refusal(optimal)
+        fragment = BOUND_VERDICTS[name]
+        if fragment is None:
+            assert refusal is None, refusal
+        else:
+            assert refusal is not None
+            assert fragment in refusal.condition, refusal.condition
+            assert "X11 (n2) in docs/roadmap.md" in refusal.condition
+            assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+            assert refusal.roadmap == "X11"
+        assert benchmark_refusal(optimal, ["W2"]) is OPTIMAL_RULE_BENCHMARK_REFUSAL
 
     @pytest.mark.parametrize("name", SENSITIVITY_COMPOSITIONS)
-    def test_simulated_confounding_refuses_every_name(self, name: str) -> None:
+    def test_the_replay_admits_or_refuses_with_its_own_reason(self, name: str) -> None:
         _, optimal = _pairs(name)
-        for estimand in optimal.estimates:
-            refusal = simulated_confounding_refusal(optimal, estimand)
-            assert refusal is OPTIMAL_RULE_SENSITIVITY_REFUSAL, estimand
+        refusal = request_module._refuse_optimal_rule(optimal)
+        if name == "known_regimes":
+            assert refusal is OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL
+        elif name == "strata":
+            assert refusal is OPTIMAL_RULE_REPLAY_STRATA_REFUSAL
+        elif name.startswith(("intermediate", "method_intermediate")):
+            assert refusal is not None
+            assert "relearning replay at a level of the intermediate" in refusal.condition
+            assert "X11 (j4) in docs/roadmap.md" in refusal.condition
+        else:
+            assert refusal is None

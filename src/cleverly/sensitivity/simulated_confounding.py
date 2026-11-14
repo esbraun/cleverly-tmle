@@ -511,6 +511,15 @@ class SimulatedConfoundingResult:
             )
             + (
                 (
+                    "optimal-rule reading: every cell relearns the rule on the fit's folds and "
+                    "seed, so a cell reads confounding of the value of the optimal rule, and "
+                    "the rule moves with the confounding",
+                )
+                if self.estimand.startswith("ey_optimal_rule[")
+                else ()
+            )
+            + (
+                (
                     "treatment mechanism: known on the data; each cell that flips the treatment "
                     "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
                     if self.arm_pair is None
@@ -1781,8 +1790,11 @@ def simulated_confounding(
     this empirical law on the selected baseline stratum. Numeric calibration uses the full
     original population, or the recorded rows of each target when observations are
     missing. A learned-rule fit keeps the fit's folds and each row's realized rule in every
-    cell. A longitudinal fit and a risk-ratio tilt are refused before calibration, a draw, or
-    a refit, and so are the grid stops of ``observation_reads`` and the intermediate axis.
+    cell. A fit of the value of the optimal rule keeps the fit's folds and seed and relearns
+    the rule in every cell, with one relearning refit per stored split; it refuses known
+    regimes beside the rule, baseline strata and an intermediate. A longitudinal fit and a
+    risk-ratio tilt are refused before calibration, a draw, or a refit, and so are the grid
+    stops of ``observation_reads`` and the intermediate axis.
     Execution and the assessment capability share the same ordered reasons.
 
     All strata share the same full-row latent draw and complete estimator refit. Baseline

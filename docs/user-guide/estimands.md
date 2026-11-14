@@ -385,9 +385,15 @@ the benefit is zero for many people. In the study, an outcome model that missed 
 an interval that contained the best value in 9% of samples, and a setting where the benefit was
 zero for 60% of people gave 91%. The fit takes `weights=` (then the answer is the best rule's
 value in the population the weights describe), `strata=` (the best rule's value inside each
-group), the in-sample fit and an intermediate held at a value, each marked experimental. The
-omitted-variable bound and `simulated_confounding` refuse on its fit and name the fit that runs
-instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
+group), the in-sample fit and an intermediate held at a value, each marked experimental.
+
+Two checks of hidden confounding run on this fit. The omitted-variable bound, the range the
+estimate could move to under left-out common causes of a stated strength, reads that strength as
+holding for every rule. Its range reaches further above the estimate than below it, because hidden
+causes could also make another rule the best one, and it has no confidence limits.
+`simulated_confounding` learns the rule again in each simulated scenario, so the rule moves with
+the confounding. Neither runs with `strata=` or an intermediate.
+[The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
 To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`

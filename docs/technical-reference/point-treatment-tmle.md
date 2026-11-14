@@ -2131,7 +2131,8 @@ estimator, which is valid there, is a different estimator, and
 | `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | with known $g$ under the fold-evaluated report, supported, row `T55.intermediate`; otherwise experimental. Each level targets $\Psi^z_{d_0^z}$ |
 | `ey_learned_rule` or `ate_learned_rule` beside it, or `ate_optimal_rule` without it | refused as a declaration, row 2: the names would read one estimate as two targets |
 | strata with `id=`, a rule learner with `intermediate=`, and every other row of the table below | refused as for the learned-rule value with the same setting, with the same text |
-| the omitted-variable bound and `simulated_confounding` | refused, X11 (f3), under every composition. Both hold the fold rules fixed, so they read the value of those rules, and confounding also moves which rule is optimal. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
+| the omitted-variable bound | an asymmetric point bound on rows, known weights, clusters, fold targeting and in sample, with the strengths read uniformly over every regime. Its lower side is the learned-rule bound and its upper side reads $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$ ([the point bound of the value of the optimal rule](validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)). The limits and `benchmark()` refuse, and strata, known regimes, an intermediate and the other learned-rule (n2) settings refuse with the learned-rule reason |
+| `simulated_confounding` | each cell relearns the rule on the fit's folds and seed, so it reads the optimal value of its perturbed law ([the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface)). Known regimes, strata and an intermediate refuse. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
 
 Every composition decomposes the error as above, under the setting's law:
 
@@ -2425,6 +2426,15 @@ with an intermediate ([an intermediate held at each level](#learned-rules)).
 mean over splits, the strata, the stacked report, the contrasts, more than two arms and the
 intermediate. A
 `FrozenLearnedRule` replay refuses, because it holds no fold rule.
+
+A fit of the value of the optimal rule gets an asymmetric point bound in the same settings: its
+lower side is the learned-rule bound above, and its upper side adds the bound over every rule,
+with $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$
+([the point bound of the value of the optimal rule](validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)).
+Its limits refuse, the in-sample fit's included, and so do `benchmark()` and the settings above
+that the learned-rule bound refuses, each with the learned-rule reason, and known regimes beside
+it. Its `simulated_confounding` relearns the rule in every cell on the fit's folds and seed, at any
+`repeats`, and refuses known regimes, strata and an intermediate.
 
 The E-value and the missingness tilt read `unavailable`, because the package does not implement
 them for this target, and
