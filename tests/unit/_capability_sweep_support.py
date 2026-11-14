@@ -1376,17 +1376,18 @@ def _facades(result: Any) -> tuple[Any, Any]:
     return result.diagnostics, result.sensitivity
 
 
-def _estimand_choice(result: Any, facade: Any, operation: str) -> str:
+def _estimand_choice(result: Any, facade: Any, operation: str) -> Any:
     """The estimand the sweep supplies: the deferred row's own first candidate.
 
     A row that defers on its estimand names the candidates it chooses between, and the
     first reported estimate need not be one of them: a PAR fit reports ``par``, which the
-    marginal bound cannot take, so it offers every arm parameter instead (Fix-15).
+    marginal bound cannot take, so it offers every arm parameter instead (Fix-15). With no
+    candidates the filler answers: the first estimate, or a continuous-time fit's pair.
     """
     candidates = facade._estimand_candidates(operation)
     if candidates:
         return str(candidates[0])
-    return str(next(iter(result.estimates)))
+    return _first_estimand(result)
 
 
 def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
