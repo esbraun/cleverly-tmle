@@ -126,6 +126,26 @@ class ContinuousSurvivalRecord:
         The number of cross-fitting folds, ``1`` for a full-sample fit.
     grid_size : int
         The number of distinct observed times up to the last target.
+    treatment_probability : ndarray
+        ``(n,)`` each row's estimated probability of the treated arm (arm code 1, the
+        non-reference arm) given its baseline covariates, :math:`\\hat\\pi(1 \\mid L_i)`,
+        in row order.  It is predicted out of fold when the fit is cross-fitted and in sample
+        otherwise.  The values are as fitted, before any bound: the engine never bounds
+        :math:`\\hat\\pi` alone.  It bounds the product :math:`\\hat\\pi(a \\mid L)
+        \\hat S_c(u^- \\mid a, L)` below by :attr:`positivity_floor`, and
+        :attr:`bounded_share` counts the cells that bound raised.
+    censoring_survival : ndarray
+        ``(n, n_target_times)`` each row's estimated probability of remaining uncensored
+        through each target time under the arm it received,
+        :math:`\\hat S_c(t_k \\mid A_i, L_i) = \\prod_{u \\le t_k}\\{1 - d\\hat\\Lambda_c(u
+        \\mid A_i, L_i)\\}` over the observed times :math:`u`, predicted as
+        :attr:`treatment_probability` is and before any bound.  Column ``k`` is the target
+        time ``horizons[k]``.  The targeting weight reads the left limit
+        :math:`\\hat S_c(u^-)` at each time up to the target, not these values.
+    positivity_floor : float
+        The lower bound on :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` that the
+        targeting weights applied: ``g_bounds`` as given, or
+        :math:`5 / (\\sqrt n \\log n)` for ``"auto"``.
     """
 
     hazards: tuple[HazardSelection, ...]
@@ -144,6 +164,9 @@ class ContinuousSurvivalRecord:
     cross_fitted: bool
     n_folds: int
     grid_size: int
+    treatment_probability: FloatArray
+    censoring_survival: FloatArray
+    positivity_floor: float
 
 
 #: The inverse L1 penalties of the lasso members of the treatment-model library.
@@ -584,6 +607,9 @@ class ContinuousSurvivalTMLE:
         relevant = factual & reach
         bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
         last_time_floor_share = float(np.mean(product[..., -1] < floor))
+        # Stored for the overlap readers; read before the arrays below are released, and no
+        # estimate reads them.
+        censoring_survival = retention[A, np.arange(n)][:, target_index].copy()
         # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
         del survival, retention, retention_before, product, factual, reach, relevant, dgam
 
@@ -632,6 +658,9 @@ class ContinuousSurvivalTMLE:
             cross_fitted=self.cross_fit,
             n_folds=self.n_folds if self.cross_fit else 1,
             grid_size=int(grid.size),
+            treatment_probability=p1.copy(),
+            censoring_survival=censoring_survival,
+            positivity_floor=float(floor),
         )
         observed = T[D > 0]
         shares = [float(np.mean(observed <= time)) for time in self.horizons]
