@@ -157,8 +157,14 @@ from sklearn.base import is_classifier
 from .._inference_status import InferenceStatus, precedent_status
 from .._support import Preflight
 from ..data.causal_data import CausalData
-from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
-from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
+from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL, known_score_engine_refusal
+from ..exceptions import (
+    CapabilityError,
+    CleverlyError,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -640,6 +646,8 @@ class DRTMLE(TMLE):
         _validate_learner(reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(reduced_treatment_learner, "reduced_treatment_learner")
         _validate_learner(reduced_mechanism_residual_learner, "reduced_mechanism_residual_learner")
+        if kwargs.get("conditional_form", "arm_mean") != "arm_mean":
+            raise MethodConfigurationError.from_refusal(known_score_engine_refusal("DRTMLE"))
         super().__init__(**kwargs)
         self.max_outer = int(max_outer)
         self.guard = tuple(guard)
