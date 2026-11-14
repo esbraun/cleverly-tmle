@@ -1,8 +1,9 @@
 """The binned conditional density: exact invariants, not statistical ones.
 
 The claims worth testing here are arithmetic and fail deterministically -- the hazard
-product sums to one, a probability divided by the right bin width is a density, an
-evaluation outside the support is zero.  How *well* the density recovers a known law is a
+product sums to one, an isolated bin reads its probability over its width, an evaluation
+outside the support is zero.  The reading's own properties are witnessed in
+``test_density_reconstruction.py``.  How *well* the density recovers a known law is a
 question about the learner, and belongs to the oracle tests where an exact density is
 available for comparison.
 """
@@ -21,10 +22,11 @@ from cleverly.exceptions import DataError
 from cleverly.learners.crossfit import Folds, make_folds
 from cleverly.learners.density import (
     ConditionalDensity,
+    _equal_mass_edges,
     _probabilities_from_hazards,
     bin_edges,
     fit_conditional_density,
-    warn_if_unresolved,
+    warn_if_flat,
 )
 
 
@@ -91,21 +93,18 @@ class TestTheHazardProduct:
 
 
 class TestEvaluation:
-    def test_a_probability_becomes_a_density_by_its_bin_width(self) -> None:
+    def test_an_isolated_bin_reads_its_probability_over_its_width(self) -> None:
+        # The middle bin holds no observation, so each outer bin is a one-bin segment.
         edges = np.array([0.0, 1.0, 3.0, 4.0])
         probabilities = np.array([[0.5, 0.4, 0.1], [0.2, 0.2, 0.6]])
-        density = ConditionalDensity(probabilities, edges)
+        density = ConditionalDensity(probabilities, edges, np.array([True, False, True]))
         np.testing.assert_allclose(density.density_at(np.array([0.5, 2.0])), [0.5, 0.1])
-
-    def test_it_is_constant_within_a_bin(self) -> None:
-        edges = np.array([0.0, 1.0, 2.0])
-        density = ConditionalDensity(np.array([[0.3, 0.7], [0.3, 0.7]]), edges)
-        first = density.density_at(np.array([0.01, 0.01]))
-        second = density.density_at(np.array([0.99, 0.99]))
-        np.testing.assert_array_equal(first, second)
+        np.testing.assert_allclose(density.density_at(np.array([0.9, 3.9])), [0.5, 0.6])
 
     def test_outside_the_support_it_is_exactly_zero(self) -> None:
-        density = ConditionalDensity(np.array([[0.5, 0.5]]), np.array([0.0, 1.0, 2.0]))
+        density = ConditionalDensity(
+            np.array([[0.5, 0.5]]), np.array([0.0, 1.0, 2.0]), np.ones(2, dtype=bool)
+        )
         assert density.density_at(np.array([5.0]))[0] == 0.0
         assert density.density_at(np.array([-5.0]))[0] == 0.0
         assert density.bin_of(np.array([5.0]))[0] == -1
@@ -119,7 +118,9 @@ class TestEvaluation:
         assert np.all(np.digitize(treatment, edges) - 1 >= 0)
 
     def test_one_value_per_row_is_required(self) -> None:
-        density = ConditionalDensity(np.ones((4, 2)) / 2, np.array([0.0, 1.0, 2.0]))
+        density = ConditionalDensity(
+            np.ones((4, 2)) / 2, np.array([0.0, 1.0, 2.0]), np.ones(2, dtype=bool)
+        )
         with pytest.raises(ValueError, match="one value per row"):
             density.density_at(np.array([0.5]))
 
@@ -133,17 +134,18 @@ class TestTheObservedAndShiftedDensityShareAModel:
     """
 
     def test_both_evaluations_read_the_same_row(self) -> None:
+        # The reading of a row depends on that row's probabilities alone, so the row read on
+        # its own gives the same two values.
         _, treatment = _sample()
         density = _fit()
         row = 7
-        observed_bin = density.bin_of(treatment)[row]
-        shifted_bin = density.bin_of(treatment - 0.5)[row]
-        expected_observed = (
-            density.bin_probabilities[row, observed_bin] / density.widths[observed_bin]
-        )
-        expected_shifted = density.bin_probabilities[row, shifted_bin] / density.widths[shifted_bin]
-        assert density.density_at(treatment)[row] == expected_observed
-        assert density.density_at(treatment - 0.5)[row] == expected_shifted
+        alone = density.subset(np.array([row]))
+        for values in (treatment, treatment - 0.5):
+            np.testing.assert_allclose(
+                density.density_at(values)[row],
+                alone.density_at(values[[row]])[0],
+                rtol=1e-12,
+            )
 
     def test_a_subset_slices_rows_and_keeps_the_grid(self) -> None:
         density = _fit()
@@ -151,14 +153,17 @@ class TestTheObservedAndShiftedDensityShareAModel:
         assert subset.n == 20
         np.testing.assert_array_equal(subset.edges, density.edges)
         np.testing.assert_array_equal(subset.bin_probabilities, density.bin_probabilities[:20])
+        np.testing.assert_array_equal(subset.occupied, density.occupied)
 
 
 class TestBinEdges:
-    def test_equal_mass_bins_hold_about_the_same_count(self) -> None:
+    def test_the_equal_mass_core_holds_about_the_same_count(self) -> None:
         _, treatment = _sample(n=600)
-        edges = bin_edges(treatment, 10)
-        counts = np.bincount(np.digitize(treatment, edges) - 1, minlength=10)
+        core = _equal_mass_edges(treatment, 10, None)
+        counts = np.bincount(np.digitize(treatment, core) - 1, minlength=10)
         assert counts.max() - counts.min() <= 1
+        # The refinement never removes a core edge.
+        assert np.all(np.isin(core, bin_edges(treatment, 10)))
 
     def test_supplied_edges_are_used_verbatim(self) -> None:
         edges = np.linspace(-6.0, 6.0, 9)
@@ -191,22 +196,26 @@ class TestBinEdges:
 
 
 class TestTheResolutionGuard:
-    """A shift smaller than a bin width moves nobody, and the fit says so."""
+    """A shift that stays inside flat bins is invisible, and the fit says so."""
 
-    def test_a_shift_that_moves_nobody_is_reported_and_warned_about(self) -> None:
+    def test_a_shift_inside_flat_bins_is_reported_and_warned_about(self) -> None:
         _, treatment = _sample()
-        density = _fit()
-        with pytest.warns(UserWarning, match="across a bin edge"):
-            crossing = warn_if_unresolved(density, treatment + 1e-9, treatment)
-        assert crossing == pytest.approx(0.0, abs=1e-12)
+        fitted = _fit()
+        # Every bin isolated: each is a one-bin segment, read flat.
+        density = ConditionalDensity(
+            fitted.bin_probabilities, fitted.edges, np.zeros(fitted.n_bins, dtype=bool)
+        )
+        with pytest.warns(UserWarning, match="inside one flat bin"):
+            flat = warn_if_flat(density, treatment + 1e-9, treatment)
+        assert flat == pytest.approx(1.0, abs=1e-12)
 
-    def test_a_shift_of_a_bin_width_moves_most_rows(self) -> None:
+    def test_a_small_shift_on_a_segment_is_not_flat(self) -> None:
         _, treatment = _sample()
         density = _fit()
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
-            crossing = warn_if_unresolved(density, treatment + 1.5, treatment)
-        assert crossing > 0.8
+            flat = warn_if_flat(density, treatment + 1e-9, treatment)
+        assert flat == pytest.approx(0.0, abs=1e-12)
 
 
 class TestValidation:
@@ -222,4 +231,29 @@ class TestValidation:
         self, probabilities: np.ndarray, edges: np.ndarray, match: str
     ) -> None:
         with pytest.raises(ValueError, match=match):
-            ConditionalDensity(probabilities, edges)
+            ConditionalDensity(probabilities, edges, np.ones(2, dtype=bool))
+
+    def test_occupancy_needs_one_boolean_per_bin(self) -> None:
+        with pytest.raises(ValueError, match="occupied must be a boolean mask"):
+            ConditionalDensity(np.ones((4, 2)) / 2, np.array([0.0, 1.0, 2.0]), np.ones(3, bool))
+
+    def test_a_declared_support_needs_lower_below_upper(self) -> None:
+        with pytest.raises(ValueError, match="lower < upper"):
+            ConditionalDensity(
+                np.ones((2, 2)) / 2,
+                np.array([0.0, 1.0, 2.0]),
+                np.ones(2, bool),
+                (np.array([0.0, 1.0]), np.array([1.0, 1.0])),
+            )
+
+    def test_occupancy_without_edges_is_refused(self) -> None:
+        covariates, treatment = _sample(n=100)
+        with pytest.raises(TypeError, match="occupied= travels with edges="):
+            fit_conditional_density(
+                _glm(),
+                covariates,
+                treatment,
+                np.ones(100),
+                Folds.single(100),
+                occupied=np.ones(10, bool),
+            )

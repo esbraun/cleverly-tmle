@@ -379,7 +379,9 @@ class TestACoarsenedShiftFit:
         outcome = law_frame["Y"].to_numpy(dtype=float)
         observed = law_frame["Delta"].to_numpy(dtype=float).astype(bool)
 
-        density = ConditionalDensity(shift_law.G_EXACT[covariate], shift_law.EDGES)
+        density = ConditionalDensity(
+            shift_law.bins(shift_law.G_EXACT[covariate]), shift_law.EDGES, shift_law.OCCUPIED
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             data = CausalData.from_arrays(

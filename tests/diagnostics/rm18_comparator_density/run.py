@@ -66,8 +66,8 @@ class AnalyticDensity:
     """The law's conditional dose density, ``phi(a - mu(W))`` with SD 1, on each row.
 
     ``PolicySet.evaluate`` reads ``density_at`` for every clever covariate.  It reads
-    ``crossing_fraction`` only to warn when a binned density cannot resolve a shift, and the
-    exact density resolves every shift, so it reports one.
+    ``flat_fraction`` only to warn when a binned density is flat where a shift moves a dose,
+    and the exact density is flat nowhere, so it reports zero.
     """
 
     def __init__(self, covariates: np.ndarray) -> None:
@@ -78,9 +78,9 @@ class AnalyticDensity:
             norm.pdf(np.asarray(values, dtype=float) - self.mean, scale=DGP.dose_scale)
         )
 
-    def crossing_fraction(self, shifted: np.ndarray, observed: np.ndarray) -> float:
+    def flat_fraction(self, shifted: np.ndarray, observed: np.ndarray) -> float:
         del shifted, observed
-        return 1.0
+        return 0.0
 
 
 def analytic_retarget(result: Any, frame: pd.DataFrame) -> Any:
@@ -93,7 +93,7 @@ def analytic_retarget(result: Any, frame: pd.DataFrame) -> Any:
     with warnings.catch_warnings():
         # The uncapped-support warning the registered fit already contains, for the same shift.
         warnings.simplefilter("ignore", PositivityWarning)
-        # ``evaluate`` reads ``density_at`` and ``crossing_fraction`` alone, which the analytic
+        # ``evaluate`` reads ``density_at`` and ``flat_fraction`` alone, which the analytic
         # density supplies; it is not a fitted ``ConditionalDensity``.
         evaluated = PolicySet.evaluate(
             study.shifts(),

@@ -202,7 +202,7 @@ def _evaluate(grid_name: str, labels: tuple[str, ...]) -> PolicySet:
         warnings.simplefilter("ignore")
         if grid_name in DISCRETE:
             return PolicySet.evaluate(policies, data, propensity=grid.g[covariate])
-        density = ConditionalDensity(grid.bins(grid.g[covariate]), grid.edges)
+        density = ConditionalDensity(grid.bins(grid.g[covariate]), grid.edges, grid.occupied)
         return PolicySet.evaluate(policies, data, density)
 
 
@@ -557,7 +557,7 @@ def test_t1c_the_shift_arrays_are_the_shipped_ones(cap: Any) -> None:
     probabilities = rng.dirichlet(np.ones(8), size=treatment.size)
     probabilities[1, np.digitize(1.5, edges) - 1] = 0.0
     probabilities[1] /= probabilities[1].sum()
-    density = ConditionalDensity(probabilities, edges)
+    density = ConditionalDensity(probabilities, edges, np.ones(8, dtype=bool))
     shifts = (Shift(0.0, cap=None), Shift(delta, cap=edge_cap, name="edge"), Shift(1.0, cap=cap))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -690,7 +690,9 @@ class TestRefusalsBeforeAnyLearner:
             ),
             policy_kind="known",
         )
-        density = ConditionalDensity(law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges)
+        density = ConditionalDensity(
+            law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges, law.UNIT.occupied
+        )
         with pytest.raises(
             DataError, match=r"does not assign .* observed doses to exactly one piece"
         ):
@@ -705,14 +707,18 @@ class TestRefusalsBeforeAnyLearner:
             ),
             policy_kind="known",
         )
-        density = ConditionalDensity(law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges)
+        density = ConditionalDensity(
+            law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges, law.UNIT.occupied
+        )
         with pytest.raises(CapabilityError, match="not pathwise differentiable"):
             PolicySet.evaluate((floor,), data, density)
 
     def test_r3_apply_without_pieces_on_a_continuous_dose(self) -> None:
         data, covariate, _, _ = _data("unit")
         undeclared = ModifiedPolicy("apply", apply=lambda a, h: a + 1.0, policy_kind="known")
-        density = ConditionalDensity(law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges)
+        density = ConditionalDensity(
+            law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges, law.UNIT.occupied
+        )
         with pytest.raises(CapabilityError, match="declares apply= on a continuous treatment"):
             PolicySet.evaluate((undeclared,), data, density)
 
@@ -725,7 +731,9 @@ class TestRefusalsBeforeAnyLearner:
             ),
             policy_kind="known",
         )
-        density = ConditionalDensity(law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges)
+        density = ConditionalDensity(
+            law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges, law.UNIT.occupied
+        )
         with pytest.raises(DataError, match=r"inverse\(apply\(a\)\) differs from a"):
             PolicySet.evaluate((wrong,), data, density)
 
@@ -741,7 +749,7 @@ class TestRefusalsBeforeAnyLearner:
             policy_kind="known",
         )
         grid = law.MULTIPLICATIVE
-        density = ConditionalDensity(grid.bins(grid.g[covariate]), grid.edges)
+        density = ConditionalDensity(grid.bins(grid.g[covariate]), grid.edges, grid.occupied)
         with pytest.raises(DataError, match="declared derivative of the inverse is 2"):
             PolicySet.evaluate((wrong,), data, density)
         right = ModifiedPolicy(

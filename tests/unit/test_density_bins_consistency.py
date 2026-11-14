@@ -3,9 +3,11 @@
 A modified treatment policy reads the ratio ``g(a - delta) / g(a)`` from a binned density.  At a
 fixed bin count the ratio's error in the tail bins does not shrink as ``n`` grows: the
 ``longitudinal-mtp`` study found it.  The witness here gives the binned density its exact bin
-probabilities, so the only error left is the binning, and checks that the tail error shrinks
-from ``n = 1,000`` to ``n = 100,000`` under the default rule.  The mutation holds the count at
-20 and the witness fails.
+probabilities, so the only error left is the grid and its reading, and checks that the tail
+error falls by more than a factor of :data:`FALL` from ``n = 1,000`` to ``n = 100,000`` under the
+default core count, the refined grid and the polygon reading.  Three mutations each fail it:
+the core held at 20 bins, the equal-mass grid without its refinement, and a width cap read
+from the whole range rather than the interior core bins.
 """
 
 from __future__ import annotations
@@ -18,7 +20,8 @@ from cleverly.exceptions import MethodConfigurationError
 from cleverly.learners import density as density_module
 from cleverly.learners.density import (
     ConditionalDensity,
-    bin_edges,
+    _equal_mass_edges,
+    bin_occupancy,
     default_density_bins,
     hazard_design_bytes,
 )
@@ -31,11 +34,11 @@ TAIL = np.linspace(norm.ppf(0.95), norm.ppf(0.99), 50)
 def _tail_error(n: int, seed: int = 20261071) -> float:
     """Mean |binned ratio - true ratio| on the tail points, with exact bin probabilities."""
     dose = np.random.default_rng(seed).standard_normal(n)
-    edges = bin_edges(dose, density_module.default_density_bins(n))
+    edges = density_module.bin_edges(dose, density_module.default_density_bins(n))
     probabilities = np.diff(norm.cdf(edges))
     probabilities = probabilities / probabilities.sum()
     rows = np.tile(probabilities, (TAIL.size, 1))
-    density = ConditionalDensity(rows, edges)
+    density = ConditionalDensity(rows, edges, bin_occupancy(dose, edges))
     binned = density.density_at(TAIL - DELTA) / density.density_at(TAIL)
     true = norm.pdf(TAIL - DELTA) / norm.pdf(TAIL)
     return float(np.mean(np.abs(binned - true)))
@@ -50,16 +53,38 @@ def test_the_default_count_follows_the_declared_rule() -> None:
     assert counts == sorted(counts) and counts[-1] > counts[0]
 
 
+#: The witness's fall: the error at ``n = 100,000`` over the error at ``n = 1,000``.  Measured
+#: 0.0037 with the default count, refined grid and reading; 0.041 with the core held at 20
+#: bins, 0.21 on the unrefined equal-mass grid, and 0.015 with a range-based width cap.
+FALL = 0.007
+
+
 def test_the_tail_error_shrinks_with_n() -> None:
     small, large = _tail_error(1_000), _tail_error(100_000)
-    assert large < 0.5 * small
+    assert large < FALL * small
 
 
 def test_a_fixed_count_leaves_the_tail_error_in_place(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The mutation: 20 bins at every n.  The witness above then fails."""
+    """The mutation: 20 core bins at every n.  The witness above then fails."""
     monkeypatch.setattr(density_module, "default_density_bins", lambda n: 20)
     small, large = _tail_error(1_000), _tail_error(100_000)
-    assert large > 0.7 * small
+    assert large > FALL * small
+
+
+def test_the_unrefined_equal_mass_grid_fails_the_witness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: no outer refinement.  The equal-mass tail bins widen with n."""
+    monkeypatch.setattr(density_module, "_refine", lambda values, core: core)
+    small, large = _tail_error(1_000), _tail_error(100_000)
+    assert large > FALL * small
+
+
+def test_a_range_based_width_cap_fails_the_witness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: ``h`` read from the whole range, which the extreme doses widen."""
+    monkeypatch.setattr(
+        density_module, "_width_cap", lambda core: float(core[-1] - core[0]) / (core.size - 1)
+    )
+    small, large = _tail_error(1_000), _tail_error(100_000)
+    assert large > FALL * small
 
 
 def test_an_explicit_count_is_honoured() -> None:
@@ -73,14 +98,16 @@ def test_an_explicit_count_is_honoured() -> None:
     w = rng.standard_normal((400, 1))
     a = w[:, 0] + rng.standard_normal(400)
     folds = Folds.single(400)
-    fitted, _ = fit_conditional_density(
+    fitted, report = fit_conditional_density(
         LogisticRegression(max_iter=500), w, a, np.ones(400), folds, n_bins=7
     )
-    assert fitted.edges.size == 8
-    default, _ = fit_conditional_density(
+    assert report.core_bins == 7
+    assert np.all(np.isin(_equal_mass_edges(a, 7, None), fitted.edges))
+    default, report = fit_conditional_density(
         LogisticRegression(max_iter=500), w, a, np.ones(400), folds
     )
-    assert default.edges.size == default_density_bins(400) + 1
+    assert report.core_bins == default_density_bins(400)
+    assert np.all(np.isin(_equal_mass_edges(a, default_density_bins(400), None), default.edges))
 
 
 def _dose_fit(n: int, **settings: object) -> object:
@@ -100,7 +127,7 @@ def _dose_fit(n: int, **settings: object) -> object:
 def test_the_default_grows_above_one_thousand_rows_through_the_fit() -> None:
     """The mutation: ``n_bins = 20`` in ``fit_conditional_density`` fails both checks."""
     _, diagnostics = _dose_fit(2_000)
-    assert diagnostics.n_bins == default_density_bins(2_000) == 26
+    assert diagnostics.core_bins == default_density_bins(2_000) == 26
 
 
 def test_the_default_grows_above_one_thousand_rows_through_a_tmle_fit() -> None:
@@ -126,7 +153,7 @@ def test_the_default_grows_above_one_thousand_rows_through_a_tmle_fit() -> None:
         .fit(frame, outcome="Y", treatment="A", covariates=["W"])
         .single()
     )
-    assert result.nuisance.diagnostics["density"].n_bins == 26
+    assert result.nuisance.diagnostics["density"].core_bins == 26
 
 
 def test_a_design_larger_than_the_free_memory_is_refused_before_allocation(
@@ -138,7 +165,7 @@ def test_a_design_larger_than_the_free_memory_is_refused_before_allocation(
         _dose_fit(2_000)
     monkeypatch.setattr(density_module, "available_memory", lambda: None)
     _, diagnostics = _dose_fit(2_000)
-    assert diagnostics.n_bins == 26
+    assert diagnostics.core_bins == 26
 
 
 def test_the_size_estimate_matches_the_design_the_fit_builds() -> None:
@@ -146,7 +173,7 @@ def test_the_size_estimate_matches_the_design_the_fit_builds() -> None:
     rng = np.random.default_rng(6)
     n, k = 4_000, default_density_bins(4_000)
     a = rng.standard_normal(n)
-    bins = np.clip(np.digitize(a, bin_edges(a, k)) - 1, 0, k - 1)
+    bins = np.clip(np.digitize(a, _equal_mass_edges(a, k, None)) - 1, 0, k - 1)
     design, _, _ = density_module._long_expansion(rng.standard_normal((n, 2)), bins, k - 1)
     assert hazard_design_bytes(n, k, 2) == pytest.approx(design.nbytes, rel=0.05)
     ratio = hazard_design_bytes(80_000, default_density_bins(80_000), 2) / hazard_design_bytes(

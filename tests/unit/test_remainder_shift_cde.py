@@ -157,7 +157,9 @@ def _fit(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> tuple[fl
             treatment_kind="continuous",
             delta=observed.astype(float),
         )
-        shifts = PolicySet.evaluate(SHIFTS, data, ConditionalDensity(density[covariate], law.EDGES))
+        shifts = PolicySet.evaluate(
+            SHIFTS, data, ConditionalDensity(law.bins(density[covariate]), law.EDGES, law.OCCUPIED)
+        )
 
     maps = [np.asarray(law.POLICIES[name]) for name in shifts.labels.values()]
     at = np.column_stack([index] + [mapping[index] for mapping in maps])

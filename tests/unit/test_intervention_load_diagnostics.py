@@ -439,7 +439,9 @@ def _bare_support_reports() -> dict[str, Mapping[str, Any]]:
             rng.normal(size=(n, 1)),
             treatment_kind="continuous",
         )
-        density = ConditionalDensity(np.tile(np.array([0.4, 0.3, 0.2, 0.1]), (n, 1)), edges)
+        density = ConditionalDensity(
+            np.tile(np.array([0.4, 0.3, 0.2, 0.1]), (n, 1)), edges, np.ones(4, dtype=bool)
+        )
         shifts = PolicySet.evaluate((Shift(1.0, cap=3.0, name="up"),), continuous, density)
 
     return {

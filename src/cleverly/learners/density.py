@@ -339,12 +339,22 @@ def _merge_stretch(ordered: FloatArray, cuts: FloatArray, upper: bool) -> list[f
     return kept
 
 
+def _width_cap(core: FloatArray) -> float:
+    """``h``, the mean width of the interior core bins.
+
+    The outer core edges are left out, so one extreme dose, which moves only ``e_0`` or
+    ``e_K``, cannot coarsen the grid.
+    """
+    k = core.size - 1
+    return float(core[k - 1] - core[1]) / (k - 2)
+
+
 def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
     """The outer refinement of an equal-mass core: width cap, gap bins and the row floor."""
     k = core.size - 1
     if k < 3:
         return core
-    h = float(core[k - 1] - core[1]) / (k - 2)
+    h = _width_cap(core)
     if not h > 0.0:
         return core
     ordered = np.sort(a)
@@ -771,7 +781,7 @@ class DensityDiagnostics:
     Parameters
     ----------
     n_bins : int
-        Bins actually used, after duplicate quantiles were dropped.
+        Bins actually used: the refined grid, after duplicate quantiles were dropped.
     edges : ndarray
         The bin boundaries.
     min_density : float
@@ -787,6 +797,9 @@ class DensityDiagnostics:
         ``(passes, capped)`` of the reading's knot iteration: the most passes any row
         needed, and the rows still moving at the cap of 200, which keep their capped
         iterate with exact segment masses.
+    core_bins : int or None
+        The core count ``K`` of a grid the fit built (``density_bins``), before the outer
+        refinement; ``None`` for explicit ``edges=``.
     """
 
     n_bins: int
@@ -795,6 +808,7 @@ class DensityDiagnostics:
     integrated: tuple[float, float]
     learner: tuple[SuperLearnerDiagnostics, ...] = ()
     knot_passes: tuple[int, int] = (0, 0)
+    core_bins: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1004,13 +1018,14 @@ class ConditionalDensity:
         Returns
         -------
         float
-            The share among rows whose dose moves; zero when no dose moves.
+            The share among rows whose dose moves; one when no dose moves, since a policy
+            that moves nobody is invisible however the density reads.
         """
         moved_to = np.asarray(shifted, dtype=float).reshape(-1)
         a = np.asarray(observed, dtype=float).reshape(-1)
         moved = moved_to != a
         if not moved.any():
-            return 0.0
+            return 1.0
         here = self.bin_of(a)
         there = self.bin_of(moved_to)
         same = moved & (here >= 0) & (here == there)
@@ -1821,6 +1836,7 @@ def fit_conditional_density(
         integrated=(float(integrated.min()), float(integrated.max())),
         learner=tuple(diagnostics),
         knot_passes=density.knot_passes,
+        core_bins=grid.core,
     )
     if predict_designs is None:
         return density, report
@@ -1866,6 +1882,15 @@ def warn_if_flat(
     flat = density.flat_fraction(shifted, observed)
     if flat > _FLAT_WARNING:
         grid = f"({density.n_bins} bins over [{density.edges[0]:.3g}, {density.edges[-1]:.3g}])"
+        if not np.any(np.asarray(shifted, dtype=float) != np.asarray(observed, dtype=float)):
+            _warn(
+                "the policy changes no row's dose, so its density ratio is one on every row "
+                "and the intervention is invisible: it estimates the natural course. Check the "
+                "policy's cap or gate if it was meant to move some doses.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return flat
         if component is None:
             message = (
                 f"the policy keeps {flat:.1%} of the rows it moves inside one flat bin of the "

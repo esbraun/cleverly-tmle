@@ -81,9 +81,23 @@ def _shift_map(cap: float) -> tuple[int, ...]:
 SHIFT_MAPS: dict[float, tuple[int, ...]] = {CAP: _shift_map(CAP), CAP_TIGHT: _shift_map(CAP_TIGHT)}
 SHIFTED = SHIFT_MAPS[CAP]
 
-#: Bin edges that make the density a probability mass function: every bin one wide, each
-#: holding exactly one dose.  This is what a ``ConditionalDensity`` over this law carries.
-EDGES = np.array([-0.5, 0.5, 1.5, 2.5, 3.5])
+#: Bin edges that make the density a probability mass function: every support bin half a
+#: unit wide around one dose, flanked by empty bins, so each support bin is a one-bin
+#: segment of the density's reading and reads ``p / w`` exactly.  This is what a
+#: ``ConditionalDensity`` over this law carries.
+EDGES = np.array([-0.25, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25])
+
+#: The bins of :data:`EDGES` that hold a dose; the others are the empty flanking bins.
+OCCUPIED = np.array([True, False, True, False, True, False, True])
+
+
+def bins(g: np.ndarray) -> np.ndarray:
+    """``(n, 7)`` bin probabilities over :data:`EDGES` from ``(n, 4)`` dose probabilities."""
+    g = np.asarray(g, dtype=float)
+    out = np.zeros((*g.shape[:-1], EDGES.size - 1))
+    out[..., OCCUPIED] = g
+    return out
+
 
 #: ``(w, a, y)`` in the order ``frame()`` emits rows.
 SUPPORT: tuple[tuple[int, int, int], ...] = tuple(itertools.product(range(3), range(4), range(2)))

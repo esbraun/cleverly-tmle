@@ -8,8 +8,9 @@ longhand and shares no code with ``src/``; each policy is a fixed map of support
 per covariate value, computed once outside the functional, so the functional stays
 analytic in the cell probabilities and a complex step differentiates it to full precision.
 
-**The exactness condition for a non-unit slope.**  A binned density is
-:math:`\\hat g(a) = p(b(a)) / w(b(a))`, with :math:`w` the width of the bin holding
+**The exactness condition for a non-unit slope.**  Every support point has its own bin,
+flanked by empty bins, so each support bin is a one-bin segment of the density's reading and
+reads :math:`\\hat g(a) = p(b(a)) / w(b(a))`, with :math:`w` the width of the bin holding
 :math:`a`.  Equation (3) of Díaz, Williams, Hoffman and Schenck (2023) multiplies
 :math:`\\hat g(b_j(a))` by :math:`|b_j'(a)|`, so it equals the discrete formula
 :math:`g^d(a) = \\sum_s 1\\{d(s) = a\\}\\, p(s)` exactly when
@@ -52,8 +53,8 @@ class Grid:
     doses : tuple of float
         The support of the treatment.
     edges : ndarray
-        Bin edges of the density, each support point in its own bin; empty bins hold no
-        mass.
+        Bin edges of the density, each support point in its own bin flanked by empty bins,
+        which hold no mass.
     g : ndarray
         ``(3, K)`` treatment probabilities, rows summing to one.
     q : ndarray
@@ -116,6 +117,14 @@ class Grid:
             out[:, int(np.digitize(dose, self.edges) - 1)] = rows[:, k]
         return out
 
+    @property
+    def occupied(self) -> np.ndarray:
+        """``(B,)`` the bins that hold a support point."""
+        out = np.zeros(self.edges.size - 1, dtype=bool)
+        for dose in self.doses:
+            out[int(np.digitize(dose, self.edges) - 1)] = True
+        return out
+
     def bin_width(self, k: int) -> float:
         """The width of the bin holding support point ``k``."""
         index = int(np.digitize(self.doses[k], self.edges) - 1)
@@ -128,11 +137,11 @@ class Grid:
         return matches[0]
 
 
-#: Unit-width bins on ``{0, 1, 2, 3}``, the shift law's support.
+#: Half-unit bins on ``{0, 1, 2, 3}``, the shift law's support, flanked by empty bins.
 UNIT = Grid(
     "unit",
     (0.0, 1.0, 2.0, 3.0),
-    np.array([-0.5, 0.5, 1.5, 2.5, 3.5]),
+    np.array([-0.25, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25]),
     np.array([[8.0, 6.0, 4.0, 2.0], [2.0, 4.0, 6.0, 8.0], [5.0, 5.0, 5.0, 5.0]]) / 20.0,
     np.array([[0.2, 0.4, 0.6, 0.8], [0.3, 0.3, 0.5, 0.7], [0.1, 0.5, 0.5, 0.9]]),
 )
@@ -142,7 +151,7 @@ UNIT = Grid(
 MULTIPLICATIVE = Grid(
     "multiplicative",
     (1.0, 2.0, 4.0, 8.0),
-    np.array([0.75, 1.5, 3.0, 6.0, 12.0]),
+    np.array([0.875, 1.25, 1.75, 2.5, 3.5, 5.0, 7.0, 10.0]),
     np.array([[6.0, 6.0, 4.0, 4.0], [2.0, 4.0, 6.0, 8.0], [5.0, 3.0, 7.0, 5.0]]) / 20.0,
     np.array([[0.2, 0.5, 0.4, 0.8], [0.3, 0.4, 0.6, 0.7], [0.1, 0.6, 0.5, 0.9]]),
 )
@@ -163,7 +172,7 @@ PIECEWISE = Grid(
 BINARY = Grid(
     "binary",
     (0.0, 1.0),
-    np.array([-0.5, 0.5, 1.5]),
+    np.array([-0.25, 0.25, 0.75, 1.25]),
     np.array([[14.0, 6.0], [8.0, 12.0], [10.0, 10.0]]) / 20.0,
     np.array([[0.2, 0.6], [0.3, 0.5], [0.4, 0.9]]),
 )
@@ -172,7 +181,7 @@ BINARY = Grid(
 THREE_LEVEL = Grid(
     "three level",
     (1.0, 2.0, 3.0),
-    np.array([0.5, 1.5, 2.5, 3.5]),
+    np.array([0.75, 1.25, 1.75, 2.25, 2.75, 3.25]),
     np.array([[8.0, 6.0, 6.0], [4.0, 6.0, 10.0], [6.0, 8.0, 6.0]]) / 20.0,
     np.array([[0.2, 0.5, 0.8], [0.4, 0.3, 0.7], [0.1, 0.6, 0.5]]),
 )
@@ -264,11 +273,18 @@ _SLOPES: dict[tuple[str, str], Callable[[float], float]] = {
 def check_exactness() -> None:
     """Assert ``w(source) = |b'| w(target)`` at every moved point of every continuous law.
 
+    Also assert that no support bin of any grid has a neighbour holding a support point, so
+    each support bin is a one-bin segment of the density's reading and reads ``p / w``.
+
     Raises
     ------
     AssertionError
         If a grid's bins do not make Equation (3) equal the discrete formula.
     """
+    for grid in GRIDS.values():
+        held = {int(np.digitize(dose, grid.edges) - 1) for dose in grid.doses}
+        for index in held:
+            assert index - 1 not in held and index + 1 not in held, (grid.name, index)
     for grid_name in ("unit", "multiplicative", "piecewise"):
         grid = GRIDS[grid_name]
         for label, branches in POLICIES[grid_name].items():

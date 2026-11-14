@@ -644,7 +644,9 @@ def _mixed_law_density(covariate: np.ndarray) -> MixedDensity:
     return MixedDensity(
         (point_law.ATOM_DOSE,),
         p,
-        ConditionalDensity(point_law.UNIT.bins(continuous), point_law.UNIT.edges),
+        ConditionalDensity(
+            point_law.UNIT.bins(continuous), point_law.UNIT.edges, point_law.UNIT.occupied
+        ),
     )
 
 
@@ -758,12 +760,14 @@ def test_m_b6_without_its_rule_the_witness_reaches_the_learners(
 #: (C) declare the grid's recorded values as atoms.  Rule (D) has none: no moving policy keeps
 #: 200 list-price atoms on declared atoms.
 ORACLES = {
+    # The moved piece's images [.., 6.5) cover the atom 6.37, which the identity piece holds, so
+    # the ratio reads the density around the atom: there an undeclared atom is a spike.
     "A": (
         ModifiedPolicy(
             "up",
             pieces=(
-                Piece(-INF, 6.0, lambda a, h: a + 0.3, lambda b, h: b - 0.3, lambda b, h: 1.0),
-                Piece(6.0, INF),
+                Piece(-INF, 6.2, lambda a, h: a + 0.3, lambda b, h: b - 0.3, lambda b, h: 1.0),
+                Piece(6.2, INF),
             ),
             policy_kind="known",
         ),
