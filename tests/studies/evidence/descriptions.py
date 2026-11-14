@@ -1702,6 +1702,59 @@ ARMS.update(
     }
 )
 
+#: The labels of ``hazard-time-varying``: the contrast or the risk at the last visit of one fit
+#: label, a fit label's band over every estimate, and a fit label's own draws.  Mirrored from
+#: ``tests.studies.hazard_time_varying_properties``, which this module cannot import.
+_HAZARD_TIME_VARYING_FITS = {
+    "one_cause": "the one-cause law under always against never treating, n = 2,000",
+    "competing": "the two-cause law under always against never treating, n = 2,000",
+    "three_arm": (
+        "the three-level treatment law under one level up, capped at the top level, against the "
+        "natural course, n = 2,000"
+    ),
+    "crossfit": (
+        "the one-cause law under always against never treating, five outer folds, n = 2,000"
+    ),
+}
+_HAZARD_TIME_VARYING_CONTRASTS = {
+    "one_cause": "the risk difference at the last visit",
+    "competing": "the relapse incidence difference at the last visit",
+    "three_arm": "the risk difference against the natural course at the last visit",
+    "crossfit": "the risk difference at the last visit",
+}
+_HAZARD_TIME_VARYING_RISKS = {
+    "one_cause": "the risk under always treating by the last visit",
+    "competing": "the relapse incidence under always treating by the last visit",
+    "three_arm": "the policy's risk by the last visit",
+    "crossfit": "the risk under always treating by the last visit",
+}
+ARMS.update(
+    {
+        **{
+            f"{fit}_contrast": f"{words}, {_HAZARD_TIME_VARYING_CONTRASTS[fit]}"
+            for fit, words in _HAZARD_TIME_VARYING_FITS.items()
+        },
+        **{
+            f"{fit}_risk": f"{words}, {_HAZARD_TIME_VARYING_RISKS[fit]}"
+            for fit, words in _HAZARD_TIME_VARYING_FITS.items()
+        },
+        **{
+            f"{fit}_curve": (
+                f"{_HAZARD_TIME_VARYING_FITS[fit]}, every risk and difference of both plans "
+                "read as one joint set"
+            )
+            for fit in ("one_cause", "competing")
+        },
+        **{
+            fit: (
+                f"{_HAZARD_TIME_VARYING_FITS[fit]}, beside the iterated-mean fit of the same "
+                "plans on the same draw"
+            )
+            for fit in ("one_cause", "competing")
+        },
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -10315,3 +10368,161 @@ for _twin, _words in _PV_LARGE.items():
                 f"{_words}, {_quantity}, 400 draws: {_tested}",
                 _DIAGNOSTIC_REQUIRED,
             )
+
+#: ``hazard-time-varying``: static and modified plans on the hazard path with a binary
+#: time-varying covariate after baseline, one backward pass per plan.  The laws and fits are those
+#: of ``tests/studies/hazard_time_varying_law.py`` and
+#: ``tests/studies/canonical_hazard_time_varying.py``, which this module cannot import.
+_HAZARD_TIME_VARYING_SLUG = "hazard-time-varying"
+_HAZARD_TIME_VARYING_LAW = (
+    "two baseline covariates, a binary covariate at every later visit that the previous "
+    "treatment lowers, logistic visit dropout that depends on the covariate"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "one_cause"): (
+            f"five visits, one cause, a binary treatment at every visit, {_HAZARD_TIME_VARYING_LAW}"
+        ),
+        (_HAZARD_TIME_VARYING_SLUG, "competing"): (
+            "four visits, relapse and death as competing causes, a binary treatment at every "
+            f"visit, {_HAZARD_TIME_VARYING_LAW}"
+        ),
+        (_HAZARD_TIME_VARYING_SLUG, "three_arm"): (
+            "five visits, one cause, a treatment on three levels at every visit, "
+            f"{_HAZARD_TIME_VARYING_LAW}; the policy raises each visit's level by one, capped at "
+            "the top level"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by visit {t} under {words}"
+            )
+            for label, words in (
+                ("always", "treatment at every visit"),
+                ("never", "no treatment at any visit"),
+                ("up", "the policy"),
+                ("natural", "the natural course"),
+            )
+            for t in range(1, 6)
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"ate_regimen[{plans} @ t={t}]"): (
+                f"the risk by visit {t} under {first} minus the risk under {second}"
+            )
+            for plans, first, second in (
+                ("always vs never", "treatment at every visit", "no treatment"),
+                ("up vs natural", "the policy", "the natural course"),
+            )
+            for t in range(1, 6)
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"cif_regimen[{label}, {cause} @ t={t}]"): (
+                f"the cumulative incidence of {cause} by visit {t} under {words}"
+            )
+            for label, words in (
+                ("always", "treatment at every visit"),
+                ("never", "no treatment at any visit"),
+            )
+            for cause in ("relapse", "death")
+            for t in range(1, 5)
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"ate_regimen[always vs never, {cause} @ t={t}]"): (
+                f"the cumulative incidence of {cause} by visit {t} under treatment at every "
+                "visit minus that under no treatment"
+            )
+            for cause in ("relapse", "death")
+            for t in range(1, 5)
+        },
+    }
+)
+_HAZARD_TIME_VARYING_DIFFERENCE_CELLS = {
+    **_HAZARD_MTP_DIFFERENCE_CELLS,
+    "mechanism_correct_difference": (
+        "the hazard estimate minus the iterated-mean estimate of the same plans on the same "
+        "draw, with every outcome regression omitting the time-varying covariate and the "
+        "treatment and censoring models correct",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
+    ),
+    "isotonic_difference": CELLS["iterated_mean_difference", "isotonic_difference"],
+}
+_HAZARD_TIME_VARYING_EXCESS = {
+    "hazard_excess": "the hazard fit",
+    "iterated_excess": "the iterated-mean fit",
+    "isotonic_excess": "the isotonic iterated-mean fit",
+}
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
+            for fit in ("one_cause", "competing")
+            for arm in ("contrast", "risk")
+            for base, words in _HAZARD_TIME_VARYING_DIFFERENCE_CELLS.items()
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, "iterated_mean_difference", "competing", base): (
+                f"the largest sum of the two cumulative incidences minus one under {words}, over "
+                "both plans and every visit",
+                "no verdict; reported beside the other fits' largest sums",
+            )
+            for base, words in _HAZARD_TIME_VARYING_EXCESS.items()
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "targeting_necessity", "one_cause_contrast", "targeted"): (
+            "the estimator with node hazards and continuations that omit the time-varying "
+            "covariate and correct treatment and censoring models, so targeting does all the "
+            "adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_HAZARD_TIME_VARYING_SLUG, "targeting_necessity", "one_cause_contrast", "untargeted"): (
+            "the same fit's backward plug-in with every targeting step removed",
+            "bias interval must fall entirely outside the margin",
+        ),
+    }
+)
+_HAZARD_TIME_VARYING_ROBUSTNESS = {
+    "mechanism_correct": (
+        "node hazards and continuations that omit the time-varying covariate, with correct "
+        "treatment and censoring models; it witnesses the hazard fluctuation, whose weights "
+        "read the covariate"
+    ),
+    "continuation_wrong": (
+        "correct node hazards and censoring model with continuations that omit the "
+        "time-varying covariate; it witnesses the covariate term of the walk alone"
+    ),
+    "outcome_correct": (
+        "correct node hazards and continuations with a censoring model that omits the "
+        "time-varying covariate"
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "double_robustness", f"{fit}_contrast", base): (
+            words,
+            "bias interval inside the equivalence margin, with the reported standard error on "
+            "the scale of the empirical spread",
+        )
+        for fit, base in (
+            ("one_cause", "mechanism_correct"),
+            ("one_cause", "continuation_wrong"),
+            ("one_cause", "outcome_correct"),
+            ("competing", "mechanism_correct"),
+            ("three_arm", "mechanism_correct"),
+        )
+        for words in (_HAZARD_TIME_VARYING_ROBUSTNESS[base],)
+    }
+)
+STUDY_ARM_CELLS[
+    (_HAZARD_TIME_VARYING_SLUG, "double_robustness", "one_cause_contrast", "both_wrong")
+] = (
+    "every outcome and censoring learner omits the time-varying covariate; it reads the same "
+    "bias as the untargeted necessity control",
+    "bias interval must fall entirely outside the margin, with the reported standard error "
+    "still on the scale of the empirical spread",
+)

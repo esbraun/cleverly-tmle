@@ -406,10 +406,11 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, and no covariate after baseline. The treatment can be categories, or a dose under a plan that changes each person's dose |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point. The treatment can be categories, or a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
-Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
+Pass the hazard learner as `outcome_learner`. A hazard fit uses `pseudo_learner` only when the
+design has a covariate measured after baseline, as the next section explains.
 
 ```python
 hazard_curve = CausalStudy(frame, design=design).estimate(
@@ -454,9 +455,37 @@ estimates and band limits move.
 states each claim and its condition.
 :::
 
+### Covariates measured after baseline
+
+A covariate measured after baseline is one recorded again at later time points, such as a lab
+value at each visit, declared with `time_varying=`. When it predicts both dropout and the event, the
+fit must adjust for it. With one treatment at baseline, the hazard model takes such covariates under
+`targeting="one_step"`. At each time point it fits the chance of the event, then a regression of what
+happens later given the history so far, so it needs no model of the covariate itself.
+`pseudo_learner` fits that regression. By default it reuses the `outcome_learner` library, so pass
+`pseudo_learner` yourself when `outcome_learner` is a single classifier.
+
+The answer it targets is the same as the default fit's, and when the models fit well both have the
+same precision in large samples. What the hazard fit adds is a curve that never dips, and with
+competing events, risks that add up to at most one for each person. With well-fitting models the gap
+between the two estimates shrinks faster than their standard errors as the sample grows, so on a
+large sample they nearly agree.
+
+A covariate declared at the first time point only is measured before the treatment, so it is an
+ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in
+`baseline=`. Under `markov_order=` the hazard model, like the default fit, drops that covariate
+at later time points. `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen refuse it; declare it
+in `baseline=` for those. The
+[covariates-after-baseline study](../technical-reference/method-evidence/hazard-time-varying.md)
+measures the hazard fit with one yes-or-no covariate per later time point, for two fixed
+treatments with one or two event types, in sample and with cross-fitting, and for a policy that
+moves everyone up one treatment level.
+[Covariates after baseline on the hazard path](../technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)
+gives the exact estimand, the settings it refuses, and its checks.
+
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points and a covariate after baseline.
-Each message points to the default model, which fits those designs.
+The hazard model refuses a treatment at several time points, with or without covariates after
+baseline. Each message points to the default model, which fits those designs.
 
 A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
 model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.

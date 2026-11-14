@@ -1160,6 +1160,11 @@ def _hazard_lines(result: LongitudinalResult) -> list[str]:
     largest = max(record.relative_score for record in records.values())
     verdict = "solved its equations" if converged else "did not solve its equations"
     first = next(iter(records.values()))
+    if first.algorithm == "untargeted":
+        return [
+            "The hazard fit was not targeted: an untargeted backward pass, whose intervals are "
+            "not those of a targeted fit."
+        ]
     if first.algorithm == "one_step":
         lines = [
             f"The hazard update took {first.n_iter} steps over {len(first.targets)} estimates and "

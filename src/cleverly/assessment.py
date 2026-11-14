@@ -1075,12 +1075,13 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     if family == "longitudinal":
-        from .longitudinal.estimator import hazard_mtp_replay
+        from .longitudinal.estimator import hazard_replay
 
-        # A hazard fit targets each modified treatment policy by its own weighted walk,
-        # which the truncation replay does not rebuild (H25). The call raises the method's
-        # own refusal above before it reaches the replay, so that one stands.
-        walk = hazard_mtp_replay(result)
+        # The truncation replay does not rebuild a hazard fit's regressions of the future on
+        # covariates after baseline (H31), nor the weighted walk of each modified treatment
+        # policy (H25). The call raises the method's own refusal above before it reaches the
+        # replay, so that one stands.
+        walk = hazard_replay(result)
         if walk is not None and truncation is None:
             rows = tuple(
                 replace(

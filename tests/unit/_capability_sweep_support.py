@@ -1253,6 +1253,32 @@ def fit_hazard_mtp() -> Any:
     )
 
 
+def fit_hazard_time_varying() -> Any:
+    """The one-step hazard fit of a held design with a covariate after baseline (X70 (b1))."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=3, layout="wide", time_varying=True)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2", "Y3"],
+            treatment="A",
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"], ["L3"]],
+            censoring=["C1", "C2", "C3"],
+        ),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        survival_model="hazard",
+        targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_isotonic() -> Any:
     """The iterated-mean fit with its curve projected."""
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
@@ -1790,6 +1816,9 @@ KINDS: dict[str, Kind] = {
     # Each policy is targeted by its own weighted walk, which no truncation replay
     # rebuilds (H25), so the truncation row reads unavailable.
     "ltmle_hazard_mtp": _kind(fit_hazard_mtp, *_READ, "refute"),
+    # The regressions of the future read targeted later hazards, which no truncation replay
+    # rebuilds (H31), so the truncation row reads unavailable.
+    "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
