@@ -9923,6 +9923,41 @@ def _score_cell_truncation_counts(
     return truncated, evaluated
 
 
+def longitudinal_truncation_refusal(result: Any) -> Refusal | None:
+    """Why the fitted method of ``result`` has no truncation curve, or ``None``.
+
+    The capability row of ``truncation_curve`` and :func:`longitudinal_truncation_curve`
+    both read this, so the row cannot read available while the call refuses.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        The fit asked for a curve.
+
+    Returns
+    -------
+    Refusal or None
+        The refusal of a collaborative (``SurvivalCTMLE``) or drift-corrected
+        (``SurvivalDRTMLE``) fit, whose replay would rerun a step no study measures, or of
+        a g-computation or g-formula fit, which reads no treatment mechanism. ``None``
+        when the method admits a curve.
+    """
+    if getattr(result, "selection", None) is not None:
+        from .collaborative import TRUNCATION_REFUSAL
+
+        return TRUNCATION_REFUSAL
+    if getattr(result, "drift", None) is not None:
+        from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
+
+        return DRIFT_TRUNCATION_REFUSAL
+    estimator = getattr(result.config, "estimator", None)
+    if estimator == "gcomp":
+        return GCOMP_TRUNCATION_REFUSAL
+    if estimator == "parametric_gformula":
+        return GFORMULA_TRUNCATION_REFUSAL
+    return None
+
+
 def _hazard_replay_check(recipe: Any, data: LongitudinalData) -> Refusal | None:
     """The refusal of a truncation replay of one hazard draw, or ``None``.
 
@@ -10011,22 +10046,13 @@ def longitudinal_truncation_curve(
     refuse_learned_regimen_result(result, "the truncation curve")
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
+    refusal = longitudinal_truncation_refusal(result)
+    if refusal is not None:
+        raise CapabilityError(refusal=refusal)
     refusal = hazard_replay(result)
     if refusal is not None:
-        # The capability row reads the same check in the same order (H31, H25).
+        # After the method's own refusal, as the capability row reads them (H31, H25).
         raise CapabilityError.from_refusal(refusal)
-    if result.selection is not None:
-        from .collaborative import TRUNCATION_REFUSAL
-
-        raise CapabilityError(refusal=TRUNCATION_REFUSAL)
-    if result.drift is not None:
-        from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
-
-        raise CapabilityError(refusal=DRIFT_TRUNCATION_REFUSAL)
-    if result.config.estimator == "gcomp":
-        raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
-    if result.config.estimator == "parametric_gformula":
-        raise CapabilityError(refusal=GFORMULA_TRUNCATION_REFUSAL)
     omissions = tuple(
         dict.fromkeys(item for draw in result.repeats for item in draw.replay_recipe.omissions)
     )
