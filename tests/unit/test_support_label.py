@@ -42,7 +42,7 @@ from cleverly.datasets import make_binary_outcome, make_clustered, make_linear_a
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference import results as results_module
-from cleverly.inference.delta import wald_ci
+from cleverly.inference.delta import skew_widened_ci, wald_ci
 from cleverly.longitudinal import LTMLE, SequentialGComputation
 from cleverly.longitudinal import estimator as longitudinal_estimator
 from cleverly.longitudinal.data import LongitudinalData
@@ -65,11 +65,15 @@ def assert_repr_reads_the_golden(estimate: Any, golden_repr: str) -> None:
     """The repr prints the golden estimate and interval, each to its own last place.
 
     The golden file keeps the repr of the commit it was written on; the numbers, not the
-    layout, are the witness, so the file is not regenerated.
+    layout, are the witness, so the file is not regenerated. A skew-widened estimate reads
+    its interval from :func:`skew_reread`.
     """
     match = _GOLDEN_REPR.match(golden_repr)
     assert match is not None, golden_repr
     name, psi, level, low, high = match.groups()
+    reread = skew_reread(estimate, {"psi": float(psi), "std_err": float(estimate.std_error)})
+    if reread is not None:
+        low, high = (f"{reread[0]:.4f}", f"{reread[1]:.4f}")
     shown = re.match(
         rf"ParameterEstimate\({re.escape(name)}=(\S+), {re.escape(level)}% CI "
         r"\[(\S+), (\S+)\], (?:experimental, )?n=",
@@ -79,6 +83,48 @@ def assert_repr_reads_the_golden(estimate: Any, golden_repr: str) -> None:
     for text, value in zip(shown.groups(), (psi, low, high), strict=True):
         places = len(text.split(".")[1]) if "." in text else 0
         assert abs(float(text) - float(value)) <= 0.5 * 10**-places + 1e-4 * abs(float(value))
+
+
+def skew_reread(estimate: Any, golden: dict[str, Any]) -> tuple[float, float] | None:
+    """The golden interval re-read under the skew-widened t, or ``None`` for an estimate
+    that does not take it.
+
+    The golden copies predate the skew-widened t, so an unclustered estimate of a
+    continuous outcome printed the normal interval. Its estimate and standard error stay the
+    witness; the interval is the skew-widened t of those golden numbers at the fit's own df
+    and acceleration, and it must contain the golden normal interval.
+    """
+    if estimate.interval_scale != "skew_t":
+        return None
+    return skew_widened_ci(
+        float(golden["psi"]),
+        float(golden["std_err"]),
+        df=estimate.effective_df,
+        acceleration=float(estimate.acceleration),
+    )
+
+
+def golden_under_skew(result: Any, golden: dict[str, Any]) -> dict[str, Any]:
+    """A golden ``to_dict`` re-read for the skew-widened t (see :func:`skew_reread`).
+
+    The interval comes from the golden estimate and standard error, the two keys the skew
+    reading adds come from the fit, and the p-value, which inverts the interval, from the
+    fit; ``tests/unit/test_rule_widened_interval.py`` checks that inversion.
+    """
+    estimate = result[golden["estimand"]]
+    reread = skew_reread(estimate, golden)
+    if reread is None:
+        return golden
+    low, high = reread
+    assert low <= golden["ci_lower"] and golden["ci_upper"] <= high
+    return {
+        **golden,
+        "ci_lower": low,
+        "ci_upper": high,
+        "interval_scale": "skew_t",
+        "effective_df": float(estimate.effective_df),
+        "p_value": estimate.to_dict()["p_value"],
+    }
 
 
 #: The columns and text that only the label adds.
@@ -153,22 +199,28 @@ def assert_golden_summary(result: Any, name: str) -> None:
         cells = dict(zip(columns, rows[row_name], strict=True))
         estimate, spread = cells["estimate"], cells["std. error"]
         interval = cells["95% CI"]
-        assert estimate.value == pytest.approx(frame.loc[row_name, "psi"], rel=1e-10)
-        assert spread.value == pytest.approx(frame.loc[row_name, "std_err"], rel=1e-10)
-        assert interval.value == pytest.approx(
-            (frame.loc[row_name, "ci_lower"], frame.loc[row_name, "ci_upper"]), rel=1e-10
-        )
+        golden_row = {"psi": frame.loc[row_name, "psi"], "std_err": frame.loc[row_name, "std_err"]}
+        reread = skew_reread(result[row_name], golden_row)
+        limits = (frame.loc[row_name, "ci_lower"], frame.loc[row_name, "ci_upper"])
+        assert estimate.value == pytest.approx(golden_row["psi"], rel=1e-10)
+        assert spread.value == pytest.approx(golden_row["std_err"], rel=1e-10)
+        assert interval.value == pytest.approx(reread or limits, rel=1e-10)
         assert agrees(estimate.text, shown["psi"])
         assert agrees(spread.text, shown["std_err"])
         low, high = interval.text.strip("[]").split(", ")
-        assert agrees(low, shown["ci"][0])
-        assert agrees(high, shown["ci"][1])
+        want = shown["ci"] if reread is None else (f"{reread[0]:.4f}", f"{reread[1]:.4f}")
+        assert agrees(low, want[0])
+        assert agrees(high, want[1])
         p_value = cells["p-value"].text
         if shown["p"].startswith("<"):
             assert p_value.startswith("<"), (row_name, p_value)
         else:
             assert agrees(p_value, shown["p"]), (row_name, p_value, shown["p"])
-        if shown["df"] is None:
+        if shown["df"] is None and reread is not None:
+            # The skew-widened t's df, which the golden normal reference never printed.
+            if "df" in cells:
+                assert cells["df"].value == pytest.approx(result[row_name].effective_df)
+        elif shown["df"] is None:
             assert "df" not in cells
         else:
             assert cells["df"].text == shown["df"]
@@ -209,12 +261,17 @@ class TestAGoldenCopy:
         assert "experimental" not in summary.note_codes
         assert_repr_reads_the_golden(estimate, golden["repr"])
         assert "experimental" not in repr(estimate)
-        assert_numbers_equal(estimate.to_dict(), golden["to_dict"])
+        assert_numbers_equal(estimate.to_dict(), golden_under_skew(result, golden["to_dict"]))
         frame = result.to_frame()
         assert list(frame["support"]) == ["supported"] * len(frame)
+        rows = [
+            golden_under_skew(result, dict(zip(golden["frame"], values, strict=True)))
+            for values in zip(*golden["frame"].values(), strict=True)
+        ]
         for column, values in golden["frame"].items():
             if column == "support":
                 continue
+            values = [row[column] for row in rows]
             # pytest 9 refuses ``approx`` of a string, so text columns compare exactly.
             if all(isinstance(value, str) for value in values):
                 assert list(frame[column]) == values

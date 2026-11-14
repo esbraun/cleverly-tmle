@@ -119,28 +119,34 @@ class TestIntervalLimitsOnTheRecords:
     def test_a_real_study_with_a_bootstrap_fit_records_the_wald_limits(self) -> None:
         # CoverageStudy measures the interval the estimate reports through plugin_interval,
         # the Wald body, also on a fit that ran a bootstrap: a bootstrap percentile interval
-        # never reaches a record, so the records' limits are the Wald ones in every case.
-        real = CoverageStudy(
-            dgp=nonlinear_dgp(),
-            estimator=lambda: TMLE(
+        # never reaches a record, so the records' limits are the estimate's own Wald-type
+        # interval in every case. On this continuous outcome that is the skew-widened t,
+        # which contains the normal interval.
+        def fit() -> Any:
+            return TMLE(
                 outcome_learner=LinearRegression(),
                 treatment_learner=LogisticRegression(max_iter=1000),
                 cross_fit=False,
                 n_bootstrap=20,
                 random_state=0,
-            ),
-            n=150,
-            n_replicates=4,
-            estimands=("ate",),
-            seed=1,
-        ).run()
+            )
+
+        study = CoverageStudy(
+            dgp=nonlinear_dgp(), estimator=fit, n=150, n_replicates=4, estimands=("ate",), seed=1
+        )
+        real = study.run()
         assert len(real.replications) == 4
         for record in real.replications:
             assert (record.lower <= record.truth <= record.upper) == record.covered
             half = stats.norm.ppf(1 - record.alpha / 2) * record.std_error
-            assert record.lower == pytest.approx(record.estimate - half)
-            assert record.upper == pytest.approx(record.estimate + half)
+            assert record.lower <= record.estimate - half
+            assert record.upper >= record.estimate + half
             assert record.support == "supported" and record.support_reason == ""
+        first = real.replications[0]
+        fitted = fit().fit(study._draw(first.seed)[0], **study.fit_kwargs)
+        estimate = study._select(fitted)["ate"]
+        assert estimate.interval_scale == "skew_t"
+        assert (first.lower, first.upper) == pytest.approx(estimate.ci, rel=1e-10)
         fig = plotting.zipper(real)
         assert fig.axes[1].get_xlabel().splitlines()[0] == "Average effect"
         assert "experimental" not in _core.note_text(fig)

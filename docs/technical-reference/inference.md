@@ -96,9 +96,10 @@ $$
 
 It contains the t interval on every sample and widens only the side the curve's skewness points
 to, by $|a| K\,\widehat{se}$; on a symmetric curve it is the t interval. `effective_df` reports
-$\max(\nu, 5)$, `interval_scale` is `"skew_t"`, and `summary()` adds a df column. A working-model
-coefficient, the working model's level means and an effect-curve row of a continuous outcome take
-it too, from the curve of each.
+$\max(\nu, 5)$ (`to_frame()` and `to_dict()` carry it as `effective_df`), `interval_scale` is
+`"skew_t"`, and `summary()` adds a df column when an estimate's df is below 250, printing `250+`
+above that. A working-model coefficient, the working model's level means and an effect-curve row
+of a continuous outcome take it too, from the curve of each.
 
 On both asymmetric intervals the test inverts the interval. The p-value is the largest
 $\alpha$ at which the null still lies inside the level-$(1 - \alpha)$ interval, found on a grid of

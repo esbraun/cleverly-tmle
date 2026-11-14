@@ -363,7 +363,14 @@ def estimates_table(
         )
     if skewed:
         text = "skew_widened" if df_column else "skew_widened_large_df"
-        notes.append(note("skew_widened", vocabulary.NOTE_TEXTS[text].format(names=_names(skewed))))
+        notes.append(
+            note(
+                "skew_widened",
+                vocabulary.NOTE_TEXTS[text].format(
+                    names=_names(skewed), df_floor=f"{DF_SHOWN_BELOW:.0f}"
+                ),
+            )
+        )
     mover = [
         name for name, estimate in items if inferential[name] and estimate.interval_scale == "mover"
     ]

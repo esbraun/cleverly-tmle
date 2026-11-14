@@ -618,9 +618,9 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
         ),
         "skew_widened_large_df": (
             "The interval of {names} is widened on the side where a skewed outcome makes misses "
-            "more likely, so it need not be centred on the estimate. Its t distribution has 250 "
-            "or more degrees of freedom, so it is close to the normal one. The p-value is the "
-            "level at which the interval would just reach the null value."
+            "more likely, so it need not be centred on the estimate. Its t distribution has "
+            "{df_floor} or more degrees of freedom, so it is close to the normal one. The "
+            "p-value is the level at which the interval would just reach the null value."
         ),
         "mover": (
             "The interval of {names}, a difference of two proportions, is built from the two "

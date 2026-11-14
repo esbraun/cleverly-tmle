@@ -33,7 +33,13 @@ from cleverly._inference_status import (
 )
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
-from cleverly.inference import Transform, make_estimate, simultaneous_bands, wald_ci
+from cleverly.inference import (
+    Transform,
+    make_estimate,
+    simultaneous_bands,
+    skew_widened_ci,
+    wald_ci,
+)
 from cleverly.inference import influence as influence_module
 from cleverly.inference.influence import (
     ClusterReference,
@@ -127,14 +133,25 @@ def test_a_heavy_curve_on_a_bounded_mean_keeps_the_normal_reference() -> None:
 # ----------------------------------------------------------------------------------- T2e
 
 
-def test_no_t_ships_and_a_difference_keeps_its_identity_interval() -> None:
+def test_a_continuous_level_takes_the_skew_widened_t_and_a_bare_difference_keeps_identity() -> None:
+    """Fix-3 PR 3: an unclustered continuous level reads the skew-widened t at its df; a
+    difference with no recorded arms keeps the identity normal interval."""
     curve = _heavy(8.0)
     gaussian = make_estimate(
         "ey1", 2.5, curve, n=400, scale="level", outcome_family="gaussian", rule_widened=False
     )
     assert gaussian.effective_df is not None and gaussian.effective_df < 30.0
-    assert gaussian.interval_scale == "identity"
-    assert gaussian.ci == wald_ci(2.5, gaussian.std_error)
+    assert gaussian.acceleration is not None
+    assert gaussian.interval_scale == "skew_t"
+    assert gaussian.ci == skew_widened_ci(
+        2.5,
+        gaussian.std_error,
+        df=gaussian.effective_df,
+        acceleration=gaussian.acceleration,
+    )
+    # Nonzero witness: the t at this df is wider than the normal interval on both sides.
+    normal = wald_ci(2.5, gaussian.std_error)
+    assert gaussian.ci[0] < normal[0] - 1e-6 and gaussian.ci[1] > normal[1] + 1e-6
     difference = make_estimate(
         "ate", 0.3, _curve(0.04), n=400, scale="difference", bounds=(-1.0, 1.0), rule_widened=False
     )
@@ -251,7 +268,8 @@ def test_the_precedence_of_the_two_statuses() -> None:
     assert bounded_status("influence_curve", 1.0, UNIT, constant_cell=True) == (
         CONSTANT_ARM_CELL_STATUS
     )
-    # A labelled shown estimate with a heavy curve keeps its status and its normal interval.
+    # A labelled shown estimate with a heavy curve keeps its status; its interval is the
+    # skew-widened t of a continuous outcome.
     labelled = make_estimate(
         "ey1",
         2.5,
@@ -263,7 +281,13 @@ def test_the_precedence_of_the_two_statuses() -> None:
         rule_widened=False,
     )
     assert labelled.inference == "estimated_weight_plugin"
-    assert labelled.ci == wald_ci(2.5, labelled.std_error)
+    assert labelled.interval_scale == "skew_t"
+    assert labelled.ci == skew_widened_ci(
+        2.5,
+        labelled.std_error,
+        df=labelled.effective_df,
+        acceleration=labelled.acceleration,
+    )
 
 
 # ----------------------------------------------------------------------------------- T8
@@ -776,7 +800,8 @@ def test_the_summary_names_the_logit_scale(constant_cell_fit: Any) -> None:
     assert "log-odds scale" in summary
     record = constant_cell_fit.estimates["ey[1]"].to_dict()
     assert record["interval_scale"] == "range_logit"
-    assert constant_cell_fit.estimates["ate"].to_dict()["interval_scale"] == "identity"
+    # The difference of the two bounded means reads correlated MOVER on their logit intervals.
+    assert constant_cell_fit.estimates["ate"].to_dict()["interval_scale"] == "mover"
 
 
 # ----------------------------------------------------------------------------------- T23
@@ -864,7 +889,7 @@ def test_the_tmle_builder_records_the_family_of_the_fit() -> None:
         .single()
     )
     assert {e.outcome_family for e in gaussian.estimates.values()} == {"gaussian"}
-    assert {e.interval_scale for e in gaussian.estimates.values()} == {"identity"}
+    assert {e.interval_scale for e in gaussian.estimates.values()} == {"skew_t"}
     binary = frame.assign(Y=(frame["Y"] > 1.5).astype(float))
     fit = (
         TMLE(

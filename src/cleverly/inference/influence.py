@@ -1437,6 +1437,9 @@ class ParameterEstimate:
         interval at every level of the grid gets ``1e-15``, the grid's floor. The statistic
         is ``Phi^-1(1 - p/2)`` with the sign of the estimate minus the null.
         """
+        if np.isnan(null):
+            # An undefined null gives an undefined test, as the symmetric statistic does.
+            return float("nan"), float("nan")
         if not np.isfinite(null):
             pvalue = 0.0 if np.isfinite(self.psi) else float("nan")
         else:
@@ -1905,6 +1908,8 @@ class ParameterEstimate:
         row.update(self.spread_columns())
         if self.reference_df is not None:
             row["reference_df"] = self.reference_df
+        if self.interval_scale == "skew_t" and self.effective_df is not None:
+            row["effective_df"] = float(self.effective_df)
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin

@@ -35,7 +35,13 @@ import pytest
 from scipy import special, stats
 
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.inference import Transform, simultaneous_bands
+from cleverly.inference import (
+    Transform,
+    implied_correlation,
+    mover_ci,
+    simultaneous_bands,
+    skew_widened_ci,
+)
 from cleverly.inference.delta import wald_ci, wald_statistic
 from cleverly.inference.influence import ParameterEstimate
 from tests.conftest import linear_drtmle
@@ -162,12 +168,50 @@ def assert_widened(estimate: ParameterEstimate) -> None:
     ``plugin_interval`` is the same interval, so a study row that reads it reads ``ci``.
     """
     assert estimate.plugin_interval == estimate.ci
+    if estimate.interval_scale in ("mover", "skew_t"):
+        assert_asymmetric_widened(estimate)
+        return
     expected = interval_slope(estimate) * (
         critical(estimate) * estimate.std_error + abs(float(np.mean(estimate.influence_curve)))
     )
     below, above = half_widths(estimate, estimate.ci)
     assert below == pytest.approx(expected, rel=0.0, abs=EXACT)
     assert above == pytest.approx(expected, rel=0.0, abs=EXACT)
+
+
+def asymmetric_rule(estimate: ParameterEstimate) -> tuple[float, float]:
+    """The unwidened MOVER or skew-widened interval, from the public inference functions."""
+    if estimate.interval_scale == "mover":
+        assert estimate.components is not None
+        one, zero = (replace(arm, rule_widened=False) for arm in estimate.components)
+        return mover_ci(
+            one.psi,
+            one.ci,
+            zero.psi,
+            zero.ci,
+            correlation=implied_correlation(estimate.variance, one.variance, zero.variance),
+        )
+    assert estimate.effective_df is not None and estimate.acceleration is not None
+    return skew_widened_ci(
+        estimate.psi,
+        estimate.std_error,
+        estimate.alpha,
+        df=float(estimate.effective_df),
+        acceleration=float(estimate.acceleration),
+    )
+
+
+def assert_asymmetric_widened(estimate: ParameterEstimate) -> None:
+    """A MOVER or skew-widened interval adds ``|score|`` to each side on the reported scale.
+
+    The unwidened interval is the public construction (:func:`asymmetric_rule`), so the
+    widening is checked against an interval this module builds itself.
+    """
+    margin = abs(float(np.mean(estimate.influence_curve)))
+    low, high = asymmetric_rule(estimate)
+    assert plain(estimate) == pytest.approx((low, high), rel=0.0, abs=EXACT)
+    assert estimate.ci[0] == pytest.approx(low - margin, rel=0.0, abs=EXACT)
+    assert estimate.ci[1] == pytest.approx(high + margin, rel=0.0, abs=EXACT)
 
 
 # ------------------------------------------------------------------------------ arithmetic
@@ -222,15 +266,17 @@ class TestTheWidenedInterval:
 
     def test_the_p_value_inverts_the_widened_interval(self) -> None:
         estimate = ruled()["ate"]
+        assert estimate.interval_scale == "mover"
         low, _ = estimate.ci
         assert estimate.wald_test(null=low).pvalue == pytest.approx(0.05, abs=1e-9)
-        distance = abs(estimate.psi) / estimate.std_error - abs(estimate.score) / estimate.std_error
-        expected = 2.0 * stats.norm.sf(max(0.0, distance))
-        assert estimate.pvalue == pytest.approx(expected, rel=1e-12)
-        # The statistic stays the plain Wald statistic.
-        assert estimate.wald_test().statistic == pytest.approx(
-            estimate.psi / estimate.std_error, rel=1e-12
-        )
+        # At its own level the widened interval just reaches a null inside it, and the
+        # statistic is the normal quantile of the p-value with the sign of the estimate.
+        null = estimate.psi - 0.6 * (estimate.psi - low)
+        test = estimate.wald_test(null=null)
+        assert 0.05 < test.pvalue < 0.5
+        reached, _ = replace(estimate, alpha=test.pvalue).ci
+        assert reached == pytest.approx(null, abs=1e-9)
+        assert test.statistic == pytest.approx(stats.norm.isf(test.pvalue / 2.0), rel=1e-9)
 
 
 class TestTheSmallSampleReference:
@@ -239,10 +285,9 @@ class TestTheSmallSampleReference:
     Fix-3 PR 2 forms the interval of an unclustered bounded binary mean on the logit scale
     with the normal reference. The margin is carried there by the slope that carries the
     standard error, so the half-width on the logit scale is ``(z se + |r_n|) f'(psi)`` with
-    ``f'(psi) = 1 / (psi (1 - psi))``. Every other estimate keeps ``crit * se + |r_n|`` on its
-    inference scale. A continuous outcome keeps the normal reference until PR 3, although
-    :attr:`ParameterEstimate.effective_df` is computed; the fractional t half-width it will take
-    is checked at the helper.
+    ``f'(psi) = 1 / (psi (1 - psi))``. Fix-3 PR 3's MOVER and skew-widened t add ``|r_n|`` to
+    each side of the interval on the reported scale (:func:`assert_asymmetric_widened`). Every
+    other estimate keeps ``crit * se + |r_n|`` on its inference scale.
     """
 
     def test_a_bounded_mean_adds_the_margin_on_the_logit_scale(self) -> None:
@@ -313,10 +358,10 @@ class TestTheSmallSampleReference:
         margin = estimate.residual_margin
         assert wald_ci(*args, df=float("inf"), margin=margin) == wald_ci(*args, margin=margin)
 
-    def test_a_gaussian_widened_estimate_keeps_the_normal_half_width(self) -> None:
-        estimate = replace(ruled()["ate"], outcome_family="gaussian")
+    def test_a_gaussian_widened_estimate_adds_the_margin_to_the_skew_widened_t(self) -> None:
+        estimate = replace(ruled()["ate"], outcome_family="gaussian", components=None)
         assert estimate.rule_widened
-        assert estimate.effective_df is not None
+        assert estimate.interval_scale == "skew_t"
         assert estimate.reference_df is None
         assert_widened(estimate)
 
@@ -415,6 +460,8 @@ def plain_wald(estimate: ParameterEstimate) -> tuple[float, float]:
             logit(estimate.psi), estimate.std_error * interval_slope(estimate), estimate.alpha
         )
         return (expit(low), expit(high))
+    if estimate.interval_scale in ("mover", "skew_t"):
+        return asymmetric_rule(estimate)
     low, high = wald_ci(
         estimate.inference_value,
         estimate.std_error,
