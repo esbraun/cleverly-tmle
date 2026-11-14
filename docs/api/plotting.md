@@ -105,4 +105,6 @@ time point, or whose rows come from a trial and an external source.
   the chosen one marked; a cross-fitted fit keeps the first fold's choices.
 
 A continuous-time survival fit does not yet draw `curve`, and covariate balance over time is not
-drawn for any fit over time. Each refusal names the [roadmap](../roadmap.md) item that tracks it.
+drawn for any fit over time. A continuous-time fit's truncation curve carries the point-treatment
+columns, so `sensitivity` draws it. Each refusal names the [roadmap](../roadmap.md) item that
+tracks it.
