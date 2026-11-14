@@ -95,6 +95,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
@@ -1175,6 +1176,7 @@ def marginal_sensitivity_bounds(
     True
     """
     refuse_augmented_trial(result, "marginal_sensitivity_bounds", "bound")
+    refuse_continuous_survival(result, "marginal_sensitivity_bounds")
     refusal = marginal_bound_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)

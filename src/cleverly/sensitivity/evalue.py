@@ -65,6 +65,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import EVALUE_REFUSAL, refuse_continuous_survival
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import UNCLASSIFIED, Support, combine_support, record_refusal_site
@@ -543,14 +544,10 @@ def _select_evalue(result: TMLEResult, estimand: Any) -> _EValueSelection:
     if isinstance(result, ContinuousSurvivalResult):
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,
-            "the E-value of a continuous-time survival fit has no registered reading of its "
-            "confidence-limit E-value yet.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=(
-                "Call cleverly.sensitivity.evalue_from_rr on the fit's reported rr_regimen "
-                "estimate, and on the limit of its interval nearer 1, for a descriptive reading."
-            ),
-            roadmap="X6",
+            EVALUE_REFUSAL.condition,
+            reason=EVALUE_REFUSAL.reason,
+            alternative=EVALUE_REFUSAL.alternative,
+            roadmap=EVALUE_REFUSAL.roadmap,
         )
     if getattr(result, "assessment_family", None) != "point":
         eliminated = tuple(getattr(getattr(result, "data", None), "eliminated", ()) or ())
@@ -830,6 +827,7 @@ def evalue(result: TMLEResult, estimand: str | tuple[str, str] | None = None) ->
         per arm; a result that names only one half of that variable refuses.
     """
     refuse_augmented_trial(result, "evalue", "bound")
+    refuse_continuous_survival(result, "evalue")
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
 

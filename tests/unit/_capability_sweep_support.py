@@ -26,12 +26,17 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import (
     CausalStudy,
     IncrementalEffect,
+    LearnedRuleValue,
     LongitudinalTreatment,
+    MSMProjection,
     ParametricGFormulaMethod,
+    PointTreatment,
     RegimeContrast,
     RegimeMean,
     SplitPlan,
@@ -58,7 +63,7 @@ from cleverly.datasets import (
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, Refusal
-from cleverly.interventions import Incremental, Shift
+from cleverly.interventions import Incremental, ModifiedPolicy, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -219,6 +224,67 @@ def fit_learned_rule() -> Any:
     The summarize rows and ``truncation_curve`` run.
     """
     return learned_rule_support.fit()
+
+
+def fit_learned_rule_estimated_weights() -> Any:
+    """The fold-evaluated learned-rule fit with nonconstant weights declared estimated.
+
+    X11 part (k2) reads estimated weights conditionally: the point, the interval and the
+    fold rules equal the fit with the weights declared known. The weighting axis of the
+    support key reads ``estimated``, which no row covers, so the fit reads experimental.
+    Its rows are the learned-rule fit's.
+    """
+    frame = learned_rule_support.law_frame(300, 3).assign(w=lambda f: 1.0 + 1.5 * (f["W1"] > 0))
+    return (
+        learned_rule_support.learned_tmle()
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=learned_rule_support.COVARIATES,
+            weights="w",
+            weights_estimated=True,
+        )
+        .single()
+    )
+
+
+def fit_learned_rule_level() -> Any:
+    """The learned-rule value with the intermediate held at ``Z = 0``, by its study spelling.
+
+    ``LearnedRuleValue(intermediate=0.0)`` on a design that declares ``Z`` fits the engine's
+    learned-rule fit at that level (X11 part (j3)). ``simulated_confounding`` refuses the
+    level by name (X11 (j4)), and the refit rows refuse as on the direct learned-rule fit.
+    """
+    frame = learned_rule_support.law_frame(400, 5)
+    rng = np.random.default_rng(5)
+    frame["Z"] = rng.binomial(
+        1, 1.0 / (1.0 + np.exp(-(0.2 + 0.6 * frame["A"] - 0.4 * frame["W1"])))
+    )
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=learned_rule_support.COVARIATES,
+            intermediate="Z",
+        ),
+    )
+    interactions = Pipeline(
+        [
+            ("poly", PolynomialFeatures(2, interaction_only=True, include_bias=False)),
+            ("fit", LogisticRegression(max_iter=5000)),
+        ]
+    )
+    return study.identify(LearnedRuleValue(intermediate=0.0)).estimate(
+        outcome_learner=interactions,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        intermediate_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+        cv_evaluation=True,
+        simultaneous=False,
+        random_state=0,
+    )
 
 
 def fit_weighted() -> Any:
@@ -906,6 +972,58 @@ def fit_hazard_one_step() -> Any:
     return _fit_point_survival(survival_model="hazard", targeting="one_step")
 
 
+def _hazard_msm_design(label: Any, horizon: int, frame: Any) -> Any:
+    """The working model ``logit m = b0 + b1 a + b2 t`` over the two arms' horizon cells."""
+    n = len(frame)
+    arm = 1.0 if str(label) == "a1" else 0.0
+    return np.column_stack([np.ones(n), np.full(n, arm), np.full(n, float(horizon))])
+
+
+def fit_hazard_msm() -> Any:
+    """The one-step hazard fit projected onto a working model over its cells (X70 (d))."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    model = MSM(design=_hazard_msm_design, terms=("1", "a", "t"), design_kind="known", link="logit")
+    return study.identify(MSMProjection(model, regimens={"a1": 1, "a0": 0})).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
+def _one_level_up(a: Any, history: Any) -> Any:
+    """``d(a) = min(a + 1, 2)`` on the three arms."""
+    return np.minimum(np.asarray(a, dtype=float) + 1.0, 2.0)
+
+
+def fit_hazard_mtp() -> Any:
+    """A modified treatment policy on three arms against arm 0, on the hazard path (X70 (c))."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4, arms=3)
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    up = ModifiedPolicy("up", apply=_one_level_up, policy_kind="known")
+    return study.identify(RegimeContrast(regimens={"up": up, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_isotonic() -> Any:
     """The iterated-mean fit with its curve projected."""
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
@@ -983,6 +1101,35 @@ def fit_gformula() -> Any:
         random_state=5,
         simultaneous=False,
     )
+
+
+def fit_continuous_survival() -> Any:
+    """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
+
+    One main-terms Cox model for each hazard and the default treatment selection, so the fit
+    selects nothing by cross-validated partial likelihood and runs in well under a second.
+    """
+    from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
+
+    rng = np.random.default_rng(0)
+    n = 300
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    h1 = np.exp(-1.5 + 0.5 * w - a)
+    h2 = np.exp(-2.0 - 0.5 * w - 0.5 * a)
+    t = rng.exponential(1 / (h1 + h2))
+    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
+    c = rng.exponential(1 / 0.15, n)
+    frame = pd.DataFrame(
+        {"time": np.minimum(t, c), "event": np.where(t <= c, cause, 0), "A": a, "W": w}
+    )
+    return ContinuousSurvivalTMLE(
+        [0.5, 1.0],
+        cross_fit=False,
+        hazard_library=[CoxHazard("main")],
+        censoring_library=[CoxHazard("main")],
+        random_state=0,
+    ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -1078,6 +1225,13 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed (X11 part (n)). A refit relearns the
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
+    # Estimated weights change no number under the conditional reading (X11 (k2)).
+    "learned_rule+estimated_weights": _kind(
+        fit_learned_rule_estimated_weights, *_READ, "truncation_curve", *_PLUGIN_BOUND
+    ),
+    # At a level of the intermediate the omitted-variable rows refuse, as on the
+    # controlled direct effect, and simulated_confounding refuses by name (X11 (j4)).
+    "learned_rule+level": _kind(fit_learned_rule_level, *_LIVE),
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
@@ -1138,6 +1292,10 @@ KINDS: dict[str, Kind] = {
     "ltmle_known_sample_weights": _kind(fit_ltmle_known_sample_weights, *_READ, *_POINT),
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
+    "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
+    # Each policy is targeted by its own weighted walk, which no truncation replay
+    # rebuilds (H25), so the truncation row reads unavailable.
+    "ltmle_hazard_mtp": _kind(fit_hazard_mtp, *_READ, "refute"),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
@@ -1147,6 +1305,7 @@ KINDS: dict[str, Kind] = {
     "ipw": _kind(fit_ipw, "nuisance_models", "support", *_POINT),
     # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
     "gformula": _kind(fit_gformula, "nuisance_models", "support", "refute"),
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, refits=False),
 }
 
 
@@ -1394,7 +1553,14 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
         # The learned-rule kind came after RM23. Its tilt rule is one the pre-RM23 rows did
         # not read, so M1 makes its tilt rows read available while both calls refuse.
-        frozenset((*DECLINED_TILT_KINDS, "learned_rule")),
+        frozenset(
+            (
+                *DECLINED_TILT_KINDS,
+                "learned_rule",
+                "learned_rule+estimated_weights",
+                "learned_rule+level",
+            )
+        ),
         _RAISED.format("missingness") + "missingness_tilt ",
     ),
     "M2": Mutation(
@@ -1427,13 +1593,15 @@ MUTATIONS: dict[str, Mutation] = {
                 "gcomp",
                 "ipw",
                 "gformula",
+                # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
+                "learned_rule+level",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
         # supplied plan no longer meets a default refusal, because ``subset`` keeps the
         # original fold labels, and an MSM coefficient has a placebo reference (X82 A2).
         _RAISED.format("refute")
-        + r"(the placebo refutation|"
+        + r"(the placebo refutation|the placebo has no exact null|"
         + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value)",
     ),
     "M4": Mutation(
@@ -1472,7 +1640,14 @@ MUTATIONS: dict[str, Mutation] = {
         # A declared mechanism read in the weighted sample refuses it too (Fix-16): the
         # refit would still divide by the declaration.
         frozenset(
-            {"split_plan", "regime", "regime+missing", "learned_rule", "tmle_known_sample_weights"}
+            {
+                "split_plan",
+                "regime",
+                "regime+missing",
+                "learned_rule",
+                "learned_rule+estimated_weights",
+                "tmle_known_sample_weights",
+            }
         ),
         "("
         + _RAISED.format("benchmark")
