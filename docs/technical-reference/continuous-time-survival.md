@@ -42,8 +42,8 @@ An event and a censoring at one time are ordered event first, so the censoring h
 event out of its risk set. The weight $1 / \{\pi(a \mid L)\, S_c(u^- \mid a, L)\}$ is bounded by
 raising its denominator to `g_bounds`, by default $5 / (\sqrt n \log n)$. Two checks read the
 initial fits and raise a `DataError`, which a study records as a failed fit: a combined hazard jump
-of one or more, and an initial survival that reaches zero before the grid's end, the last target
-time or restricted horizon.
+of one or more, and an initial survival below $10^{-250}$ before the grid's end, the last target
+time or restricted horizon, where double precision no longer holds the clever covariate.
 
 ## The one-step walk
 
@@ -57,8 +57,17 @@ D_{a,j,t} = \frac{1\{A = a\}}{\pi(a \mid L)} \sum_{l=1}^J \int_0^t
 c_l(u) = 1\{l = j\} - \frac{F_j(t \mid a, L) - F_j(u \mid a, L)}{S(u \mid a, L)},
 $$
 
-with $N_l$ the counting process of cause $l$ and $Y$ the at-risk indicator. The walk moves every
-cause hazard of both arms, for every unit, along the multinomial logistic path
+with $N_l$ the counting process of cause $l$ and $Y$ the at-risk indicator. The quotient in $c_l$
+is the conditional risk of a cause-$j$ event in $(u, t]$ given survival past $u$,
+$\sum_{u < s \le t} S(s^- \mid a, L)\, \Lambda_j(ds \mid a, L) / S(u \mid a, L)$. The engine
+computes it in that form: it sums the incidence increments after $u$, each no larger than
+$S(u)$, and divides by $S(u)$. The difference of two incidences near one loses every digit where
+an extrapolating hazard fit takes the survival to $10^{-20}$; the sum keeps them, which
+`test_the_conditional_risk_holds_every_digit_where_the_survival_is_tiny` in
+`tests/unit/test_continuous_survival.py` checks against exact rational arithmetic.
+
+The walk moves every cause hazard of both arms, for every unit, along the multinomial logistic
+path
 
 $$
 \Lambda_l^{\varepsilon}(du) = \frac{\Lambda_l(du)\, e^{\varepsilon x_l(u)}}
@@ -79,7 +88,8 @@ accepted steps, at `2 * max_iter` rejected ones, or at a step below $10^{-8}$, w
 Two departures from `concrete` 1.0.5 are deliberate. Each arm's hazard is tilted for every unit,
 as the source's submodel tilts the hazard function; `concrete` tilts only the units whose received
 arm is the target's arm, which a mutation test shows is not doubly robust. And a step that would
-take some unit's survival at the grid's end below $10^{-8}$ holds that (unit, arm) pair
+take some unit's survival at the grid's end below $10^{-8}$, or below the initial fit's smallest
+survival there when that is lower, holds that (unit, arm) pair
 still for that step and tries the step again; the pair moves on the next step. The record's
 `frozen_share` counts the pairs ever held.
 
