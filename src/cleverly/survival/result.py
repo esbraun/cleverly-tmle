@@ -65,14 +65,37 @@ MEASURED_DEFAULTS: Final[Mapping[str, Any]] = {
 }
 
 
-#: Why a ratio of two continuous-time risks reads experimental.
+#: The registered study that measures a fit with ``restricted_horizons=``: its risks, risk
+#: differences, risk ratios, restricted means and their differences.
+FUNCTIONALS_STUDY: Final[str] = "continuous-survival-functionals"
+
+#: The share of the observed events (any cause) at or before a restriction time inside which a
+#: restricted mean reads supported.  The study restricts at the last target time, by which 75% of
+#: the observed events have happened on average (0.69 to 0.80 over 2,000 of its draws, sampling
+#: SD 0.016 at n = 1,000).  The lower edge sits five sampling SDs below that mean, as the risks'
+#: band does below its gated times; a restricted mean at an earlier restriction time weights the
+#: sparse early times more heavily, where the risks' standard error ran low, so it reads
+#: experimental.  The upper edge is the risks' (:data:`MEASURED_EVENT_SHARE`).
+RESTRICTED_EVENT_SHARE: Final[tuple[float, float]] = (0.67, 0.85)
+
+#: The limits a fit with restricted means states beside :data:`CONTINUOUS_LIMITS`.
+FUNCTIONALS_LIMITS: Final[tuple[str, ...]] = (
+    "One restriction time, at the last target time (2.32, the upper quartile of the event "
+    "times), with three target times. The restricted means read supported at restriction times "
+    "by which 67% to 85% of the observed events have happened; a restriction time past the last "
+    "target time extends the grid of the walk, which only the exact-law tests measure.",
+)
+
+#: Why a ratio of two continuous-time risks reads experimental in a fit without restricted means.
 RATIO_REASON: Final[str] = (
-    "No registered study measures a continuous-time risk ratio or odds ratio."
+    "The registered continuous-survival-functionals study measures the risk ratio of a fit "
+    "with one restricted horizon; no registered study measures the risk ratio of a fit "
+    "without one, or an odds ratio."
 )
 
 
-def _experimental(reason: str) -> Support:
-    return Support("experimental", reason, ("X91",), limits=CONTINUOUS_LIMITS)
+def _experimental(reason: str, limits: tuple[str, ...] = CONTINUOUS_LIMITS) -> Support:
+    return Support("experimental", reason, ("X91",), limits=limits)
 
 
 def continuous_survival_support(
@@ -86,16 +109,21 @@ def continuous_survival_support(
     settings: Mapping[str, Any],
     restricted: bool = False,
     restricted_horizons: int = 0,
+    past_last_time: bool = False,
 ) -> Support:
     """The support of one continuous-time estimate.
 
-    An estimate reads ``supported`` when the registered ``continuous-time-survival`` study
-    measures its configuration: a risk or a risk difference with two causes and at least
-    :data:`MEASURED_N` units, at a time by which between 40% and 85% of the observed events have
-    happened (:data:`MEASURED_EVENT_SHARE`),
-    from a cross-fitted fit with the default libraries and the settings of
-    :data:`MEASURED_DEFAULTS`.  Otherwise it reads ``experimental`` with every reason that
-    applies.
+    A risk or a risk difference of a fit without ``restricted_horizons=`` reads ``supported``
+    when the registered ``continuous-time-survival`` study measures its configuration: two
+    causes and at least :data:`MEASURED_N` units, at a time by which between 40% and 85% of the
+    observed events have happened (:data:`MEASURED_EVENT_SHARE`), from a cross-fitted fit with
+    the default libraries and the settings of :data:`MEASURED_DEFAULTS`.  A fit with one
+    restricted horizon, at or before its last target time, is measured by the registered
+    ``continuous-survival-functionals`` study under the same conditions: its risks, risk
+    differences and risk ratios, and its restricted means and their differences at a
+    restriction time by which between 67% and 85% of the observed events have happened
+    (:data:`RESTRICTED_EVENT_SHARE`).  Otherwise the estimate reads ``experimental`` with every
+    reason that applies.
 
     Parameters
     ----------
@@ -119,7 +147,10 @@ def continuous_survival_support(
     restricted_horizons : int
         How many restriction times the fit targets.  They add targets to the walk, which moves
         every risk of the fit, so this is a check of its own rather than a key of
-        :data:`MEASURED_DEFAULTS`: no registered study measures such a fit yet.
+        :data:`MEASURED_DEFAULTS`: the functionals study measures one.
+    past_last_time : bool
+        Whether a restriction time lies past the fit's last target time, which extends the
+        walk's grid beyond it.  The functionals study restricts at the last target time.
 
     Returns
     -------
@@ -140,24 +171,38 @@ def continuous_survival_support(
     ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
     ... ).label
     'experimental'
+    >>> continuous_survival_support(
+    ...     scale="level", event_share=0.75, n=1_000, causes=2, cross_fitted=True,
+    ...     default_nuisances=True, settings=MEASURED_DEFAULTS, restricted=True,
+    ...     restricted_horizons=1,
+    ... ).evidence
+    ('continuous-survival-functionals',)
     """
     reasons: list[str] = []
-    if restricted:
-        reasons.append("No registered study measures a continuous-time restricted mean.")
-    elif scale == "ratio":
+    functionals = restricted_horizons > 0
+    if scale == "ratio" and not functionals:
         reasons.append(RATIO_REASON)
     if restricted_horizons > 1:
         reasons.append(
-            f"The fit targets {restricted_horizons} restricted horizons; no registered study "
-            "targets more than one."
+            f"The fit targets {restricted_horizons} restricted horizons; the registered "
+            f"{FUNCTIONALS_STUDY} study targets one."
         )
-    elif restricted_horizons and not restricted:
+    if functionals and past_last_time:
         reasons.append(
-            "The fit also targets restricted means, which moves its risks, and no registered "
-            "study measures such a fit."
+            "A restricted horizon lies past the last target time, which extends the walk's grid "
+            f"beyond it; the registered {FUNCTIONALS_STUDY} study restricts at the last target "
+            "time, and only the exact-law tests measure the extension."
         )
-    low, high = MEASURED_EVENT_SHARE
-    if event_share < low:
+    low, high = RESTRICTED_EVENT_SHARE if restricted else MEASURED_EVENT_SHARE
+    if restricted and event_share < low:
+        reasons.append(
+            f"Only {event_share:.0%} of the observed events happen by this restriction time. "
+            f"The registered {FUNCTIONALS_STUDY} study restricts where about 75% have happened, "
+            f"and a restricted mean reads supported from {low:.0%} to {high:.0%}; an earlier "
+            "restriction time weights the sparse early times, where the standard error ran "
+            "low, more heavily."
+        )
+    elif event_share < low:
         reasons.append(
             f"Only {event_share:.0%} of the observed events happen by this time. The "
             f"registered study gates times by which {low:.0%} to {high:.0%} have happened; at "
@@ -195,13 +240,15 @@ def continuous_survival_support(
             f"The fit sets {', '.join(changed)} away from the default, and the registered study "
             "measures the defaults only."
         )
+    limits = (*CONTINUOUS_LIMITS, *FUNCTIONALS_LIMITS) if functionals else CONTINUOUS_LIMITS
     if reasons:
-        return _experimental(" ".join(reasons))
+        return _experimental(" ".join(reasons), limits)
+    study = FUNCTIONALS_STUDY if functionals else CONTINUOUS_SURVIVAL_STUDY
     return Support(
         "supported",
-        f"The registered {CONTINUOUS_SURVIVAL_STUDY} study measures this configuration.",
-        (CONTINUOUS_SURVIVAL_STUDY,),
-        limits=CONTINUOUS_LIMITS,
+        f"The registered {study} study measures this configuration.",
+        (study,),
+        limits=limits,
     )
 
 
@@ -1043,6 +1090,14 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             alpha=self._alpha,
             name=label,
         )
+        if kind == "rr" and view == "risk":
+            # The fit's own risk ratio of this pair, in either order, labelled when it was built.
+            for first, second in ((top, bottom), (bottom, top)):
+                stored = self.estimates.get(
+                    contrast_name("rr_regimen", first[0], second[0], first[1], first[2])
+                )
+                if stored is not None:
+                    return replace(derived, support=stored.support)
         support = combine_support(
             [RATIO_SUPPORT, self.estimates[numerator].support, self.estimates[denominator].support]
         )

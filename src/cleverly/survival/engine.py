@@ -730,6 +730,7 @@ class ContinuousSurvivalTMLE:
                 settings=settings,
                 restricted=q >= len(self.horizons),
                 restricted_horizons=len(restricted),
+                past_last_time=bool(restricted) and max(restricted) > max(self.horizons),
             )
 
         estimates = build_estimates(
