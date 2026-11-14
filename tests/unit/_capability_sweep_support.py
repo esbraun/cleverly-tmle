@@ -821,6 +821,30 @@ def fit_ltmle() -> Any:
     )
 
 
+def _fit_mtp_censored(estimator: str) -> Any:
+    """A three-node continuous-treatment policy fit with dropout after each node, in sample.
+
+    Law P-C of ``mtp-pricing-censored`` at 600 rows: a modified policy on a continuous
+    treatment, the learned classifier ratio and a logistic censoring factor (X77).
+    """
+    from tests.studies import canonical_mtp_pricing_censored as censored
+    from tests.studies import mtp_pricing_censored_common as law_pc
+
+    return censored.fit(
+        law_pc.sample(600, 3),
+        estimator=estimator,
+        treatment_learner=LogisticRegression(max_iter=1000),
+    )
+
+
+def fit_ltmle_mtp_censored() -> Any:
+    return _fit_mtp_censored("ltmle")
+
+
+def fit_sdr_mtp_censored() -> Any:
+    return _fit_mtp_censored("sdr")
+
+
 def _fit_point_survival(**settings: Any) -> Any:
     """A two-arm survival curve fit on ``make_point_survival(600, 3)``, in sample."""
     frame, _ = make_point_survival(n=600, seed=3, n_times=4)
@@ -1078,6 +1102,10 @@ KINDS: dict[str, Kind] = {
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, *_POINT),
+    # A modified policy on a continuous treatment with dropout (X77). Every sensitivity row
+    # refuses a longitudinal fit by name; SDR solves no score equation.
+    "ltmle_mtp_censored": _kind(fit_ltmle_mtp_censored, *_READ, *_POINT),
+    "sdr_mtp_censored": _kind(fit_sdr_mtp_censored, "nuisance_models", "support", *_POINT),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", *_POINT),
     # The baselines fit no fluctuation, so no score equation. A g-computation estimate reads
@@ -1362,6 +1390,8 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle_mtp_censored",
+                "sdr_mtp_censored",
                 "gcomp",
                 "ipw",
                 "gformula",

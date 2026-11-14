@@ -166,6 +166,9 @@ GATING_CELLS: tuple[str, ...] = (
         for cell in pair
     ),
 )
+#: Every Python truth row of the two primary scenarios gates too.  The test of the committed
+#: tables passes both to :func:`~tests.studies.mtp_study_tools.gating_findings`.
+GATING_TRUTH: tuple[str, ...] = (study.STUDY.implementation,)
 
 _LEARNED_LIMIT = (
     "a learned ratio: the fit's own curve reads the classifier's limit, which has no closed "
@@ -405,7 +408,7 @@ def _seed_of(key: _Key) -> int:
     return _seed(family, label, replicate)
 
 
-#: A generous peak of one property worker at n = 2,000.
+#: A generous peak of one property worker at n = 2,400.
 FIT_BYTES = 2**30
 #: The share of a cell's requested replications the accounting lets a run lose.
 FAILURE_BOUND = 0.01

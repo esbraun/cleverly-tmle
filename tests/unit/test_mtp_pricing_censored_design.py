@@ -197,3 +197,16 @@ def test_the_pair_pilots_clear_the_power_rule() -> None:
         assert reading["equivalence_power"] >= 0.90
         assert reading["necessity_power"] >= 0.90
         assert reading["displacement"] > properties.NECESSITY_DISPLACEMENT
+
+
+def test_the_gating_rows_include_every_truth_row_and_pass_on_the_committed_tables() -> None:
+    """The gate reads both the property cells and the primary truth rows (design review S1)."""
+    published = {
+        f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+    }
+    assert set(properties.GATING_CELLS) <= published
+    assert len(properties.GATING_CELLS) == 2 * 3 + 2 * 2
+    assert (study.STUDY.implementation,) == properties.GATING_TRUTH
+    assert (
+        tools.gating_findings(study.STUDY, properties.GATING_CELLS, properties.GATING_TRUTH) == []
+    )

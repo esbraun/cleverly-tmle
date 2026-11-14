@@ -29,10 +29,22 @@ The property families are in :mod:`tests.studies.mtp_pricing_censored_properties
 cross-fitted learned-classifier calibration cell of each engine and a censoring-necessity pair
 per engine.  The support rows ``G39.<engine>.tau3_cross_fitted_censored`` cite those cells.
 
+**Which cell carries which claim.**  The primary rows check that the censored recursion, with
+the price ratio exact, is unbiased and covers at n = 2,400; on this law they cannot see a
+censoring factor that never reaches the weights, because the primary outcome learners nearly
+correct for the dropout on their own (a 160-draw design-review probe read the bias of a fit with
+a constant per-node retention within 0.07 SD of the learned one).  That the factor reaches the
+weights, at the observed dose, is carried by the necessity pairs (a wrong outcome model, where
+only the weights can correct) and by the exact-law witnesses with their mutation controls
+(``tests/unit/test_longitudinal_mtp_censored.py``).  The calibration cells carry the interval
+under a learned classifier and a learned censoring factor.
+
 **Comparator.**  R ``lmtp`` 1.5.4 is pending (:attr:`StudyRecord.pending_reference`): its runs
 take the per-node joint ratio this package computed (``ratio__<plan>__<node>``, written beside
 each sample by :func:`pairing_columns`) and the censoring columns, an exactness witness, on the
-local study queue after the merge.  A missing comparator blocks nothing
+local study queue after the merge.  Because ``lmtp`` would read
+this package's own joint ratio, the paired rows check the recursion given the ratio and cannot
+catch a wrong retention model; the necessity pairs and the exact-law witnesses do.  A missing comparator blocks nothing
 (``docs/architecture-invariants.md``, "Theory and comparators").
 
 **Red-cell reading, declared before any run.**  Publication policy ``reporting``, with the
@@ -40,7 +52,7 @@ gated verdicts read by code (:data:`~tests.studies.mtp_pricing_censored_properti
 and the primary truth rows).
 
 * A red primary truth row or calibration positive is a defect suspect unless the finite-sample
-  route holds: its 99% SE-ratio interval contains 1 (calibration cells), its coverage interval
+  route holds: its 99% SE-ratio interval contains 1, its coverage interval
   contains 0.95, and a paired-arm diagnosis on fresh seeds against the complete-data sibling of
   ``mtp-pricing`` finds no defect.  Only then does it report under a named owner in the
   roadmap's Red-cell owners table.
