@@ -140,9 +140,11 @@ def invalid_rows(
     The rules of the reference harness's ``study_invalid`` (RM39a2): a finite ``estimate``,
     ``inference_estimate`` and ``std_error``, a positive ``std_error``, ``ci_lower`` at most
     ``ci_upper``, and ``covered`` equal to the interval's coverage of ``truth``.  Only the
-    columns present are read.  A missing value breaks a rule, with one exception: a row whose
-    numeric ``withheld`` is 1 may carry a NaN ``std_error``, the reading of an estimate that
-    withheld its interval (``boundary-node-ltmle``); a zero or infinite one still breaks it.  ``coverage=False`` drops the
+    columns present are read.  A missing value breaks a rule, with one exception that
+    ``study_invalid`` does not have: a row whose numeric ``withheld`` is 1 may carry a NaN
+    ``std_error``, the reading of an estimate that withheld its interval
+    (``boundary-node-ltmle``); a zero or infinite one still breaks it.  Reference rows never
+    carry ``withheld``, so on them the two checks agree.  ``coverage=False`` drops the
     last rule: the study computes a subject row's ``covered`` itself, so a disagreement there
     is a study defect, and ``schema.validate_replicates`` stops the run on it.
     """

@@ -45,6 +45,11 @@ marks a row whose quiet coverage has an exact lower end below 0.90, the shortfal
 declaration assigns to F31's rare-event limit. A ``supplemented`` row also publishes the median
 ratio of its half-width to the ``oracle_node`` half-width on firing draws, with
 ``firing_above_099``, the over-coverage reading (the firing lower end above 0.99).
+
+The control row also publishes ``firing_below_nominal``: whether the exact 99% upper end of the
+plug-in's firing coverage (``firing_ci_upper``) is below 0.95. Clause (ii') asks whether the
+flagged node's true variance moves coverage, not whether the plug-in falls short of nominal; this
+reading states the second fact beside it and gates nothing.
 """
 
 from __future__ import annotations
@@ -90,6 +95,8 @@ OVER_COVERAGE: Final[float] = 0.99
 #: The exact 99% lower end that clause (ii') needs: the gap between nominal coverage and the
 #: study's coverage floor (0.95 against 0.90), plan 5.5 rev 3.3.
 ORACLE_GAIN_MARGIN: Final[float] = 0.05
+#: The nominal coverage the control's plug-in firing coverage is read against (a reading).
+NOMINAL: Final[float] = 0.95
 #: The ``stream_seed`` labels of the redeclared run (plan 5.5 rev 3.3): its property draws and
 #: its firing SE-ratio resamples are disjoint from the first declared run's and the pilot's.
 SAMPLE_STREAM: Final[str] = "property_sample_rev33"
@@ -128,6 +135,7 @@ READING_COLUMNS: Final[tuple[str, ...]] = (
     "oracle_gained",
     "oracle_lost",
     "oracle_gain_lower",
+    "firing_below_nominal",
 )
 
 
@@ -476,6 +484,7 @@ def boundary_node_readings(summary: pd.DataFrame, rows: pd.DataFrame, level: flo
             values["oracle_gain_lower"] = oracle_gain_lower(
                 counts["oracle_gained"], counts["oracle_lost"], counts["firing"], level
             )
+            values["firing_below_nominal"] = float(values["firing_ci_upper"] < NOMINAL)
         for column, value in values.items():
             summary.loc[index, column] = value
 

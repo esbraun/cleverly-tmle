@@ -961,3 +961,21 @@ def test_the_firing_se_ratio_reads_the_firing_draws(passing: pd.DataFrame) -> No
     expected = group.loc[fire, "std_error"].mean() / group.loc[fire, "estimate"].std(ddof=1)
     assert verdicts["firing_se_ratio"] == pytest.approx(expected, rel=1e-12)
     assert verdicts["firing_se_ratio_ci_lower"] < expected < verdicts["firing_se_ratio_ci_upper"]
+
+
+def test_the_control_reads_its_firing_coverage_against_nominal(passing: pd.DataFrame) -> None:
+    """``firing_below_nominal`` is a reading on the control row and gates nothing.
+
+    Mutation control: a plug-in that covers its firing draws at nominal clears the reading.
+    """
+    verdicts = _verdicts(passing)
+    control = verdicts.loc[properties.CONTROL_CELL]
+    assert control["firing_ci_upper"] < properties.NOMINAL
+    assert control["firing_below_nominal"] == 1.0
+    assert np.isnan(verdicts.loc["interior_n400__always__plugin", "firing_below_nominal"])
+    rows = passing.copy()
+    oracle = rows.loc[rows["cell"] == properties.PAIRED_ORACLE, "covered"].to_numpy()
+    rows.loc[rows["cell"] == properties.CONTROL_CELL, "covered"] = oracle
+    moved = _verdicts(rows).loc[properties.CONTROL_CELL]
+    assert moved["firing_below_nominal"] == 0.0
+    assert not moved["passed"]

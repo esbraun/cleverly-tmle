@@ -41,7 +41,16 @@ redeclaration is informed by that run. It changes three things and nothing else:
   clause on draws that did not inform it.
 
 Every cell, R, gate, margin and owner other than these is unchanged, and the first run's rows
-serve only as a second pilot for the power of clause (ii'). Budget: about
+serve only as a second pilot for the power of clause (ii'). The control row also publishes, as
+a reading that gates nothing, whether the exact 99% upper end of the plug-in's firing coverage
+is below 0.95 (``firing_below_nominal``; the first run read 0.845), so the attribution states
+that the plug-in falls short of nominal as well as that the node's true variance moves coverage.
+
+All eight cells and the primary rerun, not only the control cell: the harness records one
+declaration per manifest, so a partial rerun would leave cells under two declarations, and the
+whole rerun costs about 0.15 CPU-h. Fresh draws can only add reds to the cells that passed. The
+first run's passing cells are history, not evidence: the registration cites the rerun's rows
+and names the first run only as the record of why the study was redeclared. Budget: about
 0.04 to 0.08 s per fit at the pilot (one fit per key, its three arms read off that fit), so 8
 cells by 4,000 draws plus the 1,000-draw primary is under 1 CPU-h of fitting; declared 6 CPU-h.
 
