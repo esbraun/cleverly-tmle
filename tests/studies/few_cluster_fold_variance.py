@@ -251,10 +251,25 @@ PREDICTED_FLOOR: Final[dict[str, int]] = {"t_reference": 4, "known_propensity": 
 #: readings: the estimated propensity's outlier SEs on 6 training clusters leave ``equal10`` a
 #: variance ratio of 1.31, so the deflated variance still reads 0.94 and its coverage 0.927.
 #: The red-cell owner of a positive cell below its configuration's training floor (the roadmap's
-#: Red-cell owners table): it holds that cell's coverage-band and G1 legs. A red variance-ratio
-#: lower end, a red at or above the floor, or a control that does not do its job is a defect
-#: suspect or an unlicensed configuration (:func:`~tests.studies.few_cluster_fold_variance_properties.declared_route`).
+#: Red-cell owners table): it holds that cell's coverage-band and G1 legs under one of
+#: :data:`TRAINING_FLOOR_READING` and :data:`FINITE_SAMPLE_READING`. A red variance-ratio lower
+#: end, a red at 24 without a recorded diagnosis, or a control that does not do its job is a
+#: defect suspect or an unlicensed configuration (:func:`~tests.studies.few_cluster_fold_variance_properties.declared_route`).
 RED_OWNER: Final[str] = "X54-training-floor"
+#: The owner's two readings (plan 5.8, rev 3.5). A red below the configuration's
+#: :data:`PREDICTED_FLOOR`, with a passing variance-ratio lower end, reads as the training-floor
+#: limit the pilot showed. A red at or above it, or a red count above a passing count of the
+#: same configuration (the non-monotone signature: the training-complement mechanism is monotone
+#: in the count), reads as a finite-sample miss: the plug-in figures size the run, and the
+#: predictive figures of :data:`PREDICTIVE_FAMILY` (0.718 and 0.646) give such a red that chance.
+TRAINING_FLOOR_READING: Final[str] = "training-floor limit"
+FINITE_SAMPLE_READING: Final[str] = "finite-sample (plug-in sizing)"
+#: The recorded diagnosis flag, per configuration, that a red at 24 training clusters (so no
+#: training floor) is a finite-sample miss and no defect: the record of the diagnosis that found
+#: it. Empty before the run. Only an entry here turns that configuration's ``defect suspect`` into
+#: ``no floor (finite-sample)``
+#: (:func:`~tests.studies.few_cluster_fold_variance_properties.declared_route`).
+NO_DEFECT_DIAGNOSES: Final[dict[str, str]] = {}
 #: The owner of each predicted red, declared before the run.
 PREDICTED_RED_OWNERS: Final[dict[str, str]] = {
     cell_name: RED_OWNER

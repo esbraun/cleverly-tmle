@@ -582,8 +582,9 @@ def test_the_route_of_the_predicted_reds_is_the_owned_floor() -> None:
         route = properties.declared_route(summary, arm)
         assert route.outcome == properties.TRAINING_FLOOR
         assert route.floor == route.minimum == study.PREDICTED_FLOOR[arm]
-        expected = {f"{c}__{arm}": study.RED_OWNER for c in study.PREDICTED_RED[arm]}
-        assert route.owners == expected
+        held = (study.RED_OWNER, study.TRAINING_FLOOR_READING)
+        assert route.owners == {f"{c}__{arm}": held for c in study.PREDICTED_RED[arm]}
+        assert route.non_monotone == ()
 
 
 def test_a_red_variance_lower_end_below_the_floor_is_a_defect_suspect() -> None:
@@ -595,11 +596,104 @@ def test_a_red_variance_lower_end_below_the_floor_is_a_defect_suspect() -> None:
     assert route.owners == {"equal10__v2_j4__t_reference": None}
 
 
+@pytest.mark.parametrize(
+    ("cell", "floor"), [("equal10__v5_j10", 16), ("cluster_covariate__v5_j20", 24)]
+)
+def test_a_chance_red_above_a_passing_count_is_held_as_finite_sample(cell: str, floor: int) -> None:
+    """Plan 5.8 (rev 3.5): a red at 8 or 16 above passing counts is the non-monotone signature.
+
+    The floor rises past it and the owner holds it under the finite-sample reading, not the
+    training-floor limit, which is monotone in the count.
+    """
+    summary = _summary()
+    _fail(summary, "equal10__v2_j4", "t_reference")
+    _fail(summary, cell, "t_reference")
+    route = properties.declared_route(summary, "t_reference")
+    name = f"{cell}__t_reference"
+    assert route.outcome == properties.TRAINING_FLOOR
+    assert route.minimum == floor
+    assert route.non_monotone == (name,)
+    assert route.owners == {
+        "equal10__v2_j4__t_reference": (study.RED_OWNER, study.TRAINING_FLOOR_READING),
+        name: (study.RED_OWNER, study.FINITE_SAMPLE_READING),
+    }
+
+
+def test_a_red_at_the_predicted_floor_reads_finite_sample_without_the_signature() -> None:
+    """A red at the predicted floor with every lower count red is still not the pilot's limit."""
+    summary = _summary()
+    for cell in ("equal10__v2_j4", "equal10__v2_j8"):
+        _fail(summary, cell, "t_reference")
+    route = properties.declared_route(summary, "t_reference")
+    assert route.non_monotone == ()
+    assert route.owners["equal10__v2_j8__t_reference"] == (
+        study.RED_OWNER,
+        study.FINITE_SAMPLE_READING,
+    )
+    # The known configuration's predicted floor is 6, so the same red there is the limit.
+    for cell in ("equal10__v2_j4", "equal10__v2_j8"):
+        _fail(summary, cell, "known_propensity")
+    known = properties.declared_route(summary, "known_propensity").owners
+    assert known["equal10__v2_j8__known_propensity"] == (
+        study.RED_OWNER,
+        study.TRAINING_FLOOR_READING,
+    )
+    # Below the predicted floor, the non-monotone signature alone makes the reading finite-sample.
+    summary = _summary()
+    _fail(summary, "equal10__v2_j8", "known_propensity")
+    route = properties.declared_route(summary, "known_propensity")
+    assert route.non_monotone == ("equal10__v2_j8__known_propensity",)
+    assert route.owners == {
+        "equal10__v2_j8__known_propensity": (study.RED_OWNER, study.FINITE_SAMPLE_READING)
+    }
+
+
 def test_no_passing_count_is_a_defect_suspect() -> None:
     summary = _summary()
     _fail(summary, "equal10__v5_j30", "t_reference")
     route = properties.declared_route(summary, "t_reference")
     assert route.outcome == properties.DEFECT_SUSPECT and route.floor is None
+    assert route.owners == {"equal10__v5_j30__t_reference": None}
+    # No diagnosis is recorded before the run.
+    assert study.NO_DEFECT_DIAGNOSES == {}
+
+
+def test_a_diagnosed_red_at_24_ships_no_floor() -> None:
+    """Plan 5.8 (rev 3.5): the fifth outcome needs the recorded diagnosis flag."""
+    summary = _summary()
+    _fail(summary, "equal10__v2_j4", "t_reference")
+    _fail(summary, "equal10__v5_j30", "t_reference")
+    diagnoses = {"t_reference": "no defect: the record of the diagnosis"}
+    route = properties.declared_route(summary, "t_reference", diagnoses)
+    assert route.outcome == properties.NO_FLOOR
+    assert route.floor is None and route.minimum is None
+    assert route.reasons == ("no defect: the record of the diagnosis",)
+    assert route.owners == {
+        "equal10__v2_j4__t_reference": (study.RED_OWNER, study.TRAINING_FLOOR_READING),
+        "equal10__v5_j30__t_reference": (study.RED_OWNER, study.FINITE_SAMPLE_READING),
+    }
+    assert route.non_monotone == ("equal10__v5_j30__t_reference",)
+
+
+def test_the_no_floor_outcome_needs_its_own_diagnosis_and_a_passing_variance() -> None:
+    """Mutations of the no-floor case: each removes one condition and leaves a defect suspect."""
+    summary = _summary()
+    _fail(summary, "equal10__v5_j30", "t_reference")
+    other = {"known_propensity": "no defect"}
+    assert properties.declared_route(summary, "t_reference", other).outcome == (
+        properties.DEFECT_SUSPECT
+    )
+    own = {"t_reference": "no defect"}
+    _fail(summary, "equal10__v5_j30", "t_reference", variance=False)
+    route = properties.declared_route(summary, "t_reference", own)
+    assert route.outcome == properties.DEFECT_SUSPECT
+    assert route.owners == {"equal10__v5_j30__t_reference": None}
+    # A diagnosis never moves a configuration that has a floor.
+    summary = _summary()
+    _fail(summary, "equal10__v2_j4", "t_reference")
+    assert properties.declared_route(summary, "t_reference", own).outcome == (
+        properties.TRAINING_FLOOR
+    )
 
 
 @pytest.mark.parametrize(

@@ -55,6 +55,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Final
 
 import numpy as np
@@ -550,6 +551,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
+def _certified_counts(passed: pd.Series, arm: str) -> set[int]:
+    """The training counts at which every positive cell of ``arm`` passes."""
+    certified = dict.fromkeys(study.TRAINING_LADDER, True)
+    for cell in study.CELLS:
+        certified[cell.training] = certified[cell.training] and bool(passed[_cell(cell.name, arm)])
+    return {count for count, ok in certified.items() if ok}
+
+
 def training_floor(summary: pd.DataFrame, arm: str) -> int | None:
     """A configuration's training-cluster floor :math:`T^*` (plan 5.3), off a summary.
 
@@ -559,20 +568,19 @@ def training_floor(summary: pd.DataFrame, arm: str) -> int | None:
     :func:`declared_route`'s question.
     """
     passed = summary.set_index("cell")["passed"].astype(bool)
-    certified = dict.fromkeys(study.TRAINING_LADDER, True)
-    for cell in study.CELLS:
-        certified[cell.training] = certified[cell.training] and bool(passed[_cell(cell.name, arm)])
+    certified = _certified_counts(passed, arm)
     floor = None
-    for count in sorted(certified, reverse=True):
-        if not certified[count]:
+    for count in sorted(study.TRAINING_LADDER, reverse=True):
+        if count not in certified:
             break
         floor = count
     return floor
 
 
-#: The outcomes of :func:`declared_route` (plan 5.8, rev 3.4).
+#: The outcomes of :func:`declared_route` (plan 5.8, rev 3.5).
 CALIBRATED = "calibrated"
 TRAINING_FLOOR = "training floor"
+NO_FLOOR = "no floor (finite-sample)"
 DEFECT_SUSPECT = "defect suspect"
 UNLICENSED = "unlicensed"
 
@@ -587,17 +595,23 @@ class Route:
         The positive arm, one of :data:`~tests.studies.few_cluster_fold_variance.POSITIVE_ARMS`.
     outcome : str
         :data:`CALIBRATED` (every cell passes: no floor ships), :data:`TRAINING_FLOOR`
-        (``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism] = floor`` ships), :data:`DEFECT_SUSPECT`
-        (diagnose and fix before anything ships) or :data:`UNLICENSED` (a must-fail control did
-        not fail, or the IID control saw no cluster effect, in some cell: nothing ships from the
-        configuration, and the study is redesigned under a fresh declaration).
+        (``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism] = floor`` ships), :data:`NO_FLOOR` (a red at
+        24 training clusters that a recorded diagnosis finds no defect: no floor ships, and the
+        record states no certified training count), :data:`DEFECT_SUSPECT` (diagnose and fix
+        before anything ships) or :data:`UNLICENSED` (a must-fail control did not fail, or the
+        IID control saw no cluster effect, in some cell: nothing ships from the configuration,
+        and the study is redesigned under a fresh declaration).
     floor : int or None
         :func:`training_floor`.
     minimum : int or None
         The value of ``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism]`` the outcome ships, or ``None``.
     owners : dict
-        Each red positive cell of the configuration with the red-cell owner that holds it.
-        ``None`` marks a red no owner holds, which is why the outcome is a defect suspect.
+        Each red positive cell of the configuration with the owner and reading that hold it,
+        ``(RED_OWNER, reading)``. ``None`` marks a red no owner holds, which is why the outcome
+        is a defect suspect.
+    non_monotone : tuple of str
+        The red positive cells at a training count above a count at which every positive cell
+        of the configuration passes: the signature of the finite-sample reading.
     reasons : tuple of str
         Why the outcome is what it is, one entry per failing condition.
     """
@@ -606,23 +620,41 @@ class Route:
     outcome: str
     floor: int | None
     minimum: int | None
-    owners: dict[str, str | None]
+    owners: dict[str, tuple[str, str] | None]
+    non_monotone: tuple[str, ...]
     reasons: tuple[str, ...]
 
 
-def declared_route(summary: pd.DataFrame, arm: str) -> Route:
+def declared_route(
+    summary: pd.DataFrame,
+    arm: str,
+    diagnoses: Mapping[str, str] | None = None,
+) -> Route:
     """Map a summary to the route plan 5.8 declares for one configuration.
 
     1. Licence: in every cell the configuration's deflated control must fail the positive rule
        and the IID control must pass. Otherwise the instrument could not see the failure it
        targets, and the configuration is :data:`UNLICENSED`, whatever its positive cells read.
-    2. Floor: :func:`training_floor`. No qualifying count is a :data:`DEFECT_SUSPECT`.
-    3. A red positive cell below the floor is held by
-       :data:`~tests.studies.few_cluster_fold_variance.RED_OWNER` when only its coverage band or
-       G1 failed. A red variance-ratio lower end is an underestimated variance, which no owner
+    2. Floor: :func:`training_floor`.
+    3. A red positive cell whose variance-ratio lower end passes is held by
+       :data:`~tests.studies.few_cluster_fold_variance.RED_OWNER` when it sits below the floor,
+       or when there is no floor and ``diagnoses`` records a no-defect diagnosis for ``arm``. Its
+       reading is :data:`~tests.studies.few_cluster_fold_variance.FINITE_SAMPLE_READING` at or
+       above the configuration's
+       :data:`~tests.studies.few_cluster_fold_variance.PREDICTED_FLOOR`, or on the non-monotone
+       signature, and :data:`~tests.studies.few_cluster_fold_variance.TRAINING_FLOOR_READING`
+       otherwise. A red variance-ratio lower end is an underestimated variance, which no owner
        holds: a :data:`DEFECT_SUSPECT`.
-    4. Otherwise :data:`CALIBRATED` at a floor of 2, else :data:`TRAINING_FLOOR`.
+    4. No floor is a :data:`DEFECT_SUSPECT`, unless ``diagnoses`` records the diagnosis for
+       ``arm`` and every red is held: then :data:`NO_FLOOR`.
+    5. Otherwise :data:`CALIBRATED` at a floor of 2, else :data:`TRAINING_FLOOR`.
+
+    ``diagnoses`` defaults to
+    :data:`~tests.studies.few_cluster_fold_variance.NO_DEFECT_DIAGNOSES`, which is empty before
+    the run.
     """
+    if diagnoses is None:
+        diagnoses = study.NO_DEFECT_DIAGNOSES
     rows = summary.loc[summary["property"] == FAMILY].set_index("cell")
     passed = rows["passed"].astype(bool)
     reasons: list[str] = []
@@ -633,28 +665,40 @@ def declared_route(summary: pd.DataFrame, arm: str) -> Route:
         if not passed[_cell(cell.name, "iid_t_control")]:
             reasons.append(f"{_cell(cell.name, 'iid_t_control')} sees no cluster effect")
     floor = training_floor(summary, arm)
-    owners: dict[str, str | None] = {}
+    certified = _certified_counts(passed, arm)
+    diagnosed = floor is None and arm in diagnoses
+    owners: dict[str, tuple[str, str] | None] = {}
+    non_monotone: list[str] = []
     for cell in study.CELLS:
         name = _cell(cell.name, arm)
         if passed[name]:
             continue
-        row = rows.loc[name]
-        held = floor is not None and cell.training < floor and bool(row["variance_lower_passed"])
-        owners[name] = study.RED_OWNER if held else None
+        if any(count < cell.training for count in certified):
+            non_monotone.append(name)
+        below = floor is not None and cell.training < floor
+        if not ((below or diagnosed) and bool(rows.loc[name, "variance_lower_passed"])):
+            owners[name] = None
+            continue
+        finite = cell.training >= study.PREDICTED_FLOOR[arm] or name in non_monotone
+        reading = study.FINITE_SAMPLE_READING if finite else study.TRAINING_FLOOR_READING
+        owners[name] = (study.RED_OWNER, reading)
+    route = partial(Route, arm, floor=floor, owners=owners, non_monotone=tuple(non_monotone))
     if reasons:
-        return Route(arm, UNLICENSED, floor, None, owners, tuple(reasons))
-    if floor is None:
+        return route(UNLICENSED, minimum=None, reasons=tuple(reasons))
+    if floor is None and not diagnosed:
         reasons.append("no training count from which every cell passes")
     reasons.extend(
         f"{name} reads a variance-ratio lower end below 0.8649"
         for name, owner in owners.items()
-        if owner is None and floor is not None
+        if owner is None and (floor is not None or diagnosed)
     )
     if reasons:
-        return Route(arm, DEFECT_SUSPECT, floor, None, owners, tuple(reasons))
+        return route(DEFECT_SUSPECT, minimum=None, reasons=tuple(reasons))
+    if floor is None:
+        return route(NO_FLOOR, minimum=None, reasons=(diagnoses[arm],))
     if floor == study.TRAINING_LADDER[0]:
-        return Route(arm, CALIBRATED, floor, None, owners, ())
-    return Route(arm, TRAINING_FLOOR, floor, floor, owners, ())
+        return route(CALIBRATED, minimum=None, reasons=())
+    return route(TRAINING_FLOOR, minimum=floor, reasons=())
 
 
 # ------------------------------------------------------------------------------ declared rules

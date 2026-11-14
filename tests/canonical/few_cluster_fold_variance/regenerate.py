@@ -9,14 +9,15 @@ recomputed by ``tests/unit/test_few_cluster_fold_variance_design.py``. The recor
 ``registered()`` until its run is committed; until then its property module is an uncommitted
 subject of the property differential.
 
-Order of the work (plan X54 rev 3.4, sections 2.4, 3.3, 5.3, 5.8 and 9): the cells and arms; the
+Order of the work (plan X54 rev 3.5, sections 2.4, 3.3, 5.3, 5.8 and 9): the cells and arms; the
 pilot of :mod:`tests.studies.few_cluster_fold_variance_pilot` on its own seed stream, 400 draws
 of each of the twelve cells and 1,600 of the eight whose plug-in pass probability was below 0.90
 at 400 under rev 3.1's rule; the rev 3.2 redesign from that pilot; the refit of the pilot's 43
 lost draws under the constant-target rule (``--refit-lost``); the pre-run design review and its
 fixes (rev 3.4: the deflation sized from the pilot, the red-cell owner, the declared route in
 code, the known mechanism declared through ``treatment_probabilities=``); the merge of
-``origin/main``; this declaration; the declared run.
+``origin/main``; the confirmation review's reading of a chance red (rev 3.5); this declaration;
+the declared run.
 
 Budget: measured at 0.03 to 0.07 s per key (two fits) on one core, so the 96,000 property keys
 take about 1.5 CPU-h, and the run with its 1,000-draw primary, summaries and failure accounting
@@ -126,11 +127,28 @@ re-sized, re-drawn, dropped or relabelled after a verdict is seen.
   keyed ``"estimated"`` and ``"known"``), so a fold-evaluated estimate whose smallest training
   complement holds fewer positive-mass clusters takes ``"few_cluster_plugin"``; validation folds
   keep only the preflight's 2. Each red positive cell below ``T*`` whose variance-ratio lower end
-  passes is held by ``X54-training-floor`` (its coverage band and G1 legs). inference.md and
-  cv-tmle.md state the floor per mechanism and that the limit is the training complement.
-* ``defect suspect``: no training count from which every cell passes, or a red variance-ratio
-  lower end below the floor (an underestimated variance, which no owner holds). Diagnose (the
-  within-fold weight renormalisation, the centring) and fix before anything ships.
+  passes is held by ``X54-training-floor`` (its coverage band and G1 legs) under one of two
+  readings. Below the configuration's predicted floor (4 estimated, 6 known) the reading is
+  ``training-floor limit``, and inference.md and cv-tmle.md state the floor per mechanism and
+  that the limit is the training complement. At or above the predicted floor, or on the
+  non-monotone signature (a red count above a count of the same configuration at which every
+  cell passes, which the training-complement mechanism, monotone in the count, cannot give), the
+  reading is ``finite-sample (plug-in sizing)``: the run is sized on the plug-in figures (1.000
+  and 0.997), and the predictive figures 0.718 and 0.646 give such a red that chance. The floor
+  still rises past the red cell, and the docs state the measured floor without naming the
+  training complement as its cause.
+* ``no floor (finite-sample)``: a red at 24 training clusters, so no training floor, with every
+  red's variance-ratio lower end passing and a no-defect diagnosis recorded for that
+  configuration in :data:`~tests.studies.few_cluster_fold_variance.NO_DEFECT_DIAGNOSES` (empty
+  at this declaration). The configuration ships no ``MINIMUM_FOLD_TRAINING_CLUSTERS`` entry; its
+  estimates keep only the cluster-count floor (``few_cluster_plugin`` below 10 positive-mass
+  clusters today, X54 part (a)'s ``CLUSTER_INTERVAL_FLOORS`` once shipped). The evidence page
+  and F28 record "no certified training count" for the configuration with each red cell's
+  reading, and ``X54-training-floor`` holds the red at 24 under the finite-sample reading.
+* ``defect suspect``: no training count from which every cell passes without that recorded
+  diagnosis, or a red variance-ratio lower end (an underestimated variance, which no owner
+  holds). Diagnose (the within-fold weight renormalisation, the centring) and fix before
+  anything ships.
 * The variance ratio's upper side, the trimmed ratio or the largest SE shows outlier variance
   estimates: a reported limit, not a red cell; cv-tmle.md states it with the trimmed ratio and
   the largest SE at each training count.
