@@ -9,114 +9,132 @@ recomputed by ``tests/unit/test_few_cluster_fold_variance_design.py``. The recor
 ``registered()`` until its run is committed; until then its property module is an uncommitted
 subject of the property differential.
 
-Order of the work (plan X54 rev 3.1, sections 2.4, 5.3 and 5.8): the cells and arms; the pilot
-of :mod:`tests.studies.few_cluster_fold_variance_pilot` on its own seed stream, 400 draws of each
-of the twelve cells and 1,600 of the eight whose plug-in pass probability was below 0.90 at 400,
-committed as ``pilot.csv.gz``; this declaration; the declared run. Budget: about 0.05 s per fit
-and two fits per key, so 12 cells by 8,000 draws plus the 1,000-draw primary is about 3 CPU-h on
-one core; declared 12 CPU-h, the plan's figure.
+Order of the work (plan X54 rev 3.2, sections 2.4, 3.3, 5.3 and 5.8): the cells and arms; the
+pilot of :mod:`tests.studies.few_cluster_fold_variance_pilot` on its own seed stream, 400 draws
+of each of the twelve cells and 1,600 of the eight whose plug-in pass probability was below 0.90
+at 400 under rev 3.1's rule; the rev 3.2 redesign from that pilot; the refit of the pilot's 43
+lost draws under the constant-target rule (``--refit-lost``); this declaration; the declared run.
 
-Two design changes were made from the pilot before this declaration, and the first pilot was
-discarded with them. Each follows from the law, not from a verdict:
+Budget: 0.03 to 0.07 s per key (two fits) on one core, so the 96,000 property keys take about
+1.3 CPU-h, and the 1,000-draw primary, the summaries and the failure accounting bring the run to
+about 2 CPU-h. Declared 20 CPU-h, the plan's figure (it assumed 0.25 s per fit).
 
-* The covariate law's cells measure ``ey1``, not the ATE. The plan chose that law because the
-  cluster-shared covariate puts the cluster effect in the plug-in part of the curve. The arm mean
-  carries that part, as in the covariate pair of ``clustered-unequal-cvtmle``; the ATE nearly
-  cancels it, and the first pilot read the IID control's paired SE ratio at 0.97 to 1.06 there,
-  so no IID control could fail. ``equal10`` keeps the ATE.
-* A reported ``known_propensity`` arm refits each draw with the law's true propensity. It is the
-  paired diagnosis the plans guide asks for before a confirmed departure is declared, and it is
-  never gated.
+**Design changes from the pilot, made before this declaration.** Each follows from the law or
+from the mechanism the pilot showed, not from a verdict:
 
-What is gated (plan 5.3): on every ``t_reference`` row, the 99% percentile-bootstrap interval of
-the variance ratio, mean squared SE over the variance of the estimates over the shown fits,
-inside [0.8649, 1.1449], and the exact 99% interval of shown-fit coverage inside [0.92, 0.98];
-on every ``iid_t_control`` row, the 99% upper end of the paired mean IID SE over mean cluster SE
-below 0.80; on every ``deflated_control`` row (the shipped variance times 0.7225), the 99% upper
-end of its variance ratio below 0.8649. ``pooled_centered`` is not gated anywhere
-(:data:`~tests.studies.few_cluster_fold_variance.POOLED_CENTERED_GATED` states the derivation
-and the pilot readings). Published beside them: the SE ratio and its interval, the reference
-degrees of freedom ``k = J - V`` with ``c_k``, the withheld count, the over-coverage reading, and
-the variance ratio and coverage of every diagnostic arm, ``known_propensity`` included.
+* The covariate law's cells measure ``ey1``, not the ATE: the arm mean carries the plug-in part
+  of the curve, which holds the cluster effect on that law, and the ATE nearly cancels it, so
+  the first pilot (discarded) read the IID control at 0.97 to 1.06 on the ATE.
+* Cells are read by training clusters, ``J (V - 1) / V`` = 2, 4, 6, 8, 16, 24, with the clusters
+  per validation fold (2, 4, 6) as a second axis. At 2 clusters per validation fold the V = 5
+  cells read variance ratios of 1.15 and 1.04 and the V = 2 cells 7.6 and 17: the limit is the
+  complement the nuisances are fitted on, not the validation fold.
+* ``known_propensity`` (the same draw refitted with the law's propensity declared known) is a
+  second gated configuration with its own floor, and its deflated control
+  ``known_deflated_control`` is added.
+* The positive rule gates the variance ratio's lower end only. With an estimated propensity
+  fitted on 2 to 6 training clusters, a few draws report an SE of 10 to 107 SDs of the estimate;
+  they carry the mean of the squared SE (ratio 7.6 with coverage 0.952), so the upper side
+  measures that tail, not calibration. It is reported with the 5%-trimmed ratio and the largest
+  SE; the coverage band's upper leg still gates a variance too large on typical draws.
+* The IID control reads the median paired IID/cluster SE ratio: Fix-4's ratio of means has no
+  power at 2 training clusters, where the cluster SE's heavy lower tail drives it to 0.69 and 0.89.
+* A deflated control must fail the positive rule, not only its variance leg. Where the estimated
+  propensity's tail raises the positive variance ratio, a deflated variance can still read above
+  0.8649 while its coverage falls; a control of the lower end alone would have no power there
+  (pilot: 6 of 12 cells).
+* A training complement that holds one outcome value takes the constant-target rule (a plain
+  ``TMLE``'s pooled outcome regression predicts that value, ``tests/unit/test_fold_policy_rules.py``)
+  instead of refusing. The pilot's 43 lost draws, all missing an outcome class, now fit; a
+  complement without an arm is still refused, and such a draw is lost and a miss in G1.
 
-Pilot readings (``pilot.csv.gz``; variance ratio of ``t_reference``, its median-SE form, shown
-coverage, and the ``known_propensity`` variance ratio):
+**What is gated** (:mod:`tests.studies.few_cluster_fold_variance_properties`). On each positive
+row, ``t_reference`` and ``known_propensity``, all three of: the exact 99% interval of shown-fit
+coverage inside [0.92, 0.98]; G1, the exact 99% lower end of coverage over every requested draw
+(withheld and lost fits as misses), at least 0.90; the 99% percentile-bootstrap lower end of the
+variance ratio, mean squared SE over the variance of the estimates over the shown fits, at least
+0.8649. On each ``deflated_control`` and ``known_deflated_control`` row (the positive's variance
+times 0.7225): the positive rule fails. On each ``iid_t_control`` row: the distribution-free exact
+99% upper end of the median paired IID/cluster SE ratio below 0.95. ``pooled_centered`` is not
+gated (:data:`~tests.studies.few_cluster_fold_variance.POOLED_CENTERED_GATED`). Reported: the
+variance ratio's interval, its trimmed form, the largest SE and the median SE in SDs, the SE ratio
+with ``c_k``, the ratio-of-means IID reading, the withheld counts and every diagnostic arm.
 
-=============================  ======  ======  =====  =====
-cell                           VR      median  cover  known
-=============================  ======  ======  =====  =====
-``equal10__v2_j4``             7.63    1.17    0.952  1.17
-``equal10__v2_j8``             1.66    1.13    0.939  1.06
-``equal10__v2_j12``            1.31    1.13    0.955  1.12
-``equal10__v5_j10``            1.15    1.01    0.944  1.03
-``equal10__v5_j20``            1.03    1.01    0.941  0.99
-``equal10__v5_j30``            1.00    0.99    0.948  0.98
-``cluster_covariate__v2_j4``   17.4    0.79    0.920  0.97
-``cluster_covariate__v2_j8``   1.09    1.01    0.949  1.02
-``cluster_covariate__v2_j12``  1.00    1.00    0.950  0.99
-``cluster_covariate__v5_j10``  1.04    0.98    0.945  1.05
-``cluster_covariate__v5_j20``  1.10    1.10    0.961  1.10
-``cluster_covariate__v5_j30``  1.02    1.02    0.958  1.02
-=============================  ======  ======  =====  =====
+**The training floor** of each configuration
+(:func:`~tests.studies.few_cluster_fold_variance_properties.training_floor`) is the smallest
+training count from which every cell of the configuration, on both laws, passes and has its
+deflated control fail the rule.
 
-The sizing (plan 5.3, at exact calibration and each cell's pilot spread) puts every cell at 8,000.
-The two cells with 2 training clusters per fold cannot reach 0.90 at any affordable R (their
-relative variance of the squared SE is 25 and 306), and the product over the other ten is 0.933,
-a recorded shortfall of the family rule. Seven positive cells are predicted red at the pilot's
-own readings (:data:`~tests.studies.few_cluster_fold_variance.PREDICTED_RED`), and the IID control
-of ``equal10__v2_j4`` has no power there.
+Pilot readings (``pilot.csv.gz``; per configuration the variance ratio, its 5%-trimmed form, the
+largest SE in SDs, shown coverage, all-draw coverage, and the plug-in pass probability at 8,000):
 
-Diagnosis before the declaration (guide: "diagnose a confirmed departure before the
-declaration"). Every confirmed departure is above the band, so the shipped interval is
-conservative there and coverage reads 0.92 to 0.96. Most of the excess goes with the fitted
-propensity on small training folds: the ``known_propensity`` arm on the same draws reads 7.63 to
-1.17, 17.4 to 0.97, 1.66 to 1.06 and 1.15 to 1.03. The median-SE form shows a tail: a training
-fold of 2 to 6 clusters occasionally fits extreme propensities, which give curve variances that
-the bounded targeted point does not follow. The variance construction is the package's own, and
-the renormalisation and centring are pinned by the arm tests of the design test. Two residual
-excesses are open: ``equal10`` at V = 2 keeps 1.06 to 1.17 with the true propensity, and
-``cluster_covariate__v5_j20`` reads 1.10 in both arms while its neighbours at 10 and 30 clusters
-read 1.04 and 1.02.
+=====  =============================  ======================================  =====================================
+train  cell                           estimated                               known
+=====  =============================  ======================================  =====================================
+2      ``equal10__v2_j4``             7.63, 2.04, 25.7, 0.952, 0.901: 0.013   1.16, 0.99, 2.7, 0.937, 0.887: 0.000
+2      ``cluster_covariate__v2_j4``   17.1, 0.89, 106, 0.917, 0.917: 0.000    0.96, 0.86, 2.0, 0.921, 0.921: 0.008
+4      ``equal10__v2_j8``             1.66, 1.18, 9.5, 0.939, 0.938: 1.000    1.06, 0.99, 2.0, 0.926, 0.925: 0.231
+4      ``cluster_covariate__v2_j8``   1.09, 0.98, 9.5, 0.949, 0.949: 1.000    1.02, 0.97, 1.6, 0.944, 0.944: 1.000
+6      ``equal10__v2_j12``            1.31, 1.14, 6.2, 0.955, 0.955: 1.000    1.12, 1.06, 1.7, 0.954, 0.954: 1.000
+6      ``cluster_covariate__v2_j12``  1.00, 0.97, 1.3, 0.950, 0.950: 1.000    0.99, 0.96, 1.3, 0.950, 0.950: 1.000
+8      ``equal10__v5_j10``            1.15, 1.04, 4.1, 0.944, 0.944: 1.000    1.03, 0.95, 2.0, 0.938, 0.938: 1.000
+8      ``cluster_covariate__v5_j10``  1.04, 0.98, 1.7, 0.945, 0.945: 1.000    1.05, 0.98, 1.7, 0.945, 0.945: 1.000
+16     ``equal10__v5_j20``            1.03, 0.99, 1.7, 0.941, 0.941: 1.000    0.99, 0.95, 1.5, 0.936, 0.936: 0.997
+16     ``cluster_covariate__v5_j20``  1.10, 1.07, 1.4, 0.961, 0.961: 1.000    1.10, 1.07, 1.4, 0.960, 0.960: 1.000
+24     ``equal10__v5_j30``            1.00, 0.98, 1.3, 0.948, 0.948: 1.000    0.98, 0.95, 1.3, 0.950, 0.950: 1.000
+24     ``cluster_covariate__v5_j30``  1.02, 1.00, 1.3, 0.958, 0.958: 1.000    1.02, 1.00, 1.3, 0.958, 0.958: 1.000
+=====  =============================  ======================================  =====================================
 
-Red-cell readings (declared before any run). The record is ``reporting``, so a red gated verdict
-is published and takes the route of plan section 5.8 named here. No cell is re-sized, re-drawn,
+**Sizing and predictions** (``tests/unit/test_few_cluster_fold_variance_design.py``). Every cell
+takes 8,000 draws. Predicted reds at the pilot's readings
+(:data:`~tests.studies.few_cluster_fold_variance.PREDICTED_RED`): estimated, both cells at 2
+training clusters (the covariate cell's coverage band, ``equal10``'s G1 at 5.4% withheld);
+known, the same two and ``equal10__v2_j8`` (coverage 0.926). Predicted floors: 4 estimated and 6
+known, the plan's. The plug-in pass probability of every cell above the predicted floor is 1.000
+(estimated) and 0.997 (known). The deflated controls fail the rule with power at least 0.999 in
+every cell but one: ``deflated_control`` of ``equal10__v2_j12``, power 0.55, where the estimated
+propensity's tail leaves the deflated variance ratio at 0.94 and its coverage at 0.927
+(:data:`~tests.studies.few_cluster_fold_variance.DEFLATED_PREDICTED_PASS`). If that control
+passes the rule, the estimated floor reads 8 instead of 4. The median IID control has power
+1.000 in every cell (medians 0.35 to 0.47 on the covariate law, 0.72 to 0.90 on ``equal10``).
+
+**Red-cell readings** (plan 5.8, declared before any run). The record is ``reporting``, so a red
+gated verdict is published and takes the route named here. No cell is re-sized, re-drawn,
 dropped or relabelled after a verdict is seen.
 
-* Every gated row passes: no estimator change; cv-tmle.md and inference.md state that the centred
-  fold variance is calibrated at 2, 4 and 6 clusters per fold, V = 2 and 5, at equal sizes; the
-  X54 (e) row is deleted.
-* Positive cells pass from ``m*`` clusters per fold and fail below it on both laws and both fold
-  counts: ``MINIMUM_FOLD_CLUSTERS = m*`` (plan 3.3), and a fold-evaluated estimate whose smallest
-  validation fold has fewer than ``m*`` positive-mass clusters takes ``"few_cluster_plugin"``.
-* Positive cells fail at V = 2 and pass at V = 5 for the same clusters per fold: the limit is the
-  training fold, ``J (V - 1) / V`` clusters, not the validation fold. The 5.8 per-fold floor does
-  not describe it. The failing designs are recorded under F28 as a measured limit with their
-  training-cluster counts and their ``known_propensity`` readings, and the floor that covers them
-  is left to a fresh plan decision; no floor is set from this run alone.
-* A red positive cell whose variance-ratio interval lies above the band, whose coverage interval
-  reaches no lower than 0.92, and whose ``known_propensity`` arm reads inside the band is a
-  conservative finite-sample limit of the fitted propensity on that training fold, owned by F28.
-  The same red with a ``known_propensity`` reading above the band is a defect suspect for the
-  construction and is diagnosed before anything else (plan 5.8: the within-fold weight
-  renormalisation, the centring).
-* A variance ratio below the band, or a coverage interval reaching below 0.92, in any cell is a
-  defect suspect (an underestimated variance), diagnosed before anything else.
-* A ``deflated_control`` reads 0.7225 times its positive's variance ratio on the same draws. Its
-  red in a cell whose positive interval lies above the band is implied by that positive and is
-  read with it. Its red in a cell whose positive passes is the instrument failure of plan 5.8: the
-  study cannot license a calibration verdict, and it is redesigned under a fresh declaration.
-* An ``iid_t_control`` red in a cell whose positive is predicted red by its tail
-  (``equal10__v2_j4``, declared here) is read with that positive. Elsewhere it means the law has
-  no cluster effect the instrument can see in that cell, a design-test failure redesigned under a
-  fresh declaration.
+* Every cell of a configuration passes (``T* = 2``): no training floor for it; cv-tmle.md and
+  inference.md state that the centred fold variance is calibrated from 2 training clusters at 2
+  to 6 clusters per validation fold (V = 2 and 5), equal sizes, with that propensity; the X54 (e)
+  row is deleted.
+* A configuration passes from ``T* > 2``: ``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism] = T*``
+  (plan 3.3, keyed ``"estimated"`` and ``"known"``), so a fold-evaluated estimate whose smallest
+  training complement holds fewer positive-mass clusters takes ``"few_cluster_plugin"``;
+  validation folds keep only the preflight's 2. inference.md and cv-tmle.md state the floor per
+  mechanism and that the limit is the training complement; F28 gains the measured limit.
+* The variance ratio's upper side, the trimmed ratio or the largest SE shows outlier variance
+  estimates: a reported limit, not a red cell; cv-tmle.md states it with the trimmed ratio and
+  the largest SE at each training count.
+* No cell of a configuration passes even at 24 training clusters, or a variance-ratio lower end
+  fails with its interval excluding 1 at 16 and 24: a defect suspect, diagnosed (the within-fold
+  weight renormalisation, the centring) and fixed before anything ships.
+* A coverage interval reaching below 0.92 in a cell whose variance-ratio lower end passes: the
+  variance is too small on typical draws behind a heavy upper tail; the cell is red and counts
+  against the floor, and the reading is recorded with the median SE ratio.
+* A deflated control passes the rule in a cell: the instrument cannot see a deflated variance
+  there, so that cell certifies nothing for its configuration and the floor is read above it
+  (:func:`~tests.studies.few_cluster_fold_variance_properties.training_floor`). Predicted for
+  ``equal10__v2_j12`` (estimated) with probability 0.45. If a deflated control passes in a cell
+  at 16 or 24 training clusters, or in more than two cells, the study cannot license a
+  calibration verdict for that configuration (plan 5.8): nothing ships from it, and it is
+  redesigned under a fresh declaration.
+* An ``iid_t_control`` red: the law has no cluster effect the instrument can see in that cell, a
+  design-test failure, redesigned under a fresh declaration.
 * The primary (``equal10__v5_j20``, 1,000 draws, ``ey0``, ``ey1`` and ``ate`` of the shipped
   report) is read by the harness's G1, G2 and SE-ratio band of 0.8 to 1.2. A red primary is a
   defect suspect.
-* A replication that raises is never redrawn. A recordable failure costs its key in all seven
-  arms of its cell under the declared bound of 0.05; the pilot lost 2.1% of the draws of
-  ``equal10__v2_j4`` and 0.6% of ``cluster_covariate__v2_j4`` (a training fold with one outcome
-  class or one arm in fewer than two units) and none elsewhere. A cell past its bound is red with
-  the count stated.
+* A replication that raises is never redrawn. A recordable failure costs its key in every arm of
+  its cell under the declared bound of 0.05 and is a miss in G1. After the constant-target rule
+  the pilot lost no draw. A cell past its bound is red with the count stated.
 """
 
 from pathlib import Path

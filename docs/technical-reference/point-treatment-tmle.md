@@ -462,7 +462,10 @@ A cross-fitted fit outside this contract runs the same three questions under
 `_preflight_training_support`. It asks that each arm appear in at least two independent units,
 that each training complement hold every arm and both observed outcome classes of a binary
 outcome, and that a package classification `SuperLearner` hold two rows of each class in each
-complement. The independent unit is the row, and it is the *cluster* when `id=` declares one. The
+complement. A plain `TMLE` of a discrete treatment without a learned rule asks less of the
+outcome: each class in one independent unit, and nothing of a complement, whose regression takes
+the [one-value rule](#a-binary-outcome-regression-with-one-value) when it holds one class. The
+independent unit is the row, and it is the *cluster* when `id=` declares one. The
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give every message.
 
 Each sample row is the least count that some partition can satisfy. A class with $c$ rows puts at
@@ -1035,7 +1038,8 @@ the longitudinal rule in [a node with no event](longitudinal-tmle.md#a-node-with
 
 | regression | result |
 | --- | --- |
-| the pooled outcome regression, cross-fitted | not reached. A training complement without both outcome classes is refused before any learner, as the preflight of [stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states |
+| the pooled outcome regression of a cross-fitted plain `TMLE` of a discrete treatment without a learned rule, stacked or fold-evaluated, outside the arm-indexed stacked contract | that fold's regression is the value. The sample still needs each class in one independent unit |
+| the pooled outcome regression of any other cross-fitted fit (the arm-indexed stacked contract, `CTMLE`, `DRTMLE`, `AdaptiveIPTW`, a learned rule, a continuous dose) | not reached. A training complement without both outcome classes is refused before any learner, as the preflight of [stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states. Those fits read the outcome regression in a search, a rule or a reduced regression that the rule has not been checked against |
 | the per-arm outcome regression (`outcome_by_arm=True`), one arm's training rows in a fold | that arm's regression in the fold is the value. With a package `SuperLearner`, the preflight asks two rows of a class only of a complement that holds at least one, because a complement with none fits no Super Learner. One row of a class is still refused |
 | the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, pooled or per arm, the rows outside a pair of folds | that pair's regression is the value. With a package `SuperLearner`, a pair that keeps one row of a class is refused after the fold draw and before any learner, and the refusal names the pair and `reduced_crossfit="pooled"` |
 | a treatment-mechanism regression | not read by this rule. A complement without an arm is a positivity failure, and the fit keeps its refusal |
@@ -1051,7 +1055,10 @@ $10^{-12}$. The leave-two-out regressions are not reported, because the report r
 production predictions.
 
 `tests/unit/test_constant_target_in_fold.py` builds a fold of one value for the per-arm and the
-leave-two-out regressions, and an in-sample arm of one value. It checks the predictions, the
+leave-two-out regressions, and an in-sample arm of one value.
+`TestAPlainTMLETakesTheRule` in `tests/unit/test_fold_policy_rules.py` strands both events of a
+sample in one fold of a pooled fit, stacked and fold-evaluated, and checks that fold's exact 0
+and its record; its control turns the rule off and sees the complement refused again. It checks the predictions, the
 targeting bound, the report and the status. Its mutations remove the rule and see the
 classifier's two-class error return. A second control passes the rule to the treatment-mechanism
 regression and sees the pinned refusal change, and a third restores the Super Learner preflight's

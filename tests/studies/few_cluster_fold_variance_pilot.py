@@ -49,10 +49,14 @@ VARIANCE_BAND: Final[tuple[float, float]] = (
 )
 COVERAGE_BAND: Final[tuple[float, float]] = study.STUDY.margins.calibration_coverage
 NOMINAL: Final[float] = 1.0 - study.STUDY.margins.alpha
-#: The replication ladder of plan 5.3: multiples of 400 from 4,000 to 8,000.
-LADDER: Final[tuple[int, ...]] = tuple(range(4_000, 8_001, 400))
+#: The declared replications of every cell (plan 5.3, rev 3.2).
+REPLICATES: Final[int] = 8_000
+#: A positive cell whose plug-in pass probability is below this is a predicted red.
 CELL_FLOOR: Final[float] = 0.90
-FAMILY_FLOOR: Final[float] = 0.95
+#: G1: the exact 99% lower end of all-draw coverage must be at least this.
+G1_FLOOR: Final[float] = 0.90
+#: The ceiling of the median paired IID/cluster SE ratio's 99% upper end.
+IID_MEDIAN_CEILING: Final[float] = 0.95
 
 ARM_COLUMNS: Final[tuple[str, ...]] = ("psi", "std_error", "withheld", "covered")
 
@@ -95,12 +99,38 @@ def run(jobs: Sequence[tuple[str, int]], workers: int) -> pd.DataFrame:
 
 
 def read(path: Path) -> pd.DataFrame:
-    """The committed pilot rows."""
+    """The committed pilot rows, with any arm the pilot predates derived (:func:`derive_known_deflated`)."""
     frame = pd.read_csv(path)
     frame["lost"] = frame["lost"].fillna("")
+    if "known_deflated_control_std_error" not in frame:
+        frame = derive_known_deflated(frame)
     for arm in study.ARMS:
         frame[f"{arm}_withheld"] = frame[f"{arm}_withheld"].fillna("")
     return frame
+
+
+def derive_known_deflated(frame: pd.DataFrame) -> pd.DataFrame:
+    """``known_deflated_control`` from ``known_propensity``, as :func:`study.draw_arms` builds it.
+
+    The arm was added after the pilot ran (plan rev 3.2). It is the known-propensity fit's point
+    and SE times ``sqrt(DEFLATION)`` on the same ``t_{J-V}`` reference, so it is derived from the
+    committed columns exactly: no draw is refitted.
+    """
+    out = frame.copy()
+    factor = float(np.sqrt(study.DEFLATION))
+    out["known_deflated_control_psi"] = out["known_propensity_psi"]
+    out["known_deflated_control_std_error"] = out["known_propensity_std_error"] * factor
+    out["known_deflated_control_withheld"] = out["known_propensity_withheld"]
+    covered = np.zeros(len(out), dtype=int)
+    for cell in study.CELLS:
+        rows = (out["cell"] == cell.name).to_numpy()
+        truth = study.law_truth(cell.law)[study.TARGETS[cell.law]]
+        half = study.t_critical(cell.df) * out.loc[rows, "known_deflated_control_std_error"]
+        error = (out.loc[rows, "known_deflated_control_psi"] - truth).abs()
+        shown = out.loc[rows, "known_propensity_withheld"].fillna("") == ""
+        covered[rows] = ((error <= half) & shown).astype(int).to_numpy()
+    out["known_deflated_control_covered"] = covered
+    return out
 
 
 # ------------------------------------------------------------------------------ the readings
@@ -118,37 +148,51 @@ def ratio_of(group: pd.DataFrame, arm: str) -> float:
     return float(np.mean(se**2) / np.var(group[f"{arm}_psi"].to_numpy(dtype=float), ddof=1))
 
 
-def shapes(rows: pd.DataFrame, cell: str) -> dict[str, float]:
-    """The pilot readings of one cell that the sizing reads.
+def shapes(rows: pd.DataFrame, cell: str, arm: str = "t_reference") -> dict[str, float]:
+    """The pilot readings of one cell and positive arm that the sizing reads.
 
-    ``relvar`` is the relative variance of the positive arm's squared SE, ``kurtosis`` the
-    excess kurtosis of its estimate (0 when negative, as the plan's simulation reads it),
-    ``ratio`` the observed variance ratio, ``coverage`` the shown-fit coverage of the positive
-    arm, ``draws`` its shown draws, ``withheld`` and ``lost`` the shares of all draws, and the
-    other arms' variance ratios and the IID control's paired SE ratio beside them.
+    ``relvar`` is the relative variance of the arm's squared SE and ``kurtosis`` the excess
+    kurtosis of its estimate (0 when negative, as the plan's simulation reads it). ``ratio`` is
+    the observed variance ratio, ``trimmed_ratio`` the same ratio without the largest 5% of
+    squared SEs and ``largest_se`` the largest SE in SDs of the estimate (the tail readings of
+    plan 2.4 item 2). ``coverage`` is the shown-fit coverage, ``all_draw`` the coverage over all
+    draws with withheld and lost fits as misses (G1), ``draws`` the shown draws, and
+    ``withheld`` and ``lost`` the shares of all draws. The control readings (``deflated_ratio``,
+    ``pooled_ratio``, ``iid_median`` and ``iid_mean``, the median and the ratio of means of the
+    paired IID/cluster SE ratio) read the estimated-propensity fit whatever ``arm`` is.
     """
     group = rows.loc[rows["cell"] == cell]
-    kept = shown(rows, cell)
-    se2 = kept["t_reference_std_error"].to_numpy(dtype=float) ** 2
-    psi = kept["t_reference_psi"].to_numpy(dtype=float)
-    known = shown(rows, cell, "known_propensity")
+    kept = shown(rows, cell, arm)
+    se = kept[f"{arm}_std_error"].to_numpy(dtype=float)
+    se2 = se**2
+    psi = kept[f"{arm}_psi"].to_numpy(dtype=float)
+    spread = float(np.var(psi, ddof=1))
+    trimmed = np.sort(se2)[: int(np.floor(0.95 * se2.size))]
+    reference = shown(rows, cell)
+    iid = reference["iid_t_control_std_error"].to_numpy(dtype=float)
+    fold = reference["t_reference_std_error"].to_numpy(dtype=float)
     return {
+        "training": float(study.CELL_BY_NAME[cell].training),
         "draws": float(len(kept)),
         "relvar": float(np.var(se2, ddof=1) / np.mean(se2) ** 2),
         "kurtosis": max(float(stats.kurtosis(psi)), 0.0),
-        "ratio": ratio_of(kept, "t_reference"),
-        "median_ratio": float(np.median(se2) / np.var(psi, ddof=1)),
-        "coverage": float(kept["t_reference_covered"].mean()),
-        "withheld": float((group["t_reference_withheld"] != "").mean()),
+        "ratio": float(np.mean(se2) / spread),
+        "trimmed_ratio": float(np.mean(trimmed) / spread),
+        "largest_se": float(se.max() / np.sqrt(spread)),
+        "coverage": float(kept[f"{arm}_covered"].mean()),
+        "all_draw": float(kept[f"{arm}_covered"].sum() / len(group)),
+        "withheld": float((group[f"{arm}_withheld"] != "").mean()),
         "lost": float((group["lost"] != "").mean()),
-        "pooled_ratio": ratio_of(kept, "pooled_centered"),
-        "deflated_ratio": ratio_of(kept, "deflated_control"),
-        "known_ratio": ratio_of(known, "known_propensity"),
-        "known_coverage": float(known["known_propensity_covered"].mean()),
-        "iid_paired": float(
-            kept["iid_t_control_std_error"].mean() / kept["t_reference_std_error"].mean()
-        ),
+        "pooled_ratio": ratio_of(reference, "pooled_centered"),
+        "deflated_ratio": ratio_of(reference, "deflated_control"),
+        "iid_median": float(np.median(iid / fold)),
+        "iid_mean": float(iid.mean() / fold.mean()),
     }
+
+
+def readings_of(rows: pd.DataFrame, arm: str) -> dict[str, dict[str, float]]:
+    """:func:`shapes` of every cell for one positive arm."""
+    return {cell.name: shapes(rows, cell.name, arm) for cell in study.CELLS}
 
 
 # -------------------------------------------------------------------------------- the sizing
@@ -163,28 +207,18 @@ def log_ratio_sd(relvar: float, kurtosis: float, replicates: int) -> float:
     return float(np.sqrt(relvar / replicates + (2.0 + kurtosis) / (replicates - 1)))
 
 
-def variance_ratio_pass(
+def variance_lower_pass(
     relvar: float, kurtosis: float, replicates: int, ratio: float = 1.0
 ) -> float:
-    """P(the 99% variance-ratio interval lies inside the band) at a true ``ratio``."""
+    """P(the 99% variance-ratio interval's lower end is at least 0.8649) at a true ``ratio``."""
     s = log_ratio_sd(relvar, kurtosis, replicates)
-    low, high = np.log(VARIANCE_BAND)
-    centre, z = float(np.log(ratio)), _z()
-    upper = stats.norm.cdf((high - z * s - centre) / s)
-    lower = stats.norm.cdf((low + z * s - centre) / s)
-    return float(max(upper - lower, 0.0))
+    return float(stats.norm.cdf((np.log(ratio) - np.log(VARIANCE_BAND[0])) / s - _z()))
 
 
 def below_band_power(relvar: float, kurtosis: float, replicates: int, ratio: float) -> float:
     """P(the 99% upper end lies below the band's lower end) at a true ``ratio``."""
     s = log_ratio_sd(relvar, kurtosis, replicates)
     return float(stats.norm.cdf((np.log(VARIANCE_BAND[0]) - _z() * s - np.log(ratio)) / s))
-
-
-def above_band_power(relvar: float, kurtosis: float, replicates: int, ratio: float) -> float:
-    """P(the 99% lower end lies above the band's upper end) at a true ``ratio``."""
-    s = log_ratio_sd(relvar, kurtosis, replicates)
-    return float(stats.norm.cdf((np.log(ratio) - _z() * s - np.log(VARIANCE_BAND[1])) / s))
 
 
 def variance_ratio_sim(
@@ -196,16 +230,17 @@ def variance_ratio_sim(
     sims: int = 1_000,
     seed: int = 1,
 ) -> float:
-    """Plan X54 ``diag/sizing.py:variance_ratio_sim``: the simulated pass probability.
+    """Plan X54 ``diag/sizing.py:variance_ratio_sim``, read one-sided: the simulated pass rate.
 
     The estimate has excess kurtosis ``kurt_psi`` (a scaled Student t); the squared SE has
     relative variance ``2 / k_df + kurt_se``. Vectorised by blocks of draws; the interval is the
-    plan's, with the sample kurtosis of the estimate in its log-ratio SE.
+    plan's, with the sample kurtosis of the estimate in its log-ratio SE, and a draw passes when
+    its lower end is at least the band's lower end (rev 3.2).
     """
     rng = np.random.default_rng(seed)
     k_eff = 1.0 / (1.0 / k_df + kurt_se / 2.0)
     nu = None if kurt_psi <= 0 else 4.0 + 6.0 / kurt_psi
-    z, inside = _z(), 0
+    z, passed = _z(), 0
     for start in range(0, sims, 100):
         b = min(100, sims - start)
         if nu is None:
@@ -219,104 +254,116 @@ def variance_ratio_sim(
         se = np.sqrt(
             s2.var(axis=1, ddof=1) / mean**2 / replicates + (2.0 + excess) / (replicates - 1)
         )
-        low, high = ratio * np.exp(-z * se), ratio * np.exp(z * se)
-        inside += int(np.sum((low >= VARIANCE_BAND[0]) & (high <= VARIANCE_BAND[1])))
-    return inside / sims
+        passed += int(np.sum(ratio * np.exp(-z * se) >= VARIANCE_BAND[0]))
+    return passed / sims
 
 
-@functools.cache
-def band_pass(coverage: float, replicates: int) -> float:
-    """P(the exact 99% coverage interval of ``replicates`` draws lies inside the band)."""
+def _exact_ends(replicates: int) -> tuple[np.ndarray, np.ndarray]:
     k = np.arange(replicates + 1)
     tail = (1.0 - CONFIDENCE) / 2.0
     lower = np.where(k > 0, stats.beta.ppf(tail, np.maximum(k, 1), replicates - k + 1), 0.0)
     upper = np.where(
         k < replicates, stats.beta.ppf(1.0 - tail, k + 1, np.maximum(replicates - k, 1)), 1.0
     )
+    return lower, upper
+
+
+@functools.cache
+def band_pass(coverage: float, replicates: int) -> float:
+    """P(the exact 99% coverage interval of ``replicates`` draws lies inside the band)."""
+    lower, upper = _exact_ends(replicates)
     ok = (lower >= COVERAGE_BAND[0]) & (upper <= COVERAGE_BAND[1])
+    k = np.arange(replicates + 1)
     return float(stats.binom.pmf(k, replicates, coverage)[ok].sum())
 
 
+@functools.cache
+def g1_pass(all_draw: float, replicates: int) -> float:
+    """P(the exact 99% lower end of all-draw coverage is at least 0.90) (G1)."""
+    lower, _ = _exact_ends(replicates)
+    k = np.arange(replicates + 1)
+    return float(stats.binom.pmf(k, replicates, all_draw)[lower >= G1_FLOOR].sum())
+
+
 def cell_pass(
-    reading: Mapping[str, float], replicates: int, *, ratio: float = 1.0, coverage: float = NOMINAL
+    reading: Mapping[str, float],
+    replicates: int,
+    *,
+    ratio: float = 1.0,
+    coverage: float = NOMINAL,
+    all_draw: float | None = None,
 ) -> float:
-    """P(the positive arm passes both clauses) at ``replicates`` requested draws.
+    """P(a positive cell passes its three gates) at ``replicates`` requested draws.
 
-    The shown draws are the requested draws less the pilot's withheld and lost shares. The two
-    clauses read the same draws; their product is the figure the plan declares.
+    The shown draws are the requested draws less the pilot's withheld and lost shares; G1 reads
+    every requested draw. By default the cell is exactly calibrated: variance ratio 1, shown
+    coverage 0.95 and an all-draw coverage of 0.95 times the shown share. The gates read the
+    same draws, and their product is the figure the plan declares.
     """
-    draws = max(int(replicates * (1.0 - reading["withheld"] - reading["lost"])), 2)
-    return variance_ratio_pass(reading["relvar"], reading["kurtosis"], draws, ratio) * band_pass(
-        coverage, draws
+    shown_share = 1.0 - reading["withheld"] - reading["lost"]
+    draws = max(int(replicates * shown_share), 2)
+    every = coverage * shown_share if all_draw is None else all_draw
+    return (
+        variance_lower_pass(reading["relvar"], reading["kurtosis"], draws, ratio)
+        * band_pass(round(min(coverage, 0.9999), 4), draws)
+        * g1_pass(round(every, 4), replicates)
     )
 
 
-def shortfall(readings: Mapping[str, Mapping[str, float]]) -> frozenset[str]:
-    """The cells that cannot reach a pass probability of 0.90 at 8,000 even when calibrated.
+def plug_in_pass(reading: Mapping[str, float], replicates: int = REPLICATES) -> float:
+    """The cell pass probability at the pilot's own variance ratio and coverages."""
+    return cell_pass(
+        reading,
+        replicates,
+        ratio=reading["ratio"],
+        coverage=reading["coverage"],
+        all_draw=reading["all_draw"],
+    )
 
-    Their pilot spread of the squared SE leaves the variance-ratio interval wider than the band
-    at any affordable R. Each is recorded as a predicted red at 8,000 before the declaration.
-    """
+
+def floor_product(
+    readings: Mapping[str, Mapping[str, float]], floor: int, replicates: int = REPLICATES
+) -> float:
+    """The plug-in pass probability of every cell with at least ``floor`` training clusters."""
+    return float(
+        np.prod([plug_in_pass(r, replicates) for r in readings.values() if r["training"] >= floor])
+    )
+
+
+def predicted_red(
+    readings: Mapping[str, Mapping[str, float]], replicates: int = REPLICATES
+) -> frozenset[str]:
+    """The cells whose plug-in pass probability is below 0.90: predicted reds."""
     return frozenset(
-        cell for cell, reading in readings.items() if cell_pass(reading, LADDER[-1]) < CELL_FLOOR
+        cell for cell, r in readings.items() if plug_in_pass(r, replicates) < CELL_FLOOR
     )
 
 
-def declared_replicates(readings: Mapping[str, Mapping[str, float]]) -> dict[str, int]:
-    """Each cell's R under exact calibration (plan 5.3).
-
-    A cell of :func:`shortfall` takes 8,000. Every other cell takes the smallest ladder value
-    with a cell pass probability of at least 0.90; then, while the product over those cells is
-    below 0.95, the one with the lowest pass probability steps up the ladder, to 8,000 at most.
-    """
-    short = shortfall(readings)
-    sized: dict[str, int] = dict.fromkeys(short, LADDER[-1])
-    for cell, reading in readings.items():
-        if cell not in short:
-            sized[cell] = next(r for r in LADDER if cell_pass(reading, r) >= CELL_FLOOR)
-    kept = [cell for cell in readings if cell not in short]
-
-    def family(values: Mapping[str, int]) -> float:
-        return float(np.prod([cell_pass(readings[c], values[c]) for c in kept]))
-
-    while family(sized) < FAMILY_FLOOR:
-        open_cells = [c for c in kept if sized[c] < LADDER[-1]]
-        if not open_cells:
-            break
-        worst = min(open_cells, key=lambda c: cell_pass(readings[c], sized[c]))
-        sized[worst] = LADDER[LADDER.index(sized[worst]) + 1]
-    return {cell: sized[cell] for cell in readings}
+def predicted_floor(
+    readings: Mapping[str, Mapping[str, float]], replicates: int = REPLICATES
+) -> int | None:
+    """The smallest training count with no predicted red at or above it (plan 5.3's rule)."""
+    red = predicted_red(readings, replicates)
+    for floor in study.TRAINING_LADDER:
+        if not any(readings[c]["training"] >= floor for c in red):
+            return floor
+    return None
 
 
-def family_pass(
-    readings: Mapping[str, Mapping[str, float]],
-    sized: Mapping[str, int],
-    cells: Sequence[str] | None = None,
-) -> float:
-    """The product of the cell pass probabilities under exact calibration over ``cells``."""
-    names = list(sized) if cells is None else list(cells)
-    return float(np.prod([cell_pass(readings[c], sized[c]) for c in names]))
+def iid_median_power(rows: pd.DataFrame, cell: str, replicates: int, *, boot: int = 2_000) -> float:
+    """P(the median paired IID/cluster SE ratio's 99% upper end is below 0.95), plug-in.
 
-
-def plug_in_pass(reading: Mapping[str, float], replicates: int) -> float:
-    """The cell pass probability at the pilot's observed variance ratio and coverage."""
-    return cell_pass(reading, replicates, ratio=reading["ratio"], coverage=reading["coverage"])
-
-
-def iid_power(rows: pd.DataFrame, cell: str, replicates: int, *, boot: int = 2_000) -> float:
-    """P(the paired IID/cluster SE ratio's 99% upper end lies below 0.80) at the pilot ratio.
-
-    The ratio's SD is the pilot's bootstrap SD scaled by the square root of the draw ratio.
+    The median's SD is the pilot's bootstrap SD scaled by the square root of the draw ratio.
     """
     kept = shown(rows, cell)
-    iid = kept["iid_t_control_std_error"].to_numpy(dtype=float)
-    fold = kept["t_reference_std_error"].to_numpy(dtype=float)
+    ratio = kept["iid_t_control_std_error"].to_numpy(dtype=float) / kept[
+        "t_reference_std_error"
+    ].to_numpy(dtype=float)
     rng = np.random.default_rng(7)
-    index = rng.integers(0, len(kept), size=(boot, len(kept)))
-    draws = iid[index].mean(axis=1) / fold[index].mean(axis=1)
-    sd = float(np.std(draws, ddof=1)) * np.sqrt(len(kept) / replicates)
-    point = float(iid.mean() / fold.mean())
-    return float(stats.norm.cdf((0.80 - _z() * sd - point) / sd))
+    index = rng.integers(0, ratio.size, size=(boot, ratio.size))
+    sd = float(np.std(np.median(ratio[index], axis=1), ddof=1)) * np.sqrt(ratio.size / replicates)
+    point = float(np.median(ratio))
+    return float(stats.norm.cdf((IID_MEDIAN_CEILING - _z() * sd - point) / sd))
 
 
 def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - the pilot's driver
@@ -324,7 +371,24 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - the p
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--extend", nargs="*", default=None)
+    parser.add_argument("--refit-lost", action="store_true")
     args = parser.parse_args(argv)
+    if args.refit_lost:
+        # The draws a refusal lost, refitted on their own seeds after a refusal changed; every
+        # other draw's fit is unchanged, because the refusal is a check made before any learner.
+        existing = read(args.output)
+        lost = existing["lost"] != ""
+        jobs = list(
+            zip(
+                existing.loc[lost, "cell"], existing.loc[lost, "replicate"].astype(int), strict=True
+            )
+        )
+        refitted = run(jobs, args.workers)
+        combined = pd.concat([existing.loc[~lost], refitted], ignore_index=True)
+        combined.sort_values(["cell", "replicate"], ignore_index=True).to_csv(
+            args.output, index=False
+        )
+        return
     if args.extend is None:
         jobs = [(cell.name, r) for cell in study.CELLS for r in range(PILOT_REPLICATES)]
         run(jobs, args.workers).to_csv(args.output, index=False)

@@ -82,10 +82,15 @@ def test_the_deflated_and_reference_arms_keep_the_point(drawn) -> None:
     assert arms["deflated_control"]["std_error"] == pytest.approx(
         base["std_error"] * 0.85, rel=1e-12
     )
-    for arm in study.ARMS[:-1]:
+    known = arms["known_propensity"]
+    assert arms["known_deflated_control"]["std_error"] == pytest.approx(
+        known["std_error"] * 0.85, rel=1e-12
+    )
+    for arm in study.ARMS[:6]:
         assert arms[arm]["psi"] == base["psi"]
-    # The known-propensity arm is a second fit: another point on the same draw.
-    assert arms["known_propensity"]["psi"] != base["psi"]
+    # The known-propensity arms are a second fit: another point on the same draw.
+    assert known["psi"] != base["psi"]
+    assert arms["known_deflated_control"]["psi"] == known["psi"]
 
 
 def test_the_jensen_factor_matches_the_plan() -> None:
@@ -132,7 +137,7 @@ def test_the_bootstrap_resamples_replicates_jointly() -> None:
 def test_the_record_publishes_every_declared_cell() -> None:
     declared = {cell.cell for cell in properties.declared_cells()}
     assert set(study.STUDY.property_cells[study.FAMILY]) == declared
-    assert len(declared) == len(study.CELLS) * len(study.ARMS) == 84
+    assert len(declared) == len(study.CELLS) * len(study.ARMS) == 96
     roles = {cell.cell: cell.role for cell in properties.declared_cells()}
     assert {n for n, r in roles.items() if r == "positive"} == set(properties.POSITIVE_CELLS)
     assert {n for n, r in roles.items() if r == "control"} == {
@@ -149,6 +154,13 @@ def test_every_design_has_equal_folds_of_two_four_or_six_clusters() -> None:
         (v, m) for v in (2, 5) for m in (2, 4, 6)
     }
     assert all(c.clusters % c.folds == 0 for c in study.CELLS)
+
+
+def test_the_cells_are_read_by_training_clusters() -> None:
+    """J (V - 1) / V: 2, 4, 6 at V = 2 and 8, 16, 24 at V = 5, one design per count."""
+    assert study.TRAINING_LADDER == (2, 4, 6, 8, 16, 24)
+    by_count = {c.training: (c.folds, c.clusters) for c in study.CELLS}
+    assert by_count == {2: (2, 4), 4: (2, 8), 6: (2, 12), 8: (5, 10), 16: (5, 20), 24: (5, 30)}
 
 
 def test_the_seeds_are_the_study_s_own() -> None:
@@ -179,11 +191,12 @@ def rows() -> pd.DataFrame:
 
 
 @pytest.fixture(scope="module")
-def readings(rows: pd.DataFrame) -> dict[str, dict[str, float]]:
-    return {cell.name: pilot.shapes(rows, cell.name) for cell in study.CELLS}
+def readings(rows: pd.DataFrame) -> dict[str, dict[str, dict[str, float]]]:
+    return {arm: pilot.readings_of(rows, arm) for arm in study.POSITIVE_ARMS}
 
 
 def test_the_pilot_holds_every_cell_and_the_declared_extensions(rows: pd.DataFrame) -> None:
+    """The extension to 1,600 draws was decided under rev 3.1's rule, at commit 7c8d319a."""
     counts = rows.groupby("cell").size().to_dict()
     assert set(counts) == {cell.name for cell in study.CELLS}
     for name, count in counts.items():
@@ -194,58 +207,69 @@ def test_the_pilot_holds_every_cell_and_the_declared_extensions(rows: pd.DataFra
         assert sorted(rows.loc[rows["cell"] == name, "replicate"]) == list(range(expected))
 
 
-def test_the_extended_cells_are_those_below_090_at_400_draws(rows: pd.DataFrame) -> None:
-    """The guide's rule: extend every cell whose plug-in pass probability is below 0.90."""
-    first = rows.loc[rows["replicate"] < pilot.PILOT_REPLICATES]
-    early = {cell.name: pilot.shapes(first, cell.name) for cell in study.CELLS}
-    sized = pilot.declared_replicates(early)
-    below = {
-        name for name, reading in early.items() if pilot.plug_in_pass(reading, sized[name]) < 0.90
+def test_no_pilot_draw_is_lost_under_the_constant_target_rule(rows: pd.DataFrame) -> None:
+    """The 43 draws a missing outcome class lost were refitted; no complement lacked an arm."""
+    assert (rows["lost"] == "").all()
+    assert (rows.loc[rows["cell"] == "equal10__v2_j4", "t_reference_withheld"] != "").sum() == 86
+
+
+def test_the_known_deflated_arm_is_derived_exactly(rows: pd.DataFrame) -> None:
+    kept = rows["known_propensity_withheld"] == ""
+    assert np.allclose(
+        rows["known_deflated_control_std_error"], rows["known_propensity_std_error"] * 0.85
+    )
+    # Mutation control: deflating the SE can only lose coverage.
+    assert (
+        rows.loc[kept, "known_deflated_control_covered"]
+        <= rows.loc[kept, "known_propensity_covered"]
+    ).all()
+    assert rows["known_deflated_control_covered"].sum() < rows["known_propensity_covered"].sum()
+
+
+def test_the_declared_replicates_are_8000_everywhere() -> None:
+    assert set(study.PROPERTY_REPLICATES.values()) == {pilot.REPLICATES} == {8_000}
+
+
+@pytest.mark.parametrize("arm", study.POSITIVE_ARMS)
+def test_the_predicted_reds_and_floors_are_the_declared_ones(readings, arm: str) -> None:
+    """Cells whose plug-in pass probability at 8,000 draws is below 0.90, and the floor above."""
+    assert pilot.predicted_red(readings[arm]) == study.PREDICTED_RED[arm]
+    assert pilot.predicted_floor(readings[arm]) == study.PREDICTED_FLOOR[arm]
+
+
+@pytest.mark.parametrize(
+    ("arm", "at_4000", "at_8000"),
+    [("t_reference", 0.970, 1.000), ("known_propensity", 0.850, 0.997)],
+)
+def test_the_family_products_are_the_plan_s(
+    readings, arm: str, at_4000: float, at_8000: float
+) -> None:
+    """Plan 5.3: the product above each predicted floor, at 4,000 and at the declared 8,000."""
+    floor = study.PREDICTED_FLOOR[arm]
+    assert pilot.floor_product(readings[arm], floor, 4_000) == pytest.approx(at_4000, abs=5e-3)
+    assert pilot.floor_product(readings[arm], floor) == pytest.approx(at_8000, abs=2e-3)
+    assert pilot.floor_product(readings[arm], floor) >= 0.95
+
+
+@pytest.mark.parametrize("arm", study.POSITIVE_ARMS)
+def test_the_deflated_controls_fail_the_rule_except_where_predicted(rows, arm: str) -> None:
+    """Power of each deflated control to fail the positive rule, at the pilot's own readings."""
+    control = study.DEFLATED_ARMS[arm]
+    weak = {
+        name
+        for name, reading in pilot.readings_of(rows, control).items()
+        if 1.0 - pilot.plug_in_pass(reading) < 0.90
     }
-    assert below == set(study.PILOT_EXTENDED)
+    assert weak == study.DEFLATED_PREDICTED_PASS[arm]
 
 
-def test_the_declared_replicates_are_the_sizing_rule(readings) -> None:
-    assert pilot.shortfall(readings) == study.PREDICTED_SHORTFALL
-    sized = pilot.declared_replicates(readings)
-    assert sized == study.PROPERTY_REPLICATES
-    kept = [name for name in sized if name not in study.PREDICTED_SHORTFALL]
-    for name in kept:
-        assert pilot.cell_pass(readings[name], sized[name]) >= 0.90, name
-    # The family rule reads 0.95 or, with every kept cell at 8,000, records the shortfall.
-    family = pilot.family_pass(readings, sized, kept)
-    assert family >= 0.95 or all(sized[name] == pilot.LADDER[-1] for name in kept)
-    assert family == pytest.approx(0.933, abs=5e-4)
-    for name in study.PREDICTED_SHORTFALL:
-        assert sized[name] == pilot.LADDER[-1]
-        assert pilot.cell_pass(readings[name], pilot.LADDER[-1]) < 0.90
-
-
-def test_the_predicted_reds_are_the_declared_ones(readings) -> None:
-    """Cells whose pass probability at the pilot's own readings is below 0.90."""
-    sized = study.PROPERTY_REPLICATES
-    below = {name for name, r in readings.items() if pilot.plug_in_pass(r, sized[name]) < 0.90}
-    assert below == set(study.PREDICTED_RED)
-
-
-def test_the_deflated_control_has_power_where_the_variance_is_calibrated(readings) -> None:
-    """At a calibrated variance the deflated arm reads 0.7225: its upper end falls below 0.8649."""
-    for name, reading in readings.items():
-        if name in study.PREDICTED_SHORTFALL:
-            continue
-        power = pilot.below_band_power(
-            reading["relvar"], reading["kurtosis"], study.PROPERTY_REPLICATES[name], study.DEFLATION
-        )
-        assert power >= 0.95, name
-
-
-def test_the_iid_control_predicted_reds_are_the_declared_ones(rows: pd.DataFrame) -> None:
-    below = {
-        cell.name
-        for cell in study.CELLS
-        if pilot.iid_power(rows, cell.name, study.PROPERTY_REPLICATES[cell.name]) < 0.90
-    }
-    assert below == set(study.IID_PREDICTED_RED)
+def test_the_iid_control_has_power_in_every_cell(rows: pd.DataFrame, readings) -> None:
+    """The median form: power at least 0.99 everywhere, where the mean form had none at (2, 4)."""
+    for cell in study.CELLS:
+        assert pilot.iid_median_power(rows, cell.name, pilot.REPLICATES) >= 0.99, cell.name
+    # The mean form at 2 training clusters: a heavy lower tail of the cluster SE drives it up.
+    assert readings["t_reference"]["cluster_covariate__v2_j4"]["iid_mean"] > 0.6
+    assert readings["t_reference"]["cluster_covariate__v2_j4"]["iid_median"] < 0.5
 
 
 def test_the_pooled_centred_gate_decision(readings) -> None:
@@ -255,22 +279,29 @@ def test_the_pooled_centred_gate_decision(readings) -> None:
     cell (plan trigger), including the cells with 2 clusters per fold.
     """
     assert frozenset() == study.POOLED_CENTERED_GATED
-    for name, reading in readings.items():
+    for name, reading in readings["t_reference"].items():
         assert reading["pooled_ratio"] / reading["ratio"] < study.POOLED_CENTERED_PILOT_TRIGGER, (
             name
         )
 
 
 def test_the_closed_form_sizing_matches_the_plan_s_simulation() -> None:
-    """Witness: the closed form against ``variance_ratio_sim`` (plan rev 2, k = 2)."""
-    for kurt_se, kurt_psi, replicates in ((0.5, 0.0, 4_000), (2.0, 1.0, 4_000), (2.0, 1.0, 8_000)):
+    """Witness: the one-sided closed form against ``variance_ratio_sim`` (plan rev 2, k = 2)."""
+    for kurt_se, kurt_psi, replicates, ratio in (
+        (2.0, 1.0, 4_000, 0.92),
+        (2.0, 1.0, 8_000, 0.90),
+        (0.5, 0.0, 4_000, 0.89),
+    ):
         relvar = 2.0 / 2.0 + kurt_se
-        closed = pilot.variance_ratio_pass(relvar, kurt_psi, replicates)
-        simulated = pilot.variance_ratio_sim(2, kurt_se, replicates, kurt_psi=kurt_psi, sims=400)
-        assert closed == pytest.approx(simulated, abs=0.05)
-    # Mutation control: an interval that ignored the spread of the squared SE would pass the
-    # heavy-tailed case far more often than the simulation does.
-    assert pilot.variance_ratio_pass(0.0, 0.0, 4_000) > 0.99
+        closed = pilot.variance_lower_pass(relvar, kurt_psi, replicates, ratio)
+        simulated = pilot.variance_ratio_sim(
+            2, kurt_se, replicates, kurt_psi=kurt_psi, true_ratio=ratio, sims=400
+        )
+        assert closed == pytest.approx(simulated, abs=0.07)
+    # Mutation control: an interval that ignored the spread of the squared SE passes more often.
+    assert pilot.variance_lower_pass(0.0, 0.0, 4_000, 0.90) > pilot.variance_lower_pass(
+        3.0, 1.0, 4_000, 0.90
+    )
 
 
 # ------------------------------------------------------------------------------ the rules
@@ -281,6 +312,9 @@ POSITIVE = study.cell_name(RULE_CELL, "t_reference")
 DEFLATED = study.cell_name(RULE_CELL, "deflated_control")
 IID = study.cell_name(RULE_CELL, "iid_t_control")
 KNOWN = study.cell_name(RULE_CELL, "known_propensity")
+
+
+KNOWN_DEFLATED = study.cell_name(RULE_CELL, "known_deflated_control")
 
 
 def _rows(seed: int = 0, replicates: int = 1_200) -> pd.DataFrame:
@@ -295,7 +329,8 @@ def _rows(seed: int = 0, replicates: int = 1_200) -> pd.DataFrame:
     covered = (np.arange(replicates) % 20 != 0).astype(int)
     out = []
     for arm in study.ARMS:
-        se = {"iid_t_control": 0.6, "deflated_control": 0.85}.get(arm, 1.0)
+        se = {"iid_t_control": 0.6, "deflated_control": 0.85, "known_deflated_control": 0.85}
+        deflated = arm in study.DEFLATED_ARMS.values()
         out.append(
             pd.DataFrame(
                 {
@@ -308,8 +343,11 @@ def _rows(seed: int = 0, replicates: int = 1_200) -> pd.DataFrame:
                     "failed_replicates": 0,
                     "truth": 0.0,
                     "estimate": errors,
-                    "std_error": se * rng.uniform(0.98, 1.02, size=replicates),
-                    "covered": covered,
+                    "std_error": se.get(arm, 1.0) * rng.uniform(0.98, 1.02, size=replicates),
+                    # A deflated interval covers less: 0.90 here.
+                    "covered": (np.arange(replicates) % 10 != 0).astype(int)
+                    if deflated
+                    else covered,
                     "rejected": 0,
                     "withheld": 0,
                     "reference_df": cell.df,
@@ -347,34 +385,82 @@ def test_the_rules_pass_rows_that_meet_them(passing: pd.DataFrame) -> None:
     assert _verdicts(passing)["passed"].all()
 
 
-def test_a_variance_above_the_band_turns_the_positive_red(passing: pd.DataFrame) -> None:
-    assert not _verdicts(_scaled(passing, POSITIVE, 1.2)).loc[POSITIVE, "passed"]
+def test_a_variance_above_the_band_is_reported_not_gated(passing: pd.DataFrame) -> None:
+    """Rev 3.2: the upper side measures outlier SEs; the coverage band gates typical draws."""
+    verdicts = _verdicts(_scaled(passing, POSITIVE, 1.2))
+    assert verdicts.loc[POSITIVE, "variance_ratio_ci_lower"] > properties.VARIANCE_BAND[1]
+    assert verdicts.loc[POSITIVE, "passed"]
+    # Mutation control: the same variance with the over-coverage it brings on typical draws.
+    rows = _scaled(passing, POSITIVE, 1.2)
+    rows.loc[rows["cell"] == POSITIVE, "covered"] = 1
+    assert not _verdicts(rows).loc[POSITIVE, "passed"]
 
 
-def test_a_variance_below_the_band_turns_the_positive_red_with_an_se_ratio_inside(
-    passing: pd.DataFrame,
+@pytest.mark.parametrize("cell", [POSITIVE, KNOWN])
+def test_a_variance_below_the_band_turns_a_positive_red_with_an_se_ratio_inside(
+    passing: pd.DataFrame, cell: str
 ) -> None:
     """Mutation control: a variance ratio of 0.76 reads an SE ratio of 0.87, inside 0.8 to 1.2."""
-    verdicts = _verdicts(_scaled(passing, POSITIVE, 0.87))
-    assert 0.8 < verdicts.loc[POSITIVE, "shown_se_ratio"] < 1.2
-    assert verdicts.loc[POSITIVE, "variance_ratio_ci_upper"] < properties.VARIANCE_BAND[0]
-    assert not verdicts.loc[POSITIVE, "passed"]
+    verdicts = _verdicts(_scaled(passing, cell, 0.87))
+    assert 0.8 < verdicts.loc[cell, "shown_se_ratio"] < 1.2
+    assert verdicts.loc[cell, "variance_ratio_ci_upper"] < properties.VARIANCE_BAND[0]
+    assert not verdicts.loc[cell, "passed"]
 
 
-def test_each_control_fails_when_its_failure_is_absent(passing: pd.DataFrame) -> None:
-    """Over-coverage reddens the positive, an undeflated arm its control; a diagnostic stays."""
-    rows = _scaled(_scaled(passing, DEFLATED, 1 / 0.85), KNOWN, 3.0)
-    rows.loc[rows["cell"] == POSITIVE, "covered"] = 1
+def test_g1_counts_withheld_draws_as_misses(passing: pd.DataFrame) -> None:
+    """Seven per cent withheld leaves the shown band green and puts G1's lower end below 0.90."""
+    rows = passing.copy()
+    mask = (rows["cell"] == POSITIVE) & (rows["replicate"] % 100 < 7)
+    rows.loc[mask, ["covered", "withheld"]] = [0, 1]
     verdicts = _verdicts(rows)
+    assert properties.COVERAGE_BAND[0] <= verdicts.loc[POSITIVE, "shown_ci_lower"]
+    assert verdicts.loc[POSITIVE, "all_draw_ci_lower"] < properties.G1_FLOOR
     assert not verdicts.loc[POSITIVE, "passed"]
-    assert not verdicts.loc[DEFLATED, "passed"]
-    assert verdicts.loc[KNOWN, "passed"]
-    assert verdicts.loc[IID, "passed"]
+    # Mutation control: two per cent withheld clears G1.
+    rows = passing.copy()
+    mask = (rows["cell"] == POSITIVE) & (rows["replicate"] % 100 < 2)
+    rows.loc[mask, ["covered", "withheld"]] = [0, 1]
+    assert _verdicts(rows).loc[POSITIVE, "passed"]
+
+
+@pytest.mark.parametrize(("control", "positive"), [(DEFLATED, POSITIVE), (KNOWN_DEFLATED, KNOWN)])
+def test_a_deflated_control_fails_when_it_passes_the_positive_rule(
+    passing: pd.DataFrame, control: str, positive: str
+) -> None:
+    """An undeflated control, at the positive's own SE and coverage, passes the rule: red."""
+    verdicts = _verdicts(passing)
+    assert verdicts.loc[control, "passed"] and not verdicts.loc[control, "positive_rule_passed"]
+    rows = _scaled(passing, control, 1 / 0.85)
+    rows.loc[rows["cell"] == control, "covered"] = rows.loc[
+        rows["cell"] == positive, "covered"
+    ].to_numpy()
+    verdicts = _verdicts(rows)
+    assert verdicts.loc[control, "positive_rule_passed"]
+    assert not verdicts.loc[control, "passed"]
+    assert verdicts.loc[positive, "passed"]
 
 
 def test_an_iid_se_like_the_cluster_se_fails_its_control(passing: pd.DataFrame) -> None:
-    verdicts = _verdicts(_scaled(passing, IID, 1 / 0.6))
+    """An inert aggregation: the IID SE equals the cluster SE, so every paired ratio is 1."""
+    rows = passing.copy()
+    rows.loc[rows["cell"] == IID, "std_error"] = rows.loc[
+        rows["cell"] == POSITIVE, "std_error"
+    ].to_numpy()
+    verdicts = _verdicts(rows)
+    assert verdicts.loc[IID, "paired_median_ratio"] == 1.0
     assert not verdicts.loc[IID, "passed"]
+    # Mutation control: a ratio of 0.9 on every draw is under the ceiling.
+    rows.loc[rows["cell"] == IID, "std_error"] *= 0.9
+    assert _verdicts(rows).loc[IID, "passed"]
+
+
+def test_the_median_interval_is_the_order_statistic_interval() -> None:
+    values = np.arange(1.0, 101.0)
+    interval = properties.median_interval(values, confidence_level=0.99)
+    # Bin(100, 1/2): the 0.005 quantile is 37, so the interval is [x_(37), x_(64)].
+    assert (interval.low, interval.high) == (37.0, 64.0)
+    # The accounting's fills: values above every survivor raise the upper end.
+    assert properties.median_interval(values, confidence_level=0.99, high=4).high > interval.high
 
 
 def test_withheld_draws_are_left_out_of_the_shown_statistics(passing: pd.DataFrame) -> None:
@@ -398,6 +484,25 @@ def test_a_lost_draw_is_read_at_every_split() -> None:
     candidates = properties._coverage_candidates(ctx, row)
     assert len(candidates) == 10
     assert candidates[0][0] == "0 shown, 0 covered"
+
+
+def test_the_training_floor_is_the_smallest_count_from_which_every_cell_certifies() -> None:
+    names = [n for c in study.CELLS for n in (study.cell_name(c.name, a) for a in study.ARMS)]
+    summary = pd.DataFrame({"cell": names, "passed": True})
+
+    def fail(cell: str, arm: str) -> None:
+        summary.loc[summary["cell"] == study.cell_name(cell, arm), "passed"] = False
+
+    assert properties.training_floor(summary, "t_reference") == 2
+    fail("cluster_covariate__v2_j4", "t_reference")
+    assert properties.training_floor(summary, "t_reference") == 4
+    # A blind deflated control at 6 training clusters certifies nothing there.
+    fail("equal10__v2_j12", "deflated_control")
+    assert properties.training_floor(summary, "t_reference") == 8
+    # The other configuration has its own floor.
+    assert properties.training_floor(summary, "known_propensity") == 2
+    fail("equal10__v5_j30", "known_propensity")
+    assert properties.training_floor(summary, "known_propensity") is None
 
 
 def test_the_pilot_file_is_committed() -> None:

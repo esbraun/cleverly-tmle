@@ -12,13 +12,18 @@ interval on :math:`t_{J-V}`. Under i.i.d. cluster totals and equal folds,
 :math:`E[s_v^2]` equals the totals' variance whatever their law, so the variance ratio
 :math:`E[\hat\sigma^2]/\mathrm{Var}(\hat\psi)` has target 1 at every number of clusters per
 fold, while the SE ratio has target :math:`c_k = E\sqrt{\chi^2_k/k} < 1` with :math:`k = J - V`
-even under normality. The study therefore gates the variance ratio, against the square of the
-calibration band, and the two-sided coverage of the :math:`t_{J-V}` interval (plan X54 rev 3.1,
-section 2.4).
+even under normality. The study therefore gates the variance ratio's lower end, against the
+square of the calibration band's lower end, with the two-sided coverage of the :math:`t_{J-V}`
+interval over the shown fits and the all-draw coverage floor G1 (plan X54 rev 3.2, section 2.4).
+The variance ratio's upper side is reported: a fold whose nuisances are fitted on few clusters
+occasionally reports a very large SE, which raises the mean of :math:`\hat\sigma^2` without
+moving coverage.
 
 **Property ``fold_variance_calibration``.** Twelve cells (:data:`CELLS`): two laws by
 :math:`(V, J) \in \{(2,4), (2,8), (2,12), (5,10), (5,20), (5,30)\}`, which is 2, 4 and 6
-clusters per fold at each :math:`V`. Every cluster has the same size, so
+clusters per validation fold at each :math:`V`. Cells are read by the clusters of each training
+complement, :math:`J(V-1)/V` = 2, 4, 6, 8, 16 and 24 (:attr:`Cell.training`), because the pilot
+showed the limit is the clusters the nuisances are fitted on, not the validation fold. Every cluster has the same size, so
 ``cv_evaluation=True`` runs (Fix-4 refuses unequal sizes):
 
 * ``equal10``: 10 rows per cluster from the law of ``clustered_dgp(10, "binomial")``, which
@@ -34,30 +39,35 @@ The ``equal10`` cells measure the ATE and the ``cluster_covariate`` cells ``ey1`
 the ATE nearly cancels on that law. Each draw is fitted with ``TMLE(cv_evaluation=True)`` and
 ``id=``, ``V`` grouped folds (``random_partition`` of the cluster labels), an unpenalized
 logistic outcome regression and an unpenalized logistic propensity, both in ``W1`` and ``W2``.
-Seven arms are published (:data:`ARMS`); the first six share that fit's point estimate:
+Eight arms are published (:data:`ARMS`); the first six share that fit's point estimate:
 
 ==========================  ========================================================================
 arm                         variance and reference
 ==========================  ========================================================================
 ``t_reference``             the shipped fold variance, :math:`t_{J-V}` (positive)
 ``iid_t_control``           the same construction with rows as units (the uncentred fold second
-                            moment), :math:`t_{J-V}` (control: clause 1 of the IID control)
+                            moment), :math:`t_{J-V}` (control: its median paired SE ratio to the
+                            positive arm must lie below 0.95)
 ``deflated_control``        the shipped variance times :data:`DEFLATION`, :math:`0.85^2`
-                            (control: the instrument must flag an underestimated variance)
+                            (control: it must fail the positive rule)
 ``pooled_centered``         the stacked cluster variance of the same fit, centred at the pooled
                             point, :math:`t_{J-V}` (diagnostic; :data:`POOLED_CENTERED_GATED`
                             states why no cell gates it)
 ``t_j_minus_2_reference``   the shipped variance on :math:`t_{J-2}` (diagnostic)
 ``normal_reference``        the shipped variance on the normal quantile (diagnostic)
-``known_propensity``        a second fit of the same draw with the law's true propensity, its
-                            fold variance on :math:`t_{J-V}` (diagnostic: the paired diagnosis of
-                            the fitted propensity's share of a departure)
+``known_propensity``        a second fit of the same draw with the law's true propensity declared
+                            known, its fold variance on :math:`t_{J-V}` (positive: the second
+                            gated configuration, with its own training floor)
+``known_deflated_control``  the second fit's variance times :data:`DEFLATION` (control: it must
+                            fail the positive rule)
 ==========================  ========================================================================
 
 The fit reports ``"few_cluster_plugin"`` below 10 clusters, which shows a labelled interval;
 the study measures that interval. A fit that withholds its interval (a constant binary outcome
 in an arm, or an estimate outside its bounds) is a miss in its arms and is left out of their
-shown-fit statistics, and its share is published. The rules are those of
+shown-fit statistics, and its share is published. A training complement with one outcome value
+takes the constant-target rule; one without an arm is refused, and the draw is lost and counts
+as a miss in G1. The rules are those of
 :mod:`tests.studies.few_cluster_fold_variance_properties`.
 
 **Primary.** The same fit on ``equal10`` at :math:`V = 5`, :math:`J = 20` (200 rows), 1,000
@@ -116,8 +126,7 @@ ROWS_PER_CLUSTER: Final[dict[str, int]] = {
 #: ``(V, J)``: 2, 4 and 6 clusters per fold at V = 2 and at V = 5.
 DESIGNS: Final[tuple[tuple[int, int], ...]] = ((2, 4), (2, 8), (2, 12), (5, 10), (5, 20), (5, 30))
 
-#: Each arm and its role. ``pooled_centered`` is a control only in the cells of
-#: :data:`POOLED_CENTERED_GATED`.
+#: The published arms. :func:`arm_role` gives each one's role.
 ARMS: Final[tuple[str, ...]] = (
     "t_reference",
     "iid_t_control",
@@ -126,6 +135,7 @@ ARMS: Final[tuple[str, ...]] = (
     "t_j_minus_2_reference",
     "normal_reference",
     "known_propensity",
+    "known_deflated_control",
 )
 
 
@@ -158,6 +168,11 @@ class Cell:
         return self.clusters // self.folds
 
     @property
+    def training(self) -> int:
+        """The clusters of each training complement, ``J (V - 1) / V``: the axis cells are read on."""
+        return self.clusters - self.per_fold
+
+    @property
     def df(self) -> int:
         """The reference degrees of freedom, ``J - V``."""
         return self.clusters - self.folds
@@ -172,6 +187,18 @@ CELLS: Final[tuple[Cell, ...]] = tuple(
     Cell(law, folds, clusters) for law in LAWS for folds, clusters in DESIGNS
 )
 CELL_BY_NAME: Final[dict[str, Cell]] = {cell.name: cell for cell in CELLS}
+#: The training-cluster counts of the design, the ladder each configuration's floor is read on.
+TRAINING_LADDER: Final[tuple[int, ...]] = tuple(sorted({cell.training for cell in CELLS}))
+#: The two gated configurations (plan 5.3, rev 3.2): the propensity estimated, and the same
+#: draw refitted with the law's propensity declared known. Each takes its own training floor.
+POSITIVE_ARMS: Final[tuple[str, ...]] = ("t_reference", "known_propensity")
+#: The mechanism each positive arm stands for, the key of a training floor.
+MECHANISMS: Final[dict[str, str]] = {"t_reference": "estimated", "known_propensity": "known"}
+#: Each positive arm's must-fail control: its variance times :data:`DEFLATION`.
+DEFLATED_ARMS: Final[dict[str, str]] = {
+    "t_reference": "deflated_control",
+    "known_propensity": "known_deflated_control",
+}
 PRIMARY_CELL: Final[Cell] = CELL_BY_NAME["equal10__v5_j20"]
 PRIMARY_N: Final[int] = PRIMARY_CELL.n
 SCENARIO: Final[str] = PRIMARY_CELL.name
@@ -204,33 +231,28 @@ PILOT_EXTENDED: Final[frozenset[str]] = frozenset(
         "cluster_covariate__v5_j20",
     }
 )
-#: The cells whose spread of the squared SE leaves a pass probability below 0.90 at 8,000 draws
-#: even under exact calibration: the two designs with 2 training clusters per fold.
-PREDICTED_SHORTFALL: Final[frozenset[str]] = frozenset(
-    {"equal10__v2_j4", "cluster_covariate__v2_j4"}
-)
-#: The positive cells whose pass probability at the pilot's own readings is below 0.90 at their
-#: declared R: predicted reds, recorded before the declaration (``regenerate.py`` routes them).
-PREDICTED_RED: Final[frozenset[str]] = frozenset(
-    {
-        "equal10__v2_j4",
-        "equal10__v2_j8",
-        "equal10__v2_j12",
-        "equal10__v5_j10",
-        "cluster_covariate__v2_j4",
-        "cluster_covariate__v2_j8",
-        "cluster_covariate__v5_j20",
-    }
-)
-#: The cells whose IID control's power at the pilot's paired SE ratio is below 0.90.
-IID_PREDICTED_RED: Final[frozenset[str]] = frozenset({"equal10__v2_j4"})
+#: The positive cells of each configuration whose plug-in pass probability at 8,000 draws is
+#: below 0.90 at the pilot's own readings (rev 3.2's three gates, with the pilot's draws a refusal
+#: lost refitted under the constant-target rule): predicted reds, recorded before the
+#: declaration. ``regenerate.py`` gives each one's reading and route.
+PREDICTED_RED: Final[dict[str, frozenset[str]]] = {
+    "t_reference": frozenset({"equal10__v2_j4", "cluster_covariate__v2_j4"}),
+    "known_propensity": frozenset({"equal10__v2_j4", "equal10__v2_j8", "cluster_covariate__v2_j4"}),
+}
+#: Each configuration's training floor predicted from :data:`PREDICTED_RED`: the smallest count
+#: of :data:`TRAINING_LADDER` with no predicted red at or above it (plan 5.3 predicts 4 and 6).
+PREDICTED_FLOOR: Final[dict[str, int]] = {"t_reference": 4, "known_propensity": 6}
+#: The deflated controls whose power to fail the positive rule is below 0.90 at the pilot's
+#: readings: the estimated propensity's outlier SEs on 6 training clusters leave ``equal10`` a
+#: variance ratio of 1.31, so the deflated variance still reads 0.94 and its coverage 0.927.
+DEFLATED_PREDICTED_PASS: Final[dict[str, frozenset[str]]] = {
+    "t_reference": frozenset({"equal10__v2_j12"}),
+    "known_propensity": frozenset(),
+}
 
-#: Replications of each cell, sized by the design test from the pilot (plan 5.3): the smallest
-#: multiple of 400 from 4,000 to 8,000 with a pass probability of at least 0.90 under exact
-#: calibration at the pilot's spread of the squared SE and kurtosis of the estimate, then raised
-#: while the family product is below 0.95. The product over the ten cells outside
-#: :data:`PREDICTED_SHORTFALL` reads 0.933 with every cell at 8,000, a shortfall recorded before
-#: the declaration.
+#: Replications of every cell (plan 5.3, rev 3.2): 8,000, the plan's ceiling, where the plug-in
+#: family product of the cells above each configuration's predicted floor reads 1.000 (estimated)
+#: and 0.997 (known) against 0.970 and 0.850 at 4,000.
 PROPERTY_REPLICATES: Final[dict[str, int]] = {cell.name: 8_000 for cell in CELLS}
 
 
@@ -241,9 +263,9 @@ def cell_name(cell: str, arm: str) -> str:
 
 def arm_role(cell: str, arm: str) -> str:
     """The role of one arm of one cell."""
-    if arm == "t_reference":
+    if arm in POSITIVE_ARMS:
         return "positive"
-    if arm in {"iid_t_control", "deflated_control"}:
+    if arm == "iid_t_control" or arm in DEFLATED_ARMS.values():
         return "control"
     if arm == "pooled_centered" and cell in POOLED_CENTERED_GATED:
         return "control"
@@ -309,7 +331,9 @@ CONFIGURATION = {
     "simultaneous_intervals": False,
     "deflation": DEFLATION,
     "targets": dict(TARGETS),
-    "known_propensity": "a second fit per draw with the law's true propensity (diagnostic)",
+    "known_propensity": "a second fit per draw with the law's true propensity declared known "
+    "(the second gated configuration)",
+    "training_ladder": list(TRAINING_LADDER),
     "primary": f"{SCENARIO}: ey0, ey1 and ate",
 }
 
@@ -437,10 +461,10 @@ def _checked(result: Any, cell: Cell) -> Any:
 
 
 def draw_arms(frame: pd.DataFrame, cell: Cell, truth: float) -> dict[str, dict[str, Any]]:
-    """The seven arms of :data:`ARMS` of one draw, off two fits.
+    """The arms of :data:`ARMS` of one draw, off two fits.
 
-    The first six read the study's fit; ``known_propensity`` reads a second fit of the same draw
-    with the law's true propensity. Each arm holds its point, standard error, interval,
+    The first six read the study's fit; ``known_propensity`` and ``known_deflated_control`` read
+    a second fit of the same draw with the law's true propensity. Each arm holds its point, standard error, interval,
     ``withheld`` (the status of an estimate that withholds its interval, else ``""``),
     ``reference_df``, ``covered`` (0 when withheld) and ``rejected``.
     """
@@ -452,6 +476,7 @@ def draw_arms(frame: pd.DataFrame, cell: Cell, truth: float) -> dict[str, dict[s
     folds = [test for _, test in result.nuisance.folds]
     iid_se = float(np.sqrt(cross_validated_variance(estimate.influence_curve, folds, None)))
     pooled_se = float(np.sqrt(result.cv_targeting.pooled[target].variance))
+    known_se = float(known.plugin_std_error)
     t_df = t_critical(cell.df)
     versions = {
         "t_reference": (estimate, fold_se, t_df),
@@ -460,7 +485,8 @@ def draw_arms(frame: pd.DataFrame, cell: Cell, truth: float) -> dict[str, dict[s
         "pooled_centered": (estimate, pooled_se, t_df),
         "t_j_minus_2_reference": (estimate, fold_se, t_critical(cell.clusters - 2)),
         "normal_reference": (estimate, fold_se, NORMAL_CRITICAL),
-        "known_propensity": (known, float(known.plugin_std_error), t_df),
+        "known_propensity": (known, known_se, t_df),
+        "known_deflated_control": (known, known_se * np.sqrt(DEFLATION), t_df),
     }
     out: dict[str, dict[str, Any]] = {}
     for arm, (version, se, critical) in versions.items():

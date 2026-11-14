@@ -3749,6 +3749,16 @@ class TMLE:
             data,
             folds,
             subject=f"cross-fitted {names.get(self._assessment_method, 'TMLE')}",
+            # A plain TMLE's outcome regression on a complement with one binary outcome
+            # value predicts that value there (``ConstantFit``, the maximum-likelihood
+            # fit), so a missing outcome class is no reason to refuse it. The other
+            # methods read the outcome regression in a search, a rule or a reduced
+            # regression this rule has not been checked against, and keep the refusal.
+            constant_outcome=(
+                self._assessment_method == "tmle"
+                and self.learned_rule is None
+                and not _has_no_arms(data)
+            ),
             # The default remedy fits in sample, which on a learned-rule fit changes the
             # target to the value of the full-sample rule, so its remedy says so. The arm
             # minimum also offers more units at the rare arm, which keeps the target.
@@ -3768,6 +3778,7 @@ class TMLE:
         where: str = "repeat {repeat}, fold {fold}",
         remedy: str = _IN_SAMPLE_ARM_INDEXED_REMEDY,
         arm_remedy: str | None = None,
+        constant_outcome: bool = False,
     ) -> None:
         """Ask one realized partition the three questions above, under a caller's name.
 
@@ -3794,6 +3805,10 @@ class TMLE:
         arm_remedy : str or None
             The way out of the arm minimum, which no split can meet. ``None`` reads
             ``remedy``.
+        constant_outcome : bool
+            Whether the fit's outcome regression takes the constant-target rule in a
+            training complement with one binary outcome value. The outcome classes then
+            owe one unit each in the sample and nothing to any complement.
         """
         treatment = np.asarray(data.treatment, dtype=float)
         arms = np.asarray(() if _has_no_arms(data) else data.arm_codes, dtype=float)
@@ -3832,7 +3847,14 @@ class TMLE:
             outcome_values = np.asarray(data.outcome, dtype=float)
             for value in (0.0, 1.0):
                 count = int(np.unique(unit_of[observed & (outcome_values == value)]).size)
-                if count < 2:
+                if count == 0 and constant_outcome:
+                    raise DataError(
+                        f"{subject} needs both outcome classes among the observed outcomes, "
+                        f"and no {unit} has outcome {value:g}. Every training complement "
+                        "would hold one value, so there is no outcome regression to fit; "
+                        f"collect observations with outcome {value:g}."
+                    )
+                if count < 2 and not constant_outcome:
                     raise DataError(
                         f"{subject} needs each outcome class in at least two independent "
                         f"units with an observed outcome, and outcome {value:g} appears in "
@@ -3850,7 +3872,7 @@ class TMLE:
         ]
         if arms.size:
             support.insert(0, ("arm", treatment, arms))
-        if data.family == "binomial":
+        if data.family == "binomial" and not constant_outcome:
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
             support.append(("outcome", outcome, np.array([0.0, 1.0])))
         post_draw = _POST_DRAW_REMEDY.format(remedy=remedy)

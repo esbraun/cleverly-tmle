@@ -1,44 +1,54 @@
 r"""The ``fold_variance_calibration`` family of ``few-cluster-fold-variance``.
 
 Each key draws one sample of a cell of :data:`tests.studies.few_cluster_fold_variance.CELLS`,
-fits it twice, and writes seven rows, one per arm
+fits it twice, and writes one row per arm
 (:func:`tests.studies.few_cluster_fold_variance.draw_arms`). Beside the shared replicate
-columns a row records ``withheld`` (the estimate withheld its interval, so every arm reads a
-miss in that arm) and ``reference_df``. A key whose fit raises is lost in all seven cells.
+columns a row records ``withheld`` (the estimate withheld its interval, so the arm reads a
+miss) and ``reference_df``. A key whose fit raises is lost in every arm of its cell.
 
-The statistic of the family is the **variance ratio** over the shown fits of a cell,
+Cells are read by **training clusters** :math:`J(V-1)/V` (2, 4, 6, 8, 16 and 24), the clusters
+each fold's nuisances are fitted on, with the clusters per validation fold as a second axis
+(plan X54 rev 3.2, section 2.4 item 1). The variance statistic is the **variance ratio** over
+the shown fits of a cell,
 
 .. math::
 
     \widehat{\mathrm{VR}} = \overline{\hat\sigma^2}\,/\,\widehat{\mathrm{Var}}(\hat\psi),
 
 the mean squared SE over the ``ddof=1`` variance of the estimates, with a 99% percentile
-bootstrap interval that resamples replicates jointly (:func:`variance_ratio_interval`). The
-gated rules (plan X54 rev 3.1, sections 2.4 and 5.3):
+bootstrap interval that resamples replicates jointly (:func:`variance_ratio_interval`).
 
-=========================================  ==========================================================
-rule                                       rows and threshold
-=========================================  ==========================================================
-``variance ratio in band``                 every ``t_reference`` row: the 99% interval inside
-                                           :math:`[0.93^2, 1.07^2] = [0.8649, 1.1449]`
-``shown coverage in band``                 every ``t_reference`` row: the exact 99% interval of
-                                           coverage over the shown fits inside
-                                           ``margins.calibration_coverage`` (0.92, 0.98)
-``paired iid/cluster se ratio under its    every ``iid_t_control`` row: the 99% upper end of the mean
-ceiling``                                  IID SE over the mean cluster SE of the same fits below
-                                           0.80 (clause 1 of the IID control)
-``deflated variance ratio below band``     every ``deflated_control`` row: the 99% upper end of its
-                                           variance ratio below 0.8649
-``pooled-centred variance ratio above      the ``pooled_centered`` rows of the cells in
-band``                                     :data:`~tests.studies.few_cluster_fold_variance.POOLED_CENTERED_GATED`:
-                                           the 99% lower end of its variance ratio above 1.1449
-=========================================  ==========================================================
+**The positive rule** (:func:`positive_rule`), on each of the two gated configurations
+(``t_reference``, the propensity estimated, and ``known_propensity``, declared known):
 
-Every other row is ``diagnostic`` and states no verdict. Every row publishes the shown and
-withheld counts, the shown-fit coverage with its exact interval, the variance ratio with its
-interval, the shown-fit SE ratio with its interval, the reference degrees of freedom
-:math:`k = J - V` and :math:`c_k = E\sqrt{\chi^2_k/k}`, the SE ratio of an exactly calibrated
-variance under normality, and the over-coverage reading (the shown lower end above 0.99).
+* ``shown coverage in band``: the exact 99% interval of coverage over the shown fits inside
+  ``margins.calibration_coverage`` (0.92, 0.98);
+* ``all-draw coverage floor`` (G1): the exact 99% lower end of coverage over every requested
+  draw, withheld and lost fits as misses, at least :data:`G1_FLOOR` (0.90);
+* ``variance ratio lower end``: the variance ratio's 99% lower end at least :math:`0.93^2 =
+  0.8649`. The upper side is reported, not gated: it measures the mass of outlier SEs (plan
+  2.4 item 4), and the coverage band's upper leg still gates a variance too large on typical
+  draws.
+
+**The controls**:
+
+* ``deflated_control`` and ``known_deflated_control``, each positive configuration's variance
+  times :data:`~tests.studies.few_cluster_fold_variance.DEFLATION`: the control passes when its
+  rows **fail** the positive rule (``deflated variance fails the positive rule``). With the
+  positive rule reduced to the variance ratio's lower end, the control asks the rule, not one of
+  its legs, to see an underestimated variance;
+* ``iid_t_control``: the median over the shown draws of the paired ratio of the IID SE to the
+  cluster SE of the same fit, whose distribution-free exact 99% upper end
+  (:func:`median_interval`) must lie below :data:`IID_MEDIAN_CEILING` (0.95). An inert cluster
+  aggregation gives a ratio of exactly 1 on every draw. The ratio of means of Fix-4's clause 1 is
+  reported (``paired_se_ratio``).
+
+Every other row is ``diagnostic``. Every row publishes the training and validation clusters,
+the shown and withheld counts, the shown and all-draw coverages with their exact intervals, the
+variance ratio with its interval, the 5%-trimmed variance ratio, the largest SE in SDs of the
+estimate, the median SE over that SD, the shown SE ratio with its interval, :math:`k = J - V`
+and :math:`c_k = E\sqrt{\chi^2_k/k}`, and the over-coverage reading. :func:`training_floor`
+reads each configuration's training-cluster floor off a summary (plan 5.3).
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ from typing import Any, Final
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import few_cluster_fold_variance as study
@@ -68,9 +79,8 @@ from tests.studies.evidence.property_failures import (
     Judged,
     above_judge,
     band_judge,
-    below_judge,
     cells,
-    paired_se_ratio_clause,
+    floor_judge,
     se_ratio_sets,
 )
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
@@ -87,8 +97,12 @@ VARIANCE_BAND: Final[tuple[float, float]] = (
 )
 #: The two-sided band of the shown-fit coverage interval.
 COVERAGE_BAND: Final[tuple[float, float]] = STUDY.margins.calibration_coverage
-#: The ceiling of the IID control's paired SE ratio (clause 1 of the IID control).
-IID_CONTROL_CEILING: Final[float] = property_verdicts.FEW_CLUSTER_IID_CONTROL_CEILING
+#: The ceiling of the IID control's median paired SE ratio's 99% upper end (plan 5.3, rev 3.2).
+IID_MEDIAN_CEILING: Final[float] = 0.95
+#: G1: the floor of the exact 99% lower end of all-draw coverage.
+G1_FLOOR: Final[float] = 0.90
+#: The share of the largest squared SEs the trimmed variance ratio leaves out (reported).
+TRIM: Final[float] = 0.05
 #: The over-coverage reading's threshold.
 OVER_COVERAGE: Final[float] = STUDY.margins.over_coverage_ceiling
 
@@ -97,15 +111,23 @@ EXTRA_COLUMNS: Final[tuple[str, ...]] = ("withheld", "reference_df")
 
 #: The readings :func:`summarize_properties` adds to every row.
 READING_COLUMNS: Final[tuple[str, ...]] = (
+    "training_clusters",
+    "validation_clusters",
     "shown_draws",
     "withheld_draws",
     "shown_coverage",
     "shown_ci_lower",
     "shown_ci_upper",
     "shown_above_099",
+    "all_draw_coverage",
+    "all_draw_ci_lower",
+    "all_draw_ci_upper",
     "variance_ratio",
     "variance_ratio_ci_lower",
     "variance_ratio_ci_upper",
+    "variance_ratio_trimmed",
+    "largest_se_sd",
+    "median_se_ratio",
     "shown_se_ratio",
     "shown_se_ratio_ci_lower",
     "shown_se_ratio_ci_upper",
@@ -114,6 +136,10 @@ READING_COLUMNS: Final[tuple[str, ...]] = (
     "paired_se_ratio",
     "paired_se_ratio_ci_lower",
     "paired_se_ratio_ci_upper",
+    "paired_median_ratio",
+    "paired_median_ci_lower",
+    "paired_median_ci_upper",
+    "positive_rule_passed",
 )
 
 
@@ -122,17 +148,17 @@ def _cell(cell: str, arm: str) -> str:
 
 
 POSITIVE_CELLS: Final[tuple[str, ...]] = tuple(
-    _cell(cell.name, "t_reference") for cell in study.CELLS
+    _cell(cell.name, arm) for cell in study.CELLS for arm in study.POSITIVE_ARMS
 )
 IID_CELLS: Final[tuple[str, ...]] = tuple(_cell(cell.name, "iid_t_control") for cell in study.CELLS)
 DEFLATED_CELLS: Final[tuple[str, ...]] = tuple(
-    _cell(cell.name, "deflated_control") for cell in study.CELLS
+    _cell(cell.name, arm) for cell in study.CELLS for arm in study.DEFLATED_ARMS.values()
 )
 POOLED_CELLS: Final[tuple[str, ...]] = tuple(
     _cell(name, "pooled_centered") for name in sorted(study.POOLED_CENTERED_GATED)
 )
 
-#: The positive and IID-control arms of each cell, the pairs clause 1 of the IID control reads.
+#: The positive and IID-control arms of each cell, the pairs the IID control reads.
 PROPERTY_GROUPS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
     FAMILY: tuple(
         (_cell(cell.name, "t_reference"), _cell(cell.name, "iid_t_control")) for cell in study.CELLS
@@ -195,6 +221,46 @@ def variance_ratio_interval(
 def variance_seed(record: Any, cell: str) -> int:
     """The verdict's own resampling seed of one cell's variance ratio."""
     return int(stream_seed(record, FAMILY, cell, "variance_ratio"))
+
+
+def median_interval(
+    values: np.ndarray, *, confidence_level: float, high: int = 0, low: int = 0
+) -> Interval:
+    """The distribution-free exact interval of a median, from order statistics.
+
+    With :math:`n` values sorted, the interval is :math:`[x_{(j)}, x_{(n-j+1)}]` with :math:`j`
+    the ``(1 - level) / 2`` quantile of :math:`\\mathrm{Bin}(n, 1/2)`, so it covers the median
+    with probability at least ``confidence_level`` for any continuous law. ``high`` and ``low``
+    add that many values above and below every given one (the failure accounting's fills).
+    """
+    ordered = np.sort(np.asarray(values, dtype=float))
+    ordered = np.concatenate([np.full(low, -np.inf), ordered, np.full(high, np.inf)])
+    n = ordered.size
+    if n == 0:
+        return Interval(float("nan"), float("nan"))
+    j = int(stats.binom.ppf((1.0 - confidence_level) / 2.0, n, 0.5))
+    if j < 1:
+        return Interval(float("-inf"), float("inf"))
+    return Interval(float(ordered[j - 1]), float(ordered[n - j]))
+
+
+def trimmed_variance_ratio(estimates: np.ndarray, std_errors: np.ndarray) -> float:
+    """:func:`variance_ratio` with the largest :data:`TRIM` share of squared SEs left out."""
+    squared = np.sort(np.square(np.asarray(std_errors, dtype=float)))
+    kept = squared[: int(np.floor((1.0 - TRIM) * squared.size))]
+    estimates = np.asarray(estimates, dtype=float)
+    if kept.size == 0 or estimates.size < 2:
+        return float("nan")
+    spread = float(np.var(estimates, ddof=1))
+    return float(np.mean(kept) / spread) if spread > 0 else float("nan")
+
+
+def paired_ratios(iid: pd.DataFrame, positive: pd.DataFrame) -> np.ndarray:
+    """IID SE over cluster SE on each replicate both rows hold and show."""
+    left = _shown(iid).set_index("replicate")["std_error"]
+    right = _shown(positive).set_index("replicate")["std_error"]
+    joined = pd.concat([left.rename("iid"), right.rename("cluster")], axis=1, join="inner")
+    return (joined["iid"] / joined["cluster"]).to_numpy(dtype=float)
 
 
 # ------------------------------------------------------------------------------------- rows
@@ -289,10 +355,22 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return tuple(out)
 
 
+#: The synthetic cell whose rows withhold at :data:`SYNTHETIC_WITHHELD`, so that G1 can decide a
+#: verdict the shown-coverage band does not: with nothing withheld or lost, a shown lower end of
+#: at least 0.92 implies an all-draw lower end of at least 0.90.
+SYNTHETIC_WITHHELD_CELL: Final[str] = _cell("equal10__v5_j20", "t_reference")
+SYNTHETIC_WITHHELD: Final[float] = 0.07
+#: The deflated controls are centred on the truth in the synthetic rows, as a calibrated
+#: variance would be, so that the positive rule passes on them and the control reads red.
+SYNTHETIC_CENTRES: Final[dict[str, float]] = {f"{FAMILY}/{name}": 0.0 for name in DEFLATED_CELLS}
+
+
 def synthetic_columns(cell: Any, rng: np.random.Generator) -> dict[str, Any]:
     """The extra columns of a synthetic row for the property differential."""
-    del rng
-    return {"withheld": 0, "reference_df": int(cell.dgp.df)}
+    withheld = 0
+    if cell.cell == SYNTHETIC_WITHHELD_CELL:
+        withheld = int(rng.uniform() < SYNTHETIC_WITHHELD)
+    return {"withheld": withheld, "reference_df": int(cell.dgp.df)}
 
 
 #: The share of a cell's requested replications that the accounting lets a run lose. The plan
@@ -346,7 +424,10 @@ def fold_variance_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: An
         group = groups[name]
         shown = _shown(group)
         hits, trials = int(shown["covered"].sum()), len(shown)
+        requested = int(group["requested_replicates"].iloc[0])
         values: dict[str, float] = {
+            "training_clusters": float(cell.training),
+            "validation_clusters": float(cell.per_fold),
             "shown_draws": float(trials),
             "withheld_draws": float(len(group) - trials),
             "reference_k": float(cell.df),
@@ -360,9 +441,17 @@ def fold_variance_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: An
                 shown_ci_upper=exact.high,
                 shown_above_099=float(exact.low > OVER_COVERAGE),
             )
+        # G1: the shown hits over every requested draw, so a withheld or lost fit is a miss.
+        every = clopper_pearson(hits, requested, confidence_level=level)
+        values.update(
+            all_draw_coverage=hits / requested,
+            all_draw_ci_lower=every.low,
+            all_draw_ci_upper=every.high,
+        )
         estimates = shown["estimate"].to_numpy(dtype=float)
         std_errors = shown["std_error"].to_numpy(dtype=float)
         values["variance_ratio"] = variance_ratio(estimates, std_errors)
+        values["variance_ratio_trimmed"] = trimmed_variance_ratio(estimates, std_errors)
         ratio = variance_ratio_interval(
             estimates,
             std_errors,
@@ -373,7 +462,10 @@ def fold_variance_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: An
         values["variance_ratio_ci_lower"], values["variance_ratio_ci_upper"] = ratio.low, ratio.high
         if trials >= 2:
             spread = float(np.std(estimates, ddof=1))
-            values["shown_se_ratio"] = float(np.mean(std_errors) / spread) if spread > 0 else np.nan
+            if spread > 0:
+                values["shown_se_ratio"] = float(np.mean(std_errors) / spread)
+                values["largest_se_sd"] = float(np.max(std_errors) / spread)
+                values["median_se_ratio"] = float(np.median(std_errors) / spread)
             se_ratio = se_ratio_interval(
                 shown,
                 replicates=margins.bootstrap_replicates,
@@ -384,9 +476,10 @@ def fold_variance_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: An
             values["shown_se_ratio_ci_lower"] = se_ratio.low
             values["shown_se_ratio_ci_upper"] = se_ratio.high
         if name in IID_CELLS:
+            positive = groups[_cell(prefix, "t_reference")]
             paired = paired_se_ratio_interval(
                 group,
-                groups[_cell(prefix, "t_reference")],
+                positive,
                 replicates=margins.bootstrap_replicates,
                 confidence_level=level,
                 seed=stream_seed(record, FAMILY, name),
@@ -394,30 +487,41 @@ def fold_variance_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: An
             values["paired_se_ratio"] = paired.ratio
             values["paired_se_ratio_ci_lower"] = paired.interval.low
             values["paired_se_ratio_ci_upper"] = paired.interval.high
+            ratios = paired_ratios(group, positive)
+            median = median_interval(ratios, confidence_level=level)
+            values["paired_median_ratio"] = float(np.median(ratios)) if ratios.size else np.nan
+            values["paired_median_ci_lower"] = median.low
+            values["paired_median_ci_upper"] = median.high
         for column, value in values.items():
             summary.loc[index, column] = value
+        if name in POSITIVE_CELLS or name in DEFLATED_CELLS:
+            summary.loc[index, "positive_rule_passed"] = float(positive_rule(summary.loc[index]))
+
+
+def positive_rule(row: pd.Series) -> bool:
+    """The three gates of a positive cell, read off its summary row (plan 5.3, rev 3.2)."""
+    return bool(
+        COVERAGE_BAND[0] <= row["shown_ci_lower"]
+        and row["shown_ci_upper"] <= COVERAGE_BAND[1]
+        and row["all_draw_ci_lower"] >= G1_FLOOR
+        and row["variance_ratio_ci_lower"] >= VARIANCE_BAND[0]
+    )
 
 
 def fold_variance_verdicts(summary: pd.DataFrame) -> None:
     """The declared verdicts of the family, read off its summary columns."""
-    low, high = VARIANCE_BAND
     family = summary["property"] == FAMILY
     for index in summary.index[family]:
         row = summary.loc[index]
         name = str(row["cell"])
         if name in POSITIVE_CELLS:
-            passed = bool(
-                low <= row["variance_ratio_ci_lower"]
-                and row["variance_ratio_ci_upper"] <= high
-                and COVERAGE_BAND[0] <= row["shown_ci_lower"]
-                and row["shown_ci_upper"] <= COVERAGE_BAND[1]
-            )
+            passed = positive_rule(row)
         elif name in IID_CELLS:
-            passed = bool(row["paired_se_ratio_ci_upper"] < IID_CONTROL_CEILING)
+            passed = bool(row["paired_median_ci_upper"] < IID_MEDIAN_CEILING)
         elif name in DEFLATED_CELLS:
-            passed = bool(row["variance_ratio_ci_upper"] < low)
+            passed = not positive_rule(row)
         elif name in POOLED_CELLS:
-            passed = bool(row["variance_ratio_ci_lower"] > high)
+            passed = bool(row["variance_ratio_ci_lower"] > VARIANCE_BAND[1])
         else:
             passed = True
         summary.loc[index, "passed"] = passed
@@ -434,11 +538,34 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
+def training_floor(summary: pd.DataFrame, arm: str) -> int | None:
+    """A configuration's training-cluster floor :math:`T^*` (plan 5.3), off a summary.
+
+    The smallest count of :data:`~tests.studies.few_cluster_fold_variance.TRAINING_LADDER` from
+    which every cell of the configuration, on both laws, passes, and whose must-fail control
+    fails the positive rule: a cell whose deflated control passes the rule cannot certify
+    calibration. ``None`` when no count qualifies, including the largest.
+    """
+    passed = summary.set_index("cell")["passed"].astype(bool)
+    certified = dict.fromkeys(study.TRAINING_LADDER, True)
+    for cell in study.CELLS:
+        ok = bool(
+            passed[_cell(cell.name, arm)] and passed[_cell(cell.name, study.DEFLATED_ARMS[arm])]
+        )
+        certified[cell.training] = certified[cell.training] and ok
+    floor = None
+    for count in sorted(certified, reverse=True):
+        if not certified[count]:
+            break
+        floor = count
+    return floor
+
+
 # ------------------------------------------------------------------------------ declared rules
 
 
-def _variance_clause(name: str, judge: Any, applies: Any) -> Clause:
-    """A variance-ratio interval clause over the shown fits, with the S5 candidate set.
+def _variance_candidates(ctx: Context, row: pd.Series, judge: Any) -> list[tuple[str, Judged]]:
+    """The S5 candidate set of a variance-ratio interval over the shown fits.
 
     A lost draw is either withheld, so it leaves the shown fits unchanged, or shown at an
     extreme of the survivors: the SE at the survivor maximum with the estimates at their mean,
@@ -447,35 +574,42 @@ def _variance_clause(name: str, judge: Any, applies: Any) -> Clause:
     monotone in its fills and the variance convex in its own, so the set holds both extremes of
     the point ratio, as it does for the SE ratio.
     """
+    shown = _shown(ctx.cell(FAMILY, str(row["cell"])))
+    margins = ctx.margins
+
+    def interval(frame: pd.DataFrame) -> Interval:
+        return variance_ratio_interval(
+            frame["estimate"].to_numpy(dtype=float),
+            frame["std_error"].to_numpy(dtype=float),
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=variance_seed(ctx.record, str(row["cell"])),
+        )
+
+    out = [("every lost draw withheld", judge(ctx, row, interval(shown)))]
+    for label, frame in se_ratio_sets(shown, ctx.k(row), truth_varies=False):
+        out.append((label, judge(ctx, row, interval(frame))))
+    return out
+
+
+def _variance_clause(name: str, judge: Any, applies: Any) -> Clause:
+    """A variance-ratio interval clause over the shown fits, with the S5 candidate set."""
 
     def read(ctx: Context, row: pd.Series) -> Judged:
         iv = Interval(float(row["variance_ratio_ci_lower"]), float(row["variance_ratio_ci_upper"]))
         return judge(ctx, row, iv)
 
-    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        shown = _shown(ctx.cell(FAMILY, str(row["cell"])))
-        margins = ctx.margins
+    return Clause(name, "S5", applies, read, lambda c, r: _variance_candidates(c, r, judge))
 
-        def interval(frame: pd.DataFrame) -> Interval:
-            return variance_ratio_interval(
-                frame["estimate"].to_numpy(dtype=float),
-                frame["std_error"].to_numpy(dtype=float),
-                replicates=margins.bootstrap_replicates,
-                confidence_level=margins.confidence_level,
-                seed=variance_seed(ctx.record, str(row["cell"])),
-            )
 
-        out = [("every lost draw withheld", judge(ctx, row, interval(shown)))]
-        for label, frame in se_ratio_sets(shown, ctx.k(row), truth_varies=False):
-            out.append((label, judge(ctx, row, interval(frame))))
-        return out
-
-    return Clause(name, "S5", applies, read, candidates)
+_VARIANCE_FLOOR = floor_judge(lambda _: VARIANCE_BAND[0])
+_COVERAGE_BAND = band_judge(lambda _: COVERAGE_BAND)
+_G1 = floor_judge(lambda _: G1_FLOOR)
 
 
 def _coverage_read(ctx: Context, row: pd.Series) -> Judged:
     iv = Interval(float(row["shown_ci_lower"]), float(row["shown_ci_upper"]))
-    return band_judge(lambda _: COVERAGE_BAND)(ctx, row, iv)
+    return _COVERAGE_BAND(ctx, row, iv)
 
 
 def _coverage_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
@@ -483,7 +617,6 @@ def _coverage_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged
     trials = int(row["shown_draws"])
     hits = round(float(row["shown_coverage"]) * trials) if trials else 0
     level = ctx.margins.confidence_level
-    judge = band_judge(lambda _: COVERAGE_BAND)
     out = []
     k = ctx.k(row)
     for shown in range(k + 1):
@@ -491,8 +624,108 @@ def _coverage_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged
             if trials + shown == 0:
                 continue
             iv = clopper_pearson(hits + covered, trials + shown, confidence_level=level)
-            out.append((f"{shown} shown, {covered} covered", judge(ctx, row, iv)))
+            out.append((f"{shown} shown, {covered} covered", _COVERAGE_BAND(ctx, row, iv)))
     return out
+
+
+def _g1_read(ctx: Context, row: pd.Series) -> Judged:
+    iv = Interval(float(row["all_draw_ci_lower"]), float(row["all_draw_ci_upper"]))
+    return _G1(ctx, row, iv)
+
+
+def _g1_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+    """G1 counts every requested draw; a lost one is covered or not: every count."""
+    requested = int(ctx.cell(FAMILY, str(row["cell"]))["requested_replicates"].iloc[0])
+    hits = round(float(row["all_draw_coverage"]) * requested)
+    level = ctx.margins.confidence_level
+    return [
+        (
+            f"j={j} covered",
+            _G1(ctx, row, clopper_pearson(hits + j, requested, confidence_level=level)),
+        )
+        for j in range(ctx.k(row) + 1)
+    ]
+
+
+def _fails_rule(gates: Sequence[Judged]) -> Judged:
+    """A control's reading: the rule fails when some gate fails, by its largest shortfall."""
+    return Judged(max(-gate.slack for gate in gates), any(not gate.passed for gate in gates))
+
+
+def _deflated_read(ctx: Context, row: pd.Series) -> Judged:
+    return _fails_rule(
+        [
+            _coverage_read(ctx, row),
+            _g1_read(ctx, row),
+            Judged(
+                float(row["variance_ratio_ci_lower"]) - VARIANCE_BAND[0],
+                bool(float(row["variance_ratio_ci_lower"]) >= VARIANCE_BAND[0]),
+            ),
+        ]
+    )
+
+
+def _deflated_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+    """Each gate at its own most passing fill of the lost draws.
+
+    A joint fill gives every gate a reading at least as failing as its own most passing fill,
+    so a rule that fails under these readings fails under every joint fill.
+    """
+
+    def best(candidates: list[tuple[str, Judged]]) -> Judged:
+        return max((judged for _, judged in candidates), key=lambda judged: judged.slack)
+
+    gates = [
+        best(_coverage_candidates(ctx, row)),
+        best(_g1_candidates(ctx, row)),
+        best(_variance_candidates(ctx, row, _VARIANCE_FLOOR)),
+    ]
+    return [("each gate at its most passing fill", _fails_rule(gates))]
+
+
+def _median_clause() -> Clause:
+    """The IID control: the median paired IID/cluster SE ratio's upper end below 0.95.
+
+    A lost key costs both arms of the pair, so a lost draw adds one ratio of unknown value: the
+    order-statistic interval's upper end is monotone in each added value, so the candidates add
+    ``j`` ratios above every survivor and the rest below.
+    """
+
+    def judged(iv: Interval) -> Judged:
+        return Judged(IID_MEDIAN_CEILING - iv.high, bool(iv.high < IID_MEDIAN_CEILING))
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        return judged(
+            Interval(float(row["paired_median_ci_lower"]), float(row["paired_median_ci_upper"]))
+        )
+
+    def positive(row: pd.Series) -> str:
+        return _cell(_split(str(row["cell"]))[0], "t_reference")
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        ratios = paired_ratios(ctx.cell(FAMILY, str(row["cell"])), ctx.cell(FAMILY, positive(row)))
+        k = ctx.k(row)
+        level = ctx.margins.confidence_level
+        return [
+            (
+                f"{j} above, {k - j} below",
+                judged(median_interval(ratios, confidence_level=level, high=j, low=k - j)),
+            )
+            for j in range(k + 1)
+        ]
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(FAMILY, str(row["cell"])), (FAMILY, positive(row))]
+
+    return Clause(
+        "median paired iid/cluster se ratio under its ceiling",
+        "S9m",
+        cells(*IID_CELLS),
+        read,
+        candidates,
+        imputation=SUPPORT,
+        reads=reads,
+    )
 
 
 #: The failure accounting's declared rules: the verdicts of :func:`fold_variance_verdicts`.
@@ -501,11 +734,6 @@ PROPERTY_RULES = (
         families=frozenset({FAMILY}),
         shared="summarize_properties",
         clauses=(
-            _variance_clause(
-                "variance ratio in band",
-                band_judge(lambda _: VARIANCE_BAND),
-                cells(*POSITIVE_CELLS),
-            ),
             Clause(
                 "shown coverage in band",
                 "S2",
@@ -514,16 +742,22 @@ PROPERTY_RULES = (
                 _coverage_candidates,
                 imputation=SUPPORT,
             ),
-            paired_se_ratio_clause(
-                "paired iid/cluster se ratio under its ceiling",
-                judge=below_judge(lambda _: IID_CONTROL_CEILING),
-                seed=lambda ctx, row: int(stream_seed(ctx.record, FAMILY, str(row["cell"]))),
-                applies=cells(*IID_CELLS),
+            Clause(
+                "all-draw coverage floor",
+                "S2",
+                cells(*POSITIVE_CELLS),
+                _g1_read,
+                _g1_candidates,
+                imputation=SUPPORT,
             ),
-            _variance_clause(
-                "deflated variance ratio below band",
-                below_judge(lambda _: VARIANCE_BAND[0]),
+            _variance_clause("variance ratio lower end", _VARIANCE_FLOOR, cells(*POSITIVE_CELLS)),
+            _median_clause(),
+            Clause(
+                "deflated variance fails the positive rule",
+                "S5",
                 cells(*DEFLATED_CELLS),
+                _deflated_read,
+                _deflated_candidates,
             ),
             _variance_clause(
                 "pooled-centred variance ratio above band",
@@ -540,6 +774,7 @@ __all__: Sequence[str] = (
     "declared_cells",
     "generate_property_rows",
     "summarize_properties",
+    "training_floor",
     "variance_ratio",
     "variance_ratio_interval",
 )
