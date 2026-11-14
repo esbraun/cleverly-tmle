@@ -7,8 +7,8 @@ main-terms logistic regression beside the policy ratio.  The parameter is the me
 with the price on the plan and nobody lost to follow-up; law P-C changes no structural equation
 of law P, so its truths are law P's (:data:`~tests.studies.mtp_pricing_common.TRUTHS`).  The
 joint ratio of a node is the policy's price ratio times ``1{C_t = 1} / P(C_t = 1 | A_t, H_t)``
-at the **observed** price (Díaz, Williams, Hoffman and Schenck 2023, arXiv v4, Section 3 and
-Theorem 2, with the chain rule).
+at the **observed** price (Díaz, Williams, Hoffman and Schenck 2023, arXiv v4, Section 3, the
+paragraph after Theorem 1, with the censoring component of each intervention set to one).
 
 Two primary scenarios, :data:`PRIMARY_REPLICATES` replications at :data:`PRIMARY_N`, on the
 same draws (``scenario_seed_owners``):
@@ -32,7 +32,8 @@ per engine.  The support rows ``G39.<engine>.tau3_cross_fitted_censored`` cite t
 **Comparator.**  R ``lmtp`` 1.5.4 is pending (:attr:`StudyRecord.pending_reference`): its runs
 take the per-node joint ratio this package computed (``ratio__<plan>__<node>``, written beside
 each sample by :func:`pairing_columns`) and the censoring columns, an exactness witness, on the
-local study queue after the merge.  They never block (Eric's project instructions).
+local study queue after the merge.  A missing comparator blocks nothing
+(``docs/architecture-invariants.md``, "Theory and comparators").
 
 **Red-cell reading, declared before any run.**  Publication policy ``reporting``, with the
 gated verdicts read by code (:data:`~tests.studies.mtp_pricing_censored_properties.GATING_CELLS`
@@ -51,7 +52,7 @@ and the primary truth rows).
 
 **The tail-size rule** (the X39 rule, as :mod:`tests.studies.canonical_mtp_pricing` states it):
 a Wald reading gates only at ``n >= 2 n_kappa``, with ``n_kappa`` read on law P-C's own limit
-nuisances (:data:`TAIL_SIZES`).
+nuisances (:data:`TAIL_SIZES`).  n = 2,400 puts every primary row in the gated regime.
 """
 
 from __future__ import annotations
@@ -77,9 +78,11 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 
 TAU = law.TAU
 PRIMARY_REPLICATES = 1_000
-#: One n for every row of the record (guide: "Primaries"); the tail-size reading may raise it
-#: before the declaration commit.
-PRIMARY_N = 2_000
+#: One n for every row of the record: ``gated_size`` of the largest tail size (1,098, the
+#: contrast's EIF proxy), the least multiple of 400 at or above twice it (:data:`TAIL_SIZES`).
+#: ``mtp-pricing``'s three-node siblings run at 2,000, so these cells differ from them in the
+#: dropout and in n.
+PRIMARY_N = 2_400
 SEED = 20267701
 RESAMPLING_SEED = 2026770101
 G_BOUNDS = pricing.G_BOUNDS
@@ -197,8 +200,16 @@ CONFIGURATION = {
     "reference": REFERENCE,
 }
 
+#: Each primary estimand's tail size on law P-C: the larger of the property learners' curve
+#: (the EIF proxy) and the primary fit's own, at the 99% chunk-bootstrap bound of the kurtosis
+#: on 10^8 draws with 10^7-row limits (``tests/diagnostics/x77_censored_tail/``,
+#: ``law_pc_moments.csv``).  The proxy is the larger for every estimand and engine.
+TAIL_SIZES: dict[str, int] = {
+    "ey_regimen[natural_prices]": 24,
+    f"ey_regimen[{PLAN}]": 687,
+    f"ate_regimen[{PLAN} vs {REFERENCE}]": 1_098,
+}
 #: The primary truth rows whose n is below twice their tail size, as ``scenario/estimand``.
-#: Filled from the law P-C tail-size reading before the declaration.
 BELOW_TAIL_SIZE: frozenset[str] = frozenset()
 #: The primary truth rows whose n is at least twice their tail size.
 WALD_GATED_CELLS = frozenset(

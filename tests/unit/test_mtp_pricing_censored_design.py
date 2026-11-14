@@ -11,6 +11,7 @@ sizing rule.
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ from tests.studies import mtp_pricing_censored_common as law
 from tests.studies import mtp_pricing_censored_own_curve as own
 from tests.studies import mtp_pricing_censored_properties as properties
 from tests.studies import mtp_pricing_common as law_p
+from tests.studies import mtp_tail_size_common as tail
 from tests.studies.evidence.inference import clopper_pearson
 
 #: The largest difference from ``cleverly``, in standard deviations of the curve.
@@ -153,3 +155,32 @@ def test_the_study_samples_record_the_joint_ratio() -> None:
         assert (column[~stayed] == 0.0).all()
         # Under the natural course the joint ratio is the inverse retention, above one.
         assert (column[stayed] > 1.0).all()
+
+
+TAIL = Path(__file__).resolve().parents[1] / "diagnostics" / "x77_censored_tail"
+
+
+def test_the_tail_sizes_and_the_study_n_follow_from_the_committed_moments() -> None:
+    frame = pd.read_csv(TAIL / "law_pc_moments.csv")
+    assert set(zip(frame.learners, frame.estimator, strict=True)) == set(own.LAW_PC_FITS)
+    assert (frame.draws == own.LAW_PC_DRAWS).all()
+    assert (frame.kappa_lower <= frame.kappa).all()
+    assert (frame.kappa <= frame.kappa_upper).all()
+    for row in frame.itertuples():
+        assert row.n_kappa == tail.tail_size(row.kappa_upper)
+    quantity = {
+        "ey_regimen[natural_prices]": "ey[natural_prices]",
+        f"ey_regimen[{study.PLAN}]": f"ey[{study.PLAN}]",
+        f"ate_regimen[{study.PLAN} vs {study.REFERENCE}]": f"ate[{study.PLAN}]",
+    }
+    indexed = frame.set_index(["learners", "estimator", "quantity"])["n_kappa"]
+    for name, key in quantity.items():
+        rows = [indexed[learners, estimator, key] for learners, estimator in own.LAW_PC_FITS]
+        assert study.TAIL_SIZES[name] == max(rows)
+    assert max(2_000, tail.gated_size(max(study.TAIL_SIZES.values()))) == study.PRIMARY_N
+    sizes = {f"{s}/{name}": study.PRIMARY_N for s in study.SCENARIOS for name in study.TAIL_SIZES}
+    tails = {f"{s}/{name}": n for s in study.SCENARIOS for name, n in study.TAIL_SIZES.items()}
+    gated, below, missing = tail.classify(sizes, tails)
+    assert gated == study.WALD_GATED_CELLS
+    assert below == study.BELOW_TAIL_SIZE
+    assert not missing and not study.TAIL_SIZE_NOT_COMPUTED
