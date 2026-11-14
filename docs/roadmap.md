@@ -585,8 +585,8 @@ default learner, fold count, draw count, bin rule or time grid.
 Each change is one of four kinds. An equivalent implementation returns the same results, bitwise
 where it can and otherwise within a declared tolerance, with every selection, status and refusal
 unchanged on a replay of committed study replications. A display limit changes only what a plot
-draws, and its default draws what it draws today. A memory guard refuses a request that cannot fit
-before allocating, with a `max_memory_bytes=` override, and never refuses one that fits. A sampled
+draws, and its default draws what it draws today. A memory guard refuses before allocating when its
+predicted peak exceeds the budget, names both, and takes a `max_memory_bytes=` override. A sampled
 analysis is a separate opt-in option whose result describes the sampled procedure and needs its
 own registered study.
 
