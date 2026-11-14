@@ -387,15 +387,16 @@ def test_a_working_model_over_mixed_plans_reproduces_the_separate_fits() -> None
 
 
 def test_the_truncation_replay_reproduces_the_fit() -> None:
-    """The bound reaches no factor of a mixed node: its ratio sits in the numerator."""
+    """The bound reaches no factor of a mixed node on the classifier route: its ratio sits
+    in the numerator.  So the curve sweeps ``ratio_trim=``, and its fitted row is the fit."""
     from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 
     result = fit(("natural", "flag gated"), frame=law.mixed_sample(800, 9), g_bounds=(0.01, 1.0))
+    assert result.config.ratio_route.route == "classifier"
     curve = longitudinal_truncation_curve(
-        result, [(0.01, 1.0), (0.2, 1.0)], estimands=["ey_regimen[flag gated]"]
+        result, [None, 0.95], estimands=["ey_regimen[flag gated]"]
     ).set_index("is_fitted_bound")
     assert curve.loc[True, "delta_from_fitted"] == 0.0
-    assert abs(curve.loc[False, "delta_from_fitted"]) < 1e-12
 
 
 def test_a_bootstrap_refits_mixed_nodes() -> None:

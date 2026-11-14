@@ -10026,6 +10026,23 @@ def _fitted_ratio_trim(result: LongitudinalResult) -> float | None:
     return None
 
 
+def _bound_reaches_a_factor(result: LongitudinalResult) -> bool:
+    """Whether the cumulative bound reaches a factor of the fit's treatment mechanism.
+
+    It does at a categorical node, and at a mixed node on the density route, whose
+    categorical factor it bounds.  At a continuous node, and at a mixed node on the
+    classifier route, the policy's ratio sits in the numerator and no bound reaches it.
+    """
+    data = result.data
+    route = result.config.ratio_route
+    density = route is not None and route.route == "density"
+    for time in range(1, data.n_decisions + 1):
+        kind = data.node_kind(time)
+        if kind not in ("continuous", "mixed") or (kind == "mixed" and density):
+            return True
+    return False
+
+
 def _ratio_trim_curve(
     result: LongitudinalResult,
     bounds: Sequence[Any],
@@ -10157,8 +10174,9 @@ def longitudinal_truncation_curve(
 ) -> Any:
     """Refit the complete longitudinal recursion at explicit cumulative bounds.
 
-    On a fit with a modified treatment policy a cumulative bound acts on no continuous
-    node's ratio, so the curve sweeps ``ratio_trim=`` instead: each entry of ``bounds`` is a
+    On a fit with a modified treatment policy whose cumulative bound reaches no factor of
+    the mechanism (every node continuous, or mixed on the classifier route), the curve
+    sweeps ``ratio_trim=`` instead: each entry of ``bounds`` is a
     quantile in ``(0, 1)``, or ``None`` for no trim, and each row reports the estimate with
     every plan's per-node ratios trimmed there, its trimmed share and the inference status
     a fit with that trim takes.  An engine that refuses ``ratio_trim=`` refuses this curve
@@ -10170,8 +10188,8 @@ def longitudinal_truncation_curve(
         The fit to replay.
     bounds : sequence
         The cumulative bound grid. A scalar ``b`` means ``(b, 1)``, and a pair is kept
-        exactly. Repeated entries are replayed once and reported once.  On a fit with a
-        modified treatment policy, the ``ratio_trim=`` quantiles.
+        exactly. Repeated entries are replayed once and reported once.  On a fit that sweeps
+        ``ratio_trim=``, the quantiles.
     estimands : sequence of str or None
         Reported estimands to include. All of them are the default.
 
@@ -10213,7 +10231,9 @@ def longitudinal_truncation_curve(
         from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
 
         raise CapabilityError(refusal=DRIFT_TRUNCATION_REFUSAL)
-    if any(plan.has_mtp for draw in result.repeats for plan in draw.replay_recipe.plans):
+    if any(
+        plan.has_mtp for draw in result.repeats for plan in draw.replay_recipe.plans
+    ) and not _bound_reaches_a_factor(result):
         # A cumulative bound acts on no continuous node's ratio, so a curve of a modified
         # treatment policy sweeps the one ratio truncation the engines have, ratio_trim=.
         return _ratio_trim_curve(result, bounds, estimands)

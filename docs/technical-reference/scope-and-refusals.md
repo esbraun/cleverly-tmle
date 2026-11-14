@@ -720,7 +720,7 @@ row where the raise site names a different remedy.
 | --- | --- | --- |
 | `CTMLE` on data that declares its treatment mechanism | `api_redirection` | C-TMLE selects or fits a treatment mechanism, and the declaration leaves nothing to select or fit. The question does not change. Fit `TMLE` or `DRTMLE` on the declared data |
 | a declared known treatment mechanism beside `treatment_delta=` | `invalid_declaration` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, the mechanism among the recorded rows. It equals the design mechanism only when recording is independent of treatment given $W$, which the fit cannot check |
-| a `g(W)` bound in `truncation_curve()` on a point fit of a modified treatment policy on a continuous or vector dose | `invalid_declaration` | the density ratio is the only treatment weight of such a fit, and a point fit fits no propensity $g(W)$, so a bound on it would move nothing. Declare the treatment as a one-node `LongitudinalTreatment` and sweep its `ratio_trim=` with `longitudinal_truncation_curve()`, or pass `mechanism=True` where the fit has missing outcomes. `tests/unit/test_mtp_route_operations.py` checks the refusal and a mutation that removes it |
+| a `g(W)` bound in `truncation_curve()` on a point fit of a modified treatment policy on a continuous or vector dose, other than a vector with a categorical component on the density route | `invalid_declaration` | the density ratio is the only treatment weight of such a fit, and a point fit fits no propensity $g(W)$, so a bound on it would move nothing. On the density route the bound reaches a vector's categorical factor, so that curve runs. Declare the treatment as a one-node `LongitudinalTreatment` and sweep its `ratio_trim=` with `longitudinal_truncation_curve()`, or pass `mechanism=True` where the fit has missing outcomes. `tests/unit/test_mtp_route_operations.py` checks the refusal and a mutation that removes it |
 | `ratio_trim=` on a point-treatment fit | `api_redirection` | a trim of the per-node density ratios of a longitudinal fit, as `lmtp`'s `.trim` does. A point-treatment fit bounds its mechanism with `g_bounds=`. Declare the point treatment as a one-node `LongitudinalTreatment` to trim its ratio. `TMLEMethod.estimator_kwargs` raises `MethodConfigurationError` before any learner |
 | `intermediate=` on `LTMLE` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `policies=`; an item of another intervention kind in a typed estimand, such as an `Incremental` in `RegimeContrast` | `implementation_gap` for two axis keywords, for `msm=` beside another axis, and for a typed set that holds two kinds. The message names [X57](../roadmap.md#x57-joint-intervention-axes-and-tilt-compositions). `api_redirection` for an estimand of another axis and for a typed set that holds only the other kind | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would put two of them under one heading. `CausalStudy.identify` refuses the typed request with `CapabilityError`, and it names the typed estimand for the item |
@@ -928,8 +928,11 @@ only the rows at risk at that node. `cleverly.learners.isolated_dose_clusters` e
 check. It is a screen, not a test: [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies)
 reports how often it fires on clustered, smooth and heavy-tailed doses.
 
-A longitudinal truncation curve on a fit with a modified treatment policy regimen sweeps
-`ratio_trim=` at the fitted `g_bounds=`, replaying the retained draw at each quantile. The
+A longitudinal truncation curve on a fit with a modified treatment policy regimen, where the
+cumulative bound reaches no factor of the mechanism, sweeps `ratio_trim=` at the fitted
+`g_bounds=`, replaying the retained draw at each quantile. The bound reaches no factor when every
+node is continuous, or mixed on the classifier route. A fit with a categorical node, or a mixed
+node on the density route, keeps the curve over cumulative bounds. The
 baseline estimators refuse it (`api_redirection`) and `IPSI` refuses it (`invalid_declaration`),
 with the texts of their `ratio_trim=` refusals.
 

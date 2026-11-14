@@ -250,6 +250,9 @@ def estimate_with_spies(row: Request) -> Any:
         treatment_learner=learners["treatment_learner"],
         cross_fit=False,
         simultaneous=False,
+        # The density route fits its learner before it reads a policy's branches, so with
+        # every check removed a learner is reached; the classifier route reads them first.
+        ratio="density",
     )
 
 

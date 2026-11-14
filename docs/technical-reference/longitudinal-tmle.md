@@ -1838,8 +1838,9 @@ the trim, and a threshold from one fold's rows, each fail that check.
 both routes and checks that a binding trim moves the estimate. A mutation that restores the upper
 limit on trimmed rows fails it, and a static plan is unchanged under that mutation.
 
-On a fit with a modified treatment policy regimen, `longitudinal_truncation_curve()` sweeps
-`ratio_trim=` rather than the cumulative bound. Each row replays the retained draw at one
+On a fit with a modified treatment policy regimen whose cumulative bound reaches no factor of the
+mechanism, because every node is continuous or mixed on the classifier route,
+`longitudinal_truncation_curve()` sweeps `ratio_trim=` rather than the cumulative bound. Each row replays the retained draw at one
 quantile at the fitted `g_bounds=`, and reports `ratio_trim`, `psi`, `trimmed_share` and the
 inference status of that replay. A row whose trim binds reads `trimmed_ratio_plugin`. The row at
 the fitted quantile must reproduce the fitted estimate. The baseline estimators and `IPSI` refuse

@@ -149,6 +149,7 @@ def test_the_default_grows_above_one_thousand_rows_through_a_tmle_fit() -> None:
             outcome_learner=LogisticRegression(),
             treatment_learner=LogisticRegression(max_iter=500),
             n_folds=2,
+            ratio="density",
         )
         .fit(frame, outcome="Y", treatment="A", covariates=["W"])
         .single()

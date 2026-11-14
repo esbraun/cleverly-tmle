@@ -348,6 +348,8 @@ def test_a_continuous_dose_on_the_long_path_equals_the_wide_held_fit() -> None:
         "pseudo_learner": LinearRegression(),
         "treatment_learner": LogisticRegression(max_iter=1000),
         "censoring_learner": LogisticRegression(max_iter=1000),
+        # The held dose's one density is read off the density route.
+        "ratio": "density",
     }
     regimens = {"up": Shift(0.5, cap=None)}
     long_frame = LAW.long_frame((1.0, 2.0, 3.0)).assign(D=dose)

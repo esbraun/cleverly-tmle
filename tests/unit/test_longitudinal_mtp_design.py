@@ -291,6 +291,8 @@ def test_the_inverse_dropped_control_moves_the_exact_law() -> None:
                 n_folds=1,
                 g_bounds=(1e-8, 1.0),
                 simultaneous=False,
+                # The inverse map is read by the density route only.
+                ratio="density",
             ).fit(
                 exact_law.frame(),
                 outcome="Y",

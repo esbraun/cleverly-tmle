@@ -512,14 +512,14 @@ def test_truncation_replay_reproduces_a_tuned_fit(atoms: bool) -> None:
             n_folds=1,
             g_bounds=(0.01, 1.0),
         )
+    # A continuous node carries no bound, so the curve sweeps ratio_trim=. Its fitted row
+    # re-resolves the tuned map: an untuned plan could not give the estimate.
     curve = longitudinal_truncation_curve(
-        result, [(0.01, 1.0), (0.2, 1.0)], estimands=["ey_regimen[tuned]"]
+        result, [None, 0.95], estimands=["ey_regimen[tuned]"]
     ).set_index("is_fitted_bound")
     psi = result.psi("ey_regimen[tuned]")
     assert curve.loc[True, "psi"] == pytest.approx(psi, abs=1e-12)
-    # A continuous node carries no bound, so the swept bound moves nothing, and the replay
-    # re-resolves the tuned map to do it: an untuned plan could not give the estimate.
-    assert curve.loc[False, "psi"] == pytest.approx(psi, abs=1e-12)
+    assert np.isfinite(curve.loc[False, "psi"])
 
 
 def test_dumps_and_loads_keep_a_tuned_result_with_a_support_and_atoms() -> None:

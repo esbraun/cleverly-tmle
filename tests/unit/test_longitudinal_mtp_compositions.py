@@ -302,7 +302,11 @@ def _sample_fit(reading: str, labels: tuple[str, ...] = ("natural", "up")) -> An
     if reading == "categorical":
         columns["continuous_treatment"] = ()
     settings = _settings(
-        g_bounds=(0.01, 1.0), outcome_learner=QuasiBinomialGLM(), pseudo_learner=DummyRegressor()
+        g_bounds=(0.01, 1.0),
+        outcome_learner=QuasiBinomialGLM(),
+        pseudo_learner=DummyRegressor(),
+        # The exact bins are the density route's.
+        ratio="density",
     )
     with warnings.catch_warnings(), mtp.exact_bins():
         warnings.simplefilter("ignore")
@@ -310,17 +314,21 @@ def _sample_fit(reading: str, labels: tuple[str, ...] = ("natural", "up")) -> An
 
 
 def test_t10_the_replay_reproduces_the_fit_and_the_policy_ratio_has_no_bound() -> None:
-    """At a continuous node the bound reaches no factor: the ratio is the numerator."""
+    """At a continuous node the bound reaches no factor: the ratio is the numerator.
+
+    So the curve sweeps ``ratio_trim=`` instead, and refuses a grid of cumulative bounds.
+    """
     from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 
     result = _sample_fit("continuous")
     with mtp.exact_bins():
-        curve = longitudinal_truncation_curve(
-            result, [(0.01, 1.0), (0.2, 1.0)], estimands=["ey_regimen[up]"]
-        )
+        with pytest.raises(CapabilityError, match="sweeps ratio_trim="):
+            longitudinal_truncation_curve(
+                result, [(0.01, 1.0), (0.2, 1.0)], estimands=["ey_regimen[up]"]
+            )
+        curve = longitudinal_truncation_curve(result, [None, 0.95], estimands=["ey_regimen[up]"])
     curve = curve.set_index("is_fitted_bound")
     assert curve.loc[True, "delta_from_fitted"] == 0.0
-    assert abs(curve.loc[False, "delta_from_fitted"]) < 1e-12
 
 
 def test_t10_the_bound_moves_a_categorical_reading() -> None:

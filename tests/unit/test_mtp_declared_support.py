@@ -251,9 +251,10 @@ def test_t_a5_the_longitudinal_estimate_is_bit_identical() -> None:
     def fit(columns: Any) -> Any:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return LTMLE(regimens, reference="natural", **law.panel_learners()).fit(
-                frame, continuous_treatment=columns, **law.PANEL
-            )
+            # The witness reads the binned density's support cut.
+            return LTMLE(
+                regimens, reference="natural", ratio="density", **law.panel_learners()
+            ).fit(frame, continuous_treatment=columns, **law.PANEL)
 
     plain = fit(["A1", "A2"])
     # An h-dependent bound past every bin edge leaves the density's reading, and so the fit,

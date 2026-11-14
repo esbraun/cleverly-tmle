@@ -439,7 +439,10 @@ def _jump_panel() -> float:
     regimens = {"natural": NATURAL, "to atom": DynamicRegimen("to atom", (NATURAL, mtp.TO_ATOM))}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = LTMLE(regimens, reference="natural", **doses.panel_learners()).fit(
+        # The indicator mutations were measured on the density route's design.
+        result = LTMLE(
+            regimens, reference="natural", ratio="density", **doses.panel_learners()
+        ).fit(
             doses.jump_panel(),
             continuous_treatment=["A1", "A2"],
             dose_atoms={"A2": (doses.JUMP_ATOM,)},
@@ -546,7 +549,8 @@ def test_m_b5_without_the_atom_image_check_the_ratio_loses_the_atom(
     shift = Shift(0.5, cap=None, name="half")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = TMLE(policies=[NATURAL, shift], **doses.point_learners()).fit(
+        # The density route reads the atom's mass off its mixed factor.
+        result = TMLE(policies=[NATURAL, shift], ratio="density", **doses.point_learners()).fit(
             doses.jump_frame(),
             outcome="Y",
             treatment="A",
