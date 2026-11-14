@@ -923,6 +923,11 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
         lines.append(f"Clusters: {_cluster_fact(data)}.")
     if config.treatment_mechanism == "known":
         lines.append("Treatment probabilities are the declared known values; no limit moved one.")
+        if getattr(config, "conditional_form", "arm_mean") == "known_score":
+            lines.append(
+                "The ATT and ATC weight every row's targeted contrast by the declared "
+                "probability of the conditioning arm (conditional_form='known_score')."
+            )
     if config.bounded_mechanisms:
         lines.append(
             f"Estimated probabilities {_mechanism_words(config.bounded_mechanisms)} raised to "

@@ -3485,15 +3485,26 @@ def att_estimate(
     observed: BoolArray | None = None,
     *,
     reference: float = 0.0,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     """The effect among each non-reference arm's own units, on the scaled outcome scale.
 
     One entry per non-reference arm, keyed by that arm -- a single entry, the classic
-    ATT, when the treatment is binary.
+    ATT, when the treatment is binary.  ``known_score`` maps each arm code to its declared
+    probability ``g_0(a | W)``; given, the estimate is the known-score plug-in of
+    :func:`_conditional_effects`.
     """
     _expect(submodel, "att")
     return _conditional_effects(
-        outcome, targeted, submodel, treatment, weights, observed, reference, conditions_on_arm=True
+        outcome,
+        targeted,
+        submodel,
+        treatment,
+        weights,
+        observed,
+        reference,
+        conditions_on_arm=True,
+        known_score=known_score,
     )
 
 
@@ -3506,6 +3517,7 @@ def atc_estimate(
     observed: BoolArray | None = None,
     *,
     reference: float = 0.0,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     """The mirror image: each contrast among the *reference* arm's units."""
     _expect(submodel, "atc")
@@ -3518,6 +3530,7 @@ def atc_estimate(
         observed,
         reference,
         conditions_on_arm=False,
+        known_score=known_score,
     )
 
 
@@ -3531,11 +3544,23 @@ def _conditional_effects(
     reference: float,
     *,
     conditions_on_arm: bool,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
-    """``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
+    r"""``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
 
     ``conditions_on_arm`` picks which: the contrast arm itself for the ATT, the reference
     arm for the ATC, where every parameter conditions on the same population.
+
+    The default plug-in averages the contrast over the units observed in arm ``c``.  With
+    ``known_score`` (the declared mechanism, one column per arm code) it is the known-score
+    plug-in :math:`P_n\{g_0(c\mid W)(\bar Q^*_a-\bar Q^*_r)\}/P_n g_0(c\mid W)`, the TMLE of the
+    model in which :math:`g_0` is known.  The residual term is the same in both, because the
+    targeting step and its score are; only the last term of the curve changes, from
+    :math:`\mathbb 1(A=c)(\tau-\psi)/P_n\mathbb 1(A=c)` to
+    :math:`g_0(c\mid W)(\tau-\psi)/P_n g_0(c\mid W)`.  The difference is the projection of the
+    arm-mean curve on the mechanism's tangent space, so the known-score curve has the smaller
+    variance at a consistent outcome regression (the known-score ATT bound of Chen, Hong and
+    Tarozzi 2008, Theorem 2).
 
     The columns are read by :meth:`~cleverly.fluctuation.submodel.Submodel.contrast_column_for`
     rather than positionally, so an implementation that lined the arms up by order would
@@ -3553,9 +3578,14 @@ def _conditional_effects(
             raise ValueError(f"no observations in arm {conditioning:g}: the estimand is undefined")
 
         contrast = targeted.arms[arm] - targeted.arms[reference]
-        psi = float(np.average(contrast, weights=w * indicator))
         column = submodel.contrast_column_for(arm)
-        out[arm] = ArmMean(psi, w * (column * residual + (indicator / share) * (contrast - psi)))
+        if known_score is None:
+            weight, mass = indicator, share
+        else:
+            weight = np.asarray(known_score[conditioning], dtype=float).reshape(-1)
+            mass = float(np.average(weight, weights=w))
+        psi = float(np.average(contrast, weights=w * weight))
+        out[arm] = ArmMean(psi, w * (column * residual + (weight / mass) * (contrast - psi)))
     return out
 
 

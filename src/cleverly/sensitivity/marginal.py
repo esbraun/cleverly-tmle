@@ -98,6 +98,7 @@ import numpy as np
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..exceptions import CapabilityError
 from ..inference.cluster import influence_variance
 from ..inference.delta import reference_quantile
@@ -827,6 +828,10 @@ def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
             )
         stem = "ey" if conditional.stem in ("ey1", "ey0") else conditional.stem
         target = _Target(estimand, stem, conditional.arm, conditional.versus, conditional.stratum)
+    if target.stem in ("att", "atc") and known_score_fit(result):
+        raise CapabilityError.from_refusal(
+            known_score_reader_refusal("the marginal sensitivity bound")
+        )
     if target.stem in ("att", "atc") and not data.is_binary_treatment:
         raise CapabilityError.from_refusal(MULTI_ARM_CONDITIONAL_REFUSAL)
     if target.ratio:

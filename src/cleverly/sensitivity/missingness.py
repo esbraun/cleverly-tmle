@@ -87,6 +87,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from .._warnings import warn as _warn
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
 from ..estimators.iptw import OPERATION_REFUSALS
@@ -100,7 +101,7 @@ from ..inference.influence import (
 )
 from ..interventions.learned import LEARNED_RULE_TILT_REFUSAL
 from ..msm import solve_projection
-from ..targets.base import arm_alias, parameter_name
+from ..targets.base import arm_alias, parameter_name, parameter_stem
 from ..targets.population_intervention import NATURAL_COURSE_TARGET
 from ..utils.bounds import expit, logit
 from ._objects import MissingnessTilt
@@ -667,6 +668,12 @@ def _tilt_payload(
             conditional = stratum_refusal(result, name, "the MNAR tilt")
             if conditional is not None:
                 raise CapabilityError.from_refusal(conditional)
+            if known_score_fit(result) and parameter_stem(name) in ("att", "atc"):
+                raise CapabilityError.from_refusal(known_score_reader_refusal("the MNAR tilt"))
+    if known_score_fit(result):
+        # The tilt re-mixes the ATT and ATC over the conditioning arm, which is the arm-mean
+        # form; the default sweep skips a known-score fit's ATT and ATC.
+        requested = tuple(n for n in requested if parameter_stem(n) not in ("att", "atc"))
     targets = tuple(tiltable[name] for name in requested if name in tiltable)
     if not targets:
         raise CapabilityError(

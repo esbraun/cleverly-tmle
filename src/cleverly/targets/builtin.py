@@ -882,6 +882,7 @@ def _conditional(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
         ctx.weights,
         ctx.observed,
         reference=ctx.reference,
+        known_score=ctx.known_score,
     )
     return [
         ctx.finish(

@@ -109,6 +109,7 @@ from .._support import (
 )
 from .._typing import (
     BoolArray,
+    ConditionalForm,
     EstimandName,
     Family,
     FloatArray,
@@ -129,6 +130,8 @@ from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
+    KNOWN_SCORE_ESTIMATED_REFUSAL,
+    KNOWN_SCORE_NO_TARGET_REFUSAL,
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
@@ -322,6 +325,7 @@ from ._tuned_policies import (
     resolve_point_policies,
 )
 from .base import (
+    CONDITIONAL_FORMS,
     CVTargeting,
     TMLEConfig,
     TMLEResult,
@@ -1079,6 +1083,15 @@ class TMLE:
         regression on the covariates and the treatment.  An arm with no training row in a
         fold raises :class:`~cleverly.exceptions.DataError`.  A continuous dose has no arms
         and is refused.
+    conditional_form:
+        How the ATT and the ATC are summarized after targeting.  ``"arm_mean"`` (default)
+        averages the targeted contrast over the units observed in the conditioning arm.
+        ``"known_score"`` weights every unit's targeted contrast by the declared probability
+        of the conditioning arm, :math:`P_n\\{g_0(c\\mid W)\tau^*\\}/P_n g_0(c\\mid W)`.  It needs
+        a declared treatment mechanism (``treatment_probabilities=``): it is the TMLE of the
+        model in which that mechanism is known, and at a consistent outcome regression its
+        variance is the smaller known-score bound.  The targeting step is the same.  Refused
+        without a declared mechanism and on a fit that requests neither ``att`` nor ``atc``.
     estimands:
         Which estimands to report; ``"all"`` requests everything the outcome type
         supports.
@@ -1308,6 +1321,7 @@ class TMLE:
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
         outcome_by_arm: bool = False,
+        conditional_form: ConditionalForm = "arm_mean",
         estimands: Sequence[EstimandName] | str | None = None,
         interventions: Sequence[Any] | None = None,
         policies: Sequence[Policy] | None = None,
@@ -1343,6 +1357,13 @@ class TMLE:
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Pass outcome_by_arm=True for one outcome regression per arm.",
             )
+        if conditional_form not in CONDITIONAL_FORMS:
+            raise MethodConfigurationError(
+                f"conditional_form must be one of {list(CONDITIONAL_FORMS)}; got "
+                f"{conditional_form!r}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative='Pass conditional_form="arm_mean" or "known_score".',
+            )
         _validate_learner(outcome_learner, "outcome_learner")
         _validate_learner(treatment_learner, "treatment_learner")
         _validate_learner(missingness_learner, "missingness_learner")
@@ -1372,6 +1393,7 @@ class TMLE:
         self.screen_threshold = screen_threshold
         self.min_retain = min_retain
         self.outcome_by_arm = outcome_by_arm
+        self.conditional_form = conditional_form
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
         self.policies = tuple(policies or ())
@@ -2169,6 +2191,7 @@ class TMLE:
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
         self._refuse_moved_known_values(data, estimands)
+        self._refuse_known_score(data, estimands)
         reference = self._reference_arm(data)
         if self.cv_evaluation and data.cluster is not None:
             if self.estimands == "all":
@@ -2281,6 +2304,34 @@ class TMLE:
             raise CapabilityError.from_refusal(KNOWN_POLICY_CLASSIFIER_REFUSAL)
         if self.screen_treatment:
             raise MethodConfigurationError.from_refusal(KNOWN_SCREEN_REFUSAL)
+
+    def _refuse_known_score(self, data: CausalData, estimands: Sequence[str]) -> None:
+        """Refuse ``conditional_form="known_score"`` where it has no derivation or no effect.
+
+        The known-score plug-in weights by the declared mechanism, so a fit that estimates the
+        mechanism has no interval for it; and a fit that reports neither the ATT nor the ATC
+        would record an option that changed nothing.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : sequence of str
+            The resolved targets.
+
+        Raises
+        ------
+        CapabilityError
+            Without a declared treatment mechanism.
+        MethodConfigurationError
+            When neither ``att`` nor ``atc`` is requested.
+        """
+        if self._conditional_form() != "known_score":
+            return
+        if data.known_treatment is None:
+            raise CapabilityError.from_refusal(KNOWN_SCORE_ESTIMATED_REFUSAL)
+        if not any(parameter_stem(name) in ("att", "atc") for name in estimands):
+            raise MethodConfigurationError.from_refusal(KNOWN_SCORE_NO_TARGET_REFUSAL)
 
     def _refuse_moved_known_values(self, data: CausalData, estimands: Sequence[str]) -> None:
         """Refuse a bound pair that would move a declared known treatment probability.
@@ -4793,6 +4844,7 @@ class TMLE:
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
             outcome_by_arm=self.outcome_by_arm,
+            conditional_form=self.conditional_form,
             estimands=estimands,
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
@@ -6116,6 +6168,25 @@ class TMLE:
         parts = correction_parts(data, nuisance, fluctuation, targeted, scaled)
         return None if parts is None else parts.total()
 
+    def _known_score(self, data: CausalData, group: str) -> dict[float, FloatArray] | None:
+        """The declared mechanism by arm code, for the known-score ATT and ATC; else ``None``.
+
+        Only the ``att`` and ``atc`` groups read it, and only under
+        ``conditional_form="known_score"``, which the preflight admits only beside a declared
+        mechanism (:meth:`_refuse_known_score`).
+        """
+        if group not in ("att", "atc") or self._conditional_form() != "known_score":
+            return None
+        known = data.known_treatment
+        if known is None:  # pragma: no cover - refused by the preflight
+            raise CapabilityError.from_refusal(KNOWN_SCORE_ESTIMATED_REFUSAL)
+        values = np.asarray(known.values, dtype=float)
+        return {code: values[:, j] for j, code in enumerate(data.arm_codes)}
+
+    def _conditional_form(self) -> str:
+        """The ATT and ATC summary, ``"arm_mean"`` for a subclass that never sets it."""
+        return str(getattr(self, "conditional_form", "arm_mean"))
+
     def _estimates_for(
         self,
         data: CausalData,
@@ -6169,6 +6240,7 @@ class TMLE:
         # of which live on the fluctuation rather than on the nuisances. `None` for every
         # other fit, and then `counterfactual_means` is untouched character for character.
         corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
+        known_score = self._known_score(data, group)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -6187,6 +6259,11 @@ class TMLE:
                 None
                 if corrections is None
                 else {arm: values[index] for arm, values in corrections.items()}
+            )
+            known_score = (
+                None
+                if known_score is None
+                else {arm: values[index] for arm, values in known_score.items()}
             )
             n = int(index.size)
 
@@ -6238,6 +6315,7 @@ class TMLE:
                 "second_moment" if group == "natural_course" and self.cross_fit else "centered"
             ),
             natural_course=natural_course,
+            known_score=known_score,
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted

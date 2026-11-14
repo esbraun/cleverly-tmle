@@ -135,6 +135,7 @@ from .._support import record_refusal_site
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES, projection_sensitivity_refusal
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..estimators.composite import composite_state
 from ..estimators.ctmle import (
     CTMLEDerivativeFit,
@@ -1411,6 +1412,8 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             ),
             roadmap="X11",
         )
+    if stem in ("att", "atc") and known_score_fit(result):
+        raise CapabilityError.from_refusal(known_score_reader_refusal("the omitted-variable bound"))
     if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one

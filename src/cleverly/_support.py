@@ -336,7 +336,8 @@ class SupportKey:
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
+        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
+        ``conditional_form`` of the ATT and ATC,
         a ``patience`` or a ``treatment_adjustment`` subset, and under a declared stopping rule
         the ``step_bound`` (``"none"``, ``"search"`` or ``"fixed"``) and the reported
         ``iterate``; under ``stopping="relative"`` those two read ``"none"`` and ``"last"``,
@@ -805,6 +806,7 @@ def point_key(
         "target_weights": estimator.target_weights,
         **_stopping_options(estimator),
         "outcome_by_arm": bool(getattr(estimator, "outcome_by_arm", False)),
+        "conditional_form": str(getattr(estimator, "conditional_form", "arm_mean")),
         "patience": getattr(estimator, "patience", None) is not None,
         "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
