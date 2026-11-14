@@ -54,6 +54,28 @@ measured standard-error ratios from 0.9797 to 1.0130 over 1,600 replications at 
 results apply only to that study's law and estimator settings. They do not establish calibrated
 variance for other laws, weights, clusters, survival outcomes, or sample sizes.
 
+### Check overlap at each time point
+
+To see where support thins out in the fit above, plot each unit's predicted chance of the
+plan's treatment at each time point:
+
+```python
+from cleverly.plotting import overlap
+
+fig = overlap(result, regimen="always", censoring=True)
+```
+
+Each top panel holds the units still following the plan up to that time point. Those who then took
+the plan's treatment sit above the axis, and those who did not sit below. Bars near 0 on the
+horizontal axis mark units with little chance of the plan's treatment. When few of them sit above
+the axis, the plan was rarely followed by units like them, and those who did follow it carry large
+weights. The lower panels show each time point's chance of staying in the study, among those who
+took the plan's treatment. The fit's limits apply to the product over time points, which
+`cleverly.plotting.weights(result)` draws, so no limit line is drawn here.
+
+`cleverly.plotting.learners(result)` and `cleverly.plotting.calibration(result)` draw the learner
+weights and calibration of each prediction model by time point.
+
 ## Read a long panel
 
 Customer data usually arrives as one row per customer and decision time. Each row holds the

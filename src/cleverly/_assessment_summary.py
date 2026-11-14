@@ -70,6 +70,27 @@ def check_name(name: str) -> str:
     return vocabulary.CHECK_NAMES.get(name, name.replace("_", " "))
 
 
+def item_check_name(item: AssessmentItem) -> str:
+    """The plain name of a battery row, which a retained report can make specific.
+
+    A report class that answers an operation for a fit of its own family declares a
+    ``check_label``, such as the hazard, censoring and treatment models of a continuous-time
+    survival fit. Every other row prints :func:`check_name`.
+
+    Parameters
+    ----------
+    item : AssessmentItem
+        The row.
+
+    Returns
+    -------
+    str
+        The report's ``check_label``, or the operation's plain name.
+    """
+    label = getattr(item.report, "check_label", None) if _retains(item) else None
+    return label if isinstance(label, str) else check_name(item.name)
+
+
 def _joined(items: Sequence[str], conjunction: str = "and") -> str:
     items = list(items)
     if len(items) == 1:
@@ -154,7 +175,7 @@ def _row(item: AssessmentItem, label: str) -> tuple[Cell, ...]:
 
 def _labels(presented: Sequence[tuple[str, AssessmentItem]]) -> list[str]:
     """Each row's plain name, with its surface when two rows share a name."""
-    names = [check_name(item.name) for _, item in presented]
+    names = [item_check_name(item) for _, item in presented]
     return [
         vocabulary.BATTERY_SURFACE.format(name=name, surface=surface)
         if names.count(name) > 1
@@ -184,7 +205,7 @@ def _counts(items: Sequence[AssessmentItem]) -> list[tuple[str, str]]:
 
 
 def _names(items: Sequence[AssessmentItem], statuses: Any) -> list[str]:
-    return [check_name(item.name) for item in items if item.status in statuses]
+    return [item_check_name(item) for item in items if item.status in statuses]
 
 
 def _inference_reasons(items: Sequence[AssessmentItem]) -> list[str]:

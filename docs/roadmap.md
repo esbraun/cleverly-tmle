@@ -68,7 +68,7 @@ tier is the one the legend lists.
 | tier | what it holds |
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
-| 2 | survival targets, in this order: X91, X70, X6. Most trial endpoints are times to an event |
+| 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
 | 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
@@ -84,6 +84,7 @@ The readiness labels are defined under
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
 | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
+| [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the support, score, nuisance and influence diagnostics shipped | the shipped `ContinuousSurvivalTMLE` and its record |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
 
 ### Longitudinal and sequential estimators
@@ -163,6 +164,7 @@ The readiness labels are defined under
 | --- | --- | --- | --- |
 | [X92](#x92-plots-and-visualizations) Plots of a longitudinal fit, and targeting-curve options | 6 | no new theory | the shipped `cleverly.plotting` and targeting curves |
 | [X100](#x100-plots-for-survival-adaptive-and-longitudinal-fits) Plots for survival, adaptive and longitudinal fits | 3 | no new theory | the shipped `cleverly.plotting`; the continuous-time curve on X6 |
+| [X103](#x103-covariate-balance-over-time) Covariate balance over time | 3 | source read pending (Jackson 2016) | the shipped `covariate_balance` and longitudinal weights |
 
 ## Future investigations
 
@@ -821,6 +823,26 @@ gates its default cross-fitted fit at n = 1,000. This item holds what remains.
 | (d) a bootstrap | a full-refit bootstrap of the continuous-time fit | none read |
 | (e) time-varying treatment and covariates | the continuous-time intensity model and its targeting | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5) |
 | (f) a comparator | `concrete` 1.0.5 implements the form of Rytgaard, Eriksson and van der Laan (2023), tilts only each unit's received arm, which a mutation test shows is not doubly robust, and is archived. Pin it by commit before any paired cell | the `concrete` source |
+
+### X101. Assessment of continuous-time survival fits
+
+`ContinuousSurvivalResult` declares a capability row for every assessment operation, so
+`assess()` names each refusal and never raises it. The support, nuisance-model and score-equation
+diagnostics and `diagnostics.influence()` read the fit's record and influence curves
+([continuous-time survival](technical-reference/continuous-time-survival.md#assessment)). This item
+holds the operations that refit or retarget the fit. The omitted-variable, marginal and tilt bounds
+wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation), and the E-value for
+[X6](#x6-continuous-time-survival-and-competing-risks) part (c).
+
+| part | what to add | base |
+| --- | --- | --- |
+| (a) refutation | the placebo, random-common-cause and subset refits of `refute`, which need the result to keep its estimator and its data | the point-treatment `refute` |
+| (b) simulated common cause | a replay that perturbs the event and censoring times of a continuous-time fit | the survival replay of X91 part (c), which reads a time grid |
+| (c) truncation curve | a rerun of the targeting walk at other floors on $\pi(a \mid L) S_c(u^- \mid a, L)$, which needs the initial hazard jumps kept or refitted | the record's `weight_floor`, `bounded_share` and `last_time_floor_share` |
+
+Acceptance: each part that ships turns its capability row available, with a test that the row and
+the call agree in the capability sweep, and a nonzero witness that the refit changes the data it
+claims to perturb.
 
 ### X70. Hazard targeting beyond a held baseline treatment
 
@@ -1913,27 +1935,36 @@ control per applicable rule, a docstring example and a render check.
 
 ### X100. Plots for survival, adaptive and longitudinal fits
 
-Several plots refuse a fit family whose numbers the fit already holds. Each refusal names this
-item:
+The plots draw a longitudinal, time-to-event, structural nested mean and adaptive TMLE fit:
+`overlap` per arm or per time point, `learners` and `calibration` per time point and role, and
+the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit still
+refuses four plots, and each refusal names this item:
 
-- `curve` for a continuous-time survival fit: each arm's risk, or cumulative incidence by cause,
-  with its interval and band at the target times only, since a risk between target times is not
-  targeted; the restricted mean survival and time lost at the restricted horizons;
-- `overlap` for a treatment given once at baseline in a survival fit, for an adaptive TMLE fit
-  (its treatment and trial-membership probabilities), and for a longitudinal or structural nested
-  mean fit, one panel per time point, each with the probability of staying under observation;
-- `weights` for a continuous-time survival fit, whose weights invert each row's treatment
-  probability times its probability of staying uncensored over time;
-- `learners` and `calibration` for a longitudinal fit (one choice per node and role) and an
-  adaptive TMLE fit, `learners` for a continuous-time survival fit (its hazard and treatment
-  library selections), and the collaborative selection path of a time-to-event TMLE;
-- `balance` (covariate balance) for a longitudinal and a continuous-time survival fit, whose
-  weights carry a treatment and a censoring model over time. Its estimand needs a source read
-  first.
+- `curve`: each arm's risk, or cumulative incidence by cause, with its interval and band at the
+  target times only, since a risk between target times is not targeted; the restricted mean
+  survival and time lost at the restricted horizons;
+- `overlap` and `weights`: each row's treatment probability and its probability of staying
+  uncensored up to each target time, and the weights that invert their product. The fit does
+  not keep these arrays yet; storing them, with a test that the estimates do not move, comes
+  first;
+- `learners`: the hazard and treatment library selections the fit keeps in `result.record`.
 
 Acceptance: the plot result matrix (`tests/unit/test_plotting_result_matrix.py`) draws each cell
 this item names, structural tests read each figure's artists against the fit's stored numbers, and
 each honesty rule has a mutation control.
+
+### X103. Covariate balance over time
+
+`covariate_balance`, and the `balance` plot that draws it, weigh the covariates by a
+point-treatment fit's treatment model. A longitudinal or continuous-time survival fit refuses,
+naming this item: its weights carry a treatment and a censoring model at each time point, so
+balance is a statement per time point among the units still following the regimen, and which
+covariates and weights enter it is a choice the estimand must state. Jackson (2016, Epidemiology
+27(6)) defines covariate balance for time-varying treatments; a first-hand read of that source
+comes before any design.
+
+Acceptance: the estimand is stated from the source, the refusals that name this item draw,
+and a structural test reads the figure against the report's numbers.
 
 ### R1. Nested Riesz engine and initial catalog
 
