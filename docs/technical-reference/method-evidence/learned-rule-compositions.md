@@ -225,7 +225,7 @@ the committed results and checked at the precision printed.
 | There is no cross-implementation evidence | No maintained package fits this construction. The row rests on accuracy against the replication truth and on the theory properties |
 | One law for each setting | Fold targeting and clusters run at `non_exceptional`, and weights at `misspecified_limit`. Each law meets condition C3. The exceptional and weak-blip laws are not tested with these settings |
 | Equal cluster sizes only | The study draws 200 clusters of 10 and 30 clusters of 34. A learned-rule fit with unequal sizes reads experimental, because sizes that depend on the outcome put a ratio bias in the fold-evaluated point |
-| Known weights only | The weight is a fixed function of $W_1$. Estimated weights refuse, and a fit with both weights and clusters reads experimental |
+| Known weights only | The weight is a fixed function of $W_1$. A fit with weights declared estimated takes the conditional reading and reads experimental, and a fit with both weights and clusters reads experimental |
 | One learner class for coverage | The primary and calibration cells use a logistic outcome model with treatment interactions. The learner that omits $W_1$ enters a bias verdict only, so the row does not claim coverage with it |
 | Two cluster counts in ten folds | The t reference is measured at 30 clusters with 20 degrees of freedom and at 200 clusters with 190, since a fold-evaluated fit takes $J - V$ at every cluster count. The first run read the 200-cluster cells on the normal reference. Fewer clusters are not tested |
 | One primary size | The primary settings run at n = 2,000, and this study has no root-n ladder. The [gated study](learned-rule-cvtmle.md) measures the rate of the pooled fit |
