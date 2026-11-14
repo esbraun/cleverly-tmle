@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._inference_status import (
+    NO_CONSTANT_ARM_BANDS,
     NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
@@ -50,7 +51,7 @@ from ..estimators._point_summary import (
     _warning_notes,
 )
 from ..inference.cluster import fewest_clusters, positive_mass_clause
-from ..inference.multiplier import out_of_range
+from ..inference.multiplier import band_member, constant_arm_members, out_of_range
 from .estimator import HORIZON_INFIX
 from .regimen import DynamicRegimen, Regimen, _is_mtp, _is_tilt
 from .separable import SeparablePlan, separable_words
@@ -818,8 +819,6 @@ def _rule_misses(result: LongitudinalResult) -> list[str]:
 
 def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
     """The notes on how well the fit solved its estimating equations."""
-    from ..fluctuation._score import wald_coverage_bound
-
     notes: list[Note] = []
     rule = result._declared_rule()
     draw = " in at least one split" if result.n_repeats > 1 else ""
@@ -833,9 +832,6 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
         }
         if remainders:
             name, b = max(remainders.items(), key=lambda item: item[1])
-            alpha = float(result.config.alpha_sig)
-            shown = max(b, _SMALLEST_REMAINDER)
-            bound = np.floor(wald_coverage_bound(shown, alpha) * 10000) / 100
             notes.append(
                 note(
                     "stopping_rule",
@@ -844,8 +840,6 @@ def _score_notes(result: LongitudinalResult, spread: str) -> list[Note]:
                         if b < _SMALLEST_REMAINDER
                         else f"{b:.3g}",
                         name=name,
-                        level=f"{(1.0 - alpha) * 100:g}%",
-                        bound=f"{bound:.2f}%",
                     ),
                 )
             )
@@ -1119,10 +1113,12 @@ def _settings(result: LongitudinalResult) -> SummarySection:
             lines.append(NO_SIMULTANEOUS_BANDS)
         elif t_reference:
             lines.append(NO_T_REFERENCE_BANDS)
+        elif constant := constant_arm_members(estimates):
+            lines.append(NO_CONSTANT_ARM_BANDS.format(names=", ".join(constant)))
         # The kept estimator is the refit template, whose ``simultaneous`` is always False, so
         # this reads like the lines above: no band on a fit with several estimates.
         elif outside := out_of_range(
-            {name: value for name, value in estimates.items() if value.supplies_inference},
+            {name: value for name, value in estimates.items() if band_member(value)},
             str(getattr(result.estimator, "band_scale", "identity")),
         ):
             lines.append(NO_LOGIT_RANGE_BANDS.format(names=", ".join(outside)))

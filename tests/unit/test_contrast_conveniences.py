@@ -375,9 +375,15 @@ class TestInheritance:
     def test_a_mixed_status_selection_is_refused(self) -> None:
         curve = np.array([0.1, -0.2, 0.3, -0.2])
         estimates = {
-            "a": make_estimate("a", 0.4, curve, n=4, scale="level"),
+            "a": make_estimate("a", 0.4, curve, n=4, scale="level", rule_widened=False),
             "b": make_estimate(
-                "b", 0.3, -curve, n=4, scale="level", inference="few_cluster_plugin"
+                "b",
+                0.3,
+                -curve,
+                n=4,
+                scale="level",
+                inference="few_cluster_plugin",
+                rule_widened=False,
             ),
         }
         with pytest.raises(ValueError, match="declare different inference statuses"):
@@ -515,13 +521,27 @@ class TestLongitudinalRatios:
 class TestWaldTest:
     @pytest.mark.parametrize("null", [0.0, 0.1, -0.3])
     def test_a_level_and_a_difference(self, binary_fit: Any, null: float) -> None:
-        for name in ("ey1", "ate"):
-            estimate = binary_fit[name]
-            test = estimate.wald_test(null=null)
-            z = (estimate.psi - null) / estimate.std_error
-            assert test.statistic == pytest.approx(z, abs=1e-12)
+        # The difference is tested on the identity scale.
+        estimate = binary_fit["ate"]
+        test = estimate.wald_test(null=null)
+        z = (estimate.psi - null) / estimate.std_error
+        assert test.statistic == pytest.approx(z, abs=1e-12)
+        assert test.pvalue == pytest.approx(2 * stats.norm.sf(abs(z)), abs=1e-12)
+        assert test.null == null and test.null_inference_value == null
+        assert test.interval_scale == "identity"
+        # The level of a binary outcome is tested on the logit scale, where a null on or below
+        # 0 maps to minus infinity and has p-value 0.
+        level = binary_fit["ey1"]
+        test = level.wald_test(null=null)
+        assert test.interval_scale == "range_logit" and test.null == null
+        if null <= 0.0:
+            assert test.null_inference_value == -np.inf and test.statistic == np.inf
+            assert test.pvalue == 0.0
+        else:
+            psi, se = level.psi, level.std_error
+            z = (np.log(psi / (1 - psi)) - np.log(null / (1 - null))) * psi * (1 - psi) / se
+            assert test.statistic == pytest.approx(z, abs=1e-9)
             assert test.pvalue == pytest.approx(2 * stats.norm.sf(abs(z)), abs=1e-12)
-            assert test.null == null and test.null_inference_value == null
 
     def test_a_ratio_logs_the_null(self, binary_fit: Any) -> None:
         estimate = binary_fit["rr"]
@@ -536,7 +556,7 @@ class TestWaldTest:
 
     def test_a_fraction(self) -> None:
         estimate = make_estimate(
-            "paf", 0.3, np.array([0.1, -0.2, 0.3, -0.2]), n=4, scale="fraction"
+            "paf", 0.3, np.array([0.1, -0.2, 0.3, -0.2]), n=4, scale="fraction", rule_widened=False
         )
         test = estimate.wald_test(null=0.1)
         assert test.statistic == pytest.approx((0.3 - 0.1) / estimate.std_error, abs=1e-12)
@@ -701,7 +721,9 @@ class TestLinearFunctional:
     def estimates(self) -> dict[str, Any]:
         rng = np.random.default_rng(0)
         return {
-            f"F{t}": make_estimate(f"F{t}", 0.1 * t, rng.normal(size=50), n=50, scale="level")
+            f"F{t}": make_estimate(
+                f"F{t}", 0.1 * t, rng.normal(size=50), n=50, scale="level", rule_widened=False
+            )
             for t in range(1, 7)
         }
 
@@ -923,8 +945,8 @@ class TestRmst:
 def test_the_ratio_refusals_name_the_inputs() -> None:
     curve = np.array([0.1, -0.1, 0.2, -0.2])
     estimates = {
-        "risk[a]": make_estimate("risk[a]", 1.0, curve, n=4, scale="level"),
-        "risk[b]": make_estimate("risk[b]", 0.5, curve, n=4, scale="level"),
+        "risk[a]": make_estimate("risk[a]", 1.0, curve, n=4, scale="level", rule_widened=False),
+        "risk[b]": make_estimate("risk[b]", 0.5, curve, n=4, scale="level", rule_widened=False),
     }
     with pytest.raises(
         ValueError,
@@ -939,9 +961,9 @@ def test_the_ratio_refusals_name_the_inputs() -> None:
 def test_the_ratio_helpers_keep_their_domain_refusals() -> None:
     curve = np.array([0.1, -0.1, 0.2, -0.2])
     estimates = {
-        "a": make_estimate("a", 0.0, curve, n=4, scale="level"),
-        "b": make_estimate("b", 0.5, curve, n=4, scale="level"),
-        "c": make_estimate("c", 1.0, curve, n=4, scale="level"),
+        "a": make_estimate("a", 0.0, curve, n=4, scale="level", rule_widened=False),
+        "b": make_estimate("b", 0.5, curve, n=4, scale="level", rule_widened=False),
+        "c": make_estimate("c", 1.0, curve, n=4, scale="level", rule_widened=False),
     }
     with pytest.raises(ValueError, match="strictly positive; got a=0"):
         ratio_contrast(estimates, "a", "b", n=4, name="rr")

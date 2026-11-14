@@ -21,4 +21,8 @@ The declared run form of `tests/canonical/declared_run.py` writes the artifacts,
 `run.log` to the scratch directory, and it copies them here.
 
 The full run fits 800 primary replications per scenario and 2,400 replications per property
-pair. The policy is gated. A red cell routes to F28 by the declaration in the study module.
+pair, except the fold-evaluated covariate pair, which fits 4,000 on its own stream
+(`covariate_fold_evaluated_t_reference`) and reads $t_{30}$, $J - V$ at 40 clusters in 10 folds.
+Its fits also publish a reported arm with the normal quantile.
+The fold-evaluated pair on the informative law left the study, because `cv_evaluation=True`
+refuses clusters of unequal size. The policy is `reporting`, and F28 owns any red cell.

@@ -137,7 +137,7 @@ def _check_comparison(namespace: dict[str, Any]) -> None:
 
 def _check_step_bound(namespace: dict[str, Any]) -> None:
     walk = namespace["walk"]
-    # The iteration count near the tolerance depends on the platform, so the page prints none.
+    # The page prints whether the walk converged, not how many iterations it took.
     assert walk.converged and walk.n_iter > 1
     point, estimate = namespace["point"], namespace["estimate"]
     assert abs(point.psi - estimate.psi) < 1e-6

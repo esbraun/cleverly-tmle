@@ -14,6 +14,8 @@ written out, give the shipped fit bit for bit.
 
 from __future__ import annotations
 
+import dataclasses
+import itertools
 import re
 import warnings
 from typing import Any
@@ -28,6 +30,7 @@ from cleverly.longitudinal import hazard as hazard_module
 from cleverly.longitudinal.hazard import walk_curve
 from cleverly.methods import TMLEMethod
 from tests.discrete_law_point_survival import CellMeans, CellProbabilities, PointLaw, static
+from tests.unit._source_mutation import mutate
 from tests.unit.test_hazard_survival_law import ArmOnly, _internals
 
 LAW = PointLaw("survival", 2)
@@ -318,8 +321,11 @@ def test_best_on_the_one_step_walk_is_the_last_accepted_step() -> None:
 
 @pytest.mark.parametrize("search", [True, False])
 def test_a_step_bound_changes_the_per_horizon_walk(search: bool) -> None:
+    # Measured: the Newton walk takes 4 and 3 iterations, the searched walk 6 and 12 within
+    # the default budget, and the fixed step runs out at 100.
     plain = _records(_fit(ArmOnly()))
-    bounded = _fit(ArmOnly(), step_bound=0.5, step_search=search, max_iter=100)
+    budget: dict[str, Any] = {} if search else {"max_iter": 100}
+    bounded = _fit(ArmOnly(), step_bound=0.5, step_search=search, **budget)
     for horizon, record in _records(bounded).items():
         assert record.n_iter != plain[horizon].n_iter
     if search:
@@ -327,6 +333,178 @@ def test_a_step_bound_changes_the_per_horizon_walk(search: bool) -> None:
         for fit in bounded.fits.values():
             assert fit.hazard.converged
             assert fit.psi_scaled == pytest.approx(_truth(fit), abs=1e-8)
+
+
+#: The length line of ``_bounded_hazard_step``, the anchor of its mutations.
+HAZARD_STEP = "length = _line_step(line.slope, length, loss=line.loss, mass=line.mass())"
+#: The step search the hazard walk shipped before: SciPy's bounded Brent method on loss values.
+HAZARD_LOSS_SEARCH = (
+    "from scipy.optimize import minimize_scalar\n"
+    "\n"
+    "        found = minimize_scalar(\n"
+    '            line.loss, bounds=(0.0, length), method="bounded",\n'
+    '            options={"xatol": 1.4901161193847656e-08},\n'
+    "        )\n"
+    "        length = float(found.x)"
+)
+
+
+def _hazard_step(monkeypatch: pytest.MonkeyPatch, new: str) -> None:
+    mutate(monkeypatch, hazard_module, hazard_module, "_bounded_hazard_step", [(HAZARD_STEP, new)])
+
+
+def _assert_contracts(result: Any) -> None:
+    """Every horizon converges within 15 iterations, contracting below ``1e-6`` without a rise."""
+    for horizon, record in _records(result).items():
+        assert record.converged and record.failure is None, horizon
+        assert record.n_iter <= 15, horizon
+        trace = np.asarray(record.trace)
+        tail = trace[int(np.argmax(trace < 1e-6)) :]
+        assert tail[0] < 1e-6 and len(tail) >= 2, horizon
+        assert np.all(np.diff(tail) < 0.0), horizon
+        decades = (np.log10(tail[0]) - np.log10(tail[-1])) / (len(tail) - 1)
+        assert decades >= 0.08, horizon
+
+
+def test_a_searched_walk_reaches_tol_within_the_default_budget() -> None:
+    """The bounded walk contracts to ``tol=1e-10`` within the default ``max_iter=20``.
+
+    Measured: horizons 1 and 2 converge in 6 and 12 iterations.  From the first iterate below
+    ``1e-6`` the trace falls at every step (smallest cut 3.1 times) and by 1.64 and 0.79
+    decades per iteration, so the 0.08 gate has a margin of ten.  The strict decrease catches a
+    walk that wanders at a floor even when one iterate happens to land under ``tol``.
+    """
+    _assert_contracts(_fit(ArmOnly(), step_bound=0.5))
+
+
+def test_the_bounded_loss_search_fails_the_default_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hazard_step(monkeypatch, HAZARD_LOSS_SEARCH)
+    with pytest.raises(AssertionError):
+        _assert_contracts(_fit(ArmOnly(), step_bound=0.5))
+
+
+def test_the_hazard_step_checks_descent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hazard step passes its loss and a positive absolute mass to the descent check.
+
+    The clip can make the hazard line loss non-unimodal, so the step must not end above where it
+    started.  With the mass set to 0 the check trips on the round-off rise of the last steps and
+    halves them.  The one-cause walk above still meets its count and rate gates (horizon 1 in 9
+    iterations instead of 6).  The two-cause window gate of
+    :func:`test_a_two_cause_walk_converges_linearly` does fail (a cut of 4.1 against 6.5, from
+    8.4e-10 to 2.1e-10), but that margin is too thin for a control.  So this spy is the witness,
+    and ``test_step_bound.py`` tests the check itself on a line with a high valley.
+    """
+    calls: list[tuple[bool, float]] = []
+    shipped = hazard_module._line_step
+
+    def spy(slope: Any, delta: float, *, loss: Any = None, mass: float = 0.0) -> float:
+        calls.append((loss is not None, mass))
+        return float(shipped(slope, delta, loss=loss, mass=mass))
+
+    monkeypatch.setattr(hazard_module, "_line_step", spy)
+    _fit(ArmOnly(), step_bound=0.5)
+    assert len(calls) >= 18
+    assert all(passed and np.isfinite(mass) and mass > 0.0 for passed, mass in calls)
+
+
+def _two_cause_walk() -> Any:
+    law = PointLaw("survival", 2, 2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            REGIMENS,
+            n_folds=1,
+            survival_model="hazard",
+            outcome_learner=ArmOnly(),
+            treatment_learner=CellProbabilities(),
+            censoring_learner=CellMeans(),
+        ).fit(law.frame(), **law.fit_columns())
+    inputs, state = _internals(result)
+    targets = tuple((regimen, None, 2) for regimen in REGIMENS for _ in range(2))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, fit = hazard_module.solve_per_horizon(
+            state, inputs, 2, targets, max_iter=100, tol=1e-10, step_bound=0.5
+        )
+    return fit
+
+
+def _assert_windows_fall(fit: Any) -> None:
+    trace = np.asarray(fit.trace)
+    maxima = [float(trace[i : i + 10].max()) for i in range(0, len(trace), 10)]
+    assert len(maxima) >= 3
+    for before, after in itertools.pairwise(maxima):
+        assert after <= before / 6.5
+
+
+def test_a_two_cause_walk_converges_linearly() -> None:
+    """Six targets: the walk zig-zags, and converges at a linear rate without a stall.
+
+    Steepest descent with an exact line search contracts by a factor set by the spread of the
+    curvatures across the targets, so the relative score rises inside a zig-zag.  The gate reads
+    the maxima of windows of 10 iterations: each must be at most a 6.5th of the one before.
+    Measured: converged in 43 iterations, window cuts 70, 846, 65 and 91 (a margin of ten).  A
+    walk at a floor, whose window maxima stay flat, fails.
+    """
+    fit = _two_cause_walk()
+    assert fit.converged and fit.failure is None and fit.n_iter <= 100
+    _assert_windows_fall(fit)
+
+
+def test_the_bounded_loss_search_stalls_the_two_cause_walk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Measured: unconverged at 100, with window cuts of 0.7 to 3.4 after the fourth window.
+    _hazard_step(monkeypatch, HAZARD_LOSS_SEARCH)
+    fit = _two_cause_walk()
+    assert not fit.converged
+    with pytest.raises(AssertionError):
+        _assert_windows_fall(fit)
+
+
+def test_a_searched_walk_that_returns_to_a_visited_state_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The logits alternate between two states, as in a round-off cycle at the floor.
+
+    The searched step is a function of the logits, so the walk stops at the first revisit.  With
+    the revisit exit removed, the same walk runs to ``max_iter``.
+    """
+    result = _fit(ArmOnly(), step_bound=0.5)
+    inputs, start = _internals(result)
+    record = next(iter(result.fits.values())).hazard
+    shifted = dataclasses.replace(start, logits=start.logits + 1e-3)
+
+    def walk() -> Any:
+        states = itertools.cycle([shifted, start])
+        monkeypatch.setattr(hazard_module, "_bounded_hazard_step", lambda *args: next(states))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _, fit = hazard_module.solve_per_horizon(
+                start,
+                inputs,
+                record.targets[0][2],
+                record.targets,
+                max_iter=30,
+                tol=1e-10,
+                step_bound=0.5,
+            )
+        return fit
+
+    fit = walk()
+    # As for a zero-length step: the walk stopped short of ``max_iter`` without moving on.
+    assert fit.n_iter == 2 and not fit.converged
+    assert fit.failure == "line_search_exhausted"
+    mutate(
+        monkeypatch,
+        hazard_module,
+        hazard_module,
+        "solve_per_horizon",
+        [("visited.seen(state.logits)", "False")],
+    )
+    assert walk().n_iter == 30
 
 
 def test_a_step_bound_is_replayed() -> None:

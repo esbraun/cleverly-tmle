@@ -27,21 +27,25 @@ from ._refusal import NO_ALTERNATIVE, RefusalReason
 
 __all__ = [
     "ADAPTIVE_BASELINE_STATUS",
+    "CONSTANT_ARM_CELL_STATUS",
     "CONSTANT_NODE_STATUS",
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
     "MINIMUM_INTERVAL_CLUSTERS",
     "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
+    "NO_CONSTANT_ARM_BANDS",
     "NO_KNOWN_REGIME_BANDS",
     "NO_LOGIT_RANGE_BANDS",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
+    "OUT_OF_RANGE_STATUS",
     "PARAMETER_STATUSES",
     "STACK_FAILURE_STATUS",
     "STATUS_RECORDS",
     "TRIMMED_RATIO_STATUS",
     "T_REFERENCE_NOTE",
+    "UNREPORTED_INTERVAL_STATUSES",
     "WORKING_MODEL_STATUS",
     "InferenceStatus",
     "Interval",
@@ -70,6 +74,8 @@ InferenceStatus = Literal[
     "stack_failure_plugin",
     "low_dose_support_plugin",
     "working_model_projection",
+    "constant_arm_cell_plugin",
+    "out_of_range_plugin",
 ]
 
 # Below this many clusters with positive weight mass, in the fit or in the stratum an
@@ -110,7 +116,8 @@ T_REFERENCE_NOTE: Final[str] = (
     f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
     "p-value on a Student t reference with J - 2 degrees of freedom, where J is that cluster "
     "count (Nugent et al. (2024), Section 2.2); an estimate averaged over V cross-fitting "
-    "folds takes min(J - 2, J - V). The fit has {clusters} clusters with positive weight "
+    "folds takes J - V at every cluster count. The fit has {clusters} clusters with positive "
+    "weight "
     "mass{stratum}. The df "
     "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
     "reference. The validation evidence for few clusters uses parametric models for the "
@@ -136,10 +143,10 @@ NO_SIMULTANEOUS_BANDS: Final[str] = (
 #: The line a result summary prints when a fit skips its default band because an estimate
 #: carries a Student t reference.
 NO_T_REFERENCE_BANDS: Final[str] = (
-    "No simultaneous bands: an estimate of this fit is based on fewer than "
-    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and uses a t reference, and "
-    "no source gives a band calibrated to a t reference, so the fit reports one-at-a-time "
-    "intervals only."
+    "No simultaneous bands: an estimate of this fit uses a t reference, because it is based on "
+    f"fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass or because it is "
+    "averaged over cross-fitting folds, and no source gives a band calibrated to a t "
+    "reference, so the fit reports one-at-a-time intervals only."
 )
 
 #: The line a result summary prints when a learned-rule fit with known regimes skips its
@@ -160,6 +167,17 @@ NO_LOGIT_RANGE_BANDS: Final[str] = (
     "difference of two probabilities, on the logit of its position in its range, and "
     "{names} lies on or outside that range, so the fit reports one-at-a-time intervals only. "
     "band_scale='identity' builds the band on the estimates' own scale."
+)
+
+
+#: The line a result summary prints when a fit skips its band because an estimate of the band's
+#: family reads a treatment arm whose observed outcomes in its stratum take a single value
+#: (the status ``"constant_arm_cell_plugin"``). ``{names}`` lists them.
+NO_CONSTANT_ARM_BANDS: Final[str] = (
+    "No simultaneous band is reported: the estimate {names} reads a treatment arm whose "
+    "observed outcomes in its stratum take a single value, so its standard error leaves that "
+    "arm's variance out and no critical value can cover it. A band over the remaining "
+    "estimates would be a statement about a different family."
 )
 
 
@@ -646,6 +664,70 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             alternative=NO_ALTERNATIVE,
             code=RefusalReason.INVALID_DECLARATION,
         ),
+        "constant_arm_cell_plugin": StatusRecord(
+            plain_reason=(
+                "One treatment group in this estimate's subgroup shows a single outcome value "
+                "(for example, no events), so the data say nothing about that group's spread and "
+                "no standard error or interval can be estimated. More data in that group, or a "
+                "coarser question, is needed."
+            ),
+            reason=(
+                "An estimate reports no confidence interval, no p-value and no standard error "
+                "when a treatment arm it reads holds a single observed outcome value within its "
+                "stratum, for example no events. The arm's term of the influence curve is then "
+                "close to zero although the true outcome variance there can be positive, so the "
+                "plug-in standard error leaves that arm's variance out, and no "
+                "degrees-of-freedom rule can detect it. On the registered boundary law such "
+                "intervals covered in none of 191 samples. A mean under a regime, a learned "
+                "rule, a tilt or a policy of a discrete treatment reads every arm it puts "
+                "weight on, and the natural course reads none. A working-model or projection "
+                "coefficient reads every arm, and on a model saturated over its "
+                "arm-by-modifier cells also each cell it is a function of; a pooled model's "
+                "coefficient is checked on the whole rows only. A contrast or ratio that reads "
+                "such an estimate takes this status too, and a fit with such an estimate reports "
+                "no simultaneous band. The plug-in standard error remains as a diagnostic under "
+                "plugin_std_error. F41 in docs/roadmap.md holds the route that reopens it."
+            ),
+            assessment_note=(
+                "the reported spread is a constant-cell diagnostic: an arm the estimate reads "
+                "shows one outcome value, so the spread leaves that arm's variance out, and F41 "
+                "in the roadmap holds the route that reopens it"
+            ),
+            bootstrap_note=(
+                "a diagnostic; a resample has the same constant cell, so the bootstrap spread "
+                "leaves the same variance out"
+            ),
+            diagnostic_noun="constant-cell plug-in diagnostic",
+            reopened_by="F41",
+            alternative=NO_ALTERNATIVE,
+        ),
+        "out_of_range_plugin": StatusRecord(
+            plain_reason=(
+                "This estimate sits at the edge of the possible range (for example exactly 0% or "
+                "100%), where cleverly cannot form an interval that stays inside the range."
+            ),
+            reason=(
+                "An estimate of a mean or a difference of a yes/no outcome reports no confidence "
+                "interval, no p-value and no standard error when its value lies on or outside "
+                "the range the parameter can take. There the logit interval of an unclustered "
+                "mean is undefined, and an interval on the outcome's own scale, which a "
+                "difference or a clustered estimate takes, would reach past the range. A "
+                "contrast or ratio that reads such an estimate takes this status too. The plug-in "
+                "standard error remains as a diagnostic under plugin_std_error. F41 "
+                "in docs/roadmap.md holds the route that reopens it."
+            ),
+            assessment_note=(
+                "the reported spread is an out-of-range diagnostic: the estimate lies on or "
+                "outside the parameter's range, and F41 in the roadmap holds the route that "
+                "reopens it"
+            ),
+            bootstrap_note=(
+                "a diagnostic; the bootstrap does not repair an estimate on the edge of its range"
+            ),
+            diagnostic_noun="out-of-range plug-in diagnostic",
+            reopened_by="F41",
+            alternative=NO_ALTERNATIVE,
+        ),
         "working_model_projection": StatusRecord(
             plain_reason=(
                 "The interval is valid for the effect within the model the fit selected. It is "
@@ -710,8 +792,31 @@ CONSTANT_NODE_STATUS: Final = "constant_node_plugin"
 #: status. A derived estimate that reads such a parameter takes it too. A reader therefore
 #: asks each estimate's ``supplies_inference``, and never the fit's status alone.
 PARAMETER_STATUSES: Final[frozenset[str]] = frozenset(
-    {CONSTANT_NODE_STATUS, "stack_failure_plugin"}
+    {
+        CONSTANT_NODE_STATUS,
+        "stack_failure_plugin",
+        "constant_arm_cell_plugin",
+        "out_of_range_plugin",
+    }
 )
+
+#: The status of a bounded mean whose estimate reads a treatment arm that holds a single
+#: observed outcome value in its stratum, and of every contrast that reads one. A parameter
+#: status, set by the estimate's builder (:func:`~cleverly.inference.influence.bounded_status`).
+CONSTANT_ARM_CELL_STATUS: Final = "constant_arm_cell_plugin"
+
+#: The status of an estimate with ``bounds`` whose value lies on or outside them, and of every
+#: contrast that reads one. A parameter status, set where the bounds are attached.
+OUT_OF_RANGE_STATUS: Final = "out_of_range_plugin"
+
+#: The parameter statuses whose plug-in interval and p-value are not reported even as
+#: diagnostics: ``plugin_interval`` is ``(nan, nan)`` and the plug-in p-value is ``nan``. A
+#: constant cell's plug-in standard error is near zero, so its interval and test would read as
+#: a near-certain statement, and an estimate on its bound has no range-logit interval.
+UNREPORTED_INTERVAL_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONSTANT_ARM_CELL_STATUS, OUT_OF_RANGE_STATUS}
+)
+
 
 #: The status of an estimate of a per-arm outcome-adaptive fit whose arm stack failed on
 #: one sample (:mod:`cleverly.estimators._oat_stack`). A parameter status, like

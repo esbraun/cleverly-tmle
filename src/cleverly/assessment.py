@@ -1934,8 +1934,9 @@ def _replay_omission_causes() -> dict[str, str]:
             "fit under a supported configuration restores refits"
         ),
         LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED: (
-            "a retained learner template declares no random_state, so a clone of it cannot "
-            "repeat this fit's draws"
+            "a retained learner template has a random_state of None that neither the fit's "
+            "random_state nor an enclosing seeded SuperLearner reaches, so a clone of it "
+            "cannot repeat this fit's draws; set the fit's random_state or the learner's own"
         ),
         LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER: (
             "a retained learner template carries a random generator object rather than an "

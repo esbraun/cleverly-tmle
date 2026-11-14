@@ -52,6 +52,7 @@ from .._support import (
     Classification,
     Support,
     SupportKey,
+    band_shape,
     band_support,
     classify_structural_fit,
     combine_support,
@@ -79,14 +80,20 @@ from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    family_of,
     has_t_reference,
     make_estimate,
+    satterthwaite_df,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     SimultaneousBands,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     out_of_range,
     simultaneous_bands,
 )
@@ -235,6 +242,23 @@ def _invalid(condition: str, *, alternative: str | None = None) -> CapabilityErr
 
 
 # ------------------------------------------------------------------- blip feature layout
+
+
+def band_family(kinds: Mapping[str, str]) -> list[str]:
+    """The names a structural fit's band covers: its levels and contrasts, or its blips.
+
+    Parameters
+    ----------
+    kinds : mapping of str to str
+        Each reported name's kind.
+
+    Returns
+    -------
+    list of str
+        The band's family, in report order.
+    """
+    family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
+    return family or [name for name, kind in kinds.items() if kind == "blip"]
 
 
 @dataclass(frozen=True)
@@ -1161,27 +1185,27 @@ def _satterthwaite_df(
     It uses the empirical variance of the per-unit terms and ``2 b**2 / (S - 1)`` for the
     between-split part ``b``.  It approximates each entry by a scaled chi-squared law, as
     Bell and McCaffrey (2002) and Imbens and Kolesar (2016) do for a robust variance with
-    high-leverage rows.  The joint test takes the smallest value over the contrasts.
+    high-leverage rows.  The joint test takes the smallest value over the contrasts.  One
+    split reads :func:`~cleverly.inference.satterthwaite_df` of each contrast's unit sums.
     """
     count = len(curves)
     units = [
         np.asarray(curve if cluster is None else cluster_sums(curve, cluster), dtype=float)
         for curve in curves
     ]
+    if count == 1:
+        columns = units[0].reshape(units[0].shape[0], -1).T
+        return float(min(satterthwaite_df(column) for column in columns))
     centered = [unit - unit.mean(axis=0) for unit in units]
     m = centered[0].shape[0]
     n = curves[0].shape[0]
     # influence_covariance scales the centered sum of squares by m / ((m - 1) n**2).
     scale = m / ((m - 1) * n**2)
     diagonal = np.diag(covariance)
-    if count == 1:
-        terms = centered[0] ** 2
-        between_variance = np.zeros_like(diagonal)
-    else:
-        total = np.sum(centered, axis=0)
-        terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
-        between = np.var(differences, axis=0, ddof=1) / count
-        between_variance = 2.0 * between**2 / (count - 1)
+    total = np.sum(centered, axis=0)
+    terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
+    between = np.var(differences, axis=0, ddof=1) / count
+    between_variance = 2.0 * between**2 / (count - 1)
     term_variance = scale**2 * np.sum((terms - terms.mean(axis=0)) ** 2, axis=0)
     error = term_variance + between_variance
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -1281,6 +1305,9 @@ class StructuralNestedMean:
     band_scale : str, default="logit"
         The scale of the band of a bounded estimate
         (:func:`~cleverly.inference.simultaneous_bands`).
+    band_reference : str, default="normal"
+        ``"t"`` bands each estimate on its own Student t reference
+        (:func:`~cleverly.inference.simultaneous_bands`).
     random_state : int or None, default=None
         The seed of the folds, the default learners and the bands.
     run_id : str or None, default=None
@@ -1356,6 +1383,7 @@ class StructuralNestedMean:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -1408,6 +1436,8 @@ class StructuralNestedMean:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
+        check_band_reference(band_reference)
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
@@ -1806,6 +1836,9 @@ class StructuralNestedMean:
                 inference=status,
                 reference_df=df,
                 support=support,
+                outcome_family=family_of(data),
+                # The blip estimating equations are solved exactly; no stopping rule.
+                rule_widened=False,
             )
 
         estimates: dict[str, ParameterEstimate] = {}
@@ -1857,10 +1890,10 @@ class StructuralNestedMean:
         The band takes the support of :func:`~cleverly._support.band_support`: ``supported``
         only when a row licenses a ``band`` and every estimate is supported on that row.
         """
-        family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
-        if not family:
-            family = [name for name, kind in kinds.items() if kind == "blip"]
-        chosen = {name: estimates[name] for name in family if estimates[name].supplies_inference}
+        family = band_family(kinds)
+        if constant_arm_members({name: estimates[name] for name in family}):
+            return None
+        chosen = {name: estimates[name] for name in family if band_member(estimates[name])}
         if not self.simultaneous or len(chosen) < 2 or has_t_reference(chosen):
             return None
         # A logit band needs every bounded estimate strictly inside its range.
@@ -1874,6 +1907,7 @@ class StructuralNestedMean:
             random_state=self.random_state,
             cluster=data.cluster,
             band_scale=self.band_scale,  # type: ignore[arg-type]
+            band_reference=self.band_reference,  # type: ignore[arg-type]
         )
         return replace(
             bands,
@@ -1881,8 +1915,9 @@ class StructuralNestedMean:
                 classification,
                 status,
                 (estimate.support for estimate in chosen.values()),
-                options=(self.multiplier_kind, self.band_scale),
+                options=(self.multiplier_kind, self.band_scale, self.band_reference),
                 draws=int(self.n_multiplier),
+                shape=band_shape(weighted=data.is_weighted, cluster=data.cluster),
             ),
         )
 

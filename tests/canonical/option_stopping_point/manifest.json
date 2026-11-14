@@ -1,0 +1,109 @@
+{
+  "schema_version": 2,
+  "study": "Stopping rules on point TMLE",
+  "slug": "option-stopping-point",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "3f6ece666c99f1a3bc75e56d98705bdee173e0c4",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 3200,
+    "n": 2000,
+    "seed": 20267621,
+    "resampling_seed": 20267622,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "binary": [
+        "ate",
+        "ey1"
+      ],
+      "continuous": [
+        "ate",
+        "ey1"
+      ]
+    },
+    "construction": "in-sample point TMLE under a declared stopping rule, widened interval",
+    "laws": "L1 (canonical-tmle binary and continuous), L2 (contrast residual), LN (necessity)",
+    "rules": [
+      "scaled_var",
+      "sample_size"
+    ],
+    "targetings": [
+      "iterative",
+      "one_step"
+    ],
+    "max_iter": 100,
+    "one_step_max_iter": 200,
+    "tol": 1e-10,
+    "necessity_threshold_scale": 8.0,
+    "step_bound": 0.05,
+    "witness_floor_se": 0.01,
+    "outcome_learner": "unpenalized logistic (binary), least squares (continuous, L2), least squares on A, W1, W2 without V (LN)",
+    "treatment_learner": "unpenalized logistic regression on every covariate",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_option_stopping_point.py": "50928eb57bcf102bba34c9790af6787c687ac425b31840585da2d3c9b97a5deb",
+    "tests/studies/option_stopping_point_properties.py": "d8dcfe88e0d1f0bf73b6d83e863811bfb553b5b1a90dd57416439b2dd147dc39",
+    "tests/studies/_option_stopping_cells.py": "34cd917b16998e648bbc1b13792449b4a7452f7c3855ecbf71bf3fe6dc46b593",
+    "tests/studies/_option_stopping_laws.py": "7c900673ee3eddccfbc117c6b899b645a80671443c74cbd838903465699f50b6",
+    "tests/studies/canonical_tmle.py": "2e357e185549ac6f83c31b4f981df9350981af3c7026ba5e01a7d3bcedd6a791",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "src/cleverly/fluctuation/_score.py": "0c68af9db8d0b39b2e649c6cacf3cc09a3e402aaf8e15ceed082d6c8e5e568f6",
+    "src/cleverly/fluctuation/iterative.py": "76e56b3118b3eb8c46e6f3ca9dd6c51c627aeefde19717ab23e291719d81fc0e",
+    "src/cleverly/inference/influence.py": "d4b21208f7c6fad08d2cb73242faabcb9ce2a13c5a8eb5dbd91eed61f2d9a607",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7c42253bf6eb527dd5cc4af1b37f8f119126fac4bf2fdba0dc1826577963aea2",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "d26f47681ddb790e14c8d4bb7563f89ebb0ade3bec61165c177fd32166c43a06",
+    "summary.csv": "f59d6340cadaf46d47a90f714b0ca866e1e1392ac1be5a4c302dcf7cb2816c68",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "59ab967ca00922769ab078777d12b49b4e37131ec7f84473a72bddb985179a60",
+    "property-replicates.parquet": "00ccc0483a6e2fbb7f17c9a931ce9353ff8412f551bf73ed42d957641fa224a4",
+    "properties.csv": "e32c2e41c8eab11162a9a1c10154184146a96dd36fb869ba8c5519d9d01593aa"
+  }
+}

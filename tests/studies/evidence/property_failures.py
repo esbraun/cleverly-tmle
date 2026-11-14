@@ -59,6 +59,7 @@ from tests.studies.evidence.properties import (
     log_slope,
     mean_difference_interval,
     paired,
+    paired_se_ratio_interval,
     paired_spread_ratio_interval,
     rate_draws,
     rate_observed,
@@ -535,7 +536,9 @@ class Clause:
     statistic : str
         The statistic type (rev 3 section 4): ``S1``, ``S1f`` and ``S2`` to ``S15``, and
         ``S7s``, the S7 gain of a band over its identity-scale control, whose pair is a
-        positive cell and a ``scale_control`` cell rather than a positive and a control.
+        positive cell and a ``scale_control`` cell rather than a positive and a control,
+        ``S7r``, the S7 gain of a ``t`` band over its ``reference_control`` cell, and
+        ``S9m``, the ratio of two paired arms' mean standard errors.
     applies : Callable
         Whether the clause is part of a summary row's verdict.
     read : Callable
@@ -1596,6 +1599,162 @@ def spread_ratio_clause(
         return out
 
     return Clause(name, "S9", applies, read, candidates, target=target, reads=reads)
+
+
+def _completed_se(group: pd.DataFrame, fill: float) -> pd.DataFrame:
+    """One arm's ``replicate`` and ``std_error`` with every lost replicate at ``fill``."""
+    requested = _requested(group)
+    survived = [int(value) for value in group["replicate"]]
+    missing = sorted(set(range(requested)) - set(survived))
+    return pd.DataFrame(
+        {
+            "replicate": survived + missing,
+            "std_error": np.concatenate(
+                [group["std_error"].to_numpy(dtype=float), np.full(len(missing), fill)]
+            ),
+        }
+    ).sort_values("replicate", ignore_index=True)
+
+
+def paired_se_ratio_clause(
+    name: str,
+    *,
+    judge: Judge,
+    seed: Callable[[Context, pd.Series], int],
+    applies: Applies,
+    group: str = "pair",
+    columns: tuple[str, str] = ("paired_se_ratio_ci_lower", "paired_se_ratio_ci_upper"),
+) -> Clause:
+    """S9m: the control's mean SE over its paired positive arm's mean SE, pushed upward.
+
+    The arms are the declared group's control (numerator) and positive (denominator), read
+    through :func:`_pair_arms` and completed by replicate. A lost control replicate takes the
+    largest surviving control SE and a lost positive replicate the smallest surviving positive
+    SE. Each bootstrap draw's ratio of means rises in every numerator fill and falls in every
+    denominator fill, so this one candidate gives the largest ratio and the largest upper
+    endpoint the losses allow. The statistic is the verdict's own
+    :func:`~tests.studies.evidence.properties.paired_se_ratio_interval`.
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    judge : Callable
+        The rule on the ratio interval.
+    seed : Callable
+        The verdict's own resampling seed for the control row.
+    applies : Callable
+        The rows the clause is part of.
+    group : str
+        The rule's group, which says which cells form the pair.
+    columns : tuple of str
+        The summary columns of the published interval.
+
+    Returns
+    -------
+    Clause
+        The S9m clause.
+    """
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        low, high = columns
+        return judge(ctx, row, Interval(float(row[low]), float(row[high])))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return [(family, cell) for cell in ctx.members(family, str(row["cell"]), group)]
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        positive, control = _pair_arms(ctx, row, group)
+        numerator = _completed_se(control, float(control["std_error"].max()))
+        denominator = _completed_se(positive, float(positive["std_error"].min()))
+        interval = paired_se_ratio_interval(
+            numerator,
+            denominator,
+            replicates=ctx.margins.bootstrap_replicates,
+            confidence_level=ctx.margins.confidence_level,
+            seed=seed(ctx, row),
+        ).interval
+        return [("lost control SE at max, lost positive SE at min", judge(ctx, row, interval))]
+
+    return Clause(name, "S9m", applies, read, candidates, reads=reads)
+
+
+def paired_positive_se_clause(
+    name: str,
+    *,
+    judge: Judge,
+    seed: Callable[[Context, pd.Series], int],
+    applies: Applies,
+    truth_varies: Callable[[Context], bool] | None = None,
+    group: str = "pair",
+    column: str = "paired_positive_se_ratio_ci_upper",
+) -> Clause:
+    """S5 on the paired positive arm: its SE-ratio interval, judged on the control's row.
+
+    The control's verdict reads its positive arm's SE-ratio interval. The candidates are the S4
+    set of the positive cell (:func:`se_ratio_sets`), each resampled under the positive cell's
+    own seed, as :func:`se_interval_clause` resamples a row's own cell.
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    judge : Callable
+        The rule on the positive arm's SE-ratio interval.
+    seed : Callable
+        The verdict's resampling seed, applied to the positive cell's summary row.
+    applies : Callable
+        The rows the clause is part of.
+    truth_varies : Callable or None
+        Whether the spread reads each row's error; the study's flag by default.
+    group : str
+        The rule's group, which says which cells form the pair.
+    column : str
+        The control-row column that publishes the positive arm's upper endpoint.
+
+    Returns
+    -------
+    Clause
+        The S5 clause.
+    """
+
+    def varies(ctx: Context) -> bool:
+        return ctx.record.truth_varies_by_replicate if truth_varies is None else truth_varies(ctx)
+
+    def positive_row(ctx: Context, row: pd.Series) -> pd.Series:
+        positive, _ = _pair_arms(ctx, row, group)
+        cell = str(positive["cell"].iloc[0])
+        summary = ctx.summary
+        return summary.loc[
+            (summary["property"] == row["property"]) & (summary["cell"] == cell)
+        ].iloc[0]
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        low = float(positive_row(ctx, row)["se_ratio_ci_lower"])
+        return judge(ctx, row, Interval(low, float(row[column])))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return [(family, cell) for cell in ctx.members(family, str(row["cell"]), group)]
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        positive, _ = _pair_arms(ctx, row, group)
+        k = _requested(positive) - len(positive)
+        resampling = seed(ctx, positive_row(ctx, row))
+        out = []
+        for label, frame in se_ratio_sets(positive, k, truth_varies=varies(ctx)):
+            intervals = ratio_intervals(
+                frame,
+                replicates=ctx.margins.bootstrap_replicates,
+                confidence_level=ctx.margins.confidence_level,
+                seed=resampling,
+                truth_varies=varies(ctx),
+            )
+            out.append((label, judge(ctx, row, intervals["se_ratio"])))
+        return out
+
+    return Clause(name, "S5", applies, read, candidates, reads=reads)
 
 
 def extra_mean_clause(
@@ -3235,7 +3394,8 @@ def composed_perturbations() -> tuple[str, ...]:
     -------
     tuple of str
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
-        followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role.
+        followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role,
+        then the ``bias`` kind followed by each role's coverage share.
     """
     return _composed()
 
@@ -3262,6 +3422,9 @@ def _composed() -> tuple[str, ...]:
             for p in COVERAGE_TARGETS
         ),
         *(f"se_role/{role}/{ROUNDING_SE_FACTOR:g}" for role in roles),
+        # A bias clause in conjunction with a coverage floor that already fails decides alone
+        # only when the floor is repaired: the named bias shift, then one role's coverage.
+        *(f"bias+coverage_role/{role}/{p:g}" for p in COVERAGE_TARGETS for role in roles),
     )
 
 

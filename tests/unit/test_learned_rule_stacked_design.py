@@ -388,3 +388,22 @@ def test_every_control_is_pilot_checked_below_the_band() -> None:
     for cell, (ratio, coverage) in PILOT_CONTROLS.items():
         assert ratio < floor - 0.05, cell
         assert coverage < study.STUDY.margins.calibration_coverage[0], cell
+
+
+def test_the_clustered_fold_evaluated_report_reads_t_with_j_minus_v() -> None:
+    """On one clustered draw, the fold-evaluated report reads ``J - V = 190`` df (Fix-4 (d)).
+
+    The stacked fit of the same draw keeps the normal reference at 200 clusters.
+    """
+    (key,) = [
+        key
+        for key in properties._payloads(study.STUDY, 1)
+        if key[0][0] == "interval_calibration" and key[0][7] == "clustered"
+    ]
+    frame = properties._draw(key)
+    stacked, _, _ = law.measured(frame, "clustered", base.outcome_learner(), key[0][6])
+    folded, _, _ = law.measured(
+        frame, "clustered", base.outcome_learner(), key[0][6], cv_evaluation=True
+    )
+    assert stacked.estimates[law.ESTIMAND].reference_df is None
+    assert folded.estimates[law.ESTIMAND].reference_df == 190

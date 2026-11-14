@@ -537,6 +537,20 @@ def _select_time_to_event(result: Any, estimand: Any) -> _EValueSelection:
 
 def _select_evalue(result: TMLEResult, estimand: Any) -> _EValueSelection:
     """Select the exact, approximate, or refusal branch for one request."""
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(result, ContinuousSurvivalResult):
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE,
+            "the E-value of a continuous-time survival fit has no registered reading of its "
+            "confidence-limit E-value yet.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Call cleverly.sensitivity.evalue_from_rr on the fit's reported rr_regimen "
+                "estimate, and on the limit of its interval nearer 1, for a descriptive reading."
+            ),
+            roadmap="X6",
+        )
     if getattr(result, "assessment_family", None) != "point":
         eliminated = tuple(getattr(getattr(result, "data", None), "eliminated", ()) or ())
         if eliminated:

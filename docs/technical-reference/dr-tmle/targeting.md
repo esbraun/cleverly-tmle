@@ -184,7 +184,10 @@ ratio, and it reports the `D*_Q` and `D*_Y` correction rows as diagnostics. The 
 the default bar. `TestRuleGovernedRows` in `tests/unit/test_stopping_rule_report.py` checks a
 one-step fit in each order and a missing-outcome fit, with a mutation control that restores the
 default bar. `score_check()` reports no `rule_bound_se` for a DR-TMLE fit, because the corrected
-curve carries terms that the outcome columns do not.
+curve carries terms that the outcome columns do not. The interval of a DR-TMLE fit under a declared
+rule adds the mean of its corrected curve to its half-width, as
+"The interval under a declared rule" in [stopping rules](../point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
+describes. `tests/unit/test_rule_widened_interval.py` checks it on a one-step fit.
 
 The result summary also carries the pinned line for `treatment_adjustment=`, described in
 [treatment-mechanism covariates](../point-treatment-tmle.md#treatment-mechanism-covariates).

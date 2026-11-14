@@ -1,0 +1,21 @@
+=== option-patience declared run
+command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/option_patience/regenerate.py --output /tmp/fix8-patience-tRTY --jobs 4
+commit: c4e89da7c53700e2732b21af1d3b75d398e202ef; upstream c4e89da7c53700e2732b21af1d3b75d398e202ef
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 38747293f66db5bd1fda6fc2a3bf743b1d29180f4d2e3f6a3995be6713d3a918
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-13T05:30:27+00:00
+finished: 2026-11-13T06:02:28+00:00
+wall seconds: 1920.9
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: ad6d322772826e01ca07d3bc9693dabe75e1cd4417fdc10aaf0b2901fd8e66eb
+sha256 performance-tests.csv: 5539332914ee81361658acfab574e93176e185bc9bb59098903a64dc443d5d61
+sha256 properties.csv: fb8fcfca90913ac29a454c0b12d4e0b2188e6fbab2cf0c70c6f118f27d6c8981
+sha256 property-replicates.parquet: 04bdcd4d602bba9c2b91cb37919545576babc366cbcec31da7e1bea7ad71f5ec
+sha256 replicates.parquet: 699729778d89fa8c191f9de65a4b1c28f3acd03c6e25c1490ecd70f068b55c4b
+sha256 summary.csv: 3f2749c1aa23786a874ee635689a67b91c3afa4eef368c8c773ce6b810c39219
+

@@ -785,6 +785,7 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "n_multiplier": (_anything, "any value; the band reads the stacked curves"),
     "multiplier_kind": (_anything, "any value; the band reads the stacked curves"),
     "band_scale": (_anything, "any value; the band reads the stacked curves"),
+    "band_reference": (_anything, "any value; the band reads the stacked curves"),
     "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
     "max_iter": (
         _anything,
@@ -2100,6 +2101,7 @@ default="greedy"
         index: IntArray | None = None,
         drop_undefined: bool = False,
         natural_course: Any = None,
+        cell_rows: IntArray | None = None,
     ) -> dict[str, Any]:
         """Every estimand, with the stack-failure status on an estimate that reads a failed arm.
 
@@ -2127,6 +2129,7 @@ default="greedy"
                 index=index,
                 drop_undefined=drop_undefined,
                 natural_course=natural_course,
+                cell_rows=cell_rows,
             )
             # Only the first build records: the shipped rebuild below reads the same targets.
             READS_SINK.reset(reads_token)
@@ -2165,6 +2168,7 @@ default="greedy"
                         alpha_sig,
                         reference,
                         natural_course=natural_course,
+                        cell_rows=cell_rows,
                     )
                 finally:
                     _SHIPPED.reset(shipped_token)

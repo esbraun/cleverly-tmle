@@ -235,6 +235,8 @@ margin is a quarter of an empirical standard deviation, and the test is resolvab
 its 99% half-width is about `0.0025` against margins of `0.0067` and `0.0072`. The bias really is
 larger than the margin. The [red-cell ledger](red-cells.md) lists each red cell of this study
 with the roadmap ask that owns it.
+Both cells fit `reduced_crossfit="pooled"`; the shipped foldwise default passes on their own
+draws at this size ([`drtmle-foldwise-n1500`](dr-tmle-foldwise-n1500.md)).
 
 RM18 read the two red one-correct cells against R `drtmle` on the primary rows at `n = 3,000`,
 under a rule declared before the computation. On `outcome_correct`, R `drtmle` shows the same

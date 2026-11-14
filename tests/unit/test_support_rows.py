@@ -58,6 +58,46 @@ KINDS = {
     "derived",
 }
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
+#: The options of X76 in a point key, at the values of a fit that declares none of them.
+X76_POINT_DEFAULTS: dict[str, Any] = {
+    "stopping": "relative",
+    "step_bound": "none",
+    "iterate": "last",
+    "outcome_by_arm": False,
+    "patience": False,
+    "treatment_adjustment": False,
+}
+#: The rows, by id prefix, whose study declares an X76 option.  ``conditional-projection``
+#: fits one outcome regression per arm.
+X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
+    "T49": {"outcome_by_arm": True},
+    "T50": {"outcome_by_arm": True},
+    "T53": {"outcome_by_arm": True},
+    "T54": {"treatment_adjustment": True},
+    "T52.scaled_var": {"stopping": "scaled_var"},
+    "T52.sample_size": {"stopping": "sample_size"},
+    "C12": {"patience": True},
+}
+X76_LONGITUDINAL_DEFAULTS: dict[str, Any] = {
+    "ratio_trim": False,
+    "markov_order": False,
+    "stopping": "relative",
+    "step_bound": "none",
+    "iterate": "last",
+}
+#: The longitudinal rows, by id prefix, whose study declares an X76 option.
+X76_LONGITUDINAL_ROW_OPTIONS: dict[str, dict[str, Any]] = {
+    "G56": {"ratio_trim": True},
+    "G57": {"markov_order": True},
+    "G55.scaled_var": {"stopping": "scaled_var"},
+    "G55.sample_size": {"stopping": "sample_size"},
+}
+
+
+def row_options(declared: dict[str, dict[str, Any]], row_id: str) -> dict[str, Any]:
+    """The options a row declares, read by its first id segment and by its first two."""
+    parts = row_id.split(".")
+    return declared.get(parts[0], {}) | declared.get(".".join(parts[:2]), {})
 
 
 def classified(case: RowCase) -> Any:
@@ -229,6 +269,113 @@ class TestControls:
         assert classify(estimator, data, ("ate",)).row.id == "T01.binary"  # type: ignore[union-attr]
 
 
+class TestDefaultMultiArmDRTMLE:
+    """Fix-6 D6: the default cross-fitted three-arm ``DRTMLE`` reads row ``D12``.
+
+    The row's cells are free strings, so this is the gate: a real fit of the default lands on
+    ``D12``, and ``D12``'s key is the key of ``multi-arm-drtmle-foldwise``'s own fit.
+    """
+
+    @staticmethod
+    def estimator(**settings: Any) -> Any:
+        from sklearn.linear_model import LinearRegression, LogisticRegression
+
+        from cleverly.estimators import DRTMLE
+
+        return DRTMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
+            cross_fit=True,
+            estimands=("ey", "ate"),
+            reference=0.0,
+            random_state=0,
+            **settings,
+        )
+
+    def test_a_default_cross_fitted_three_arm_fit_reads_d12(self) -> None:
+        result = (
+            self.estimator()
+            .fit(frame(600, arms=3, seed=1), outcome="Y", treatment="A", covariates=["W1", "W2"])
+            .single()
+        )
+        supports = {estimate.support for estimate in result.estimates.values()}
+        assert {support.row for support in supports} == {"D12"}
+        assert {support.label for support in supports} == {"supported"}
+
+    def test_d12_is_keyed_on_the_multi_arm_foldwise_study_fit(self) -> None:
+        from tests.studies.support_cases import case_key
+
+        (case,) = [c for c in CASES if c.slug == "multi-arm-drtmle-foldwise"]
+        assert case_key(case) == ROWS["D12"].key
+
+    def test_control_the_pooled_option_reads_d02(self) -> None:
+        estimator, data, estimands = _build(
+            self.estimator(reduced_crossfit="pooled"), frame(240, arms=3), ("ey", "ate")
+        )
+        assert classify(estimator, data, estimands).row.id == "D02"  # type: ignore[union-attr]
+
+
+class TestDefaultStratifiedDRTMLE:
+    """Fix-6 D6: the default cross-fitted stratified ``DRTMLE`` reads row ``D13``.
+
+    As for ``D12``: a real fit of the default lands on ``D13``, and ``D13``'s key is the key of
+    ``stratified-drtmle-foldwise``'s own fit.
+    """
+
+    @staticmethod
+    def estimator(**settings: Any) -> Any:
+        from sklearn.linear_model import LinearRegression, LogisticRegression
+
+        from cleverly.estimators import DRTMLE
+
+        return DRTMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(),
+            reduced_mechanism_residual_learner=LinearRegression(),
+            cross_fit=True,
+            estimands=("ey", "ate"),
+            random_state=0,
+            **settings,
+        )
+
+    def test_a_default_cross_fitted_stratified_fit_reads_d13(self) -> None:
+        """Its Wald intervals are experimental (the small-stratum defect suspect), its points not."""
+        from cleverly._support import support_for
+
+        data = frame(600, strata=True, seed=1)
+        result = (
+            self.estimator()
+            .fit(data, outcome="Y", treatment="A", covariates=["W1", "W2", "V"], strata=["V"])
+            .single()
+        )
+        supports = {estimate.support for estimate in result.estimates.values()}
+        assert {support.row for support in supports} == {"D13"}
+        assert {support.label for support in supports} == {"experimental"}
+        assert all("defect suspect" in support.reason for support in supports)
+        estimator, prepared, estimands = _build(self.estimator(), data, ("ey", "ate"))
+        classification = classify(estimator, prepared, estimands)
+        point = support_for(classification, "influence_curve", kind="point")
+        wald = support_for(classification, "influence_curve", kind="wald")
+        assert (point.label, wald.label) == ("supported", "experimental")
+
+    def test_d13_is_keyed_on_the_stratified_foldwise_study_fit(self) -> None:
+        from tests.studies.support_cases import case_key
+
+        (case,) = [c for c in CASES if c.slug == "stratified-drtmle-foldwise"]
+        assert case_key(case) == ROWS["D13"].key
+
+    def test_control_the_pooled_option_reads_d03(self) -> None:
+        estimator, data, estimands = _build(
+            self.estimator(reduced_crossfit="pooled"), frame(240, strata=True), ("ey", "ate")
+        )
+        assert classify(estimator, data, estimands).row.id == "D03"  # type: ignore[union-attr]
+
+
 class TestExpansion:
     def test_rows_over_makes_one_row_per_value(self) -> None:
         base = ROWS["T05.binary"]
@@ -344,18 +491,27 @@ class TestLongitudinalControls:
             ("node_bounds", True),
             ("hazard_pooling", "pooled"),
             ("ratio_trim", True),
-            ("markov_order", 1),
+            ("markov_order", True),
             ("tuned_cap", True),
+            ("stopping", "scaled_var"),
+            ("stopping", "sample_size"),
+            ("step_bound", "search"),
+            ("iterate", "best"),
         ],
     )
     def test_an_x33_option_leaves_a_default_row(self, name: str, value: Any) -> None:
-        # No registered study fits a ratio trim or a Markov order, and the bounded and pooled
-        # fits have rows of their own, so each option moves a default fit off its row.
+        # Each option moves a default fit off its row. A stopping rule on the G01 key lands on
+        # its own G55 row (study option-stopping-ltmle); every other move matches no row,
+        # because the option rows pin keys or learners these fits do not carry.
         for row in ("G01", "G14.survival"):
             built = self.observed(row)
             assert classify_key(built.key, built.learners).row.id == row  # type: ignore[union-attr]
             options = tuple((key, value if key == name else old) for key, old in built.key.options)
-            assert classify_key(replace(built.key, options=options), built.learners).row is None
+            moved = classify_key(replace(built.key, options=options), built.learners).row
+            if name == "stopping" and row == "G01":
+                assert moved is not None and moved.id == f"G55.{value}.end_of_study"
+            else:
+                assert moved is None
 
     @pytest.mark.parametrize(
         "row",
@@ -485,6 +641,23 @@ class TestTheoryAndOptions:
     def test_no_allowlisted_option_is_a_key_option(self) -> None:
         keyed = {name for row in ALL_ROWS for name, _ in row.key.options}
         assert keyed & set(OPTION_ALLOWLIST) == set()
+
+    def test_every_point_row_keys_the_x76_options_at_the_defaults_unless_it_declares_them(
+        self,
+    ) -> None:
+        # A row that lost an option from its key would cover a fit that declares it.
+        for row in POINT_ROWS:
+            options = dict(row.key.options)
+            expected = X76_POINT_DEFAULTS | row_options(X76_POINT_ROW_OPTIONS, row.id)
+            assert {name: options.get(name) for name in expected} == expected, row.id
+
+    def test_every_longitudinal_row_keys_the_x76_options_at_the_defaults(self) -> None:
+        for row in LONGITUDINAL_ROWS:
+            if row.key.engine == ("snmm",):
+                continue  # A structural key holds no fitting option (structural_key).
+            options = dict(row.key.options)
+            expected = X76_LONGITUDINAL_DEFAULTS | row_options(X76_LONGITUDINAL_ROW_OPTIONS, row.id)
+            assert {name: options.get(name) for name in expected} == expected, row.id
 
     def test_the_allowlist_holds_the_declared_options(self) -> None:
         declared = {"g_bounds", "n_folds", "learner_folds", "random_state", "n_jobs", "run_id"}

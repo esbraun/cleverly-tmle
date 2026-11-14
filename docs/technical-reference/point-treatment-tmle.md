@@ -384,7 +384,7 @@ lists each refusal and its order.
 | folds | package-generated, `stratify_by="none"`, `n_folds` of at least 2, `repeats=1`, and `split_plan=None` |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`, with `targeting_scheme="pooled"` and `fold_evaluation=False` |
 | rows | unweighted iid rows, with no clusters and no baseline strata |
-| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind`, both band scales and a custom `n_multiplier`. The registered study measures only the default band (Mammen multiplier, logit scale, 10,000 draws), so a band with another kind or scale, or fewer draws, reads `experimental` while the pointwise intervals keep their label |
+| inference | pointwise influence-curve Wald intervals, and `n_bootstrap=0`. The simultaneous band is on by default. It admits every `multiplier_kind`, both band scales, both band references and a custom `n_multiplier`. The registered study measures only the default band (Mammen multiplier, logit scale, normal reference, 10,000 draws), so a band with another kind, scale or reference, or fewer draws, reads `experimental` while the pointwise intervals keep their label |
 
 `CrossFitting` defaults to `stratify_by="none"`, so this contract's fold policy needs no setting.
 The default estimand list of a two-arm fit includes `att` and `atc`, so a two-arm fit must name its
@@ -429,7 +429,9 @@ variance is $\operatorname{var}(D_a)/n$ with the $n-1$ denominator. `covariance(
 curves. The default multipliers are Mammen's, and `multiplier_kind="rademacher"` or `"normal"` also
 fits. The band takes the max-t quantile of those draws, scaled by the pointwise standard errors,
 and by default builds the limits of a probability on its logit scale
-([the band scale](inference.md#the-band-scale)).
+([the band scale](inference.md#the-band-scale)). `band_reference="t"` reads each estimate's
+slice on its own Student $t$ reference; [the t reference](inference.md#the-t-reference) lists
+the rows a registered study licenses it on.
 
 The band rests on two results. The first is the joint expansion of Zheng and van der Laan
 (2011), Theorem 2. The second is a conditional multiplier central limit theorem for a fixed number
@@ -579,8 +581,14 @@ These requests with `strata=` refuse before any learner:
 change the estimand. The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li
 (2024), Section 2, at equal or unequal cluster sizes. Pass `weights` equal to one over the
 cluster size to estimate the cluster-average mean $\mu_C$. Below 40 clusters with positive weight
-mass the interval uses a Student $t$ reference, and below 10 the fit withholds it
-([clusters](inference.md#clusters)).
+mass the interval uses a Student $t$ reference, a fold-evaluated estimate uses $t_{J-V}$ at every
+cluster count, and below 3 clusters the fit withholds the interval ([clusters](inference.md#clusters)).
+`cv_evaluation=True` refuses a clustered fit without a learned rule, before any learner, when the
+clusters differ in a requested estimand's denominator mass: the total weight, or the row count
+when unweighted, for the means and the ATE, the treated mass for the ATT and the control mass for
+the ATC. The refusal has code `api_redirection` and names the stacked report, which estimates the
+same parameter without the ratio bias of the equal fold average
+([clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass)).
 
 A fit with a declared missing treatment admits fixed weights, clusters and baseline strata, as the
 missing-outcome TMLE does. The weights tilt the law, and the composite mechanism is the tilted
@@ -697,42 +705,101 @@ $\sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}_{\text{contrast}}$ can be
 The witness is the law $W \sim N(0,1)$, $A \sim \text{Bern}(0.5)$, $Y = W + A + 0.1\varepsilon$.
 `TestTheRuleBound` in `tests/unit/test_stopping_rule_report.py` fits it with seed 3 and
 $n = 2{,}000$. The ratio is 9.95, so the `ate` row has a `rule_bound_se` of 1.31 against
-$\sqrt{2}\,c = 0.19$. The same file pins `wald_coverage_bound(1.009, 0.05)` at 0.8277. At the
-ratio 9.95 and $c = 0.1$, the residual is $b = 0.995$ standard errors and the bound is about 0.831.
-Marginal structural model columns are contrasts in this sense.
+$\sqrt{2}\,c = 0.19$. Marginal structural model columns are contrasts in this sense.
 
-The coverage bound is $\Phi(z - b) - \Phi(-z - b)$ at a residual of $b$ standard errors.
-`wald_coverage_bound` computes it. The table gives the 95% bound for one arm-mean column at the
-residual $c$.
+#### The interval under a declared rule
 
-| $n_u$ | $c$ | 95% interval, one arm-mean column |
+The estimate's error is $\widehat{\mathrm{se}}\,(Z - B)$, where $Z$ is asymptotically standard
+normal and $B = r_n / \widehat{\mathrm{se}}$ is the residual the rule left, in standard errors.
+The walk decides when to stop from the same data, so $B$ can depend on $Z$, and no bound on the
+plain interval's coverage holds for every such dependence. The reported interval therefore adds
+the residual to its half-width:
+
+$$
+\hat\psi \pm \bigl(z\,\widehat{\mathrm{se}} + \lvert r_n\rvert\bigr),
+$$
+
+on the scale the interval is built on: the logit or log scale for a transformed estimate, the
+log scale for a ratio. On an unclustered mean of a binary outcome, whose interval is built on the
+logit scale ([small-sample scale](inference.md#small-sample-scale)), the residual enters as
+$\lvert r_n\rvert / \bigl(\hat\psi(1 - \hat\psi)\bigr)$, the slope that carries the standard
+error. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
+fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
+curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
+repeats, a working-model coefficient and a simultaneous band, where each component adds its own
+residual. `plugin_interval` is the widened interval too. Under the default rule `rule_widened` is
+`False` and the interval is unchanged.
+
+The p-value inverts the widened interval,
+$p = 2\Phi\bigl(-\max(0, \lvert T\rvert - \lvert r_n\rvert / \widehat{\mathrm{se}})\bigr)$, and
+the statistic $T$ stays the plain Wald statistic. An interval built from the coefficients of a
+working model reads the linear functional $\varphi^\top\hat\beta$, whose residual is
+$\varphi^\top s$ for the coefficients' scores $s$. So an effect curve's pointwise interval and
+band, and a working model's fitted means on the link scale, add $\lvert\varphi^\top s\rvert$.
+`heterogeneity_test()` reads $\max(0, \sqrt{T} - m)^2$ in place of $T$, with
+$m = (s^\top\hat\Sigma^{-1}s)^{1/2}$, by the triangle inequality in the norm the statistic
+reads. An omitted-variable limit adds $\lvert r_n\rvert$ to its one-sided half-width.
+
+The full-refit bootstrap is refused under a declared rule. Each refit stops with its own residual,
+and no derivation bounds what those residuals do to the bootstrap law.
+`tests/unit/test_rule_widened_interval.py` checks the arithmetic on each scale, a nonzero
+residual on a one-step walk, the inheritance, each consumer above, the refusal, and mutations
+that drop the margin, add it on the reported scale, or add it unscaled on the logit scale.
+
+The widened interval costs little when the residual is small. A one-step `scaled_var` walk that
+met its rule leaves a residual of at most $c$ standard errors on an arm mean, so the half-width
+grows by at most $c/z$ of itself, about 7 per cent at $n_u = 2{,}000$. Under `sample_size` with
+small outcome units the residual can exceed a standard error, and the interval absorbs it.
+
+A cap $c$ fixed before the data are read gives a floor for the plain interval
+$\hat\psi \pm z\,\widehat{\mathrm{se}}$. If $\lvert B\rvert \le c$ on every draw, that interval
+covers whenever $\lvert Z\rvert \le z - c$, so its asymptotic coverage is at least
+$2\Phi(z - c) - 1$. The floor is sharp: $B = -c\,\operatorname{sign}(Z)$ attains it.
+`cleverly.fluctuation._score.rule_coverage_floor` computes it. Only an arm-mean column with unit
+weights of an unstratified fit under `scaled_var` has such a cap, $c = 1/\min(\log n_u, 10)$. A residual measured on the
+fit is not a cap, because it was chosen by the data. The table gives the 95% floor at that cap.
+
+| $n_u$ | $c$ | floor of the plain 95% interval, one arm-mean column |
 | ---: | ---: | ---: |
-| 50 | 0.256 | 0.9425 |
-| 100 | 0.217 | 0.9446 |
-| 500 | 0.161 | 0.9470 |
-| 1,000 | 0.145 | 0.9476 |
-| 22,026 and above | 0.100 | 0.9489 |
+| 50 | 0.256 | 0.9117 |
+| 100 | 0.217 | 0.9186 |
+| 500 | 0.161 | 0.9280 |
+| 1,000 | 0.145 | 0.9305 |
+| 2,000 | 0.132 | 0.9325 |
+| 22,026 and above | 0.100 | 0.9371 |
 
-`tests/unit/test_stopping_rule_report.py` checks the table against `scipy.stats.norm`. The bound
-is conditional on the residual being the only error. It does not replace the interval's own
-conditions.
+`tests/unit/test_stopping_rule_report.py` checks the table against `scipy.stats.norm`, and checks
+that the extreme dependence attains the floor. The floor is conditional on the residual being the
+only error. It does not replace the interval's own conditions.
 
 `sample_size` leaves a residual of at most $1/(n_u\, \mathrm{se})$ standard errors. That is
 $o(n^{-1/2})$, and it depends on the outcome's units. For a rare binary outcome or a narrow
 `span` it can reach about one standard error at $n = 100$. The realised line reports the exact
 value on every fit.
 
+**Evidence.** The registered study
+[`option-stopping-point`](method-evidence/option-stopping-point.md) measures the widened interval
+in sample at n = 2,000 on the `canonical-tmle` binary and continuous laws, under both rules, on
+the Newton and the one-step walk. The widened interval covers 0.949 to 0.957 of the ATE. On the
+one-step walk a `scaled_var` residual reaches 0.01 SE on 0.854 (binary) and 0.999 (continuous) of
+draws. With every threshold eight times larger, so that the rule binds hard, the plain interval
+of the mean under treatment covers 0.837 and the widened one 0.977. The
+support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
+`experimental`. The binary-outcome interval rows will be recomputed with the composed half-width
+when the planned small-sample interval for bounded estimates ships.
+
 #### What the result reports
 
 | output | content |
 | --- | --- |
-| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors of bias (on {name}). If the standard error is right, a {level} interval with that bias still covers the truth at least {bound} of the time." It names the estimand with the largest residual and rounds the bound down to 0.01 percentage points. A residual below 0.001 prints as "less than 0.001" |
+| `res.summary()` | the note "Under the declared stopping rule the estimating equation is solved up to a remainder worth {b} standard errors (on {name}). Each Wald interval and band adds the remainder of its own quantity to its half-width." It names the estimand with the largest residual. A residual below 0.001 prints as "less than 0.001" |
 | `res.summary()`, rule missed | the warning "The fit did not meet its declared stopping rule for {names}, so the {spread} may be off by more than the rule allows. result.diagnostics.score_equations() gives the numbers." |
-| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
+| `score_check().rule_line()`, `rule_failure_line()` | the pinned lines "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. Each Wald interval and band adds the residual of its own quantity to its half-width." and "the targeting did not meet the {rule} stopping rule; {detail}". Each is empty when it does not apply. `score_check().one_line()` prints the second when the rule is missed |
 | `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one. The rule also judges the `(strata)` row of a stratified working model and the `(reduced)` row of a `DRTMLE` fit, because the rule stops those outcome solves too. A `(mechanism)` row keeps the default bar |
 | `score_check()`, `DRTMLE` correction rows | under a declared rule, a `D*_Q` or `D*_Y` row is a `"diagnostic"`, because it restates the outcome columns that the `(reduced)` row judges. A `D*_g`, `D*_A` or `D*_M` row and every identity row keep their bars |
-| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se`, `coverage_bound` and, under `scaled_var`, `rule_bound_se` |
-| `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_bound` and `rule_bound_se`, only under a declared rule |
+| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se` and, under `scaled_var`, `rule_bound_se`. A single-column row (an arm mean, `att` or `atc`) of an unstratified fit that met `scaled_var` also carries `coverage_floor`, the floor of the plain interval at its cap. Every other row carries `nan` there, a stratum's row included, because a stratum block's bound depends on the data |
+| `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_floor` and `rule_bound_se`, only under a declared rule |
 
 The residual in standard errors is $\lvert P_n IC\rvert / \mathrm{se}$ on the scale of the
 estimate. The bound before the fit is read is
@@ -800,10 +867,10 @@ the rule does not change them.
 | `LTMLE`, per node | yes | the clusters of the panel, else the rows of the panel. The node solver receives every row. See [longitudinal targeting options](longitudinal-tmle.md#targeting-options-at-each-node) |
 | `SDR`, longitudinal `IPSI`, the sequential baselines | refused | none. They fit no fluctuation |
 
-The estimator builds the context once, in `_retarget_detailed`. So `TMLE.retarget`, the truncation
-curve and the bootstrap use the same context. `tests/unit/test_stopping_rule_engines.py` fits every
-point group of the table under both rules. It also covers a fold solve, a candidate solve, a
-truncation curve and a bootstrap.
+The estimator builds the context once, in `_retarget_detailed`. So `TMLE.retarget` and the
+truncation curve use the same context, and the bootstrap is refused under a rule.
+`tests/unit/test_stopping_rule_engines.py` fits every point group of the table under both rules.
+It also covers a fold solve, a candidate solve, a truncation curve and the bootstrap refusal.
 
 #### The step bound
 
@@ -812,7 +879,7 @@ iteration takes the `tmle3` constrained step.
 
 1. Read the score $s$. Stop when $\lVert s\rVert_2 = 0$.
 2. Set the direction $d = s/\lVert s\rVert_2$. The collapsed covariate is $Hd$. A single column has $d = \operatorname{sign}(s)$.
-3. With `step_search=True`, find $t^*$ in $(0, \delta]$ that minimises the weighted mean quasi-loss along $d$. The search is bounded Brent search with `xatol` $1.49 \times 10^{-8}$.
+3. With `step_search=True`, find $t^*$ in $(0, \delta]$ that minimises the weighted mean quasi-loss along $d$. The loss is convex in $t$, so $t^*$ is the root of its slope $-\sum_i w_i (y_i - p_i(t))(Hd)_i / \sum_i w_i$, found by Brent's root finder to machine precision. When the slope at $\delta$ is not positive, $t^* = \delta$.
 4. With `step_search=False`, take $t^* = \delta$.
 5. Add $t^* d$ to $\epsilon$. Carried fits move by the same step.
 
@@ -820,36 +887,39 @@ At unit weights the loss is the unweighted loss of `tmle3`. With weights, it is 
 extension. Under `target_weights` the loss is the fit's own weighted form. The direction $d$ comes
 from the unweighted score of the same equation.
 
-`tests/unit/test_step_bound.py` checks the whole path against a SciPy walk written from the
-`tmle3` description, at $10^{-7}$. The first step binds at 0.15 and is below the Newton step of
-0.2157. The second step is interior at 0.0657. Six mutation controls fail the reference: an
-un-normalised $Hs$, a reversed direction, `xatol=1e-3`, an upper bound of $2\delta$, the Newton
-direction and an unweighted loss.
+`tests/unit/test_step_bound.py` checks the whole path against a walk written from the `tmle3`
+description with `numpy` only, at $10^{-10}$. Its length is exact: bisection on the analytic slope
+down to adjacent floats. The first step binds at 0.15 and is below the Newton step of 0.2157. The
+second step is interior at 0.0657. Seven mutation controls fail the reference: an un-normalised
+$Hs$, a reversed direction, the bounded Brent search on loss values that shipped before, a loose
+root tolerance, an upper bound of $2\delta$, the Newton direction and an unweighted loss.
 
 A bounded walk whose initial fit already meets its rule takes no step. Under a loose declared
 rule this can mean no targeting at all. In `tests/unit/test_step_bound.py`, `scaled_var` on a
-point TMLE with seed 2 gives `n_iter=0`. A step that moves nothing also ends the walk. The Newton
-path under a declared rule takes one step before it tests the rule, as `tmle3` does.
+point TMLE with seed 2 gives `n_iter=0`. A step that moves nothing also ends the walk. With the
+search on, that means a length of 0 or no fitted prediction changed; the fixed step keeps the test
+$\max_m |t^* d_m| \le$ `tol`. The Newton path under a declared rule takes one step before it tests
+the rule, as `tmle3` does.
 
-**Is `relative` reachable under a step bound?** With `stopping="relative"` the walk reaches
-`tol=1e-10` only under conditions. `TestRelativeReachability` measured it on arm-mean fits with
-`step_bound` in $\{0.01, 0.05, 0.25\}$.
+**Is `relative` reachable under a step bound?** With the search on, yes. `TestRelativeReachability`
+measured it on arm-mean fits with `step_bound` in $\{0.01, 0.05, 0.25\}$, and the node rows come
+from the `LTMLE` fit of `TestEveryPerRegimenEngine` (`make_longitudinal(n=300, seed=12)`,
+`step_bound=0.05`).
 
 | setting | result in the recorded run |
 | --- | --- |
-| `step_search=True`, default `max_iter=20` | never reached. 0 of 6 point fits and 0 of 32 solver cells. The unconverged walk ends at $1.3\times10^{-9}$ to $8.2\times10^{-9}$ |
-| `step_search=True`, `max_iter=100` | 5 of 6 point fits (35 to 92 iterations), 20 of 32 solver cells |
-| `step_search=True`, `max_iter=1000` | 6 of 6 point fits (35 to 145 iterations, median 65), 28 of 32 solver cells (21 to 444 iterations, median 52). The 4 misses plateau at $1.1\times10^{-10}$ to $4\times10^{-10}$ |
-| `step_search=False`, any `max_iter` up to 1,000 | never reached. 0 of 38 cells. The walk lands within one bound of the root and oscillates, with a relative score of $5\times10^{-4}$ to $10^{-2}$ on the point fits |
-| `LTMLE` nodes (one column), `step_bound=0.05`, search on | 3 of 4 nodes reach `relative` within `max_iter=20`, and 4 of 4 within 200. With search off, 0 of 4 |
-| `stopping="sample_size"` or `"scaled_var"`, `step_bound=0.05`, search on | met in 0 to 4 iterations. The point fits take 1 and 0. With search off, 3 of 4 `LTMLE` nodes meet it |
+| `step_search=True`, default `max_iter=20` | 6 of 6 point fits reach `tol=1e-10`: 5 iterations on the continuous outcome, 7 or 8 on the binary one. A budget of 1,000 gives the same fits bit for bit |
+| `step_search=False`, any `max_iter` up to 1,000 | never reached. The walk lands within one bound of the root and oscillates, with a relative score of $5\times10^{-4}$ to $0.12$ on the point fits. It alternates between two values with the parity of the iteration |
+| `LTMLE` nodes (one column), search on | 4 of 4 nodes reach `relative` in 3 to 5 iterations. With search off, 0 of 4 within 200 |
+| `stopping="sample_size"` or `"scaled_var"`, search on | met in 0 to 5 iterations. The point fits take 0 or 1. With search off, 3 of 4 `LTMLE` nodes meet it within 20 |
 
-Each outer iteration is one line search along the steepest-ascent direction, so convergence is
-linear and takes tens of iterations. The search stops within $1.5\times10^{-8}$ of the minimiser.
-That leaves a relative score of about $10^{-10}$ to $10^{-9}$ at the root, at the edge of `tol`.
-Near that edge, floating-point rounding sets the iteration count. On a CI runner with Python 3.13,
-two of the six point fits took 25 and 190 iterations. A Windows run reaches the tolerance in nine
-iterations for the continuous point fit with `step_bound=0.25`.
+The walk is steepest descent with an exact line search, so it converges linearly, down to a
+round-off floor in relative score near $10^{-17}$ on the point walk and $3\times10^{-16}$ on the
+hazard walk. With one column the rate is fast. With several
+targets the factor per iteration is set by the spread of curvatures across the score columns, so
+the walk zig-zags. The two-cause hazard fit of `test_a_two_cause_walk_converges_linearly`
+(`tests/unit/test_hazard_targeting_rules.py`), with six targets, needs 43 iterations at horizon 2,
+more than the default `max_iter`.
 
 The `tmle3` pairing is therefore a declared rule with a larger `max_iter`. A bounded walk that stops
 short of its rule warns, reports `converged=False` and `failure="max_iter_reached"`, and fails
@@ -931,6 +1001,29 @@ Mutation controls swap the arm models, drop the arm from the mask, and read the 
 shifted arm. Each fails the hand comparison. On the R fixture `drtmle_stratify.json`, the arm
 regressions agree with `drtmle(stratify = TRUE)` to $10^{-8}$ and the estimates to $10^{-6}$.
 
+The option changes the outcome model class and nothing else. The remainder is the ordinary
+product $P_0[(g_0 - g_n)/g_n\,(\bar Q_0 - \bar Q_n)]$, so the Wald interval needs both nuisances
+at a product rate, and double robustness is unchanged. A per-arm fit helps where a pooled
+regression misses an arm-by-covariate interaction. An arm with few rows gives its regression
+few rows to learn from.
+
+**Evidence.** The registered study
+[`option-outcome-by-arm`](method-evidence/option-outcome-by-arm.md) measures the interval of the
+per-arm fit in sample and stacked, on binary, continuous and bounded outcomes, and a
+double-robustness pair with per-arm intercepts. The support rows `T53.in_sample.*` and
+`T53.stacked.*` cover a per-arm fit of the means, the ATE, the risk ratio and the odds ratio;
+a per-arm fit of the ATT or the ATC reads `experimental`. No study cell can show that the option was honoured: with the correct mechanism the pooled fit
+is also unbiased in the exact-law limit, with an SE ratio of 1.0001 (binary) and 1.0010
+(bounded), so every cell would read the same if the option were ignored. The pooled rows are
+reported for comparison and are not evidence that the option helps. The per-arm fit is more
+efficient by 0.19% of SD on the binary law and 2.36% on the bounded law.
+
+The evidence that the option does what it says is the fast tier. In
+`tests/unit/test_option_outcome_by_arm_witness.py`, on an exact finite law with an
+intercept-only mechanism, the per-arm fit returns the truth to $10^{-10}$ and the pooled fit
+misses it by the exact targeting limit of its regression. A spy on the study's own fits checks
+that each arm's regression reads only that arm's rows and the covariates.
+
 ### Treatment-mechanism covariates
 
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset $W_g$ of the
@@ -962,6 +1055,23 @@ reads, with $W_g$ written as `{name, name}`:
 > mechanism then both use {Wg}.
 
 The inference status stays `influence_curve`, claimed under the declared restriction.
+
+The interval needs no new variance under the restriction. The ATE $\psi = E[Q(1, W) - Q(0, W)]$
+does not depend on $g$, and its nonparametric efficient influence curve
+$D^* = (A/g - (1 - A)/(1 - g))(Y - Q) + Q(1, W) - Q(0, W) - \psi$ is also the canonical gradient
+in the model with $g_0$ known (van der Laan & Gruber 2012, Section 2.3; see
+[known treatment mechanisms](../references.md#known-treatment-mechanisms)). The restricted
+model lies between the two, so its tangent space contains the known-mechanism one, and $D^*$ is
+its canonical gradient too. With $g$ fitted inside the restriction the remainder is the ordinary
+product, and the Wald interval of the plug-in variance is valid and efficient in the restricted
+model.
+
+The restriction can be tested from the data: it says that $A$ is independent of
+$Z = W \setminus W_g$ given $W_g$. A likelihood-ratio test of the columns of $Z$ in a treatment
+regression on $W$ is one such test. It detects only the dependence that the regression can
+represent, and a non-rejection does not establish the restriction. Choosing the declaration from
+the same data is a data-adaptive selection that the interval does not account for, so the
+declaration should rest on design knowledge, such as a known treatment assignment rule.
 
 #### The remainder when the restriction fails
 
@@ -1026,6 +1136,19 @@ raw-scale outcome stub.
 **Advice.** To exclude instruments, omit them from `adjustment=`. Then the outcome regression and
 the treatment mechanism both use $W_g$, and the interval is covered. Use `treatment_adjustment=`
 when the outcome regression needs the columns and the treatment mechanism does not.
+
+**Evidence.** The registered study
+[`option-treatment-adjustment`](method-evidence/option-treatment-adjustment.md) backs the support
+rows `T54.in_sample` and `T54.stacked`, which cover a declared restriction for the means, the
+ATE, the risk ratio and the odds ratio; the ATT and the ATC read `experimental`
+([scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals)). It reads
+the interval under the restriction, in sample and stacked, and double robustness with the mechanism on $W_g$. It also
+reads case B with an instrument $Z$, an outcome GLM on $W$ and the constructed outcome error
+$n^{-1/4} Z$ on the logit scale. That fit's exact-law bias is 0.95, 1.35 and 1.91 standard
+deviations at n = 1,000, 4,000 and 16,000, and with the mechanism on the whole set it stays
+below 0.001. Without the constructed error, the case-B fit is unbiased, but its reported
+standard error converges to 0.916 of its true one, from the stacked estimating equations of the
+two GLMs and the targeting step.
 
 #### Compositions
 
@@ -1309,17 +1432,20 @@ regime.
 | --- | --- | --- |
 | `targeting_scheme="fold"` | each validation fold fits its own $\varepsilon_v$ on its own rows, so each fold's score is solved exactly. The estimate and the variance keep the form above | Montoya (2023b), Section 3.2, Step 2(c), and Section 4.2. That each fold's remainder is then its own second-order term under C3 and C4 is this package's step |
 | `weights=` | the target is the fold-average value in the weighted population of [weights, strata, and clusters](#weights-strata-and-clusters). The rule is the plug-in of the weighted outcome regression, so it is the rule of the weighted population. Each validation fold normalises its weights, its estimate $\psi^*_{nv}$ is the weighted mean over its rows, and its curve term is $(w_i/\bar w_v) D_i$ | the shipped weighted fold-evaluated fit. Weighted and unweighted rules differ in the limit only when the outcome regression is misspecified or the weight depends on the outcome |
-| `id=` | the cluster is the unit. Folds move whole clusters, so each rule is learned on training clusters. Each fold term is the centred variance of the fold's cluster totals, with the few-cluster $t$ reference of [CV-TMLE](cv-tmle.md) | the shipped clustered fold-evaluated fit |
+| `id=` | the cluster is the unit. Folds move whole clusters, so each rule is learned on training clusters. Each fold term is the centred variance of the fold's cluster totals, with a $t$ reference on $J-V$ degrees of freedom at every cluster count ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). The fit stays experimental at unequal cluster sizes | the shipped clustered fold-evaluated fit |
 
 A cluster effect on the outcome makes a main-terms outcome learner misspecified for the row-level
 regression, which averages over the effect. The interval then rests on condition C4 through a
 correct treatment model. When cluster sizes depend on the outcome, the fold-evaluated point carries
-the ratio bias that [CV-TMLE](cv-tmle.md) measures. For an unweighted fit the bias vanishes at
-equal sizes. A weighted fold mean is a ratio of weighted sums at any sizes.
+the ratio bias of [clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass). For an
+unweighted fit the bias vanishes at equal sizes. A weighted fold mean is a ratio of weighted sums
+at any sizes. The learned-rule value is exempt from the refusal that bias triggers elsewhere,
+because its target is defined by the $1/V$ average, and the stacked report is a different
+data-adaptive target rather than a redirect.
 
 The [compositions study](method-evidence/learned-rule-compositions.md) measures each setting at
 n = 2,000, and its fits read supported. Coverage is 0.9427 under fold targeting, 0.9537 with
-known weights at `misspecified_limit`, and 0.9445 at 200 equal clusters of 10. At 30 clusters the
+known weights at `misspecified_limit`, and 0.9465 at 200 equal clusters of 10. At 30 clusters the
 t interval covers 0.9400 to 0.9528. The study draws equal cluster sizes only, so its key marks a
 learned-rule fit with unequal sizes (`unequal_clusters`), and such a fit reads experimental. A
 fit with both weights and clusters also reads experimental, because no cell measures it. Weights
@@ -1687,7 +1813,8 @@ $\tilde\psi^{s}_{0n}$.
 The stacked report motivates its own use with clusters. When cluster sizes depend on the outcome,
 the fold-evaluated point carries a ratio bias of order $V/J$, and the stacked point a smaller one:
 at 200 clusters in 5 folds the [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md)
-measured 0.13 and 0.02 empirical SDs for the arm-indexed fit it reads ([CV-TMLE](cv-tmle.md)).
+measured 0.13 and 0.02 empirical SDs for the arm-indexed fit it read before `cv_evaluation=True`
+refused such clusters ([clusters of unequal mass](cv-tmle.md#clusters-of-unequal-mass)).
 
 The registered [stacked study](method-evidence/learned-rule-stacked.md) calibrates the stacked
 learned-rule interval at nominal n = 2,000 with ten folds and the RM30 logistic learners, in
@@ -1901,7 +2028,7 @@ assigns that arm.
 
 | composition | result |
 | --- | --- |
-| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, supported. The key's treatment reads `arms3` in place of `binary`, and the [three-arm study](method-evidence/learned-rule-arms.md) registers row `T45` for it |
+| the plug-in rule under the fold-evaluated report on rows, at three arms | admitted, experimental. The key's treatment reads `arms3` in place of `binary`. The [three-arm study](method-evidence/learned-rule-arms.md) registered row `T45` for it, and the row was withdrawn when the study's conservative coverage cell failed under the shipped logit interval |
 | the plug-in rule under the stacked report or in sample, fold targeting, known weights, `id=`, `strata=`, `repeats` above 1 on rows, and known regimes beside the rule; and every fit over four or more arms | admitted, experimental. The key's treatment reads `arms3` or `arms4` and above, and no row declares these compositions |
 | `LearnedRule(loss="blip")` or `loss="weighted_classification"` | refused, row 4 of the table below, [X11](../roadmap.md#x11-learned-policy-follow-ups) (d2). Both pseudo-outcomes compare two arms. The remedy is the plug-in rule `LearnedRule()`, or a fixed rule `TMLE(interventions=[Rule(..., rule_kind="known")])` |
 | the omitted-variable bound | refused, X11 (n2): no witness checks the bias of a learned argmax rule against the combined representer over every arm. A fixed rule's regime bound covers every arm |
@@ -1922,9 +2049,10 @@ match the population shares of the stub's argmax regions, which an arm-index shi
 The [three-arm study](method-evidence/learned-rule-arms.md) calibrates the fold-evaluated value
 over three arms at n = 2,000 with ten folds, on one law whose learners' limits give every arm a
 share of at least 0.175 and put the top two arms within 0.01 of each other on at most 1.8% of
-the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9425 over
+the population. With a correct outcome model the SE ratio is 0.986 and the coverage 0.9419 over
 3,200 draws. When arm 2's outcome regression omits its quadratic term, with the correct
-multinomial $g$ fitted by maximum likelihood, the interval covers 0.940 at an SE ratio of 0.996.
+multinomial $g$ fitted by maximum likelihood, the interval covers 0.9375 at an SE ratio of 0.996,
+and the lower end of its 99% coverage interval, 0.9173, falls below the cell's floor of 0.92.
 There the omitted projection term is negligible (a predicted SE ratio of 1.0004), so the study
 measures coverage under a misspecified arm and does not test the conservative-variance route.
 

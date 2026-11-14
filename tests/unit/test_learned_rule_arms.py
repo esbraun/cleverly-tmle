@@ -24,8 +24,9 @@ The witnesses are the plan's (``X11-wave2-plan.md`` rev 2.1, section 5):
   The same reduction holds beside ``Static(2)``, so G's contrasts read the new fold rules.
 
 Two-arm support keys and labels are pinned for ten configurations. A three-arm fit keys
-``treatment=("arms3",)``: the ``learned-rule-arms`` study registers ``T45`` for the
-fold-evaluated report on rows, and eight other three-arm configurations and a four-arm fit read
+``treatment=("arms3",)`` and reads experimental: the ``learned-rule-arms`` study's row ``T45``
+was withdrawn when its conservative coverage cell failed under the shipped logit interval. The
+fold-evaluated report on rows, eight other three-arm configurations and a four-arm fit read
 experimental.
 """
 
@@ -870,14 +871,14 @@ class TestTheLabel:
             assert estimate.support.row == row, name
             assert estimate.support.label == ("experimental" if row is None else "supported")
 
-    def test_a_three_arm_fold_evaluated_fit_on_rows_reads_t45(self) -> None:
-        """The learned-rule-arms study registers the fold-evaluated report on rows (X11 PR H)."""
+    def test_a_three_arm_fold_evaluated_fit_on_rows_reads_experimental(self) -> None:
+        """T45 was withdrawn: its conservative coverage cell fails under the logit interval."""
         result = fit(_with_design_columns(arms_frame()))
         assert result.config.support_key.treatment == ("arms3",)
         assert result.config.support_key.splitting == ("fold_evaluated",)
         for name, estimate in result.estimates.items():
-            assert estimate.support.label == "supported", name
-            assert estimate.support.row == "T45", name
+            assert estimate.support.label == "experimental", name
+            assert estimate.support.row is None, name
 
     def test_a_four_arm_fold_evaluated_fit_reads_experimental(self) -> None:
         """``arms4`` is another key, which no row declares."""
@@ -887,7 +888,7 @@ class TestTheLabel:
             assert estimate.support.label == "experimental", name
             assert estimate.support.row is None, name
 
-    #: The three-arm configurations outside T45, each of which matches no row.
+    #: Other three-arm configurations, each of which matches no row either.
     THREE_ARMS: ClassVar[dict[str, tuple[dict[str, Any], dict[str, Any]]]] = {
         "stacked": ({"cv_evaluation": False}, {}),
         "in_sample_parametric": (

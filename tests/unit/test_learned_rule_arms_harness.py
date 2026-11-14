@@ -26,6 +26,7 @@ from tests.studies import _learned_rule_arms_law as law
 from tests.studies import learned_rule_arms as study
 from tests.studies import learned_rule_arms_properties as properties
 from tests.studies.evidence import property_failures, replication
+from tests.studies.evidence.seeds import stream_seed
 
 base = law.base
 
@@ -354,6 +355,28 @@ class TestThePrimaryRows:
         assert (rows["rule_rows_checked"] == N).all()
         assert set(rows.columns) >= set(law.HARNESS_COLUMNS)
 
+    def test_the_row_records_the_packages_logit_interval(self) -> None:
+        """The value is a bounded mean, so its interval is the logit one, asymmetric about the
+        estimate, and :func:`shipped_interval_columns` rebuilds its coverage from the row."""
+        record = base.smoke_record(study.STUDY)
+        key = (study.PRIMARY_LAW, 0, N)
+        frame = study._sample(record, key)
+        fold_seed = stream_seed(record, "fold_partition", "primary", study.PRIMARY_LAW, 0)
+        fitted = law.measured(frame, law.outcome_learner("declared"), fold_seed)
+        estimate = fitted.result.estimates[law.ESTIMAND]
+        assert estimate.interval_scale == "range_logit"
+        row = pd.DataFrame(study._primary(record, key, frame)).iloc[0]
+        assert (row["ci_lower"], row["ci_upper"]) == tuple(estimate.plugin_interval)
+        assert row["inference_scale"] == "identity"
+        # A nonzero witness: the identity interval would be symmetric about the estimate.
+        assert row["ci_upper"] - row["estimate"] != pytest.approx(
+            row["estimate"] - row["ci_lower"], rel=1e-6
+        )
+        rebuilt = properties.shipped_interval_columns(
+            pd.DataFrame([row[["estimate", "std_error", "truth"]]]), alpha=0.05
+        )
+        assert int(rebuilt["covered"].iloc[0]) == int(row["covered"])
+
     def test_the_harness_artifact_keys_each_replication(self) -> None:
         rows = pd.DataFrame(
             {
@@ -412,6 +435,43 @@ class TestThePropertyPath:
             control["std_error"], study.COVERAGE_SHRINK * positive["std_error"], rtol=1e-15
         )
         np.testing.assert_array_equal(control["estimate"], positive["estimate"])
+
+    def test_the_controls_read_the_packages_interval(self) -> None:
+        """Rebuilt on a positive row, the logit interval gives the fit's own ``covered`` and
+        ``rejected``; each interval-reading control carries that interval at its own estimate and
+        SE, and the necessity control keeps its placeholder Wald row."""
+        rows = _property_rows()
+        alpha = study.STUDY.margins.alpha
+        positive = rows.loc[rows["role"] == "positive"]
+        rebuilt = properties.shipped_interval_columns(positive, alpha=alpha)
+        for column in ("covered", "rejected"):
+            np.testing.assert_array_equal(rebuilt[column], positive[column])
+        controls = rows.loc[rows["cell"].isin(properties.SHIPPED_CONTROLS)]
+        assert set(controls["cell"]) == set(properties.SHIPPED_CONTROLS)
+        rebuilt = properties.shipped_interval_columns(controls, alpha=alpha)
+        for column in ("covered", "rejected"):
+            np.testing.assert_array_equal(rebuilt[column], controls[column])
+        untargeted = rows.loc[rows["cell"] == study.NECESSITY_CELLS[1]]
+        half = law.CRITICAL * untargeted["std_error"]
+        identity = (untargeted["estimate"] - half <= untargeted["truth"]) & (
+            untargeted["truth"] <= untargeted["estimate"] + half
+        )
+        np.testing.assert_array_equal(untargeted["covered"], identity.astype(int))
+
+    def test_the_shipped_interval_differs_from_the_identity_one(self) -> None:
+        """Mutations: a truth the identity interval covers and the logit interval misses, and
+        an estimate on its bound, which has no interval."""
+        rows = pd.DataFrame(
+            {
+                "estimate": [0.9, 0.9, 1.0],
+                "std_error": [0.05, 0.05, 0.05],
+                "truth": [0.98, 0.9, 1.0],
+            }
+        )
+        assert 0.9 + law.CRITICAL * 0.05 >= 0.98  # the identity interval covers row 0
+        read = properties.shipped_interval_columns(rows, alpha=0.05)
+        assert list(read["covered"]) == [0, 1, 0]
+        assert list(read["rejected"]) == [1, 1, 0]
 
     def test_the_necessity_control_is_the_untargeted_fit_of_the_same_draw(self) -> None:
         rows = _property_rows()

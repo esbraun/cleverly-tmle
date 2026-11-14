@@ -531,6 +531,7 @@ def ep_fold_curve(
         size_refusal,
     )
     from ..exceptions import DataError
+    from ..learners._fitting import seed_unset
 
     declared = sieve if sieve is not None else Sieve.default(modifiers)
     family = declared.basis
@@ -553,7 +554,9 @@ def ep_fold_curve(
                 scale="difference",
                 width=width,
                 clip=True,
-                final_learner=learner,
+                # A declared learner with no seed of its own takes the fold's, as the
+                # non-EP losses' learners do through resolve_learner.
+                final_learner=seed_unset(learner, seed),
                 values=values,
             )[0]
         except DataError as error:

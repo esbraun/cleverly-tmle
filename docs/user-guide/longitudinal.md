@@ -916,11 +916,15 @@ reports its point estimate with a diagnostic standard error, under the status
 `IPSI` and a fit with `survival_model="hazard"` refuse the option.
 
 `LongitudinalTreatment(markov_order=k)` lets each model at node `t` read the baseline covariates
-and only the last `k` nodes of history. It assumes that the earlier history adds nothing to those
+and only the last `k + 1` nodes of history. It assumes that the earlier history adds nothing to those
 models. The causal conditions still need the full history: every confounder of each decision must
 be recorded somewhere in it. The estimate stays on target in large samples when one family of
 models, the outcome models or the treatment and censoring models, is right on the window. The
 interval needs both. `ParametricGFormula` and `StructuralNestedMean` refuse the declaration.
+
+A treatment given once and held stays in every model, since it is the treatment at every
+node. A covariate measured before that treatment leaves the models once it is out of the window,
+so declare it in `baseline=` to keep it.
 
 `LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
 in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.
@@ -935,9 +939,13 @@ warns with `ConvergenceWarning` and names the node. `SDR` refuses the option, be
 correction step.
 
 The [survival node-bounds study](../technical-reference/method-evidence/survival-node-bounds.md)
-fits node bounds and pooled censoring in repeated samples. No simulation study covers
-`ratio_trim=` or `markov_order=`, so such fits print `experimental`. Exact-law tests check both,
-and [Ratio trimming](../technical-reference/longitudinal-tmle.md#ratio-trimming),
+fits node bounds and pooled censoring in repeated samples. The
+[ratio-trim study](../technical-reference/method-evidence/option-ratio-trim.md) checks the capped
+point estimate, but only when every outcome model is a `LinearRegression`, so a capped fit with
+another outcome learner prints `experimental`. The
+[Markov-order study](../technical-reference/method-evidence/option-markov-order.md) checks the
+estimate and interval of a windowed `LTMLE` fit on four treatment nodes. Exact-law tests check
+both settings, and [Ratio trimming](../technical-reference/longitudinal-tmle.md#ratio-trimming),
 [Markov order](../technical-reference/longitudinal-tmle.md#markov-order),
 [Pooled censoring](../technical-reference/longitudinal-tmle.md#pooled-censoring) and
 [Node bounds](../technical-reference/longitudinal-tmle.md#node-bounds) state each rule and its

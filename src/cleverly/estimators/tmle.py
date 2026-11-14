@@ -87,18 +87,21 @@ import copy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, cast, get_args
 
 import numpy as np
 
 from .._inference_status import (
+    CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
+    OUT_OF_RANGE_STATUS,
     InferenceStatus,
     supplies_inference,
 )
 from .._support import (
     Classification,
     Preflight,
+    band_shape,
     band_support,
     classify_point_fit,
     record_fit,
@@ -154,6 +157,7 @@ from ..exceptions import (
 from ..fluctuation._score import (
     StopContext,
     check_iterate,
+    check_rule_bootstrap,
     check_step_bound,
     check_stopping_rule,
     relative_score,
@@ -181,26 +185,34 @@ from ..inference.cluster import (
     cross_validated_variance,
     fewest_clusters,
     influence_variance,
+    unequal_positive_cluster_mass,
 )
 from ..inference.influence import (
     ArmMean,
     ClusterReference,
     CorrectionParts,
     ParameterEstimate,
+    bounded_status,
+    constant_outcome_cells,
     has_t_reference,
     make_estimate,
     median_estimates,
     missing_outcome_correction_parts,
     natural_course_mean,
+    outside_bounds,
     parameter_bounds,
     reduced_correction_parts,
     stamp_inference,
 )
 from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
     DEFAULT_KIND,
     DEFAULT_N_REPLICATES,
     MultiplierKind,
+    band_member,
+    check_band_reference,
+    constant_arm_members,
     known_regime_estimates,
     out_of_range,
     simultaneous_bands,
@@ -276,6 +288,7 @@ from ..targets import (
     targets_for,
 )
 from ..targets.base import READS_SINK, parameter_name, stratum_alias
+from ..targets.builtin import BUILTIN_TARGETS
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
@@ -664,6 +677,155 @@ def _default_treatment_kind(policies: Sequence[object]) -> Literal["discrete", "
     return "discrete" if categorical else "continuous"
 
 
+#: The alternative of :func:`fold_evaluated_cluster_refusal`.
+_CLUSTER_FOLD_ALTERNATIVE: Final[str] = (
+    "Use the default, cv_evaluation=False (CrossFitting(fold_evaluation=False) on a method). "
+    "It estimates the same effect from all folds at once, avoids this bias, and its interval "
+    "still accounts for the clustering."
+)
+
+
+def _mass_text(value: float, rows: bool) -> str:
+    """A per-cluster mass for a refusal: a row count, or a weight to three significant digits."""
+    if rows:
+        return str(round(value))
+    return np.format_float_positional(value, precision=3, unique=False, fractional=False, trim="-")
+
+
+def fold_evaluated_cluster_refusal(
+    data: CausalData,
+    estimator: TMLE,
+    estimands: Sequence[str],
+    reference: float,
+) -> CapabilityError | None:
+    r"""The refusal of a fold-evaluated clustered fit whose fold denominators are random.
+
+    ``cv_evaluation=True`` averages the validation-fold estimates with equal weight
+    :math:`1/V`. Each fold estimate is a ratio :math:`A_v/M_v` of two sums over the fold's
+    clusters: the targeted contribution and the estimand's denominator mass. The mass is the
+    total weight for the arm means, the ATE and every other admitted stem; the mass of each
+    non-reference arm for ``att``; and the reference arm's mass for ``atc``. When that mass
+    differs across the clusters with positive total weight, :math:`M_v` is random and each
+    fold estimate carries a ratio bias of order :math:`1/J_v`, so the equal average carries
+    about :math:`V` times the bias of the pooled ratio. Relative to the standard error that
+    shrinks only as :math:`V/\sqrt{J}`. The bias vanishes to first order when the cluster
+    effect is unrelated to the mass, which few clusters per fold cannot confirm. The only
+    fold aggregation without it is the ratio of the pooled sums, the stacked report, which
+    estimates the same parameter. So the fit refuses and redirects there, before any learner,
+    for the first requested estimand in report order whose mass differs.
+
+    Weighted masses print on the scale of the weights as supplied (``data.weight_spec.scale``
+    times the stored mean-one weights).
+
+    A learned-rule fit is not refused, although every fold estimate it reports carries the
+    same ratio term at unequal masses: the learned-rule value averages the values of ``V``
+    different fold rules with equal weight, and the pooled ratio would weight those rules by
+    fold mass, a different target, so no fold aggregation avoids the term. The known-regime
+    value (``ey_known_regime``) is reported on the same folds so that the contrast
+    (``ate_learned_rule``) differences two estimates of one fold set. All three stay
+    experimental at unequal sizes (the ``unequal_clusters`` support qualifier), and a regime
+    fit without ``learned_rule=`` and with ``cv_evaluation=False`` estimates the known-regime
+    value without the term. An unclustered fit keeps the equal average, whose ratio term is
+    :math:`O(V/\sqrt{n})` over :math:`n/V` independent rows per fold.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    estimator : TMLE
+        The estimator, read for ``cv_evaluation``, ``cross_fit`` and ``learned_rule``.
+    estimands : sequence of str
+        The resolved target names, in report order.
+    reference : float
+        The reference arm code, which ``atc`` reads and ``att`` skips.
+
+    Returns
+    -------
+    CapabilityError or None
+        The :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` refusal, or ``None``
+        when no requested estimand's denominator mass differs across clusters.
+    """
+    if (
+        not (estimator.cv_evaluation and estimator.cross_fit)
+        or data.cluster is None
+        or estimator.learned_rule is not None
+    ):
+        return None
+    weighted = data.is_weighted
+    total = np.asarray(data.weights, dtype=float) if weighted else np.ones(data.n)
+    binary = data.n_arms == 2 and reference == data.arm_codes[0]
+    treatment = np.asarray(data.treatment)
+    triggered: list[tuple[str, float | None, tuple[float, float, int]]] = []
+    for name in estimands:
+        stem = parameter_stem(name)
+        arms: list[float | None]
+        if stem == "att":
+            arms = [code for code in data.arm_codes if code != reference]
+        elif stem == "atc":
+            arms = [reference]
+        else:
+            arms = [None]
+        for arm in arms:
+            mass = total if arm is None else total * (treatment == arm)
+            spread = unequal_positive_cluster_mass(data.cluster, mass, total)
+            if spread is not None:
+                triggered.append((stem, arm, spread))
+    if not triggered:
+        return None
+    stem, arm, spread = triggered[0]
+    # The stored weights average one; the message speaks in the weights the user supplied.
+    scale = float(data.weight_spec.scale) if weighted else 1.0
+    low, high, clusters = (
+        _mass_text(spread[0] * scale, not weighted),
+        _mass_text(spread[1] * scale, not weighted),
+        spread[2],
+    )
+    span = f"from {low} to {high}"
+    if arm is None:
+        target = ""
+        if weighted:
+            differs = f"their total weight differs ({span} across {clusters} clusters)"
+            kind, larger = "clusters of different total weight", "heavier clusters"
+        else:
+            differs = f"their sizes differ ({span} rows across {clusters} clusters)"
+            kind, larger = "clusters of different sizes", "bigger clusters"
+    else:
+        rows = (
+            ("treated rows" if stem == "att" else "control rows")
+            if binary
+            else f"rows in arm {data.arm_label(arm)}"
+        )
+        target = f" for {stem}"
+        if stem == "att" and not binary:
+            label, versus = data.arm_label(arm), data.arm_label(reference)
+            target = f" for {parameter_name(stem, arm=label, versus=versus)}"
+        noun = f"total weight of {rows}" if weighted else f"number of {rows}"
+        differs = f"the {noun} per cluster differs ({span} across {clusters} clusters)"
+        kind = f"clusters that differ in their {noun}"
+        larger = (
+            f"clusters with more {rows}" if not weighted else f"clusters with more weight in {rows}"
+        )
+    alternative = _CLUSTER_FOLD_ALTERNATIVE
+    if unequal_positive_cluster_mass(data.cluster, total, total) is None:
+        # Only att or atc triggered: name every one of them, so the hint does not lead to a
+        # second refusal.
+        stems = " and ".join(dict.fromkeys(item[0] for item in triggered))
+        keep = '("ate", "ey1", "ey0")' if data.n_arms == 2 else '("ate", "ey")'
+        alternative += (
+            f" Or leave out {stems}: estimands={keep} can use cv_evaluation=True with these "
+            "clusters."
+        )
+    return CapabilityError.from_refusal(
+        Refusal(
+            RefusalReason.API_REDIRECTION,
+            f"cv_evaluation=True cannot be used with these clusters{target}: {differs}. "
+            f"With {kind}, giving every fold the same weight can bias the estimate, and the "
+            f"bias is largest when {larger} have different outcomes.",
+            alternative=alternative,
+        )
+    )
+
+
 class TMLE:
     """Targeted maximum likelihood estimator for a binary point treatment.
 
@@ -753,6 +915,14 @@ class TMLE:
         divides by the fold's own stratum share, and the marginal estimate is the share
         mixture of the stratum estimates.  Every other stratified request refuses before
         any learner (X28 in ``docs/roadmap.md``).
+
+        With ``id=`` and no learned rule, a request refuses before any learner when the
+        clusters differ in a requested estimand's denominator mass: total weight (row count
+        when unweighted) for the means and the ATE, the treated arm's mass for ``att`` and
+        the reference arm's for ``atc``. Each fold estimate is then a ratio of sums over
+        a few clusters, and the equal average carries a ratio bias; the stacked report
+        estimates the same parameter without it (:func:`fold_evaluated_cluster_refusal`).
+        ``estimands="all"`` drops such an ``att`` or ``atc`` instead.
 
         When this setting is true, ``result.cv_targeting`` holds the fold-evaluated
         report and the whole-sample plug-in at the same fold-reweighted fluctuation.
@@ -929,6 +1099,11 @@ class TMLE:
         ``"logit"`` (default) builds the band of a probability, or of a difference of two
         probabilities, on the logit of the estimate's position in its range; ``"identity"``
         on the estimate's own scale.  See :func:`~cleverly.inference.simultaneous_bands`.
+    band_reference:
+        ``"normal"`` (default) bands every estimate at the multiplier critical value;
+        ``"t"`` bands each estimate at the same tail of its own Student t reference, with
+        degrees of freedom from its influence curve.  See
+        :func:`~cleverly.inference.simultaneous_bands`.
     step_size, max_iter, tol:
         Targeting-step controls.
     stopping:
@@ -1150,6 +1325,7 @@ class TMLE:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: MultiplierKind = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        band_reference: str = DEFAULT_BAND_REFERENCE,
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
@@ -1217,6 +1393,7 @@ class TMLE:
         self.n_multiplier = n_multiplier
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.band_reference = band_reference
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
@@ -1232,6 +1409,7 @@ class TMLE:
         return False
 
     def _validate_settings(self) -> None:
+        check_band_reference(self.band_reference)
         if self.learned_rule is not None:
             if not isinstance(self.learned_rule, LearnedRule):
                 raise DataError(
@@ -1293,6 +1471,7 @@ class TMLE:
             raise ValueError(f"nuisance_bound must lie in (0, 0.5); got {self.nuisance_bound}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
         declared = [
             name
             for name, value in (
@@ -1990,7 +2169,20 @@ class TMLE:
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
         self._refuse_moved_known_values(data, estimands)
-        self._reference_arm(data)
+        reference = self._reference_arm(data)
+        if self.cv_evaluation and data.cluster is not None:
+            if self.estimands == "all":
+                # An ``all`` request drops what this fit cannot report, as it drops
+                # ``ey_obs``, ``par`` and ``paf`` above; a default or explicit request refuses.
+                estimands = tuple(
+                    name
+                    for name in estimands
+                    if parameter_stem(name) not in {"att", "atc"}
+                    or fold_evaluated_cluster_refusal(data, self, (name,), reference) is None
+                )
+            refusal = fold_evaluated_cluster_refusal(data, self, estimands, reference)
+            if refusal is not None:
+                raise refusal
         return Preflight(estimands, resolved.conditions)
 
     def _refuse_vector_compositions(self, data: CausalData) -> None:
@@ -2323,12 +2515,14 @@ class TMLE:
         # An estimate whose parameter status withholds its interval stays out of the band,
         # which is then a joint statement over the others, and below two of them no band is
         # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
-        # "a band"), and ``summary()`` names the estimates left out.
-        banded = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
-        }
+        # "a band"), and ``summary()`` names the estimates left out. Two statuses are the
+        # exceptions (``band_member``, ``constant_arm_members``): a bounded estimate on or
+        # outside its range stays a member, and an estimate with a constant arm cell skips
+        # the whole band, because a band over the others would cover a family the data chose.
+        banded = {name: estimate for name, estimate in estimates.items() if band_member(estimate)}
         if (
             self.simultaneous
+            and not constant_arm_members(estimates)
             and len(banded) > 1
             and supplies_inference(result.inference_status)
             and not has_t_reference(banded)
@@ -2355,6 +2549,7 @@ class TMLE:
                 random_state=self.random_state,
                 cluster=data.cluster,
                 band_scale=self.band_scale,  # type: ignore[arg-type]
+                band_reference=self.band_reference,  # type: ignore[arg-type]
             )
             result = replace(
                 result,
@@ -2364,8 +2559,9 @@ class TMLE:
                         classification,
                         result.inference_status,
                         (estimate.support for estimate in banded.values()),
-                        options=(self.multiplier_kind, self.band_scale),
+                        options=(self.multiplier_kind, self.band_scale, self.band_reference),
                         draws=int(self.n_multiplier),
+                        shape=band_shape(weighted=data.is_weighted, cluster=data.cluster),
                     ),
                 ),
             )
@@ -4851,6 +5047,12 @@ class TMLE:
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
         reference = self._reference_arm(data, regimes, nuisance.policies)
+        if self.cv_evaluation and not nuisance.folds.is_single:
+            # A sweep that changes the weights or the targets cannot reach a fold average
+            # the fit refuses.
+            refusal = fold_evaluated_cluster_refusal(data, self, requested, reference)
+            if refusal is not None:
+                raise refusal
         mean_bounds = g_bounds or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=False
         )
@@ -5056,6 +5258,7 @@ class TMLE:
                     indices,
                     marginal_names,
                 )
+                fold_evaluated = _carry_cell_status(fold_evaluated, pooled)
                 fold_evaluated_report.update(fold_evaluated)
                 fold_estimates.update(per_fold_values)
                 estimates.update(fold_evaluated)
@@ -5066,8 +5269,11 @@ class TMLE:
                 )
                 for index in indices
             ]  # regimes ride along on `nuisance`, and are sliced per fold below
-            fold_evaluated = _average_over_folds(
-                per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
+            fold_evaluated = _carry_cell_status(
+                _average_over_folds(
+                    per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
+                ),
+                pooled,
             )
             fold_evaluated_report.update(fold_evaluated)
             fold_estimates.update(
@@ -5100,7 +5306,8 @@ class TMLE:
         headline_reference: ClusterReference | None = cluster_reference
         if cluster_reference is not None and self.cv_evaluation and indices:
             # The headline is the fold-evaluated report, whose variance has J - V degrees of
-            # freedom (ClusterReference). The stacked report keeps J - 2.
+            # freedom at every cluster count (ClusterReference). The stacked report keeps
+            # J - 2 below 40 clusters and the normal reference from 40.
             headline_reference = cluster_reference.with_fold_evaluated(
                 fold_evaluated_report, len(indices)
             )
@@ -5922,8 +6129,17 @@ class TMLE:
         index: IntArray | None = None,
         drop_undefined: bool = False,
         natural_course: ArmMean | None = None,
+        cell_rows: IntArray | None = None,
     ) -> dict[str, ParameterEstimate]:
         """Build every estimand that this fluctuation supports.
+
+        ``cell_rows`` are the rows the constant-cell check reads
+        (:func:`~cleverly.inference.influence.bounded_status`) on a binary outcome: the
+        stratum's rows for a stratum estimate. The check runs on every estimate with
+        ``bounds``, with reads its target records, or that is a working-model or projection
+        coefficient. ``None`` reads every row on the whole sample and sets no status on a
+        fold-evaluated call, whose estimates take the whole-sample status
+        (:func:`_carry_cell_status`).
 
         ``index`` restricts every input to one validation fold, which is what the
         fold-evaluated CV-TMLE needs; ``None`` uses the whole sample.  Weights are
@@ -5989,6 +6205,9 @@ class TMLE:
             observed=observed,
             scaler=scaler,
             n=n,
+            # A declared stopping rule leaves the score unsolved by design, so every
+            # estimate adds the remaining score to its interval's half-width.
+            rule_widened=self.stopping != "relative",
             cluster=cluster,
             alpha_sig=alpha_sig,
             arms=codes,
@@ -6025,16 +6244,100 @@ class TMLE:
         # distribution, and `context.means` computes the counterfactual means once.
         out: dict[str, ParameterEstimate] = {}
         target_group = "mean" if group == "natural_course" else group
+        if cell_rows is None and index is None:
+            cell_rows = np.arange(data.n, dtype=np.int64)
+        cells: frozenset[float] | None = None
+        modifier_cells: frozenset[float] | None = None
+        arm_reads: dict[float, frozenset[float]] | None = None
+        # The withheld statuses read the arms of a binary outcome on the rows the estimate
+        # reads; a fold-evaluated call (``cell_rows`` None) takes them from the whole-sample
+        # estimates instead (``_carry_cell_status``).
+        checks_cells = cell_rows is not None and data.family == "binomial"
+        if checks_cells:
+            keep = (np.asarray(weights) > 0.0) & np.asarray(observed, dtype=bool)
+            arm_reads = _arms_read_by_code(
+                codes,
+                np.asarray(treatment),
+                keep,
+                targeted.levels,
+                discrete=data.treatment_kind == "discrete",
+                regimes=regimes,
+                incremental=incremental,
+                policies=policies,
+                msm=msm,
+                contrast=contrast,
+            )
         for target in targets_for(target_group, requested):
             try:
                 # One target is one functional, not one number: with K arms `ey` is a mean
                 # per arm and `ate` a contrast per non-reference arm, and each comes back
                 # under its own name.
                 bounds = parameter_bounds(target.bounded, data.family)
+                builtin = target in BUILTIN_TARGETS
                 for estimate in target.build(context):
-                    out[estimate.name] = (
-                        estimate if bounds is None else replace(estimate, bounds=bounds)
-                    )
+                    changes: dict[str, Any] = {}
+                    if bounds is not None:
+                        changes["bounds"] = bounds
+                    if builtin:
+                        # A custom target's functional need not be an outcome mean, so it
+                        # records no family.
+                        changes["outcome_family"] = data.family
+                    recorded = context.reads.get(estimate.name)
+                    # A working-model or projection coefficient reads the arms its model spans,
+                    # and records its own code.
+                    coefficient = msm is not None or contrast is not None
+                    if checks_cells and (bounds is not None or recorded is not None or coefficient):
+                        assert cell_rows is not None
+                        constant = False
+                        inherited = False
+                        if arm_reads is not None:
+                            if cells is None:
+                                cells = frozenset(
+                                    float(arm)
+                                    for arm in constant_outcome_cells(
+                                        data.outcome,
+                                        data.treatment,
+                                        cell_rows,
+                                        weights=data.weights,
+                                        observed=data.observed,
+                                    )
+                                )
+                            if coefficient:
+                                # A coefficient spans every arm on the whole sample.
+                                read = frozenset(codes)
+                                if modifier_cells is None:
+                                    modifier_cells = self._modifier_cells(
+                                        data, cell_rows, index, msm, contrast
+                                    )
+                                own = recorded if recorded is not None else frozenset(codes)
+                                constant = bool(own & modifier_cells)
+                            else:
+                                # A target that records no reads counts as reading every code.
+                                read = recorded if recorded is not None else frozenset(codes)
+                            arms = frozenset().union(
+                                *(arm_reads.get(code, frozenset()) for code in read)
+                            )
+                            constant = constant or bool(cells & arms)
+                            # A contrast or ratio of a mean on or outside (0, 1) takes the
+                            # mean's status. Only a target that records its reads names the
+                            # means it is a function of; a coefficient's code names itself.
+                            inherited = (
+                                not coefficient
+                                and recorded is not None
+                                and any(
+                                    code in context.means
+                                    and outside_bounds(context.means[code].psi, (0.0, 1.0))
+                                    for code in recorded
+                                )
+                            )
+                        changes["inference"] = bounded_status(
+                            estimate.inference,
+                            estimate.psi,
+                            bounds,
+                            constant_cell=constant,
+                            reads_out_of_range=inherited,
+                        )
+                    out[estimate.name] = replace(estimate, **changes) if changes else estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a
                 # subsample; anything else failing is a bug and must not be swallowed.
@@ -6044,6 +6347,50 @@ class TMLE:
         if sink is not None:
             sink.update(context.reads)
         return out
+
+    @staticmethod
+    def _modifier_cells(
+        data: CausalData,
+        cell_rows: IntArray,
+        index: IntArray | None,
+        msm: MSMSet | None,
+        contrast: EffectModificationSet | None,
+    ) -> frozenset[float]:
+        """The coefficient codes that read a constant arm-by-modifier cell.
+
+        ``msm`` and ``contrast`` are already restricted to ``index`` when it is given, and
+        ``cell_rows`` are then those rows; otherwise they span the sample and ``cell_rows``
+        selects from it. :func:`_coefficients_on_constant_cells` holds the rule.
+
+        Parameters
+        ----------
+        data : CausalData
+            The fit's data.
+        cell_rows : ndarray
+            The rows the estimates read.
+        index : ndarray or None
+            The rows ``msm`` and ``contrast`` are restricted to, or ``None``.
+        msm : MSMSet or None
+            The working model.
+        contrast : EffectModificationSet or None
+            The projection.
+
+        Returns
+        -------
+        frozenset of float
+            The codes of the coefficients that read a constant cell.
+        """
+        positions = cell_rows if index is None else np.arange(cell_rows.size)
+        weights = np.asarray(data.weights, dtype=float)[cell_rows]
+        observed = np.asarray(data.observed, dtype=bool)[cell_rows]
+        return _coefficients_on_constant_cells(
+            np.asarray(data.outcome, dtype=float)[cell_rows],
+            np.asarray(data.treatment, dtype=float)[cell_rows],
+            (weights > 0.0) & observed,
+            weights > 0.0,
+            msm=None if msm is None else msm.subset(positions),
+            contrast=None if contrast is None else contrast.subset(positions),
+        )
 
     def _stratum_estimates(
         self,
@@ -6104,6 +6451,7 @@ class TMLE:
                 reference,
                 index=index,
                 natural_course=None if not natural_course else natural_course[code],
+                cell_rows=index,
             )
             label = data.stratum_label(code)
             for estimate in estimates.values():
@@ -6119,7 +6467,11 @@ class TMLE:
                     alpha=estimate.alpha,
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
+                    inference=estimate.inference,
                     bounds=estimate.bounds,
+                    outcome_family=estimate.outcome_family,
+                    # The embedded curve's mean is the stratum's own residual.
+                    rule_widened=estimate.rule_widened,
                 )
                 codes[name] = code
         return out, codes
@@ -6456,6 +6808,254 @@ def _second_moment_over_n_squared(curve: FloatArray) -> float:
     return float(np.sum(np.square(values)) / values.size**2)
 
 
+def _arms_read_by_code(
+    codes: Sequence[float],
+    treatment: FloatArray,
+    keep: BoolArray,
+    levels: Sequence[float],
+    *,
+    discrete: bool,
+    regimes: RegimeSet | None,
+    incremental: IPSISet | None,
+    policies: PolicySet | None,
+    msm: MSMSet | None,
+    contrast: EffectModificationSet | None,
+) -> dict[float, frozenset[float]] | None:
+    r"""The treatment arms whose outcome residuals each parameter code's mean reads.
+
+    A mean of a discrete treatment reads arm ``a`` when its residual term
+    :math:`h(A, W)\{Y - \bar Q(A, W)\}` carries a nonzero weight on some row of ``keep`` that
+    received ``a``. On such an arm a single observed outcome value leaves the arm's residual
+    variance out of the influence curve, which is the constant-cell defect
+    (:func:`~cleverly.inference.influence.bounded_status`). An arm mean reads its own arm. A
+    regime, a learned rule or an IPSI tilt reads every arm where its density
+    :math:`g^\star(a \mid W)` is positive on such a row, and a policy on a categorical
+    treatment every arm where its ratio is nonzero. The natural course, an IPSI tilt with
+    one factor on every level or a policy that moves no row, reads no arm: its curve is
+    :math:`Y - \psi` exactly, which reads each observed outcome as the empirical mean
+    ``ey_obs`` does. A working-model or projection coefficient of a discrete treatment counts
+    as reading every arm, the span of its model.
+
+    Parameters
+    ----------
+    codes : sequence of float
+        The fit's parameter codes: arms, regimes, tilts or policies.
+    treatment : ndarray
+        ``(m,)`` treatment codes of the rows the estimates read.
+    keep : ndarray
+        ``(m,)`` booleans, the rows of positive weight with an observed outcome.
+    levels : sequence of float
+        The arm codes, ascending, that index the arm columns of a regime or tilt density.
+    discrete : bool
+        Whether the treatment is a single discrete column.
+    regimes : RegimeSet or None
+        The regimes or learned rule of a regime fit, on the same rows.
+    incremental : IPSISet or None
+        The tilts of an IPSI fit, on the same rows.
+    policies : PolicySet or None
+        The policies or risk-ratio tilts of a policy fit, on the same rows.
+    msm : MSMSet or None
+        The working model of an MSM fit.
+    contrast : EffectModificationSet or None
+        The projection of an effect-modification fit.
+
+    Returns
+    -------
+    dict of float to frozenset of float, or None
+        The arms each code reads. ``None`` when the treatment has no arms: a continuous or
+        vector treatment, a policy on one, and any fit whose treatment is not one column.
+    """
+    if treatment.ndim != 1:
+        return None
+    if contrast is not None or msm is not None:
+        if not discrete:
+            return None
+        return {float(code): frozenset(float(level) for level in levels) for code in codes}
+    if policies is not None:
+        if not policies.is_discrete:
+            return None
+        ratio = np.asarray(policies.policy_ratio, dtype=float)
+        moved = np.asarray(policies.moved, dtype=bool)[keep]
+        mixing = np.asarray(policies.weights, dtype=float)
+        out: dict[float, frozenset[float]] = {}
+        for column, code in enumerate(codes):
+            if not moved[:, mixing[column] > 0.0].any():
+                # The natural course: its curve is ``Y - psi`` exactly, as for ``ey_obs``.
+                out[float(code)] = frozenset()
+                continue
+            out[float(code)] = frozenset(
+                float(arm) for arm in np.unique(treatment[keep & (ratio[:, column] != 0.0)])
+            )
+        return out
+    natural: set[int] = set()
+    if incremental is not None:
+        density = np.asarray(incremental.values, dtype=float)
+        # A tilt with one factor on every level is the natural course.
+        natural = {
+            column for column, factors in enumerate(incremental.factors) if len(set(factors)) == 1
+        }
+    elif regimes is not None:
+        density = np.asarray(regimes.values, dtype=float)
+    else:
+        return {float(code): frozenset({float(code)}) for code in codes}
+    out = {}
+    for column, code in enumerate(codes):
+        arms: set[float] = set()
+        if column in natural:
+            out[float(code)] = frozenset(arms)
+            continue
+        for position, level in enumerate(levels):
+            rows = keep & (treatment == level)
+            if np.any(density[rows, position, column] > 0.0):
+                arms.add(float(level))
+        out[float(code)] = frozenset(arms)
+    return out
+
+
+def _coefficients_on_constant_cells(
+    outcome: FloatArray,
+    treatment: FloatArray,
+    qualifying: BoolArray,
+    positive: BoolArray,
+    *,
+    msm: MSMSet | None,
+    contrast: EffectModificationSet | None,
+) -> frozenset[float]:
+    r"""The coefficient codes of a saturated working model that read a constant modifier cell.
+
+    A row's modifier pattern is everything the model reads from it: for a working model the
+    design :math:`\varphi(a, V_i)` and the weight :math:`h(a, V_i)` at every arm, and for a
+    projection the basis :math:`\varphi(V_i)`. A cell is one arm at one pattern. When the
+    model is saturated over its cells, with as many cells of positive weight as terms, the
+    fitted model passes through each cell's mean (on the link scale), so the coefficients are
+    :math:`\Phi^{-1}` times the cell means, and coefficient :math:`j` reads cell :math:`c`
+    exactly when :math:`(\Phi^{-1})_{jc} \ne 0`. A coefficient that reads a cell whose
+    qualifying rows show one outcome value has the constant-cell defect of an arm mean in
+    one stratum (:func:`~cleverly.inference.influence.bounded_status`). A projection cell is a
+    pattern, and it reads the two contrasted arms there.
+
+    A model with more cells than terms pools cells, as a continuous modifier always does, and
+    returns no code: its coefficients take the whole-sample check alone.
+
+    Parameters
+    ----------
+    outcome : ndarray
+        ``(m,)`` outcomes of the rows the estimates read.
+    treatment : ndarray
+        ``(m,)`` treatment codes of the same rows.
+    qualifying : ndarray
+        ``(m,)`` booleans, the rows of positive weight with an observed outcome.
+    positive : ndarray
+        ``(m,)`` booleans, the rows of positive weight, which define the model's patterns.
+    msm : MSMSet or None
+        The working model on the same rows.
+    contrast : EffectModificationSet or None
+        The projection on the same rows.
+
+    Returns
+    -------
+    frozenset of float
+        The codes of the coefficients that read a constant cell.
+    """
+    if contrast is not None:
+        design = np.asarray(contrast.design, dtype=float)
+        signature = design
+    elif msm is not None:
+        design = np.asarray(msm.design, dtype=float)
+        weights = np.asarray(msm.weights, dtype=float)
+        signature = np.concatenate([design.reshape(design.shape[0], -1), weights], axis=1)
+    else:
+        return frozenset()
+    rows = np.flatnonzero(positive)
+    if rows.size == 0:
+        return frozenset()
+    _, first, label = np.unique(signature[rows], axis=0, return_index=True, return_inverse=True)
+    label = np.asarray(label).reshape(-1)
+    terms = design.shape[-1]
+
+    def constant(pattern: int, arms: Sequence[float]) -> bool:
+        members = rows[label == pattern]
+        for arm in arms:
+            cell = members[qualifying[members] & (treatment[members] == arm)]
+            if cell.size and np.unique(outcome[cell]).size == 1:
+                return True
+        return False
+
+    cells: list[FloatArray] = []
+    flags: list[bool] = []
+    for pattern, row in enumerate(rows[first]):
+        if contrast is not None:
+            cells.append(design[row])
+            flags.append(constant(pattern, contrast.pair))
+            continue
+        assert msm is not None
+        for position, arm in enumerate(msm.arms):
+            if weights[row, position] > 0.0:
+                cells.append(design[row, position])
+                flags.append(constant(pattern, (arm,)))
+        if len(cells) > terms:
+            return frozenset()
+    if len(cells) != terms or not any(flags):
+        return frozenset()
+    try:
+        inverse = np.linalg.inv(np.vstack(cells))
+    except np.linalg.LinAlgError:
+        return frozenset()
+    reads = np.abs(inverse) > 1e-10 * np.abs(inverse).max()
+    hit = np.asarray(flags, dtype=bool)
+    return frozenset(float(j) for j in range(terms) if bool(np.any(reads[j] & hit)))
+
+
+def _carry_cell_status(
+    estimates: Mapping[str, ParameterEstimate],
+    pooled: Mapping[str, ParameterEstimate],
+) -> dict[str, ParameterEstimate]:
+    """Fold-evaluated estimates with the whole-sample constant cell and their own range check.
+
+    A fold-evaluated estimate reads the rows of its stratum, or of the whole sample, so it
+    takes ``"constant_arm_cell_plugin"`` when the estimate of the same name built on those rows
+    has it, and ``"out_of_range_plugin"`` when its own value lies on or outside its bounds or
+    when that estimate inherited the status from a mean it reads
+    (:func:`~cleverly.inference.influence.bounded_status`). No fold's own rows set a status.
+    It also keeps the outcome family of that estimate.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The fold-evaluated estimates.
+    pooled : mapping of str to ParameterEstimate
+        The estimates of the same names built on the whole sample and on each stratum.
+
+    Returns
+    -------
+    dict of str to ParameterEstimate
+        ``estimates``, each with its status and family.
+    """
+    out: dict[str, ParameterEstimate] = {}
+    for name, estimate in estimates.items():
+        source = pooled.get(name)
+        constant = source is not None and source.inference == CONSTANT_ARM_CELL_STATUS
+        # A whole-sample contrast or ratio that inherited the range status from a mean it
+        # reads, rather than taking it from its own value, passes it on.
+        inherited = (
+            source is not None
+            and source.inference == OUT_OF_RANGE_STATUS
+            and not outside_bounds(source.psi, source.bounds)
+        )
+        out[name] = replace(
+            estimate,
+            inference=bounded_status(
+                estimate.inference,
+                estimate.psi,
+                estimate.bounds,
+                constant_cell=constant,
+                reads_out_of_range=inherited,
+            ),
+            outcome_family=None if source is None else source.outcome_family,
+        )
+    return out
+
+
 def _average_over_folds(
     per_fold: Sequence[Mapping[str, ParameterEstimate]],
     supported: Sequence[str],
@@ -6482,6 +7082,11 @@ def _average_over_folds(
     A common validation update need not make any one fold's score zero, which is why
     :func:`cross_validated_variance` uses the uncentred fold second moments for rows; the
     cluster branch centres within each fold.
+
+    A clustered fit without a learned rule whose fold denominators are random never reaches
+    this average: its request refuses first (:func:`fold_evaluated_cluster_refusal`). The
+    ``cv_targeting`` diagnostic of a fold-targeted fit with ``cv_evaluation=False`` still
+    averages here.
     """
     out: dict[str, ParameterEstimate] = {}
     dropped: list[str] = []
@@ -6526,6 +7131,7 @@ def _average_over_folds(
             # rule. docs/technical-reference/inference.md states this contract.
             covariance_rule="centered",
             bounds=parts[0].bounds,
+            rule_widened=any(part.rule_widened for part in parts),
         )
 
     if dropped:

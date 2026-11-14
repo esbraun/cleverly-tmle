@@ -42,7 +42,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, SparseInfluenceWarning
 from cleverly.inference import simultaneous_bands
 from cleverly.inference.delta import Transform
-from cleverly.inference.influence import median_estimates
+from cleverly.inference.influence import make_estimate, median_estimates
 from cleverly.inference.multiplier import POLICY_VARIANCE_BAND_REFUSAL
 from cleverly.inference.policy import PolicyCovariance, PolicyVariance
 from cleverly.inference.results import (
@@ -195,9 +195,25 @@ def test_the_test_interval_and_frame_read_the_stored_variance() -> None:
     result = option_fit()
     frame = result.to_frame().set_index("estimand")
     z = norm.ppf(0.975)
+    scales = set()
     for name, estimate in result.estimates.items():
         assert estimate.std_error == pytest.approx(np.sqrt(estimate.variance), rel=1e-14)
         lower, upper = estimate.ci
+        scales.add(estimate.interval_scale)
+        if estimate.interval_scale == "range_logit":
+            # A bounded mean: the Wald interval at the larger SE on the logit scale.
+            logit = Transform.range_logit(0.0, 1.0)
+            slope = logit.slope(estimate.psi)
+            center = float(logit.forward(estimate.psi))
+            half = z * estimate.std_error * slope
+            assert lower == pytest.approx(float(logit.inverse(center - half)), rel=1e-12)
+            assert upper == pytest.approx(float(logit.inverse(center + half)), rel=1e-12)
+            for null in (0.3, estimate.psi + 0.02):
+                test = estimate.wald_test(null)
+                expected = (center - float(logit.forward(null))) / (estimate.std_error * slope)
+                assert test.statistic == pytest.approx(expected)
+            continue
+        assert estimate.interval_scale == "identity"
         assert lower == pytest.approx(estimate.psi - z * estimate.std_error, rel=1e-12)
         assert upper == pytest.approx(estimate.psi + z * estimate.std_error, rel=1e-12)
         for null in (0.0, estimate.psi + 0.02):
@@ -212,6 +228,8 @@ def test_the_test_interval_and_frame_read_the_stored_variance() -> None:
         assert payload["policy_weighted_std_err"] == pytest.approx(
             np.sqrt(estimate.policy.policy_variance)
         )
+    # Law P's outcome lies in [0, 1]: the levels read the logit scale, the contrasts not.
+    assert scales == {"range_logit", "identity"}
 
 
 def test_the_default_fit_carries_no_policy_record() -> None:
@@ -442,6 +460,84 @@ def test_the_half_width_is_the_larger_of_the_default_and_z_times_the_policy_erro
             continue
         _, p_value = record.test(center, float(null), df)
         assert (p_value < 0.05) == (null < lower or null > upper)
+
+
+def _composed(
+    multiple: float,
+    *,
+    bounds: tuple[float, float] | None,
+    scale: str,
+    reference_df: int | None = None,
+    family: str | None = None,
+) -> tuple[Any, Any]:
+    """An estimate with and without the option, its pw variance ``multiple`` times the curve's."""
+    rng = np.random.default_rng(5)
+    curve = rng.normal(size=400)
+    curve -= curve.mean()
+    common_args: dict[str, Any] = {
+        "n": curve.size,
+        "rule_widened": False,
+        "scale": scale,
+        "reference_df": reference_df,
+        "bounds": bounds,
+        "outcome_family": family,
+    }
+    psi = 0.8 if scale == "level" else 0.1
+    default = make_estimate("q", psi, curve, **common_args)
+    pw = multiple * float(np.var(curve, ddof=1)) / curve.size
+    option = make_estimate(
+        "q",
+        psi,
+        curve,
+        covariance_rule="policy_weighted",
+        policy=PolicyCovariance(("q",), np.array([[pw]])),
+        gradient=np.array([1.0]),
+        **common_args,
+    )
+    return default, option
+
+
+@pytest.mark.parametrize("multiple", [0.5, 3.0])
+def test_a_bounded_mean_widens_its_logit_half_width_to_z_times_the_policy_error(
+    multiple: float,
+) -> None:
+    """Rev 3.2 with Fix-3 PR 2: the option keeps the default's range-logit scale."""
+    default, option = _composed(multiple, bounds=(0.0, 1.0), scale="level")
+    assert default.interval_scale == option.interval_scale == "range_logit"
+    logit = Transform.range_logit(0.0, 1.0)
+    slope = logit.slope(option.psi)
+    center = float(logit.forward(option.psi))
+    z = norm.ppf(0.975)
+    se_ic = np.sqrt(option.policy.influence_variance)
+    se_pw = np.sqrt(option.policy.policy_variance)
+    half = max(z * se_ic * slope, z * se_pw * slope)
+    lower, upper = option.ci
+    assert float(logit.forward(upper)) - center == pytest.approx(half, rel=1e-12)
+    assert center - float(logit.forward(lower)) == pytest.approx(half, rel=1e-12)
+    assert lower <= default.ci[0] and upper >= default.ci[1]
+    if multiple < 1.0:
+        assert option.ci == default.ci
+    for null in np.linspace(lower - 0.05, upper + 0.05, 41):
+        if min(abs(null - lower), abs(null - upper)) < 1e-9:
+            continue
+        assert (option.wald_test(float(null)).pvalue < 0.05) == (null < lower or null > upper)
+
+
+@pytest.mark.parametrize("multiple", [1.1, 4.0])
+def test_a_t_reference_applies_only_to_the_influence_curve_half_width(multiple: float) -> None:
+    """Rev 3.2: ``max(t_df * SE_IC, z * SE_pw)``; the curve's df never reaches ``SE_pw``."""
+    default, option = _composed(
+        multiple, bounds=None, scale="difference", reference_df=5, family="gaussian"
+    )
+    assert option.interval_scale == "identity"
+    se_ic = np.sqrt(option.policy.influence_variance)
+    se_pw = np.sqrt(option.policy.policy_variance)
+    half = max(t.ppf(0.975, 5) * se_ic, norm.ppf(0.975) * se_pw)
+    lower, upper = option.ci
+    assert upper - option.psi == pytest.approx(half, rel=1e-12)
+    assert option.psi - lower == pytest.approx(half, rel=1e-12)
+    # 1.1 times the variance is below t_5 / z squared: the default interval wins.
+    assert (option.ci == default.ci) == (multiple < (t.ppf(0.975, 5) / norm.ppf(0.975)) ** 2)
 
 
 def test_the_policy_quadratic_reads_only_the_used_entries() -> None:

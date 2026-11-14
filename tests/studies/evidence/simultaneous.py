@@ -44,6 +44,7 @@ from typing import Any
 
 import numpy as np
 
+from cleverly.inference import kish_count
 from cleverly.inference.multiplier import out_of_range, simultaneous_bands
 from tests.studies.evidence.properties import PropertyCell
 
@@ -144,12 +145,11 @@ def inference_scale(estimate: Any, truth: float) -> tuple[float, float]:
 def pointwise_scale(estimate: Any) -> str:
     """The scale an estimate's pointwise interval is built on.
 
-    Its own transform's name, ``"log"`` for a ratio, and ``"identity"`` otherwise, as
-    ``SimultaneousBands.scales`` names them.
+    Its :attr:`~cleverly.inference.ParameterEstimate.interval_scale`: its own transform's name,
+    ``"log"`` for a ratio, ``"range_logit"`` for a bounded unclustered mean, and ``"identity"``
+    otherwise, as ``SimultaneousBands.scales`` names them.
     """
-    if estimate.transform is not None:
-        return str(estimate.transform.name)
-    return "log" if estimate.scale == "ratio" else "identity"
+    return str(estimate.interval_scale)
 
 
 def standardized_deviation(estimate: Any, truth: float, scale: str) -> float:
@@ -280,7 +280,17 @@ def _band_reading(
 def _pointwise_reading(
     estimates: Mapping[str, Any], truth: Mapping[str, float]
 ) -> tuple[float, bool]:
-    """``(statistic, covered)`` of the pointwise intervals, the statistic on their scales."""
+    """``(statistic, covered)`` of the pointwise intervals, the statistic on their scales.
+
+    An estimate whose plug-in interval is not reported (a constant arm cell, or an estimate on
+    its bound) has no interval to cover the truth, so the row counts as a miss with an
+    infinite statistic.
+    """
+    if any(
+        not all(math.isfinite(limit) for limit in estimate.plugin_interval)
+        for estimate in estimates.values()
+    ):
+        return math.inf, False
     statistic = max(
         standardized_deviation(estimate, truth[name], pointwise_scale(estimate))
         for name, estimate in estimates.items()
@@ -328,15 +338,6 @@ def refused_critical_value(result: Any, estimates: Mapping[str, Any]) -> float:
         band_scale="identity",
     )
     return float(bands.critical_value)
-
-
-def kish_count(curve: Any) -> float:
-    """``(sum D^2)^2 / sum D^4`` of a centred influence curve ``D``; ``inf`` when ``D`` is 0."""
-    values = np.asarray(curve, dtype=float)
-    centred = values - values.mean()
-    squares = centred**2
-    fourth = float(np.sum(squares**2))
-    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
 
 
 def _observe(
@@ -668,3 +669,423 @@ def scale_coverage_rows(
         )
     )
     return rows
+
+
+# ------------------------------------------------------------------ the t reference band
+
+#: The suffix of a ``band-t-reference`` band cell and of its paired normal-reference control.
+T_BAND = "t_band"
+REFERENCE_CONTROL = "normal_reference_control"
+#: The role of the normal-reference control, read by the paired-gain rule
+#: (:func:`~tests.studies.evidence.property_verdicts.reference_gain_verdicts`).
+REFERENCE_ROLE = "reference_control"
+#: The study's own copy of the band's df floor (Fix-2 plan 2.4).  Not imported from the
+#: package, so a changed floor there fails the agreement assertion of :func:`t_band_rows`.
+T_DF_FLOOR = 5.0
+#: Coordinates at or above this df must follow the first-order expansion
+#: ``c_j / c - 1 = (c^2 + 1) / (4 nu_j)`` within :data:`EXPANSION_TOLERANCE` (plan 5.2).
+EXPANSION_DF = 50.0
+EXPANSION_TOLERANCE = 0.10
+#: The multivariate t diagnostic's Monte Carlo draws and seed (common random numbers).
+MVT_DRAWS = 20_000
+MVT_SEED = 20261113
+
+
+def t_cells(label: str) -> tuple[str, str, str]:
+    """The ``t`` band cell, its normal-reference control and its pointwise control."""
+    return f"{label}__{T_BAND}", f"{label}__{REFERENCE_CONTROL}", f"{label}__{CONTROL}"
+
+
+def _own_kish(values: Any) -> float:
+    """``(sum D^2)^2 / sum D^4`` of the centred ``D``, independent of the package's count."""
+    centred = np.asarray(values, dtype=float) - np.mean(values)
+    squares = centred**2
+    fourth = float(np.sum(squares**2))
+    return math.inf if fourth == 0.0 else float(np.sum(squares) ** 2 / fourth)
+
+
+def study_kish(curve: Any, cluster: Any = None) -> float:
+    """The study's own Kish count of a curve, of its cluster sums when ``cluster`` is given."""
+    values = np.asarray(curve, dtype=float)
+    if cluster is not None:
+        _, inverse = np.unique(np.asarray(cluster), return_inverse=True)
+        values = np.bincount(inverse, weights=values)
+    return _own_kish(values)
+
+
+def t_quantile(critical: float, nu: float) -> float:
+    """``c_j = F_{t, nu}^{-1}(Phi(c))``, and ``c`` itself at ``nu = inf``."""
+    from scipy.stats import norm, t
+
+    if math.isinf(nu):
+        return float(critical)
+    return float(t.isf(norm.sf(critical), nu))
+
+
+def t_statistic(deviation: float, nu: float) -> float:
+    """``Phi^{-1}(F_{t, nu}(|T|))``: inside ``c`` exactly when ``|T|`` is inside ``c_j``."""
+    from scipy.stats import norm, t
+
+    if math.isinf(nu) or math.isinf(deviation):
+        return float(deviation)
+    return float(norm.isf(t.sf(deviation, nu)))
+
+
+def check_expansion(critical: float, nus: Mapping[str, float], values: Mapping[str, float]) -> None:
+    """Assert the first-order expansion on every coordinate with ``nu >= EXPANSION_DF``.
+
+    A code-read gate (plan 5.2): deterministic given the fit, so a failure is an
+    implementation defect, not a finite-sample reading.
+    """
+    for name, nu in nus.items():
+        if math.isinf(nu) or nu < EXPANSION_DF:
+            continue
+        observed = values[name] / critical - 1.0
+        predicted = (critical**2 + 1.0) / (4.0 * nu)
+        if abs(observed / predicted - 1.0) > EXPANSION_TOLERANCE:
+            raise AssertionError(
+                f"{name}: c_j / c - 1 = {observed:.6g} departs from (c^2 + 1) / (4 nu) = "
+                f"{predicted:.6g} by more than {EXPANSION_TOLERANCE:.0%} at nu = {nu:.6g}"
+            )
+
+
+def check_widening(
+    critical: float, kish: Mapping[str, float], values: Mapping[str, float], label: str
+) -> None:
+    """Assert ``max_j (c_j / c - 1) > 0`` whenever some Kish count is finite (plan 5.2).
+
+    The deterministic nonzero witness, read from the package's ``c_j``: a ``t`` band that
+    collapsed to the normal band (``nu = inf`` on every coordinate, or ``c_j = c``) fails it on
+    the first replicate, whatever the paired gain's power.
+    """
+    if all(math.isinf(value) for value in kish.values()):
+        return
+    if max(values[name] / critical - 1.0 for name in values) <= 0.0:
+        raise AssertionError(
+            f"the {label} t band does not widen any coordinate although some Kish count is finite"
+        )
+
+
+def moment_df(curve: Any) -> float:
+    """Fix-3's pointwise df ``2K / (1 - K/m)`` over the rows that carry the curve.
+
+    ``K`` is the Kish count of the centred curve over its nonzero rows and ``m`` their number.
+    ``inf`` when every carrying term has one magnitude (``K = m``) or the curve is zero.
+    """
+    values = np.asarray(curve, dtype=float)
+    carrying = values[values != 0.0]
+    m = carrying.size
+    if m == 0:
+        return math.inf
+    kish = _own_kish(carrying)
+    if math.isinf(kish) or kish >= m:
+        return math.inf
+    return float(2.0 * kish / (1.0 - kish / m))
+
+
+def model_df(curve: Any, cells: Any) -> float:
+    """The model-assisted df: the Kish count of the cell means of ``d^2`` (D3 (b)).
+
+    ``cells`` gives each row's covariate cell; a row's ``s_i^2`` is the mean of the squared
+    centred curve over its cell (``rows/Fix-2/diag/dfpass.py``).
+    """
+    values = np.asarray(curve, dtype=float)
+    squares = (values - values.mean()) ** 2
+    _, codes = np.unique(np.asarray(cells), return_inverse=True)
+    means = np.bincount(codes, squares) / np.bincount(codes)
+    s2 = means[codes]
+    fourth = float(np.sum(s2**2))
+    return math.inf if fourth == 0.0 else float(np.sum(s2) ** 2 / fourth)
+
+
+def common_mvt_critical(critical: float, nu: float, curves: np.ndarray, alpha: float) -> float:
+    """``c q(nu) / q(inf)``: the exact multivariate t with one shared denominator (D3 (d)).
+
+    ``q`` is the ``1 - alpha`` quantile of ``max_j |Z_j| / sqrt(chi2_nu / nu)`` with ``Z``
+    drawn at the curves' own correlation, on :data:`MVT_DRAWS` common random numbers.
+    """
+    from scipy.stats import chi2
+
+    if math.isinf(nu):
+        return float(critical)
+    centred = curves - curves.mean(axis=0)
+    covariance = centred.T @ centred
+    sd = np.sqrt(np.diag(covariance))
+    sd[sd == 0.0] = 1.0
+    correlation = covariance / np.outer(sd, sd)
+    eigenvalues, eigenvectors = np.linalg.eigh(correlation)
+    factor = eigenvectors * np.sqrt(np.clip(eigenvalues, 0.0, None))
+    rng = np.random.default_rng(MVT_SEED)
+    maxima = np.abs(rng.standard_normal((MVT_DRAWS, correlation.shape[0])) @ factor.T).max(axis=1)
+    scale = np.sqrt(chi2.ppf(rng.uniform(size=MVT_DRAWS), nu) / nu)
+    q_inf = float(np.quantile(maxima, 1.0 - alpha))
+    return float(critical * np.quantile(maxima / scale, 1.0 - alpha) / q_inf)
+
+
+@dataclass(frozen=True)
+class TArm:
+    """A diagnostic df arm of a ``t`` band cell, read on the same fits without a verdict.
+
+    Parameters
+    ----------
+    suffix : str
+        The diagnostic cell suffix.
+    rule : str
+        ``"floor"`` (Kish with ``floor``), ``"moment"`` (Fix-3's df, floored),
+        ``"model"`` (the model-assisted df, floored), ``"common_copula"`` (one df
+        ``max(min_j Kish_j, floor)`` through the per-coordinate mapping) or ``"common_mvt"``
+        (that df through the exact multivariate t).
+    floor : float
+        The df floor of the arm.
+    """
+
+    suffix: str
+    rule: str
+    floor: float = T_DF_FLOOR
+
+
+#: The diagnostic arms every ``t`` band cell reads (plan 5.2, D3 (b) to (d)).
+T_ARMS: tuple[TArm, ...] = (
+    TArm("model_df_diagnostic", "model"),
+    TArm("moment_df_diagnostic", "moment"),
+    TArm("common_df_copula_diagnostic", "common_copula"),
+    TArm("common_df_mvt_diagnostic", "common_mvt"),
+)
+#: The floor arms the held-out cell reads besides them (plan 5.2, D4).
+FLOOR_ARMS: tuple[TArm, ...] = (
+    TArm("floor_2_diagnostic", "floor", 2.0),
+    TArm("floor_10_diagnostic", "floor", 10.0),
+)
+
+
+def t_property_cells(
+    label: str, *, n: int, replicates: int, seed: int, arms: Sequence[TArm]
+) -> tuple[PropertyCell, ...]:
+    """The declared cells of one ``t`` band label: band, two controls and ``arms``."""
+    band, reference, control = t_cells(label)
+    roles = [(band, "positive"), (reference, REFERENCE_ROLE), (control, "control")]
+    roles += [(f"{label}__{arm.suffix}", DIAGNOSTIC) for arm in arms]
+    return tuple(
+        PropertyCell(
+            property=FAMILY,
+            cell=cell,
+            dgp=JointLaw(label),
+            outcome_learner=lambda: None,
+            treatment_learner=lambda: None,
+            n=n,
+            replicates=replicates,
+            seed=seed,
+            role=role,
+            estimand="max_t",
+        )
+        for cell, role in roles
+    )
+
+
+def _arm_dfs(
+    arm: TArm,
+    kish: Mapping[str, float],
+    curves: Mapping[str, np.ndarray],
+    cells: Any,
+) -> dict[str, float]:
+    if arm.rule == "floor":
+        return {name: max(value, arm.floor) for name, value in kish.items()}
+    if arm.rule == "moment":
+        return {name: max(moment_df(curve), arm.floor) for name, curve in curves.items()}
+    if arm.rule == "model":
+        if cells is None:
+            raise ValueError("the model-assisted arm needs each row's covariate cell")
+        return {name: max(model_df(curve, cells), arm.floor) for name, curve in curves.items()}
+    if arm.rule in {"common_copula", "common_mvt"}:
+        common = max(min(kish.values()), arm.floor)
+        return dict.fromkeys(kish, common)
+    raise ValueError(f"unknown df rule {arm.rule!r}")
+
+
+def t_band_rows(
+    result: Any,
+    truth: Mapping[str, float],
+    names: Sequence[str],
+    *,
+    label: str,
+    replicate: int,
+    n: int,
+    requested: int,
+    pointwise_critical: float,
+    constant_cells: Sequence[str],
+    arms: Sequence[TArm] = T_ARMS,
+    cells: Any = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Every row :func:`t_property_cells` declares, and the replicate's diagnostics record.
+
+    The fit runs once with the default band.  The ``t`` band is rebuilt by the package from the
+    same estimates with the fit's own draws, seed, clusters and scale, so its ``c`` is the
+    fit's and the two bands are paired by construction; the function asserts both.  The ``t``
+    row's statistic is :func:`t_statistic` at the study's own df (:func:`study_kish`, floored
+    at :data:`T_DF_FLOOR`), its coverage the package band's own endpoints, and
+    :func:`_checked` ties the two.  The package's ``reference_df`` must equal the study's df
+    and the expansion gate (:func:`check_expansion`) must hold.
+
+    A refused logit band, or a replicate whose band family holds a constant arm cell
+    (``constant_cells`` non-empty, the row module's own copy of Fix-3's check, plan 2.5), gives
+    every band row the refused-band sentinel, not covered.
+
+    Returns
+    -------
+    tuple
+        The rows, and a per-replicate record of ``max_j (c_j / c - 1)``, ``min_j nu_j``,
+        whether the floor bound, the first-order union term ``sum_j 2 phi(c) (c_j - c)``, each
+        coordinate's df, moment df and standardized deviation, the constant cells and the
+        coverage of the shown ``t`` band.
+
+    Raises
+    ------
+    AssertionError
+        If the fit reported no band and did not refuse one, the rebuilt band's ``c`` differs
+        from the fit's, the package df differs from the study's, the expansion gate fails, or
+        a row's coverage indicator is not its statistic inside its critical value.
+    """
+    from scipy.stats import norm
+
+    estimates = {name: result[name] for name in names}
+    fitted = result.simultaneous
+    refused = refused_scale(result, estimates)
+    band_cell, reference_cell, control_cell = t_cells(label)
+    point_statistic, pointwise = _pointwise_reading(estimates, truth)
+    readings: list[tuple[str, str, float, float, bool]] = []
+    record: dict[str, Any] = {
+        "label": label,
+        "replicate": replicate,
+        "refused": refused is not None,
+        "constant_cells": ";".join(constant_cells),
+    }
+    if fitted is None:
+        if refused is None:
+            raise AssertionError(f"the {label} fit reported no simultaneous band")
+        critical = refused_critical_value(result, estimates)
+        sentinel = (critical + REFUSED_MARGIN, critical, False)
+        readings += [
+            (band_cell, "positive", *sentinel),
+            (reference_cell, REFERENCE_ROLE, *sentinel),
+        ]
+        readings += [(f"{label}__{arm.suffix}", DIAGNOSTIC, *sentinel) for arm in arms]
+        record.update(critical=critical, t_covered_shown=float("nan"))
+    else:
+        if refused is not None:
+            raise AssertionError(f"the {label} fit built a band over an out-of-range estimate")
+        if set(fitted.bands) != set(names):
+            raise AssertionError(f"the {label} band covers {sorted(fitted.bands)}")
+        estimator = result.estimator
+        data = getattr(result, "data", None)
+        cluster = None if data is None else getattr(data, "cluster", None)
+        rebuilt = simultaneous_bands(
+            estimates,
+            alpha=float(fitted.alpha),
+            n_replicates=int(fitted.n_replicates),
+            kind=fitted.kind,
+            random_state=estimator.random_state,
+            cluster=cluster,
+            band_scale=fitted.band_scale,
+            band_reference="t",
+        )
+        critical = float(fitted.critical_value)
+        if rebuilt.critical_value != critical:
+            raise AssertionError(
+                f"the {label} t band's c {rebuilt.critical_value!r} is not the fit's {critical!r}"
+            )
+        curves = {name: np.asarray(estimates[name].influence_curve, dtype=float) for name in names}
+        kish = {name: study_kish(curve, cluster) for name, curve in curves.items()}
+        nus = {name: max(value, T_DF_FLOOR) for name, value in kish.items()}
+        for name in names:
+            if not math.isclose(rebuilt.reference_df[name], nus[name], rel_tol=1e-12):
+                raise AssertionError(
+                    f"{label} {name}: the package df {rebuilt.reference_df[name]!r} is not the "
+                    f"study's {nus[name]!r}"
+                )
+        own = {name: t_quantile(critical, nus[name]) for name in names}
+        values = {name: float(rebuilt.critical_values[name]) for name in names}
+        for name in names:
+            if not math.isclose(values[name], own[name], rel_tol=1e-12):
+                raise AssertionError(
+                    f"{label} {name}: the package c_j {values[name]!r} is not the study's "
+                    f"{own[name]!r}"
+                )
+        check_expansion(critical, nus, values)
+        check_widening(critical, kish, values, label)
+        deviations = {
+            name: standardized_deviation(estimates[name], truth[name], rebuilt.scales[name])
+            for name in names
+        }
+        t_stat = max(t_statistic(deviations[name], nus[name]) for name in names)
+        t_covered = all(
+            rebuilt.bands[name][0] <= truth[name] <= rebuilt.bands[name][1] for name in names
+        )
+        normal = _band_reading(fitted, estimates, truth)
+        _checked(t_stat, critical, t_covered, band_cell)
+        arm_readings: list[tuple[str, float, bool]] = []
+        for arm in arms:
+            arm_nus = _arm_dfs(arm, kish, curves, cells)
+            if arm.rule == "common_mvt":
+                stacked = np.column_stack([curves[name] for name in names])
+                bound = common_mvt_critical(
+                    critical, next(iter(arm_nus.values())), stacked, float(fitted.alpha)
+                )
+                statistic = max(deviations.values()) * critical / bound
+                covered = all(value <= bound for value in deviations.values())
+            else:
+                statistic = max(t_statistic(deviations[name], arm_nus[name]) for name in names)
+                covered = all(
+                    deviations[name] <= t_quantile(critical, arm_nus[name]) for name in names
+                )
+            arm_readings.append((f"{label}__{arm.suffix}", statistic, covered))
+        if constant_cells:
+            sentinel = (critical + REFUSED_MARGIN, critical, False)
+            readings += [
+                (band_cell, "positive", *sentinel),
+                (reference_cell, REFERENCE_ROLE, *sentinel),
+            ]
+            readings += [(cell, DIAGNOSTIC, *sentinel) for cell, _, _ in arm_readings]
+        else:
+            readings += [
+                (band_cell, "positive", t_stat, critical, t_covered),
+                (reference_cell, REFERENCE_ROLE, *normal),
+            ]
+            readings += [
+                (cell, DIAGNOSTIC, statistic, critical, covered)
+                for cell, statistic, covered in arm_readings
+            ]
+        finite = [nu for nu in nus.values() if not math.isinf(nu)]
+        record.update(
+            critical=critical,
+            t_covered_shown=float(t_covered),
+            normal_covered_shown=float(normal[2]),
+            max_relative_widening=max(values[name] / critical - 1.0 for name in names),
+            min_df=min(nus.values()),
+            floor_bound=any(value < T_DF_FLOOR for value in kish.values()),
+            union_gain=float(
+                sum(2.0 * norm.pdf(critical) * (values[name] - critical) for name in names)
+            ),
+            df=";".join(f"{nus[name]:.6g}" for name in names),
+            moment_df=";".join(f"{moment_df(curves[name]):.6g}" for name in names),
+            deviations=";".join(f"{deviations[name]:.6g}" for name in names),
+            beyond=";".join(str(int(deviations[name] > values[name])) for name in names),
+            critical_values=";".join(f"{values[name]:.12g}" for name in names),
+            finite_df=len(finite),
+        )
+    readings.append(
+        (control_cell, "control", point_statistic, float(pointwise_critical), pointwise)
+    )
+    rows = [
+        _judged_row(
+            cell=cell,
+            role=role,
+            replicate=replicate,
+            n=n,
+            requested=requested,
+            statistic=statistic,
+            critical=critical,
+            covered=covered,
+        )
+        for cell, role, statistic, critical, covered in readings
+    ]
+    return rows, record

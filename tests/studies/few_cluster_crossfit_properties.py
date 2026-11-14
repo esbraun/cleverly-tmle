@@ -8,8 +8,12 @@ draw, five whole-cluster folds, so a validation fold holds 4 to 6 clusters. The 
 The fit publishes three arms on ``ate_regimen[always vs never]``. ``t_reference`` (positive)
 is the reported interval, on t with ``J - 2`` degrees of freedom: the 99% exact coverage lower
 bound must reach 0.90, and the bias must lie within 0.25 empirical SD. ``iid_t_control``
-(control) keeps the point estimate and the t quantile and uses the IID row standard error:
-its SE-ratio upper bound must fall below 0.80. ``normal_reference`` (reported) keeps the
+(control) keeps the point estimate and the t quantile and uses the IID row standard error.
+Its verdict needs two clauses: the 99% upper bound of the paired ratio, the mean IID SE over
+the mean cluster SE of the same fits, below 0.80, and the paired ``t_reference`` arm's SE-ratio
+upper bound at most 1.20, the study's SE screen. The second clause keeps a cluster SE that is
+too wide from passing the first on a law without a cluster effect. ``PROPERTY_GROUPS`` pairs
+the arms of one fit. ``normal_reference`` (reported) keeps the
 cluster-robust standard error with the normal quantile. The rule is the one
 ``clustered-few-cluster-tmle`` states, applied to this record.
 
@@ -40,6 +44,7 @@ from tests.studies.evidence.properties import (
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
+    FEW_CLUSTER_COLUMNS,
     FEW_CLUSTER_IID_CONTROL_CEILING,
     apply_shared_verdicts,
     few_cluster_reference_verdicts,
@@ -61,8 +66,17 @@ from tests.studies.few_cluster_crossfit_ltmle import (
 )
 
 NORMAL_CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
-#: What the ``iid_t_control`` SE-ratio upper bound must fall below.
+#: What the upper bound of the ``iid_t_control`` paired ratio, the mean IID SE over the mean
+#: cluster SE of the same fits, must fall below.
 IID_CONTROL_CEILING = FEW_CLUSTER_IID_CONTROL_CEILING
+#: The arms of one fit, size law and count, which pair each control with its positive arm.
+PROPERTY_GROUPS = {
+    FAMILY: tuple(
+        tuple(cell_name(sizes, clusters, arm) for arm, _ in ARMS)
+        for sizes in SIZE_LAWS
+        for clusters in CLUSTER_COUNTS
+    )
+}
 
 
 def t_critical(df: int) -> float:
@@ -264,6 +278,8 @@ def _probe_one(payload: tuple[str, int, int, int]) -> bool:
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """Apply the declared rules; the policy is ``reporting``, so red cells are published."""
-    summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
-    few_cluster_reference_verdicts(summary, rows, STUDY)
+    summary, rates = apply_shared_verdicts(
+        rows, STUDY, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+    )
+    few_cluster_reference_verdicts(summary, rows, STUDY, PROPERTY_GROUPS[FAMILY])
     return finish(summary, rates)

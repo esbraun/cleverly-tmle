@@ -24,6 +24,12 @@ Four families, in the order the declaration reads them. Every fit is at n = 2,00
     (:func:`~tests.studies._learned_rule_arms_law.margin_columns`), role ``diagnostic``, no
     verdict.
 
+Every interval in the study is the package's interval of a bounded mean: the Wald interval on the
+logit scale, mapped back. A positive row reads it from its fit. The shrunken-SE, noise and shrunken
+coverage controls rebuild it at their own estimate and SE (:func:`shipped_interval_columns`), so
+each control is the shipped interval with one deliberate defect and nothing else changed. The
+untargeted necessity control reads bias only, and its SE is the positive's placeholder.
+
 Every statistic reads the error ``estimate - truth`` of each row, because the record declares
 ``truth_varies_by_replicate``. A property draw's sample seed is
 ``stream_seed(record, "property_sample", family, label, replicate, *suffix)`` and its fold seed
@@ -37,6 +43,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cleverly.inference import Transform, wald_ci
 from tests.parallel import STUDY_JOBS
 from tests.studies import _learned_rule_arms_law as law
 from tests.studies.evidence import property_failures as pf
@@ -50,6 +57,7 @@ from tests.studies.evidence.properties import (
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
+    CALIBRATION_CONTROL_KINDS,
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
@@ -148,6 +156,17 @@ MARGIN_SUMMARY = (
     "lost_arm_share",
 )
 
+#: The controls whose ``covered`` and ``rejected`` read the package's interval at the control's
+#: own estimate and SE (:func:`shipped_interval_columns`): the two calibration controls and the
+#: coverage family's control. The untargeted necessity control reads bias only.
+SHIPPED_CONTROLS = (
+    *(f"{label}__{kind}" for label in CALIBRATION_LABELS for kind in CALIBRATION_CONTROL_KINDS),
+    f"{COVERAGE_LABEL}__{COVERAGE_CONTROL}",
+)
+
+#: The null of each row's test, the package's default. It is the lower bound of the range, so
+#: under the logit interval every shown interval excludes it (:func:`shipped_interval_columns`).
+NULL = 0.0
 #: The integer harness columns, which a derived control must keep integer.
 INTEGER_COLUMNS = ("rule_rows_checked", "solver_warnings")
 
@@ -226,6 +245,41 @@ def _control(
     )
     row.update(columns)
     return row
+
+
+def shipped_interval_columns(rows: pd.DataFrame, *, alpha: float) -> pd.DataFrame:
+    """``rows`` with ``covered`` and ``rejected`` read under the package's bounded-mean interval.
+
+    The package forms the interval of an unclustered mean of a yes/no outcome as the Wald
+    interval of ``logit(estimate)``, with the standard error times the transform's slope and the
+    normal reference, and maps it back (``ParameterEstimate._wald_interval``). Its test of the
+    default null 0, a bound of the range, rejects whenever the interval is shown. An estimate on
+    or outside ``(0, 1)`` has no interval (``out_of_range_plugin``), so its row is neither covered
+    nor rejected. The arithmetic is the package's own: on a positive row it reproduces the
+    ``covered`` and ``rejected`` the fit reported (``test_learned_rule_arms_harness``).
+    """
+    scale = Transform.range_logit(0.0, 1.0)
+    assert NULL == 0.0, "rejected = 1 on a shown interval holds only for the null at the bound 0"
+    covered, rejected = [], []
+    columns = ("estimate", "std_error", "truth")
+    for estimate, std_error, truth in rows.loc[:, columns].itertuples(index=False):
+        if not 0.0 < estimate < 1.0:
+            covered.append(0)
+            rejected.append(0)
+            continue
+        low, high = wald_ci(
+            float(scale.forward(estimate)), std_error * scale.slope(estimate), alpha, df=None
+        )
+        if not (np.isfinite(low) and np.isfinite(high)):
+            covered.append(0)
+            rejected.append(0)
+            continue
+        covered.append(int(float(scale.inverse(low)) <= truth <= float(scale.inverse(high))))
+        rejected.append(1)
+    out = rows.copy()
+    out["covered"] = np.asarray(covered, dtype=int)
+    out["rejected"] = np.asarray(rejected, dtype=int)
+    return out
 
 
 def law_rows(fitted: law.Measured, family: str, where: tuple[int, int, int]) -> list[dict]:
@@ -352,6 +406,9 @@ def generate_property_rows(
     for column in INTEGER_COLUMNS:
         controls[column] = controls[column].astype(int)
     rows = pd.concat([rows, controls], ignore_index=True)
+    shipped = rows["cell"].isin(SHIPPED_CONTROLS).to_numpy()
+    read = shipped_interval_columns(rows.loc[shipped], alpha=record.margins.alpha)
+    rows.loc[shipped, ["covered", "rejected"]] = read[["covered", "rejected"]].to_numpy()
     for family, declared in PROPERTY_CELLS.items():
         cells = set(rows.loc[rows["property"] == family, "cell"])
         if cells != set(declared):

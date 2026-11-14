@@ -98,6 +98,7 @@ class _Result:
             n=2,
             scale="difference",
             alpha=alpha,
+            rule_widened=False,
         )
         self.estimates = {"ate": estimate}
 

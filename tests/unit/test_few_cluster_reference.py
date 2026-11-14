@@ -4,7 +4,8 @@ Nugent, Marquez, Charlebois, Abbott and Balzer (2024), Section 2.2, last paragra
 rule. ``J`` counts the clusters with positive weight mass among the rows the estimate reads:
 the whole fit for a marginal estimate, and the stratum for a stratum estimate. A derived
 estimate takes the smallest degrees of freedom of its inputs. At 40 clusters or more the normal
-reference stays, bit for bit. Below 10, the smallest count a registered study measures, the fit takes ``"few_cluster_plugin"``, and every
+reference stays, bit for bit, except for an estimate averaged over V cross-fitting folds, which
+takes J - V at every cluster count. Below 10, the smallest count a registered study measures, the fit takes ``"few_cluster_plugin"``, and every
 estimate keeps the normal reference of its diagnostic.
 
 Each class names its nonzero witness and its mutation control. The fits use explicit linear
@@ -312,7 +313,7 @@ class TestAFewClusterStratumDoesNotCrash:
 
 def curve_estimate(name: str, df: int | None, psi: float = 0.4) -> Any:
     curve = np.array([0.1, -0.1, 0.2, -0.2, 0.05, -0.05])
-    return make_estimate(name, psi, curve, n=6, scale="level", reference_df=df)
+    return make_estimate(name, psi, curve, n=6, scale="level", reference_df=df, rule_widened=False)
 
 
 class TestDerivedEstimatesTakeTheMinimum:
@@ -479,42 +480,92 @@ class TestEveryEstimateCarriesItsReference:
         assert len(curve) == len(result.estimates)
 
 
+def _equal(k: int, n: int = 600, **settings: Any) -> Any:
+    """``make_binary_outcome(n, 17)`` in ``k`` clusters of equal size, so no cluster mass differs."""
+    assert n % k == 0, (n, k)
+    return fit_clustered(make_binary_outcome(n=n, seed=17)[0], k, **settings)
+
+
+def _fold_evaluated(k: int, folds: int, **settings: Any) -> Any:
+    n = 1200 if k > 100 else 600
+    settings.setdefault("estimands", ("ey1", "ate"))
+    return _equal(k, n, cross_fit=True, n_folds=folds, cv_evaluation=True, **settings)
+
+
+def drop_the_rule_from_forty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutant that gives a fold-evaluated estimate the normal reference from 40 clusters."""
+    original = cluster_module.fold_evaluated_reference_df
+
+    def mutant(cluster: Any, folds: int, weights: Any = None, rows: Any = None) -> int | None:
+        if np.unique(np.asarray(cluster)).size >= 40:
+            return None
+        return original(cluster, folds, weights, rows=rows)
+
+    monkeypatch.setattr(influence_module, "fold_evaluated_reference_df", mutant)
+
+
 class TestTheFoldEvaluatedReference:
-    """A fold-evaluated estimate over V folds takes min(J - 2, J - V).
+    """A fold-evaluated estimate over V folds takes J - V at every cluster count.
 
     The fold-evaluated variance centres the cluster totals inside each fold, so it estimates
     one mean per fold and has J - V degrees of freedom, the pooled within-group count. The
-    stacked report beside it keeps J - 2.
+    stacked report beside it keeps J - 2 below 40 clusters and the normal reference from 40.
+    Nonzero witness: at 40 clusters in 5 folds the half-width is t(35), 0.07 wider than the
+    normal quantile. Mutation control: a rule that drops to the normal reference from 40
+    clusters fails the 40- and 200-cluster cases.
     """
 
     @pytest.mark.parametrize(
-        ("clusters", "folds", "expected"), [(10, 5, 5), (12, 3, 9), (20, 4, 16), (30, 10, 20)]
+        ("clusters", "folds", "expected"),
+        [(10, 5, 5), (12, 3, 9), (20, 4, 16), (30, 10, 20), (40, 5, 35), (200, 10, 190)],
     )
     def test_the_fold_evaluated_report_reads_j_minus_v(
         self, clusters: int, folds: int, expected: int
     ) -> None:
-        result = _binary(
-            clusters, cross_fit=True, n_folds=folds, cv_evaluation=True, estimands=("ey1", "ate")
-        )
+        result = _fold_evaluated(clusters, folds)
         assert set(reference_dfs(result).values()) == {expected}
         report = result.cv_targeting
         assert {e.reference_df for e in report.fold_evaluated.values()} == {expected}
-        assert {e.reference_df for e in report.pooled.values()} == {clusters - 2}
+        stacked = clusters - 2 if clusters < 40 else None
+        assert {e.reference_df for e in report.pooled.values()} == {stacked}
 
     def test_two_folds_keep_j_minus_2(self) -> None:
-        result = _binary(12, cross_fit=True, n_folds=2, cv_evaluation=True, estimands=("ate",))
+        result = _fold_evaluated(12, 2, estimands=("ate",))
         assert result["ate"].reference_df == 10
 
     def test_fold_targeting_keeps_j_minus_2_on_its_headline(self) -> None:
-        result = _binary(
+        result = _equal(
             12, cross_fit=True, n_folds=3, targeting_scheme="fold", estimands=("ey1", "ate")
         )
         assert set(reference_dfs(result).values()) == {10}
         assert {e.reference_df for e in result.cv_targeting.fold_evaluated.values()} == {9}
 
-    def test_forty_clusters_keep_the_normal_reference(self) -> None:
-        result = _binary(40, cross_fit=True, n_folds=5, cv_evaluation=True, estimands=("ate",))
-        assert result["ate"].reference_df is None
+    def test_forty_clusters_take_j_minus_v(self) -> None:
+        result = _fold_evaluated(40, 5, estimands=("ate",))
+        estimate = result["ate"]
+        assert estimate.reference_df == 35
+        critical = (estimate.ci[1] - estimate.psi) / estimate.std_error
+        assert critical == pytest.approx(float(stats.t.ppf(0.975, 35)), abs=1e-12)
+        # The witness: a df stamped but not used would leave the normal quantile.
+        assert critical - float(stats.norm.ppf(0.975)) > 0.02
+        # The stacked report of the same fit keeps the normal reference.
+        assert result.cv_targeting.pooled["ate"].reference_df is None
+
+    def test_zero_weight_clusters_do_not_count(self) -> None:
+        """44 clusters, 4 of them with zero weight, in 5 folds: 40 - 5 = 35, not 39."""
+        frame = with_clusters(make_binary_outcome(n=440, seed=17)[0], 44)
+        frame = frame.assign(w=np.where(frame["cluster"] < 4, 0.0, 1.0))
+        result = (
+            TMLE(
+                **linear_in_sample(
+                    cross_fit=True, n_folds=5, cv_evaluation=True, estimands=("ate",)
+                )
+            )
+            .fit(frame, outcome="Y", treatment="A", id="cluster", weights="w")
+            .single()
+        )
+        assert result.data.n_clusters == 44
+        assert result["ate"].reference_df == 35
 
     def test_dropping_the_fold_rule_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -524,6 +575,145 @@ class TestTheFoldEvaluatedReference:
         )
         with pytest.raises(AssertionError):
             self.test_the_fold_evaluated_report_reads_j_minus_v(10, 5, 5)
+
+    @pytest.mark.parametrize(("clusters", "folds", "expected"), [(40, 5, 35), (200, 10, 190)])
+    def test_a_normal_reference_from_forty_clusters_fails(
+        self, clusters: int, folds: int, expected: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        drop_the_rule_from_forty(monkeypatch)
+        with pytest.raises(AssertionError):
+            self.test_the_fold_evaluated_report_reads_j_minus_v(clusters, folds, expected)
+
+    def test_a_normal_reference_at_forty_fails_the_quantile_witness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        drop_the_rule_from_forty(monkeypatch)
+        with pytest.raises(AssertionError):
+            self.test_forty_clusters_take_j_minus_v()
+
+
+class TestTheFoldEvaluatedCount:
+    """``fold_evaluated_reference_df`` counts positive-mass clusters and guards its inputs."""
+
+    @pytest.mark.parametrize(
+        ("clusters", "folds", "expected"), [(40, 10, 30), (12, 3, 9), (40, 5, 35), (200, 10, 190)]
+    )
+    def test_j_minus_v(self, clusters: int, folds: int, expected: int) -> None:
+        cluster = np.repeat(np.arange(clusters), 3)
+        assert cluster_module.fold_evaluated_reference_df(cluster, folds) == expected
+
+    def test_zero_weight_clusters_and_rows_outside_the_estimate_do_not_count(self) -> None:
+        cluster = np.repeat(np.arange(44), 2)
+        weights = np.where(cluster < 4, 0.0, 1.0)
+        assert cluster_module.fold_evaluated_reference_df(cluster, 5, weights) == 35
+        rows = cluster < 20
+        assert cluster_module.fold_evaluated_reference_df(cluster, 5, weights, rows=rows) == 11
+
+    def test_counting_every_label_fails(self) -> None:
+        """The mutant that ignores the weights gives 39."""
+
+        def mutant(cluster: Any, folds: int, weights: Any = None, rows: Any = None) -> int:
+            return cluster_module.fold_evaluated_reference_df(cluster, folds)
+
+        cluster = np.repeat(np.arange(44), 2)
+        weights = np.where(cluster < 4, 0.0, 1.0)
+        assert mutant(cluster, 5, weights) == 39
+        assert mutant(cluster, 5, weights) != cluster_module.fold_evaluated_reference_df(
+            cluster, 5, weights
+        )
+
+    @pytest.mark.parametrize("folds", [0, 1])
+    def test_fewer_than_two_folds_raise(self, folds: int) -> None:
+        with pytest.raises(ValueError, match="at least 2 validation folds"):
+            cluster_module.fold_evaluated_reference_df(np.repeat(np.arange(10), 2), folds)
+
+    @pytest.mark.parametrize(("clusters", "folds"), [(3, 3), (4, 5)])
+    def test_no_degree_of_freedom_left_raises(self, clusters: int, folds: int) -> None:
+        with pytest.raises(ValueError, match="needs more than"):
+            cluster_module.fold_evaluated_reference_df(np.repeat(np.arange(clusters), 2), folds)
+
+    def test_one_degree_of_freedom_is_returned(self) -> None:
+        assert cluster_module.fold_evaluated_reference_df(np.repeat(np.arange(4), 2), 3) == 1
+
+
+class TestAFortyClusterFoldEvaluatedFit:
+    """At 40 clusters a fold-evaluated fit carries a t reference, with what follows from it."""
+
+    @pytest.fixture(scope="class")
+    def forty(self) -> Any:
+        return _fold_evaluated(40, 5, estimands=("ey0", "ey1", "ate"), simultaneous=True)
+
+    def test_the_summary_prints_the_note_and_skips_the_band(self, forty: Any) -> None:
+        settings = forty.summary(detail="full").section("Settings").lines
+        assert forty.simultaneous is None
+        assert T_REFERENCE_NOTE.format(clusters=40, stratum="") in settings
+        assert NO_T_REFERENCE_BANDS in settings
+        assert "t_reference" in forty.summary().note_codes
+
+    def test_an_explicit_band_raises(self, forty: Any) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            simultaneous_bands(forty.estimates, cluster=forty.data.cluster)
+        assert str(raised.value) == T_REFERENCE_BAND_REFUSAL.message()
+
+    def test_the_stacked_fit_keeps_its_band(self) -> None:
+        result = _equal(
+            40, cross_fit=True, n_folds=5, estimands=("ey0", "ey1", "ate"), simultaneous=True
+        )
+        settings = result.summary(detail="full").section("Settings").lines
+        assert result.simultaneous is not None
+        assert NO_T_REFERENCE_BANDS not in settings
+        assert not any(line.startswith(T_REFERENCE_NOTE[:40]) for line in settings)
+
+    def test_a_derived_contrast_reads_t_35(self, forty: Any) -> None:
+        contrast = forty.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])
+        assert contrast.reference_df == 35
+        critical = float(stats.t.ppf(0.975, 35))
+        assert contrast.ci == pytest.approx(
+            (
+                contrast.psi - critical * contrast.std_error,
+                contrast.psi + critical * contrast.std_error,
+            ),
+            rel=1e-12,
+        )
+
+    def test_the_support_row_licenses_the_t_reference(self, forty: Any) -> None:
+        """T10.fold_evaluated licenses wald_t, so the fit reads supported."""
+        support = forty["ate"].support
+        assert support.row == "T10.fold_evaluated"
+        assert support.label == "supported"
+        assert "licenses no" not in support.reason
+
+    def test_a_row_without_wald_t_licenses_no_interval(
+        self, forty: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dataclasses
+
+        from cleverly import _support
+
+        rows = [
+            dataclasses.replace(row, kinds=frozenset({"point", "wald"}))
+            if row.id == "T10.fold_evaluated"
+            else row
+            for row in _support.registered_rows()
+        ]
+        monkeypatch.setattr(_support, "registered_rows", lambda: tuple(rows))
+        result = _fold_evaluated(40, 5, estimands=("ate",))
+        assert "licenses no" in result["ate"].support.reason
+
+    def test_the_omitted_variable_quantile_reads_t_35(
+        self, forty: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        t_bounds = omitted_variable_bounds(forty, "ate", cf_y=0.02, cf_d=0.02)
+        import cleverly.sensitivity.omitted_variable as omitted
+
+        monkeypatch.setattr(
+            omitted, "one_sided_quantile", lambda level, df=None: stats.norm.ppf(level)
+        )
+        normal_bounds = omitted_variable_bounds(forty, "ate", cf_y=0.02, cf_d=0.02)
+        ratio = (t_bounds.lower - t_bounds.ci_lower) / (
+            normal_bounds.lower - normal_bounds.ci_lower
+        )
+        assert ratio == pytest.approx(stats.t.ppf(0.95, 35) / stats.norm.ppf(0.95), rel=1e-10)
 
 
 class TestTheSummaryNamesEachCount:

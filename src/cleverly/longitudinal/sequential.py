@@ -2865,7 +2865,8 @@ def _window_outcome_design(
     adds a drop-first block of its assigned arm, because its arm is a function of the full
     history, and the window's covariates do not determine it.  A static node adds no block,
     because its arm is one constant among the rows that remain on the plan.  The arms of
-    nodes before ``t-k-1`` are dropped, as the restriction states.
+    nodes before ``t-k-1`` are dropped, as the restriction states.  On a held design the
+    node-1 decision is the arm of every window node, so its block stays at every node.
     """
     blocks = [data.window_covariates(time)]
     for node in range(_outcome_arm_start(data, time), time + 1):
@@ -2882,11 +2883,12 @@ def _window_outcome_design(
 def _outcome_arm_start(data: LongitudinalData, time: int) -> int:
     """The first node whose arm the windowed outcome design at ``time`` reads.
 
-    It is ``max(1, t-k-1)``, the first arm of
+    It is :meth:`~cleverly.longitudinal.LongitudinalData.window_arm_start`, the first arm of
     :meth:`~cleverly.longitudinal.LongitudinalData.history_design` under the same order, so
-    the outcome regression and the mechanisms read the arms of one window.
+    the outcome regression and the mechanisms read the arms of one window: ``max(1, t-k-1)``,
+    or node 1 on a held design, whose decision is the arm of every node.
     """
-    return max(1, data.window_start(time) - 1)
+    return data.window_arm_start(time)
 
 
 def _is_rule_node(plan: Plan, node: int) -> bool:

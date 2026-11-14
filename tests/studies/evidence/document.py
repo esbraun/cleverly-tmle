@@ -127,11 +127,16 @@ ACCEPTED_LABEL = "accepted (named exception)"
 
 
 def _accepted_by_exception(slug: str, implementation: str, scenario: str, estimand: str) -> bool:
-    """Whether a truth row is the one its owner accepted by a named exception."""
-    # Imported here because ``red_cells`` itself imports this module.
-    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, RedKey
+    """Whether a truth row was accepted as valid by a named exception.
 
-    return RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}") in ACCEPTED_BY_EXCEPTION
+    An exception whose row also has an owner only lifts the ``reporting`` requirement, so that
+    row still prints as failed.
+    """
+    # Imported here because ``red_cells`` itself imports this module.
+    from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS, RedKey
+
+    key = RedKey(slug, "truth", f"{implementation}/{scenario}/{estimand}")
+    return key in ACCEPTED_BY_EXCEPTION and key not in OWNERS
 
 
 def _comparison_result(row: Any) -> str:
@@ -286,6 +291,47 @@ def _reads_score(row: Any) -> bool:
     return str(row.cell).endswith(("__closed_score", "__initial_score_control"))
 
 
+#: The share and reported families of ``isotonic-binding`` (X76 (g)).  X33's ``binding_witness``
+#: shares the family name and publishes ``exceeds_share``, which these rows do not.
+_ISOTONIC_FAMILIES = frozenset(
+    {"binding_witness", "material_move", "reported_levels", "reported_large_move"}
+)
+#: The cells of those families whose row is a share with a placeholder SE.
+_ISOTONIC_SHARE_PREFIXES = (
+    "never_t1",
+    "binding_t1",
+    "always_binding_t1",
+    "se_present",
+    "always_se",
+)
+
+
+def _isotonic_measured(row: Any) -> str:
+    """An ``isotonic-binding`` row: a share, a stalled-fit count, or a level's interval.
+
+    A share row's SE is a placeholder of one, so its bias, SE ratio and rejection columns
+    mean nothing and are never printed (``isotonic_binding_properties.SHARE_COLUMNS``).
+    """
+    cell = str(row.cell)
+    if cell == "stalled_fits":
+        return f"{int(row.stalled_fits)} logistic fits stopped at max_iter"
+    if cell.startswith(_ISOTONIC_SHARE_PREFIXES):
+        return f"share {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    measured = (
+        f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+        f"coverage {render(float(row.coverage))}, SE ratio {render(float(row.se_ratio))}"
+    )
+    if pd.notna(getattr(row, "coverage_with_se", None)):
+        measured += f", coverage on draws with an SE {render(float(row.coverage_with_se))}"
+    if pd.notna(getattr(row, "disagree_share", None)):
+        measured += (
+            f", intervals disagree on {render(float(row.disagree_share))}, coverage difference "
+            f"{_interval(row.coverage_difference_ci_lower, row.coverage_difference_ci_upper)}, "
+            f"largest move {render(float(row.max_move))} SE"
+        )
+    return measured
+
+
 def measured(row: Any) -> str:
     """The endpoint a cell's own verdict was read from, named and valued.
 
@@ -352,8 +398,75 @@ def measured(row: Any) -> str:
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
         return measured
-    if family == "root_n_rate":
+    if family in _TWO_LEG_FAMILIES:
+        # ``small-sample-wald``: a coverage cell is judged on two legs that read different
+        # denominators, the lower leg over every requested fit and the upper leg over the
+        # shown ones, so the row prints both rather than one coverage interval.
+        measured = (
+            f"lower leg {_interval(row.lower_leg_ci_lower, row.lower_leg_ci_upper)}, "
+            f"shown {_interval(row.shown_ci_lower, row.shown_ci_upper)}"
+        )
+        if str(row.cell) in _PAIRED_GAIN_CELLS:
+            measured += (
+                f", paired gain {int(row.gain_b)} against {int(row.gain_c)}, "
+                f"lower bound {render(float(row.gain_lower))}"
+            )
+        return measured
+    if family in {"non_h1", "witness"}:
+        return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family in {"root_n_rate", "instrument_slow_outcome_rate"}:
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family in _ISOTONIC_FAMILIES and pd.isna(getattr(row, "exceeds_share", None)):
+        return _isotonic_measured(row)
+    if family in {"residual_witness", "patience_witness", "late_confounder_stop", "reported_stop"}:
+        # X76 (a) and (c): a share of draws (a residual that reaches 0.01 SE, a counter that
+        # stopped, a model without W1), with its exact interval.
+        measured = f"share {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        if family == "late_confounder_stop" and pd.notna(
+            getattr(row, "conditional_bias_over_sd", None)
+        ):
+            measured += (
+                f", bias on those draws {render(float(row.conditional_bias_over_sd))} whole-path SD"
+            )
+        return measured
+    if family in {"greedy_late_confounder", "reported_displacement"}:
+        # X76 (c): the mean paired difference against the whole path on the same draws, in
+        # whole-path SDs, and the share of draws on which the two estimates are identical.
+        return (
+            f"mean difference {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"{render(float(row.paired_over_whole_sd))} whole-path SD, identical on "
+            f"{render(float(row.identical_share))}"
+        )
+    if family in {"residual_necessity", *_RULE_REPORTED}:
+        # X76 (a): a coverage reading of the plain or widened interval, with the residual the
+        # rule left beside it.
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, "
+            f"mean absolute residual {render(float(row.mean_abs_residual))} SE"
+        )
+    if family in _X76_REPORTED:
+        # The reported fits of the X76 option studies: no verdict, so the row prints the
+        # bias, the coverage and the SE ratio beside the exact-law limit where the law fixes
+        # one.  The trimmed share is a proportion with a placeholder SE, so it prints its mean.
+        if str(row.cell) == "trimmed_share":
+            return (
+                f"mean share {render(float(row.mean_estimate))} against {render(float(row.truth))}"
+            )
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {render(float(row.coverage))}, SE ratio {render(float(row.se_ratio))}"
+        )
+        for column, label in (
+            ("exact_bias_over_sd", "exact bias"),
+            ("exact_se_ratio", "exact SE ratio"),
+            ("exact_bias", "exact bias"),
+        ):
+            limit = getattr(row, column, None)
+            if limit is not None and pd.notna(limit):
+                unit = " SD" if column == "exact_bias_over_sd" else ""
+                measured += f", {label} {render(float(limit))}{unit}"
+        return measured
     if family == "misspecification_control":
         # The control fails on its bias and its coverage while the standard error stays right,
         # so the row prints all three: the failure is the estimate's, not the interval's width.
@@ -381,6 +494,20 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
+    if family == "stratified_contraction":
+        # Fix-6's stratified ladder: a rate row answers to its slope, and a rung to its SE ratio
+        # alone, so the rung prints that interval beside its published bias and coverage, and
+        # the coverage its bias and SE ratio imply.
+        if "__rate_" in str(row.cell):
+            return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+        rung = (
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"bias {render(float(row.standardized_bias))} SD, "
+            f"coverage {render(float(row.coverage))}"
+        )
+        if str(row.role) == "control":
+            return rung
+        return f"{rung} against {render(float(row.implied_coverage))} implied"
     if family in {"refuter_size", "refuter_power"}:
         # The cell's verdict reads the count of its trials, so the row prints that count.
         word = "rejections" if family == "refuter_size" else "detections"
@@ -445,7 +572,17 @@ def measured(row: Any) -> str:
     if family == "simultaneous_coverage":
         # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
         # is read from.  The bias and SE columns hold a max-t statistic and a critical value.
-        return f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        measured = f"joint coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        # A reference control also reports the paired gain of its t band over it, which gates
+        # nothing (band-t-reference).
+        if str(row.role) == "reference_control" and pd.notna(
+            getattr(row, "coverage_gain_ci_lower", None)
+        ):
+            measured += (
+                ", paired gain of the t band "
+                f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+            )
+        return measured
     if family == property_verdicts.FOLD_POLICY_FAMILY:
         measured = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
         # Absent on the reference arm, which is differenced against itself.
@@ -456,6 +593,18 @@ def measured(row: Any) -> str:
             )
         return measured
     if family == "clustered_inference":
+        if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
+            # A reported arm is paired with no control, so it has no coverage gain, and its
+            # summary carries no SE-ratio interval: the arm reuses its positive's point and SE.
+            se_ratio = (
+                _interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)
+                if pd.notna(row.se_ratio_ci_lower)
+                else render(float(row.se_ratio))
+            )
+            return (
+                f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+                f"SE ratio {se_ratio}"
+            )
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
@@ -470,6 +619,16 @@ def measured(row: Any) -> str:
             f"SE ratio {render(float(row.se_ratio))}"
         )
     if family == "few_cluster_reference":
+        if str(row.role) == "control" and pd.notna(getattr(row, "paired_se_ratio_ci_upper", None)):
+            # The verdict reads the paired ratio and the positive arm's SE-ratio endpoint, not
+            # the control's own IID SE over the empirical SD. A table summarised before the
+            # two-clause rule has no paired columns and prints the row's own reading below.
+            return (
+                "paired IID/cluster SE ratio "
+                f"{_interval(row.paired_se_ratio_ci_lower, row.paired_se_ratio_ci_upper)}, "
+                "paired positive SE-ratio upper endpoint "
+                f"{render(float(row.paired_positive_se_ratio_ci_upper))}"
+            )
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
@@ -793,6 +952,25 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
+    if family == "iterated_mean_difference":
+        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+        # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
+        # row the share of draws whose iterated-mean risk curve decreases.
+        cell = str(row.cell)
+        if pd.notna(getattr(row, "paired_sd_over_bound", float("nan"))):
+            return (
+                f"paired SD over bound {render(float(row.paired_sd_over_bound))}, mean "
+                f"difference {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+            )
+        if cell.endswith("__iterated_curve_decrease"):
+            return (
+                f"decreasing share {render(float(row.rejection_rate))}, 99% interval "
+                f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+            )
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 
@@ -808,6 +986,21 @@ def _has_exact_efficiency(row: Any) -> bool:
         row.efficiency_empirical_ci_lower
     )
 
+
+#: The ``small-sample-wald`` coverage families and their re-read rows, each judged or reported
+#: on its two coverage legs, and the two cells whose verdict also reads the paired gain.
+#: Mirrored from ``tests.studies.small_sample_wald``, which this module cannot import.
+_TWO_LEG_FAMILIES = frozenset(
+    {
+        "corrected_coverage",
+        "diagnosis_bounded",
+        "diagnosis_continuous",
+        "heldout_coverage",
+        "reported",
+        "control",
+    }
+)
+_PAIRED_GAIN_CELLS = ("boundary_mean", "student_ey1")
 
 #: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
 #: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.
@@ -855,6 +1048,39 @@ _BIAS_GATED = frozenset(
         # X21: the estimated-mechanism bias cells, and the bias of the cube-root-rate ladder.
         "bias",
         "root_n_points",
+        # X76: the bias controls and positives of the option studies.
+        "instrument_slow_outcome",
+        "trim_point",
+        "trim_necessity",
+        "order_necessity",
+        "order_double_robustness",
+        "patience_bias",
+        "ordered_late_confounder",
+        "ordered_whole_path",
+    }
+)
+
+#: The reported families of the stopping-rule studies (X76 (a)), which read a coverage.
+_RULE_REPORTED = frozenset(
+    {
+        "plain_interval",
+        "relative_reference",
+        "necessity_reference",
+        "contrast_residual",
+        "step_bound",
+    }
+)
+
+#: The reported families of the X76 option studies, which carry the diagnostic role.
+_X76_REPORTED = frozenset(
+    {
+        "instrument_slow_outcome_ladder",
+        "instrument_reference",
+        "instrument_parametric",
+        "pooled_outcome",
+        "trim_reported",
+        "markov_reported",
+        "reported_estimate",
     }
 )
 

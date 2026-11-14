@@ -109,6 +109,10 @@ def plain_support_reason(reason: str) -> str:
         return vocabulary.SUPPORT_KNOWN_FACTORS
 
     def axis_words(axis: str) -> str:
+        options = re.fullmatch(r"options \(([^)]*)\)", axis)
+        if options is not None:
+            # Keep the differing settings by name, so the reader can find the keyword to change.
+            return f"{vocabulary.SUPPORT_AXES['options']} ({options[1]})"
         named = re.fullmatch(r"qualifiers \(([^)]*)\)", axis)
         if named is None:
             return vocabulary.SUPPORT_AXES.get(axis, axis)
@@ -314,6 +318,18 @@ def estimates_table(
                 vocabulary.NOTE_TEXTS["spread_scale_transform"].format(names=_names(transformed))
             )
         notes.append(note("spread_scale", " ".join(sentences)))
+    range_logit = [
+        name
+        for name, estimate in items
+        if inferential[name] and estimate.interval_scale == "range_logit"
+    ]
+    if range_logit:
+        notes.append(
+            note(
+                "interval_scale",
+                vocabulary.NOTE_TEXTS["interval_scale"].format(names=_names(range_logit)),
+            )
+        )
     if t_reference:
         notes.append(
             note(

@@ -118,6 +118,70 @@ class TestDefaults:
         assert entry.limit == "X13-finite-sample: coverage 0.931 to 0.944"
         assert entry.flag == ""
 
+    def test_the_rm18_one_sided_bias_owner_states_the_pooled_leak_as_a_limit(self) -> None:
+        """Fix-6 D2: the owner is the standing record of the pooled option, not a flag."""
+        assert "RM18-one-sided-bias" in sd.LIMIT_OWNERS
+        assert "RM18-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
+        (entry,) = self.draft(
+            positive(
+                "study-b",
+                "property",
+                "double_robustness/treatment_correct",
+                owner="RM18-one-sided-bias",
+                measured="bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671",
+            )
+        )
+        assert entry.disposition == "supported with a stated limit"
+        assert entry.limit == (
+            "RM18-one-sided-bias: bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671"
+        )
+        assert entry.flag == ""
+
+    def test_the_committed_rm18_lines_are_stated_limits_of_d01_and_d02(self) -> None:
+        lines = {
+            (key.slug, key.key): entry
+            for key, entry in sd.DISPOSITIONS.items()
+            if entry.limit.startswith("RM18-one-sided-bias:")
+        }
+        assert set(lines) == {
+            ("canonical-drtmle", "double_robustness/outcome_correct"),
+            ("canonical-drtmle", "double_robustness/treatment_correct"),
+            ("canonical-multi-arm-drtmle", "double_robustness/treatment_correct"),
+        }
+        assert {entry.row for entry in lines.values()} == {"D01", "D02"}
+        assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
+
+    def test_the_x8_one_sided_bias_owner_states_a_finite_sample_limit(self) -> None:
+        """Fix-6 D4: the default's stratified bias contracts faster than n^-1/2."""
+        assert "X8-drtmle-one-sided-bias" in sd.LIMIT_OWNERS
+        assert "X8-drtmle-one-sided-bias" not in sd.FLAGGED_EXPERIMENTAL
+        lines = {
+            key.key: entry
+            for key, entry in sd.DISPOSITIONS.items()
+            if entry.limit.startswith("X8-drtmle-one-sided-bias:")
+        }
+        assert set(lines) == {
+            f"double_robustness/{label}_ate__treatment_correct"
+            for label in ("marginal", "v0", "v1", "v2")
+        }
+        assert {entry.row for entry in lines.values()} == {"D03"}
+        assert {entry.disposition for entry in lines.values()} == {"supported with a stated limit"}
+
+    def test_the_foldwise_small_stratum_row_marks_d13_wald_experimental(self) -> None:
+        """S1: a defect suspect, so a Wald shortfall on D13 rather than a stated limit."""
+        from cleverly._support_rows import SHORTFALLS
+
+        key = RedKey(
+            "stratified-drtmle-foldwise",
+            "truth",
+            "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+        )
+        entry = sd.DISPOSITIONS[key]
+        assert (entry.row, entry.kinds) == ("D13", ("wald",))
+        assert (entry.disposition, entry.limit) == ("experimental", "")
+        assert key not in sd.NO_SHORTFALL
+        assert "defect suspect" in SHORTFALLS["D13", "wald"]
+
     def test_the_x20_crossfit_cell_is_experimental_and_the_clustered_cell_is_flagged(self) -> None:
         crossfit, clustered = self.draft(
             positive(
@@ -140,7 +204,7 @@ class TestDefaults:
 
     @pytest.mark.parametrize(
         "owner",
-        ["X8-logit-small-stratum", "X8-drtmle-one-sided-bias", "RM18-one-sided-bias", "F28", "F27"],
+        ["X8-logit-small-stratum", "F27"],
     )
     def test_the_flagged_experimental_owners_are_flagged(self, owner: str) -> None:
         (entry,) = self.draft(
@@ -157,7 +221,7 @@ class TestDefaults:
         assert "no default for owner X41-negative-control" in entry.flag
 
     def test_a_family_with_no_kind_rule_is_flagged(self) -> None:
-        (entry,) = self.draft(positive("study-a", "property", "other/x", owner="F28"))
+        (entry,) = self.draft(positive("study-a", "property", "other/x", owner="F27"))
         assert "no kind rule" in entry.flag
 
 
@@ -197,7 +261,7 @@ class TestRender:
                 positive(
                     "study-a", "property", "interval_calibration/x", owner="X13-finite-sample"
                 ),
-                positive("study-a", "property", "interval_calibration/y", owner="F28"),
+                positive("study-a", "property", "interval_calibration/y", owner="F27"),
             ],
             ROWS,
         )
@@ -208,7 +272,7 @@ class TestRender:
 
     def test_a_pipe_in_a_cell_does_not_split_the_table_row(self) -> None:
         entries = sd.draft_entries(
-            [positive("study-a", "property", "interval_calibration/x|y", owner="F28")], ROWS
+            [positive("study-a", "property", "interval_calibration/x|y", owner="F27")], ROWS
         )
         line = next(row for row in sd.render_draft(entries).splitlines() if "study-a" in row)
         assert line.count("|") == 9
@@ -331,9 +395,11 @@ class TestCommittedDecisions:
 
     def test_a_limit_that_the_row_does_not_state_fails_the_check(self, keys: set[RedKey]) -> None:
         key = next(k for k, d in sd.DISPOSITIONS.items() if d.disposition.startswith("supported"))
+        # Any row that licenses no band, chosen in code so that a new band licence cannot move it.
+        unbanded = next(r.id for r in registered_rows() if "band" not in r.kinds)
         table = {
             **sd.DISPOSITIONS,
-            key: replace(sd.DISPOSITIONS[key], row="T01.binary", kinds=("band",)),
+            key: replace(sd.DISPOSITIONS[key], row=unbanded, kinds=("band",)),
         }
         assert any("lists no" in text for text in problems(table, sd.DECISIONS, keys))
 

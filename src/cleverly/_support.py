@@ -24,7 +24,7 @@ import json
 import os
 import sys
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -43,9 +43,11 @@ __all__ = [
     "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
+    "T_BAND_OPTION",
     "UNCLASSIFIED",
     "UNMEASURED_BAND_OPTION",
     "BandOption",
+    "BandShape",
     "Classification",
     "Kind",
     "Preflight",
@@ -53,6 +55,7 @@ __all__ = [
     "SupportKey",
     "SupportLabel",
     "SupportRow",
+    "band_shape",
     "classify",
     "classify_key",
     "classify_longitudinal_fit",
@@ -128,13 +131,25 @@ UNCLASSIFIED: Final[Support] = Support(
     "experimental", "This estimate was built outside a classified fit."
 )
 
-#: A band configuration: the ``multiplier_kind`` that draws its critical value and the
-#: ``band_scale`` its limits are built on.
-BandOption = tuple[str, str]
+#: A band configuration: the ``multiplier_kind`` that draws its critical value, the
+#: ``band_scale`` its limits are built on and the ``band_reference`` each band is calibrated on.
+BandOption = tuple[str, str, str]
 
-#: The band configuration of a default fit: the Mammen multiplier, on the logit scale.  It is
-#: the configuration every registered band cell measures since band-finite-sample.
-DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit")
+#: The band configuration of a default fit: the Mammen multiplier, on the logit scale, with the
+#: normal reference.  It is the configuration every registered band cell measures since
+#: band-finite-sample.
+DEFAULT_BAND_OPTION: Final[BandOption] = ("mammen", "logit", "normal")
+
+#: The default band with ``band_reference="t"``: each estimate's critical value read on its own
+#: Student t reference.  The study band-t-reference measures it on the rows of
+#: ``_support_rows.T_BAND_CELLS``.
+T_BAND_OPTION: Final[BandOption] = ("mammen", "logit", "t")
+
+#: What a band is built over, beyond one unclustered, unweighted fit: ``"clustered"`` draws its
+#: multipliers per cluster, ``"weighted"`` reads observation weights, and ``"repeated"`` takes
+#: the median critical value over the draws of a cross-fitting split.  No registered cell
+#: measures a ``"t"`` band of any shape but ``"plain"`` (:func:`band_support`).
+BandShape = Literal["plain", "clustered", "weighted", "repeated"]
 
 #: Why a band built with an option no row lists is experimental: band-finite-sample regenerated
 #: every registered band cell with :data:`DEFAULT_BAND_OPTION`, so the Rademacher and normal
@@ -321,12 +336,18 @@ class SupportKey:
         holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key on the policy axis holds the policy density ``ratio``, and ``tuned_cap`` when a
-        policy has a cap tuned on the data. A longitudinal key holds the inverse-probability
-        ``normalization``, the policy density ``ratio``, the ``survival_model``, the hazard
-        ``targeting`` algorithm, the ``isotonic`` projection, whether the fit declares
-        ``node_bounds``, the ``hazard_pooling``, whether it declares a ``ratio_trim``, the data's
-        ``markov_order``, and whether a regimen has a ``tuned_cap``. No key holds the band's
+        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
+        a ``patience`` or a ``treatment_adjustment`` subset, and under a declared stopping rule
+        the ``step_bound`` (``"none"``, ``"search"`` or ``"fixed"``) and the reported
+        ``iterate``; under ``stopping="relative"`` those two read ``"none"`` and ``"last"``,
+        because the walk then stops only at a solved score equation. A point key on the policy
+        axis holds the policy density ``ratio``, and ``tuned_cap`` when a policy has a cap tuned
+        on the data. A longitudinal key holds the inverse-probability ``normalization``, the
+        policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm,
+        the ``isotonic`` projection, whether the fit declares ``node_bounds``, the
+        ``hazard_pooling``, whether it declares a ``ratio_trim``, whether the data declare a
+        ``markov_order``, whether a regimen has a ``tuned_cap``, and the ``stopping``,
+        ``step_bound`` and ``iterate`` of a point key. No key holds the band's
         ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
         are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
@@ -672,6 +693,29 @@ def _unequal_clusters(data: Any) -> bool:
     return bool(sizes.min() != sizes.max())
 
 
+def _stopping_options(estimator: Any) -> dict[str, str]:
+    """The stopping rule of a fit and, under a declared rule, its step bound and iterate.
+
+    Under ``stopping="relative"`` the walk stops only where the score equation is solved to
+    ``tol``, so a step bound or ``iterate="best"`` leaves the estimator the default one (see
+    :mod:`cleverly.estimators._option_support`) and the key records the defaults. Under a
+    declared rule the walk stops early, where the bound and the reported iterate move the
+    estimate, so the key records them.
+    """
+    stopping = str(getattr(estimator, "stopping", "relative"))
+    if stopping == "relative":
+        return {"stopping": stopping, "step_bound": "none", "iterate": "last"}
+    if getattr(estimator, "step_bound", None) is None:
+        bound = "none"
+    else:
+        bound = "search" if getattr(estimator, "step_search", True) else "fixed"
+    return {
+        "stopping": stopping,
+        "step_bound": bound,
+        "iterate": str(getattr(estimator, "iterate", "last")),
+    }
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -759,6 +803,10 @@ def point_key(
         "fluctuation": estimator.fluctuation,
         "targeting": estimator.targeting,
         "target_weights": estimator.target_weights,
+        **_stopping_options(estimator),
+        "outcome_by_arm": bool(getattr(estimator, "outcome_by_arm", False)),
+        "patience": getattr(estimator, "patience", None) is not None,
+        "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
     if method == "drtmle":
         for name in ("guard", "reduction", "update_order", "randomized"):
@@ -953,8 +1001,9 @@ def longitudinal_key(
             ("node_bounds", bool(getattr(estimator, "node_bounds", None))),
             ("hazard_pooling", _option(getattr(estimator, "hazard_pooling", "node"))),
             ("ratio_trim", getattr(estimator, "ratio_trim", None) is not None),
-            ("markov_order", _option(getattr(data, "markov_order", None))),
+            ("markov_order", getattr(data, "markov_order", None) is not None),
             ("tuned_cap", tuned_cap),
+            *_stopping_options(estimator).items(),
         ),
     )
     learners = {
@@ -1064,15 +1113,18 @@ class SupportRow:
     shortfalls : tuple of tuple of str, default ()
         Pairs of a kind and a sentence. The sentence states the measured number of a red
         cell inside the configuration of the row. A fit that reads the kind from this row is
-        experimental, and the sentence is a reason of its label.
+        experimental, and the sentence is a reason of its label. A ``band`` shortfall states a
+        reading of the default band: a band built with another triple that the row lists in
+        ``band_options``, which its own cells measured, does not read it.
     kind_families : tuple of tuple, default ()
         Pairs of a kind and the target families that kind covers. A kind with no pair covers
         every family of the row. A fit that holds a family outside the pair reads the kind as
         unlicensed.
-    band_options : tuple of tuple of str, default (("mammen", "logit"),)
-        The ``(multiplier_kind, band_scale)`` pairs the row's band cells measured. A band built
-        with another pair is experimental, and the fit's other estimates keep the row. The
-        field means nothing on a row that does not license ``band``.
+    band_options : tuple of tuple of str, default (("mammen", "logit", "normal"),)
+        The ``(multiplier_kind, band_scale, band_reference)`` triples the row's band cells
+        measured. A band built with another triple is experimental, and the fit's other
+        estimates keep the row. The field means nothing on a row that does not license
+        ``band``.
     band_option_shortfalls : tuple of tuple, default ()
         Pairs of a band option and a sentence. The sentence states the measured number of a red
         band cell for that option alone. A band built with that option is experimental, and the
@@ -1242,6 +1294,33 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
 }
 
 
+def _named_axis(axis: str, key: SupportKey, row_key: SupportKey) -> str:
+    """``axis`` with the qualifiers or options on which ``key`` and ``row_key`` differ.
+
+    A reader then learns which declaration keeps the nearest row from covering the fit. An
+    option reads ``name=value`` with the fit's value when that value is a bool, an integer,
+    ``None`` or a word, and its bare name otherwise (a value the fit lacks, a float, a tuple or
+    a class name), so the reason never holds a full stop, a comma or a parenthesis inside the
+    parentheses, and :func:`cleverly._summary._estimates.plain_support_reason` can still split
+    it.
+    """
+    if axis == "qualifiers":
+        return f"qualifiers ({' and '.join(sorted(key.qualifiers ^ row_key.qualifiers))})"
+    if axis != "options":
+        return axis
+    mine, theirs = dict(key.options), dict(row_key.options)
+    named = []
+    for name in sorted(mine.keys() | theirs.keys()):
+        if name in mine and name in theirs and mine[name] == theirs[name]:
+            continue
+        value = mine.get(name)
+        plain = isinstance(value, (bool, int, type(None))) or (
+            isinstance(value, str) and value.isidentifier()
+        )
+        named.append(f"{name}={value!r}" if name in mine and plain else name)
+    return f"options ({' and '.join(named)})"
+
+
 def _sentence(text: str) -> str:
     """``text`` as a sentence: opened with a capital letter and closed with a full stop."""
     text = text.strip()
@@ -1316,14 +1395,8 @@ def support_for(
             nearest_id, axes = classification.nearest
             nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
-            if nearest is not None and "qualifiers" in axes:
-                # Name the qualifiers that differ, so a reader learns which declaration
-                # keeps the row from covering the fit.
-                differing = sorted(classification.key.qualifiers ^ nearest.key.qualifiers)
-                axes = tuple(
-                    f"qualifiers ({' and '.join(differing)})" if axis == "qualifiers" else axis
-                    for axis in axes
-                )
+            if nearest is not None:
+                axes = tuple(_named_axis(axis, classification.key, nearest.key) for axis in axes)
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
     elif not row.licenses(kind, classification.key.family):
@@ -1395,6 +1468,38 @@ def classify(
     return classify_key(key, learners, conditions)
 
 
+def band_shape(
+    *, cluster: object = None, weighted: bool = False, repeated: bool = False
+) -> BandShape:
+    """The shape of a band, for :func:`band_support`.
+
+    Parameters
+    ----------
+    cluster : object, default=None
+        The fit's cluster codes, or ``None``.
+    weighted : bool, default=False
+        Whether the fit reads observation weights.
+    repeated : bool, default=False
+        Whether the band takes the median critical value over the draws of a split.
+
+    Returns
+    -------
+    {"plain", "clustered", "weighted", "repeated"}
+        The first that applies, in the order repeated, clustered, weighted.
+
+    Examples
+    --------
+    >>> from cleverly._support import band_shape
+    >>> band_shape(), band_shape(weighted=True), band_shape(cluster=[0, 1], weighted=True)
+    ('plain', 'weighted', 'clustered')
+    """
+    if repeated:
+        return "repeated"
+    if cluster is not None:
+        return "clustered"
+    return "weighted" if weighted else "plain"
+
+
 def band_support(
     classification: Classification | None,
     status: str,
@@ -1402,13 +1507,17 @@ def band_support(
     kind: Kind = "band",
     options: BandOption = DEFAULT_BAND_OPTION,
     draws: int | None = None,
+    shape: BandShape = "plain",
 ) -> Support:
     """What a simultaneous band carries: its row's band kind, combined with its estimates.
 
-    A multiplier band also needs its ``(multiplier_kind, band_scale)`` pair among the row's
-    ``band_options``. An unlisted pair makes only the band experimental: the fit's
-    classification, and so the support of each pointwise estimate, does not read the
-    multiplier.
+    A multiplier band also needs its ``(multiplier_kind, band_scale, band_reference)`` triple
+    among the row's ``band_options``. An unlisted triple makes only the band experimental: the
+    fit's classification, and so the support of each pointwise estimate, does not read the
+    multiplier. A row's ``band`` shortfall states a reading of the default band, so a listed
+    triple other than the default does not read it. A ``band_reference="t"`` band of any
+    ``shape`` but ``"plain"`` is experimental on every row, because no registered cell measures
+    one.
 
     Parameters
     ----------
@@ -1421,11 +1530,14 @@ def band_support(
     kind : {"band", "bootstrap_band"}, default="band"
         The band's kind: the influence-curve multiplier band, or the studentized bootstrap
         sup-t band.
-    options : tuple of str, default ("mammen", "logit")
-        The band's ``(multiplier_kind, band_scale)``. Read only for ``kind="band"``.
+    options : tuple of str, default ("mammen", "logit", "normal")
+        The band's ``(multiplier_kind, band_scale, band_reference)``. Read only for
+        ``kind="band"``.
     draws : int or None, default=None
         The band's multiplier draws. An option whose row names a measured draw count needs
         at least that many; ``None`` never meets it.
+    shape : {"plain", "clustered", "weighted", "repeated"}, default="plain"
+        What the band is built over (:func:`band_shape`). Read only for a ``"t"`` band.
 
     Returns
     -------
@@ -1437,11 +1549,24 @@ def band_support(
     Examples
     --------
     >>> from cleverly._support import band_support
-    >>> band_support(None, "influence_curve", [], options=("mammen", "logit")).label
+    >>> band_support(None, "influence_curve", [], options=("mammen", "logit", "normal")).label
     'experimental'
     """
-    kind_support = support_for(classification, status, None, kind=kind)
     row = None if classification is None else classification.row
+    if (
+        kind == "band"
+        and row is not None
+        and classification is not None
+        and options != DEFAULT_BAND_OPTION
+        and options in row.band_options
+    ):
+        # A band shortfall states a red reading of the default band; this triple has cells of
+        # its own on the row.
+        unbound = replace(
+            row, shortfalls=tuple(item for item in row.shortfalls if item[0] != "band")
+        )
+        classification = replace(classification, row=unbound)
+    kind_support = support_for(classification, status, None, kind=kind)
     option_reasons: list[str] = []
     if (
         kind == "band"
@@ -1449,15 +1574,11 @@ def band_support(
         and classification is not None
         and row.licenses(kind, classification.key.family)
     ):
-        multiplier_kind, band_scale = options
         if options not in row.band_options:
-            listed = " and ".join(
-                f"multiplier_kind={k!r} with band_scale={s!r}" for k, s in row.band_options
-            )
+            listed = " and ".join(_option_text(option) for option in row.band_options)
             option_reasons.append(
                 f"Row {row.id} measured its simultaneous band with {listed} only, and this "
-                f"band uses multiplier_kind={multiplier_kind!r} with "
-                f"band_scale={band_scale!r}, which has {UNMEASURED_BAND_OPTION}."
+                f"band uses {_option_text(options)}, which has {UNMEASURED_BAND_OPTION}."
             )
         option_reasons.extend(
             text for option, text in row.band_option_shortfalls if option == options
@@ -1468,13 +1589,26 @@ def band_support(
                     f"Row {row.id} measured this band at {measured:,} multiplier draws, and "
                     f"this band uses {'an unstated number' if draws is None else f'{draws:,}'}."
                 )
+    if kind == "band" and options[2] == "t" and shape != "plain":
+        option_reasons.append(f"No band-t-reference cell measures a {shape} t band.")
     if not option_reasons:
         return combine_support([kind_support, *supports])
-    assert row is not None
     option_support = Support(
-        "experimental", " ".join(option_reasons), row=row.id, limits=row.limits
+        "experimental",
+        " ".join(option_reasons),
+        row=None if row is None else row.id,
+        limits=() if row is None else row.limits,
     )
     return combine_support([kind_support, option_support, *supports])
+
+
+def _option_text(option: BandOption) -> str:
+    """A band triple as the keywords that build it."""
+    multiplier_kind, band_scale, band_reference = option
+    return (
+        f"multiplier_kind={multiplier_kind!r} with band_scale={band_scale!r} and "
+        f"band_reference={band_reference!r}"
+    )
 
 
 # --------------------------------------------------------------------- record switch
@@ -1683,7 +1817,6 @@ def classify_longitudinal_fit(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
-    conditions: Sequence[Refusal] = (),
     tuned_cap: bool = False,
     separable_first: int | None = None,
 ) -> Classification | None:
@@ -1709,9 +1842,6 @@ def classify_longitudinal_fit(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
-    conditions : sequence of Refusal, default ()
-        The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
-        experimental.
     tuned_cap : bool, default False
         Whether a regimen has a policy cap tuned on the data.
     separable_first : int or None, default None
@@ -1734,7 +1864,7 @@ def classify_longitudinal_fit(
             tuned_cap=tuned_cap,
             separable_first=separable_first,
         )
-        classification = classify_key(key, learners, conditions)
+        classification = classify_key(key, learners)
     except Exception as error:
         directory = recording_directory()
         if directory is not None:

@@ -5,14 +5,52 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-learned-rule-arms",
-      "cleverly_version": "0.1.7",
-      "cleverly_commit": "1b7db678431f6850ec342ed63b8a4fce1b37b0b9",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "cb534e66deae9e8653bf89564c60608a608fcc84",
       "cleverly_worktree_clean": true,
-      "python": "3.13.7",
-      "numpy": "2.4.6",
-      "scipy": "1.18.0",
-      "pandas": "3.0.5",
-      "scikit_learn": "1.9.0"
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "declared_stack": {
+      "versions": {
+        "python": "3.13.7",
+        "numpy": "2.4.6",
+        "scipy": "1.18.0",
+        "pandas": "3.0.5",
+        "scikit_learn": "1.9.0",
+        "joblib": "1.5.3"
+      },
+      "differences": {
+        "python": {
+          "declared": "3.13.7",
+          "ran": "3.13.14"
+        },
+        "numpy": {
+          "declared": "2.4.6",
+          "ran": "2.5.4"
+        },
+        "scipy": {
+          "declared": "1.18.0",
+          "ran": "1.18.1"
+        },
+        "pandas": {
+          "declared": "3.0.5",
+          "ran": "3.1.1"
+        },
+        "scikit_learn": {
+          "declared": "1.9.0",
+          "ran": "1.9.1"
+        },
+        "joblib": {
+          "declared": "1.5.3",
+          "ran": "1.6.0"
+        }
+      }
     },
     "reference": null
   },
@@ -21,7 +59,7 @@
     "n": 2000,
     "seed": 20268111,
     "resampling_seed": 20268112,
-    "publication_policy": "gated",
+    "publication_policy": "reporting",
     "truth_varies_by_replicate": true,
     "failure_bound": {
       "cleverly-learned-rule-arms": 0.01
@@ -47,6 +85,7 @@
     },
     "margin_condition": "gate a law cell when every arm's limit share >= 0.1 and the limit's P(top-two gap < 0.01) <= 0.02; both law cells meet it",
     "variance": "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the stored curve",
+    "interval": "the package's interval of a bounded mean: expit(logit(psi) +/- 1.96 SE / (psi (1 - psi))), the range-logit Wald interval; the shrunken-SE, noise and shrunken coverage controls read the same interval at their own estimate and SE",
     "truth": "per replication: refit each fold's outcome learner on the fit's training rows with the package's fit_on_rows, take the argmax at the three arms, require it to equal the fit's rule on every validation row and the stored fold rule on every row (rule L4), and integrate Qbar0(d_v(W), W) by the trapezoid rule on 4001 points of W1 for each W2; weight 1/V",
     "oracle_se": "sqrt(V^-2 sum_v Var D*(d_v) / n_v) at the fold rules; descriptive",
     "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
@@ -78,32 +117,32 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/learned_rule_arms.py": "215a6733e338f1daa9749b97e1773941141cc2fa0dab6918542641c8bf88f017",
-    "tests/studies/learned_rule_arms_properties.py": "b6d7eea68b7c0fadff8eb5dc2982d9c5012e7ce88ffc8196aec12673bd46243e",
+    "tests/studies/learned_rule_arms.py": "011f0a67655b04ad477e15582b6cc4cba3171174568f07e67ec23d3ef102c936",
+    "tests/studies/learned_rule_arms_properties.py": "7cc14ebd9318e5f739d8303bc63e5df2c1d20131080c7459964db6cedb2a8e68",
     "tests/studies/_learned_rule_arms_law.py": "697a3998a66862c1b16a477d848184a459b3509304107bb34ed303ca5e9c8db0",
-    "tests/studies/_learned_rule_law.py": "c1d481a71a7eb36730712ddb1e7016ddc2e95e48b5e88aff5e119518f3151ef0",
-    "src/cleverly/estimators/tmle.py": "666f0e3e213e496c7c6ef9bb05e874000210af85f3a843d8eebe9c4cb5a93cf5",
-    "src/cleverly/estimators/_nuisance.py": "dbef8ca33f9f98b28968b07e2088531a7c8cb4c1c956c86afadfabfc8251baf8",
-    "src/cleverly/interventions/learned.py": "6903c6e1c9985f2d9f9624cd3bf7faaebf662dba52b747d5a4c571e158f87f1d",
-    "src/cleverly/interventions/base.py": "3b9db3199ad83dc5297396648e0c41acc755dcde5a675cf291da5de59692aa2b",
-    "src/cleverly/targets/builtin.py": "f799c949654a282bd54f86e712945e1980dec13d2e44067a76a6e38b62cc9b21",
+    "tests/studies/_learned_rule_law.py": "b5ac84993710a463f4f118b8a4adb61e3895b7d749925a04802f75b4ebfa5225",
+    "src/cleverly/estimators/tmle.py": "11730b76938c03e081774cc1549e25fe8c09304237735bc30467e3e732f05089",
+    "src/cleverly/estimators/_nuisance.py": "ec5a9f35c449602c5fe612ad8bd9948f701f4a1c53550123a0c57d2b0e706fe4",
+    "src/cleverly/interventions/learned.py": "b481c500c4e92b70aef6bb13496d641d5d6754e530e05978f55b4295ffadcae0",
+    "src/cleverly/interventions/base.py": "9655e2bf2519f313fc13ae1085d080888e480d32e4a799344c95f7af987c7d9d",
+    "src/cleverly/targets/builtin.py": "9066f510dd6dc2a8e184944b5dcea7327c2f1be1243f70c61d03394ff8dcf093",
     "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
     "src/cleverly/learners/_fitting.py": "3b6e8a9bd6d8b1499c3a86b6980929c3454147b9992e613744b3cbb87657f817",
-    "src/cleverly/_support.py": "9ac8cc28941b882c48d7c8ce27ebc65d977ade4aa73c961f5b91af90ffca26ad",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85",
-    "tests/studies/evidence/property_verdicts.py": "c23ec6ca777d6bd662b759bdf3e09bd98afef526ba9ef7f2b3527e8a83146fea",
-    "tests/studies/evidence/schema.py": "2a8898e18e7553953a96d6f18a7709947bba599a16831b7cd5ef8cb6afdc682f",
+    "src/cleverly/_support.py": "f03615016e302125bc3d1c50e64ce2337b8eacc3e0e523f8dff78d1dbae8db11",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7c42253bf6eb527dd5cc4af1b37f8f119126fac4bf2fdba0dc1826577963aea2",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "bf779c2507d5dd9d513e87f7e54cf97d1e9ac63938431aecf4617e45d056a59a",
-    "summary.csv": "34b4a4ac675c6067e64cd4990624f063b4e1164336c7341f923f1d34b24be7a6",
+    "replicates.parquet": "5fd6ff12962831803542a682440c92d5cda71d74cededa9784fd1cb3cd4ce814",
+    "summary.csv": "c0f42fe39c4cdf574dde6eab524efb194cc62dc72864dff55f488e1c6c63ac41",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "976506da4fa4e2d2e5722f31905062eda05ff4bada30a307a58a13a7ae82cb89",
-    "property-replicates.parquet": "bb82c4b25e9da432ebb14a1b51838affdb13271af1fee1f1f989c00c41fdf3e5",
-    "properties.csv": "aee7b9a6b13a65212220791efb297f26784234a15c00a988179d037ee2567e6d",
+    "performance-tests.csv": "18619931f42416776997ddd56d12c2b99d5335c734df11b5ca0d98bc9ac64d15",
+    "property-replicates.parquet": "a6da5f4a78f6aa07ced4c27773f962506da2fbcc8c089dd5b3378ba360f51386",
+    "properties.csv": "93a0cae27938182c7636b795baa84af4b80a92912f4cb4e549cc8108eda49473",
     "harness.csv.gz": "48f75630cecc2216cfd338bb11ea4a0a015a129c60183d5d61370683aacb2cb6"
   }
 }

@@ -94,6 +94,12 @@ ep-assessment
 learned-rule-ep
 targeting-curves
 score-assessment
+option-stopping-point
+option-treatment-adjustment
+option-outcome-by-arm
+option-patience
+isotonic-binding
+small-sample-wald-intervals
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response
@@ -111,6 +117,8 @@ eliminated-competing-events
 separable-effects
 survival-ctmle
 survival-dr-tmle
+hazard-msm
+continuous-time-survival
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
@@ -136,6 +144,9 @@ survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-foldwise
+dr-tmle-foldwise-n1500
+multi-arm-dr-tmle-foldwise
+stratified-dr-tmle-foldwise
 dr-tmle-one-inconsistent-nuisance
 adaptive-iptw
 adaptive-iptw-pairing
@@ -151,6 +162,9 @@ repeated-outcome-sdr
 long-horizon-longitudinal-tmle
 long-horizon-categorical-longitudinal-tmle
 long-horizon-sequentially-doubly-robust-estimation
+option-stopping-ltmle
+option-ratio-trim
+option-markov-order
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage
@@ -162,5 +176,7 @@ refuter-calibration-longitudinal
 refuter-calibration-point
 refuter-calibration-band
 default-simultaneous-bands
+band-t-reference
+band-t-reference-held-out
 full-refit-bootstrap-and-derived-contrasts
 ```

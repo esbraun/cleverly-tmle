@@ -10,7 +10,7 @@ the solvers.  This module covers what G3b wires around them:
   loud ``STOP_CONTEXT_MISSING`` failure;
 * a fold solve counts the units of its own rows and a C-TMLE candidate counts the units of its
   training rows (``sample_size`` thresholds are ``1 / n_u``);
-* the truncation curve and the bootstrap run under ``stopping="scaled_var"``;
+* the truncation curve runs under ``stopping="scaled_var"``, and the bootstrap is refused;
 * the outer exits of the alternating engines judge the outcome equation by a rule ratio computed
   at the pair they judge (rev 3.1 F4, rev 3.2 F1).  Every test below recomputes that ratio **by
   hand**, with ``pandas`` for the per-unit sums, from the pair of the round it audits.
@@ -52,6 +52,7 @@ from cleverly.estimators.targeting import (
     _outcome_ruler,
     build_submodel,
 )
+from cleverly.exceptions import CapabilityError
 from cleverly.fluctuation import InitialFit, mean_submodel, solve_fluctuation, solve_one_step
 from cleverly.fluctuation._score import StopContext
 from cleverly.fluctuation.reduced import missing_outcome_outcome_submodel
@@ -463,7 +464,8 @@ class TestFoldSolvesCountTheirOwnUnits:
             )
 
     def test_the_common_update_fit_uses_every_unit(self, frame: Any) -> None:
-        result = self._fit(frame, cv_evaluation=True)
+        # The treated counts differ across these equal clusters, so att and atc refuse.
+        result = self._fit(frame, cv_evaluation=True, estimands=("ate", "ey1", "ey0"))
         np.testing.assert_allclose(
             result.fluctuations["mean"].thresholds, 1.0 / frame["cluster"].nunique(), rtol=1e-12
         )
@@ -525,7 +527,7 @@ class TestCtmleCandidatesCountTheirTrainingUnits:
 # ------------------------------------------------------- truncation curve and the bootstrap
 
 
-class TestSensitivityAndBootstrapRunUnderADeclaredRule:
+class TestTruncationAndBootstrapUnderADeclaredRule:
     @pytest.mark.parametrize("rule", RULES)
     def test_a_truncation_curve_retargets_under_the_rule(self, rule: str) -> None:
         result = _fit(rule, _clustered(), columns={"id": "cluster"})
@@ -546,14 +548,11 @@ class TestSensitivityAndBootstrapRunUnderADeclaredRule:
         assert estimates["ate"].psi == result.estimates["ate"].psi
 
     @pytest.mark.parametrize("rule", RULES)
-    def test_a_bootstrap_replicates_without_a_failed_draw(self, rule: str) -> None:
-        estimator = TMLE(**linear_in_sample(stopping=rule, n_bootstrap=6))
-        result = estimator.fit(_clustered(), outcome="Y", treatment="A", id="cluster").single()
-        assert result.bootstrap is not None
-        assert result.bootstrap.n_requested == 6
-        # A replicate that raised is dropped and counted: a missing context would show here.
-        assert result.bootstrap.n_failed == 0
-        assert all(np.all(np.isfinite(draws)) for draws in result.bootstrap.draws.values())
+    def test_a_bootstrap_is_refused_before_any_fit(self, rule: str) -> None:
+        # No derivation bounds what the refits' residuals do to the bootstrap law
+        # (``RULE_BOOTSTRAP_REFUSAL``), so the estimator refuses at construction.
+        with pytest.raises(CapabilityError, match="residual score in every bootstrap refit"):
+            TMLE(**linear_in_sample(stopping=rule, n_bootstrap=6))
 
 
 # ------------------------------------------------------------- Fluctuation.rule_ratio itself

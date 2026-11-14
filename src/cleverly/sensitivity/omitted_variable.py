@@ -968,11 +968,16 @@ def _draw_index(result: Any, repeat: int | None) -> int | None:
 
 @dataclass(frozen=True)
 class _Draw:
-    """One draw's estimate, its influence curve, and its bound elements."""
+    """One draw's estimate, its influence curve, and its bound elements.
+
+    ``widened`` is the estimate's ``rule_widened``: the draw's fit ran under a declared
+    stopping rule, so its limits add the score the targeting left in its curve.
+    """
 
     psi: float
     curve: FloatArray | None
     elements: SensitivityElements
+    widened: bool = False
 
 
 #: The fitted methods whose bound refusal ``assume_consistent_mechanism=True`` lifts.
@@ -1241,7 +1246,9 @@ def _bound_draws(
     if result.n_repeats == 1:
         estimate = result[estimand]
         elements = _elements_for(result, result.repeats[0], parameter, nu2_estimator)
-        return (_Draw(float(estimate.psi), estimate.influence_curve, elements),)
+        return (
+            _Draw(float(estimate.psi), estimate.influence_curve, elements, estimate.rule_widened),
+        )
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError(
@@ -1278,7 +1285,9 @@ def _bound_draws(
                 f"{stored!r}. This is a package defect; report it."
             )
         elements = _elements_for(result, repeat, parameter, nu2_estimator)
-        draws.append(_Draw(float(stored), estimate.influence_curve, elements))
+        draws.append(
+            _Draw(float(stored), estimate.influence_curve, elements, estimate.rule_widened)
+        )
     return tuple(draws)
 
 
@@ -2759,16 +2768,24 @@ def _limit(
 
     ``side`` names the end: ``-1`` for the lower bound, which the limit extends downward,
     and ``1`` for the upper.  It is separate from the strength, which can be zero.
+
+    Under a declared stopping rule the limit also adds the absolute mean of the estimate's
+    influence curve, the score the targeting left (the margin of
+    :attr:`~cleverly.inference.ParameterEstimate.rule_widened`).  The bias term is not
+    targeted, so the rule leaves nothing in it.  On several draws the limit adds the largest
+    draw's margin, so it stays conservative.
     """
     signed_strength = side * strength
-    points, errors = [], []
+    points, errors, margins = [], [], [0.0]
     for draw in draws:
         psi_bias = draw.elements.psi_max_bias
         assert psi_bias is not None and draw.curve is not None
         points.append(draw.psi + signed_strength * draw.elements.max_bias)
         errors.append(_bound_std_error(draw.curve, signed_strength * psi_bias, result))
+        if draw.widened:
+            margins.append(abs(float(np.mean(draw.curve))))
     center, error = _median_rule(np.array(points), np.array(errors))
-    return center + side * quantile * error
+    return center + side * (quantile * error + max(margins))
 
 
 def _robustness_values(

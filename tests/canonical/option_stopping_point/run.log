@@ -1,0 +1,21 @@
+=== option-stopping-point declared run
+command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/option_stopping_point/regenerate.py --output /tmp/fix10-osp-Ygze --jobs 4
+commit: 3f6ece666c99f1a3bc75e56d98705bdee173e0c4; upstream 3f6ece666c99f1a3bc75e56d98705bdee173e0c4
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 21d2020577cb50e3336416070816125ed6e0a5281bdc3fae07b32fedf23e3426
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-13T17:47:14+00:00
+finished: 2026-11-13T18:11:41+00:00
+wall seconds: 1466.9
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 0951628a5ebebddaee94bef28b084e9dd236eb61de18f1d321045e5d8bc98930
+sha256 performance-tests.csv: 59ab967ca00922769ab078777d12b49b4e37131ec7f84473a72bddb985179a60
+sha256 properties.csv: e32c2e41c8eab11162a9a1c10154184146a96dd36fb869ba8c5519d9d01593aa
+sha256 property-replicates.parquet: 00ccc0483a6e2fbb7f17c9a931ce9353ff8412f551bf73ed42d957641fa224a4
+sha256 replicates.parquet: d26f47681ddb790e14c8d4bb7563f89ebb0ade3bec61165c177fd32166c43a06
+sha256 summary.csv: f59d6340cadaf46d47a90f714b0ca866e1e1392ac1be5a4c302dcf7cb2816c68
+

@@ -122,8 +122,9 @@ EFFICIENCY_BOUNDS = {PRIMARY_LAW: EFFICIENCY_BOUND}
 
 #: The ``missing_quadratic`` family: the bias leg and the coverage interval's lower bound at or
 #: above the calibration floor 0.92, with no SE ratio gate (Corollary 3's route, the module
-#: docstring). The control is the same estimate with its SE times :data:`COVERAGE_SHRINK`, whose
-#: coverage interval must fall wholly below 0.92.
+#: docstring). The control is the same estimate with its SE times :data:`COVERAGE_SHRINK`, read
+#: through the package's logit interval as the positive is, whose coverage interval must fall
+#: wholly below 0.92.
 COVERAGE_FAMILY = "conservative_coverage"
 COVERAGE_LABEL = "missing_quadratic"
 COVERAGE_CONTROL = "shrunken_coverage_control"
@@ -228,7 +229,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     efficiency_bounds=EFFICIENCY_BOUNDS,
     calibration_efficiency_ratio=False,
-    publication_policy="gated",
+    publication_policy="reporting",
     extra_artifacts=(HARNESS_ARTIFACT,),
     truth_varies_by_replicate=True,
 )
@@ -267,6 +268,11 @@ CONFIGURATION = {
         f"P(top-two gap < {law.NEAR_TIE}) <= {MAX_NEAR_TIE}; both law cells meet it"
     ),
     "variance": "V^-2 sum_v n_v^-2 sum_{i in v} D_i^2 of the stored curve",
+    "interval": (
+        "the package's interval of a bounded mean: expit(logit(psi) +/- 1.96 SE / (psi (1 - psi))), "
+        "the range-logit Wald interval; the shrunken-SE, noise and shrunken coverage controls "
+        "read the same interval at their own estimate and SE"
+    ),
     "truth": (
         "per replication: refit each fold's outcome learner on the fit's training rows with "
         "the package's fit_on_rows, take the argmax at the three arms, require it to equal the "
@@ -322,6 +328,11 @@ def _primary(
             "std_error": std_error,
             "ci_lower": low,
             "ci_upper": high,
+            # The scale of ``std_error`` and ``inference_estimate``, both on the level scale. The
+            # package forms the interval of this bounded mean on the logit scale and maps it back
+            # (``estimate.interval_scale`` is ``"range_logit"``); ``ci_lower``, ``ci_upper`` and
+            # ``covered`` record that interval, and the schema reads a per-replication truth on
+            # the identity scale only.
             "inference_scale": "identity",
             "covered": int(low <= truth <= high),
             "initial_estimate": law.untargeted_estimate(fitted.result),

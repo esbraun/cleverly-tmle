@@ -897,6 +897,7 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
         covariance_rule="centered" if fit.form == "cv" else "second_moment",
         inference=WORKING_MODEL_STATUS,
         support=_support(),
+        outcome_family=family,
     )
     levels = tuple(data.treatment_levels)
     provenance = record(data, fit.folds, random_state=seed, run_id=method.runtime.run_id)

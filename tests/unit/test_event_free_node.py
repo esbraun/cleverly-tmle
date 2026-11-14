@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly._inference_status import OUT_OF_RANGE_STATUS
 from cleverly._summary import vocabulary
 from cleverly.datasets import make_longitudinal
 from cleverly.estimators import _nuisance
@@ -29,6 +30,7 @@ from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.estimator import constant_node_parameters
 from cleverly.msm import MSM
 from cleverly.validation.longitudinal import LONGITUDINAL_CONSTANT_TARGET
+from tests.unit._source_mutation import mutate
 
 
 def _data(n: int = 600, seed: int = 1) -> LongitudinalData:
@@ -230,10 +232,22 @@ def test_a_constant_node_parameter_reports_no_interval() -> None:
 
 
 def test_removing_the_stamp_reports_a_zero_width_interval(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation control: without the status the risk of zero reports the interval [0, 0]."""
+    """Mutation control: without the status the risk of zero reports the interval [0, 0].
+
+    A risk of exactly zero lies on its bound, so without the stamp it falls back on
+    ``out_of_range_plugin``, which names the wrong cause. With that range check removed as well,
+    the zero-width interval shows.
+    """
     from cleverly.longitudinal import estimator as estimator_module
 
     monkeypatch.setattr(estimator_module, "constant_nodes", lambda fit: ())
+    result = _estimator(n_folds=1).fit(_data())
+    estimate = result["risk_regimen[control @ t=1]"]
+    assert estimate.inference == OUT_OF_RANGE_STATUS
+    from cleverly.inference import influence as influence_module
+
+    for module in (estimator_module, influence_module):
+        monkeypatch.setattr(module, "bounded_status", lambda status, *args, **kwargs: status)
     result = _estimator(n_folds=1).fit(_data())
     estimate = result["risk_regimen[control @ t=1]"]
     assert estimate.supplies_inference
@@ -317,12 +331,28 @@ def test_a_flagged_reference_arm_flags_every_contrast_against_it() -> None:
 def test_dropping_base_from_the_stamp_leaves_the_reference_contrast_inferential(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mutation control: a contrast that reads only its own arm misses a flagged reference."""
+    """Mutation control: a contrast that reads only its own arm misses a flagged reference.
+
+    The contrast also inherits the status of each level it reads, so that inheritance is
+    removed too; either path alone withholds the contrast.
+    """
     from cleverly.longitudinal import estimator as estimator_module
 
     real = estimator_module._parameter_status
     monkeypatch.setattr(
         estimator_module, "_parameter_status", lambda inference, *read: real(inference, read[0])
+    )
+    mutate(
+        monkeypatch,
+        estimator_module,
+        estimator_module,
+        "_estimates",
+        [
+            (
+                "level_of[id(fit)].inference,\n                    level_of[id(base)].inference,",
+                "",
+            )
+        ],
     )
     with pytest.warns(DataWarning):
         result = LTMLE(
@@ -353,7 +383,12 @@ def test_the_warning_caps_the_names_it_lists() -> None:
 
     estimates = {
         f"risk_regimen[a @ t={k}]": make_estimate(
-            f"risk_regimen[a @ t={k}]", 0.0, np.zeros(10), n=10, inference="constant_node_plugin"
+            f"risk_regimen[a @ t={k}]",
+            0.0,
+            np.zeros(10),
+            n=10,
+            inference="constant_node_plugin",
+            rule_widened=False,
         )
         for k in range(1, 26)
     }

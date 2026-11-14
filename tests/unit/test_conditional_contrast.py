@@ -1096,6 +1096,7 @@ def _null_cluster_test(rng: np.random.Generator, *, clusters: int, terms: int) -
             cluster=labels,
             inference="few_cluster_plugin",
             reference_df=clusters - 2,
+            rule_widened=False,
         )
         for j, name in enumerate(names)
     }

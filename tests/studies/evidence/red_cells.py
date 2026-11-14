@@ -28,9 +28,11 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   fitting failures leave red.  A truth or paired cell that the accounting leaves red stays a
   truth or paired row, and its ``fails by`` names the accounting.
 
-One red row sits outside the ledger: :data:`ACCEPTED_BY_EXCEPTION` names it.  Its study is
-``gated``, its owner accepted it by a written decision, and the ledger lists no row that has no
-ask to close it.
+A ``gated`` study may publish a red row only by a named exception (:data:`ACCEPTED_BY_EXCEPTION`),
+which the project owner grants in writing.  An exception with no owner is a row accepted as
+valid: the ledger lists no row that has no ask to close it, and its table labels it accepted.
+An exception that also has an owner only lifts the ``reporting`` requirement: the row stays in
+the ledger under its owner, and its table still prints it as failed.
 
 A study module may also define a ``scientific_failures`` hook, which the regeneration driver
 adds to the failures it gates or reports.  Those hooks audit fits rather than publish verdict
@@ -158,7 +160,7 @@ REPORTING_ROWS: Mapping[RedKey, str] = {
 
 @dataclass(frozen=True)
 class AcceptedRow:
-    """A red verdict of a ``gated`` study that its owner accepted by a named exception.
+    """A red verdict of a ``gated`` study that the project owner admitted by a named exception.
 
     Parameters
     ----------
@@ -173,10 +175,11 @@ class AcceptedRow:
     replicates_sha256: str
 
 
-#: The one red verdict of a ``gated`` study that its owner accepted by exception.  The row
-#: stays red in the committed tables, and the ledger neither owns it nor requires the
-#: ``reporting`` policy for it.  ``tests/unit/test_red_cell_ledger.py`` ratchets the entry: it
-#: fails when the cell turns green or the study is rerun, and it admits no other row.
+#: The red verdicts of ``gated`` studies admitted by a named exception.  Each row stays red in
+#: the committed tables, and the ledger does not require the ``reporting`` policy for it.  A row
+#: :data:`OWNERS` does not list was accepted as valid; a row it lists stays owned until its ask
+#: closes.  ``tests/unit/test_red_cell_ledger.py`` ratchets each entry: it fails when the cell
+#: turns green or the study is rerun, and it admits no other row.
 ACCEPTED_BY_EXCEPTION: Mapping[RedKey, AcceptedRow] = {
     RedKey(
         "adaptive-tmle-selective",
@@ -194,6 +197,22 @@ ACCEPTED_BY_EXCEPTION: Mapping[RedKey, AcceptedRow] = {
             "are unchanged, and the study was run once under the declaration at c6f9e51c."
         ),
         replicates_sha256="52ef091a9a5703205967d9d8ad605d7af5e09aadc705766c67c052cf0454a9cc",
+    ),
+    RedKey(
+        "stratified-drtmle-foldwise",
+        "truth",
+        "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
+    ): AcceptedRow(
+        reason=(
+            'Eric, 2026-11-13: "OK to the two shared test edits", answering the request to '
+            "admit this row by exception, held by X8-drtmle-small-stratum until Fix-3 re-reads "
+            "it. Not accepted as valid: the row reads defect suspect under Fix-6 plan rev 2.6 "
+            "S1 (coverage 0.9073 against the floor 0.90, SE ratio 0.8820 with 99% interval "
+            "0.8584 to 0.9079), its fix is Fix-3's small-stratum correction, and D13 marks the "
+            "interval experimental. The margin, count, law, seed and learners are unchanged, "
+            "and the study was run once under the declaration at 9ace1a3c."
+        ),
+        replicates_sha256="acf25e2e53c84b10cb8ac438beb9baf3d6666623b101d4194b144d53f3fd30a7",
     ),
 }
 
@@ -397,6 +416,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]",
         ),
     ),
+    # The standing record of ``reduced_crossfit="pooled"``, the R drtmle cvFolds construction:
+    # the three cells keep their verdicts. Corrected on the default (Fix-6 D2): both paired
+    # cells of ``drtmle-foldwise-n1500``, the foldwise default on the binary cells' own draws
+    # at n = 1,500, pass with the record's primary rows passing, and ``drtmle-foldwise`` passes
+    # on the multi-arm cell's draws at n = 2,000.
     "RM18-one-sided-bias": (
         *_keys(
             "canonical-drtmle",
@@ -425,8 +449,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "paired",
         "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
     ),
-    # The arm mean near 0.94 in the smallest stratum, and the in-sample band that includes it.
-    "strata-boundary-mean": (
+    # The coverage cell of a misspecified arm, red on one draw set under the shipped logit
+    # interval of a bounded mean, which the declared run reads.
+    "learned-rule-arms-coverage-draws": _keys(
+        "learned-rule-arms", "property", "conservative_coverage/missing_quadratic__declared"
+    ),
+    # The in-sample band over the arm mean near 0.94 in the smallest stratum.
+    "strata-boundary-mean": _keys(
+        "canonical-stratified-tmle",
+        "property",
+        "simultaneous_coverage/strata__simultaneous_band",
+    ),
+    # The committed rows of that arm mean under the identity normal interval, which the logit
+    # interval of a bounded mean replaced: a standing record of the replaced interval.
+    "F3-normal-reference": (
         *_keys(
             "canonical-stratified-tmle",
             "truth",
@@ -437,7 +473,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "canonical-stratified-tmle",
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
-            "simultaneous_coverage/strata__simultaneous_band",
         ),
     ),
     # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read
@@ -457,10 +492,35 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The logit-MSM slope in the smallest stratum of the stratified incremental and MSM
     # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
-    "X8-logit-small-stratum": _keys(
-        "canonical-stratified-incremental-msm",
+    # ``small-sample-wald`` adds held-out law H3's two gated logit-MSM coefficients, read in
+    # the post-run review as the same O(1/n) SE shortfall at about 300 stratum rows.
+    "X8-logit-small-stratum": (
+        *_keys(
+            "canonical-stratified-incremental-msm",
+            "property",
+            "interval_calibration/logit_v2_a__correctly_specified",
+        ),
+        *_keys(
+            "small-sample-wald",
+            "property",
+            "heldout_coverage/ho_logit_msm_a",
+            "heldout_coverage/ho_logit_msm_w",
+        ),
+    ),
+    # ``small-sample-wald``'s held-out bounded difference whose treated arm sits near 1 and
+    # carries most of its variance: the rule's normal reference refuted for differences.
+    "F3-difference-near-bound": _keys(
+        "small-sample-wald",
         "property",
-        "interval_calibration/logit_v2_a__correctly_specified",
+        "heldout_coverage/ho_sparse_treat_ate",
+    ),
+    # ``small-sample-wald``'s skewed continuous means in a small stratum: the moment-df t
+    # refuted for skewed outcomes, on held-out law H2 and on a diagnosis law.
+    "F3-skewed-continuous": _keys(
+        "small-sample-wald",
+        "property",
+        "heldout_coverage/ho_hurdle_ey1",
+        "diagnosis_continuous/lognormal06_ey1",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
     # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.
@@ -478,7 +538,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The treatment-correct cells of the stratified DR-TMLE study, read by
     # ``tests/diagnostics/x8_drtmle_treatment_correct``: the one-sided bias of RM18 at stratum
-    # size, shared by the shipped unstratified fit and by R drtmle.
+    # size, shared by the shipped unstratified fit and by R drtmle. The standing record of
+    # ``reduced_crossfit="pooled"``: the four cells keep their verdicts. A finite-sample limit
+    # of the default (Fix-6 D4): in ``stratified-drtmle-foldwise`` the bias of the marginal ATE
+    # and of ``v1`` contracts faster than n^-1/2, consistent with second order, the both-wrong controls fail to contract, and no
+    # rung's SE-ratio row is red.
     "X8-drtmle-one-sided-bias": _keys(
         "canonical-stratified-drtmle",
         "property",
@@ -494,6 +558,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-stratified-drtmle/stratified_both_correct/ey[1][V=2]",
             "drtmle-r-stratified/stratified_both_correct/ey[1][V=2]",
+        ),
+        # Fix-6 S1, declared before the run: the fold-wise default's row is red too, with an
+        # SE ratio whose interval excludes 1, so it is a defect suspect held here until Fix-3's
+        # small-stratum correction re-reads it.
+        *_keys(
+            "stratified-drtmle-foldwise",
+            "truth",
+            "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
         ),
         *_keys(
             "canonical-stratified-drtmle",
@@ -585,28 +657,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "truth",
         "cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]",
         "cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]",
-    ),
-    # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
-    # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
-    # DR-TMLE IID controls.
-    "F28": (
-        *_keys(
-            "clustered-unequal-cvtmle",
-            "property",
-            "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
-            "clustered_inference/iid_control_fold_evaluated_cluster_covariate",
-        ),
-        *_keys(
-            "clustered-few-cluster-tmle",
-            "property",
-            "few_cluster_reference/drtmle_crossfit__equal10__j10__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__equal10__j20__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__equal10__j30__iid_t_control",
-            "few_cluster_reference/drtmle_crossfit__unequal_informative__j10__iid_t_control",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
-            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
-        ),
     ),
     "F1-power-design": (
         *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),
@@ -1233,8 +1283,9 @@ def findings(
     ids : Iterable of str
         The owner names the roadmap declares.
     accepted : Iterable of RedKey
-        The red rows a named exception accepts (:data:`ACCEPTED_BY_EXCEPTION`).  Each needs
-        neither an owner nor the ``reporting`` policy, and each must still be red.
+        The red rows a named exception admits (:data:`ACCEPTED_BY_EXCEPTION`).  Each needs
+        neither an owner nor the ``reporting`` policy, and each must still be red.  One that
+        has an owner is held to that owner like any other owned row.
 
     Returns
     -------
@@ -1245,13 +1296,10 @@ def findings(
     all_rows = list(rows)
     rows = [row for row in all_rows if row.key not in accepted]
     known = set(ids)
-    red = {row.key for row in rows}
-    out = [f"{key} is red and has no owner" for key in sorted(red - set(owned))]
+    red = {row.key for row in all_rows}
+    out = [f"{key} is red and has no owner" for key in sorted(red - set(owned) - accepted)]
     out += [f"{key} has an owner but is not red" for key in sorted(set(owned) - red)]
-    out += [
-        f"{key} is accepted by exception but is not red"
-        for key in sorted(accepted - {row.key for row in all_rows})
-    ]
+    out += [f"{key} is accepted by exception but is not red" for key in sorted(accepted - red)]
     out += [
         f"{key} is owned by {owner!r}, which the roadmap's id column does not list"
         for key, owner in sorted(owned.items())
@@ -1416,7 +1464,11 @@ def rendered(records: Sequence[StudyRecord] | None = None) -> dict[str, list[str
     counts: dict[str, int] = {}
     for record in records:
         tables = frames(record)
-        rows += [row for row in red_rows(record, tables) if row.key not in ACCEPTED_BY_EXCEPTION]
+        rows += [
+            row
+            for row in red_rows(record, tables)
+            if row.key not in ACCEPTED_BY_EXCEPTION or row.key in OWNERS
+        ]
         counts[record.slug] = verdict_count(tables)
     ids = owner_ids()
     return {

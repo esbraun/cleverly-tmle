@@ -21,10 +21,13 @@ and the estimate keeps :math:`\hat\sigma^2_{IC}` (:attr:`PolicyVariance.source` 
 interval contains the default Wald interval: its coverage is at least the default's at every
 ``n``, with no condition on the variance regressions.
 
-The interval keeps the scale and the reference the default interval uses. Its half-width on
-that scale is the larger of the default half-width and :math:`z\,\hat\sigma_{pw}`, with
-:math:`z` the normal quantile (:meth:`PolicyVariance.interval`). On a normal reference this is
-the Wald interval at :math:`\hat\sigma`, bit for bit.
+The interval keeps the scale and the reference the default interval uses: the range-logit
+scale of a bounded mean, the identity scale of a difference, and a Student t reference where
+the default reads one. Its half-width on that scale is the larger of the default half-width
+and :math:`z\,\hat\sigma_{pw}` carried onto the scale by the same delta-method slope, with
+:math:`z` the normal quantile (:meth:`PolicyVariance.interval`). So the t degrees of freedom of
+the influence curve never apply to the policy-weighted variance. On a normal reference this is
+the Wald interval at :math:`\hat\sigma` on that scale, bit for bit.
 """
 
 from __future__ import annotations
@@ -169,44 +172,70 @@ class PolicyVariance:
         return float(self.influence_variance)
 
     def interval(
-        self, center: float, alpha: float, reference_df: int | None
+        self,
+        center: float,
+        alpha: float,
+        reference_df: float | None,
+        *,
+        slope: float = 1.0,
+        margin: float = 0.0,
     ) -> tuple[float, float]:
-        """The interval on the inference scale: the default one widened to ``z`` times the pw SE.
+        """The interval on the default's scale: its half-width widened to ``z`` times the pw SE.
 
         Parameters
         ----------
         center : float
-            The estimate on its inference scale.
+            The estimate on the scale the default interval is formed on.
         alpha : float
             The two-sided level.
-        reference_df : int or None
+        reference_df : float or None
             The degrees of freedom of the default interval's Student t reference, or
             ``None`` for the normal reference. The policy-weighted half-width always reads
             the normal reference.
+        slope : float, default=1.0
+            The derivative of the map onto that scale at the estimate, which carries both
+            standard errors alike (the range-logit slope of a bounded mean, 1 on the
+            inference scale).
+        margin : float, default=0.0
+            A non-negative amount added to both half-widths on that scale.
 
         Returns
         -------
         tuple of float
             The union of the default interval and the normal interval at the policy-weighted
-            standard error.
+            standard error: half-width ``max(t * slope * SE_IC, z * slope * SE_pw) + margin``.
         """
-        default = wald_ci(center, _root(self.influence_variance), alpha, df=reference_df)
+        se_ic = _root(self.influence_variance) * slope
+        default = wald_ci(center, se_ic, alpha, df=reference_df, margin=margin)
         if not self.usable:
             return default
-        policy = wald_ci(center, _root(self.policy_variance), alpha)
+        policy = wald_ci(center, _root(self.policy_variance) * slope, alpha, margin=margin)
         return (min(default[0], policy[0]), max(default[1], policy[1]))
 
-    def test(self, value: float, null: float, reference_df: int | None) -> tuple[float, float]:
+    def test(
+        self,
+        value: float,
+        null: float,
+        reference_df: float | None,
+        *,
+        slope: float = 1.0,
+        margin: float = 0.0,
+    ) -> tuple[float, float]:
         """The Wald statistic and p-value that reject when :meth:`interval` excludes ``null``.
 
         Parameters
         ----------
         value : float
-            The estimate on its inference scale.
+            The estimate on the scale the test is computed on.
         null : float
             The null on the same scale.
-        reference_df : int or None
+        reference_df : float or None
             The default reference's degrees of freedom, as in :meth:`interval`.
+        slope : float, default=1.0
+            The slope that carries both standard errors onto that scale, as in
+            :meth:`interval`.
+        margin : float, default=0.0
+            The half-width margin of the interval the test inverts, as in :meth:`interval`.
 
         Returns
         -------
@@ -214,10 +243,11 @@ class PolicyVariance:
             The statistic and the p-value of whichever of the two tests has the larger
             p-value, or the smaller statistic when the p-values tie.
         """
-        default = wald_statistic(value, null, _root(self.influence_variance), df=reference_df)
+        se_ic = _root(self.influence_variance) * slope
+        default = wald_statistic(value, null, se_ic, df=reference_df, margin=margin)
         if not self.usable:
             return default
-        policy = wald_statistic(value, null, _root(self.policy_variance))
+        policy = wald_statistic(value, null, _root(self.policy_variance) * slope, margin=margin)
         if not np.isfinite(default[1]):
             return policy
         if policy[1] == default[1]:
