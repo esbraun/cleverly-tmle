@@ -221,6 +221,25 @@ the step that adjusts the risks met the stopping rule its intervals rely on. The
 and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
 lists each with its reason.
 
+The plots draw the same checks from what the fit kept:
+
+```python
+from cleverly.plotting import learners, overlap, weights
+
+overlap(exact_risks, censoring=True)
+weights(exact_risks)
+learners(exact_risks)
+```
+
+`overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
+for each arm, the chance of that arm times the chance of staying in follow-up just before the last
+time in `horizons=`. The fit puts a floor on that product, drawn as a dotted line.
+
+`weights` draws one over the product at each time in `horizons=`, for each person under the arm
+they received. Before the floor caps it, no weight the fit gives that person by then is larger.
+Each box holds everyone given that arm, whether or not they were still followed at that time.
+`learners` shows the cross-validated loss of each candidate model and marks the one the fit chose.
+
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
