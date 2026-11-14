@@ -974,47 +974,81 @@ def _markov_data(law: HeldLaw) -> LongitudinalData:
     return replace(LongitudinalData.from_frame(law.frame(), **law.columns()), markov_order=0)
 
 
-@pytest.mark.parametrize("l1_only", [False, True])
-def test_h32_a_markov_order_is_refused_before_any_learner(l1_only: bool) -> None:
-    law = HeldLaw(n_times=4, censored=False)
-    frame, columns = _l1_or_l2(law, l1_only)
-    data = replace(LongitudinalData.from_frame(frame, **columns), markov_order=0)
-    message = (
-        "markov_order=0 with survival_model='hazard' is not built. On a design with one "
-        "baseline treatment held over the nodes, the window starts its treatment blocks after "
-        "node 1"
-    )
-    with pytest.raises(CapabilityError, match=_escape(message)) as raised:
-        LTMLE(STATIC, survival_model="hazard", targeting="one_step", **_refuse()).fit(data)
-    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+def _old_window_arm_start(self: LongitudinalData, time: int) -> int:
+    """The window's first arm before Fix-12: it ignored a held design."""
+    if self.markov_order is None:
+        return 1
+    return max(1, self.window_start(time) - 1)
 
 
-def test_the_window_would_pool_the_node_hazards_over_the_arms() -> None:
-    """Why H32 exists: saturated outcome learners and a wrong mechanism under ``markov_order=0``.
-
-    Outcome-side double robustness should make the fit exact.  With the refusal lifted the
-    hazard fit misses, because the order-0 window leaves the held treatment out of the node
-    hazard designs from node 3 on; the iterated-mean fit on the same data, whose static arms
-    regress on followers only, is exact.
-    """
+def _markov_case(data: LongitudinalData) -> dict[str, Any]:
+    """Saturated outcome learners and a wrong treatment model on ``data``."""
     from sklearn.dummy import DummyClassifier
 
-    law = HeldLaw(censored=False)
-    data = _markov_data(law)
-    assert data.history_design(3, include_current=True).shape[1] == 3  # W1, W2, L3: no A
-    settings = {
+    return {
         "frame": data,
         "columns": {},
         "hazard": CellMeans(),
         "continuation": CellMeans(),
         "treatment_learner": DummyClassifier(strategy="prior"),
     }
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(backward, "refuse_hazard_markov", lambda data: None)
-        lifted = fit(law, STATIC, **settings)
-    assert worst_miss(law, lifted, STATIC_DENSITIES) > MISSED
+
+
+@pytest.mark.parametrize("censored", [False, True])
+def test_a_markov_window_keeps_the_held_treatment_and_the_fit_exact(censored: bool) -> None:
+    """``markov_order=0`` with saturated outcome learners and a wrong mechanism is exact.
+
+    Law (H) is order-0 Markov: each hazard, retention and ``L_k`` reads ``W``, the held ``A``
+    and ``L_k`` or ``L_{k-1}``.  The window keeps the held treatment at every node
+    (:meth:`LongitudinalData.window_arm_start`), so outcome-side double robustness makes the
+    hazard fit exact, as it does the iterated-mean fit on the same data.
+    """
+    law = HeldLaw(censored=censored)
+    data = _markov_data(law)
+    assert data.history_design(3, include_current=True).shape[1] == 4  # W1, W2, L3 and A
+    settings = _markov_case(data)
+    assert worst_miss(law, fit(law, STATIC, **settings), STATIC_DENSITIES) < EXACT
     reference = fit(law, STATIC, survival_model="iterated_mean", targeting="iterative", **settings)
     assert worst_miss(law, reference, STATIC_DENSITIES) < EXACT
+
+
+def test_mutation_a_window_that_drops_the_held_treatment_misses() -> None:
+    """Mutation: the window's first arm without the held-design case (before Fix-12).
+
+    From node 3 on the order-0 window then leaves the held treatment out of the node hazard
+    designs, so the hazards are pooled over the arms and only a correct mechanism repairs them.
+    The wrong mechanism of the exactness test leaves the fit off the truth.
+    """
+    law = HeldLaw(censored=False)
+    data = _markov_data(law)
+    settings = _markov_case(data)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(LongitudinalData, "window_arm_start", _old_window_arm_start)
+        assert data.history_design(3, include_current=True).shape[1] == 3  # no A
+        mutated = fit(law, STATIC, **settings)
+    assert worst_miss(law, mutated, STATIC_DENSITIES) > MISSED
+
+
+@pytest.mark.parametrize("n_times", [3, 4])
+def test_a_markov_window_on_a_node_one_block_alone_is_exact(n_times: int) -> None:
+    """``L_1`` alone under ``markov_order=0``: the window leaves it out after node 1.
+
+    The block (``W2`` here) moves the treatment only, so the order-0 restriction holds and the
+    hazard fit with saturated learners and a wrong mechanism is exact.
+    """
+    from sklearn.dummy import DummyClassifier
+
+    law = HeldLaw(n_times=n_times, censored=False)
+    frame, columns = _l1_or_l2(law, True)
+    data = replace(LongitudinalData.from_frame(frame, **columns), markov_order=0)
+    settings = {
+        "frame": data,
+        "columns": {},
+        "hazard": CellMeans(),
+        "continuation": False,
+        "treatment_learner": DummyClassifier(strategy="prior"),
+    }
+    assert worst_miss(law, fit(law, STATIC, **settings), STATIC_DENSITIES) < EXACT
 
 
 def test_node_bounds_bound_the_node_hazard_only() -> None:
