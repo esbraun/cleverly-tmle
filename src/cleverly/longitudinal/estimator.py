@@ -463,6 +463,27 @@ def _policy_variance_refusal(condition: str) -> Refusal:
     )
 
 
+def _policy_variance_design_conflicts(
+    data: LongitudinalData, *, learned: bool, separable: bool, tuned: bool
+) -> tuple[str, ...]:
+    """The names of :data:`POLICY_VARIANCE_REFUSALS` that a prepared design hits."""
+    refused = (
+        ("learned", learned),
+        ("separable", separable),
+        ("tuned", tuned),
+        ("cluster", data.cluster is not None),
+        ("survival", data.is_survival or data.is_repeated),
+        ("censoring", bool(data.censoring_names)),
+        ("weights", data.is_weighted),
+        ("held", data.treatment_held),
+        (
+            "mixed",
+            any(data.node_kind(time) == "mixed" for time in range(1, data.n_times + 1)),
+        ),
+    )
+    return tuple(name for name, applies in refused if applies)
+
+
 #: Why ``variance="policy_weighted"`` refuses each setting or design, by its name.  Each
 #: refusal is raised before any learner fits.
 POLICY_VARIANCE_REFUSALS: Mapping[str, Refusal] = MappingProxyType(
@@ -4926,6 +4947,11 @@ class _SequentialEstimator:
             )
         if self.variance == "influence_curve":
             return
+        for name in self._policy_variance_setting_conflicts():
+            raise CapabilityError.from_refusal(POLICY_VARIANCE_REFUSALS[name])
+
+    def _policy_variance_setting_conflicts(self) -> tuple[str, ...]:
+        """The names of :data:`POLICY_VARIANCE_REFUSALS` that this estimator's settings hit."""
         refused = (
             ("msm", self.msm is not None),
             ("repeats", self.repeats != 1),
@@ -4935,9 +4961,7 @@ class _SequentialEstimator:
             ("ratio_trim", self.ratio_trim is not None),
             ("survival", self.survival_model != "iterated_mean"),
         )
-        for name, applies in refused:
-            if applies:
-                raise CapabilityError.from_refusal(POLICY_VARIANCE_REFUSALS[name])
+        return tuple(name for name, applies in refused if applies)
 
     def _refuse_policy_variance(
         self,
@@ -4962,23 +4986,11 @@ class _SequentialEstimator:
         """
         if self.variance != "policy_weighted":
             return
-        refused = (
-            ("learned", learned),
-            ("separable", separable),
-            ("tuned", tuned),
-            ("cluster", data.cluster is not None),
-            ("survival", data.is_survival or data.is_repeated),
-            ("censoring", bool(data.censoring_names)),
-            ("weights", data.is_weighted),
-            ("held", data.treatment_held),
-            (
-                "mixed",
-                any(data.node_kind(time) == "mixed" for time in range(1, data.n_times + 1)),
-            ),
+        conflicts = _policy_variance_design_conflicts(
+            data, learned=learned, separable=separable, tuned=tuned
         )
-        for name, applies in refused:
-            if applies:
-                raise CapabilityError.from_refusal(POLICY_VARIANCE_REFUSALS[name])
+        for name in conflicts:
+            raise CapabilityError.from_refusal(POLICY_VARIANCE_REFUSALS[name])
 
     def _validate_targeting(self) -> None:
         """Refuse an invalid targeting setting.  A recursion without a fluctuation has none."""
@@ -5595,6 +5607,19 @@ class _SequentialEstimator:
             separable=bool(separable),
             tuned=tuned_folds is not None,
         )
+        # Whether the sparse-influence advice may name ``variance="policy_weighted"``: a
+        # default-variance fit of a modified treatment policy that the option would accept.
+        policy_available = (
+            self.variance == "influence_curve"
+            and any(plan.has_mtp for plan in plans)
+            and not self._policy_variance_setting_conflicts()
+            and not _policy_variance_design_conflicts(
+                prepared,
+                learned=learned is not None,
+                separable=bool(separable),
+                tuned=tuned_folds is not None,
+            )
+        )
         checked = branch_plans(plans[0]) if learned is not None else plans
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, checked, resolve_cumulative_g_bounds(self.g_bounds))
@@ -5813,6 +5838,7 @@ class _SequentialEstimator:
                 bootstrap_measured=not first.hazard and not self.isotonic,
                 percentile_bootstrap=bool(self.n_bootstrap),
                 policy_variance=self.variance == "policy_weighted",
+                policy_available=policy_available and self._estimator in ("tmle", "sdr"),
             )
         result = self._finish(result, first.reported, repeats[0].fits)
         if self.n_bootstrap:
@@ -7511,6 +7537,8 @@ class LTMLE(_SequentialEstimator):
         separable-effects regimen.  Any other setting or design raises
         :class:`~cleverly.exceptions.CapabilityError` before any learner.  Its coverage claim
         needs an exact or known ratio, or, with a learned ratio, a consistent outcome model.
+        The registered study ``mtp-policy-variance`` measures it, and an estimate reads
+        ``supported`` only where a support row licenses the option.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.

@@ -163,6 +163,26 @@ class TestTheWarning:
             warn_sparse_influence(self._report(20), cross_fitted=False, bootstrap_measured=False)
         assert "n_bootstrap" not in str(record[0].message)
 
+    def test_an_mtp_fit_the_option_accepts_is_told_about_the_option(self) -> None:
+        """Fix-5: the advice names ``variance="policy_weighted"`` and not the bootstrap."""
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(self._report(20), cross_fitted=False, policy_available=True)
+        text = str(record[0].message)
+        assert "variance='policy_weighted'" in text
+        assert "0.980 to 0.983" in text and "BCa interval 0.908 to 0.923" in text
+        assert "n_bootstrap" not in text and "bootstrap_interval" not in text
+
+    def test_control_a_cross_fitted_fit_keeps_its_advice_over_the_option(self) -> None:
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(self._report(20), cross_fitted=True, policy_available=True)
+        text = str(record[0].message)
+        assert "X20" in text and "policy_weighted" not in text
+
+    def test_control_without_the_flag_the_option_is_not_named(self) -> None:
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(self._report(20), cross_fitted=False)
+        assert "policy_weighted" not in str(record[0].message)
+
     def test_the_warning_is_a_user_warning(self) -> None:
         assert issubclass(SparseInfluenceWarning, UserWarning)
 

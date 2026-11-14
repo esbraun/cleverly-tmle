@@ -411,6 +411,17 @@ _POLICY_IN_USE_NOTE = (
     "The estimate is driven by few rows; the interval uses the larger of the "
     "influence-curve and policy-weighted variances. See result.diagnostics.influence()."
 )
+#: The advice of a default-variance fit of a modified treatment policy that
+#: ``variance="policy_weighted"`` accepts (Fix-5): the option's measured reading
+#: (``mtp-policy-variance``) and the BCa reading of the Fix-5 probes, which is no better than
+#: the Wald interval here, so the advice does not name the bootstrap.
+_POLICY_VARIANCE_ADVICE = (
+    "For a modified treatment policy, variance='policy_weighted' adds a standard error that "
+    "reads the density ratio at each row's policy dose and reports the larger of the two. It "
+    "is validated only on the configurations its support label names; on the five-node price "
+    "rows it covers 0.980 to 0.983 where the Wald interval covers 0.911 to 0.929 and the BCa "
+    "interval 0.908 to 0.923. See result.diagnostics.influence()."
+)
 #: The advice of an in-sample fit whose bootstrap no registered study measures.
 _UNMEASURED_ADVICE = (
     "No registered study measures a bootstrap interval for this kind of fit, so its "
@@ -426,6 +437,7 @@ def warn_sparse_influence(
     bootstrap_measured: bool = True,
     percentile_bootstrap: bool = False,
     policy_variance: bool = False,
+    policy_available: bool = False,
     stacklevel: int | None = None,
 ) -> None:
     """Warn once for the estimates whose variance estimate is above the threshold.
@@ -452,6 +464,10 @@ def warn_sparse_influence(
         Whether the fit reads ``variance="policy_weighted"``. The warning still fires at the
         same threshold, and its text says the interval reads the larger of the two variances
         in place of any advice.
+    policy_available : bool, default=False
+        Whether the fit is an in-sample, unclustered, end-of-study fit of a modified treatment
+        policy with the default variance, which ``variance="policy_weighted"`` accepts. The
+        advice then names the option and its measured reading in place of the bootstrap.
     stacklevel : int or None, default=None
         Passed to :func:`warnings.warn`. ``None`` points at the first caller outside the
         ``cleverly`` package, whichever route reached the fit.
@@ -480,7 +496,9 @@ def warn_sparse_influence(
         )
         return
     advice = (
-        _CROSS_FITTED_ADVICE
+        _POLICY_VARIANCE_ADVICE
+        if policy_available and not cross_fitted
+        else _CROSS_FITTED_ADVICE
         if cross_fitted
         else _UNMEASURED_ADVICE
         if not bootstrap_measured
