@@ -79,9 +79,11 @@ def _risk_sets(time: FloatArray, event: FloatArray) -> _RiskSets:
     order = np.argsort(time, kind="stable")
     sorted_time = time[order]
     events = event > 0
-    times = np.unique(time[events])
+    times, counts = np.unique(time[events], return_counts=True)
     start = np.searchsorted(sorted_time, times, side="left")
-    deaths = np.array([np.count_nonzero(events & (time == t)) for t in times], dtype=float)
+    # Breslow tie counts, one grouped count instead of a scan of every row per event time.
+    # A NaN time counts no deaths, as an equality test would find none.
+    deaths = np.where(np.isnan(times), 0, counts).astype(float)
     return _RiskSets(times, start, deaths, order, np.flatnonzero(events))
 
 

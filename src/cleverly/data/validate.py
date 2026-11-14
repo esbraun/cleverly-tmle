@@ -8,6 +8,7 @@ constant covariates make the treatment model's design matrix singular.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 
 import numpy as np
@@ -628,16 +629,21 @@ def check_covariates(
                 keep[j] = False
                 dropped.append(names[j])
 
-    seen: dict[bytes, int] = {}
+    # A fixed-size digest finds candidate duplicates without retaining every column's bytes
+    # (about 8 * n * p of them); a digest match is confirmed byte for byte, so the test stays
+    # exact, keeps signed zeros apart and keeps the first of each duplicated set.
+    seen: dict[bytes, list[int]] = {}
     for j in range(matrix.shape[1]):
         if not keep[j]:
             continue
-        digest = np.ascontiguousarray(matrix[:, j]).tobytes()
-        if digest in seen:
+        column = np.ascontiguousarray(matrix[:, j])
+        digest = _column_digest(column)
+        kept = seen.setdefault(digest, [])
+        if any(_same_bytes(column, matrix[:, k]) for k in kept):
             keep[j] = False
             dropped.append(names[j])
         else:
-            seen[digest] = j
+            kept.append(j)
 
     if dropped:
         _warn(
@@ -650,6 +656,16 @@ def check_covariates(
     if not retained:
         raise DataError("all covariates were constant or duplicated; nothing left to adjust for")
     return matrix[:, keep], retained, dropped
+
+
+def _column_digest(column: FloatArray) -> bytes:
+    """A fixed-size digest of a contiguous column's bytes."""
+    return hashlib.blake2b(memoryview(column).cast("B"), digest_size=16).digest()
+
+
+def _same_bytes(column: FloatArray, other: FloatArray) -> bool:
+    """Whether two columns hold the same bytes, so ``0.0`` and ``-0.0`` differ."""
+    return column.tobytes() == np.ascontiguousarray(other).tobytes()
 
 
 def encode_clusters(values: np.ndarray, name: str) -> IntArray:
