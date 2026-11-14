@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.assessment import assessment_capabilities
 from cleverly.exceptions import CapabilityError, MethodConfigurationError, RefusalReason
 from cleverly.interventions import DoseQuantile, ModifiedPolicy, Shift
 from cleverly.longitudinal import (
@@ -27,6 +28,7 @@ from cleverly.longitudinal import (
     SequentialGComputation,
     SequentialIPW,
 )
+from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.methods import (
     GComputationMethod,
     IPSIMethod,
@@ -329,6 +331,29 @@ def test_h25_a_truncation_replay_of_a_policy_walk_is_refused() -> None:
     with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         result.diagnostics.truncation_curve(bounds=[0.05])
     assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    # The row reads unavailable before any call, with the record the replay raises.
+    (row,) = (
+        item for item in assessment_capabilities(result) if item.operation == "truncation_curve"
+    )
+    assert not row.available
+    with pytest.raises(CapabilityError, match=re.escape(message)) as replayed:
+        longitudinal_truncation_curve(result, [0.05])
+    assert row.refusal == replayed.value.refusal
+    # The witness: the same fit without the policy replays, and its row reads available.
+    static = LTMLE(
+        {"a0": 0, "a1": 1},
+        n_folds=1,
+        survival_model="hazard",
+        targeting="one_step",
+        outcome_learner=CellMeans(),
+        treatment_learner=CellProbabilities(),
+        censoring_learner=CellMeans(),
+    ).fit(LAW.frame(), **LAW.fit_columns())
+    (row,) = (
+        item for item in assessment_capabilities(static) if item.operation == "truncation_curve"
+    )
+    assert row.available
+    assert len(static.diagnostics.truncation_curve(bounds=[0.05]).to_frame())
 
 
 @pytest.mark.parametrize(

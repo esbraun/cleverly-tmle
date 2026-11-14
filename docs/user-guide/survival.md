@@ -93,6 +93,21 @@ holds one decision.
 gives the contract and its evidence.
 :::
 
+To check overlap, plot each person's predicted chance of treatment at baseline:
+
+```python
+from cleverly.plotting import notes, overlap
+
+fig = overlap(curve, censoring=True)
+print(notes(fig))
+```
+
+The top panel shows that chance for the treated above the axis and the untreated below. Where one
+group has people and the other has none, the comparison leans on the model there rather than on
+data. The fit limits the product of that chance and the chance of staying in follow-up, not the
+chance alone, so `censoring=True` adds that product for each plan up to the last horizon, with the
+limit as a dotted line and the share of people beyond it printed at its foot.
+
 [Readmission by day 30, 60 and 90](../examples/discharge-to-readmission.ipynb) works a full
 analysis with this design.
 
@@ -465,7 +480,9 @@ Stitelman and van der Laan (2010) found the points unbiased when the event model
 a covariate that strongly predicts treatment but not the event, their typical error was 40% to
 65% of that of the ordinary hazard fit with every covariate in the treatment model. When the
 event model was wrong, some points were biased by up to about one standard deviation of the
-estimate. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
+estimate. `cleverly.plotting.learners(result)` draws each arm's sequence of added covariates with
+the one the search chose marked, and `cleverly.plotting.overlap(result)` draws each arm's chosen
+treatment model. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
 [Time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)
 gives the algorithm and what it refuses.
 

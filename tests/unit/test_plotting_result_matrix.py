@@ -308,6 +308,9 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "effect_curve": _effect_curve,
     "dose_response": _dose_response,
     "structural_nested_mean": _structural_nested_mean,
+    # X70 (d) and (c): the hazard working model and the hazard modified treatment policy.
+    "hazard_msm": sweep.fit_hazard_msm,
+    "hazard_mtp": sweep.fit_hazard_mtp,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
 }
@@ -356,11 +359,11 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "draws",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -368,11 +371,11 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -380,11 +383,11 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "ValueError: risk_regimen[arm1 @ t=2]: this estimate's",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "X103",
+        "learners": "draws",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -392,11 +395,11 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "X103",
+        "learners": "draws",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -406,7 +409,7 @@ EXPECTED: dict[str, dict[str, str]] = {
         "influence": "draws",
         "overlap": "X100",
         "weights": "X100",
-        "balance": "X100",
+        "balance": "X103",
         "learners": "X100",
         "calibration": "CapabilityError: calibration() draws a nuisance report's",
         "repeats": "CapabilityError: repeats() draws the estimate of",
@@ -416,11 +419,11 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "TypeError: curve() draws a longitudinal fit,",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: covariate_balance: this report reads a",
-        "learners": "X100",
-        "calibration": "X100",
+        "learners": "CapabilityError: learners() reads a nuisance report's",
+        "calibration": "CapabilityError: calibration() reads a nuisance report's",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -452,12 +455,37 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "TypeError: curve() draws a longitudinal fit,",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: covariate_balance weighs the covariates by",
         "learners": "TypeError: learners() cannot read the nuisance",
         "calibration": "CapabilityError: no nuisance model here reports",
         "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    # The coefficients have no horizon, so the curve refuses and forest draws them.
+    "hazard_msm": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit reports the coefficients",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_mtp": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "sequential_gcomp": {
@@ -467,8 +495,8 @@ EXPECTED: dict[str, dict[str, str]] = {
         "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
         "weights": "CapabilityError: a g-computation or parametric g-formula",
         "balance": "CapabilityError: covariate_balance weighs the covariates by",
-        "learners": "X100",
-        "calibration": "X100",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -627,15 +655,35 @@ def test_repeats_draws_each_longitudinal_draw(fits: Any) -> None:
 
 
 @_SHARED
-def test_overlap_names_a_held_baseline_treatment(fits: Any) -> None:
-    with pytest.raises(CapabilityError) as caught:
-        plotting.overlap(fits("time_to_event_ltmle"))
-    assert "per time point" not in str(caught.value)
-    assert "once at baseline" in str(caught.value)
-
-
-@_SHARED
 def test_calibration_does_not_call_a_hazard_library_a_continuous_outcome(fits: Any) -> None:
     with pytest.raises(CapabilityError) as caught:
         plotting.calibration(fits("continuous_survival"))
     assert "continuous outcome" not in str(caught.value)
+
+
+@_SHARED
+def test_a_hazard_working_model_draws_its_coefficients_not_curves(fits: Any) -> None:
+    """X70 (d): the plot of a hazard MSM fit is the forest of its terms, never a curve."""
+    result = fits("hazard_msm")
+    with pytest.raises(CapabilityError, match="coefficients of a working model"):
+        plotting.curve(result)
+    fig = result.plot()
+    labels = [tick.get_text() for tick in fig.axes[0].get_yticklabels()]
+    assert len(fig.axes) == 1
+    assert sorted(labels) == sorted(result.estimates)
+    plt.close(fig)
+
+
+@_SHARED
+def test_a_hazard_policy_names_its_shifted_weights(fits: Any) -> None:
+    """X70 (c): the later nodes of a held policy are drawn as held, under the policy's note."""
+    from cleverly.longitudinal import node_weights
+
+    result = fits("hazard_mtp")
+    kinds = node_weights(result, regimen="up", horizon=4).node_kinds
+    assert kinds == ("mtp", "held", "held", "held")
+    fig = plotting.weights(result, regimens=["up"])
+    text = " ".join(plotting.notes(fig))
+    assert "modified treatment policy" in text
+    assert "held" not in text
+    plt.close(fig)

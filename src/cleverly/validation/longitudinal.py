@@ -242,8 +242,10 @@ class LongitudinalDiagnostics:
     ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals when the
     configured cap replaced every contributing row.
 
-    ``node_kind`` says what decided the node's arm: ``"label"``, ``"rule"`` or
-    ``"policy"``.  The column is present when some node is a policy node, as ``cause`` is
+    ``node_kind`` says what decided the node's arm: ``"label"``, ``"rule"``,
+    ``"policy"``, ``"tilt"``, ``"mtp"``, or ``"held"`` at a later node of a held design,
+    which repeats the baseline decision and reports the arms its units at risk hold.  The
+    column is present when some node is a policy node, as ``cause`` is
     present on a competing-risk fit only.  So a policy that is one-hot on one sample, and so
     resolves as a rule, and not on another changes which columns the report has.  At a
     ``"policy"`` node the assignment columns
@@ -707,13 +709,19 @@ def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
 
 
 def _node_kind(fit: Any, time: int) -> str:
-    """``"mtp"``, ``"tilt"``, ``"policy"``, ``"rule"`` or ``"label"``: what decided the arm.
+    """``"mtp"``, ``"tilt"``, ``"policy"``, ``"rule"``, ``"held"`` or ``"label"``.
 
-    A modified treatment policy reads the unit's own treatment, and reports ``"mtp"``.  A
-    policy node whose density was one-hot on every reachable row was resolved as a rule,
-    and is reported as one, because the fit ran that rule's code.
+    The kind says what decided the arm at ``time``.  A modified treatment policy reads the
+    unit's own treatment, and reports ``"mtp"``.  A policy node whose density was one-hot on
+    every reachable row was resolved as a rule, and is reported as one, because the fit ran
+    that rule's code.  On a held design a regimen with a rule, policy or modified treatment
+    policy declares one node, the baseline decision.  Every later node repeats that decision
+    and reports ``"held"``.
     """
     regimen = fit.regimen
+    plan = getattr(regimen, "plan", None)
+    if plan is not None and time > len(plan):
+        return "held"
     if hasattr(regimen, "is_mtp") and regimen.is_mtp(time):
         return "mtp"
     if hasattr(regimen, "is_tilt") and regimen.is_tilt(time):
