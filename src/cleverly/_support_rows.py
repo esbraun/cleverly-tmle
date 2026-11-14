@@ -5080,7 +5080,6 @@ def _structural_rows() -> list[SupportRow]:
             covariate_features=True,
             extra=(
                 "A feature that reads a time-varying covariate reports the blips and the "
-                # Roadmap: X72.
                 "reference mean only. A static level or contrast is refused.",
             ),
         ),

@@ -109,8 +109,8 @@ $$
 
 A contrast is the difference of two such levels. A feature that reads a covariate $L_t$ needs
 $E[\phi_t(H_t(\bar a))]$ in step 4. That mean depends on the law of $L_t$ under the regimen. The
-estimator does not estimate that law. [X72](../roadmap.md#x72-static-regimen-values-from-structural-blips-with-time-varying-features)
-tracks the gap. Lewis and Syrgkanis (2021), arXiv version, Corollary 9, gives the inference for
+estimator does not estimate that law, so it refuses the level and names `LTMLE` and `SDR`, which
+estimate it. Lewis and Syrgkanis (2021), arXiv version, Corollary 9, gives the inference for
 that route.
 
 A static dose level is regular only under this model. The nonparametric model does not make a
@@ -161,9 +161,8 @@ own-node treatment nuisance converges, even if $q_t$ does not. A correct $q_t$ a
 
 The instrument $\tilde Z_{t,t}$ is unweighted. The locally efficient estimator of the model weights
 it by the conditional variance of the outcome residual. This estimator is not that one. This page
-states no ranking of its variance against the variance of `LTMLE`.
-[F36](../roadmap.md#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model)
-tracks the weighted estimator.
+states no ranking of its variance against the variance of `LTMLE`, and the package does not plan
+the weighted estimator.
 
 ## Influence curves
 
@@ -320,7 +319,7 @@ freedom the check has little power, and `reference_df` reports how few.
 | --- | --- |
 | scope | discrete static regimens. The fit and the nonparametric fit must show an interval |
 | continuous node | refused with `invalid_declaration`. A static dose has no nonparametric counterpart |
-| feature that reads a covariate | refused with `implementation_gap` and X72 |
+| feature that reads a covariate | refused with `api_redirection` |
 | rank | when the smallest eigenvalue of the difference covariance is below `rank_floor` times the largest eigenvalue of the two contrast covariances, the check reports no test and names the reason |
 | degrees of freedom | when `reference_df` is at most the number of contrasts less one, the check reports no test and names the reason |
 | label | the check carries `.support`, the combination of the support of the two sets of contrasts it compares. The check is `supported` only when every contrast is supported on one row. No row covers the `LTMLE` side of a check on a Gaussian outcome with complete data, so such a check reads `experimental`. A fit with a shown status, such as `few_cluster_plugin`, runs the check under the experimental label |
@@ -345,7 +344,7 @@ that returns a misleading number. The last column classifies each refusal of thi
 | `msm=` | `api_redirection` | `LTMLE(regimens, msm=...)` | no code. The blips are the structural model |
 | a declared `markov_order` | `api_redirection` | omit `markov_order=`, or `LTMLE` or `SDR` | misleading. The Markov restriction names the regimen outcome regressions and the mechanisms. The g-estimation means $E[Y \mid H_t]$ and $E[Z_j \mid H_t]$ condition on the full history |
 | a vector node with a continuous component | `invalid_declaration` | `LTMLE` or `SDR`, or separate nodes | no code. The blip of a flag with a dose has no coding |
-| a static level, a contrast or `check_model` when a feature reads a covariate | `implementation_gap`, X72 | `LTMLE` or `SDR`, or features that read baseline columns and earlier treatments | no code. The level needs the law of the covariate under the regimen |
+| a static level, a contrast or `check_model` when a feature reads a covariate | `api_redirection` | `LTMLE` or `SDR`, or features that read baseline columns and earlier treatments | no code. The level needs the law of the covariate under the regimen |
 | a static dose outside the observed range of its node | `invalid_declaration` | a dose inside the range | misleading. The level is regular under the model only inside the range |
 | a dose node whose observed range excludes the reference dose 0 | `invalid_declaration` | recode the dose so that 0 is observed | invalid declaration. The blip is the effect against dose 0 |
 | a diagonal Jacobian block below `min_eigenvalue` | `invalid_declaration` | drop a feature, merge levels, or check positivity | invalid design. The blip is not identified |

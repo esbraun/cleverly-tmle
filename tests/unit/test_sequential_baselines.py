@@ -818,7 +818,7 @@ def test_a_data_adaptive_learner_withholds_the_interval() -> None:
         estimate = result.estimates["ey_regimen[always]"]
         assert estimate.inference == "adaptive_baseline_plugin"
         assert np.isfinite(estimate.plugin_std_error)
-        with pytest.raises(CapabilityError, match="F35"):
+        with pytest.raises(CapabilityError, match="fit LTMLE or SDR"):
             _ = estimate.std_error
 
 
