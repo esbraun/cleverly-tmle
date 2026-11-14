@@ -152,7 +152,9 @@ had the efficient spread, but treated cause 2, with about 16 expected events, co
 mean standard error 8% below its spread (`early-time.csv`). Two mechanisms are at work. In a
 sparse cell a few squared increments carry the influence-curve variance: its standard error varied
 by 30% between draws and moved with the estimate, so the misses were one-sided. A smaller excess
-spread appears at control cause 1, whose weights are heaviest. The predictable variation repairs
+spread appears at control cause 1, whose weights are heaviest.
+
+The predictable variation repairs
 the first: it varies less between draws and does not hinge on whether the few events occurred. Its
 level is biased low by the fitted hazards in sparse cells (11% for treated cause 2 at the median in
 1,040 exploratory fits), and for that reason the switched variance raises the influence-curve
