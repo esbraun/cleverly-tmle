@@ -139,21 +139,19 @@ DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
 #: The replicates of each ``mechanism_correct`` fit set, by fit label: the larger of
 #: :data:`DOUBLE_ROBUST_REPLICATES` and the wrong-learner pilot's need over the fit set's arms
-#: (plan X70 rev 2.7 rule, read by the design test).  Provisional until the wrong-learner pilot
-#: is committed.
+#: (plan X70 rev 2.7 rule, read by the design test from the committed pilot).
 MECHANISM_REPLICATES = {"base": 1_200, "four": 1_200, "msm": 1_200}
 #: The replicates of the node-only fit set, by the same rule from its own pilot label.
-NODE_REPLICATES = 1_200
+NODE_REPLICATES = 1_600
 #: The necessity cells read the ``base`` ``mechanism_correct`` fits.
 NECESSITY_REPLICATES = MECHANISM_REPLICATES["base"]
 NECESSITY_N = 2_000
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
-#: The arm-pooled rule over the eight calibration arms.  Until the calibration pilot is
-#: committed it is the rule read at a pilot of the declared size whose SE ratio is one
-#: (``tests/unit/test_hazard_multinode_study_design.py``); the committed pilot then sets it.
-CALIBRATION_REPLICATES = 4_000
+#: The arm-pooled rule over the eight calibration arms, read from the committed calibration
+#: pilot (``tests/unit/test_hazard_multinode_study_design.py``).
+CALIBRATION_REPLICATES = 5_200
 #: The power cell reads the ``base`` calibration fits.
 POWER_REPLICATES = CALIBRATION_REPLICATES
 POWER_N = CALIBRATION_N

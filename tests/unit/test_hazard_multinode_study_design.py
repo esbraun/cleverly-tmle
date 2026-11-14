@@ -281,7 +281,7 @@ class TestTheHeldCells:
             total += mean
             tails[what] = float(poisson.sf(allowance, mean))
         assert sum(tails.values()) < 1e-3, tails
-        assert total == pytest.approx(6.65, abs=0.05), total
+        assert total == pytest.approx(7.01, abs=0.05), total
         assert per_fit[("four", study.PRIMARY_N)] < 1e-8
         assert per_fit[("base", study.PRIMARY_N)] < 2e-4
         assert per_fit[("base", min(properties.RATE_SIZES))] < 1e-3
@@ -634,7 +634,7 @@ class TestTheWrongHazardLearner:
             values = arm["wrong_plug_in"].to_numpy(dtype=float)
             if label in ZERO_PLUG_INS:
                 # No W in the hazards, so every cell risk is the same in each stratum.
-                assert properties.wrong_limit(label) == 0.0
+                assert abs(properties.wrong_limit(label)) < 1e-12, label
                 assert np.max(np.abs(values)) < 1e-10, label
                 continue
             assert np.var(values, ddof=1) > 0.0
