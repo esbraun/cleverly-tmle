@@ -154,6 +154,36 @@ def _check_zipper(namespace: dict[str, Any]) -> None:
     assert figure_title(namespace["zipper_fig"]) == "Interval coverage"
 
 
+def _check_visits(namespace: dict[str, Any]) -> None:
+    """The largest weight grows and the effective sample size falls from visit 1 to 2."""
+    support = namespace["visit_support"].set_index(["regimen", "time"])
+    first, second = support.loc[("always", 1)], support.loc[("always", 2)]
+    assert first["max_weight"] < second["max_weight"]
+    assert first["effective_n"] / first["n_followed"] > second["effective_n"] / second["n_followed"]
+    assert (
+        first["effective_n"] < first["n_followed"] and second["effective_n"] < second["n_followed"]
+    )
+    assert len(namespace["node_fig"].axes) == 2, "one panel per visit"
+    assert figure_title(namespace["node_fig"]) == "Treatment probability at each time point"
+
+
+def _check_exact(namespace: dict[str, Any]) -> None:
+    """The offer lowers the two-year relapse risk; one year reads experimental; no weight capped."""
+    result = namespace["exact_result"]
+    effect = result["ate_regimen[offered vs not offered, relapse @ t=2]"]
+    assert effect.ci[1] < 0.0, "the two-year relapse interval lies below zero"
+    for name, estimate in result.items():
+        if "@ t=1]" in name and not name.startswith("rr_"):
+            assert estimate.support.label == "experimental"
+    assert result.simultaneous is not None
+    assert figure_title(namespace["exact_curve_fig"]) == "Risk at the target times"
+    support = namespace["exact_support"]
+    assert support.bounded_share == 0.0, "the reading says no weight was capped"
+    assert namespace["retention"].loc["1%", 2.0] > 0.6
+    title = figure_title(namespace["exact_overlap_fig"])
+    assert title == "Predicted probability of treatment, by arm"
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The plots tutorial's claims hold at the displayed sample size."""
     _check_estimate(namespace)
@@ -163,6 +193,8 @@ def check(namespace: dict[str, Any]) -> None:
     _check_evalue(namespace)
     _check_gamma(namespace)
     _check_survey(namespace)
+    _check_visits(namespace)
+    _check_exact(namespace)
     _check_zipper(namespace)
 
 

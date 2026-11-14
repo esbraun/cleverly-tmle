@@ -215,7 +215,10 @@ def curve(
     treatment level, and the working model of a marginal structural model fit beside them.
     A conditional effect curve draws the effect over one modifier. A smoothed dose-response
     curve draws one series per declared bandwidth, at most three, with its pointwise
-    intervals and the band over every declared pair.
+    intervals and the band over every declared pair. A continuous-time survival fit draws
+    each arm's risk, or cumulative incidence by cause in one column per cause, and their
+    difference below, at its target times only: a point with its interval bar and band
+    brackets at each target time, and nothing between them, where the fit estimates no risk.
 
     A band is drawn only when the fit computed one. A fit that reports every time point
     gets step ribbons, because the curve is constant between time points, and the last time
@@ -226,15 +229,18 @@ def curve(
 
     Parameters
     ----------
-    obj : LongitudinalResult, TMLEResult, EffectCurveResult or DoseResponseResult
-        What to draw.
+    obj : LongitudinalResult, TMLEResult, EffectCurveResult or another result
+        What to draw: one of those, a ``DoseResponseResult`` or a
+        ``ContinuousSurvivalResult``.
     scale : {"risk", "survival", "mean"} or None, default=None
-        Longitudinal fits: the view of the outcome. ``None`` is ``"risk"`` for a survival
-        outcome and ``"mean"`` for a repeated one. The levels and differences are read from
-        ``obj.curve(scale=...)``.
+        Longitudinal and continuous-time survival fits: the view of the outcome. ``None`` is
+        ``"risk"`` for a survival outcome and ``"mean"`` for a repeated one. The levels and
+        differences are read from ``obj.curve(scale=...)``.
     measure : {"curve", "rmst", "rmtl"}, default="curve"
         Longitudinal fits: the curve over time, or the restricted mean survival time or time
-        lost up to each horizon (points joined by a thin line, pointwise intervals only).
+        lost up to each horizon (points joined by a thin line, pointwise intervals only). A
+        continuous-time survival fit draws the restricted means at its
+        ``restricted_horizons``, as points with pointwise intervals.
     band : {"multiplier", "bootstrap", "none"}, False or None, default=None
         Which simultaneous band to draw. ``None`` draws the multiplier band when the fit holds one,
         else the bootstrap band; :func:`~cleverly.plotting.notes` names the other. ``"none"`` (or
@@ -242,9 +248,11 @@ def curve(
         point-treatment fit of per-level means or of policies, and a conditional effect curve, hold
         a multiplier band at most.
     cause : str or None, default=None
-        Longitudinal fits with several causes: the cause to draw.
+        Longitudinal fits with several causes: the cause to draw. A continuous-time survival
+        fit draws one column per cause when omitted.
     regimens : sequence of str or None, default=None
-        Longitudinal fits: the regimens to draw, at most three.
+        Longitudinal fits: the regimens to draw, at most three. A continuous-time survival
+        fit: its arm labels.
     labels : mapping of str to str or None, default=None
         Display names for regimens.
     msm : TMLEResult or None, default=None
@@ -395,6 +403,31 @@ def curve(
             title=title or None,
             ax=ax,
         )
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(obj, ContinuousSurvivalResult):
+        if ax is not None:
+            raise ValueError("curve() draws a continuous-time survival fit in several panels")
+        if outcome_label is not None:
+            raise ValueError(
+                "outcome_label= words the axis of a mean outcome; a continuous-time survival "
+                "fit draws risks, survival or restricted means, whose axes are named for them"
+            )
+        from ._continuous_curve import curve as continuous_curve
+
+        return continuous_curve(
+            obj,
+            scale=scale,
+            measure=measure,
+            band=band,
+            cause=cause,
+            regimens=regimens,
+            labels=labels,
+            units=units,
+            time_label=time_label,
+            truth=truth,
+            title=title or None,
+        )
     if isinstance(obj, LongitudinalResult):
         if measure not in ("curve", "rmst", "rmtl"):
             raise ValueError(f"measure must be 'curve', 'rmst' or 'rmtl'; got {measure!r}")
@@ -483,18 +516,6 @@ def curve(
                 title=title or None,
                 ax=ax,
             )
-    from ..survival.result import ContinuousSurvivalResult
-
-    if isinstance(obj, ContinuousSurvivalResult):
-        from .._refusal import RefusalReason
-        from ..exceptions import CapabilityError
-
-        raise CapabilityError(
-            "curve() does not draw a continuous-time survival fit yet.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="forest() draws its risks and contrasts at the target times.",
-            roadmap="X100",
-        )
     raise TypeError(
         "curve() draws a longitudinal fit, a point-treatment fit of per-level means, of a "
         "working model or of a family of policies, or a conditional effect curve; "
