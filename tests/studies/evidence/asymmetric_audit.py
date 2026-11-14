@@ -21,8 +21,9 @@ committed ``covered`` is not the plain identity interval (a t or cluster referen
 is outside MOVER's scope, as the package keeps a clustered estimate on its own reference, and is
 counted in ``out_of_scope``.  A difference with no recorded arms (a truth row of a difference
 head, or a property cell whose name reads ``ate``, that pairs with nothing) is counted in
-``unpaired``: the screen cannot recompute it, and the runner brief of PR 3 says which of them
-need refits.  Each moved group is judged as the bounded-mean screen judges one: a truth group
+``unpaired``: the screen cannot recompute it, and MOVER can narrow one of its sides, so no
+widening bounds it either.  An unpaired difference never enters the widening screen, and a study
+with one is never ``neutral`` until its refit records settle it.  Each moved group is judged as the bounded-mean screen judges one: a truth group
 flips when its exact coverage interval changes side of the coverage floor, and a property family
 with a crossing is re-judged by the study's own ``summarize_properties``
 (:func:`tests.studies.evidence.interval_audit._moved_verdicts`), with ``rejected`` recomputed
@@ -42,6 +43,15 @@ skew-widened interval inside the largest one.  A verdict that moves needs the re
 is neutral or moved; a verdict that reads only the coverage floor or a type I error cannot move
 against the study, because both readings only improve.
 
+**The refit audit settles the rest** (:mod:`tests.studies.evidence.asymmetric_refit`, plan 9.8).
+A study with a widening flip or an unpaired difference reads ``refits`` until its committed refit
+records say which of its groups take MOVER or the skew-widened t at head (the scope refit of
+replicate 0) and by how much (``R_a`` = 20 refits of each such group).  A group taking neither
+drops out; a remaining group's committed verdicts are judged at each end of each side of its R_a
+bound (:func:`side_bounds`, :data:`CORNERS`), narrowing as well as widening, by the study's own
+rule.  No verdict moving makes the study ``neutral``; a move lists it as ``moved``, for a targeted
+rerun.  ``tests/unit/test_asymmetric_audit.py`` fails while any study reads ``refits``.
+
 Refresh the screen with::
 
     python -m tests.studies.evidence.asymmetric_audit --jobs 4
@@ -51,7 +61,7 @@ from __future__ import annotations
 
 import argparse
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -80,6 +90,9 @@ SCREEN_COLUMNS = (
     "unpaired",
     "widening_groups",
     "widening_flips",
+    "scope",
+    "remaining_groups",
+    "bound_flips",
     "reason",
 )
 
@@ -368,7 +381,7 @@ def _load(record: StudyRecord) -> _Study:
 def _judge(
     study: _Study,
     moved: dict[str, tuple[np.ndarray, np.ndarray | None]],
-    groups: dict[str, Group],
+    groups: Mapping[str, Group],
 ) -> list[str]:
     """The verdicts that move when each group of ``moved`` takes its new ``covered`` and
     ``rejected``: truth groups by the coverage floor, property families by the study's rule."""
@@ -409,6 +422,183 @@ def _judge(
     return flips
 
 
+@dataclass
+class RefitReading:
+    """What the committed refit records of one study say (:mod:`asymmetric_refit`).
+
+    Parameters
+    ----------
+    scope : str
+        ``""`` when the study needs no refit, ``"absent"`` with no scope records,
+        ``"mismatch:<k>"`` when ``k`` replayed rows missed their committed row,
+        ``"missing:<k>"`` when ``k`` groups the screen cannot settle have no usable record,
+        ``"refits:<k>"`` when ``k`` remaining groups lack their R_a refits, and ``"ok"``.
+    remaining : list of str
+        The groups that take MOVER or the skew-widened t and that the screen does not
+        recompute exactly.
+    flips : list of str
+        The verdicts that move at some end of the R_a bound, each ``<verdict>@<corner>``;
+        a remaining group whose committed interval is not the normal one is ``<key>@unbounded``.
+    """
+
+    scope: str
+    remaining: list[str]
+    flips: list[str]
+
+
+def exact_groups(slug: str) -> set[str]:
+    """The differences the screen recomputes exactly under MOVER: paired, with committed rows
+    on the plain normal interval."""
+    record = interval_audit.record_for(slug)
+    study = _load(record)
+    z = _z(record.margins.alpha)
+    pools: dict[str, list[Group]] = {}
+    for group in study.groups:
+        pools.setdefault(group.pool, []).append(group)
+    heads = interval_audit.bounded_heads()
+    by_key = {group.key: group for group in study.groups}
+    keys: set[str] = set()
+    for pool in pools.values():
+        keys.update(key for key in pair(pool, heads) if _identity_consistent(by_key[key], z))
+    return keys
+
+
+def side_bounds(records: pd.DataFrame) -> tuple[float, float, float, float] | None:
+    """``(lower_low, lower_high, upper_low, upper_high)``: the range of each side's half-width,
+    as a multiple of the normal half-width, that bounds a group's shipped interval.
+
+    Each refit gives each side's ratio of the shipped to the normal half-width.  The bound on
+    each end is the :data:`~asymmetric_refit.QUANTILE` quantile (or its complement) moved away
+    from 1 by :data:`~asymmetric_refit.INFLATION`, and always contains 1, the committed
+    interval.  ``None`` when fewer than :data:`~asymmetric_refit.REFIT_REPLICATES` refits
+    carry a finite interval.
+    """
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    psi = records["estimate"].to_numpy(float)
+    lower = (psi - records["shipped_lower"].to_numpy(float)) / (
+        psi - records["normal_lower"].to_numpy(float)
+    )
+    upper = (records["shipped_upper"].to_numpy(float) - psi) / (
+        records["normal_upper"].to_numpy(float) - psi
+    )
+    usable = np.isfinite(lower) & np.isfinite(upper)
+    if int(usable.sum()) < refit.REFIT_REPLICATES:
+        return None
+    out = []
+    for ratio in (lower[usable], upper[usable]):
+        low = float(np.quantile(ratio, 1.0 - refit.QUANTILE))
+        high = float(np.quantile(ratio, refit.QUANTILE))
+        out.append(min(1.0, 1.0 - refit.INFLATION * (1.0 - low)))
+        out.append(max(1.0, 1.0 + refit.INFLATION * (high - 1.0)))
+    return out[0], out[1], out[2], out[3]
+
+
+#: The ends of the R_a bound each verdict is judged at: (lower side, upper side), each the
+#: narrowest (``lo``) or widest (``hi``) half-width of its range.
+CORNERS = (("lo", "lo"), ("hi", "hi"), ("lo", "hi"), ("hi", "lo"))
+
+
+def bound_flips(
+    study: _Study,
+    groups: Mapping[str, Group],
+    bounds: Mapping[str, tuple[float, float, float, float]],
+    z: float,
+) -> list[str]:
+    """The verdicts that move at some corner of the bound, each group at its own range."""
+    flips: list[str] = []
+    for corner in CORNERS:
+        moved: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        for key, (lower_low, lower_high, upper_low, upper_high) in bounds.items():
+            group = groups[key]
+            down = lower_low if corner[0] == "lo" else lower_high
+            up = upper_low if corner[1] == "lo" else upper_high
+            estimate, se, truth = (_values(group, c) for c in ("estimate", "std_error", "truth"))
+            low, high = estimate - down * z * se, estimate + up * z * se
+            covered = ((low <= truth) & (truth <= high)).astype(int)
+            rejected = None
+            if group.kind == "property" and _null_zero_consistent(group, z):
+                rejected = ((low > 0.0) | (high < 0.0)).astype(float)
+            if (covered != group.rows["covered"].to_numpy(dtype=int)).any() or (
+                rejected is not None and (rejected != group.rows["rejected"].to_numpy(float)).any()
+            ):
+                moved[key] = (covered, rejected)
+        label = f"{corner[0]}-{corner[1]}"
+        flips.extend(f"{key}@{label}" for key in _judge(study, moved, groups))
+    return sorted(set(flips))
+
+
+def _refit_reading(
+    study: _Study, groups: Mapping[str, Group], z: float, *, needed: list[str], exact: set[str]
+) -> RefitReading:
+    """Read the study's committed refit records against the groups the screen cannot settle."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    slug = study.record.slug
+    scope = refit.read_records(slug, refit.SCOPE_FILE)
+    if scope is None:
+        return RefitReading("absent", [], [])
+    mismatched = int((scope["replay"] == "mismatch").sum())
+    if mismatched:
+        return RefitReading(f"mismatch:{mismatched}", [], [])
+    usable = scope.loc[~scope["scale"].isin(["failed"])]
+    missing = [key for key in needed if key not in set(usable["group"])]
+    if missing:
+        return RefitReading(f"missing:{len(missing)}", [], [])
+    remaining = sorted(
+        str(group)
+        for group, scale in zip(usable["group"], usable["scale"], strict=True)
+        if set(str(scale).split("+")) & refit.NEW_SCALES
+        and str(group) in groups
+        and str(group) not in exact
+    )
+    remaining = sorted(set(remaining))
+    if not remaining:
+        return RefitReading("ok", [], [])
+    records = refit.read_records(slug, refit.REFITS_FILE)
+    bounds: dict[str, tuple[float, float, float, float]] = {}
+    lacking = 0
+    unbounded = []
+    for key in remaining:
+        if not _identity_consistent(groups[key], z):
+            unbounded.append(f"{key}@unbounded")
+            continue
+        rows = None if records is None else records.loc[records["group"] == key]
+        bound = None if rows is None else side_bounds(rows)
+        if bound is None:
+            lacking += 1
+        else:
+            bounds[key] = bound
+    if lacking:
+        return RefitReading(f"refits:{lacking}", remaining, [])
+    return RefitReading("ok", remaining, unbounded + bound_flips(study, groups, bounds, z))
+
+
+def _disposition(
+    slug: str, mover_flipped: bool, needs_refit: bool, refit: RefitReading
+) -> tuple[str, str]:
+    """A study's disposition and reason.
+
+    ``moved`` or ``declared`` when an exact MOVER recomputation flips a verdict; otherwise, for
+    a study the screen cannot settle (a widening flip or an unpaired difference), ``refits``
+    until its refit records settle it, then ``neutral`` or ``moved`` by the R_a bound.  A study
+    with an unpaired difference is never ``neutral`` on the screen alone (MOVER can narrow).
+    """
+    if mover_flipped:
+        if slug in SCREEN_REASONS:
+            return "declared", SCREEN_REASONS[slug]
+        return "moved", "an exact MOVER recomputation flips a verdict; rerun"
+    if not needs_refit:
+        return "neutral", ""
+    if refit.scope != "ok":
+        return "refits", f"refit records: {refit.scope}"
+    if refit.flips:
+        return "moved", "a verdict moves inside the R_a bound; listed for a targeted rerun"
+    if not refit.remaining:
+        return "neutral", "scope refit: no unsettled group takes MOVER or the skew-widened t"
+    return "neutral", "R_a bound: no verdict moves at either end of either side"
+
+
 def screen_row(record: StudyRecord) -> dict[str, Any]:
     """One study's screen row, recomputed from its committed rows."""
     slug = record.slug
@@ -421,6 +611,8 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
             "mover_flips": "",
             "unpaired": "",
             "widening_flips": "",
+            "scope": "",
+            "bound_flips": "",
             "reason": CURRENT[slug],
         }
     study = _load(record)
@@ -439,10 +631,12 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
     out_of_scope = 0
     largest = 0.0
     mover: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+    out_of_scope_keys: set[str] = set()
     for key, (first, second) in pairs.items():
         group = by_key[key]
         if not _identity_consistent(group, z):
             out_of_scope += 1
+            out_of_scope_keys.add(key)
             continue
         replicates = group.rows.index
         a, b = by_key[first].rows.loc[replicates], by_key[second].rows.loc[replicates]
@@ -482,10 +676,12 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
     )
 
     # Continuous estimates: the symmetric widening that contains the skew-widened interval.
+    # An unpaired difference is left out: MOVER narrows a side, so no widening bounds it.
     widened = [
         group
         for group in study.groups
         if group.key not in pairs
+        and group.key not in unpaired
         and np.isfinite(_values(group, "estimate")).all()
         and (np.isfinite(_values(group, "std_error")) & (_values(group, "std_error") > 0)).all()
         and np.isfinite(_values(group, "truth")).all()
@@ -507,12 +703,16 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
         for key in _judge(study, moved, by_key):
             smallest.setdefault(key, factor)
 
-    if mover_flips:
-        disposition = "declared" if slug in SCREEN_REASONS else "moved"
-    elif smallest:
-        disposition = "refits"
-    else:
-        disposition = "neutral"
+    refit = _refit_reading(
+        study,
+        by_key,
+        z,
+        needed=sorted({group.key for group in widened} | set(unpaired)),
+        exact={key for key in pairs if key not in out_of_scope_keys},
+    )
+    disposition, reason = _disposition(
+        slug, bool(mover_flips), bool(smallest) or bool(unpaired), refit
+    )
     return {
         "study": slug,
         "disposition": disposition,
@@ -524,7 +724,10 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
         "unpaired": ";".join(unpaired),
         "widening_groups": len(widened),
         "widening_flips": ";".join(f"{key}@{factor:g}" for key, factor in sorted(smallest.items())),
-        "reason": SCREEN_REASONS.get(slug, ""),
+        "scope": refit.scope,
+        "remaining_groups": len(refit.remaining),
+        "bound_flips": ";".join(refit.flips),
+        "reason": reason,
     }
 
 

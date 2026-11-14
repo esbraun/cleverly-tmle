@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 
 from cleverly.inference import implied_correlation, mover_ci
 from tests.studies.evidence import asymmetric_audit as screen_module
@@ -157,3 +158,144 @@ def test_each_recomputed_screen_row_matches_the_committed_rows(
         again.pop("max_coverage_change"), abs=1e-6
     )
     assert committed_row == again
+
+
+# ------------------------------------------------------------------ the refit audit (B1, M1)
+
+
+def test_no_study_awaits_its_refits(screen: pd.DataFrame) -> None:
+    """Plan 9.8: every study the shipped intervals may move is settled by its refit records
+    before the default ships.  Run the runner brief's commands, commit
+    ``tests/canonical/asymmetric-refit/``, and refresh the screen."""
+    waiting = screen.loc[screen["disposition"] == "refits", "study"].tolist()
+    assert waiting == [], f"{len(waiting)} studies await their refit audit: {waiting}"
+
+
+def test_an_unpaired_difference_is_never_neutral_on_the_screen_alone(
+    screen: pd.DataFrame,
+) -> None:
+    """MOVER can narrow one side, so no widening settles an unpaired difference (M1)."""
+    neutral = screen.loc[(screen["unpaired"] != "") & (screen["disposition"] == "neutral")]
+    assert (neutral["scope"] == "ok").all(), neutral["study"].tolist()
+    absent = screen_module.RefitReading("absent", [], [])
+    assert screen_module._disposition("x", False, True, absent)[0] == "refits"
+    settled = screen_module.RefitReading("ok", [], [])
+    assert screen_module._disposition("x", False, True, settled)[0] == "neutral"
+    moved = screen_module.RefitReading("ok", ["s/ate"], ["s/ate@lo-lo"])
+    assert screen_module._disposition("x", False, True, moved)[0] == "moved"
+
+
+def _truth_group(covered_at: float, n: int = 400) -> screen_module.Group:
+    """A truth group whose estimates sit at ``covered_at`` normal half-widths from the truth
+    on every replicate but a share, so the coverage floor reads near its edge."""
+    rng = np.random.default_rng(5)
+    se = np.full(n, 0.1)
+    distance = np.where(rng.uniform(size=n) < 0.94, 0.5, covered_at) * 1.959964 * se
+    estimate = 0.5 + distance
+    rows = pd.DataFrame(
+        {
+            "replicate": np.arange(n),
+            "estimate": estimate,
+            "std_error": se,
+            "truth": np.full(n, 0.5),
+            "covered": (distance <= 1.959964 * se).astype(int),
+        }
+    ).set_index("replicate", drop=False)
+    return screen_module.Group("s/ate", "truth", "s", rows, rows.index)
+
+
+def test_the_bound_judges_a_narrowing_side() -> None:
+    """A MOVER side that narrows can push coverage under the floor; the bound's narrow corner
+    finds it, and judging the widening corners alone (the symmetric screen) would not."""
+    record = interval_audit.record_for("canonical-stratified-tmle")
+    group = _truth_group(covered_at=0.97)
+    study = screen_module._Study(record, None, [group])
+    groups = {group.key: group}
+    z = float(stats.norm.ppf(0.975))
+    narrowing = {"s/ate": (0.9, 1.0, 1.0, 1.0)}
+    flips = screen_module.bound_flips(study, groups, narrowing, z)
+    assert any(flip.startswith("s/ate@lo") for flip in flips), flips
+    widening_only = {"s/ate": (1.0, 1.1, 1.0, 1.1)}
+    assert screen_module.bound_flips(study, groups, widening_only, z) == []
+
+
+def test_the_side_bounds_inflate_the_spread_and_hold_one() -> None:
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    psi = np.zeros(refit.REFIT_REPLICATES)
+    lower_ratio = np.linspace(0.9, 1.0, refit.REFIT_REPLICATES)
+    upper_ratio = np.linspace(1.0, 1.2, refit.REFIT_REPLICATES)
+    records = pd.DataFrame(
+        {
+            "estimate": psi,
+            "shipped_lower": -lower_ratio,
+            "normal_lower": -np.ones_like(psi),
+            "shipped_upper": upper_ratio,
+            "normal_upper": np.ones_like(psi),
+        }
+    )
+    bounds = screen_module.side_bounds(records)
+    assert bounds is not None
+    low_q = float(np.quantile(lower_ratio, 1 - refit.QUANTILE))
+    high_q = float(np.quantile(upper_ratio, refit.QUANTILE))
+    assert bounds[0] == pytest.approx(1 - refit.INFLATION * (1 - low_q))
+    assert bounds[1] == 1.0
+    assert bounds[2] == 1.0
+    assert bounds[3] == pytest.approx(1 + refit.INFLATION * (high_q - 1))
+    assert screen_module.side_bounds(records.iloc[:-1]) is None
+
+
+def test_the_recorder_names_each_interval_a_fit_reads() -> None:
+    """The scope refit's recorder logs the estimates whose interval a study reads and matches a
+    written row to its scale: the skew-widened t on a continuous outcome, MOVER on a binary
+    difference, and ``own`` for a row whose interval the study formed itself."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    from cleverly import ATE, CausalStudy, PointTreatment
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    rng = np.random.default_rng(3)
+    n = 400
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    for binary, scale in ((False, "skew_t"), (True, "mover")):
+        y = (
+            rng.binomial(1, 1 / (1 + np.exp(-(0.5 * a + w - 1)))).astype(float)
+            if binary
+            else 0.5 * a + w + rng.gamma(2.0, 1.0, n)
+        )
+        frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+        study = CausalStudy(
+            frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        )
+        fit = study.identify(ATE()).estimate(
+            outcome_learner=LogisticRegression() if binary else LinearRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            random_state=0,
+        )
+        estimate = fit["ate"]
+        with refit.logging() as log:
+            low, high = estimate.ci
+        row = {"estimate": estimate.psi, "std_error": estimate.std_error}
+        entry = refit.match(row, log)
+        assert entry["scale"] == scale
+        assert (entry["shipped_lower"], entry["shipped_upper"]) == pytest.approx((low, high))
+        assert refit.match(row, []) == {"scale": "own"}
+
+
+def test_every_committed_refit_record_replays() -> None:
+    """Each committed scope or refit record held its estimate and standard error to the
+    committed row (the replay rule), and names a scale."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    if not refit.AUDIT_DIR.exists():
+        return
+    for directory in sorted(path for path in refit.AUDIT_DIR.iterdir() if path.is_dir()):
+        for name in (refit.SCOPE_FILE, refit.REFITS_FILE):
+            records = refit.read_records(directory, name)
+            if records is None:
+                continue
+            assert list(records.columns) == list(refit.RECORD_COLUMNS), directory.name
+            assert (records["replay"] != "mismatch").all(), (directory.name, name)
+            assert records["scale"].astype(str).str.len().gt(0).all(), (directory.name, name)
