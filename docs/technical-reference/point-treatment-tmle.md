@@ -2131,7 +2131,7 @@ estimator, which is valid there, is a different estimator, and
 | `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | with known $g$ under the fold-evaluated report, supported, row `T55.intermediate`; otherwise experimental. Each level targets $\Psi^z_{d_0^z}$ |
 | `ey_learned_rule` or `ate_learned_rule` beside it, or `ate_optimal_rule` without it | refused as a declaration, row 2: the names would read one estimate as two targets |
 | strata with `id=`, a rule learner with `intermediate=`, and every other row of the table below | refused as for the learned-rule value with the same setting, with the same text |
-| the omitted-variable bound | an asymmetric point bound on rows, known weights, clusters, fold targeting and in sample, with the strengths read uniformly over every regime. Its lower side is the learned-rule bound and its upper side reads $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$ ([the point bound of the value of the optimal rule](validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)). The limits and `benchmark()` refuse, and strata, known regimes, an intermediate and the other learned-rule (n2) settings refuse with the learned-rule reason |
+| the omitted-variable bound | an asymmetric point bound on rows, known weights, clusters, fold targeting and in sample, with the strengths read uniformly over every regime. Its lower side is the learned-rule bound and its upper side reads $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$ ([the point bound of the value of the optimal rule](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)). The limits and `benchmark()` refuse, and strata, known regimes, an intermediate and the other learned-rule (n2) settings refuse with the learned-rule reason |
 | `simulated_confounding` | each cell relearns the rule on the fit's folds and repeat seeds, so it reads the optimal value of its perturbed law ([the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface)). Known regimes, strata and an intermediate refuse. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
 
 Every composition decomposes the error as above, under the setting's law:
@@ -2430,7 +2430,7 @@ intermediate. A
 A fit of the value of the optimal rule gets an asymmetric point bound in the same settings: its
 lower side is the learned-rule bound above, and its upper side adds the bound over every rule,
 with $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$
-([the point bound of the value of the optimal rule](validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)).
+([the point bound of the value of the optimal rule](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 Its limits refuse, the in-sample fit's included, and so do `benchmark()` and the settings above
 that the learned-rule bound refuses, each with the learned-rule reason, and known regimes beside
 it. Its `simulated_confounding` relearns the rule in every cell on the fit's folds and repeat seeds, at any

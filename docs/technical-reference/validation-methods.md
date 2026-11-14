@@ -1087,8 +1087,6 @@ limits equal those of the known rule fitted in sample.
   the realized-rule representer gives a $\nu^2$ of 2.078 against 1.823, so its bound overshoots.
   The test asserts the three quoted numbers.
 
-(the-point-bound-of-the-value-of-the-optimal-rule)=
-
 #### The point bound of the value of the optimal rule
 
 A fit of the [value of the optimal rule](point-treatment-tmle.md#learned-rules)

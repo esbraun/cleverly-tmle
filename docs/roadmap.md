@@ -1087,7 +1087,7 @@ intermediate held at a level run too. The
 [optimal-compositions study](technical-reference/method-evidence/learned-rule-optimal-compositions.md)
 calibrates each with known $g$ at n = 2,000, so those fits read supported (rows `T55`); the
 weighted row needs the weighted population's own mechanism supplied. The
-[omitted-variable bound](technical-reference/validation-methods.md#the-point-bound-of-the-value-of-the-optimal-rule)
+[omitted-variable bound](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 of the optimal value is an asymmetric point bound, whose lower side is the learned-rule bound and
 whose upper side adds the bound over every rule, and its `simulated_confounding` relearns the rule
 in each cell. The online estimator that holds at an exceptional law is part (f2b).
