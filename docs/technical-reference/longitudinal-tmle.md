@@ -1991,7 +1991,9 @@ value.
 
 $g_s$ is the fitted probability of the observed arm at node $s$ given the observed history, and
 $c_s$ the fitted probability of staying observed after $s$; `bound` clips the product into
-`g_bounds`, as the fit bounds its cumulative prefix. Jackson's Diagnostic 3 reweights treatment
+`g_bounds`, as the fit bounds its cumulative prefix. The unit's own factor at the exposure
+($g_s$ in the feedback row, the censoring outcome in the censoring row) multiplies in after the
+bound, unclipped, apart from a floor of $10^{-9}$ that keeps a fitted probability of zero finite. Jackson's Diagnostic 3 reweights treatment
 alone among the uncensored. The retention factors before $A_t$ move the reference population to
 the one without censoring, the population of the fit's estimand, and leave the expected difference
 at zero: once $1/g_t$ makes $A_t$ independent of the past, a factor fixed before $A_t$ multiplies
@@ -2011,7 +2013,7 @@ of the paper allows.
 A fit that eliminates competing causes uses the composite retention ($c_s$ times the competing
 factor) in every prefix and the composite risk set. Each removal is its own exposure: the
 `"censoring"` row at $t$ reads the censoring node alone with its own factor, and a row whose
-exposure reads `eliminated <cause> at t` reads the competing event with its factor, among the units
+exposure reads `eliminated causes at t` reads the competing event with its factor, among the units
 that passed the censoring node, with the censoring factor of $t$ in the prefix.
 
 A survival fit omits `"feedback"`: its later covariates exist only on units free of the event, so
@@ -2025,8 +2027,10 @@ balance.
 
 `tests/unit/test_balance_over_time.py` computes a ten-unit report by hand, and checks each
 diagnostic at large $n$ on laws where the true probabilities give zero imbalance and a wrong factor
-gives a nonzero one: the cumulative treatment factors, the retention prefix, the feedback
-retention, the censoring outcome's own factor, and the pairing of the eliminated-cause factors.
+gives a nonzero one: the cumulative treatment factors, the feedback retention, the censoring
+outcome's own factor, and the pairing of the eliminated-cause factors. A factor fixed before the
+exposure cannot move the expected difference, so only the hand computation pins the retention
+prefix. A control at `g_bounds=(0.05, 1)` checks that the bound leaves each unit's own factor out.
 
 ## Variations
 

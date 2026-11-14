@@ -687,10 +687,10 @@ When treatment is decided at several times, as in a longitudinal or time-to-even
 call returns a balance over time, a `BalanceOverTime`, following Jackson (2016). At each treatment
 time it compares the covariates recorded so far across that treatment, among the people who had
 the same earlier treatments. Only people still in the study at that time count, and on a survival
-fit only those still free of the event. After weighting, each person counts as one over the fitted chance of
-the treatments and the follow-up they had up to that time. The summary averages each comparison
-over the groups of earlier treatments, each group counting by its size, and `to_frame()` keeps
-every group. Leaving the study is checked as one more treatment.
+fit only those still free of the event. After weighting, each person counts as one over the
+fitted chance of the treatments and the follow-up they had up to that time. The summary averages
+each comparison over the groups of earlier treatments, each group counting by its size, and
+`to_frame()` keeps every group. Leaving the study is checked as one more treatment.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -722,8 +722,9 @@ per_time = over_time.average(over="history")
 fig = over_time.plot(diagnostic="confounding", view="panels")
 ```
 
-The feedback check compares a later covariate across an earlier treatment. A difference there
-means the treatment changed the covariate. Weighting is not meant to remove it. When that
+The feedback check compares a later covariate across an earlier treatment. After weighting, a
+difference there means the treatment changed the covariate; before weighting it also mixes in
+confounding. Weighting is not meant to remove it. When that
 covariate also affects later treatment, adjusting for it in an ordinary regression gives a biased
 effect, which is why these fits weight or model each time in turn instead. A survival fit has no feedback check,
 because its later covariates are recorded only for people still free of the event.

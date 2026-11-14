@@ -177,3 +177,35 @@ def test_the_feedback_panels_put_covariate_times_down_the_side() -> None:
     fig = fixtures.longitudinal().plot(diagnostic="feedback", view="panels")
     titles = [axis.get_title(loc="left") for axis in fig.axes[1:] if axis.get_title(loc="left")]
     assert titles and all("covariates at time" in title for title in titles), titles
+
+
+@pytest.mark.parametrize(
+    ("fit", "diagnostic"),
+    [("fit_hazard_mtp", "confounding"), ("fit_eliminated", "censoring")],
+)
+def test_the_panels_keep_comparisons_that_share_a_node_apart(fit: str, diagnostic: str) -> None:
+    """A node with two comparisons draws both averages, each beside its own strata only."""
+    import warnings
+
+    from cleverly.sensitivity import covariate_balance
+    from tests.unit import _capability_sweep_support as sweep
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        balance = covariate_balance(getattr(sweep, fit)())
+    rows = balance.rows_of(diagnostic)
+    keys = {(r.exposure_node, r.contrast) for r in rows}
+    assert len(keys) > len({r.exposure_node for r in rows}), "the case has no shared node"
+    fig = balance.plot(diagnostic=diagnostic, view="panels")
+    frame = balance.average(over="history", diagnostic=diagnostic)
+    averages = np.sort(_offsets(fig, "cleverly-balance-average")[:, 0])
+    np.testing.assert_allclose(
+        averages, np.sort(np.asarray(frame["smd_weighted"], dtype=float)), equal_nan=True
+    )
+    dots = np.sort(_offsets(fig, "cleverly-balance-strata-dots")[:, 0])
+    np.testing.assert_allclose(dots, np.sort([r.smd_weighted for r in rows]), equal_nan=True)
+    for axis in fig.axes[1:]:
+        if not axis.axison:
+            continue
+        title = axis.get_title(loc="left")
+        assert any(title.startswith(contrast) for _, contrast in keys), title

@@ -221,6 +221,37 @@ class BalanceOverTime:
         The kind of fit.
     notes : tuple of str
         Further readings of this fit's report, such as the reading of a collaborative fit.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.sensitivity import covariate_balance
+    >>> frame, _ = make_longitudinal(n=600, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=LongitudinalTreatment(
+    ...         outcome="Y",
+    ...         treatment=["A1", "A2"],
+    ...         baseline=["W1", "W2"],
+    ...         time_varying=[[], ["L2"]],
+    ...         censoring=["C1", "C2"],
+    ...     ),
+    ... )
+    >>> result = study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     censoring_learner=LogisticRegression(max_iter=1000),
+    ...     cross_fit=False,
+    ...     random_state=0,
+    ... )
+    >>> balance = covariate_balance(result)
+    >>> balance.treatments
+    ('A1', 'A2')
+    >>> frame = balance.average(over="history", diagnostic="confounding")
+    >>> frame[["exposure", "covariate"]].values.tolist()
+    [['A1', 'W1'], ['A1', 'W2'], ['A2', 'W1'], ['A2', 'W2'], ['A2', 'L2']]
     """
 
     rows: tuple[TimeBalanceRow, ...]
@@ -418,6 +449,10 @@ class BalanceOverTime:
             allowed = ", ".join(repr(name) for name in self.diagnostics)
             raise ValueError(f"This fit's balance has no {diagnostic!r} rows; it has {allowed}.")
 
+
+#: The least value a unit's own treatment or censoring factor takes in a weight: it only
+#: keeps a fitted probability of zero, for an outcome the unit had, from dividing by zero.
+OWN_FLOOR = 1e-9
 
 #: The value columns of :meth:`BalanceOverTime.average`.
 AVERAGE_COLUMNS: tuple[str, ...] = (
@@ -790,6 +825,12 @@ def longitudinal_cells(
         moved += int((rows & (clipped != product)).sum())
         return clipped
 
+    def floored(factor: FloatArray, rows: BoolArray) -> FloatArray:
+        # The bound clips the earlier path only (plan section 2), so a unit's own factor is
+        # left as fitted; a probability of exactly zero on a row that had that outcome is held
+        # at OWN_FLOOR so its weight stays finite. Rows outside ``rows`` take 1.
+        return np.where(rows, np.maximum(factor, OWN_FLOOR), 1.0)
+
     # The stabilizing numerators: the weighted share of each unit's arm within its earlier
     # treatments, among the units at risk before the node, and the marginal retention.
     numerator_g = np.ones((n, horizon))
@@ -885,7 +926,9 @@ def longitudinal_cells(
                     continue
                 rows = at_risk(later) & (codes[:, node - 1] >= 0)
                 strata, words = history_of(exposure_nodes[:index], rows)
-                weight = 1.0 / bounded(g[:, node - 1] * prefix_c(later), rows)
+                # The bound applies to the cumulative retention, as the plan defines; g_s stays out.
+                factor_s = np.where(rows, g[:, node - 1], 1.0)
+                weight = 1.0 / (floored(factor_s, rows) * bounded(prefix_c(later), rows))
                 stabilized = (
                     numerator_g[:, node - 1] * np.prod(numerator_c[:, : later - 1], axis=1)
                 ) * weight
@@ -929,8 +972,11 @@ def longitudinal_cells(
             stayed = np.asarray(retained[:, node - 1], dtype=bool)
             # Group code 0: stayed under observation (the reference); 1: censored at the node.
             group = np.where(risk, np.where(stayed, 0, 1), -1)
-            own = np.where(stayed, factor, 1.0 - factor)
-            weight = 1.0 / bounded(prefix_g(node) * prefix_c(node) * own, risk)
+            # Rows outside the risk set take 1, so their unused weight stays finite.
+            own = np.where(risk, np.where(stayed, factor, 1.0 - factor), 1.0)
+            # The bound applies to the path through A_t; the unit's own censoring outcome at t
+            # multiplies in afterwards, so a small 1 - c_t is not clipped away.
+            weight = 1.0 / (bounded(prefix_g(node) * prefix_c(node), risk) * floored(own, risk))
             share = _frequency(group, np.zeros(n, dtype=np.int64), risk, base)
             stabilized = (
                 np.prod(numerator_g[:, :node], axis=1)
@@ -963,8 +1009,10 @@ def longitudinal_cells(
                 )
                 free = np.asarray(data.uncensored[:, node - 1], dtype=bool)
                 group = np.where(passed, np.where(free, 0, 1), -1)
-                own = np.where(free, competing, 1.0 - competing)
-                weight = 1.0 / bounded(prefix_g(node) * prefix_c(node) * factor * own, passed)
+                own = np.where(passed, np.where(free, competing, 1.0 - competing), 1.0)
+                weight = 1.0 / (
+                    bounded(prefix_g(node) * prefix_c(node) * factor, passed) * floored(own, passed)
+                )
                 share = _frequency(group, np.zeros(n, dtype=np.int64), passed, base)
                 stabilized = (
                     np.prod(numerator_g[:, :node], axis=1)

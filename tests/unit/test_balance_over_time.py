@@ -593,3 +593,65 @@ def test_engine_stores_retention_at_each_units_time() -> None:
     # grid_end itself, so it is at least as large.
     assert np.all(record.retention_at_time[beyond] >= stored - 1e-12)
     assert np.all((record.retention_at_time > 0) & (record.retention_at_time <= 1))
+
+
+def test_retention_at_time_is_read_just_before_each_units_own_time() -> None:
+    """At a target time equal to a unit's own time, both stored retentions are S_c(t^-).
+
+    The target times are two censored units' own times, so each of those units has a censoring
+    jump at its own time: a record that read S_c(T) inclusive of that jump, rather than just
+    before it, differs from ``retention_before`` there and fails.
+    """
+    from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
+
+    rng = np.random.default_rng(0)
+    n = 300
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    hazard = np.exp(-1.5 + 0.5 * w - a)
+    t = rng.exponential(1 / hazard)
+    c = rng.exponential(1 / 0.3, n)
+    time = np.minimum(t, c)
+    event = (t <= c).astype(int)
+    censored = np.sort(time[event == 0])
+    targets = [float(censored[len(censored) // 3]), float(censored[2 * len(censored) // 3])]
+    frame = pd.DataFrame({"time": time, "event": event, "A": a, "W": w})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = ContinuousSurvivalTMLE(
+            targets,
+            cross_fit=False,
+            hazard_library=[CoxHazard("main")],
+            censoring_library=[CoxHazard("main")],
+            random_state=0,
+        ).fit(frame, time="time", event="event", treatment="A", baseline=["W"])
+    record = result.record
+    checked = 0
+    for k, target in enumerate(targets):
+        units = np.flatnonzero(time == target)
+        assert units.size
+        for i in units:
+            arm = int(record.arm[i])
+            assert record.retention_at_time[i] == pytest.approx(
+                record.retention_before[arm, i, k], rel=1e-12, abs=1e-15
+            )
+            assert record.retention_at_time[i] < 1.0  # earlier censoring jumps are in it
+            checked += 1
+    assert checked >= 2
+
+
+def test_the_bound_leaves_each_units_own_factor_out() -> None:
+    """A binding bound clips the earlier path only, so correct models still balance.
+
+    Law L' with strong dropout makes ``1 - c_1`` small for many units. Clipping the whole
+    product with the unit's own censoring outcome inside it moves the censoring row's weighted
+    difference to about 0.35 at ``g_bounds=(0.05, 1)``; bounding the earlier path alone keeps it
+    near zero, and the feedback row near its truth.
+    """
+    data, truth = _law_l(50_000, 20261114, strong_dropout=True)
+    bounds = (0.05, 1.0)
+    rows, _, _ = bt.longitudinal_cells(data, _law_l_mechanism(data, truth), bounds)
+    censoring = {"diagnostic": "censoring", "exposure_node": 1, "covariate": "L1"}
+    assert abs(_value(rows, **censoring)) < 0.1
+    feedback = {"diagnostic": "feedback", "exposure": "A1", "covariate": "L2"}
+    assert abs(_value(rows, **feedback) - 0.726) < 0.03

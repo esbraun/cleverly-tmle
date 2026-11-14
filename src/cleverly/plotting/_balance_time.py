@@ -16,7 +16,7 @@ Every number drawn is one the report holds; nothing is refitted.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -392,7 +392,15 @@ def _trellis(
     keep = _nodes(rows, nodes, _TRELLIS_NODES)
     capped = nodes is None and len({row.exposure_node for row in rows}) > len(keep)
     rows = [row for row in rows if row.exposure_node in keep]
-    exposures = keep
+    # One panel line per exposure and comparison: a node with several arms, or with both
+    # censoring and an eliminated cause, has several.
+    exposures = list(
+        dict.fromkeys(
+            (r.exposure_node, r.exposure, r.contrast)
+            for r in sorted(rows, key=lambda r: r.exposure_node)
+        )
+    )
+    several = len(exposures) > len({key[0] for key in exposures})
     covariate_nodes = sorted({row.covariate_node for row in rows})
     feedback = diagnostic == "feedback"
     # Figure 4 puts the covariate times down the side for feedback; Figure 2 the exposures.
@@ -413,7 +421,7 @@ def _trellis(
     head = fig.add_subplot(grid[0, :])
     head.set_axis_off()
     groups = {
-        (g["exposure_node"], g["covariate_node"], g["covariate"]): g
+        (g["exposure_node"], g["exposure"], g["contrast"], g["covariate_node"], g["covariate"]): g
         for g in averages(rows, over="history")
     }
     ceiling = max(
@@ -430,13 +438,14 @@ def _trellis(
             axis = fig.add_subplot(grid[i + 1, j], sharex=shared)
             shared = shared if shared is not None else axis
             _core.style_axes(axis)
-            exposure_node, covariate_node = (
-                (column_node, row_node) if feedback else (row_node, column_node)
-            )
+            pair = (column_node, row_node) if feedback else (row_node, column_node)
+            key = cast("tuple[int, str, str]", pair[0])
+            covariate_node = cast(int, pair[1])
             cell = [
                 r
                 for r in rows
-                if r.exposure_node == exposure_node and r.covariate_node == covariate_node
+                if (r.exposure_node, r.exposure, r.contrast) == key
+                and r.covariate_node == covariate_node
             ]
             if not cell:
                 axis.set_axis_off()
@@ -453,7 +462,7 @@ def _trellis(
                 gid="cleverly-balance-strata-dots",
                 label="Stratum of earlier treatments" if first_axis is None else None,
             )
-            averaged = [groups[(exposure_node, covariate_node, name)] for name in names]
+            averaged = [groups[(*key, covariate_node, name)] for name in names]
             axis.scatter(
                 [g["smd_weighted"] for g in averaged],
                 [heights[name] for name in names],
@@ -479,7 +488,7 @@ def _trellis(
                 color=_core.INK,
             )
             axis.set_ylim(-0.7, len(names) - 0.3)
-            exposure_words = cell[0].exposure
+            exposure_words = cell[0].contrast if several else cell[0].exposure
             covariate_words = "baseline" if covariate_node == 0 else f"time {covariate_node}"
             axis.set_title(
                 f"{exposure_words}; covariates at {covariate_words}",
