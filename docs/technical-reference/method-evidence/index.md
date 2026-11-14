@@ -174,6 +174,7 @@ long-horizon-sequentially-doubly-robust-estimation
 option-stopping-ltmle
 option-ratio-trim
 option-markov-order
+boundary-node-ltmle
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage

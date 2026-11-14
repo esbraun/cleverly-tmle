@@ -43,7 +43,7 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference import results as results_module
 from cleverly.inference.delta import wald_ci
-from cleverly.longitudinal import LTMLE, SequentialGComputation
+from cleverly.longitudinal import SDR, SequentialGComputation
 from cleverly.longitudinal import estimator as longitudinal_estimator
 from cleverly.longitudinal.data import LongitudinalData
 from tests.conftest import linear_in_sample
@@ -341,7 +341,11 @@ def single_tier(statuses: Any) -> str:
 
 
 def constant_node_fit(clusters: int) -> Any:
-    """The event-free-node law of ``test_event_free_node`` with ``clusters`` clusters."""
+    """The event-free-node law of ``test_event_free_node`` with ``clusters`` clusters.
+
+    Fitted by ``SDR``, which keeps ``constant_node_plugin``: an ``LTMLE`` fit adds the
+    boundary-node supplement instead (X54 part (i)).
+    """
     rng = np.random.default_rng(1)
     n = 600
     w = rng.integers(0, 2, n)
@@ -361,7 +365,7 @@ def constant_node_fit(clusters: int) -> Any:
         grid=[1, 2, 3, 4],
         id="cluster",
     )
-    estimator = LTMLE(
+    estimator = SDR(
         {"treated": 1, "control": 0},
         outcome_learner=LogisticRegression(max_iter=1000),
         pseudo_learner=LinearRegression(),
