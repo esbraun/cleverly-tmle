@@ -11,7 +11,10 @@
 * a structural nested mean fit: each time point's class probabilities, with the margin its
   positivity summary counts;
 * an adaptive TMLE fit with external data: the treatment probability on the trial rows and
-  the trial-membership probability, with the floor its positivity warning checks.
+  the trial-membership probability, with the floor its positivity warning checks;
+* a continuous-time survival fit: the treated arm's probability by received arm, and with
+  ``censoring=True`` each arm's product with the probability of staying uncensored, which
+  :mod:`cleverly.plotting._continuous` draws.
 
 Every value is one the fit stored; nothing is refitted.
 """
@@ -52,7 +55,7 @@ def over_time(
     regimen: str | None,
     nodes: Sequence[int] | None,
     censoring: bool,
-    horizon: int | None,
+    horizon: float | None,
     cause: str | None,
     time_label: str,
 ) -> Figure | None:
@@ -60,7 +63,19 @@ def over_time(
     from ..estimators.atmle_result import AdaptiveTMLEResult
     from ..longitudinal.estimator import LongitudinalResult
     from ..longitudinal.structural import StructuralNestedMeanResult
+    from ..survival.result import ContinuousSurvivalResult
 
+    if isinstance(result, ContinuousSurvivalResult):
+        from . import _continuous
+
+        _unused(result, regimen=regimen, nodes=nodes, cause=cause)
+        return _continuous.overlap(
+            result,
+            treatment_label=treatment_label,
+            labels=labels,
+            censoring=censoring,
+            horizon=horizon,
+        )
     if isinstance(result, LongitudinalResult):
         if result.config.estimator in ("gcomp", "parametric_gformula"):
             return None
@@ -71,7 +86,7 @@ def over_time(
                 treatment_label=treatment_label,
                 labels=labels,
                 censoring=censoring,
-                horizon=horizon,
+                horizon=_whole(horizon),
                 cause=cause,
             )
         _unused(result, horizon=horizon, cause=cause)
@@ -107,6 +122,19 @@ def _unused(result: Any, **given: Any) -> None:
             f"{', '.join(named)} does not apply to this {type(result).__name__}; "
             "see overlap()'s parameters for the fits each keyword selects in"
         )
+
+
+def _whole(horizon: float | None) -> int | None:
+    """A horizon of a fit over discrete time points, which counts whole time points."""
+    from ..exceptions import DataError
+
+    if horizon is None:
+        return None
+    if isinstance(horizon, bool) or not float(horizon).is_integer():
+        raise DataError(
+            f"horizon= on a fit over time points is a whole time point; got {horizon!r}"
+        )
+    return int(horizon)
 
 
 def _predictions(n_folds: int) -> str:
