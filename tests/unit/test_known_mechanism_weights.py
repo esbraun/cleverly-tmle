@@ -608,6 +608,42 @@ def test_w9_a_cross_fitted_sample_fit_on_replica_folds_is_exact(scheme: str) -> 
     _assert_exact(_fit(frame, "sample", estimator), _tilted_truth(frame))
 
 
+def test_w9_the_tilt_weights_have_mean_one_in_each_training_fold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tilt weights ``w / g0`` are rescaled to mean one on each fold's training rows.
+
+    A penalised learner's loss is not invariant to the weight scale, so the raw tilt weights
+    would change its regularisation relative to the observation weights.  The spy reads the
+    weights each fold's treatment fit receives, the one fit whose design is the covariates
+    alone (the outcome fits also read the treatment).
+    """
+    from cleverly.estimators import _nuisance
+
+    frame = _frame("treatment_outcome")
+    seen: list[float] = []
+    original = _nuisance.fit_on_rows
+
+    def spy(learner: Any, design: Any, target: Any, weights: Any, rows: Any, *rest: Any) -> Any:
+        if np.shape(design)[1] == len(ROLES["covariates"]):
+            seen.append(float(np.mean(np.asarray(weights, dtype=float)[rows])))
+        return original(learner, design, target, weights, rows, *rest)
+
+    monkeypatch.setattr(_nuisance, "fit_on_rows", spy)
+    estimator = TMLE(
+        outcome_learner=_wrong_outcome(),
+        treatment_learner=LogisticRegression(C=0.1, max_iter=1000),
+        cross_fit=True,
+        n_folds=5,
+        estimands=("ate",),
+        simultaneous=False,
+        random_state=0,
+    )
+    _fit(frame, "sample", estimator)
+    assert len(seen) == 5
+    np.testing.assert_allclose(seen, 1.0, rtol=0, atol=1e-12)
+
+
 # ------------------------------------------------------------------------------------ W11
 
 
@@ -803,6 +839,52 @@ def _sample_study() -> CausalStudy:
         mechanism_law="sample",
     )
     return CausalStudy(frame, design=design)
+
+
+@pytest.mark.parametrize("weight", ["treatment", "covariates"])
+def test_w11_available_methods_reports_the_sample_refusals_of_a_study(weight: str) -> None:
+    """A study holds its data, so it reports what the fit would refuse.
+
+    Under ``"sample"`` beside weights that tilt the law, adaptive IPTW and DR-TMLE (whose
+    default guard is non-empty) read the estimated mechanism as fixed and refuse.  Weights
+    that read the covariates only make the two readings the same law, but a ``"sample"``
+    declaration is still estimated, so both stay refused.  A ``"target"`` design divides by
+    the declaration and keeps both.
+    """
+    frame = _frame(weight)
+
+    def methods(mechanism_law: str) -> dict[str, Any]:
+        design = PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2"),
+            weights="w",
+            treatment_probabilities=_columns(2),
+            mechanism_law=mechanism_law,
+        )
+        effect = CausalStudy(frame, design=design).identify(ATE())
+        return {record.name: record for record in effect.available_methods()}
+
+    sample = methods("sample")
+    assert not sample["adaptive_iptw"].available
+    assert sample["adaptive_iptw"].refusal == KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL
+    assert not sample["drtmle"].available
+    assert sample["drtmle"].refusal == KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL
+    assert sample["tmle"].available
+    with pytest.raises(CapabilityError, match="AdaptiveIPTW"):
+        CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y",
+                treatment="A",
+                adjustment=("W1", "W2"),
+                weights="w",
+                treatment_probabilities=_columns(2),
+                mechanism_law="sample",
+            ),
+        ).identify(ATE()).estimate("adaptive_iptw")
+    target = methods("target")
+    assert target["adaptive_iptw"].available and target["drtmle"].available
 
 
 def _sample_settings(**settings: Any) -> dict[str, Any]:

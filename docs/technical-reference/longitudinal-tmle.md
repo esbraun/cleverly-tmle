@@ -1588,7 +1588,7 @@ observed, is the same law under both readings and needs none, and constant weigh
 | `mechanism_law` | at each declared node with a value in $(0,1)$ |
 | --- | --- |
 | `"target"` | the fit divides by the declaration, and everything above holds in $P_w$ |
-| `"sample"` | the fit estimates the tilted factor as the normalised product of the declaration and the node learner's classification on the rows at risk, with weights $w$ over the declared probability of what each row did, normalised to mean one in each training fold. A treatment factor reads both at each plan's history. A retention factor reads the classifier at each plan's history and the declaration at the observed row |
+| `"sample"` | the fit estimates the tilted factor as the normalised product of the declaration and the node learner's classification on the rows at risk, with weights $w$ over the declared probability of what each row did, normalised to mean one in each training fold. A treatment or retention factor reads the classifier at each plan's history and the declaration at the observed row |
 
 A `"sample"` node is an estimated factor: it is not a known factor in
 `LongitudinalConfig.known_factors`, the support key or the summary, and `g_bounds` truncates it

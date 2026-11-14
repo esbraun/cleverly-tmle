@@ -478,6 +478,75 @@ def test_w10_a_fold_restricted_fit_trains_the_tilt_on_its_rows_only() -> None:
     assert abs(observed[zero][0] - every) > MISS
 
 
+def _kish(values: Any) -> float:
+    values = np.asarray(values, dtype=float)
+    return float(values.sum() ** 2 / np.sum(values**2))
+
+
+def test_w10_each_tilted_node_records_the_effective_sample_size_of_its_weights() -> None:
+    """12.11: the Kish effective sample size of ``v = w / g0`` on each tilted node's rows.
+
+    ``A1`` and ``C1`` train on every unit, ``A2`` on the units still observed.  ``C2`` is a
+    0/1 declaration, which both readings divide by, so it records nothing, and a
+    ``"target"`` fit records nothing at all.
+    """
+    frame = _frame()
+    sample = _fit(_estimator(LTMLE), "sample", frame)
+    recorded = sample.mechanism.tilt_effective_n
+    assert set(recorded) == {"A1", "C1", "A2"}
+    w = frame["w"].to_numpy(dtype=float)
+    a1 = frame["A1"].to_numpy() == 1.0
+    stayed = frame["C1"].to_numpy() == 1.0
+    g1 = np.where(a1, frame["g1_1"], frame["g1_0"])
+    r1 = np.where(stayed, frame["r1"], 1.0 - frame["r1"])
+    a2 = frame["A2"].to_numpy() == 1.0
+    g2 = np.where(a2, frame["g2_1"], frame["g2_0"])
+    assert recorded["A1"] == pytest.approx(_kish(w / g1), rel=1e-12)
+    assert recorded["C1"] == pytest.approx(_kish(w / r1), rel=1e-12)
+    assert recorded["A2"] == pytest.approx(_kish((w / g2)[stayed]), rel=1e-12)
+    assert recorded["A2"] < stayed.sum()
+    assert _fit(_divided(), "target", frame).mechanism.tilt_effective_n == {}
+
+
+def test_w10_each_tilt_classifier_trains_on_weights_of_mean_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tilt weights are rescaled to mean one on each fit's training rows.
+
+    A penalised learner's loss is not invariant to the weight scale, so a raw ``w / g0`` would
+    change its regularisation; the trainable classifier is invariant, so the spy is the
+    witness.  Two folds, three tilted nodes: six fits.
+    """
+    from cleverly.estimators import _nuisance
+
+    seen: list[float] = []
+    tilting = [False]
+    original_fit = _nuisance.fit_on_rows
+    original_cross = sequential.cross_fit_predictions
+
+    def spy(learner: Any, design: Any, target: Any, weights: Any, rows: Any, *rest: Any) -> Any:
+        if tilting[0]:
+            seen.append(float(np.mean(np.asarray(weights, dtype=float)[rows])))
+        return original_fit(learner, design, target, weights, rows, *rest)
+
+    def cross(*args: Any, **kwargs: Any) -> Any:
+        tilting[0] = bool(kwargs.get("mean_one_weights"))
+        try:
+            return original_cross(*args, **kwargs)
+        finally:
+            tilting[0] = False
+
+    monkeypatch.setattr(_nuisance, "fit_on_rows", spy)
+    monkeypatch.setattr(sequential, "cross_fit_predictions", cross)
+    learner = LogisticRegression(C=0.1, max_iter=1000)
+    _fit(
+        _estimator(LTMLE, n_folds=2, treatment_learner=learner, censoring_learner=learner),
+        "sample",
+    )
+    assert len(seen) == 6
+    np.testing.assert_allclose(seen, 1.0, rtol=0, atol=1e-12)
+
+
 def test_w10_the_tilted_retention_is_read_at_each_plan_s_history() -> None:
     """12.6: the classifier is predicted at the plan's history and the declaration at the row.
 
@@ -587,6 +656,131 @@ def test_w10_the_g_formula_draws_the_natural_treatment_from_the_tilted_law(
     assert set(books[-1].known) == {2} and books[-1].tilted == {}
 
 
+def _composed_log_likelihood(
+    model: Any, x: Any, drawn: Any, offset: Any, tilt: float | None = None
+) -> Any:
+    """Each path's log probability of ``drawn`` under ``exp(eta + offset)`` normalised."""
+    logits = np.asarray(model.learner.linear_predictor(x), dtype=float)
+    if logits.ndim == 1:
+        logits = np.column_stack([np.zeros(logits.shape[0]), logits])
+    logits = logits + np.asarray(offset, dtype=float)
+    if tilt is not None:
+        logits[:, -1] = logits[:, -1] + np.log(tilt)
+    logits = logits - logits.max(axis=1, keepdims=True)
+    log_law = logits - np.log(np.exp(logits).sum(axis=1, keepdims=True))
+    return log_law[np.arange(x.shape[0]), np.asarray(drawn, dtype=np.int64)]
+
+
+@pytest.mark.parametrize(("levels", "tilt"), [(2, None), (2, 3.0), (3, None)])
+def test_w10_the_g_formula_draw_score_with_a_declaration_is_the_composed_law_s_score(
+    levels: int, tilt: float | None
+) -> None:
+    """12.7: the variance term of a draw from ``g0 r / sum g0 r`` is that law's score.
+
+    A central finite difference of the composed log-likelihood in the GLM coefficients must
+    equal :meth:`FittedModel.draw_score` with the declaration's log probabilities as the
+    offset.  The offset varies over rows and levels, so a score that dropped it, or the
+    reference level's term of a binary offset, would read the model's own law and differ.
+    """
+    from cleverly.learners import GLM
+
+    rng = np.random.default_rng(7)
+    n = 60
+    x = rng.normal(size=(n, 2))
+    y = rng.integers(0, levels, size=n).astype(float)
+    glm = GLM(family="binomial" if levels == 2 else "multinomial").fit(x, y)
+    model = gf.FittedModel(
+        key="treatment:1",
+        label="the natural-treatment model",
+        role="treatment",
+        response="binary" if levels == 2 else "multi",
+        prefix=2,
+        n_classes=levels,
+        learner=glm,
+        present=tuple(range(levels)),
+        sigma2=0.0,
+        rows=np.ones(n, dtype=bool),
+        weights=np.ones(n),
+        target=y,
+    )
+    declared = rng.dirichlet(np.ones(levels), size=n)
+    offset = np.log(declared)
+    drawn = rng.integers(0, levels, size=n).astype(float)
+    score = model.draw_score(x, drawn, tilt=tilt, offset=offset)
+    centre = np.array(glm.coef_, dtype=float, copy=True)
+    flat = centre.reshape(-1)
+    expected = np.zeros((n, flat.size))
+    step = 1e-6
+    for index in range(flat.size):
+        sides = []
+        for sign in (1.0, -1.0):
+            moved = flat.copy()
+            moved[index] += sign * step
+            glm.coef_ = moved.reshape(centre.shape)
+            sides.append(_composed_log_likelihood(model, x, drawn, offset, tilt))
+        expected[:, index] = (sides[0] - sides[1]) / (2.0 * step)
+    glm.coef_ = centre
+    np.testing.assert_allclose(score, expected, rtol=0, atol=1e-7)
+    # The witness is not trivial: the model's own score differs.
+    own = model.draw_score(x, drawn, tilt=tilt)
+    assert np.max(np.abs(own - expected)) > MISS
+
+
+def test_w10_a_g_formula_sample_fit_with_glm_matches_the_target_fit_on_the_tilted_law(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """12.7: a ``"sample"`` g-formula with ``GLM()`` at node one is the tilted law's fit.
+
+    The declaration at node one is one half for every unit, and the GLM on ``L0`` is
+    saturated, so the tilt classifier returns the tilted law exactly and the composed natural
+    law is ``P_w(A1 | L0)``.  A ``"target"`` fit that declares ``P_w(A1 | L0)`` itself draws
+    from the same law with the same models, so its estimate is the same.  A ``"target"`` fit
+    of the raw declaration draws from one half and differs.  The variance term of each drawn
+    natural treatment receives the declaration as its offset, whose score
+    :func:`test_w10_the_g_formula_draw_score_with_a_declaration_is_the_composed_law_s_score`
+    checks.
+    """
+    from cleverly.learners import GLM
+
+    offsets: list[Any] = []
+    original = gf.FittedModel.draw_score
+
+    def spy(self: Any, x: Any, drawn: Any, tilt: Any = None, offset: Any = None) -> Any:
+        if self.key == "treatment:1":
+            offsets.append(offset)
+        return original(self, x, drawn, tilt, offset)
+
+    monkeypatch.setattr(gf.FittedModel, "draw_score", spy)
+    frame = _frame()
+    regimens = {"x1": DynamicRegimen("x1", (Incremental(2.0), 1))}
+
+    def gformula() -> Any:
+        return ParametricGFormula(
+            regimens,
+            random_state=0,
+            simultaneous=False,
+            treatment_learner=GLM(),
+            n_draws=4,
+        )
+
+    sample = _fit(gformula(), "sample", frame)
+    assert offsets and all(
+        offset is not None and np.allclose(offset, np.log(0.5)) for offset in offsets
+    )
+    tilted = frame.copy()
+    for l0 in (0.0, 1.0):
+        cell = (tilted["L0"] == l0).to_numpy()
+        share = _share(frame[cell], "A1")
+        tilted.loc[cell, "g1_1"] = share
+        tilted.loc[cell, "g1_0"] = 1.0 - share
+    target = _fit(gformula(), "target", tilted)
+    raw = _fit(gformula(), "target", frame)
+    name = "ey_regimen[x1]"
+    assert abs(sample[name].psi - target[name].psi) <= 1e-8
+    assert abs(sample[name].psi - raw[name].psi) > MISS
+    assert np.isfinite(sample[name].std_error) and sample[name].std_error > 0.0
+
+
 @pytest.mark.parametrize("role", ["treatment_learner", "censoring_learner"])
 def test_w10_a_node_classifier_that_ignores_weights_is_refused(role: str) -> None:
     """12.5: without ``sample_weight`` the classifier returns the declaration itself."""
@@ -649,6 +843,40 @@ def test_w12_the_markov_placebo_declares_target_unless_a_retention_is_tilted() -
         kernel = MarkovKernel.fit(data)
         placebo = kernel.placebo(data, np.random.default_rng(1))
         assert placebo_known_mechanisms(data, kernel, placebo).law == expected
+
+
+@pytest.mark.parametrize(
+    ("declared", "phrase"),
+    [
+        ({"treatment_probabilities": law.SMART_TREATMENT}, "keeps a known mechanism"),
+        (DECLARED, "weight-tilted mechanism"),
+    ],
+    ids=["treatment_only", "tilted_retention"],
+)
+def test_w12_the_placebo_report_names_the_refit_s_reading(
+    declared: dict[str, Any], phrase: str
+) -> None:
+    """The placebo detail says a refit keeps a known mechanism only when it divides by one.
+
+    With a tilted retention the placebo law keeps ``"sample"``, so its treatment nodes are
+    estimated tilts of the kernel and the detail says so.
+    """
+    from cleverly.validation import refute
+
+    result = _estimator(LTMLE).fit(
+        _frame(), **COLUMNS, weights="w", **declared, mechanism_law="sample"
+    )
+    report = refute(
+        result,
+        estimand="ate_regimen[never vs always]",
+        tests=("placebo",),
+        n_replicates=2,
+        random_state=1,
+    )
+    placebo = next(test for test in report.tests if test.name == "placebo")
+    assert phrase in placebo.detail
+    if phrase != "keeps a known mechanism":
+        assert "keeps a known mechanism" not in placebo.detail
 
 
 def test_w12_simulated_confounding_carries_the_reading() -> None:

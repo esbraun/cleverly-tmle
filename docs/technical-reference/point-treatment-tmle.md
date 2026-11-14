@@ -1305,7 +1305,11 @@ The causal reading needs one more condition when the weight reads $Y$. The tilte
 $E_w[\bar Q_w(a,W)]$ is computed from $P_w$, and it equals a counterfactual mean of the target
 population only when the weights describe how that population was sampled. A weight that reads
 the outcome, such as an outcome-dependent sampling weight, keeps the reading only when the
-sampling fractions are known (see the module docstring of `cleverly.data.weighting`).
+sampling fractions are known (see the module docstring of `cleverly.data.weighting`). Under
+`"sample"`, randomization holds in the rows as drawn, $A \perp Y(a) \mid W$ under $P_0$. A weight
+$w(A, W)$ keeps it under $P_w$, because $dP_w(Y(a), A \mid W) \propto dP_0(Y(a)\mid W)\,
+g_0(A\mid W)\,w(A, W)$ factorises. A weight that reads $Y$ does not, so $\Psi(P_w)$ then has no
+causal reading without a further argument.
 
 A treatment learner given `treatment_covariates=` is refused beside a declaration in both readings,
 so the classifier always sees the whole adjustment set.

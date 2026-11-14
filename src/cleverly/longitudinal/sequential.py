@@ -432,6 +432,12 @@ class Mechanism:
     shifted_ratios: dict[str, dict[int, dict[tuple[str, int], FloatArray]]] = field(
         default_factory=dict
     )
+    #: By node column, the Kish effective sample size of the tilt classifier's weights
+    #: ``v = w / g0`` on its training rows, at each node whose declaration is read in the
+    #: sample beside weights (``mechanism_law="sample"``).  It is the overlap diagnostic of
+    #: the tilt: a value far below the rows at risk means a few rows carry the classifier.
+    #: Empty on every other fit.
+    tilt_effective_n: dict[str, float] = field(default_factory=dict)
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -1418,6 +1424,7 @@ def fit_mechanism(
     competing_models: list[Any] = []
     no_competing_nodes: list[int] = []
     no_competing_folds: dict[int, tuple[int, ...]] = {}
+    tilt_effective_n: dict[str, float] = {}
     competing_learner = censoring_learner if competing_learner is None else competing_learner
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
@@ -1464,6 +1471,7 @@ def fit_mechanism(
                 n_jobs=n_jobs,
                 models=node_models,
                 declared=_filled_matrix(tilted_treatment_at(data, time)),
+                tilt_effective_n=tilt_effective_n,
             )
         elif divided_treatment_at(data, time) is not None:
             declared = _filled_matrix(divided_treatment_at(data, time))
@@ -1585,6 +1593,8 @@ def fit_mechanism(
             censoring_observed.append(factor.observed)
             censoring_diagnostics.append(factor.diagnostics)
             censoring_models.append(factor.model)
+            if factor.tilt_effective_n is not None:
+                tilt_effective_n[data.censoring_names[time - 1]] = factor.tilt_effective_n
             if factor.constant:
                 no_censoring_nodes.append(time)
             if factor.constant_folds:
@@ -1651,6 +1661,7 @@ def fit_mechanism(
         no_competing_nodes=tuple(no_competing_nodes),
         no_competing_folds=no_competing_folds,
         shifted_ratios={} if shifted is None else shifted,
+        tilt_effective_n=tilt_effective_n,
     )
 
 
@@ -1664,6 +1675,8 @@ class _Retention:
     model: Any
     constant: bool
     constant_folds: tuple[int, ...]
+    #: The Kish effective sample size of a tilt classifier's weights on its training rows.
+    tilt_effective_n: float | None = None
 
 
 def _retention_factor(
@@ -1751,6 +1764,7 @@ def _retention_factor(
         model,
         False,
         tuple(sorted(constant_folds)),
+        None if declared is None else effective_sample_size(weights[fit_at], on_degenerate=0.0),
     )
 
 
@@ -2194,6 +2208,7 @@ def _categorical_node(
     n_jobs: int,
     models: list[Any] | None = None,
     declared: FloatArray | None = None,
+    tilt_effective_n: dict[str, float] | None = None,
 ) -> None:
     r"""One categorical node's multinomial mechanism, and its policy nodes' numerators.
 
@@ -2205,7 +2220,9 @@ def _categorical_node(
 
     ``declared`` is a declaration read in the sample beside weights: the multinomial is then
     the tilt classifier, fitted with weights ``w / declared(A_t | H_t)``, and every
-    prediction is composed with the declaration (:func:`fit_mechanism`).
+    prediction is composed with the declaration (:func:`fit_mechanism`), and the Kish effective
+    sample size of those weights on ``fit_at`` goes into ``tilt_effective_n`` under the node's
+    column.
     """
     designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
     observed_key = _internal_prediction_key(tuple(designs), "observed_treatment")
@@ -2219,6 +2236,10 @@ def _categorical_node(
             f"treatment_probabilities at node {data.decision_name(time)!r} gives probability 0 "
             "to the arm that {count} at-risk unit(s) took",
         )
+        if tilt_effective_n is not None:
+            tilt_effective_n[data.decision_name(time)] = effective_sample_size(
+                weights[fit_at], on_degenerate=0.0
+            )
     with phase("mechanism_fit"):
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
         probabilities, diagnostics = cross_fit_predictions(

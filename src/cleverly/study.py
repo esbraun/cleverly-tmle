@@ -19,9 +19,12 @@ from .data.causal_data import _vector_components
 from .data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
+    KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL,
+    KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL,
     MechanismLaw,
     check_mechanism_law,
     divided_treatment_at,
+    divides_by_declaration,
     probability_columns,
 )
 from .data.treatment_covariates import (
@@ -5844,6 +5847,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             drtmle = drift_refusal is None
             if drift_refusal is not None:
                 drtmle_blocker = drift_refusal
+        # A declaration read in the sample beside non-constant weights is an estimated
+        # mechanism, which the guarded reduced regressions (the default guard) and adaptive
+        # IPTW read as fixed, so both fits refuse it; the study holds its data and says so
+        # here.  An unguarded DRTMLE is the TMLE fit, which method="tmle" gives.
+        estimated_declaration = point and self._estimated_declaration()
+        if estimated_declaration and blocker is None:
+            drtmle = False
+            drtmle_blocker = KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL
         if isinstance(design, PointTreatment) and design.support == "vector":
             # A vector with a dose has no arms, as a continuous dose has none; each variant
             # refuses it with the reason its engine gives a continuous treatment.
@@ -5856,6 +5867,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
         iptw_reason = self._adaptive_iptw_refusal(design)
+        if iptw_reason is None and estimated_declaration:
+            iptw_reason = KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL
         records: tuple[MethodAvailability, ...] = (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability("adaptive_iptw", iptw_reason is None, iptw_reason),
@@ -6041,6 +6054,26 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     )
                 )
         return tuple(out)
+
+    def _estimated_declaration(self) -> bool:
+        """Whether the study's declared mechanism is read in the sample beside weights.
+
+        Such a fit estimates the weight-tilted mechanism from the declaration
+        (:func:`~cleverly.data.known_mechanism.divides_by_declaration`).  An effect built
+        without a study, or on data with no declaration, claims nothing.
+
+        Returns
+        -------
+        bool
+            ``True`` when the study's point data declares a mechanism that it does not
+            divide by.
+        """
+        data = getattr(self._study, "data", None)
+        return (
+            isinstance(data, CausalData)
+            and data.known_treatment is not None
+            and not divides_by_declaration(data)
+        )
 
     def _adaptive_iptw_refusal(self, design: Any) -> Refusal | None:
         """Why ``adaptive_iptw`` does not fit this functional, or ``None`` where it does.

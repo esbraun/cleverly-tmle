@@ -116,10 +116,13 @@ equal must therefore say which population the chances describe, with `mechanism_
 the fit refuses before it fits any model.
 
 Pass `mechanism_law="target"` when the declared chances already hold in the weighted population.
-That is the case when the treatment was randomized before the sampling that the weights undo, as in
-a case-cohort study drawn from a trial: the trial randomized everyone, then measured a subsample,
-and the weights restore the whole trial. It is also the case when the weights depend only on the
-adjustment columns. The fit then divides by the declared chances, as on unweighted data:
+That is the case when the treatment was randomized before the sampling or loss that the weights
+undo. In a case-cohort study drawn from a trial, the trial randomized everyone, then measured a
+subsample, and the weights restore the whole trial. A non-response weight is the same case:
+everyone was randomized, people answered the follow-up survey at rates that differ by arm, and
+each answer is weighted by one over that person's chance of answering, so the answers stand for
+everyone randomized. It is also the case when the weights depend only on the adjustment columns.
+The fit then divides by the declared chances, as on unweighted data:
 
 ```python
 case_cohort = CausalStudy(
@@ -135,21 +138,22 @@ case_cohort = CausalStudy(
 )
 ```
 
-Pass `mechanism_law="sample"` when the declared chances hold in the rows you have, and the weights
-were built afterwards from something the treatment can affect. A non-response weight is the usual
-example: everyone was randomized, people answered the follow-up survey at rates that differ by
-arm, and the weight scales up those who answered. The fit then learns how the weights shift the
-chances, by a classification of the treatment that starts from the declared chances, and treats
-the result as an estimated treatment model:
+Pass `mechanism_law="sample"` when the declared chances hold in the rows you have, and you add
+weights afterwards that depend on the treatment and are not meant to restore a larger randomized
+group. For example, every row was randomized with the declared chances, and the analysis weights
+each row by its arm and covariates to stress the treated patients at the highest baseline risk.
+The weighted rows then no longer have the declared chances. The fit learns how the weights shift
+the chances, by a classification of the treatment that starts from the declared chances, and
+treats the result as an estimated treatment model:
 
 ```python
-non_response = CausalStudy(
+analysis_weighted = CausalStudy(
     frame.assign(p_control=0.5, p_treated=0.5),
     design=PointTreatment(
         outcome="Y",
         treatment="A",
         adjustment=("W1", "W2"),
-        weights="sampling_weight",
+        weights="analysis_weight",
         treatment_probabilities={0: "p_control", 1: "p_treated"},
         mechanism_law="sample",
     ),
@@ -165,6 +169,9 @@ chances could.
 
 When the weights depend on the outcome, the weighted population is a causal target
 only if the weights describe how that population was sampled, with known sampling fractions.
+With `"sample"`, a weight that depends on the outcome also undoes the randomization in the
+weighted rows, so the estimate is not a causal effect without a further argument. A weight that
+depends only on the treatment and the adjustment columns keeps the causal reading.
 [Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
 gives the formulas, and
 [known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) gives
