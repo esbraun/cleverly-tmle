@@ -6,13 +6,15 @@ The record has no comparator, so the run starts no container. Law, fit, ladder, 
 seeds and replicate counts are those of :mod:`tests.studies.few_cluster_floor_ltmle`,
 :mod:`tests.studies.few_cluster_floor_ltmle_properties` and :mod:`tests.studies.few_cluster_floor`,
 fixed before any run and recomputed by ``tests/unit/test_few_cluster_floor_design.py``. The
-record is not in ``registered()`` until its run is committed; until then its property module is
-an uncommitted subject of the property differential.
+record is not in ``registered()`` until its run is committed. Until then its property module is
+a synthetic subject of the property differential, on the subset it declares
+(``DIFFERENTIAL_BUDGET`` and ``differential_cells()``).
 
 **State: declared for design review, pilot not run.** The pilot
 (:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on the ``"pilot"`` stream) runs
-after the design review and before the run; it sets R by the family-wise rule (M5), records the
-predicted reds and the predicted admissibility of (C), and is committed as ``pilot.csv.gz``.
+after the design review and before the run. It sets R by the family-wise rule (M5) and writes
+the tables listed in ``few-cluster-floor-tmle`` here; the declaration copies R, the predicted
+reds and (C)'s predicted shortfall into the study module, and the design test checks them.
 
 **What is gated**: the registered two-clause rule of ``clustered-few-cluster-tmle``, as in
 ``few-cluster-floor-tmle``: G1 and G2 on each ``t_reference`` row, both control clauses on each
@@ -35,9 +37,11 @@ family compared there.
 **Budget**, measured on this machine from 3 serial draws of every cell with one thread: the
 property phase at R = 4,000 is 14.2 CPU-h, of which the jackknife arms (10 to 39 clusters, 2,000
 draws) are 9.9 and the package-GLM refits about 1; about 16.5 at R = 6,000. The pilot is about
-2.4 CPU-h and the 1,000-draw primary under 0.1. Declared 22 CPU-h, the plan's figure.
+2.4 CPU-h and the 1,000-draw primary under 0.1. A two-draw smoke of every key, timed per key,
+projects 13.1 CPU-h at the declared R, and the pilot's ``pilot-timing.csv`` projects it again
+from 400 draws. Declared 22 CPU-h, the plan's figure.
 
-**Red-cell readings**: as ``few-cluster-floor-tmle``. ``unequal40`` at 6 to 10 clusters may read
+**Red-cell readings**: as ``few-cluster-floor-tmle``, owner ``X54-cluster-floor``. ``unequal40`` at 6 to 10 clusters may read
 all-draw coverage near 0.92, where G1 passes or fails by chance (plan 2.2); the floor reports
 the count honestly either way.
 """

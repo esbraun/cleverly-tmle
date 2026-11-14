@@ -18,16 +18,20 @@ $t_{J-2}$ reference with Wang et al.'s inflated variance and the delete-one-clus
 ## State of this directory
 
 Declared for design review. The pilot has not run, and no artifact is committed, so the record
-is not in `registered()`. `regenerate.py` holds the declaration: the gates, the floor rule, the
-part (c) decision, the measured budget and the red-cell readings.
+is not in `registered()`. Until its run commits, the property differential reads synthetic rows
+of the subset the property module declares. `regenerate.py` holds the declaration: the gates,
+the floor rule, the part (c) decision, the measured budget and the red-cell readings, owned by
+`X54-cluster-floor` in `docs/roadmap.md`.
 
 ## Run
 
-Run the pilot (after the design review), then commit its `pilot.csv.gz` here:
+Run the pilot after the design review. It writes `pilot.csv.gz` and six `pilot-*.csv` tables
+here; `tests/studies/few_cluster_floor_pilot.py` lists them. Commit them, and copy R, the
+predicted reds and (C)'s predicted shortfalls into the study module before the run:
 
 ```bash
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
-  python -m tests.studies.few_cluster_floor_pilot tmle --output <scratch dir> --jobs "$(nproc --all)"
+  python -m tests.studies.few_cluster_floor_pilot tmle --jobs "$(nproc --all)"
 ```
 
 Run a disposable smoke of the primary phase:
