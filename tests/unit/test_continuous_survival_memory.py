@@ -181,15 +181,35 @@ def test_each_phase_stays_below_its_own_prediction(monkeypatch: pytest.MonkeyPat
     wrap(multiplier, "simultaneous_bands", "band")
     original_walk = engine.walk
 
-    def walk(problem: Any, jumps: Any, **kwargs: Any) -> Any:
+    def walk(
+        problem: Any,
+        jumps: Any,
+        *,
+        cutoff: float,
+        norm: Any,
+        step: float,
+        max_steps: int,
+        tilt: Any,
+    ) -> Any:
         # Forward the jumps without a name here, so the wrapper does not hold what the
-        # engine releases at the first accepted step.
+        # engine releases at the first accepted step.  The call names each keyword rather
+        # than unpacking **kwargs: on Python 3.11 an unpacking call keeps its positional
+        # arguments in a tuple on the caller's stack for the whole call, which would hold
+        # the jumps the walk releases.
         box = [jumps]
         del jumps
         fold()
         open_windows.append("walk")
         try:
-            return original_walk(problem, box.pop(), **kwargs)
+            return original_walk(
+                problem,
+                box.pop(),
+                cutoff=cutoff,
+                norm=norm,
+                step=step,
+                max_steps=max_steps,
+                tilt=tilt,
+            )
         finally:
             fold()
             open_windows.remove("walk")
