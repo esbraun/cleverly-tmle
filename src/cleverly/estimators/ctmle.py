@@ -814,6 +814,10 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
         "outcome_by_arm=False; the stack fits one outcome model with arm columns",
     ),
     "patience": (lambda v: v is None, "patience=None; the oat strategy scores no path"),
+    "conditional_form": (
+        lambda v: v == "arm_mean",
+        "conditional_form='arm_mean'; CTMLE refuses the known-score form at construction",
+    ),
     "random_state": (_anything, "any value"),
     "run_id": (_anything, "any value"),
     "n_jobs": (_anything, "any value"),
