@@ -325,7 +325,7 @@ def jackknife_covariance(leave_one_out: FloatArray) -> FloatArray:
     >>> from cleverly.inference.cluster_jackknife import jackknife_covariance
     >>> totals = np.array([1.0, 2.0, 4.0, 7.0])
     >>> loo = np.array([np.delete(totals, g).mean() for g in range(4)])[:, None]
-    >>> float(jackknife_covariance(loo)[0, 0]) == float(totals.var(ddof=1) / 4)
+    >>> bool(np.isclose(jackknife_covariance(loo)[0, 0], totals.var(ddof=1) / 4, rtol=1e-12))
     True
     """
     values = np.asarray(leave_one_out, dtype=float)

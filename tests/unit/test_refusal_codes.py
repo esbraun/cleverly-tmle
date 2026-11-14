@@ -395,6 +395,8 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
     ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
+    ("src/cleverly/inference/influence.py", "the jackknife variance replaces"): _INTERNAL,
+    ("src/cleverly/inference/influence.py", "the boundary-node supplement adds"): _INTERNAL,
     ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,
     ("src/cleverly/learners/_fitting.py", "has no predict_proba"): _MALFORMED,
     ("src/cleverly/learners/_l1_logistic.py", "lambdas must be a non-empty sequence"): (_MALFORMED),

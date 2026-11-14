@@ -5187,15 +5187,17 @@ class _SequentialEstimator:
             step_bound=getattr(self, "step_bound", None),
             ratio_trim=self.ratio_trim,
         )
-        self._validate_variance()
         if self.cluster_variance not in CLUSTER_VARIANCES:
             raise ValueError(
                 f"cluster_variance must be one of {list(CLUSTER_VARIANCES)}; got "
                 f"{self.cluster_variance!r}"
             )
+        # Before the policy-weighted refusals: two variances for one interval is the first
+        # thing wrong with that request.
         refusal = self._jackknife_configuration_refusal()
         if refusal is not None:
             raise CapabilityError.from_refusal(refusal)
+        self._validate_variance()
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "msm= and reference= cannot be combined. reference= names the regimen "
