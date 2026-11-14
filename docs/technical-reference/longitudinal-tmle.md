@@ -2382,14 +2382,92 @@ mechanism.
 
 ### The interval under heavy cumulative density ratios
 
-The `SDR` interval runs short of nominal when the cumulative density ratios are heavy. The study
-cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio of 0.9408 at n = 4,000, with a 99%
-interval of 0.9060 to 0.9775, and a coverage of 0.9357. The `LTMLE` cell of the same plan reads a
-standard-error ratio of 0.9572. The cell uses a pseudo-outcome learner that projects onto [0, 1].
+Under a modified treatment policy whose cumulative density ratio $\prod_t r_t$ has a heavy tail, the
+default Wald interval of `LTMLE` and `SDR` runs short of nominal at sizes the usual studies use. The
+cause is the variance estimate, not the estimator. Its relative SD is large, and it is coupled with
+the error: a sample that holds none of the rare large-ratio rows reports a small standard error and
+also tends to miss.
 
-Treat this interval as experimental under the measured-shortfall standard. The study publishes the
-cell as `reporting`, and the red-cell owner `X40-sdr-heavy-ratios` records the measured numbers.
-The fit support key does not read the plan, so a fit carries no label of its own for this cell.
+On the five-node `price_down` plan of `mtp-pricing` at n = 5,000 the identity Wald interval
+covers 0.911 to 0.929 and, in the quarter of samples with the smallest standard error, 0.69 to 0.76
+([`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)). On the same rows the shipped
+range-logit interval of the two level rows covers 0.922 (`LTMLE`) and 0.937 (`SDR`). The
+percentile and BCa intervals do no better: the BCa interval covers 0.908 to 0.923, and the
+equal-tailed bootstrap-t at most 0.937 (`tests/diagnostics/fix5_heavy_ratios/probe1.csv`), so
+neither is validated for these fits.
+Each study gates a Wald reading only at an $n$ of at least twice the tail size of its quantity
+(`X39-below-tail-size` in the [roadmap](../roadmap.md)). In that regime the default twins of these
+rows pass the 0.90 floor.
+
+**`variance="policy_weighted"`.** The option keeps the estimate and reports the standard error
+from $\hat\sigma^2 = \max(\hat\sigma^2_{IC}, \hat\sigma^2_{pw})$. For $k \ge 1$ and integrable $f$, the
+change of measure from the observed treatment law $g$ to the intervened law $g^d$ gives
+
+$$
+E\left[r_t(A_t, H_t)^k f(A_t, H_t) \mid H_t\right]
+  = E\left[r_t(A^d_t, H_t)^{k-1} f(A^d_t, H_t) \mid H_t\right],
+$$
+
+with $A^d_t = d_t(A_t, H_t)$ the policy dose. It needs positivity and no invertibility of $d_t$, so
+a two-branch map and a map with an atom are covered.
+
+Applied backwards to the efficient influence
+curve with residuals $e_t = Q_{t+1}(A^d_{t+1}, H_{t+1}) - Q_t(A_t, H_t)$, it gives
+$\sigma^2 = E[b^2] + E[r_1(A^d_1, H_1) S_1(A^d_1, H_1)]$, where $b$ is the baseline term,
+$S_\tau = E[e_\tau^2 \mid A_\tau, H_\tau]$ and
+$S_t = E[e_t^2 + r_{t+1}(A^d_{t+1}, H_{t+1}) S_{t+1}(A^d_{t+1}, H_{t+1}) \mid A_t, H_t]$. This form
+holds when each $e_t$ has conditional mean zero, as at the truth.
+
+$\hat\sigma^2_{pw}$ replaces each
+conditional mean by a boosted-tree regression of depth 5, fitted on the observed $(A_t, H_t)$ and
+evaluated at the policy dose, with the fit's own $Q$ and $r$. A contrast reads the same recursion
+on the product of the two plans' residuals, with one plan's ratio evaluated at the other's
+policy dose. For a linear functional $\lambda$ of the levels the
+variance is $\max(\lambda^\top \hat\Sigma_{IC} \lambda, \lambda^\top \hat\Sigma_{pw} \lambda)$. A
+non-finite or non-positive $\hat\sigma^2_{pw}$ takes the influence-curve value, and
+`variance_source` records which one each estimate reports.
+When the default interval is on the
+range-logit scale, the option keeps that scale and widens the half-width to
+$\max(\text{default half-width}, z\,\widehat{SE}_{pw})$ on it; under a Student t reference the
+half-width is $\max(t_\nu \widehat{SE}_{IC}, z\,\widehat{SE}_{pw})$, so the degrees of freedom never
+apply to the policy-weighted variance.
+
+The guarantee needs no condition on the variance regressions: $\hat\sigma \ge \hat\sigma_{IC}$ in
+every sample, so the option's interval contains the default one, and its asymptotic coverage is at
+least nominal wherever the default is asymptotically valid. With an exact or known ratio the
+remainder is zero for any outcome model. With a learned ratio and a misspecified outcome model, the
+estimator gains a ratio-estimation term that neither variance estimates, so the coverage claim
+then needs a consistent outcome model. What the maximum buys at finite $n$ is measured, not proved:
+$\hat\sigma_{pw}$ reads the large-ratio rows' contribution through every row's policy dose, so it
+lifts the standard error in the samples where $\hat\sigma_{IC}$ is too small.
+
+The option is refused, before any learner fits, with cross-fitting, `repeats`, clusters, weights,
+right-censoring, a survival or repeated outcome, `msm=`, `simultaneous=True`, `n_bootstrap`,
+`ratio_trim`, a data-tuned cap, a learned or separable regimen, a treatment held from baseline, or
+a node that holds a vector of treatments. On a fit with the option, `covariance()` and `simultaneous_bands()` are refused,
+because the fit defines the variance of each linear functional as a maximum, which is not a
+covariance matrix. `contrast()`, `ratio()` and a `transform=` read the maximum for their gradient.
+`influence_curves` returns the curves, which do not carry the option's variance.
+
+**What it was validated against.** In [`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)
+with an exact ratio the option reads conservative on the five-node `price_down` rows (SE ratio
+1.113 to 1.145, coverage 0.980 to 0.983, and 0.953 to 0.958 in the lowest standard-error quartile), and on plan `p4` of law B
+(1.047 to 1.084, coverage 0.965 to 0.972). It reads calibrated at two nodes (0.992 to 1.019), where
+it widens the interval by about 1%. The support rows `G39.*.tau2`, `G39.*.tau5`, `G10.continuous`
+and `G24.mtp.in_sample` license it; at three nodes it stays experimental, because that
+configuration was held out for the screen that chose the regressions.
+
+**The `SDR` interval.** At n = 4,000 under plan `p4`, the `p4_sdr` cell of `mtp-boundaries` reads a
+standard-error ratio of 0.9408 (99% interval 0.9060 to 0.9775) and coverage of 0.9357 with a
+pseudo-outcome learner that projects onto [0, 1]; the re-run in `mtp-policy-variance` reads 0.920
+(0.891 to 0.950) and 0.936. The `LTMLE` cell of the same plan reads 0.9572. The shortfall grows
+when the pseudo-outcome regression is not projected. On 240 paired draws a projected rich basis
+gives an SE ratio of 0.982 and coverage of 0.950, and the same basis unprojected gives 0.799 and
+0.904 (`tests/diagnostics/fix5_heavy_ratios/probe4.csv`). The default `SuperLearner` pseudo learner
+covers 0.944 (99% interval 0.925 to 0.960) with an SE ratio of 0.948 (0.905 to 0.996) over 1,200
+draws. The fit support key does not read the plan or the pseudo learner, so `G24.mtp.in_sample`
+carries these numbers as notes, and `variance="policy_weighted"` covers 0.969 on the default
+`SuperLearner` cell.
 
 ### Choices that differ from LTMLE
 

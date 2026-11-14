@@ -82,12 +82,22 @@ SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
 #: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
-#: bootstrap interval, a studentized bootstrap sup-t band, or a derived estimate.
+#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, or a Wald
+#: interval at the larger of the influence-curve and policy-weighted variances
+#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`).
 #: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
 #: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
 Kind = Literal[
-    "point", "wald", "wald_t", "band", "bootstrap", "bootstrap_bca", "bootstrap_band", "derived"
+    "point",
+    "wald",
+    "wald_t",
+    "band",
+    "bootstrap",
+    "bootstrap_bca",
+    "bootstrap_band",
+    "derived",
+    "wald_policy",
 ]
 
 
@@ -1280,6 +1290,7 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "bootstrap_bca": "BCa bootstrap interval",
     "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
+    "wald_policy": "Wald interval, policy-weighted variance",
 }
 
 
@@ -1322,6 +1333,8 @@ def support_for(
     status: str,
     reference_df: int | None = None,
     kind: Kind | None = None,
+    *,
+    policy: bool = False,
 ) -> Support:
     """What one estimate carries, from its fit's classification and its final status.
 
@@ -1348,6 +1361,10 @@ def support_for(
         ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval,
         ``"bootstrap_bca"`` for a BCa interval, and ``"bootstrap_band"`` for a studentized
         bootstrap sup-t band.
+    policy : bool, default False
+        Whether the estimate reads ``variance="policy_weighted"``. Its interval then needs
+        the ``wald_policy`` kind, whichever variance it reports, unless its status withholds
+        the interval.
 
     Returns
     -------
@@ -1365,6 +1382,8 @@ def support_for(
         return UNCLASSIFIED
     record = None if status == "influence_curve" else STATUS_RECORDS[status]
     withheld = record is not None and record.interval == "withheld"
+    if kind is None and policy and not withheld:
+        kind = "wald_policy"
     if kind is None:
         kind = "point" if withheld else ("wald_t" if reference_df is not None else "wald")
     row = classification.row

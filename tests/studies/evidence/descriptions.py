@@ -10090,3 +10090,228 @@ STUDY_ARM_CELLS.update(
         for base, words in _HAZARD_MTP_DIFFERENCE_CELLS.items()
     }
 )
+
+#: ``mtp-policy-variance`` (Fix-5): ``variance="policy_weighted"`` on ``LTMLE`` and ``SDR``, and
+#: the tail-size twins of ``mtp-pricing`` and ``mtp-boundaries``.  The fit sets are those of
+#: ``tests/studies/canonical_mtp_policy_variance.py`` and its properties module.
+_PV_SLUG = "mtp-policy-variance"
+IMPLEMENTATIONS["cleverly-mtp-policy-variance"] = (
+    "`cleverly` LTMLE and SDR, default Wald interval and variance='policy_weighted'"
+)
+_PV_ESTIMATORS = {"ltmle": "LTMLE", "sdr": "SDR"}
+_PV_LAW_P = "pricing law P with engagement feedback on the declared price support"
+_PV_LAW_B = "two-node law B with a truncated-normal dose on a history-dependent support"
+_PV_LAW_B_ATOM = "law B' (law B with a declared atom at the second dose)"
+for _est, _name in _PV_ESTIMATORS.items():
+    for _tau, _n in ((5, "72,800" if _est == "ltmle" else "73,600"), (3, "5,600")):
+        STUDY_SCENARIOS[(_PV_SLUG, f"pricing_{_est}_tau{_tau}_tail")] = (
+            f"{_tau}-node {_PV_LAW_P}, {_name}, exact ratio on the classifier route, n = {_n}: "
+            "the coverage twin of the mtp-pricing price_down rows, default Wald interval"
+        )
+    STUDY_SCENARIOS[(_PV_SLUG, f"pricing_{_est}_tau3_tail_policy")] = (
+        f"the same 3-node fits at n = 5,600, {_name}, read with variance='policy_weighted'"
+    )
+    STUDY_SCENARIOS[(_PV_SLUG, f"atom_{_est}_tail")] = (
+        f"{_PV_LAW_B_ATOM}, {_name}, the mtp-boundaries primary learners, n = 6,400: the "
+        "coverage twin of the p5 contrast rows, default Wald interval"
+    )
+    STUDY_SCENARIOS[(_PV_SLUG, f"atom_{_est}_tail_policy")] = (
+        f"the same law B' fits at n = 6,400, {_name}, read with variance='policy_weighted'"
+    )
+    STUDY_SCENARIOS[(_PV_SLUG, f"p4_{_est}_tail")] = (
+        f"{_PV_LAW_B}, {_name}, the mtp-boundaries primary learners, exact ratio on the "
+        "classifier route, n = 104,400: the coverage twin of the p4 rows, default Wald interval"
+    )
+PROPERTIES.update(
+    {
+        "policy_variance": (
+            "the interval with variance='policy_weighted' meets the coverage floor and reads "
+            "calibrated or conservative where the default Wald interval falls short"
+        ),
+        "policy_calibration": (
+            "the policy-weighted interval is calibrated or conservative at a correct outcome "
+            "model and the oracle ratio, below the tail size"
+        ),
+        "reporting_calibration": (
+            "a Wald calibration twin whose tail size is a lower bound only, reported"
+        ),
+        "sdr_default_pseudo": (
+            "SDR with the pseudo-outcome learner it builds by default under heavy ratios, "
+            "reported with its follow-up trigger"
+        ),
+        "tail_option": (
+            "the policy-weighted interval on the large coverage twins, on 400 draws, reported"
+        ),
+    }
+)
+_PV_OPTION_REQUIRED = (
+    "bias inside the margin, coverage lower bound at least 0.90 and the 99% SE-ratio lower "
+    "bound between 0.93 and 1.25 (calibrated when the upper bound is at most 1.07, "
+    "conservative above)"
+)
+_PV_NOMINAL_REQUIRED = _PV_OPTION_REQUIRED + ", and the 99% coverage upper bound reaches 0.95"
+_PV_SETS = {
+    **{
+        f"pricing_{est}_tau{tau}": (
+            f"{tau}-node {_PV_LAW_P}, price_down, {name}, exact ratio on the classifier route, "
+            "n = 5,000"
+        )
+        for est, name in _PV_ESTIMATORS.items()
+        for tau in (5, 2)
+    },
+    **{
+        f"boundaries_{est}_p4": (
+            f"{_PV_LAW_B}, p4, {name}, the mtp-boundaries primary learners and density ratio, "
+            "n = 5,000"
+        )
+        for est, name in _PV_ESTIMATORS.items()
+    },
+    **{
+        f"pricing_learned_{est}_tau5": (
+            f"5-node {_PV_LAW_P}, price_down, {name}, the screened quadratic logistic "
+            "classifier learns the ratio, n = 5,000"
+        )
+        for est, name in _PV_ESTIMATORS.items()
+    },
+}
+_PV_QUANTITIES = {"ey": "the mean under price_down", "ate": "the contrast against natural"}
+for _label, _words in _PV_SETS.items():
+    _gated = not _label.startswith("pricing_learned")
+    _tau5 = _label.endswith("tau5") and _gated
+    for _q, _quantity in _PV_QUANTITIES.items():
+        if _label.startswith("boundaries"):
+            _quantity = _quantity.replace("price_down", "p4")
+        CELLS[("policy_variance", f"{_label}__{_q}__option")] = (
+            f"{_words}, {_quantity}: variance='policy_weighted'",
+            (_PV_NOMINAL_REQUIRED if _tau5 else _PV_OPTION_REQUIRED)
+            if _gated
+            else _DIAGNOSTIC_REQUIRED,
+        )
+        CELLS[("policy_variance", f"{_label}__{_q}__wald")] = (
+            f"{_words}, {_quantity}: the default Wald interval on the same fits",
+            "the 99% coverage upper bound must fall below 0.95" if _tau5 else _DIAGNOSTIC_REQUIRED,
+        )
+        if _gated:
+            CELLS[("policy_variance", f"{_label}__{_q}__coverage_floor_control")] = (
+                f"{_words}, {_quantity}: the policy-weighted standard error times 0.60",
+                "the 99% coverage upper bound must fall below 0.90",
+            )
+        if _tau5:
+            CELLS[("policy_variance", f"{_label}__{_q}__inflated_se_control")] = (
+                f"{_words}, {_quantity}: the policy-weighted standard error times 1.40",
+                "the 99% SE-ratio lower bound must lie above 1.25",
+            )
+_PV_CALIBRATION = {
+    "p4_ltmle": (
+        f"{_PV_LAW_B}, p4 contrast, LTMLE with the correct outcome model and the oracle "
+        "hazard, n = 4,000"
+    ),
+    "p4_sdr": (
+        f"{_PV_LAW_B}, p4 contrast, SDR with the correct outcome model, the oracle hazard and "
+        "a unit-range first-node pseudo learner, n = 4,000"
+    ),
+}
+STUDY_ARMS[(_PV_SLUG, "p4_sdr")] = _PV_CALIBRATION["p4_sdr"]
+for _label, _words in _PV_CALIBRATION.items():
+    _cells = {
+        "option": ("variance='policy_weighted'", _PV_OPTION_REQUIRED),
+        "wald": ("the default Wald interval on the same fits", _DIAGNOSTIC_REQUIRED),
+        "shrunken_se_control": (
+            "the policy-weighted standard error times 0.70",
+            "the 99% SE-ratio upper bound must fall below 0.93",
+        ),
+        "inflated_se_control": (
+            "the policy-weighted standard error times 1.40",
+            "the 99% SE-ratio lower bound must lie above 1.25",
+        ),
+        "noise_control": (
+            "independent noise of one SD unit of the law (the noise SD of its source study) added to each option estimate",
+            "the 99% SE-ratio upper bound must fall below 0.93",
+        ),
+        "coverage_floor_control": (
+            "the policy-weighted standard error times 0.60",
+            "the 99% coverage upper bound must fall below 0.90",
+        ),
+    }
+    for _kind, (_tested, _required) in _cells.items():
+        if _label == "p4_sdr":
+            # ``p4_sdr`` is an arm of the shared descriptions, so the cell name is split there.
+            STUDY_ARM_CELLS[(_PV_SLUG, "policy_calibration", "p4_sdr", _kind)] = (
+                _tested,
+                _required,
+            )
+        else:
+            CELLS[("policy_calibration", f"{_label}__{_kind}")] = (
+                f"{_words}: {_tested}",
+                _required,
+            )
+_PV_TWINS = {
+    "p4_twin": (
+        f"{_PV_LAW_B}, p4 contrast, LTMLE with the correct outcome model and the exact ratio "
+        "on the classifier route, n = 104,400"
+    ),
+    "p4_sdr_twin": (
+        f"{_PV_LAW_B}, p4 contrast, SDR with the correct outcome model, the exact ratio on the "
+        "classifier route and a unit-range pseudo learner, n = 104,400"
+    ),
+    "p5_twin": (
+        f"{_PV_LAW_B_ATOM}, p5 contrast, LTMLE with the correct outcome model and the density "
+        "ratio, n = 6,400"
+    ),
+    "p5_sdr_twin": (
+        f"{_PV_LAW_B_ATOM}, p5 contrast, SDR with the correct outcome model, the density ratio "
+        "and a unit-range pseudo learner, n = 6,400"
+    ),
+    "up_oracle_tau5_twin": (
+        f"5-node {_PV_LAW_P}, the mean under price_up, LTMLE with the mtp-pricing exact-ratio "
+        "calibration learners, n = 4,000"
+    ),
+}
+for _twin, _words in _PV_TWINS.items():
+    CELLS[("interval_calibration", f"{_twin}__correctly_specified")] = (
+        f"{_words}: the default Wald interval at twice the tail size",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
+    CELLS[("interval_calibration", f"{_twin}__shrunken_se_control")] = (
+        f"{_words}: the Wald standard error times 0.70",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+    CELLS[("interval_calibration", f"{_twin}__noise_control")] = (
+        f"{_words}: independent noise of one SD unit of the law (the noise SD of its source study) added to each estimate",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+CELLS[("reporting_calibration", "up_learned_classifier_tau5_twin__wald")] = (
+    f"5-node {_PV_LAW_P}, the mean under price_up, LTMLE with the mtp-pricing learned "
+    "classifier, n = 4,000: the default Wald interval at twice a lower bound of the tail size",
+    _DIAGNOSTIC_REQUIRED,
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_PV_SLUG, "sdr_default_pseudo", "p4_sdr", f"superlearner__{_kind}"): (
+            f"SDR with its default SuperLearner pseudo-outcome learner in place of the "
+            f"unit-range one: {_tested}",
+            _DIAGNOSTIC_REQUIRED,
+        )
+        for _kind, _tested in (
+            ("wald", "the default Wald interval"),
+            ("option", "variance='policy_weighted'"),
+        )
+    }
+)
+_PV_LARGE = {
+    "pricing_ltmle_tau5_tail": "the 5-node law P twin, LTMLE, n = 72,800",
+    "pricing_sdr_tau5_tail": "the 5-node law P twin, SDR, n = 73,600",
+    "p4_ltmle_tail": "the law B p4 twin, LTMLE, n = 104,400",
+    "p4_sdr_tail": "the law B p4 twin, SDR, n = 104,400",
+}
+for _twin, _words in _PV_LARGE.items():
+    _plan = "p4" if _twin.startswith("p4") else "price_down"
+    for _q, _quantity in (("ey", f"the mean under {_plan}"), ("ate", "the contrast")):
+        for _kind, _tested in (
+            ("option", "variance='policy_weighted'"),
+            ("wald", "the default Wald interval on the same draws"),
+        ):
+            CELLS[("tail_option", f"{_twin}__{_q}__{_kind}")] = (
+                f"{_words}, {_quantity}, 400 draws: {_tested}",
+                _DIAGNOSTIC_REQUIRED,
+            )

@@ -123,6 +123,7 @@ continuous-time-survival
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
+mtp-policy-variance
 mtp-pricing
 mtp-tuning
 sequentially-doubly-robust-estimation

@@ -418,6 +418,14 @@ class Mechanism:
     no_competing_nodes: tuple[int, ...] = ()
     #: By node, the training folds of a cross-fitted fit with no eliminated event.
     no_competing_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    #: By plan label, by continuous node counted from one, by ``(source plan label, branch)``,
+    #: the plan's ratio :math:`r_t` evaluated at the source plan's policy dose
+    #: :math:`d_t(A_t, H_t)` of that branch: what the policy-weighted variance reads
+    #: (:mod:`cleverly.longitudinal.policy_variance`).  Filled only when
+    #: :func:`fit_mechanism` is asked for it, and empty on every other fit.
+    shifted_ratios: dict[str, dict[int, dict[tuple[str, int], FloatArray]]] = field(
+        default_factory=dict
+    )
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -1301,6 +1309,7 @@ def fit_mechanism(
     hazard_pooling: str = "node",
     keep_models: bool = False,
     competing_learner: Learner | None = None,
+    shifted_ratios: bool = False,
 ) -> Mechanism:
     r"""Fit the treatment and censoring mechanisms at every node, out of fold.
 
@@ -1353,6 +1362,10 @@ def fit_mechanism(
     of the retention reads both; the competing factor alone is kept on the ``competing``
     fields for diagnostics and the stacked estimating equation.  ``competing_learner``
     fits it, and ``None`` uses ``censoring_learner``.
+
+    ``shifted_ratios=True`` also evaluates, at every continuous node, each plan's fitted
+    ratio at every plan's policy doses, from the same density or classifier, and keeps them
+    in ``Mechanism.shifted_ratios`` for the policy-weighted variance.
     """
     if fit_rows is not None and not folds.is_single:
         raise ValueError("fit_rows= is one training fold's restriction; pass the single fold")
@@ -1365,6 +1378,9 @@ def fit_mechanism(
     numerators: dict[str, dict[int, FloatArray]] = {
         plan.label: {} for plan in plans if plan.has_mtp
     }
+    shifted: dict[str, dict[int, dict[tuple[str, int], FloatArray]]] | None = (
+        {plan.label: {} for plan in plans} if shifted_ratios else None
+    )
     densities: dict[tuple[int, str], ConditionalDensity | MixedDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
@@ -1463,6 +1479,7 @@ def fit_mechanism(
                     density_bins=density_bins,
                     ratio=ratio,
                     n_jobs=n_jobs,
+                    shifted=shifted,
                 )
             if density is not None:
                 densities[(time, data.treatment_names[time - 1])] = density
@@ -1590,6 +1607,7 @@ def fit_mechanism(
         competing_models=tuple(competing_models) if keep_models else (),
         no_competing_nodes=tuple(no_competing_nodes),
         no_competing_folds=no_competing_folds,
+        shifted_ratios={} if shifted is None else shifted,
     )
 
 
@@ -2119,6 +2137,7 @@ def _continuous_node_ratios(
     density_bins: int | None,
     ratio: str,
     n_jobs: int,
+    shifted: dict[str, dict[int, dict[tuple[str, int], FloatArray]]] | None = None,
 ) -> ConditionalDensity | MixedDensity | None:
     """A continuous or mixed node's policy ratios, by the binned density or by classification.
 
@@ -2138,6 +2157,10 @@ def _continuous_node_ratios(
     are then the ratio of the joint law the policy induces to the observed one, with
     respect to counting measure on the categorical cells times Lebesgue measure on the
     doses (their Section 5.4 holds for any common dominating measure).
+
+    With ``shifted``, each plan's ratio is also read at every plan's branch doses, from the
+    same fitted density or classifier, and filed there by plan, node and
+    ``(source plan, branch)``.  A mixed node has none.
     """
     if data.node_kind(time) == "mixed":
         _mixed_node_ratios(
@@ -2196,6 +2219,44 @@ def _continuous_node_ratios(
             n_jobs=n_jobs,
             fit_mask=fit_at,
         )
+    if shifted is not None:
+        # variance="policy_weighted": the same ratios, and each plan's ratio at every plan's
+        # branch doses.  The default runs the shipped loop below.
+        sources = [
+            ((source.label, branch), target)
+            for source in plans
+            for branch, target in enumerate(source.carry_targets(time) or ())
+        ]
+        for plan in plans:
+            targets = plan.carry_targets(time)
+            assert targets is not None
+            if density is not None:
+                numerator = _density_numerator(plan, time, dose, frame, density)
+                moved = [
+                    _density_numerator(plan, time, target, frame, density) for _, target in sources
+                ]
+            else:
+                numerator, *moved = _classifier_numerators(
+                    plan,
+                    time,
+                    targets,
+                    [target for _, target in sources],
+                    treatment_learner=treatment_learner,
+                    history=history,
+                    dose=dose,
+                    weights=data.weights,
+                    folds=folds,
+                    fit_at=fit_at,
+                    groups=data.cluster,
+                    n_jobs=n_jobs,
+                    atoms=atoms,
+                )
+            numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
+            shifted[plan.label][time] = {
+                key: np.where(at_risk, value, 0.0)
+                for (key, _), value in zip(sources, moved, strict=True)
+            }
+        return density
     for plan in plans:
         targets = plan.carry_targets(time)
         assert targets is not None
@@ -2312,6 +2373,66 @@ def _classifier_numerator(
         assigned_by_fold=by_fold,
     )
     return numerator
+
+
+def _classifier_numerators(
+    plan: Plan,
+    time: int,
+    targets: tuple[FloatArray, ...],
+    extra: Sequence[FloatArray],
+    *,
+    treatment_learner: Learner,
+    history: FloatArray,
+    dose: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    fit_at: BoolArray,
+    groups: Any,
+    n_jobs: int,
+    atoms: Sequence[float],
+) -> list[FloatArray]:
+    """:func:`_classifier_numerator`, and the same classifier's ratio at each dose of ``extra``.
+
+    Only ``variance="policy_weighted"`` calls it.  The plan's branches are assigned as in
+    :func:`_classifier_numerator`, which keeps its own body so the default fit runs the
+    shipped code.
+
+    Returns the ratio at the observed doses, then the ratio at each dose of ``extra``.
+    """
+    if plan.fold_plans and not folds.is_single:
+        branches = _node_branches(plan.fold_plans[0], time)
+        by_fold = []
+        for fold_plan in plan.fold_plans:
+            own = fold_plan.carry_targets(time)
+            assert own is not None
+            by_fold.append(
+                tuple(
+                    (probability, target)
+                    for (probability, _), target in zip(branches, own, strict=True)
+                )
+            )
+        assigned: tuple[tuple[float, FloatArray], ...] = by_fold[0]
+    else:
+        branches = _node_branches(plan, time)
+        by_fold = None
+        assigned = tuple(
+            (probability, target)
+            for (probability, _), target in zip(branches, targets, strict=True)
+        )
+    return classifier_ratio(
+        treatment_learner,
+        history,
+        dose,
+        assigned,
+        weights,
+        folds,
+        evaluate_at=[dose, *extra],
+        fit_mask=fit_at,
+        groups=groups,
+        n_jobs=n_jobs,
+        atoms=atoms,
+        assigned_by_fold=by_fold,
+    )
 
 
 def _mixed_node_ratios(
