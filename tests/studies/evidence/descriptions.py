@@ -8467,11 +8467,11 @@ _SSW_CELLS = {
     ),
     "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, n = 2,000",
     "lognormal06_ey1": (
-        "a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, "
+        "a continuous outcome with a lognormal error of skewness 2.3, treated mean in V = 2, "
         "n = 2,000"
     ),
     "lognormal_ey1": (
-        "a continuous outcome with a lognormal error of skewness 6.2, treated mean in V = 2, "
+        "a continuous outcome with a lognormal error of skewness 11.2, treated mean in V = 2, "
         "n = 2,000"
     ),
     "leverage_crossfit_ey1": (
@@ -8718,13 +8718,13 @@ _AW_CELLS = {
     "cell-mean outcome model, treated mean in V = 2, n = 2,000",
     "ho_hurdle_ate": "study 1's held-out law H2, effect in V = 2, n = 2,000",
     "ho_hurdle_ey0": "study 1's held-out law H2, untreated mean in V = 2, n = 2,000",
-    "lognormal06_ey1": "a continuous outcome with a lognormal error of skewness 2.0, treated mean "
+    "lognormal06_ey1": "a continuous outcome with a lognormal error of skewness 2.3, treated mean "
     "in V = 2, n = 2,000",
     "student_ey1": "a continuous outcome with a Student t error on 3 df, treated mean in V = 2, "
     "n = 2,000",
     "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, "
     "n = 2,000",
-    "lognormal_ey1": "a continuous outcome with a lognormal error of skewness 6.2 (the stated "
+    "lognormal_ey1": "a continuous outcome with a lognormal error of skewness 11.2 (the stated "
     "limit), treated mean in V = 2, n = 2,000",
     "boundary_2000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
     "n = 2,000",

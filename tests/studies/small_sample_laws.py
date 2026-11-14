@@ -9,8 +9,8 @@ law             definition, ``n`` rows
 ==============  =========================================================================
 ``lognormal``   ``V`` in {0, 1, 2} with ``P(V) = (0.6, 0.3, 0.1)``; ``W ~ N(0, 1)``;
                 ``A ~ Bernoulli(expit(-0.2 + 0.6 W - 0.3 V))``;
-                ``Y = 1 + A + 0.5 W + 0.3 V + exp(N(0, 1.2^2))`` (error skewness 6.2)
-``lognormal06`` as ``lognormal`` with ``exp(N(0, 0.6^2))`` (error skewness 2.0)
+                ``Y = 1 + A + 0.5 W + 0.3 V + exp(N(0, 1.2^2))`` (error skewness 11.2)
+``lognormal06`` as ``lognormal`` with ``exp(N(0, 0.6^2))`` (error skewness 2.3)
 ``student``     as ``lognormal`` with a Student t error on 3 df, scale 1, no skewness
 ``rare``        ``V`` in {0, 1, 2} with ``P(V) = (0.55, 0.30, 0.15)``; ``W ~ N(0, 1)``;
                 ``A ~ Bernoulli(expit(0.1 + 0.5 W - 0.2 V))``;
