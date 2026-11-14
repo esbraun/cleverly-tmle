@@ -495,6 +495,14 @@ SCREEN_REASONS: dict[str, str] = {
     "score-assessment": (
         "the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
     ),
+    "stratified-drtmle-foldwise": (
+        "its run (cleverly 9ace1a3) predates the logit interval of a bounded mean, so its rows "
+        "record the identity interval; under the logit interval the accepted red row "
+        "stratified_both_correct/ey[1][V=2] covers 0.9193 (99% lower end 0.9075) against the "
+        "floor 0.90, so its coverage verdict would pass. The row stays red and held by "
+        "X8-drtmle-small-stratum until that owner's re-read decides an audit file or a rerun. "
+        "stratified_contraction/marginal_ate reads a difference; asymmetric_audit reads it"
+    ),
     "targeting-curves": (
         "the flagged cells are band and type I rows of a targeting curve with truth 0, not "
         "package intervals of a mean"
