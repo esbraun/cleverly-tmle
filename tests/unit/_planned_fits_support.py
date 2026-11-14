@@ -389,3 +389,152 @@ def rare_class_frame(n: int = 240, rare: int = 7, seed: int = 0) -> Any:
     a[rng.choice(n, size=rare, replace=False)] = 1.0
     y = w[:, 0] + 0.5 * a + rng.normal(size=n)
     return pd.DataFrame({"W1": w[:, 0], "W2": w[:, 1], "A": a, "Y": y})
+
+
+# ------------------------------------------------------------------ the refusal replay
+
+
+class PreviewReturned(BaseException):
+    """Raised by a patched fit entry once the preview in its place returned a record.
+
+    A ``BaseException``, so that no ``except Exception`` on the way out of the package
+    wraps it, and the replay sees that the preview ran to its end and raised nothing.
+
+    Parameters
+    ----------
+    plan : PlannedFits
+        The preview's record.
+    """
+
+    def __init__(self, plan: PlannedFits) -> None:
+        super().__init__("the preview returned a record")
+        self.plan = plan
+
+
+def preview_entries() -> tuple[tuple[type, str, Callable[..., Any]], ...]:
+    """Each fit entry of the package, with the preview that stands in for it.
+
+    ``(owner, name, preview)``: calling ``owner.name(self, *args, **kwargs)`` under the
+    replay calls ``preview(self, *args, **kwargs)`` instead.  Every engine class whose own
+    ``fit`` the study dispatches to is listed with its ``_planned_fits``, which has the same
+    signature.  The inner entries are listed too: :meth:`TMLE._fit_single`, which
+    ``refit`` calls, and the container entries of the continuous-time engine.  ``refit``
+    itself is not listed, so a refit refusal raises as it does and its inner entry previews.
+    :meth:`cleverly.IdentifiedEffect.estimate` is listed with
+    :meth:`~cleverly.IdentifiedEffect.planned_fits`.
+    """
+    from cleverly.estimators.ep import EPEstimator
+    from cleverly.estimators.tmle import TMLE
+    from cleverly.longitudinal.estimator import IPSI, _SequentialEstimator
+    from cleverly.study import IdentifiedEffect
+    from cleverly.survival.engine import ContinuousSurvivalTMLE
+
+    def single(self: Any, data: Any, *, intermediate_value: Any = None, shared: Any = None) -> Any:
+        del shared
+        return self._planned_fit_single(data, intermediate_value=intermediate_value)
+
+    def container(self: Any, data: Any, *, folds: Any = None, retained: bool = False) -> Any:
+        del retained
+        return self._planned_fit_data(data, folds=folds)
+
+    return (
+        (TMLE, "fit", TMLE._planned_fits),
+        (TMLE, "_fit_single", single),
+        (EPEstimator, "fit", EPEstimator._planned_fits),
+        (_SequentialEstimator, "fit", _SequentialEstimator._planned_fits),
+        (IPSI, "fit", IPSI._planned_fits),
+        (ContinuousSurvivalTMLE, "fit", ContinuousSurvivalTMLE._planned_fits),
+        (ContinuousSurvivalTMLE, "fit_data", lambda self, data: self._planned_fit_data(data)),
+        (ContinuousSurvivalTMLE, "_fit_data", container),
+        (IdentifiedEffect, "estimate", IdentifiedEffect.planned_fits),
+    )
+
+
+@contextlib.contextmanager
+def previews_in_place_of_fits(reached: list[str]) -> Iterator[None]:
+    """Patch every entry of :func:`preview_entries`; each one reached is appended to ``reached``.
+
+    A patched entry runs its preview and raises :class:`PreviewReturned` with the record, so
+    the caller's ``build()`` stops there whatever it would do with a fitted result.
+    """
+
+    def stand_in(label: str, preview: Callable[..., Any]) -> Callable[..., Any]:
+        def entry(self: Any, *args: Any, **kwargs: Any) -> Any:
+            reached.append(label)
+            raise PreviewReturned(preview(self, *args, **kwargs))
+
+        return entry
+
+    saved = [(owner, name, owner.__dict__[name]) for owner, name, _ in preview_entries()]
+    try:
+        for owner, name, preview in preview_entries():
+            setattr(owner, name, stand_in(f"{owner.__name__}.{name}", preview))
+        yield
+    finally:
+        for owner, name, original in saved:
+            setattr(owner, name, original)
+
+
+def _record(error: BaseException) -> tuple[type, Any, str]:
+    """An exception's class, reason code and message."""
+    refusal = getattr(error, "refusal", None)
+    return type(error), getattr(refusal, "reason", None), str(error)
+
+
+def raised_in(error: BaseException) -> set[str]:
+    """The qualified names of the functions on ``error``'s traceback and its chained causes.
+
+    Qualified as :attr:`cleverly.PlannedFits.unpreviewed` names them, such as
+    ``"Piece.__post_init__"``.
+    """
+    import traceback
+
+    names: set[str] = set()
+    seen: BaseException | None = error
+    while seen is not None:
+        names.update(frame.f_code.co_qualname for frame, _ in traceback.walk_tb(seen.__traceback__))
+        seen = seen.__cause__ or seen.__context__
+    return names
+
+
+def assert_preview_parity(build: Callable[[], Any], original: BaseException) -> list[str]:
+    """Replay ``build()`` with every fit entry previewed, and compare with ``original``.
+
+    The replay either reaches a patched entry, and the preview raises ``original``'s class,
+    reason code and message, or refuses upstream of every entry (in ``identify`` or a
+    constructor) with the same record.  One exception: when ``original`` was raised inside a
+    check the preview defers (a name in the record's ``unpreviewed``), the preview raises
+    nothing.  Anything else raises ``AssertionError``.
+
+    Parameters
+    ----------
+    build : callable
+        The refused request.
+    original : BaseException
+        What ``build()`` raised.
+
+    Returns
+    -------
+    list of str
+        The entries the replay reached, empty for an upstream refusal.
+    """
+    reached: list[str] = []
+    with previews_in_place_of_fits(reached):
+        try:
+            build()
+        except PreviewReturned as returned:
+            deferred = set(returned.plan.unpreviewed)
+            assert deferred & raised_in(original), (
+                f"the preview at {reached[0]} raised nothing, and estimate raised {original!r} "
+                f"outside the deferred checks {sorted(deferred)}"
+            )
+            return reached
+        except Exception as replayed:
+            where = (
+                f"the preview at {reached[0]}" if reached else "the replay, with no entry reached,"
+            )
+            assert _record(replayed) == _record(original), (
+                f"{where} raised {_record(replayed)}; the fit raised {_record(original)}"
+            )
+            return reached
+    raise AssertionError(f"the replay raised nothing; the fit raised {original!r}")
