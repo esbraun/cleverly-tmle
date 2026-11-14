@@ -164,6 +164,8 @@ def interval_label(level: float) -> str:
 SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "std_err": "std. error",
+        # A repeated projection fit's standard error without the spread between splits.
+        "se_without_displacement": "std. error without split spread",
         "plugin_std_err": "plug-in SE (diagnostic)",
         "ci_lower": "CI lower",
         "ci_upper": "CI upper",

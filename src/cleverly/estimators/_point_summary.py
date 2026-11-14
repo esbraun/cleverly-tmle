@@ -1117,7 +1117,11 @@ def point_summary(result: TMLEResult, facts: SummaryFacts, detail: Detail) -> Su
     level = f"{level_value * 100:g}%"
     clipping = _clipping(result)
     header, split = _header(result, facts, clipping)
-    table, notes = estimates_table(result.estimates, level=level_value)
+    table, notes = estimates_table(
+        result.estimates,
+        level=level_value,
+        without_split_spread=getattr(result, "se_without_displacement", None),
+    )
     tables = [table]
     key = _key_table(result)
     if key is not None:

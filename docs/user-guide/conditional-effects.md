@@ -305,11 +305,13 @@ are labelled `experimental` until their validation study has run.
   a row like it was to have one. This is valid when whether the treatment was recorded depends
   only on the treatment and the covariates.
 - **Effects within groups.** `PointTreatment(strata=["S"])` reports, next to the overall
-  coefficients, each group's own coefficients, named like `cate_projection[W1][S=1]`. Each group
-  needs every basis column to vary inside it, or the fit stops and names the group.
+  coefficients, each group's own coefficients, named like `cate_projection[W1][S=1]`. Inside each
+  group no basis column may be redundant, such as a modifier that is constant there, or the fit
+  stops and names the group.
 - **Repeating the split.** `repeats=3` refits on three random splits of the rows and reports the
-  median coefficient. Its standard error adds how much the coefficient moves between splits, and
-  `se_without_displacement` gives it without that addition for comparison.
+  median coefficient. Its standard error adds how much the coefficient moves between splits. The
+  summary prints the standard error without that addition in the next column, for comparison
+  (`result.se_without_displacement`).
 - **The bootstrap.** `n_bootstrap=200` refits the whole analysis on 200 resamples of the rows
   and reports an interval from the spread of the refitted coefficients.
 

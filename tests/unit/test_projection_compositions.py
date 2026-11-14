@@ -361,8 +361,8 @@ class TestMT2ToMT6TheWitnessesHaveTeeth:
         assert gap > 1e-3
 
 
-def composite_study(**design: Any) -> CausalStudy:
-    frame = COMPOSITE.frame()
+def composite_study(frame: pd.DataFrame | None = None, **design: Any) -> CausalStudy:
+    frame = COMPOSITE.frame() if frame is None else frame
     return CausalStudy(
         frame,
         design=PointTreatment(
@@ -420,6 +420,51 @@ class TestMT7RefusalsBeforeAnyLearner:
         with pytest.raises(CapabilityError, match="its composite form is not built") as caught:
             effect.assess_score(
                 "score", computed_from=["W"], score_kind="external", cross_fit=False, **never()
+            )
+        assert caught.value.refusal.roadmap == "X98"
+        assert NeverFit.calls == 0
+
+    def test_declared_mechanism(self) -> None:
+        frame = COMPOSITE.frame().assign(p1=0.5, p0=0.5)
+        study = composite_study(frame, treatment_probabilities={1: "p1", 0: "p0"})
+        NeverFit.calls = 0
+        with pytest.raises(CapabilityError, match="treatment_probabilities= and treatment_delta="):
+            study.identify(CONTRAST).estimate(cross_fit=False, **never())
+        assert NeverFit.calls == 0
+
+    def test_randomized(self) -> None:
+        # ``randomized=True`` is a DR-TMLE construction; that method has no projection target,
+        # and its refusal comes before any learner. ``PointTreatment(randomized=True)`` only
+        # declares an intentional empty adjustment set and selects no construction.
+        from cleverly import DRTMLEMethod
+
+        effect = composite_study().identify(CONTRAST)
+        with pytest.raises(CapabilityError, match="drtmle has no projection target") as caught:
+            effect.estimate(method=DRTMLEMethod(randomized=True), cross_fit=False, **never())
+        assert NeverFit.calls == 0
+        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+
+    def test_intermediate(self) -> None:
+        frame = COMPOSITE.frame()
+        study = composite_study(frame.assign(Z=frame["W"] % 2), intermediate="Z")
+        NeverFit.calls = 0
+        with pytest.raises(CapabilityError, match="does not yet compose with an intermediate"):
+            study.identify(CONTRAST).estimate(cross_fit=False, **never())
+        assert NeverFit.calls == 0
+
+    def test_assess_score_with_strata(self) -> None:
+        frame = binary_frame(400, 3).assign(score=lambda f: 0.1 * f["W1"])
+        frame["S"] = (frame["W2"] > 0).astype(float)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y", treatment="A", adjustment=("W1", "W2", "S"), strata=("S",)
+            ),
+        )
+        effect = study.identify(ConditionalContrast(Modifiers(["W1"])))
+        with pytest.raises(CapabilityError, match="one block per baseline stratum") as caught:
+            effect.assess_score(
+                "score", computed_from=["W1"], score_kind="external", cross_fit=False, **never()
             )
         assert caught.value.refusal.roadmap == "X98"
         assert NeverFit.calls == 0
@@ -923,18 +968,86 @@ class TestRepeatedSplits:
         assert curve.band.critical_value == pytest.approx(float(np.median(critical)), rel=1e-12)
         assert curve.status == "experimental"
 
+    @staticmethod
+    def _assert_every_inference_refuses(fit: Any, keys: list[str]) -> None:
+        """One ``raises`` per call, each naming its own operation, the points kept."""
+        with pytest.raises(CapabilityError, match=r"covariance\(\) is not defined here"):
+            fit.covariance(keys)
+        with pytest.raises(CapabilityError, match=r"covariance\(\) is not defined here"):
+            fit.covariance([keys[1]])
+        with pytest.raises(CapabilityError, match=r"heterogeneity_test\(\) is not defined here"):
+            fit.heterogeneity_test()
+        curve = fit.effect_curve()
+        assert np.isfinite(curve.predict({"W1": [0.0]})).all()
+        with pytest.raises(CapabilityError, match="the curve's standard error is not defined"):
+            curve.predict({"W1": [0.0]}, interval=True)
+        with pytest.raises(CapabilityError, match="the curve's band is not defined"):
+            fit.effect_curve({"W1": [-0.5, 0.5]}, n_replicates=50, random_state=0)
+
     def test_rp7_a_draw_that_withholds_withholds_the_report(self, repeated: Any) -> None:
         from dataclasses import replace
 
+        from cleverly._inference_status import STACK_FAILURE_STATUS
+
         keys = w1_names("difference")
+        # The reported coefficients supply inference; only draw 1's slope withholds it.
         withheld = dict(repeated.repeats[1].projection)
-        withheld[keys[1]] = replace(withheld[keys[1]], inference="no_inference")
+        withheld[keys[1]] = replace(withheld[keys[1]], inference=STACK_FAILURE_STATUS)
         repeats = list(repeated.repeats)
         repeats[1] = replace(repeats[1], projection=withheld)
         mutated = replace(repeated, repeats=tuple(repeats))
-        with pytest.raises(Exception, match=r"inference|interval"):
-            mutated.covariance(keys).sum()
-            mutated.effect_curve().predict({"W1": [0.0]}, interval=True)
+        assert all(mutated.estimates[key].inference == "influence_curve" for key in keys)
+        self._assert_every_inference_refuses(mutated, keys)
+        # The unmutated fit answers every call.
+        assert np.isfinite(repeated.covariance(keys)).all()
+        assert np.isfinite(repeated.heterogeneity_test().p_value)
+
+    def test_rp7_the_median_report_carries_a_draws_status(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dataclasses import replace
+
+        from cleverly._inference_status import CONSTANT_ARM_CELL_STATUS
+
+        keys = w1_names("difference")
+        original = tmle_module.TMLE._targeted_draw
+        calls: list[int] = []
+
+        def one_draw_withholds(self: Any, *args: Any, **kwargs: Any) -> Any:
+            estimates, *rest = original(self, *args, **kwargs)
+            calls.append(1)
+            if len(calls) == 2:
+                estimates = dict(estimates)
+                estimates[keys[1]] = replace(
+                    estimates[keys[1]], inference=CONSTANT_ARM_CELL_STATUS, reference_df=None
+                )
+            return (estimates, *rest)
+
+        monkeypatch.setattr(tmle_module.TMLE, "_targeted_draw", one_draw_withholds)
+        fit = fit_repeated()
+        assert len(calls) == 3
+        assert fit.estimates[keys[1]].inference == CONSTANT_ARM_CELL_STATUS
+        assert fit.repeats[1].projection[keys[1]].inference == CONSTANT_ARM_CELL_STATUS
+        self._assert_every_inference_refuses(fit, keys)
+
+    def test_rp10_the_summary_prints_the_se_without_displacement(self, repeated: Any) -> None:
+        from cleverly._summary import vocabulary
+
+        label = vocabulary.SPREAD_LABELS["se_without_displacement"]
+        table = repeated.summary().table("estimates")
+        assert table.columns.index(label) == table.columns.index("std. error") + 1
+        without = repeated.se_without_displacement
+        assert set(without) == set(repeated.estimates)
+        frame = repeated.to_frame().set_index("estimand")
+        for row in table.rows:
+            name = row[0].value
+            assert row[table.columns.index(label)].value == without[name]
+            assert frame.loc[name, "se_without_displacement"] == without[name]
+        assert label in str(repeated.summary())
+        # One split prints no such column.
+        single = fit_repeated(repeats=1)
+        assert label not in single.summary().table("estimates").columns
+        assert "se_without_displacement" not in single.to_frame().columns
 
     def test_rp8_the_curve_round_trips(self, repeated: Any, tmp_path: Any) -> None:
         from cleverly import load
@@ -1097,6 +1210,20 @@ class TestTheBootstrap:
             return next(supplied), None
 
         monkeypatch.setattr(bootstrap_module, "_bootstrap_draw", draw)
+        # The fit's own call of the rank rule, recorded: the replicate must be dropped by
+        # the rule on its rows, not by a later singular solve that ``_run_draws`` also
+        # catches (implementation review B1).
+        checked = tmle_module.check_stratified_projection_rank
+        raised: list[tuple[str, int]] = []
+
+        def spy(contrast: Any, data: Any) -> None:
+            try:
+                checked(contrast, data)
+            except DataError as error:
+                raised.append((str(error), data.n))
+                raise
+
+        monkeypatch.setattr(tmle_module, "check_stratified_projection_rank", spy)
         estimator = TMLE(
             outcome_learner=LogisticRegression(max_iter=2000),
             treatment_learner=LogisticRegression(max_iter=2000),
@@ -1114,12 +1241,7 @@ class TestTheBootstrap:
                 frame, outcome="Y", treatment="A", covariates=["W1", "W2", "S", "L"], strata=["S"]
             ).single()
         assert fit.bootstrap.n_failed == 1
-        # The rule itself, on that replicate's rows.
-        replicate = fit.data.subset(np.resize(singular, rows.size))
-        from cleverly.effect_modification import EffectModificationSet
-        from cleverly.estimators._strata import check_stratified_projection_rank
-
-        with pytest.raises(DataError, match=r"inside baseline stratum S=1\.0"):
-            check_stratified_projection_rank(
-                EffectModificationSet.evaluate(estimator.effect_modification, replicate), replicate
-            )
+        assert len(raised) == 1
+        message, n = raised[0]
+        assert "inside baseline stratum S=1.0" in message
+        assert n == rows.size

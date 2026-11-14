@@ -592,7 +592,8 @@ CROSS_FITTED_BOOTSTRAP_REASON = (
     "The bootstrap redraws the cross-fitting split, and a resample can put copies of one row "
     "in a training fold and its validation fold. No read source gives the bootstrap law of a "
     "cross-fitted estimator (roadmap F2); the registered full-refit bootstrap study measured "
-    "the cross-fitted ATE's percentile interval with SE ratios of 1.17 to 1.33."
+    "the cross-fitted longitudinal arm mean and contrast, with SE-ratio intervals from 1.17 "
+    "to 1.33."
 )
 
 #: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal

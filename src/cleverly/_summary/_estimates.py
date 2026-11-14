@@ -140,6 +140,7 @@ def estimates_table(
     estimates: Mapping[str, Any],
     *,
     level: float,
+    without_split_spread: Mapping[str, float] | None = None,
 ) -> tuple[SummaryTable, list[Note]]:
     """The estimates table of a result and the notes its rows need.
 
@@ -149,6 +150,11 @@ def estimates_table(
         The rows, in report order.
     level : float
         The confidence level of the intervals, such as ``0.95``.
+    without_split_spread : mapping of str to float or None, default=None
+        On a repeated projection fit, each coefficient's standard error without the spread
+        between splits (``TMLEResult.se_without_displacement``), printed in a column after
+        the standard error.  Rows it does not name, and rows that supply no inference,
+        print the missing mark there.
 
     Returns
     -------
@@ -190,6 +196,9 @@ def estimates_table(
             vocabulary.P_VALUE,
             *([vocabulary.DF] if t_reference else []),
         ]
+        extra = dict(without_split_spread or {})
+        if extra:
+            columns.insert(3, vocabulary.SPREAD_LABELS["se_without_displacement"])
         for name, estimate in items:
             if not inferential[name]:
                 missing = Cell(None, vocabulary.MISSING)
@@ -198,6 +207,7 @@ def estimates_table(
                         Cell(name, name + vocabulary.NO_INFERENCE_MARK),
                         num(estimate.psi),
                         missing,
+                        *([missing] if extra else []),
                         missing,
                         missing,
                         *([missing] if t_reference else []),
@@ -210,6 +220,11 @@ def estimates_table(
                     Cell(name, name),
                     num(estimate.psi),
                     num(estimate.std_error),
+                    *(
+                        [num(extra[name]) if name in extra else Cell(None, vocabulary.MISSING)]
+                        if extra
+                        else []
+                    ),
                     Cell(
                         (float(low), float(high)),
                         f"[{number_text(low, decimals)}, {number_text(high, decimals)}]",

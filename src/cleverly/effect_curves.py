@@ -32,7 +32,7 @@ from ._support import Support
 from ._typing import FloatArray, IntArray
 from .bases import Modifiers
 from .estimators.targeting import _STALL_FACTOR, _UNSOLVED, DEFAULT_MAX_OUTER
-from .exceptions import CapabilityError, DataError, RefusalReason
+from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
 from .fluctuation._score import StopContext, rule_ratio_at
 from .inference.cluster import cluster_inference_status, cluster_reference_df
 from .inference.delta import reference_quantile
@@ -329,6 +329,10 @@ class ProjectionCurve:
         draws' critical values (P1 plan 2.3).  ``beta``, ``covariance`` and ``influence``
         then hold the reported median coefficients, their matrix-rule covariance and the
         central draw's curves.
+    inference : str
+        The inference status of the coefficients: a status that withholds inference in the
+        reported coefficients or in any draw.  :meth:`std_error` and :meth:`band` refuse
+        under a status that supplies no inference, and the curve's points stay available.
     """
 
     basis: Any
@@ -342,6 +346,7 @@ class ProjectionCurve:
     reference_df: int | None = None
     rule_widened: bool = False
     draws: tuple[ProjectionDraw, ...] = ()
+    inference: str = "influence_curve"
 
     @property
     def repeated(self) -> bool:
@@ -441,7 +446,13 @@ class ProjectionCurve:
         -------
         ndarray
             One standard error per row.
+
+        Raises
+        ------
+        CapabilityError
+            If :attr:`inference` supplies no inference.
         """
+        refuse_inference(self.inference, operation="the curve's standard error")
         phi = self.design(frame)
         if self.repeated:
             return np.sqrt(self._median_rule(phi)[1])
@@ -475,7 +486,13 @@ class ProjectionCurve:
         -------
         CurveBand
             The curve and its band at each grid point.
+
+        Raises
+        ------
+        CapabilityError
+            If :attr:`inference` supplies no inference.
         """
+        refuse_inference(self.inference, operation="the curve's band")
         phi = self.design(grid)
         estimate = self.at_design(phi)
         se = self.std_error(grid)

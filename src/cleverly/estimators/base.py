@@ -18,6 +18,7 @@ import numpy as np
 from .._inference_status import (
     InferenceStatus,
     is_labelled,
+    supplies_inference,
 )
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
@@ -867,7 +868,11 @@ class TMLEResult:
         if self._median_draws > 1 and draws:
             chosen = select_estimates(self.estimates, names)
             if all(name in draws[0] for name in chosen):
-                # The matrix rule over each draw's coefficient covariance (P1 plan 2.3).
+                # The matrix rule over each draw's coefficient covariance (P1 plan 2.3). A
+                # draw that withholds inference withholds the matrix too.
+                withheld = self._withheld_projection_status(chosen)
+                if withheld is not None:
+                    refuse_inference(withheld, operation="covariance()")
                 return median_covariance(draws, chosen, cluster=self.data.cluster)
         refuse_after_repeats(
             self._median_draws,
@@ -881,6 +886,22 @@ class TMLEResult:
             alternative="Fit one split or inspect each entry in result.repeats.",
         )
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
+
+    def _withheld_projection_status(self, names: Sequence[str]) -> str | None:
+        """The first status among ``names`` that supplies no inference, or ``None``.
+
+        It reads the reported estimates and, on a repeated projection fit, each name's
+        precedent status over the draws (:func:`with_precedent_status`), so a coefficient
+        that withholds inference in one draw withholds the matrix, the test and the curve's
+        intervals of the median report.
+        """
+        draws = self._projection_draws()
+        stamped = with_precedent_status(draws)[0] if self._median_draws > 1 and draws else {}
+        for name in names:
+            for estimate in (self.estimates.get(name), stamped.get(name)):
+                if estimate is not None and not supplies_inference(estimate.inference):
+                    return str(estimate.inference)
+        return None
 
     def _projection_draws(self) -> tuple[Mapping[str, ParameterEstimate], ...]:
         """Each draw's projection estimates, or ``()`` on a fit that is not a projection."""
@@ -1343,6 +1364,8 @@ class TMLEResult:
         ``std_err`` and ``inference`` is present in any frame, so a consumer that has to
         tell the two apart has a total test.  A fit that divided by a declared known
         treatment mechanism adds a ``treatment_mechanism`` column that reads ``"known"``.
+        A projection fit with ``repeats`` above 1 adds ``se_without_displacement``
+        (:attr:`se_without_displacement`).
 
         Returns
         -------
@@ -1366,6 +1389,10 @@ class TMLEResult:
             payload["simultaneous_upper"] = [
                 bands.get(name, (None, None))[1] for name in self.estimates
             ]
+        without = self.se_without_displacement
+        if without:
+            # Only on a repeated projection fit, which also prints it in the summary.
+            payload["se_without_displacement"] = [without.get(name) for name in self.estimates]
         if self.intermediate_value is not None:
             payload["intermediate"] = [self.intermediate_value] * len(rows)
         if self.config.treatment_mechanism == "known":
@@ -1574,8 +1601,9 @@ class TMLEResult:
         from ..effect_curves import heterogeneity_test
 
         contrast, names = self._projection_names(stratum)
-        for name in names:
-            refuse_inference(self.estimates[name].inference, operation="heterogeneity_test()")
+        withheld = self._withheld_projection_status(names)
+        if withheld is not None:
+            refuse_inference(withheld, operation="heterogeneity_test()")
         tested = [names[j] for j in range(len(names)) if j not in contrast.intercept_columns]
         return heterogeneity_test(
             self.estimates,
@@ -1660,7 +1688,11 @@ class TMLEResult:
             scale=contrast.scale,
             terms=tuple(contrast.terms),
             beta=beta,
-            covariance=np.asarray(self.covariance(list(names))),
+            covariance=(
+                median_covariance(self._projection_draws(), list(names), cluster=self.data.cluster)
+                if draws
+                else estimate_covariance(self.estimates, list(names), cluster=self.data.cluster)
+            ),
             influence=np.column_stack(
                 [np.asarray(self.estimates[name].influence_curve) for name in names]
             ),
@@ -1668,6 +1700,7 @@ class TMLEResult:
             reference_df=minimum_reference_df([self.estimates[name] for name in names]),
             rule_widened=any(self.estimates[name].rule_widened for name in names),
             draws=draws,
+            inference=self._withheld_projection_status(names) or "influence_curve",
         )
         band = (
             None

@@ -482,8 +482,8 @@ stratum's coefficients `cate_projection[term][S=s]`: the projection $\beta_s = M
 P_0[\phi(V)\tau(W) \mid S = s]$ under the law of $V$ within the stratum. The marginal and stratum
 coefficients are related by $\beta = M^{-1} \sum_s p_s M_s \beta_s$. Each stratum's clever
 covariate is the block $1\{S = s\} H_s / P_n(S = s)$, and its influence curve is the stratum's own
-curve scaled by $n / n_s$. Every stratum fits its own nuisances, and a stratum whose working-model
-Gram matrix is singular (a modifier constant within it, or an `Indicators` level absent from it)
+curve scaled by $n / n_s$. The nuisances are fitted once on every row; each stratum gets its own
+score block. A stratum whose working-model Gram matrix is singular (a modifier constant within it, or an `Indicators` level absent from it)
 refuses before any learner, and again inside each bootstrap replicate.
 
 On the difference scale the stratified fluctuation solves the marginal score too, since the
@@ -513,23 +513,28 @@ $\operatorname{median}_r \sigma_{j,r}$, the rule with $d_r = 0$, published besid
 | `covariance(names)` | the matrix rule over projection names; other names keep the repeated point-fit refusal |
 | `heterogeneity_test()` | $\tilde\beta' \tilde\Sigma^{-1} \tilde\beta$ over the tested coefficients, with $\tilde\Sigma$ the matrix rule |
 | `effect_curve().predict(v, interval=True)` | the median over repeats of $\phi(v)'\beta_r$, with the median rule's variance |
-| the simultaneous band | the median over repeats of the per-repeat bands (`median_bands`); it reads experimental |
+| the simultaneous band | the median over repeats of each repeat's critical value, around the median-rule curve and standard error (the construction of `median_bands`); it reads experimental |
 
-A repeat that withholds inference withholds it in the report and in `covariance()`.
+A repeat that withholds inference in one coefficient withholds it in the report: `covariance()`,
+`heterogeneity_test()`, the curve's standard error and its band refuse with that repeat's status,
+and the points stay available.
 
 ## Bootstrap
 
 `n_bootstrap=` refits the whole estimator, nuisances included, on each resample of the units
 (clusters when declared) and publishes the percentile interval of each projection coefficient.
-For an in-sample fit with a fixed basis the coefficients are a finite-dimensional Z-estimator of
-the targeted fit; the package's own reasoning, not a read source, is that the full-refit bootstrap
-then has the Wald interval's limit under the conditions of the in-sample fit (roadmap
-[X55](../roadmap.md#x55-bootstrap-extensions) (a) names Tang and Westling (2024), Theorem 3.4, as the base of the case with
-finite-dimensional nuisances).
 A cross-fitted fit's bootstrap reads experimental with the reason of
 [F2](../roadmap.md#f2-targeted-bootstrap-inference). A replicate that raises, for example one
 whose resample leaves a stratum's Gram matrix singular, is dropped and counted.
 `heterogeneity_test()` and `effect_curve()` read the influence curves, not the replicates.
+
+With parametric nuisances, an in-sample fit with a fixed basis solves a finite set of smooth
+estimating equations: the nuisance models' score equations and the projection's targeted score. The
+coefficients and nuisance parameters together are then a finite-dimensional Z-estimator, and the
+nonparametric bootstrap of such an estimator has the Wald interval's limit. That is the package's
+own step, not a read source. With data-adaptive nuisances the in-sample bootstrap's limit is not
+shown, as for every in-sample point bootstrap (roadmap
+[X55](../roadmap.md#x55-bootstrap-extensions)).
 
 ## Assessing a curve
 
@@ -572,7 +577,7 @@ each reading against its formula.
 | a missing treatment with cross-fitting | the fold-local product of the three factors of $g_{c,a}$ is not built | `implementation_gap`, roadmap X53 |
 | `strata=` with a stratum whose working-model Gram matrix is singular | the stratum's coefficients are not identified | `DataError` |
 | `method="ep"` with a missing treatment | the EP learner cross-fits its nuisances, and the cross-fitted composite is not built | `implementation_gap`, roadmap X53 |
-| `method="ep"` with `strata=` | the EP curve has no stratified form; fit one curve per stratum, or declare the stratum a modifier | `api_redirection` |
+| `method="ep"` with `strata=` | a baseline stratum is one more modifier; declare the stratum column as a modifier, with an `Indicators` basis of it in the sieve | `api_redirection` |
 | `assess_score` with a missing treatment or `strata=` | the score assessment fits one pooled fluctuation over the ATE fit's mechanism, and its composite and stratified forms are not built | `implementation_gap`, roadmap X98 |
 | a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
