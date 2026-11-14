@@ -1087,7 +1087,7 @@ class TMLE:
         How the ATT and the ATC are summarized after targeting.  ``"arm_mean"`` (default)
         averages the targeted contrast over the units observed in the conditioning arm.
         ``"known_score"`` weights every unit's targeted contrast by the declared probability
-        of the conditioning arm, :math:`P_n\\{g_0(c\\mid W)\tau^*\\}/P_n g_0(c\\mid W)`.  It needs
+        of the conditioning arm, :math:`P_n\\{g_0(c\\mid W)\\tau^*\\}/P_n g_0(c\\mid W)`.  It needs
         a declared treatment mechanism (``treatment_probabilities=``): it is the TMLE of the
         model in which that mechanism is known, and at a consistent outcome regression its
         variance is the smaller known-score bound.  The targeting step is the same.  Refused

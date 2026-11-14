@@ -289,6 +289,22 @@ class _TiltTarget:
 def _tilt_targets(result: Any) -> dict[str, _TiltTarget]:
     """Every reported parameter the tilt can re-mix, by name.
 
+    On a fit with ``conditional_form="known_score"`` the ATT and ATC are left out: the tilt
+    re-mixes them over the conditioning arm, which is the arm-mean form, so it refuses them.
+    """
+    out = _reported_tilt_targets(result)
+    if known_score_fit(result):
+        out = {
+            name: target
+            for name, target in out.items()
+            if parameter_stem(name) not in ("att", "atc")
+        }
+    return out
+
+
+def _reported_tilt_targets(result: Any) -> dict[str, _TiltTarget]:
+    """Every reported parameter the tilt's algebra can re-mix, by name, whatever the form.
+
     Composed forward through :func:`~cleverly.targets.parameter_name` and
     :func:`~cleverly.targets.base.arm_alias` from the codes the fit carries, the rule
     :mod:`cleverly.sensitivity._parameters` follows.  A stratum alias is a different name,
@@ -374,6 +390,8 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
     """
     if _tilt_targets(result):
         return None
+    if known_score_fit(result) and _reported_tilt_targets(result):
+        return known_score_reader_refusal("the MNAR tilt")
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt re-mixes the arm means and their contrasts and ratios, the "
@@ -670,10 +688,6 @@ def _tilt_payload(
                 raise CapabilityError.from_refusal(conditional)
             if known_score_fit(result) and parameter_stem(name) in ("att", "atc"):
                 raise CapabilityError.from_refusal(known_score_reader_refusal("the MNAR tilt"))
-    if known_score_fit(result):
-        # The tilt re-mixes the ATT and ATC over the conditioning arm, which is the arm-mean
-        # form; the default sweep skips a known-score fit's ATT and ATC.
-        requested = tuple(n for n in requested if parameter_stem(n) not in ("att", "atc"))
     targets = tuple(tiltable[name] for name in requested if name in tiltable)
     if not targets:
         raise CapabilityError(

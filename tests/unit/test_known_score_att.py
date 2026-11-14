@@ -478,7 +478,7 @@ class TestPlumbing:
 # ----------------------------------------------------------------------------- readers
 
 
-def _mar_known_fit() -> Any:
+def _mar_known_fit(estimands: Any = ("ate", "att"), form: str = KNOWN) -> Any:
     dgp = mar.DiscreteLaw()
     frame = mar.frame()
     return (
@@ -487,10 +487,10 @@ def _mar_known_fit() -> Any:
             treatment_learner=OracleTreatment(dgp),
             missingness_learner=OracleMissingness(dgp),
             cross_fit=False,
-            estimands=("ate", "att"),
+            estimands=estimands,
             simultaneous=False,
             random_state=0,
-            conditional_form=KNOWN,
+            conditional_form=form,
         )
         .fit(
             frame,
@@ -517,6 +517,25 @@ class TestReaders:
         frame = missingness_tilt(result, [0.0, 0.5]).to_frame()
         assert set(frame["estimand"]) == {"ate"}
 
+    def test_the_tilt_lists_no_att_and_refuses_an_att_only_fit_by_name(self) -> None:
+        from cleverly.sensitivity import missingness_tilt
+        from cleverly.sensitivity.missingness import (
+            _tilt_target_names,
+            fit_wide_tilt_refusal,
+        )
+
+        # The eligible set (the default tipping_gamma estimand reads it) drops the ATT.
+        assert _tilt_target_names(_mar_known_fit()) == ("ate",)
+        att_only = _mar_known_fit(estimands=("att",))
+        refusal = fit_wide_tilt_refusal(att_only)
+        assert refusal is not None and refusal.reason == RefusalReason.INFERENCE_GAP
+        assert 'conditional_form="known_score"' in str(CapabilityError.from_refusal(refusal))
+        with pytest.raises(CapabilityError, match="the MNAR tilt recomputes the ATT"):
+            missingness_tilt(att_only, [0.0, 0.5])
+        # The control: the arm-mean form tilts the same ATT.
+        arm = missingness_tilt(_mar_known_fit(estimands=("att",), form="arm_mean"), [0.0, 0.5])
+        assert set(arm.to_frame()["estimand"]) == {"att"}
+
     def test_the_omitted_variable_bound_refuses_the_att(self) -> None:
         from cleverly.sensitivity import omitted_variable_bounds
 
@@ -539,12 +558,95 @@ class TestReaders:
             result, estimand="att", tests=("placebo", "subset"), n_replicates=2, random_state=1
         )
         assert {test.name for test in report.tests} == {"placebo", "subset"}
+        # The witness: the subset refits of the arm-mean fit, on the same subsets, differ.
+        arm = refute(
+            _sampled_fit(_sampled_frame(), "arm_mean", ("att",)),
+            estimand="att",
+            tests=("subset",),
+            n_replicates=2,
+            random_state=1,
+        )
+        known_subset = next(t for t in report.tests if t.name == "subset")
+        arm_subset = arm.tests[0]
+        assert abs(known_subset.statistic - arm_subset.statistic) > 1e-6
+
+    def test_the_generated_outcomes_ask_for_the_score_weighted_truth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import importlib
+
+        refute_module = importlib.import_module("cleverly.validation.refute")
+
+        seen: list[bool] = []
+        real = refute_module.held_weights
+
+        def spy(target: Any, data: Any, *, known_score: bool = False) -> Any:
+            seen.append(known_score)
+            return real(target, data, known_score=known_score)
+
+        from cleverly import ATT, CausalStudy, PointTreatment, TMLEMethod
+
+        monkeypatch.setattr(refute_module, "held_weights", spy)
+        design = PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1",),
+            treatment_probabilities={0.0: "p0", 1.0: "p1"},
+        )
+        frame = _sampled_frame()
+        # A continuous outcome, which the default Gaussian process replaces.
+        noise = np.random.default_rng(5).normal(size=len(frame))
+        frame["Y"] = frame["W1"] + frame["A"] * (0.5 + frame["W1"]) + noise
+        effect = CausalStudy(frame, design=design).identify(ATT())
+        for form in (KNOWN, "arm_mean"):
+            method = TMLEMethod().with_overrides(
+                outcome_learner=LinearRegression(),
+                treatment_learner=NeverFit(),
+                cross_fit=False,
+                random_state=0,
+                conditional_form=form,
+            )
+            result = effect.estimate(method)
+            refute_module.refute(
+                result, estimand="att", tests=("dummy_outcome",), n_replicates=10, random_state=1
+            )
+        assert seen and set(seen[: len(seen) // 2]) == {True}
+        assert set(seen[len(seen) // 2 :]) == {False}
+
+    def test_variable_importance_fits_candidates_with_the_arm_mean_form(self) -> None:
+        from cleverly.variable_importance import variable_importance
+
+        frame = _sampled_frame()
+        frame["B"] = (frame["W1"] > 0).astype(float)
+        template = TMLE(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            estimands=("att",),
+            simultaneous=False,
+            random_state=0,
+            conditional_form=KNOWN,
+        )
+        result = variable_importance(
+            frame,
+            outcome="Y",
+            candidates=["A", "B"],
+            covariates=["W1"],
+            estimand="att",
+            estimator=template,
+        )
+        assert len(result.to_frame()) == 2
 
     def test_the_bootstrap_carries_the_form(self) -> None:
         frame = _sampled_frame()
         result = _sampled_fit(frame, KNOWN, ("att",), n_bootstrap=20)
         assert result.bootstrap is not None
-        assert np.all(np.isfinite(result.bootstrap.draws["att"]))
+        draws = np.asarray(result.bootstrap.draws["att"], dtype=float)
+        assert np.all(np.isfinite(draws))
+        # The witness: the same resamples under the arm-mean form give other draws.
+        arm = _sampled_fit(frame, "arm_mean", ("att",), n_bootstrap=20)
+        other = np.asarray(arm.bootstrap.draws["att"], dtype=float)
+        assert np.max(np.abs(draws - other)) > 1e-4
 
     def test_generated_outcome_truths_weight_by_the_declared_score(self) -> None:
         # The dummy and simulated outcomes hold the covariates and the treatment and take

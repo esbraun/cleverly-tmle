@@ -611,7 +611,9 @@ def held_weights(target: PointTarget, data: Any, *, known_score: bool = False) -
     if code is None:
         return weights
     known = getattr(data, "known_treatment", None)
-    if known_score and known is not None:
+    if known_score:
+        if known is None:  # pragma: no cover - the fit's preflight requires a declaration
+            raise RuntimeError("a known-score fit reached the held truth with no declaration")
         column = list(data.arm_codes).index(code)
         return weights * np.asarray(known.values, dtype=float)[:, column]
     return np.where(np.asarray(data.treatment, dtype=float) == code, weights, 0.0)

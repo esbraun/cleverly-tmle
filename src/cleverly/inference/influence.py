@@ -3582,6 +3582,9 @@ def _conditional_effects(
         if known_score is None:
             weight, mass = indicator, share
         else:
+            # The residual term keeps the targeting's clever covariate, normalized by the
+            # arm share P_n(A = c); the projection term is normalized by P_n g0(c | W). The
+            # two estimate the same p, so the curve is D_KS to first order.
             weight = np.asarray(known_score[conditioning], dtype=float).reshape(-1)
             mass = float(np.average(weight, weights=w))
         psi = float(np.average(contrast, weights=w * weight))
