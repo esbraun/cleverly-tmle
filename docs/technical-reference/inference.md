@@ -492,6 +492,7 @@ cross-fitted foldwise `DRTMLE` with a declared treatment mechanism, and in-sampl
 cross-fitted `LTMLE`. Every other fit takes the default of its kind,
 `DEFAULT_POINT_INTERVAL_CLUSTERS` (10) or `DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS` (20). Each
 family holds its kind's default until a registered floor study sets a lower count.
+
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds
 the counts from 3 to each bound. With fewer than 3 clusters (`MINIMUM_T_REFERENCE_CLUSTERS`), a
 $t$ reference has no degree of freedom left. The fit takes `"no_cluster_variance_plugin"` and
@@ -532,6 +533,58 @@ positive weight mass when some clusters have zero mass.
 `tests/unit/test_cluster_interval_floors.py` hold a witness, a control, and a mutation for each
 rule.
 [References](../references.md#grouped-folds-and-clustered-cross-fitting) gives the sources.
+
+### Cluster jackknife
+
+`TMLE(cluster_variance="jackknife")` and `LTMLE(cluster_variance="jackknife")` replace the
+cluster influence-curve variance of every reported estimate with the delete-one-cluster
+jackknife. For each of the $J$ positive-mass clusters the fit refits every nuisance and redoes the
+targeting with that cluster removed, giving $\hat\theta^{-g}$ on each estimate's inference scale.
+The reported covariance is
+$\frac{J-1}{J}\sum_g(\hat\theta^{-g}-\bar\theta)(\hat\theta^{-g}-\bar\theta)^\top$, and the
+interval keeps the $t_{J-2}$ reference of [Few clusters](#few-clusters). A contrast, a ratio or a
+transform takes its variance from that covariance through its gradient. Fang et al. (2025),
+Section 3.3, use the cluster jackknife as a small-sample variance for cluster-randomized trials
+with Cox models, and prove no result.
+
+With every nuisance a finite-dimensional model fitted by smooth estimating equations, the
+estimator is an M-estimator over independent clusters. A one-step expansion then gives
+$\hat\theta^{-g}-\hat\theta=-\tilde\psi_g/(J-1)+o_P(J^{-1})$, with $\tilde\psi_g$ the cluster
+total of the stacked influence function, nuisance scores included. The jackknife variance is
+therefore the cluster variance of $\tilde\psi$ to first order, and the interval has the limit of
+the shipped one. With an estimated, correctly specified parametric propensity and a misspecified
+outcome regression, $\tilde\psi$ is the efficient curve minus its projection on the propensity
+scores, so the reported influence-curve variance is conservative and the jackknife is not. A
+data-adaptive learner would need a stability bound on its refits that no source read here gives.
+
+The option therefore runs only where that argument holds, and refuses the rest before any
+learner with code `inference_gap` and roadmap
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals):
+
+| condition | why |
+| --- | --- |
+| each nuisance in use is `LogisticRegression`, `LinearRegression`, `GLM`, a Super Learner of those, a learner whose class declares `cleverly_learner_family = "parametric"`, or a declared known mechanism | the expansion needs finite-dimensional smooth estimating equations |
+| a cross-fitted fit's drawn split puts at least 2 positive-mass clusters in every fold | a refit holds the split fixed and removes one cluster from its fold, so a fold must not empty |
+| a plain `"tmle"` fit with one split: not fold-evaluated, not fold-targeted, `repeats=1`, no learned rule, incremental intervention, effect-modification projection, policy-weighted variance, or vector or continuous treatment | each of these centres its variance within folds, aggregates over splits, or moves its target with the refit |
+| `n_bootstrap=0` | the bootstrap and the jackknife both replace the variance (`invalid_declaration`) |
+
+`SDR` and `IPSI` take no `cluster_variance` argument.
+
+A refit that raises, or that withholds an estimate's interval for a reason other than an
+estimate outside its bounds, leaves that estimate's jackknife undefined. The estimate then takes
+the status `"jackknife_refit_plugin"`, which withholds its interval, and the fit emits a
+`DataWarning` naming each cluster. A jackknife fit reports no simultaneous band, and
+`simultaneous_bands()` refuses it. The truncation curve, the marginal sensitivity bounds and the
+omitted-variable confidence limits read the influence-curve variance at refitted or re-targeted
+nuisances, so each refuses a jackknife fit with its reason. `to_frame()` adds `variance_source`,
+`influence_curve_std_err`, `jackknife_std_err` and `jackknife_failed_refits`.
+
+A jackknife fit carries the experimental support label: no registered study measures it yet.
+`few-cluster-floor-tmle` and `few-cluster-floor-cross-fitted-ltmle` are declared to compare it
+with the shipped reference and with Wang et al.'s inflated variance $\frac{J}{J-p}\hat\sigma^2$
+on $t_{J-p}$ on the same draws. `tests/unit/test_cluster_jackknife.py` checks the formula, the
+leave-one-out values against independent refits, the fixed split, the nuisance term at 100
+clusters, each refusal, and a mutation for each.
 
 ## Transformed parameters
 

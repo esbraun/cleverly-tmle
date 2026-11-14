@@ -2843,8 +2843,10 @@ not a shipped claim.
 - Fang, Wang, Hu & Li (2025), [*Estimands and doubly robust estimation for cluster-randomized trials
   with survival outcomes*](https://arxiv.org/abs/2510.08438), arXiv:2510.08438, read in the HTML
   version of 10 October 2025. The paper treats cluster-randomized trials with survival
-  outcomes. Section 3.3 uses the cluster jackknife as a small-sample variance. Cited by roadmap
-  item [X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)
+  outcomes. Section 3.3 uses the cluster jackknife as a small-sample variance, with Cox models
+  and simulations and no theorem. Cited by
+  [Cluster jackknife](technical-reference/inference.md#cluster-jackknife) and by roadmap item
+  [X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)
   part (c).
 - Ballinari & Wehrli (2024), [*Semiparametric inference for impulse response functions using
   double/debiased machine learning*](https://arxiv.org/abs/2411.10009v2), arXiv:2411.10009v2. The paper
