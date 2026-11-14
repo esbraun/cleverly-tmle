@@ -1212,7 +1212,20 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own reading"
             )
 
-        accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
+        gain = published.loc[
+            (published["property"] == "efficiency_gain")
+            & published["role"].isin(["positive", "control"])
+        ]
+        for row in gain.itertuples():
+            below = row.spread_ratio_ci_upper < row.spread_ratio_boundary
+            expected = below if row.role == "positive" else not below
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own spread ratio"
+            )
+
+        accuracy = published.loc[
+            published["property"].isin(["known_mechanism_accuracy", "known_score_accuracy"])
+        ]
         for row in accuracy.itertuples():
             if row.role == "control":
                 expected = bool(row.bias_discriminated)
@@ -1998,6 +2011,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # The same three endpoints on a declared mechanism; its control answers to bias
         # discrimination.  Checked row by row below.
         "known_mechanism_accuracy",
+        "known_score_accuracy",
+        # The paired spread ratio of two forms: a positive's 99% upper bound below the
+        # boundary, a control's at or above it.  Checked row by row below.
+        "efficiency_gain",
         # A percentile bootstrap interval, gated on its coverage floor alone.
         "bootstrap_coverage",
         "power",
@@ -2072,6 +2089,22 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
+    # ``hazard-multinode`` (design review a, F9): the power cell reads the rejection of zero on
+    # the ``base`` calibration fits, and the necessity pair compares the targeted contrast with
+    # the plug-in of the initial hazards of the ``base`` ``mechanism_correct`` robustness fits,
+    # as ``hazard-time-varying``'s does.  No claim reads two verdicts jointly.
+    "hazard-multinode": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
+    # ``hazard-time-varying`` (design review b1, f11a): the power cell reads the rejection of
+    # zero on the ``one_cause`` calibration fits, and the necessity pair compares the targeted
+    # contrast with the untargeted backward plug-in of the ``one_cause`` ``mechanism_correct``
+    # robustness fits, as ``adaptive-iptw``'s does.  No claim reads two verdicts jointly.
+    "hazard-time-varying": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
     "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
     # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
     # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
@@ -2118,6 +2151,10 @@ SAME_DRAW_FAMILIES = {
             }
         ),
     ),
+    # ``known-score-att`` (X35): the efficiency gain is the paired spread ratio of the two
+    # forms on the calibration draws, so it reads the fits the calibration cells measure by
+    # design. The pairing is what makes the ratio's interval narrow enough to gate.
+    "known-score-att": (frozenset({"efficiency_gain", "interval_calibration"}),),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
@@ -2197,6 +2234,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # working model on the same draws, and the iterated-mean curve's decreasing share, each
         # reported with no verdict.
         "iterated_mean_difference",
+        # X70 part (a) (``hazard-multinode``): the one-step walk over regimen curves beside the
+        # per-horizon fit of the same regimens on the same draws, reported with no verdict.
+        "one_step_walk",
         # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
         # nuisance errors, the oracle Hessian checks and the split-stability readings, each
         # reported with no verdict.

@@ -19,7 +19,7 @@ rev 2.1, section 6).  The witnesses below are the plan's:
 
 The rest pins the declaration refusals with remedies that run, the support family ``P12``, whose
 row ``T46`` (the ``learned-rule-optimal-value`` study) covers the fold-evaluated report on rows
-with a known treatment mechanism (the rows ``T55`` of the compositions study cover its known-g
+with a known treatment mechanism (the rows ``T57`` of the compositions study cover its known-g
 compositions), while every learned-rule key and row is unchanged, the
 record and summary line, the fold-rule disagreement diagnostic, and the sensitivity analyses that
 refuse.

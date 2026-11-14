@@ -96,7 +96,13 @@ time point, or whose rows come from a trial and an external source.
 - An adaptive fit with external data draws, in `overlap`, each trial patient's chance of
   treatment and each row's chance of being a trial row, with the floor its positivity warning
   checks. Its nuisance report keeps learner names only, so `learners` and `calibration` refuse.
+- A continuous-time survival fit draws, in `overlap`, each person's predicted chance of the
+  treated arm. Its floor bounds the product of the chance of the arm and the chance of staying in
+  follow-up just before a target time, so `overlap(result, censoring=True)` adds that product for
+  each arm, with the floor drawn. `weights` draws, at each target time, the weight that inverts
+  that product for each person under the arm they received, or under the other arm with
+  `counterfactual=True`. `learners` draws each hazard's and the treatment model's candidates with
+  the chosen one marked; a cross-fitted fit keeps the first fold's choices.
 
-A continuous-time survival fit does not yet draw `curve`, `overlap`, `weights` or `learners`,
-and covariate balance over time is not drawn for any fit over time. Each refusal names the
-[roadmap](../roadmap.md) item that tracks it.
+A continuous-time survival fit does not yet draw `curve`, and covariate balance over time is not
+drawn for any fit over time. Each refusal names the [roadmap](../roadmap.md) item that tracks it.

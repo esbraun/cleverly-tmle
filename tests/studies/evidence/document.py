@@ -682,7 +682,7 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
-    if family == "known_mechanism_accuracy":
+    if family in {"known_mechanism_accuracy", "known_score_accuracy"}:
         # A positive cell answers to the bias margin, the coverage floor and the SE screen
         # together; the control to its bias alone, so the margin is printed beside it.
         return (
@@ -720,9 +720,10 @@ def measured(row: Any) -> str:
         return measured
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
-    if family == "repeat_stability":
+    if family in {"repeat_stability", "efficiency_gain"}:
         # The positive rows read the upper endpoint below the boundary; the control reads it at
-        # or above, so the control's text says the endpoint reaches the boundary.
+        # or above, so the control's text says the endpoint reaches the boundary.  The
+        # known-score study's ``efficiency_gain`` reads the same paired spread ratio.
         reach = ", reached by the upper endpoint" if str(row.role) == "control" else ""
         return (
             f"spread ratio {render(float(row.spread_ratio))}, "
@@ -971,8 +972,9 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
-    if family == "iterated_mean_difference":
-        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+    if family in {"iterated_mean_difference", "one_step_walk"}:
+        # hazard-msm (X70 part (d)), and hazard-multinode's one-step walk (X70 part (a)):
+        # reported with no verdict.  A paired difference prints its
         # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
         # row the share of draws whose iterated-mean risk curve decreases.
         cell = str(row.cell)

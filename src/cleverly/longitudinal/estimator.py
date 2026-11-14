@@ -262,9 +262,11 @@ from .hazard import (
     fit_hazards,
     hazard_bounds,
     hazard_mtp_replay_refusal,
+    is_multinode,
     level_plans,
     mtp_inputs,
     mtp_slots,
+    path_slots,
     project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
@@ -272,6 +274,11 @@ from .hazard import (
     target_hazard_msm,
     target_mtp,
     target_regimens,
+)
+from .hazard_backward import (
+    hazard_replay_refusal,
+    later_covariates,
+    target_time_varying,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
 from .learned import (
@@ -3631,6 +3638,31 @@ def _run_recursion(
     }, msm_fits
 
 
+def _observed_cumulative(
+    data: LongitudinalData, mechanism: Mechanism, g_bounds: tuple[float, float]
+) -> tuple[FloatArray, FloatArray]:
+    """The raw and bounded ``(n, T)`` cumulative mechanism at each unit's observed history.
+
+    The diagnostics of a hazard fit with a treatment at several nodes, which reads its
+    weights along the treatment paths of its regimens.  Each node's treatment factor is the
+    out-of-fold probability of the observed arm, and its retention factor the out-of-fold
+    retention at the observed history.  A row with no treatment at a node reads code zero
+    there, which no diagnostic reads.
+    """
+    lower, upper = g_bounds
+    rows = np.arange(data.n)
+    running = np.ones(data.n)
+    raw_columns = []
+    for time in range(1, data.n_times + 1):
+        codes = np.asarray(np.nan_to_num(data.treatment[:, time - 1], nan=0.0), dtype=np.int64)
+        running = running * np.asarray(mechanism.treatment_observed[time - 1])[rows, codes]
+        if data.censoring_names:
+            running = running * np.asarray(mechanism.censoring_observed[time - 1], dtype=float)
+        raw_columns.append(running)
+    raw = np.column_stack(raw_columns)
+    return raw, np.clip(raw, lower, upper)
+
+
 def _run_hazard(
     data: LongitudinalData,
     plans: Sequence[Plan],
@@ -3778,10 +3810,13 @@ def _run_hazard(
             }
         # Report order: regimen-outer, as the shared walk files its fits.
         return {key: fit for plan in plans for key, fit in by_label[plan.label].items()}, ()
-    rows = np.arange(data.n)
-    observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
-    unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
-    bounded = np.stack([pair[1] for pair in pairs], axis=2)[rows, :, observed]
+    if is_multinode(data):
+        unbounded, bounded = _observed_cumulative(data, mechanism, g_bounds)
+    else:
+        rows = np.arange(data.n)
+        observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+        unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
+        bounded = np.stack([pair[1] for pair in pairs], axis=2)[rows, :, observed]
     if separable:
         # The separable refusals refuse msm= beside a Separable regimen.
         assert msm is None
@@ -4986,7 +5021,6 @@ class _SequentialEstimator:
             step_size=self.step_size,
             isotonic=self.isotonic,
             msm=self.msm is not None,
-            pseudo_learner=self.pseudo_learner is not None,
             step_bound=getattr(self, "step_bound", None),
             ratio_trim=self.ratio_trim,
         )
@@ -5172,6 +5206,20 @@ class _SequentialEstimator:
                 "the efficient influence curve of that formula.",
                 "Fit the separable regimens with baseline covariates only.",
                 reason=RefusalReason.INFERENCE_GAP,
+            )
+        if is_multinode(data):
+            # H18: the separable engine targets the two hazard factors of one held baseline
+            # treatment, and a design with a treatment at several nodes has none.
+            raise CapabilityError(
+                "a Separable regimen is built for one baseline treatment held over every node, "
+                f"and this design declares a treatment at {data.n_decisions} nodes. A separable "
+                "effect splits that one treatment into the components that act on each cause.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Declare one baseline treatment held over every node, as treatment='A', for "
+                    "separable effects. A treatment at several nodes takes static regimens, "
+                    "known rules and known policies."
+                ),
             )
         settings = (
             (getattr(self, "node_bounds", None) is not None, "node_bounds="),
@@ -5621,6 +5669,9 @@ class _SequentialEstimator:
             survival_model=self.survival_model,
             isotonic=self.isotonic,
             msm=self.msm is not None,
+            targeting=self.targeting,
+            stopping=getattr(self, "stopping", "relative"),
+            pseudo_learner=self.pseudo_learner is not None,
         )
         reference = self._reference(regimens)
         # The declared support and the declared atoms of each continuous dose, and the
@@ -5691,6 +5742,11 @@ class _SequentialEstimator:
                 tuned=tuned_folds is not None,
             )
         )
+        if getattr(self, "survival_model", None) == "hazard" and is_multinode(prepared):
+            # The treatment paths of every regimen, with each policy evaluated at every
+            # counterfactual prefix, before any learner: the cap (H17) and every density
+            # check are raised here (X70 part (a)).
+            path_slots(prepared, plans)
         checked = branch_plans(plans[0]) if learned is not None else plans
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, checked, resolve_cumulative_g_bounds(self.g_bounds))
@@ -6017,6 +6073,51 @@ class _SequentialEstimator:
                 mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
             )
         algorithm: HazardAlgorithm = "one_step" if self.targeting == "one_step" else "per_horizon"
+        if later_covariates(prepared):
+            # Covariates after baseline: one backward pass per regimen (X70 part (b1)).  The
+            # refusals H28-H31 keep the per-horizon algorithm, msm=, a declared stopping rule
+            # and every replay away from it, and the separable refusal keeps a separable regimen.
+            if msm is not None or separable:
+                raise RuntimeError(
+                    "a hazard fit with covariates after baseline reached the backward pass "
+                    "with msm= or a separable regimen, which its refusals keep away"
+                )
+            initial, walked = target_time_varying(
+                prepared,
+                plans,
+                levels,
+                mechanism,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                folds=folds,
+                horizons=horizons,
+                g_bounds=bounds,
+                alpha=targeting["alpha"],
+                tol=targeting["tol"],
+                step_size=self.step_size,
+                iterate=targeting["iterate"],
+                node_bounds=hazard_bounds(
+                    node_bounds, prepared.n_times, prepared.cause_labels or (None,)
+                ),
+                n_jobs=self.n_jobs,
+            )
+            replay_recipe = replace(
+                replay_recipe,
+                omissions=(),
+                hazard=_HazardReplay(
+                    _frozen_plans(levels),
+                    algorithm,
+                    float(self.step_size),
+                    targeting["alpha"],
+                    targeting["max_iter"],
+                    targeting["tol"],
+                ),
+            )
+            fits = {
+                _fit_key(label, cause, horizon, True): fit
+                for (label, cause, horizon), fit in walked.items()
+            }
+            return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, parametric, ())
         initial = fit_hazards(
             prepared,
             levels,
@@ -6170,7 +6271,14 @@ class _SequentialEstimator:
         # so the shared mechanism fit is evaluated at one static plan per level as well.  A
         # continuous or mixed baseline node has no levels: its regimens are modified
         # treatment policies, each weighted at its own plan.
-        levels = level_plans(prepared) if hazard and prepared.node_kind(1) == "categorical" else ()
+        levels: tuple[Plan, ...] = ()
+        if hazard and is_multinode(prepared):
+            # A design with a treatment at several nodes: one internal static plan per
+            # treatment path of every regimen (X70 part (a)), at which the mechanism and the
+            # hazards are evaluated.
+            levels = path_slots(prepared, plans).plans
+        elif hazard and prepared.node_kind(1) == "categorical":
+            levels = level_plans(prepared)
         treatment_learner = resolve_learner(
             self.treatment_learner,
             task="classification",
@@ -7400,7 +7508,8 @@ class LTMLE(_SequentialEstimator):
     pseudo_learner : object or None
         Learner specification for the intermediate regressions, whose outcome is a
         ``[0, 1]``-valued prediction rather than the outcome itself.  It defaults to
-        ``outcome_learner``'s library read as a regression.
+        ``outcome_learner``'s library read as a regression.  A hazard fit uses it only on a
+        design with covariates measured after baseline, and refuses it otherwise.
     treatment_learner : object or None
         Learner specification for the treatment mechanism at each node, as for
         :class:`~cleverly.TMLE`.
@@ -7549,9 +7658,11 @@ class LTMLE(_SequentialEstimator):
         How a survival curve is modelled.  ``"iterated_mean"`` runs one backward
         recursion per horizon, and its curve can decrease.  ``"hazard"`` fits the
         cause-specific hazard at every node and targets it (Moore and van der Laan 2009;
-        Cai and van der Laan 2020).  It needs one baseline treatment held over every node,
-        categorical, and no covariate after baseline; other designs are refused before any
-        learner.  The outcome learner is then the hazard learner.
+        Cai and van der Laan 2020).  It needs one baseline treatment held over every node;
+        other designs are refused before any learner.  The outcome learner is then the
+        hazard learner.  With covariates measured after baseline it needs
+        ``targeting="one_step"``, and ``pseudo_learner`` fits each node's regression of the
+        future (Rytgaard, Gerds and van der Laan 2022).
     targeting : {"iterative", "one_step"}
         The hazard targeting algorithm.  ``"iterative"`` targets each horizon on its own,
         restarting from the initial hazards.  ``"one_step"`` walks one set of hazards until
@@ -9613,10 +9724,11 @@ def _refit_bound(
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     recipe = draw.replay_recipe
-    walk = _hazard_mtp_walk(recipe)
-    if walk is not None:
-        # Before any targeting: each policy had its own weighted walk (H25).
-        raise CapabilityError.from_refusal(walk)
+    refusal = _hazard_replay_check(recipe, result.data)
+    if refusal is not None:
+        # Before any targeting: the regressions of the future read targeted later hazards
+        # (H31), or each policy had its own weighted walk (H25).
+        raise CapabilityError.from_refusal(refusal)
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     if recipe.hazard is not None and draw.initial_hazards is not None:
@@ -9902,16 +10014,23 @@ def longitudinal_truncation_refusal(result: Any) -> Refusal | None:
     return None
 
 
-def _hazard_mtp_walk(recipe: Any) -> Refusal | None:
-    """The H25 refusal when ``recipe`` holds a hazard plan with its own weighted walk."""
+def _hazard_replay_check(recipe: Any, data: LongitudinalData) -> Refusal | None:
+    """The refusal of a truncation replay of one hazard draw, or ``None``.
+
+    A hazard fit with covariates after baseline refuses first (H31): its regressions of the
+    future were fitted on outcomes built from targeted later hazards. Otherwise a hazard plan
+    with its own weighted walk refuses (H25).
+    """
     if recipe.hazard is None:
         return None
+    if later_covariates(data):
+        return hazard_replay_refusal()
     walked = [plan.label for plan in recipe.plans if plan.has_mtp]
     return hazard_mtp_replay_refusal(walked[0]) if walked else None
 
 
-def hazard_mtp_replay(result: LongitudinalResult) -> Refusal | None:
-    """Why no truncation replay of ``result`` runs, when a draw holds a policy walk (H25).
+def hazard_replay(result: LongitudinalResult) -> Refusal | None:
+    """Why no truncation replay of a hazard fit runs (H31, H25), or ``None``.
 
     The capability row of ``truncation_curve`` reads this before any call, and the replay
     raises the same record, so the row never reads available while the call refuses.
@@ -9924,13 +10043,14 @@ def hazard_mtp_replay(result: LongitudinalResult) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The record of the first modified treatment policy regimen of a hazard fit, or
-        ``None`` when no draw holds one.
+        :func:`~cleverly.longitudinal.hazard_backward.hazard_replay_refusal` when a hazard
+        draw's design has covariates after baseline; otherwise the record of the first
+        modified treatment policy regimen of a hazard draw; ``None`` when neither holds.
     """
     for draw in result.repeats:
-        walk = _hazard_mtp_walk(draw.replay_recipe)
-        if walk is not None:
-            return walk
+        refusal = _hazard_replay_check(draw.replay_recipe, result.data)
+        if refusal is not None:
+            return refusal
     return None
 
 
@@ -9985,6 +10105,10 @@ def longitudinal_truncation_curve(
     refusal = longitudinal_truncation_refusal(result)
     if refusal is not None:
         raise CapabilityError(refusal=refusal)
+    refusal = hazard_replay(result)
+    if refusal is not None:
+        # After the method's own refusal, as the capability row reads them (H31, H25).
+        raise CapabilityError.from_refusal(refusal)
     omissions = tuple(
         dict.fromkeys(item for draw in result.repeats for item in draw.replay_recipe.omissions)
     )

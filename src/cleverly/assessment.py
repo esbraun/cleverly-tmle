@@ -1046,6 +1046,22 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         from .longitudinal.estimator import longitudinal_truncation_refusal
 
         truncation = longitudinal_truncation_refusal(result)
+        # A learned-regimen fit refuses every surface that runs the fit again (F27): the
+        # truncation call raises this record before any other, and the facade's refute
+        # call raises it from this row. The free refute() reaches it at the refit, after
+        # its request checks.
+        from .longitudinal.learned import learned_regimen_refusal
+
+        learned = learned_regimen_refusal(result, "the truncation curve")
+        if learned is not None:
+            truncation = learned
+            refit = learned_regimen_refusal(result, "a refit")
+            rows = tuple(
+                replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refit)
+                if row.operation == "refute"
+                else row
+                for row in rows
+            )
     if truncation is not None:
         rows = tuple(
             replace(
@@ -1059,12 +1075,13 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     if family == "longitudinal":
-        from .longitudinal.estimator import hazard_mtp_replay
+        from .longitudinal.estimator import hazard_replay
 
-        # A hazard fit targets each modified treatment policy by its own weighted walk,
-        # which the truncation replay does not rebuild (H25). The call raises the method's
-        # own refusal above before it reaches the replay, so that one stands.
-        walk = hazard_mtp_replay(result)
+        # The truncation replay does not rebuild a hazard fit's regressions of the future on
+        # covariates after baseline (H31), nor the weighted walk of each modified treatment
+        # policy (H25). The call raises the method's own refusal above before it reaches the
+        # replay, so that one stands.
+        walk = hazard_replay(result)
         if walk is not None and truncation is None:
             rows = tuple(
                 replace(
@@ -3793,6 +3810,8 @@ def _score_item(
     detail = f"{len(ratios)} score row(s); worst abs(score) / threshold = {worst:.3g}"
     if conditioning:
         detail += f"; {conditioning}"
+    if not passed:
+        detail += _constant_cell_cause(result)
     steps = (
         ("inspect result.repeats[*].fluctuations['mean'].reduction.ill_conditioned",)
         if conditioning
@@ -3801,6 +3820,29 @@ def _score_item(
         else ("inspect result.diagnostics.score_equations()",)
     )
     return AssessmentItem("score_equations", status, detail, steps)
+
+
+def _constant_cell_cause(result: Any) -> str:
+    """The constant-arm cause of an unsolved score, as a clause, or ``""`` when it is absent.
+
+    An arm whose observed outcomes hold one value leaves every residual of that arm one sign,
+    so a logistic fluctuation has no finite step and its equation stays unsolved.  The
+    estimates that read the arm already withhold their intervals.
+    """
+    from .inference.influence import CONSTANT_ARM_CELL_STATUS
+
+    names = [
+        name
+        for name, estimate in getattr(result, "estimates", {}).items()
+        if getattr(estimate, "inference", None) == CONSTANT_ARM_CELL_STATUS
+    ]
+    if not names:
+        return ""
+    return (
+        f"; {', '.join(names)} read an arm with one observed outcome value "
+        f"({CONSTANT_ARM_CELL_STATUS}), where a logistic fluctuation has no finite step, and "
+        "withhold their intervals"
+    )
 
 
 def _intervention_rows(report: Any) -> tuple[tuple[str, Any], ...]:
@@ -4869,9 +4911,13 @@ def _marginal_structural_refusal() -> Refusal:
 
 def _marginal_row(result: Any, family: str) -> AssessmentCapability:
     """The marginal sensitivity model row, declared from the bound's own refusal."""
-    from .sensitivity.marginal import marginal_bound_refusal
+    from .sensitivity.marginal import marginal_bound_refusal, marginal_estimand_refusal
 
     refusal = marginal_bound_refusal(result)
+    if refusal is None:
+        # The row reads the default estimand, as the E-value row does; an explicit one is
+        # the call's to answer (``_dispatch``).
+        refusal = marginal_estimand_refusal(result)
     return _capability(
         "marginal_bounds",
         family,
@@ -5370,13 +5416,15 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) not in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        if (
+            operation == "evalue"
+            and _family(self._result)
+            not in ("structural", AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY)
+            and not _is_projection(self._result)
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
-            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand. A
+            # projection fit keeps its declared R9 row, which its call raises (Fix-15).
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 
@@ -5839,12 +5887,18 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        # A structural or adaptive TMLE fit declares every row refused, so an explicit
-        # estimand lifts none.
-        if not explicit_evalue or _family(self._result) in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        # The marginal bounds refuse a withheld default estimand by row; a named one is the
+        # call's to answer, and the call asks the fit-level refusal itself.
+        explicit_evalue = explicit_evalue or (
+            operation == "marginal_bounds" and kwargs.get("estimand") is not None
+        )
+        # A structural, adaptive TMLE, continuous-time survival or projection fit declares
+        # every row refused, so an explicit estimand lifts none.
+        if (
+            not explicit_evalue
+            or _family(self._result)
+            in ("structural", AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY)
+            or _is_projection(self._result)
         ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(

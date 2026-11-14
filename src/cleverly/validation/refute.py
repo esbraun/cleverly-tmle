@@ -94,10 +94,10 @@ from .._continuous_survival_family import (
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import augmented_trial_refusal, is_augmented_trial, refuse_augmented_trial
+from ..data.known_mechanism import known_score_fit
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
-from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -4088,7 +4088,7 @@ def _generated_outcome_test(
             intermediate=target.intermediate,
             doses=target.doses,
         )
-        weights = held_weights(target, data)
+        weights = held_weights(target, data, known_score=known_score_fit(result))
         mixture = held_mixture(target, data)
         # The truth is the sample-conditional functional of the held rows. The held design
         # reads the SE ratio and coverage only where the covariate part of the curve is
@@ -4559,8 +4559,11 @@ def _future_treatment_test(
     estimate = fitted.single()["ate"]
     value = float(estimate.psi)
     std_error = float(estimate.plugin_std_error)
-    z = value / std_error if std_error > 0 else float("nan")
-    pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+    # The control fit's own Wald test of no effect: its reference distribution (a few-cluster
+    # t), its interval scale and any stopping-rule margin, as its interval reads them.
+    test = estimate._plugin_wald_test(0.0)
+    z = float(test.statistic) if std_error > 0 else float("nan")
+    pvalue = float(test.pvalue) if np.isfinite(z) else float("nan")
     return RefutationTest(
         name="future_treatment",
         estimand=estimand,
@@ -5536,9 +5539,11 @@ def refute(
                 )
             value = refitted[estimand].psi
             control_se = refitted[estimand].plugin_std_error
-            deviation = _no_effect_difference(value, no_effect_null)
-            z = deviation / control_se if control_se > 0 else float("nan")
-            pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+            # The control refit's own Wald test of the no-effect value, under the reference
+            # distribution, interval scale and margin its interval reads.
+            test = refitted[estimand]._plugin_wald_test(no_effect_null)
+            z = float(test.statistic) if control_se > 0 else float("nan")
+            pvalue = float(test.pvalue) if np.isfinite(z) else float("nan")
             # The control's own outcome family and event count are the scope axes of a
             # negative-control reading, not the primary outcome's.
             control_fit = (
@@ -5580,6 +5585,14 @@ def refute(
                         *((_PRE_TREATMENT_SENTENCE,) if pre_treatment else ()),
                     ),
                     evidence=resolution.plain,
+                    withheld=(
+                        ""
+                        if passed is not None or not resolution.licensed
+                        else f"the control fit reports no interval (status "
+                        f"{refitted[estimand].inference!r}), so it has no Wald test"
+                        if not refitted[estimand].supplies_inference
+                        else "the control estimate has no spread"
+                    ),
                     statistic=z,
                     statistic_name="z",
                     statistic_pvalue=pvalue,

@@ -509,6 +509,14 @@ class DynamicRegimen:
             If ``time`` is not a policy node, if the density function raises, or if it
             returns other than a probability simplex per reachable row over the levels.
         """
+        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+        values = self._density_on(data, time, data.policy_frame(time), reachable)
+        return np.where(reachable[:, None], values, 0.0)
+
+    def _density_on(
+        self, data: LongitudinalData, time: int, frame: Any, checked: BoolArray
+    ) -> FloatArray:
+        """The policy node at ``time`` evaluated on ``frame``, checked on the rows ``checked``."""
         node = self.plan[time - 1]
         if not isinstance(node, Stochastic):
             raise DataError(f"node {time} of regimen {self.label!r} is not a policy node")
@@ -516,7 +524,6 @@ class DynamicRegimen:
         label = f"the policy at time {time} of regimen {self.label!r}"
         levels = tuple(data.treatment_levels[time - 1])
         name = data.treatment_names[time - 1]
-        frame = data.policy_frame(time)
         try:
             returned = node.density_fn(frame)
         except Exception as error:
@@ -539,9 +546,8 @@ class DynamicRegimen:
                 f"{label} returned shape {values.shape}; expected {expected}. One column per "
                 f"level of treatment column {name!r}, in the order {levels!r}."
             )
-        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
-        check_regime_density(values[reachable], label=label)
-        return np.where(reachable[:, None], values, 0.0)
+        check_regime_density(values[checked], label=label)
+        return values
 
     def _evaluate(
         self, rule: Callable[[Any], Any], data: LongitudinalData, time: int, reachable: Any
@@ -1241,6 +1247,46 @@ def _resolve_plan(
         mtp_assignments=tuple(assignments) if any(a is not None for a in assignments) else (),
         node_factors=tuple(factors) if any(f is not None for f in factors) else (),
     )
+
+
+def counterfactual_policy_density(
+    regimen: DynamicRegimen, data: LongitudinalData, time: int, codes: FloatArray
+) -> FloatArray:
+    r"""The known policy at node ``time`` at a counterfactual treatment prefix, on every row.
+
+    The hazard fit of a design with a treatment at several nodes reads the plug-in
+    :math:`\sum_u q_r(u \mid W) F_j(t \mid u, W)` of every unit, so it needs the policy
+    density at each enumerated treatment prefix and for every row, including a row that has
+    left the study.  :meth:`DynamicRegimen.policy_density` reads the observed earlier
+    treatments and sets a row off the risk set to zero.  This evaluator hands the density
+    function :meth:`~cleverly.longitudinal.data.LongitudinalData.policy_frame` with the
+    earlier treatment columns set to the labels of ``codes``, checks the simplex on every
+    row, and sets nothing to zero.  No point mass is collapsed.
+
+    Parameters
+    ----------
+    regimen : DynamicRegimen
+        The regimen whose node ``time`` is a :class:`~cleverly.interventions.Stochastic`
+        node.
+    data : LongitudinalData
+        The validated panel of a design with no covariate after baseline.
+    time : int
+        The policy node, counted from one.
+    codes : FloatArray
+        ``(n, T)`` dense codes of the prefix; the columns before ``time`` are read.
+
+    Returns
+    -------
+    FloatArray
+        ``(n, K)`` policy probabilities over the node's levels.
+
+    Raises
+    ------
+    DataError
+        If the density function raises or returns other than a simplex per row.
+    """
+    frame = data.policy_frame(time, treatment=codes)
+    return regimen._density_on(data, time, frame, np.ones(data.n, dtype=bool))
 
 
 @dataclass(frozen=True)

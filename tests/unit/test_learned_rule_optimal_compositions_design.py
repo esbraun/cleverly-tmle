@@ -246,7 +246,7 @@ def test_the_module_list_holds_every_study_specific_import() -> None:
 def test_the_support_rows_cover_every_fitted_key() -> None:
     """Design review M1: each declared row, built as the registering change will build it,
     covers every fitted key of its setting, both intermediate levels included, with options and
-    qualifiers equal, not merely contained (T55)."""
+    qualifiers equal, not merely contained (T57)."""
     assert set(study.SUPPORT_ROWS) == set(law.SETTINGS)
     for setting, declared in study.SUPPORT_ROWS.items():
         row = point_row(f"declared.{setting}", (study.STUDY.slug,), **declared)

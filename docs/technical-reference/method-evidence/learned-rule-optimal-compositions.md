@@ -166,7 +166,7 @@ interval inside its band. Every control fails as declared.
 The support rows were declared before the run: one P12 row per composition with the qualifier
 `known_mechanism`. Each needed its setting's primary tests, every calibration verdict of its
 labels and, for the weighted row, both target controls to pass. They did, so the registered rows
-`T55.weighted`, `T55.strata`, `T55.known_regimes`, `T55.in_sample` and `T55.intermediate`
+`T57.weighted`, `T57.strata`, `T57.known_regimes`, `T57.in_sample` and `T57.intermediate`
 cover these compositions on rows with the known treatment mechanism. An estimated $g$, estimated
 weights, a rule learner, clusters, several splits, fold targeting, the stacked report and more
 than two arms stay experimental.

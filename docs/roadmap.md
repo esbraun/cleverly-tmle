@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X35, X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c), (e), (h) and (i), X77, X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -82,7 +82,7 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
-| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d) and (c) shipped | the shipped hazard targeting on a held baseline treatment |
+| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c), (a) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the support, score, nuisance and influence diagnostics shipped | the shipped `ContinuousSurvivalTMLE` and its record |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
@@ -145,7 +145,6 @@ The readiness labels are defined under
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X35](#x35-efficient-known-score-att-and-atc) Efficient known-score ATT and ATC | 3 | published support; pending source read | the shipped known treatment mechanism |
 | [X5](#x5-natural-and-interventional-mediation-effects) Natural and interventional mediation effects | 5 | published support; pending source read | target-specific identification and evidence |
 | [X2](#x2-replicate-weight-designs) Replicate-weight designs | 5 | source audit | weighted-law variance construction |
 | [X7](#x7-two-phase-and-outcome-dependent-sampling) Two-phase and outcome-dependent sampling | 5 | published support; pending source read | observed-data likelihood and influence correction |
@@ -736,32 +735,6 @@ Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, ja
 another replicate design only after a source audit matches its construction to this package's
 weighted-law estimands and inference conventions.
 
-### X35. Efficient known-score ATT and ATC
-
-On data that declares its treatment mechanism, the shipped ATT divides by $g_0$ and reports the
-treated mean of $\bar Q^*_1-\bar Q^*_0$. That curve is not the efficient one when the propensity
-score is known. Hahn (1998) gives a smaller ATT bound for a known score than for an unknown one.
-
-By the remainder algebra of the
-[known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
-section, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has the smaller curve.
-The ATC is the mirror image. No pinned comparator implements it. R `tmle` and the `tmle3`
-`Param_ATT` both fluctuate $g$, so their ATT has the unknown-score curve.
-
-| item | contract |
-| --- | --- |
-| base result | Hahn (1998), *Econometrica* 66(2):315–331, Theorems 1 and 2. [References](references.md) records that only the abstract was read. Read Theorem 2 first-hand before the row starts |
-| step | the g-weighted plug-in at $g_n=g_0$, with the remainder algebra of the shipped known-mechanism ATT |
-| estimator choice | an option on the known-mechanism ATT and ATC. The shipped treated-mean form stays the default |
-| comparator | none. The study cells compare with the truth only |
-
-Acceptance:
-
-- an exact-law test of the curve of the g-weighted plug-in;
-- a variance witness: on a law where the score carries information, the reported standard error is
-  below the standard error of the shipped form;
-- truth-only registered study cells.
-
 ### X36. Projected variance for AdaptiveIPTW with a declared parametric mechanism
 
 An `AdaptiveIPTW` fit with an estimated treatment or missingness mechanism reports a point estimate
@@ -846,32 +819,43 @@ claims to perturb.
 
 ### X70. Hazard targeting beyond a held baseline treatment
 
-`LTMLE` with `survival_model="hazard"` supports one baseline treatment held over every node, with
-baseline covariates only: a categorical treatment under any regimen, and a modified treatment policy
-on a categorical, continuous or mixed treatment. The
+`LTMLE` with `survival_model="hazard"` supports one baseline treatment held over every node: a
+categorical treatment under any regimen, and a modified treatment policy on a categorical, continuous
+or mixed treatment. With `targeting="one_step"` such a design may also declare covariates measured
+after baseline. It also supports a categorical treatment at several nodes under static arms, known
+rules and known policies, on a design with baseline covariates only. The
 [hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
-list each design it refuses. H1 and H2 name `survival_model="iterated_mean"` with
+list each design it refuses. H2 names `survival_model="iterated_mean"` with
 `isotonic=True` as the working alternative.
 
-Parts (d) and (c) are delivered. The subsection "A working model over the hazard curve" of
+Parts (d), (c), (a) and (b1) are delivered. The subsection "A working model over the hazard curve" of
 [hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
 states part (d), and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
 validates it, with support rows `G60`.
 [A modified treatment policy on the hazard path](technical-reference/longitudinal-tmle.md#a-modified-treatment-policy-on-the-hazard-path)
 states part (c), and the
 [hazard modified-treatment-policy study](technical-reference/method-evidence/hazard-mtp.md)
-validates it, with support rows `G61`. Each study reports the agreement of the hazard fit and the
-iterated-mean fit, as the acceptance below asks.
+validates it, with support rows `G61`.
+
+[A treatment at several nodes on the hazard path](technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
+states part (a), and the
+[hazard multi-node study](technical-reference/method-evidence/hazard-multinode.md)
+validates it with `targeting="iterative"`, with support rows `G62`.
+[Covariates after baseline on the hazard path](technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)
+states part (b1), a held baseline treatment with covariates after baseline, and the
+[hazard covariates-after-baseline study](technical-reference/method-evidence/hazard-time-varying.md)
+validates it, with support rows `G63.held`. Each study reports the agreement of the hazard fit
+and the iterated-mean fit, as the acceptance below asks. Part (b2) remains.
 
 The shipped one-step hazard walk is correct but slow when an enumerated policy shares its paths
 with other regimens. On one three-node draw of n = 2,000, the regimens {always, never} took 0.6 s,
 {policy, stay} took 33.5 s, and {always, never, policy} took 96 s over 10,776 steps. The same fits
-take about 1.4 s with `targeting="iterative"`.
+take about 1.4 s with `targeting="iterative"`. The multi-node study reports the one-step walk on
+200 draws and gates the iterative fit only.
 
 | part | what to add | published source |
 | --- | --- | --- |
-| (a) a treatment at several nodes | a hazard model and a fluctuation of the treatment mechanism at each decision node | Stitelman, De Gruttola and van der Laan (2012), *The International Journal of Biostatistics* 8(1) |
-| (b) covariates after baseline | a model and a fluctuation of each later covariate, beside the event and censoring hazards | Stitelman, De Gruttola and van der Laan (2012) |
+| (b2) covariates after baseline on a design with a treatment at several nodes | a fluctuation of the hazards and of a regression that integrates each later covariate out, at each decision node | Rytgaard, Gerds and van der Laan (2022), *The Annals of Statistics* 50(5) |
 | (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the loss weight | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
 | (d) a working model over the hazard curve | MSM coefficients over regimen and horizon cells from the targeted hazards | Rosenblum and van der Laan (2010), *The International Journal of Biostatistics* 6(2) |
 
@@ -1085,7 +1069,7 @@ Weights (the optimal value of the weighted population), strata (each stratum's
 optimal value), known regimes (the contrasts `ate_optimal_rule`), the in-sample fit and an
 intermediate held at a level run too. The
 [optimal-compositions study](technical-reference/method-evidence/learned-rule-optimal-compositions.md)
-calibrates each with known $g$ at n = 2,000, so those fits read supported (rows `T55`); the
+calibrates each with known $g$ at n = 2,000, so those fits read supported (rows `T57`); the
 weighted row needs the weighted population's own mechanism supplied. The
 [omitted-variable bound](technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 of the optimal value is an asymmetric point bound, whose lower side is the learned-rule bound and
@@ -1944,17 +1928,11 @@ control per applicable rule, a docstring example and a render check.
 
 The plots draw a longitudinal, time-to-event, structural nested mean and adaptive TMLE fit:
 `overlap` per arm or per time point, `learners` and `calibration` per time point and role, and
-the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit still
-refuses four plots, and each refusal names this item:
-
-- `curve`: each arm's risk, or cumulative incidence by cause, with its interval and band at the
-  target times only, since a risk between target times is not targeted; the restricted mean
-  survival and time lost at the restricted horizons;
-- `overlap` and `weights`: each row's treatment probability and its probability of staying
-  uncensored up to each target time, and the weights that invert their product. The fit does
-  not keep these arrays yet; storing them, with a test that the estimates do not move, comes
-  first;
-- `learners`: the hazard and treatment library selections the fit keeps in `result.record`.
+the collaborative selection path of a time-to-event TMLE. A continuous-time survival fit draws
+`overlap`, `weights` and `learners` from its record. It still refuses `curve`, and the refusal
+names this item: each arm's risk, or cumulative incidence by cause, with its interval and band at
+the target times only, since a risk between target times is not targeted; the restricted mean
+survival and time lost at the restricted horizons.
 
 Acceptance: the plot result matrix (`tests/unit/test_plotting_result_matrix.py`) draws each cell
 this item names, structural tests read each figure's artists against the fit's stored numbers, and

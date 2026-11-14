@@ -161,7 +161,7 @@ PROPERTY_CELLS = {
     TARGET_FAMILY: tuple(f"{TARGET_LABEL}__{control}" for control in TARGET_TRUTHS),
 }
 
-#: The support rows the registering change adds (the plan's T55 rows), declared before any run
+#: The support rows the registering change adds (the plan's T57 rows), declared before any run
 #: as the keyword arguments of :func:`cleverly._support_rows.point_row`: one P12 row per
 #: composition, each with ``known_mechanism`` and the key dimension that names the composition
 #: (fixed weighting, the ``strata`` or ``known_regimes`` qualifier, the in-sample splitting with

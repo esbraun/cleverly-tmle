@@ -91,6 +91,7 @@ def default_options(engine: str) -> dict[str, Any]:
         "step_bound": "none",
         "iterate": "last",
         "outcome_by_arm": False,
+        "conditional_form": "arm_mean",
         "patience": False,
         "treatment_adjustment": False,
     }
@@ -1317,7 +1318,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "A rule learner, clusters, repeats above 1, fold targeting, the stacked report, "
                 "more than two arms and an estimated g stay experimental. Weights, strata, known "
                 "regimes beside the optimal value, the in-sample fit and an intermediate held "
-                "at a level, each with the known mechanism, have the rows T55. No comparator: "
+                "at a level, each with the known mechanism, have the rows T57. No comparator: "
                 "no maintained package fits a cross-validated TMLE of the value of the optimal "
                 "rule. No draw raised a solver warning.",
             ],
@@ -1530,7 +1531,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
         own = declared.pop("limits")
         rows.append(
             point_row(
-                f"T55.{setting}",
+                f"T57.{setting}",
                 ["learned-rule-optimal-compositions"],
                 families=("P12",),
                 splitting=declared.pop("splitting", ("fold_evaluated",)),
@@ -3696,6 +3697,78 @@ def _x76_adjustment_rows() -> tuple[SupportRow, ...]:
     )
 
 
+#: The limit of every ``T55`` row (study ``known-score-att``).
+_KNOWN_SCORE_LIMIT = (
+    "Measured with the treatment mechanism declared by column and equal to the law's. A "
+    "declared mechanism that is wrong biases the estimate whatever the outcome regression "
+    "(study known-score-att, cell s_att__declared_constant: bias -0.66, about 11 SD). "
+    "Interval calibration and the efficiency gain over the arm-mean form were measured on a "
+    "two-arm continuous outcome with a correct outcome regression; the binary and three-arm "
+    "cells measured bias and coverage with a misspecified outcome regression only, where the "
+    "gain is about 1% of the variance."
+)
+
+
+def _x35_known_score_rows() -> tuple[SupportRow, ...]:
+    """``conditional_form="known_score"`` on TMLE (``T55``, ``known-score-att``)."""
+    slug = ["known-score-att"]
+    declared = {"conditional_form": "known_score"}
+    common: dict[str, Any] = {
+        "families": ("P3",),
+        "qualifiers": ["known_mechanism"],
+        "options": declared,
+        "limits": [_KNOWN_SCORE_LIMIT],
+    }
+    return (
+        point_row(
+            "T55.in_sample",
+            slug,
+            outcome=CONTINUOUS,
+            cells=[
+                "interval_calibration/att_known_score_in_sample__correctly_specified",
+                "interval_calibration/atc_known_score_in_sample__correctly_specified",
+                "efficiency_gain/att__known_score",
+                "efficiency_gain/atc__known_score",
+                "known_score_accuracy/s_att__q_wrong",
+                "known_score_accuracy/s_atc__q_wrong",
+                "root_n_and_efficiency/n_500",
+                "root_n_and_efficiency/n_2000",
+                "root_n_and_efficiency/n_8000",
+            ],
+            **common,
+        ),
+        point_row(
+            "T55.stacked",
+            slug,
+            outcome=BOUNDED,
+            splitting=("stacked",),
+            cells=[
+                "interval_calibration/att_known_score_stacked__correctly_specified",
+                "interval_calibration/atc_known_score_stacked__correctly_specified",
+            ],
+            **common,
+        ),
+        point_row(
+            "T55.binary",
+            slug,
+            cells=["known_score_accuracy/b2_att__q_wrong", "known_score_accuracy/b2_atc__q_wrong"],
+            **common,
+        ),
+        point_row(
+            "T55.arms3",
+            slug,
+            treatment=("arms3",),
+            cells=[
+                "known_score_accuracy/b3_att_1__q_wrong",
+                "known_score_accuracy/b3_att_2__q_wrong",
+                "known_score_accuracy/b3_atc_1__q_wrong",
+                "known_score_accuracy/b3_atc_2__q_wrong",
+            ],
+            **common,
+        ),
+    )
+
+
 POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (
         *_t_rows(),
@@ -3708,6 +3781,7 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),
         *_x76_adjustment_rows(),
+        *_x35_known_score_rows(),
     )
 )
 
@@ -3747,12 +3821,14 @@ def _x33_options(
     stopping: str = "relative",
     step_bound: str = "none",
     iterate: str = "last",
+    later_covariates: bool = False,
 ) -> tuple[tuple[str, Any], ...]:
     """The fitting options of a longitudinal key that change the fit's arithmetic.
 
     The defaults are those of a fit that declares none of them, in the order
     :func:`cleverly._support.longitudinal_key` records them. Only the ``mtp-tuning`` rows
-    (``G41``) declare a cap tuned on the data.
+    (``G41``) declare a cap tuned on the data, and only the ``hazard-time-varying`` rows
+    (``G63``) a hazard fit with covariates after baseline.
     """
     return (
         ("node_bounds", node_bounds),
@@ -3763,6 +3839,7 @@ def _x33_options(
         ("stopping", stopping),
         ("step_bound", step_bound),
         ("iterate", iterate),
+        ("later_covariates", later_covariates),
     )
 
 
@@ -3795,6 +3872,7 @@ def long_row(
     stopping: str = "relative",
     step_bound: str = "none",
     iterate: str = "last",
+    later_covariates: bool = False,
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -3862,6 +3940,9 @@ def long_row(
     iterate : {"last", "best"}, default "last"
         The iterate the row's fits report under a declared stopping rule. It reads ``"last"``
         under ``"relative"``.
+    later_covariates : bool, default False
+        Whether the row's fits are hazard fits (``survival_model="hazard"``) with a covariate
+        block at a node after the first, which run the backward pass of X70 part (b1).
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -3911,6 +3992,7 @@ def long_row(
                 stopping=stopping,
                 step_bound=step_bound,
                 iterate=iterate,
+                later_covariates=later_covariates,
             ),
         ),
     )
@@ -5614,8 +5696,9 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: studies of ``LTMLE`` and ``SDR`` at three to five decisions (``G46``) and the learned two-node
 #: regimen (``G47``), the eliminated competing event (``G48``), separable effects (``G49``),
 #: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``),
-#: the working model over the hazard curve (``G60``) and a modified treatment policy on the
-#: hazard path (``G61``).
+#: the working model over the hazard curve (``G60``), a modified treatment policy on the
+#: hazard path (``G61``), hazards with a treatment at several nodes (``G62``) and hazards with
+#: covariates after baseline (``G63``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -6104,6 +6187,190 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_multinode_rows() -> tuple[SupportRow, ...]:
+    """Hazards with a treatment at several nodes of ``hazard-multinode`` (X70 part (a)): ``G62``.
+
+    ``LTMLE`` with ``survival_model="hazard"`` on a design whose binary treatment is decided at
+    every node, with baseline covariates only, enumerates the treatment paths of its regimens as
+    slots.  The key reads the unheld treatment axis.  The regimen rows name
+    ``targeting="iterative"``: the study's one-step walk over regimen curves is a reported,
+    ungated family, so a one-step regimen fit matches no row.  The working model needs the
+    one-step walk (H14).  The rows were added because every declared verdict passed: 51 of 51
+    primary tests and 39 of 39 property cells with a verdict (calibration with its controls on
+    three fit labels, the simultaneous band on two laws, robustness with an all-wrong control
+    and a node-only hazard learner, targeting necessity, the root-n rate and power).  Four fits that
+    held a prefix cell were recorded as lost replicates, inside the failure bound.  The numbers
+    are the committed results (``tests/canonical/hazard_multinode``).
+    """
+    slug = ["hazard-multinode"]
+    shared = (
+        "Finite laws with W1 binary and W2 on four levels, a binary treatment at every node "
+        "logistic in W and the previous arm, dropout and a logistic event hazard in W and the "
+        "last two arms, one cause. Correctly specified low-dimensional logistic learners at "
+        "n = 2,000, one fold, g_bounds = 1e-3; a wrong hazard learner, a node-only hazard "
+        "learner or wrong mechanisms only in the robustness cells. Cross-fitting, competing "
+        "causes, more than two treatment levels, observation weights, clusters, node_bounds, a "
+        "flexible learner and the one-step walk over regimen curves rest on "
+        "tests/unit/test_hazard_multinode.py. A fit that holds a prefix cell reports no "
+        "interval. No comparator: no maintained package targets discrete-time hazards over "
+        "treatment paths."
+    )
+    common: dict[str, Any] = {"outcome_kind": "survival", "survival_model": "hazard"}
+    return (
+        long_row(
+            "G62.three_node",
+            slug,
+            regimens=("static", "stochastic"),
+            treatment=("2",) * 3,
+            targeting="iterative",
+            kinds=_LONG_BAND,
+            cells=["base_contrast", "base_rule", "base_policy", "base_stay"],
+            limits=[
+                "Three nodes, regimens always, never, a known rule of W, a known policy that "
+                "reads the previous arm, and a draw at node 1 then kept. The primary rows read "
+                "coverage 0.934 to 0.955 over 2,400 draws, the calibration cells SE ratio 0.993 "
+                "to 1.004 over 5,198, and the max-t band over every risk and contrast joint "
+                "coverage 0.941.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G62.four_node",
+            slug,
+            regimens=("static", "stochastic"),
+            treatment=("2",) * 4,
+            targeting="iterative",
+            kinds=_LONG_BAND,
+            cells=["four_contrast", "four_policy"],
+            limits=[
+                "Four nodes, regimens always, never and a known policy over 16 paths. The "
+                "primary rows read coverage 0.940 to 0.961 over 2,400 draws, the calibration "
+                "cells SE ratio 0.985 and 0.999 over 5,200, and the max-t band over every risk "
+                "and contrast joint coverage 0.948.",
+                shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G62.msm",
+            slug,
+            msm=True,
+            treatment=("2",) * 3,
+            targeting="one_step",
+            cells=["msm_dose", "msm_dose_W1"],
+            limits=[
+                "The logit working model (1, d, t, d W1) over the eight static paths of the "
+                "three-node law, with d the cumulative dose through t and uniform cell weights. "
+                "The primary rows read coverage 0.947 to 0.954 over 2,400 draws and the "
+                "calibration cells SE ratio 0.985 and 0.997 over 5,200; no band is validated "
+                "on this fit.",
+                shared,
+            ],
+            **common,
+        ),
+    )
+
+
+def _hazard_time_varying_rows() -> tuple[SupportRow, ...]:
+    """Hazards with covariates after baseline of ``hazard-time-varying`` (X70 (b1)): ``G63``.
+
+    ``LTMLE`` with ``survival_model="hazard"`` and ``targeting="one_step"`` on a held design with
+    a ``time_varying=`` block at a node after the first runs the backward pass of
+    :mod:`cleverly.longitudinal.hazard_backward`, which the key marks ``later_covariates``.  The
+    rows were added because every declared verdict passed: 54 of 54 primary tests and 34 of 34
+    property cells with a verdict (calibration with its controls on four fit labels, the
+    simultaneous band on two laws, robustness with an all-wrong control, targeting necessity,
+    the root-n rate and power), with no failed or held fit.  The numbers are the committed results
+    (``tests/canonical/hazard_time_varying``).
+    """
+    slug = ["hazard-time-varying"]
+    shared = (
+        "Evidence covers one scalar binary covariate per node after baseline on Markov laws "
+        "(each factor at node k reads L_k only); a continuous, multivariate or non-Markov L_k "
+        "rests on tests/unit/test_hazard_time_varying.py.",
+        "Evidence covers targeting='one_step' with correctly specified or misspecified logistic "
+        "and cell-mean learners at n = 2,000, without observation weights, clusters or "
+        "node_bounds. No comparator: no maintained package targets discrete-time hazards with "
+        "covariates after baseline by a backward pass.",
+    )
+    common: dict[str, Any] = {
+        "held": True,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+        "later_covariates": True,
+    }
+    return (
+        long_row(
+            "G63.held.in_sample",
+            slug,
+            outcome_kind="survival",
+            treatment=("2",) * 5,
+            kinds=_LONG_BAND,
+            cells=["one_cause_contrast", "one_cause_risk"],
+            limits=[
+                "One cause over five visits with dropout. The primary rows read coverage 0.935 "
+                "to 0.953 over 2,400 draws, the calibration cells SE ratio 0.988 and 1.007 over "
+                "4,800, and the max-t band over the curve joint coverage 0.944.",
+                *shared,
+                "Regimens: static arms only; a rule or known policy on a held design rests on "
+                "the unit tests.",
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.held.competing",
+            slug,
+            outcome_kind="competing",
+            treatment=("2",) * 4,
+            kinds=_LONG_BAND,
+            cells=["competing_contrast", "competing_risk"],
+            limits=[
+                "Two causes over four visits with dropout. The primary rows read coverage 0.938 "
+                "to 0.953 over 2,400 draws, the calibration cells SE ratio 0.989 and 1.002 over "
+                "4,800, and the max-t band over both causes' curves joint coverage 0.944.",
+                *shared,
+                "Regimens: static arms only, two causes.",
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.held.mtp",
+            slug,
+            outcome_kind="survival",
+            regimens=("mtp",),
+            treatment=("3",) * 5,
+            cells=["three_arm_contrast", "three_arm_risk"],
+            limits=[
+                "A three-level treatment over five visits moved up one level at node 1, against "
+                "the natural course. The primary rows read coverage 0.936 to 0.958 over 2,400 "
+                "draws and the calibration cells SE ratio 0.991 and 1.005 over 4,800; no band is "
+                "validated on this fit.",
+                *shared,
+                "Regimens: one modified treatment policy at node 1 on a three-level treatment, "
+                "against the natural course.",
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.held.cross_fitted",
+            slug,
+            outcome_kind="survival",
+            treatment=("2",) * 5,
+            splitting=("cross_fitted",),
+            cells=["crossfit_contrast", "crossfit_risk"],
+            limits=[
+                "The one-cause law on five outer folds. The calibration cells read SE ratio "
+                "1.017 and 1.019 over 4,800 draws; no band is validated on this fit.",
+                *shared,
+                "Regimens: static arms only. The cross-fitted stitch has the same limit as the "
+                "in-sample one under parametric learners, so it rests on the unit tests.",
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -6244,6 +6511,8 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_survival_dr_tmle_rows(),
         *_hazard_msm_rows(),
         *_hazard_mtp_rows(),
+        *_hazard_multinode_rows(),
+        *_hazard_time_varying_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
@@ -6626,6 +6895,12 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     # hazard_mtp_properties: each fit label's band over every risk and contrast of both curves.
     "G61.levels": (_band("hazard_mtp", "levels_curve"),),
     "G61.density": (_band("hazard_mtp", "gaussian_density_curve"),),
+    # hazard_multinode_properties: each regimen fit label's band over every risk and contrast.
+    "G62.three_node": (_band("hazard_multinode", "base_curve"),),
+    "G62.four_node": (_band("hazard_multinode", "four_curve"),),
+    # hazard_time_varying_properties: each fit label's band over every risk and contrast.
+    "G63.held.in_sample": (_band("hazard_time_varying", "one_cause_curve"),),
+    "G63.held.competing": (_band("hazard_time_varying", "competing_curve"),),
     # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
     # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
     "T14": (_band("tmle3_stratified", "crossfit_strata"),),

@@ -2,7 +2,7 @@
 
 This directory holds the gated repeated-sampling study of X11 part (f3) (X11 PR 2). The
 declaration was committed before any run. The declared run passed every primary test and every
-property cell, and the study is registered with the support rows `T55`
+property cell, and the study is registered with the support rows `T57`
 (`docs/technical-reference/method-evidence/learned-rule-optimal-compositions.md`).
 The subject is `TMLE(learned_rule=LearnedRule(),
 estimands=["ey_optimal_rule"], n_folds=10, cv_evaluation=True, targeting_scheme="pooled",

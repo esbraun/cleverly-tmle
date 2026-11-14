@@ -349,7 +349,7 @@ class TestWf3IdIdentity:
 
     @pytest.mark.parametrize("name", list(PAIRS))
     def test_every_composition_without_a_known_g_reads_experimental(self, name: str) -> None:
-        """Every row ``T55`` needs ``known_mechanism``, which these fits do not key."""
+        """Every row ``T57`` needs ``known_mechanism``, which these fits do not key."""
         _, optimal = _pairs(name)
         for estimate in optimal.estimates.values():
             assert estimate.support.label == "experimental"

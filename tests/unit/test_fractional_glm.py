@@ -7,6 +7,14 @@ a warning.  The learner raised.  It now keeps the last iterate with
 ``QuasiBinomialSeparationWarning`` when the deviance has converged by R's rule, and it still
 raises when the deviance has not.
 
+Complete separation of a binary target is a second case.  The deviance tends to zero there
+and never meets R's relative rule, so the learner raised on 8% of the cross-fitted LTMLE draws of
+``few_cluster_crossfit_properties`` at 4 clusters.  It now detects the case on the design and
+the target, by a linear program for a strict separating hyperplane
+(:func:`~tests.studies.fractional_glm.completely_separated`), and keeps the last iterate with
+the same warning.  The draws that raised are must-not-raise fixtures below, and so are 120
+random separated designs.
+
 The learner is shared by many registered studies, so a converging fit must take the same
 iterates as before.  ``_previous_fit`` is the learner as it was, and the bit-identity test
 compares the two on converging fits.
@@ -22,7 +30,13 @@ import numpy as np
 import pytest
 from scipy.special import expit
 
-from tests.studies.fractional_glm import QuasiBinomialGLM, QuasiBinomialSeparationWarning
+from tests.studies import fractional_glm
+from tests.studies.fractional_glm import (
+    QuasiBinomialGLM,
+    QuasiBinomialSeparationWarning,
+    completely_separated,
+    deviance,
+)
 
 
 def _previous_fit(X: Any, y: Any, max_iter: int = 100, tol: float = 1e-10) -> np.ndarray:
@@ -60,7 +74,7 @@ def _separated(n: int = 600, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     return np.column_stack([w1, w2]), y
 
 
-@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("seed", range(20))
 def test_a_converging_fit_takes_the_same_iterates(seed: int) -> None:
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(400, 3))
@@ -108,3 +122,189 @@ def test_the_failing_study_replication_now_fits() -> None:
     for name in study.ESTIMANDS["competing"]:
         assert np.isfinite(result[name].psi)
         assert np.isfinite(result[name].std_error)
+
+
+# ------------------------------------------------------------------ complete separation
+
+#: The cross-fitted LTMLE draws of ``few_cluster_crossfit_properties`` (law ``equal40``, 4
+#: clusters) on which the learner raised at complete separation before it detected the case:
+#: the first 12 of the seeds ``9_204_000 + r``.
+SEPARATED_DRAW_SEEDS = (
+    9_204_012,
+    9_204_031,
+    9_204_085,
+    9_204_094,
+    9_204_097,
+    9_204_108,
+    9_204_121,
+    9_204_137,
+    9_204_144,
+    9_204_152,
+    9_204_157,
+    9_204_163,
+)
+
+
+def _completely_separated_design(n: int) -> tuple[np.ndarray, np.ndarray]:
+    """``Y = 1{x > 0}``, with a quarter of the rows on each side at distance ``0.005``.
+
+    The rows at the margin are many, so the deviance of the last iterate is a sum of many
+    small terms: above ``1e-6`` at 320 rows.  That lets the design tell direct detection from
+    an absolute deviance floor.
+    """
+    quarter = n // 4
+    side = np.concatenate([np.full(quarter, 0.005), np.linspace(0.005, 1.005, quarter)])
+    x = np.concatenate([-side, side])[:, None]
+    return x, (x[:, 0] > 0.0).astype(float)
+
+
+def _with_intercept(X: np.ndarray) -> np.ndarray:
+    return np.column_stack([np.ones(len(X)), X])
+
+
+def _last_iterate(design: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """The coefficients after 100 unguarded IRLS steps, for the mutated rules to read."""
+    mean = float(np.clip(target.mean(), 1e-8, 1.0 - 1e-8))
+    coefficient = np.zeros(design.shape[1])
+    coefficient[0] = math.log(mean / (1.0 - mean))
+    for _ in range(100):
+        fitted = expit(design @ coefficient)
+        variance = np.clip(fitted * (1.0 - fitted), 1e-10, None)
+        working = design @ coefficient + (target - fitted) / variance
+        root = np.sqrt(variance)
+        coefficient = np.linalg.lstsq(design * root[:, None], working * root, rcond=None)[0]
+    return coefficient
+
+
+def _fits_without_raising(seeds: tuple[int, ...]) -> list[int]:
+    """The seeds whose study fit raised ``RuntimeError``."""
+    from tests.studies import few_cluster_crossfit_properties as study
+
+    raised = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for seed in seeds:
+            try:
+                estimate, _ = study.fit_drawn(study.draw("equal40", 4, seed))
+            except RuntimeError:
+                raised.append(seed)
+            else:
+                assert np.isfinite(estimate.psi)
+    return raised
+
+
+@pytest.mark.parametrize("n", [40, 320])
+def test_complete_separation_keeps_the_last_iterate(n: int) -> None:
+    X, y = _completely_separated_design(n)
+    with pytest.raises(RuntimeError, match="did not converge"):
+        _previous_fit(X, y)
+    with pytest.warns(QuasiBinomialSeparationWarning, match="complete separation"):
+        model = QuasiBinomialGLM().fit(X, y)
+    fitted = model.predict(X)
+    assert np.all(np.abs(fitted - y) < 1e-4)
+    # The rows at the margin are near their class, not at it: a nonzero witness that the fit
+    # kept an iterate rather than returning the labels.
+    assert float(np.max(np.abs(fitted - y))) > 0.0
+
+
+@pytest.mark.parametrize("n", [40, 320, 2000])
+def test_random_separated_designs_never_raise(n: int) -> None:
+    """A random hyperplane splits Gaussian rows: some rows lie close to it at every size.
+
+    A rule that read how close the last iterate came to the labels missed 29 of 40 of these
+    designs at 320 rows, because IRLS had not yet brought the rows near the hyperplane within
+    its tolerance.
+    """
+    for seed in range(40):
+        rng = np.random.default_rng(seed)
+        X = rng.normal(size=(n, 2))
+        y = (X[:, 0] + 0.5 * X[:, 1] > 0.0).astype(float)
+        with pytest.warns(QuasiBinomialSeparationWarning, match="complete separation"):
+            QuasiBinomialGLM().fit(X, y)
+
+
+def test_complete_separation_on_the_study_draws_that_raised() -> None:
+    """Review fixtures: every draw that raised at complete separation now fits."""
+    assert _fits_without_raising(SEPARATED_DRAW_SEEDS) == []
+
+
+def test_without_detection_the_study_draws_raise(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: the study draws above are witnesses of the separation branch."""
+    monkeypatch.setattr(fractional_glm, "completely_separated", lambda *args: False)
+    assert _fits_without_raising(SEPARATED_DRAW_SEEDS) == list(SEPARATED_DRAW_SEEDS)
+
+
+def test_a_rule_relative_to_the_null_deviance_misses_study_draws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation control: separation read as deviance at most ``1e-8`` of the null deviance."""
+
+    def relative(design: np.ndarray, target: np.ndarray, weights: np.ndarray) -> bool:
+        fitted = expit(design @ _last_iterate(design, target))
+        null = np.full_like(target, np.average(target, weights=weights))
+        return deviance(target, fitted, weights) <= 1e-8 * deviance(target, null, weights)
+
+    monkeypatch.setattr(fractional_glm, "completely_separated", relative)
+    assert len(_fits_without_raising(SEPARATED_DRAW_SEEDS)) >= 1
+
+
+def test_an_absolute_deviance_floor_misses_the_large_design(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation control: separation read as a deviance of at most ``1e-6``."""
+
+    def floor(design: np.ndarray, target: np.ndarray, weights: np.ndarray) -> bool:
+        fitted = expit(design @ _last_iterate(design, target))
+        return deviance(target, fitted, weights) <= 1e-6
+
+    monkeypatch.setattr(fractional_glm, "completely_separated", floor)
+    X, y = _completely_separated_design(320)
+    with pytest.raises(RuntimeError, match="did not converge"):
+        QuasiBinomialGLM().fit(X, y)
+
+
+def test_a_fractional_target_is_never_separated() -> None:
+    """Values 0.001 and 0.999 split by a threshold: a finite fit, not the separation branch."""
+    X, labels = _completely_separated_design(40)
+    target = np.where(labels == 1.0, 0.999, 0.001)
+    weights = np.ones_like(target)
+    assert not completely_separated(_with_intercept(X), target, weights)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        model = QuasiBinomialGLM().fit(X, target)
+    assert np.all(np.isfinite(model.coef_))
+
+
+def test_a_zero_weight_row_does_not_count_toward_separation() -> None:
+    """The third row sits on the wrong side of every separator of the first two."""
+    design = _with_intercept(np.array([[-1.0], [1.0], [2.0]]))
+    target = np.array([0.0, 1.0, 0.0])
+    assert completely_separated(design, target, np.array([1.0, 1.0, 0.0]))
+    assert not completely_separated(design, target, np.ones(3))
+
+
+def test_quasi_separation_is_not_complete_separation() -> None:
+    """A row on the hyperplane: no strict separator exists, so the deviance rule decides.
+
+    ``_separated`` puts every ``W1 = 0`` row at ``Y = 0`` while the ``W1 = 1`` cell holds both
+    classes, which no hyperplane splits strictly.  Its fit keeps the quasi-complete message.
+    """
+    X, y = _separated()
+    assert not completely_separated(_with_intercept(X), y, np.ones_like(y))
+
+
+def test_a_deviance_that_rises_is_not_read_as_separation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: a separated design whose last step raised the deviance still raises.
+
+    The steps alternate between a separating and a reversed coefficient and end on the
+    reversed one.  Dropping the clause that the deviance fell would keep that iterate.
+    """
+    X, y = _completely_separated_design(40)
+    steps = iter(np.array([[0.0, sign * 2.0] for sign in (1, -1) * 100]))
+
+    def oscillate(*args: Any, **kwargs: Any) -> tuple[np.ndarray, None, None, None]:
+        return next(steps), None, None, None
+
+    monkeypatch.setattr(fractional_glm.np.linalg, "lstsq", oscillate)
+    with pytest.raises(RuntimeError, match="did not converge"):
+        QuasiBinomialGLM().fit(X, y)

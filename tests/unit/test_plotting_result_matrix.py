@@ -299,6 +299,9 @@ def _structural_nested_mean() -> Any:
 FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_repeats": _point_tmle,
     "point_tmle_bootstrap": _point_bootstrap,
+    # The known-score ATT and ATC on a declared mechanism (X35): the same result class, whose
+    # ATT and ATC carry a different plug-in and influence curve.
+    "point_tmle_known_score": sweep.fit_known_score,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
@@ -311,6 +314,10 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # X70 (d) and (c): the hazard working model and the hazard modified treatment policy.
     "hazard_msm": sweep.fit_hazard_msm,
     "hazard_mtp": sweep.fit_hazard_mtp,
+    # X70 (b1): the hazard path on a held design with covariates after baseline.
+    "hazard_time_varying": sweep.fit_hazard_time_varying,
+    # X70 (a): the hazard path with a treatment at several nodes and baseline covariates.
+    "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
 }
@@ -354,6 +361,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "draws",
+    },
+    "point_tmle_known_score": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "ltmle_repeats": {
         "forest": "draws",
@@ -407,10 +426,10 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "X100",
         "influence": "draws",
-        "overlap": "X100",
-        "weights": "X100",
+        "overlap": "draws",
+        "weights": "draws",
         "balance": "X103",
-        "learners": "X100",
+        "learners": "draws",
         "calibration": "CapabilityError: calibration() draws a nuisance report's",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
@@ -477,6 +496,30 @@ EXPECTED: dict[str, dict[str, str]] = {
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "hazard_mtp": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_time_varying": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "X103",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_multinode": {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
@@ -686,4 +729,45 @@ def test_a_hazard_policy_names_its_shifted_weights(fits: Any) -> None:
     text = " ".join(plotting.notes(fig))
     assert "modified treatment policy" in text
     assert "held" not in text
+    plt.close(fig)
+
+
+def test_a_held_rule_is_capped_at_its_last_node() -> None:
+    """A one-node known rule on a held design: later nodes are held, and the limit caps them.
+
+    A held node repeats the baseline decision and adds no treatment factor, so the weight at
+    the last node is still the data's weight over the bounded cumulative probability.
+    """
+    from cleverly.longitudinal import DynamicRegimen, node_weights
+    from cleverly.plotting._weights import _capped
+
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    rule = DynamicRegimen(
+        "rule", (lambda h: np.asarray(h["W1"] > 0, dtype=int),), rule_kind="known"
+    )
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = study.identify(
+            RegimeContrast(regimens={"rule": rule, "a0": 0}, reference="a0")
+        ).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+            treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+            censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+            survival_model="hazard",
+            targeting="one_step",
+            random_state=5,
+            simultaneous=False,
+            **sweep.IN_SAMPLE,
+        )
+    kinds = node_weights(result, regimen="rule", horizon=4).node_kinds
+    assert kinds == ("rule", "held", "held", "held")
+    assert _capped(kinds, len(kinds) - 1)
+    # A static arm reports label at every node.
+    assert node_weights(result, regimen="a0", horizon=4).node_kinds == ("label",) * 4
+    fig = plotting.weights(result, regimens=["rule"])
+    assert "held" not in " ".join(plotting.notes(fig))
     plt.close(fig)

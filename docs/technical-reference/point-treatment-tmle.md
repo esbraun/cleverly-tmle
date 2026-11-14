@@ -77,6 +77,9 @@ influence curves include the randomness of that conditioning event. They are not
 different summary label. Positivity is needed at the counterfactual reference arm *within* the
 conditioning population.
 
+With a declared mechanism, `conditional_form="known_score"` reports the known-score efficient form
+([known treatment mechanism](#known-treatment-mechanism)).
+
 The estimators are `att_estimate` and `atc_estimate` in
 [`inference/influence.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/influence.py).
 
@@ -451,9 +454,9 @@ In that column, "in sample" is `CrossFitting(enabled=False)`. The engine form is
 | sample, each role whose learner is a package `SuperLearner` with a classification task | three rows in each class of the role target | replace that learner. With exactly two rows in the class, the message also names fit in sample |
 | each training complement | one respondent, one nonrespondent, one row in each arm, and one respondent in each arm | fit in sample, or collect more observations at the rare level |
 | each training complement, binary outcome | both outcome classes among the respondents | the same as the row above |
-| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target | the same as the row above |
+| each training complement, each role whose learner is a package `SuperLearner` with a classification task | two rows in each class of the role target. A binary outcome role asks it only of a class the complement holds: with none, the regression is the value and no Super Learner runs ([one value](#a-binary-outcome-regression-with-one-value)) | the same as the row above |
 
-The role targets are the outcome among respondents, the response indicator, and the treatment. The
+The role targets are the outcome among respondents (per arm under `outcome_by_arm=True`), the response indicator, and the treatment. The
 outcome target is the scaled outcome that the fit trains on. A complement failure names the repeat
 and the fold. It names no redraw, because the split reads no treatment and no outcome, and a fold
 count or a seed that happens to fit was chosen by reading them.
@@ -617,6 +620,7 @@ counts, so each arm must appear in two distinct clusters. See
 | `step_bound=`, `step_search=` | the longest step of one iteration, and whether a line search sets its length | it changes the path of the iteration. The score equation is the same |
 | `iterate=` | which iterate of the walk the fit reports | it changes the reported fit only when the walk oscillates |
 | `outcome_by_arm=` | one outcome regression for each treatment arm | it changes the nuisance estimator. See [per-arm outcome regression](#per-arm-outcome-regression) |
+| `conditional_form=` | the ATT and ATC plug-in: the mean over the conditioning arm (`"arm_mean"`), or the declared-score weighted mean (`"known_score"`) | **yes.** The second is the TMLE of the model with a known mechanism and needs one. See [known treatment mechanism](#known-treatment-mechanism) |
 | `treatment_adjustment=` | the adjustment columns the treatment mechanism reads | **yes.** It restricts the statistical model. See [treatment-mechanism covariates](#treatment-mechanism-covariates) |
 | `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
 
@@ -1024,6 +1028,41 @@ intercept-only mechanism, the per-arm fit returns the truth to $10^{-10}$ and th
 misses it by the exact targeting limit of its regression. A spy on the study's own fits checks
 that each arm's regression reads only that arm's rows and the covariates.
 
+### A binary outcome regression with one value
+
+A binary outcome regression whose training rows all hold 0, or all hold 1, is that value, and no
+learner runs there. One is the maximum-likelihood probability of the value the rows hold. A
+standard classifier such as `LogisticRegression` refuses such a target, and a learner that
+accepts it returns a value at or near the class. The targeting step starts a prediction of 0 or 1
+at its probability bound (`alpha`), as it does any prediction. This is the point-treatment form of
+the longitudinal rule in [a node with no event](longitudinal-tmle.md#a-node-with-no-event).
+
+| regression | result |
+| --- | --- |
+| the pooled outcome regression, cross-fitted | not reached. A training complement without both outcome classes is refused before any learner, as the preflight of [stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states |
+| the per-arm outcome regression (`outcome_by_arm=True`), one arm's training rows in a fold | that arm's regression in the fold is the value. With a package `SuperLearner`, the preflight asks two rows of a class only of a complement that holds at least one, because a complement with none fits no Super Learner. One row of a class is still refused |
+| the `DRTMLE` leave-two-out outcome regressions of `reduced_crossfit="foldwise"`, pooled or per arm, the rows outside a pair of folds | that pair's regression is the value. With a package `SuperLearner`, a pair that keeps one row of a class is refused after the fold draw and before any learner, and the refusal names the pair and `reduced_crossfit="pooled"` |
+| a treatment-mechanism regression | not read by this rule. A complement without an arm is a positivity failure, and the fit keeps its refusal |
+| the per-arm outcome regression of an in-sample fit, an arm whose observed outcomes hold one value | that arm's regression is the value. The estimates that read the arm withhold the interval through the `constant_arm_cell_plugin` status ([inference status](inference.md#inference-status)) |
+| the pooled outcome regression of an in-sample fit | not read by this rule |
+
+A constant fold changes no status. A sample arm whose outcomes hold one value takes
+`constant_arm_cell_plugin` with or without the rule. The nuisance report of the outcome model
+names `TMLE_CONSTANT_TARGET_IN_FOLD` in `fold_omission` and the one-based folds in
+`omitted_folds`, and the full summary adds a line for them. The model's row stays and reads every
+fold's predictions, so its log loss reads a fold's exact 0 or 1 at the report's clip of
+$10^{-12}$. The leave-two-out regressions are not reported, because the report reads the
+production predictions.
+
+`tests/unit/test_constant_target_in_fold.py` builds a fold of one value for the per-arm and the
+leave-two-out regressions, and an in-sample arm of one value. It checks the predictions, the
+targeting bound, the report and the status. Its mutations remove the rule and see the
+classifier's two-class error return. A second control passes the rule to the treatment-mechanism
+regression and sees the pinned refusal change, and a third restores the Super Learner preflight's
+two-row rule and sees the constant fold refused. `TestLeaveTwoOutSuperLearner` does the same
+for a leave-two-out pair, and its controls remove the pair check, which lets the Super Learner's
+own one-member error through, or the exemption, which refuses the constant pair.
+
 ### Treatment-mechanism covariates
 
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset $W_g$ of the
@@ -1210,7 +1249,7 @@ the curve each fit reports.
 | --- | --- | --- |
 | arm means, ATE, RR, OR, PAR, PAF, regimes and MSMs, on complete data | the ordinary curve at $g_0$, which is the exact influence curve | Moore and van der Laan (2009), Sections 2 and 5 |
 | missing outcomes (`delta=`) and a controlled direct effect (`intermediate=`) | the ordinary curve at $g_0$ and at the estimated second mechanism. The declaration replaces the treatment mechanism only. The observation mechanism $\hat\pi$, or the intermediate mechanism $\hat q_z$, is still estimated. The remainder is the product of that mechanism's error and the outcome error, so the ordinary TMLE conditions apply. The interval is established when both are consistent at a product rate. It is not established for a wrong outcome regression | the missing-outcome and controlled-direct-effect contracts above |
-| ATT and ATC | the shipped ATT and ATC curve at $g_0$. It is exact, and it is not the known-score efficient curve | the algebra below; Hahn (1998) |
+| ATT and ATC | the shipped curve at $g_0$, which is exact. With `conditional_form="known_score"`, the known-score curve, which is the efficient one in the model with $g_0$ known | the algebra below; Chen, Hong and Tarozzi (2008), Theorems 1 and 2 |
 | `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no mechanism term, for any number of levels | Kennedy (2019), the remark after Corollary 2 |
 | `learned_rule=` | the shipped learned-rule curve. The rule reads the outcome regression only | the learned-rule contract above |
 | `DRTMLE` | see the [DR-TMLE contract](dr-tmle/theorem.md#a-known-treatment-mechanism) | Benkeser et al. (2017), Theorem 1 |
@@ -1244,10 +1283,49 @@ equation, it gives $\hat\psi-\psi_0=(P_n-P_0)D^*_{\text{ATT}}(\bar Q_\infty,g_0)
 the empirical-process term. The remainder is zero for any $\bar Q$, and the ATC is the mirror
 image.
 
-The curve is not the efficient one when the score is known. Hahn (1998) gives a smaller ATT
-bound for a known propensity score than for an unknown one, as read from the abstract. By the
-remainder algebra above, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has
-the smaller curve. The package does not ship it.
+The shipped curve is not the efficient one when the score is known. The bound for the ATT with a
+known score is smaller than with an unknown one, by
+$E_0\{g_0(1-g_0)(\tau_0-\psi_0)^2\}/p^2$, where $\tau_0=\bar Q_{1,0}-\bar Q_{0,0}$ and $\psi_0$
+is the ATT. Chen, Hong and Tarozzi (2008, Theorems 1 and 2), Imbens (2004, Section 2.5) and
+Frölich (2002, displays (9) and (10)) state both bounds and credit Hahn (1998). The ATE bound is
+the same for both.
+
+`TMLE(conditional_form="known_score")` reports the TMLE of the model in which $g_0$ is known. With
+$g_0$ known the ATT is the functional $E\{g_0(W)\tau(W)\}/E\{g_0(W)\}$ of the covariate law
+and the outcome regression alone. The fit runs the shipped targeting step and reports the plug-in
+
+$$
+\hat\psi=\frac{P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}}{P_n g_0}
+$$
+
+with influence curve
+
+$$
+D_{\text{KS}}=\frac{1}{p}\Big[A(Y-\bar Q_1)-(1-A)\frac{g_0}{1-g_0}(Y-\bar Q_0)+g_0(\tau-\psi)\Big].
+$$
+
+It is the shipped curve minus its projection $(A-g_0)(\tau-\psi)/p$ on the mechanism's tangent
+space. By the identities above, $\hat\psi-\psi_0=(P_n-P_0)D_{\text{KS}}(\bar Q_\infty,g_0)$ up
+to the empirical-process term, for any limit of the outcome regression. With missing outcomes or
+a controlled direct effect the residual carries the shipped factors, and the remainder is the
+shipped product of the second mechanism's error and the outcome error. The ATC is the mirror
+image, with weight $1-g_0$. With $K$ arms, the ATT of arm $a$ weights by $g_0(a\mid W)$ and the ATC
+by $g_0(r\mid W)$.
+
+At a consistent outcome regression $D_{\text{KS}}$ attains the known-score bound, so its variance
+is the smaller one. The gain is zero only when the effect $\tau_0$ is constant where
+$0<g_0<1$, and a completely randomized trial gains too: the known-score form averages every
+unit's covariates, the default form only the treated units'. With a wrong outcome regression
+neither curve's variance is smaller in general.
+
+Both forms estimate the population ATT. As an
+estimate of the effect among the treated units actually in the sample, the known-score form
+carries the extra term $-(A-g_0)(\tau-\psi)/p$, so the default `"arm_mean"` form suits that
+question. Without a declared mechanism the option is refused: the weighting term would carry the
+first-order error of $g_n$, which the curve omits. `tests/unit/test_known_score_att.py` checks the
+curve against the numerical Gateaux derivative of the fixed-$g_0$ functional on the binary,
+weighted, three-arm, missing-outcome and controlled-direct-effect laws, and the variance gain
+exactly. The registered [known-score ATT study](method-evidence/known-score-att.md) measures it.
 
 **Incremental interventions.** With $g_0$ known, $q_\delta(g_0)=\delta g_0/(\delta g_0+1-g_0)$ is
 a known stochastic regime. With $K$ levels it is $q_\delta(a\mid W)=\delta_a g_0(a\mid W)/D_\delta(W)$. The model with a known mechanism has no mechanism scores, so the
@@ -1292,13 +1370,26 @@ rows.
 | reader | declared mechanism |
 | --- | --- |
 | `n_bootstrap=` and the subset refutation | carried. Each replicate reads the declared values of the rows it drew |
-| the placebo refutation | dropped, because a permuted treatment has a mechanism of its own. The refit estimates it, and the report says so. The permuted treatment is independent of $W$, so the re-estimated null stays centred |
+| the placebo refutation | replaced by the placebo law's own mechanism. The placebo treatment is drawn independently of $W$ with the original arm shares, so each refit declares those constant shares and fits no treatment learner |
 | simulated confounding | carried as the flipped mechanism. The flip of strength $s$ is independent of $W$, so the flipped treatment's mechanism is $g_s(a\mid W)=(1-s)\,g_0(a\mid W)+s\,g_0(1-a\mid W)$. Each cell declares $g_s$, and its refit fits no treatment learner |
 | `random_common_cause`, measurement error and the negative-control outcome | carried |
 | replay and `refit` | carried. A refit of a known-mechanism fit reproduces it bit for bit |
 | `retarget`, the truncation curve, the MNAR tilt, and the omitted-variable bound | read the cached declared mechanism |
 | the omitted-variable `benchmark` | refused. A declared mechanism does not change when a covariate is dropped |
 | `variable_importance` | not carried. Each candidate is a different treatment with no declaration |
+
+A fit with `conditional_form="known_score"` (below) keeps that form in every reader that refits
+or re-solves through the estimator: the bootstrap, `refit`, `retarget`, the truncation curve, and
+the placebo, subset, simulated-confounding and other refit refutations. The dummy and simulated
+outcome refutations take the ATT and ATC truth as the mean over every held row weighted by the
+declared probability of the conditioning arm, the functional that form estimates. The MNAR tilt,
+the omitted-variable bound (with its contour, elements and robustness value) and the marginal
+sensitivity bound rebuild the ATT and ATC as the mean
+over the conditioning arm, so they refuse those two estimands of a known-score fit, and run on
+its other estimands. `variable_importance` fits each candidate treatment with the arm-mean form,
+because a candidate declares no mechanism. The figures read what the fit reports: the influence
+plot of the ATT draws the known-score curve, and the truncation-curve figure draws the carried
+sweep.
 
 **Refusals.** Each of these refuses before any learner.
 
@@ -1311,6 +1402,9 @@ rows.
 | `screen_treatment=True` | `ValueError` | the screen selects covariates for the treatment learner, which the declaration replaces |
 | `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on an evaluation frame, or pass a `CausalData` companion that declares its own |
 | a second declaration of the mechanism | `ValueError` | declare it once, on the data or at fit |
+| `conditional_form="known_score"` without a declared mechanism | `CapabilityError` | the weighting term would carry the first-order error of the estimated mechanism, which the curve omits |
+| `conditional_form="known_score"` on a fit that requests neither `att` nor `atc` | `MethodConfigurationError` | the option changes only those two estimates |
+| `conditional_form="known_score"` on `DRTMLE`, `CTMLE` or `AdaptiveIPTW` | `MethodConfigurationError` | the form is a plug-in of `TMLE` |
 
 The result records the choice. `TMLEConfig.treatment_mechanism` reads `"known"`, the summary
 header prints `Treatment model: known (declared)`, and `to_frame()` adds a `treatment_mechanism`
@@ -2123,12 +2217,12 @@ estimator, which is valid there, is a different estimator, and
 | --- | --- |
 | the fold-evaluated report on rows with known $g$ (`treatment_probabilities=`), the plug-in rule, two arms, `repeats=1` and pooled targeting | supported, row `T46` of the [optimal-value study](method-evidence/learned-rule-optimal-value.md). The key's family reads `P12` in place of `P11`, with the qualifier `known_mechanism`. The study measures one law with a correct parametric outcome model at n = 2,000 |
 | the stacked report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, an estimated $g$, more than two arms | admitted, experimental. No row declares these keys |
-| `weights=`, fixed, with known $g$ supplied as the weighted population's $g_w$ | supported, row `T55.weighted` of the [optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md). The target is the optimal value of the weighted population, $\Psi^w_{d_0^w}(P_w)$ below. The key cannot tell $g_w$ from the design $g_0$, the Fix-16 case below |
+| `weights=`, fixed, with known $g$ supplied as the weighted population's $g_w$ | supported, row `T57.weighted` of the [optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md). The target is the optimal value of the weighted population, $\Psi^w_{d_0^w}(P_w)$ below. The key cannot tell $g_w$ from the design $g_0$, the Fix-16 case below |
 | `weights=`, estimated, or with an estimated $g$ | admitted, experimental |
-| `strata=` | with known $g$ under the fold-evaluated report, supported, row `T55.strata`; otherwise experimental. Each stratum targets its own optimal value, and the marginal estimate $\Psi_{d_0}$ |
-| known regimes beside it (`interventions=`, `reference=`) | with known $g$ under the fold-evaluated report, supported, row `T55.known_regimes`; otherwise experimental. The fit reports `ey_known_regime[...]` and the contrasts `ate_optimal_rule[...]`, $\Psi_{d_0} - \Psi_{d_k}$ |
-| `cross_fit=False` | with known $g$ and a parametric outcome learner, supported, row `T55.in_sample`; otherwise experimental. The in-sample TMLE of the full-sample rule's value, under C5a |
-| `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | with known $g$ under the fold-evaluated report, supported, row `T55.intermediate`; otherwise experimental. Each level targets $\Psi^z_{d_0^z}$ |
+| `strata=` | with known $g$ under the fold-evaluated report, supported, row `T57.strata`; otherwise experimental. Each stratum targets its own optimal value, and the marginal estimate $\Psi_{d_0}$ |
+| known regimes beside it (`interventions=`, `reference=`) | with known $g$ under the fold-evaluated report, supported, row `T57.known_regimes`; otherwise experimental. The fit reports `ey_known_regime[...]` and the contrasts `ate_optimal_rule[...]`, $\Psi_{d_0} - \Psi_{d_k}$ |
+| `cross_fit=False` | with known $g$ and a parametric outcome learner, supported, row `T57.in_sample`; otherwise experimental. The in-sample TMLE of the full-sample rule's value, under C5a |
+| `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | with known $g$ under the fold-evaluated report, supported, row `T57.intermediate`; otherwise experimental. Each level targets $\Psi^z_{d_0^z}$ |
 | `ey_learned_rule` or `ate_learned_rule` beside it, or `ate_optimal_rule` without it | refused as a declaration, row 2: the names would read one estimate as two targets |
 | strata with `id=`, a rule learner with `intermediate=`, and every other row of the table below | refused as for the learned-rule value with the same setting, with the same text |
 | the omitted-variable bound | an asymmetric point bound on rows, known weights, clusters, fold targeting and in sample, with the strengths read uniformly over every regime. Its lower side is the learned-rule bound and its upper side reads $\nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$ ([the point bound of the value of the optimal rule](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)). The limits and `benchmark()` refuse, and strata, known regimes, an intermediate and the other learned-rule (n2) settings refuse with the learned-rule reason |
@@ -2197,7 +2291,7 @@ their target and in where C3f, C7 and C8 are read.
 Their point and interval are the learned-rule fit's with the same setting. The
 [optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md) measures each
 composition with known $g$ under the fold-evaluated report, the in-sample one with a parametric
-outcome learner, and registers the rows `T55`; every other form of them reads experimental.
+outcome learner, and registers the rows `T57`; every other form of them reads experimental.
 
 The record's target reads `"value of the optimal rule, a fixed parameter"`, and its summary line
 states C3f, C7 and C8 in words, with C7 read as a tie of the best arm with another when there are
