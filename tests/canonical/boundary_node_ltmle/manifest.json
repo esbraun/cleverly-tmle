@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.2.5",
-      "cleverly_commit": "91cb39ae0469937a54aef7cf9cd8031faccb349d",
+      "cleverly_commit": "6c94eeab0365f207c565dde5cb9d23d440fc5039",
       "cleverly_worktree_clean": true,
       "python": "3.13.14",
       "numpy": "2.5.4",
@@ -21,8 +21,8 @@
   "configuration": {
     "replicates": 1000,
     "n": 200,
-    "seed": 20264541,
-    "resampling_seed": 20264542,
+    "seed": 20264751,
+    "resampling_seed": 20264752,
     "publication_policy": "reporting",
     "failure_bound": {
       "cleverly": 0.05
@@ -146,8 +146,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/boundary_node_ltmle.py": "339dfbf12d9a49250b8e50fafbdf3b6247852ede4ea1660c71287366f4665cb2",
-    "tests/studies/boundary_node_properties.py": "dbc763f35710e6b5fb21f2c32803bfc0ffd74e64345985f3b9ab46ac175dca1a",
+    "tests/studies/boundary_node_ltmle.py": "c71189526274f8bd6e73c46bee0078a2535f346720cee8e1b9ac3ce4a132a344",
+    "tests/studies/boundary_node_properties.py": "900e211d86c2446e8b789665044c82318c7c1f20af794906bc38d22e2679777a",
     "tests/studies/boundary_node_laws.py": "6e4f82599f7170fdcee52a79f573fcf0e80520feacada7623383faea469b5d61",
     "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
     "tests/studies/canonical_ltmle_survival.py": "e990bf4fb1049c45afa3e305db2563811488f126c244aff8cd444f4abe36e4d8",
@@ -162,14 +162,14 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "a90a63a9f16995f45ca3caf4f92234b64fc65004490596045c0ba6d6c911a5e2",
-    "summary.csv": "23c69fdbc2b705a5ddd13d5626ce87a2cdf5b857ac3cf1add682743cf3ae9d10",
+    "replicates.parquet": "24c17c13ab0e884b43ee5f0a6667ac14d232c69b0a11910c2a2b59cc64aa52fc",
+    "summary.csv": "f5a71c446d5ceee409028bac8c5bc38542b34d8d3194596f6d5e40c8f9ab07d5",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "c3a8a51700ad424f881cf88cfa00ce62fe8220acf07c2241d56a5fc26fce6ea2",
-    "property-replicates.parquet": "c5073d6e7ad9b15a99ae2ddb8b4633ceecd6ba340a20243b152b6bff05cbc534",
-    "properties.csv": "d6792446e75472ae9a7157d03b9d7ac6c50d7759a91b5fc92c19549d7f05c1bb",
-    "property-failures.csv": "31de9d00aa3b9ef73ac4eb0e1627f65160cd682137bc74e0e449b3de7c70efbc",
-    "property-failure-accounting.csv": "2659f0be522e0da6b75e248599491c7f6cf1a0453e7eaba0871624b0145b62b6",
-    "property-failure-witnesses.parquet": "fc5f310b9fe9a4b489b3c7b85932348887eb4b9570b0bf766fdfc1673d303ff4"
+    "performance-tests.csv": "5a4e7e41989cf2385b9cc7235068deade9adef0c80f2a858df22f71339496fea",
+    "property-replicates.parquet": "c657420d28dc34426d8c245912e82e0d5e92824167e7f06fa762c106f19a9f08",
+    "properties.csv": "8df08c8c32c1a82d8ea7a3fe18fef0ff17952d8d9ae34285d685e035a90e4fd4",
+    "property-failures.csv": "6523674b496ab44ccc8e4eb89ad7c9ad6ef7289fd407d88f511dc35ec95fa3b4",
+    "property-failure-accounting.csv": "38e3df4b711d11809ecc52bf9c7cc89552cc161a638a87a32a321f3f528aea81",
+    "property-failure-witnesses.parquet": "0df05933b973b3a694522f7a2f6cf3fd110c6ffc9fdbeba49ce6221fc6ac7c93"
   }
 }
