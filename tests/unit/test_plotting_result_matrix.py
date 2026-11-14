@@ -295,6 +295,17 @@ def _structural_nested_mean() -> Any:
     )
 
 
+def _mtp_censored(estimator: str) -> Callable[[], Any]:
+    """A continuous-treatment modified policy with dropout after each node (X77)."""
+
+    def build() -> Any:
+        from tests.unit import _capability_sweep_support as sweep
+
+        return sweep._fit_mtp_censored(estimator)
+
+    return build
+
+
 #: One small fit per result family.
 FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_repeats": _point_tmle,
@@ -308,6 +319,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "effect_curve": _effect_curve,
     "dose_response": _dose_response,
     "structural_nested_mean": _structural_nested_mean,
+    "ltmle_mtp_censored": _mtp_censored("ltmle"),
+    "sdr_mtp_censored": _mtp_censored("sdr"),
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -325,6 +338,30 @@ NOT_FITS = {
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
 #: names, or the refusal's class and first five words.
 EXPECTED: dict[str, dict[str, str]] = {
+    "ltmle_mtp_censored": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "sdr_mtp_censored": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "X100",
+        "weights": "draws",
+        "balance": "X100",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "point_tmle_repeats": {
         "forest": "draws",
         "curve": "TypeError: curve() draws a longitudinal fit,",
