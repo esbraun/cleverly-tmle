@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -25,6 +26,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -62,8 +64,8 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, Refusal
-from cleverly.interventions import Incremental, ModifiedPolicy, Shift
+from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, Refusal
+from cleverly.interventions import Incremental, ModifiedPolicy, Shift, Static
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -346,6 +348,69 @@ def fit_learned_rule_level() -> Any:
         simultaneous=False,
         random_state=0,
     )
+
+
+def _optimal_rule(
+    frame: pd.DataFrame | None = None, fit: dict[str, Any] | None = None, **overrides: Any
+) -> Any:
+    """The fit of the value of the optimal rule (X11 (f), (f3)) on the learned-rule law.
+
+    Every optimal-value kind answers the read rows, ``refute`` and ``truncation_curve``.
+    The rows, weighted and in-sample kinds also answer the point rows of the asymmetric
+    omitted-variable bound (X11 (f3)); the others keep their (n2) refusals, and
+    ``benchmark`` refuses on every kind.
+    """
+    frame = learned_rule_support.law_frame() if frame is None else frame
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InSampleLearnerWarning)
+        return (
+            learned_rule_support.learned_tmle(estimands=["ey_optimal_rule"], **overrides)
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=learned_rule_support.COVARIATES,
+                **({} if fit is None else fit),
+            )
+            .single()
+        )
+
+
+def fit_optimal_rule() -> Any:
+    """The base optimal-value fit, with the law's treatment probabilities supplied."""
+    frame = learned_rule_support.law_frame()
+    g1 = expit(0.3 * frame["W1"].to_numpy() - 0.2 * frame["W2"].to_numpy())
+    return _optimal_rule(frame, {"treatment_probabilities": np.column_stack([1.0 - g1, g1])})
+
+
+def fit_optimal_rule_weights() -> Any:
+    """The weighted optimal-value fit, with a weight in the covariates alone."""
+    frame = learned_rule_support.law_frame().assign(w=lambda f: 1.0 + 1.5 * (f["W1"] > 0))
+    return _optimal_rule(frame, {"weights": "w"})
+
+
+def fit_optimal_rule_strata() -> Any:
+    """The optimal-value fit stratified on the baseline covariate ``W2``."""
+    return _optimal_rule(fit={"strata": ["W2"]})
+
+
+def fit_optimal_rule_known_regimes() -> Any:
+    """The optimal value beside the known regimes ``Static(1)`` and ``Static(0)``."""
+    return _optimal_rule(interventions=[Static(1), Static(0)])
+
+
+def fit_optimal_rule_in_sample() -> Any:
+    """The in-sample optimal-value fit (``cross_fit=False``, condition C5a)."""
+    return _optimal_rule(cross_fit=False, cv_evaluation=False)
+
+
+def fit_optimal_rule_intermediate() -> Any:
+    """The optimal value with the intermediate held at ``Z = 0`` (X11 (j), (f3))."""
+    from tests.unit.test_learned_rule_intermediate import fit_cde as fit_learned_cde
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InSampleLearnerWarning)
+        return fit_learned_cde(estimands=["ey_optimal_rule"])[0.0]
 
 
 def fit_weighted() -> Any:
@@ -1235,6 +1300,15 @@ KINDS: dict[str, Kind] = {
     # At a level of the intermediate the omitted-variable rows refuse, as on the
     # controlled direct effect, and simulated_confounding refuses by name (X11 (j4)).
     "learned_rule+level": _kind(fit_learned_rule_level, *_LIVE),
+    # The value of the optimal rule and its compositions (X11 (f), (f3)). The asymmetric
+    # point bound runs where the learned-rule bound does; strata, known regimes and an
+    # intermediate keep their (n2) refusals, and benchmark refuses (X11 (n2)).
+    "optimal_rule": _kind(fit_optimal_rule, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+weights": _kind(fit_optimal_rule_weights, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+strata": _kind(fit_optimal_rule_strata, *_LIVE),
+    "optimal_rule+known_regimes": _kind(fit_optimal_rule_known_regimes, *_LIVE),
+    "optimal_rule+in_sample": _kind(fit_optimal_rule_in_sample, *_LIVE, *_PLUGIN_BOUND),
+    "optimal_rule+intermediate": _kind(fit_optimal_rule_intermediate, *_LIVE),
     "weighted": _kind(fit_weighted, "marginal_bounds", *_ARM),
     "stratified": _kind(fit_stratified, "marginal_bounds", *_ARM),
     "clustered": _kind(fit_clustered, "marginal_bounds", *_ARM),
@@ -1576,6 +1650,9 @@ class Mutation:
 #: them a tilt.
 DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing")
 
+#: The kinds of the value of the optimal rule (X11 (f), (f3)).
+OPTIMAL_RULE_KINDS = tuple(kind for kind in KINDS if kind.startswith("optimal_rule"))
+
 #: What the sweep reports for a row that reads available while its call refuses.
 _RAISED = "{} reads available, and its call raised "
 
@@ -1587,14 +1664,15 @@ MUTATIONS: dict[str, Mutation] = {
     "M1": Mutation(
         "the tilt rows ignore every rule the rows did not read before RM23",
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
-        # The learned-rule kind came after RM23. Its tilt rule is one the pre-RM23 rows did
-        # not read, so M1 makes its tilt rows read available while both calls refuse.
+        # The learned-rule kinds came after RM23. Their tilt rule is one the pre-RM23 rows did
+        # not read, so M1 makes their tilt rows read available while both calls refuse.
         frozenset(
             (
                 *DECLINED_TILT_KINDS,
                 "learned_rule",
                 "learned_rule+estimated_weights",
                 "learned_rule+level",
+                *OPTIMAL_RULE_KINDS,
             )
         ),
         _RAISED.format("missingness") + "missingness_tilt ",
@@ -1630,6 +1708,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "gformula",
                 # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
                 "learned_rule+level",
+                # The value at an intermediate level has no exact placebo null (X11 (j4)).
+                "optimal_rule+intermediate",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
@@ -1671,7 +1751,8 @@ MUTATIONS: dict[str, Mutation] = {
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
-        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
+        # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)),
+        # and so does a fit of the value of the optimal rule (X11 (f3)).
         frozenset(
             {
                 "split_plan",
@@ -1679,6 +1760,11 @@ MUTATIONS: dict[str, Mutation] = {
                 "regime+missing",
                 "learned_rule",
                 "learned_rule+estimated_weights",
+                # The bound of the value of the optimal rule runs, and its benchmark refit
+                # refuses (X11 (f3), (n2)).
+                "optimal_rule",
+                "optimal_rule+weights",
+                "optimal_rule+in_sample",
             }
         ),
         "("

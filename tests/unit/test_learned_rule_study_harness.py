@@ -34,6 +34,7 @@ from tests.studies import learned_rule_ep as ep
 from tests.studies import learned_rule_in_sample as in_sample
 from tests.studies import learned_rule_intermediate as intermediate
 from tests.studies import learned_rule_learners as learners
+from tests.studies import learned_rule_optimal_compositions as optimal_compositions
 from tests.studies import learned_rule_optimal_value as optimal
 from tests.studies import learned_rule_split_mean as split_mean
 from tests.studies import learned_rule_stacked as stacked
@@ -124,6 +125,9 @@ class TestTheSeedRules:
         # none of which equals another X11 study's seed (``test_learned_regimen_ltmle_design``).
         # P1 PR-c's learned-rule-ep adds 4,000 primary and 28,500 property seeds, none of which
         # equals another learned-rule study's seed (``test_learned_rule_ep_design``).
+        # X11's learned-rule-optimal-compositions (X11 (f3), PR 2) adds 22,000 primary and 51,200
+        # property seeds, none of which equals another X11 study's seed or a committed X11 pilot's
+        # (``test_learned_rule_optimal_compositions_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -141,6 +145,7 @@ class TestTheSeedRules:
             + 32_400
             + 16_400
             + 32_500
+            + 73_200
         )
         for study in (
             gated,
@@ -155,6 +160,7 @@ class TestTheSeedRules:
             contrast,
             arms,
             optimal,
+            optimal_compositions,
             intermediate,
             regimen,
             ep,

@@ -2544,7 +2544,7 @@ class OptimalRuleValue:
 
     The target is a fixed parameter: the mean outcome :math:`\\Psi_{d_0}(P_0)` had every
     unit received the arm with the best mean outcome given its covariates,
-    :math:`d_0(w) = \\arg\\max_a \\bar Q_0(a, w)`.  The estimator is the cross-validated TMLE
+    :math:`d_0(w) = \\arg\\max_a \\bar Q_0(a, w)`.  The estimator is the TMLE
     of :class:`LearnedRuleValue`, so on the same data and settings the point and the interval
     are that fit's, reported under ``ey_optimal_rule``.  Van der Laan and Luedtke (2015),
     Section 7.2, give the conditions under which it estimates the optimal value: the fold
@@ -2554,11 +2554,19 @@ class OptimalRuleValue:
     the best arm tying with another for almost no unit, its own step.  At an exceptional law
     nothing is guaranteed, and the interval can under-cover.
 
-    The fit needs cross-fitting with at least two folds, under either report.  It refuses
-    ``weights=``, ``strata=``, known regimes beside it and the in-sample fit (X11 (f3) in
-    ``docs/roadmap.md``).  The fold-evaluated fit on rows with known treatment probabilities
+    The fit runs under either report and in sample (``CrossFitting(enabled=False)``, whose
+    interval needs the Donsker condition C5a of van der Laan and Luedtke 2015, Theorem 5).
+    With ``weights=`` on the design the target is the optimal value of the population the
+    weights describe, whose optimal rule can differ from the unweighted one; with ``strata=``
+    each stratum reports its own optimal value beside the marginal one; with
+    ``intermediate=z`` the target is the value of the best treatment with the intermediate
+    held at ``z``.  The fold-evaluated fit on rows with known treatment probabilities
     (``treatment_probabilities=``) reads supported, from the ``learned-rule-optimal-value``
-    study; every other fit, an estimated treatment mechanism among them, reads experimental.
+    study, and so does such a fit with one of those compositions, or known regimes beside it,
+    from the ``learned-rule-optimal-compositions`` study (the in-sample fit with a parametric
+    outcome learner); every other fit, an estimated treatment mechanism among them, reads
+    experimental.  Under weights the probabilities must be the weighted population's own,
+    which the label cannot check.
 
     Parameters
     ----------
@@ -2566,9 +2574,10 @@ class OptimalRuleValue:
         The rule class whose fold rules estimate the optimal rule, and the label the
         reported parameter carries.
     intermediate : float or None
-        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate would be held.
-        The value of the optimal rule at a level of the intermediate refuses for now (X11
-        (f3) in ``docs/roadmap.md``).
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate is held: the
+        target is :math:`E_0\\bar Q_0(d^z_0(W), z, W)` with
+        :math:`d^z_0(w) = \\arg\\max_a \\bar Q_0(a, z, w)`.  Required on a design with an
+        intermediate and refused on one without.
 
     See Also
     --------

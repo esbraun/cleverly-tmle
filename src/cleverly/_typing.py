@@ -110,6 +110,7 @@ EstimandName = Literal[
     "ey_optimal_rule",
     "ey_known_regime",
     "ate_learned_rule",
+    "ate_optimal_rule",
     "ey_ipsi",
     "ate_ipsi",
     "ey_rr_tilt",

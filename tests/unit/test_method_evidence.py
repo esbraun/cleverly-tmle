@@ -1980,6 +1980,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # X11 PR I (``learned-rule-optimal-value``): a control whose learner's limit rule is not
         # the optimal rule answers to a coverage ceiling on the optimal value.
         "optimal_target_control",
+        # X11 (f3) (``learned-rule-optimal-compositions``): the weighted fit read against the
+        # unweighted optimal value and against the weighted value of the unweighted rule, each a
+        # control that answers to a coverage ceiling.
+        "weighted_target_control",
         # Calibration families with no efficiency claim: the positive arm answers to the
         # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
         # Checked row by row below.

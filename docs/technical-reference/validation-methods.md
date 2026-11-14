@@ -1087,6 +1087,62 @@ limits equal those of the known rule fitted in sample.
   the realized-rule representer gives a $\nu^2$ of 2.078 against 1.823, so its bound overshoots.
   The test asserts the three quoted numbers.
 
+#### The point bound of the value of the optimal rule
+
+A fit of the [value of the optimal rule](point-treatment-tmle.md#learned-rules)
+(`estimands=["ey_optimal_rule"]`) gets an asymmetric point bound wherever the learned-rule bound
+above runs: rows, known weights, clusters, fold targeting, the in-sample fit, the fold-evaluated
+report and two arms. Its target $\theta = \max_\pi \Psi_\pi$ moves with the rule, so the bound reads
+$(\rho, c_Y, c_D)$ as upper bounds that hold uniformly over every regime $\pi$ measurable in $W$,
+deterministic or stochastic. A bound for every deterministic rule does not bound a stochastic
+regime, because $\nu^2_\pi = E\sum_a \pi(a \mid W)^2 / g(a \mid W)$ is quadratic in $\pi$, and the
+lower side reads the stochastic regime $\bar d = V^{-1}\sum_v 1\{a = d_v(w)\}$. With $\tilde\Psi$
+the short value and $\theta_s = \max_\pi \tilde\Psi_\pi$:
+
+- lower: $\theta \ge \Psi_{\bar d} \ge \tilde\Psi_{\bar d} - B(\bar d)$. $\tilde\Psi_{\bar d}$ is
+  the learned-rule target, which the fit estimates, and $B(\bar d)$ is the learned-rule bound, so
+  the lower side is the learned-rule lower point bound, and it needs no regret condition.
+- upper: $\theta = \Psi_{d_L} \le \tilde\Psi_{d_L} + B(d_L) \le \theta_s + \sup_\pi B(\pi)$, with
+  $d_L$ the long-optimal rule, unknown. $\nu^2_\pi$ is convex in $\pi$ and largest at a vertex, so
+  $\sup_\pi \nu^2_\pi = \nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$, and
+  $B_{\sup} = \lvert\rho\rvert C_Y C_D\,\sigma\,\nu_{\sup}$. The fit estimates $\theta_s$ up to the
+  regret, which the fit's own conditions already make negligible for its point estimate.
+
+The point bound is $[\hat\psi - B(\bar d), \hat\psi + B_{\sup}]$. The steps are the shipped bound of
+each regime, the two one-sided inequalities and the convexity of $\nu^2_\pi$. The composition is this
+package's step, with no new limit theorem. The upper side is conservative up to the regret of
+$\hat\psi$ for $\theta_s$, which the fit's own conditions make negligible.
+
+| quantity | value of the optimal rule |
+| --- | --- |
+| lower side, `max_bias`, `nu2` | the learned-rule fit's, bit for bit: $\hat\psi - S\sqrt{\hat\sigma^2\hat\nu^2}$ with the combined representer $g^\star / g$ |
+| upper side, `max_bias_upper`, `nu2_upper` | $\hat\psi + S\sqrt{\hat\sigma^2\hat\nu^2_{\sup}}$, with $\hat\nu^2_{\sup} = \sum_i w_i \max_a 1/g_n(a \mid W_i) / \sum_i w_i$ under the bounded mechanism the representer reads: the known $g$ when it is supplied, and under weights the weighted-population mechanism the fit uses |
+| `nu2_estimator` | `"auto"` reads the plug-in $\hat\nu^2_{\sup}$ on the upper side and the doubly robust learned-rule $\hat\nu^2$ on the lower side, and `"plugin"` reads the plug-in on both. `"doubly_robust"` refuses with `inference_gap`: it needs the influence function of a maximum over arms, which is not differentiable where two arms' probabilities tie |
+| robustness value | the equal strength at which the side facing the null reaches it: the lower side's scale when the null lies below $\hat\psi$, the upper side's when it lies above. Its `side`, `max_bias` and `nu2_estimator` keys name that side, so it draws on the contour of the same `bound` |
+| contour | `bound="lower"` reads the lower scale and `bound="upper"` the upper one, and the contour's `max_bias` and `nu2` name that side |
+| limits, the confidence-limit robustness value, `limit_reading` | refused with the key `optimal_rule` and the reason `inference_gap`, the in-sample fit included, unlike the learned-rule in-sample bound. $\hat\nu^2_{\sup}$ has no curve, because its maximum is not differentiable at ties of $g$ |
+| `benchmark()` | refused with `implementation_gap`: its refit relearns the rule, and no witness relates the short model's gains to the uniform strengths ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)) |
+| strata, the stacked report, more than two arms, `repeats` above 1, an intermediate | refused with `implementation_gap`, as for the learned-rule value. The lower limit is that bound, which is not built, so the refusal names the setting and then gives the learned-rule reason (part (n2)) |
+| known regimes beside the rule | refused with `implementation_gap`: the fit also reports each known regime's value and the contrast `ate_optimal_rule`, and no witness checks the bound of a contrast whose first term carries the bound over every rule (part (n2)) |
+
+The summaries print a note that the strengths hold for every rule, random rules included, and that
+the interval is not symmetric. `tests/unit/test_optimal_rule_sensitivity.py` checks these claims:
+
+- On two exact laws with an omitted binary $U$, the fold rules agree with the short-optimal rule at
+  two levels of $W$ and differ from it at the third. The uniform strengths are the maxima over the
+  eight deterministic rules and $\bar d$, and $\theta$ lies in the asymmetric bound built from the
+  law's $\sigma$ and the fit's two $\hat\nu$. On the first law the long-optimal rule differs from
+  the short one, and a symmetric bound with the learned-rule $\nu$ misses $\theta$ by more than
+  0.04. On the second, a lower side centred at $\theta_s$ misses it by more than 0.025. One law
+  cannot carry both mutations, because the first needs $\theta > \theta_s$ and the second
+  $\theta < \theta_s$.
+- $\hat\nu^2_{\sup}$ equals $E[\max_a 1/g(a \mid W)]$ by enumeration to a relative tolerance of
+  $10^{-12}$, and the value at the fitted rules lies more than 0.5 below it.
+- The lower side, its scale, its representer and its robustness value equal the learned-rule
+  fit's bit for bit on rows, with known $g$, under weights and in sample.
+- Each side's robustness value moves that side to the null, and the two differ on a nonconstant
+  $g$.
+
 #### Omitted-variable limits and their coverage evidence
 
 Each bound asks the evidence registry about its one-sided limits, with the instrument `ovb_limit`.
@@ -1864,6 +1920,24 @@ A cell reads confounding of the value of these fixed rules, not of the learned-r
 | nonzero cells | each cell equals a manual frozen-rule refit of its perturbed table |
 | frozen rules | a perturbed refit keeps every row's rule and the folds, and a relearning refit changes some rules |
 | fold weights | on folds of 81 and 80 rows, the cell equals the mean of the fold values and not the row-weighted mean |
+
+**The value of the optimal rule.** The value of the optimal rule moves with the rule, so its replay
+relearns the rule in every cell. Each cell refits the stored estimator, which carries the declared
+`LearnedRule`, on the fit's outer folds and with the seeds of its repeats, one relearning refit per
+stored split, so `repeats` above 1 runs. A declared known mechanism is rebuilt for the flipped treatment,
+as on any other fit. Each cell then estimates the optimal value of its perturbed law, and the
+summary's `optimal-rule reading` line says that the rule moves with the confounding. An unseeded
+fit replays with the seeds its repeats drew, and on a seeded fit an explicit `random_state` other
+than the fit's own redraws them. The replay
+refuses known regimes beside the rule, whose regimes and contrasts it would rebuild beside a
+relearned rule, baseline strata, and an intermediate held at a level, each with
+`implementation_gap` and [X11](../roadmap.md#x11-learned-policy-follow-ups) part (f4) or (j4).
+
+| check | witness in `tests/unit/test_optimal_rule_sensitivity.py` |
+| --- | --- |
+| zero strength | the cell equals the reported estimate, and a manual relearning refit on the fit's folds and seed reproduces it exactly. On an unseeded fit with a random forest, the refit a cell runs, rerun on the unperturbed table, reproduces the estimate exactly, and the same refit without the repeat seeds moves it by more than 0.0001 |
+| relearned rules | a perturbed refit's fold rules differ from the fit's on more than 2% of the entries |
+| nonzero cells | each cell equals a manual relearning refit of its perturbed table with the rebuilt mechanism, at `repeats=1` and `repeats=2`. The same refit with the original mechanism moves a flipped cell by more than 0.0005 |
 | mutation controls | a replay that relearns the rule, or that redraws the folds, fails the nonzero cell check |
 
 **Nonlinear and continuous MSMs.** The surface preserves built-in identity, log, and logit links.

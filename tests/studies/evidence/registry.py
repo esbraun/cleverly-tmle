@@ -766,6 +766,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
+    from tests.studies.learned_rule_optimal_compositions import (
+        STUDY as LEARNED_RULE_OPTIMAL_COMPOSITIONS,
+    )
     from tests.studies.learned_rule_optimal_value import STUDY as LEARNED_RULE_OPTIMAL_VALUE
     from tests.studies.learned_rule_split_mean import STUDY as LEARNED_RULE_SPLIT_MEAN
     from tests.studies.learned_rule_stacked import STUDY as LEARNED_RULE_STACKED
@@ -844,6 +847,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_ARMS,
         LEARNED_RULE_OPTIMAL_VALUE,
         LEARNED_RULE_INTERMEDIATE,
+        LEARNED_RULE_OPTIMAL_COMPOSITIONS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
         EP_CATE,

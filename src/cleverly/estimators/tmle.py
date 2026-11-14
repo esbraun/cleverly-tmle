@@ -960,9 +960,9 @@ class TMLE:
         or the regime minus the rule with ``reference=`` naming the rule (experimental; the
         contrast's curve is the difference of the two curves).  Such a fit builds no
         simultaneous band over those estimates, and ``summary()`` says why.  It refuses
-        ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, and a
-        continuous or multi-arm treatment, missing outcomes, ``intermediate=`` and estimated
-        weights.
+        ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, a continuous
+        treatment, missing outcomes, and a rule learner on more than two arms or with
+        ``intermediate=``.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         ``LearnedRule(loss="blip")`` and ``loss="weighted_classification"`` learn each fold's
         rule with a declared learner from a doubly robust pseudo-outcome, whose outcome and
@@ -971,9 +971,14 @@ class TMLE:
         The result records the fold summaries under ``result.extra["learned_rule"]``.
         ``estimands=["ey_optimal_rule"]`` reports the same estimate as the value of the
         optimal rule, a fixed parameter, under the further conditions of the learned-rule
-        contract (X11 (f)).  Only the fold-evaluated report on rows with known
-        ``treatment_probabilities=`` reads supported.  It is then the fit's one estimand, and it
-        refuses known regimes beside it, ``weights=``, ``strata=`` and ``cross_fit=False``.
+        contract (X11 (f)).  It takes ``weights=`` (the optimal value of the weighted
+        population), ``strata=`` (each stratum's optimal value), ``cross_fit=False``,
+        ``intermediate=`` (the optimum at each level) and known regimes beside it, whose
+        contrasts it reports as ``ate_optimal_rule`` (X11 (f3)); ``ey_learned_rule`` or
+        ``ate_learned_rule`` beside it refuses.  With known ``treatment_probabilities=``, the
+        fold-evaluated report on rows reads supported, alone or under one of these
+        compositions (the in-sample fit with a parametric outcome learner); every other fit
+        reads experimental.
     effect_modification:
         A :class:`~cleverly.effect_modification.EffectModification`: the projection of a
         conditional contrast of two arms onto a declared basis of the modifiers, reported
@@ -2483,6 +2488,9 @@ class TMLE:
                     estimand=stem,
                     intermediate_name=data.intermediate_name,
                     intermediate_level=intermediate_value,
+                    weighted=data.is_weighted,
+                    strata=data.strata_names,
+                    known_regimes=[str(item.name) for item in self.interventions],
                 ),
             }
         result = TMLEResult(

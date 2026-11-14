@@ -511,6 +511,15 @@ class SimulatedConfoundingResult:
             )
             + (
                 (
+                    "optimal-rule reading: every cell relearns the rule on the fit's folds and "
+                    "seed, so a cell reads confounding of the value of the optimal rule, and "
+                    "the rule moves with the confounding",
+                )
+                if self.estimand.startswith("ey_optimal_rule[")
+                else ()
+            )
+            + (
+                (
                     "treatment mechanism: known on the data; each cell that flips the treatment "
                     "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
                     if self.arm_pair is None
@@ -1184,6 +1193,21 @@ def _linear_treatment(
     return values + strength * latent
 
 
+def _fit_repeat_seeds(result: Any, root_seed: int) -> list[int] | None:
+    """The fit's repeat seeds, when the replay runs under the fit's own seed.
+
+    An unseeded fit records the seeds its repeats drew, so its replay reuses them.  An
+    explicit seed other than the fit's own redraws them, and so does a fit that recorded none.
+    """
+    seeds = [repeat.seed for repeat in result.repeats]
+    if not seeds or any(seed is None for seed in seeds):
+        return None
+    own = result.estimator.random_state
+    if own is not None and int(own) != root_seed:
+        return None
+    return [int(seed) for seed in seeds]
+
+
 def flipped_mechanism(values: np.ndarray[Any, Any], strength: float) -> np.ndarray[Any, Any]:
     r"""The known mechanism of a binary treatment flipped with probability ``strength``.
 
@@ -1781,8 +1805,11 @@ def simulated_confounding(
     this empirical law on the selected baseline stratum. Numeric calibration uses the full
     original population, or the recorded rows of each target when observations are
     missing. A learned-rule fit keeps the fit's folds and each row's realized rule in every
-    cell. A longitudinal fit and a risk-ratio tilt are refused before calibration, a draw, or
-    a refit, and so are the grid stops of ``observation_reads`` and the intermediate axis.
+    cell. A fit of the value of the optimal rule keeps the fit's folds and repeat seeds and
+    relearns the rule in every cell, with one relearning refit per stored split; it refuses known
+    regimes beside the rule, baseline strata and an intermediate. A longitudinal fit and a
+    risk-ratio tilt are refused before calibration, a draw, or a refit, and so are the grid
+    stops of ``observation_reads`` and the intermediate axis.
     Execution and the assessment capability share the same ordered reasons.
 
     All strata share the same full-row latent draw and complete estimator refit. Baseline
@@ -1896,6 +1923,15 @@ def simulated_confounding(
     # a stratification variable moves the folds as well. The latent draw keeps its own tagged
     # child seed, so it stays independent of the splits.
     refit_seed = root_seed
+    # The relearning replay of the value of the optimal rule (X11 (f3)) also keeps the fit's
+    # own repeat seeds, so a stochastic learner draws the original learner seeds and a cell
+    # moves only through its perturbed table and the rules that table teaches.  An explicit
+    # random_state other than the fit's own seed redraws them, as on a longitudinal fit.
+    frozen_seeds = (
+        _fit_repeat_seeds(result, root_seed)
+        if request.key is not None and request.key.estimand == "ey_optimal_rule"
+        else None
+    )
     latent_seed = _latent_child_seed(root_seed)
     latent = _draw_latent(
         result.data.n,
@@ -2039,6 +2075,7 @@ def simulated_confounding(
                     if request.frozen_folds is None
                     else {"frozen_folds": list(request.frozen_folds)}
                 ),
+                **({} if frozen_seeds is None else {"frozen_seeds": frozen_seeds}),
             )
             # ``inference.influence.median_estimates`` drops a name that is absent from any
             # draw, so ``refitted[estimand]`` would raise "was not requested" for an estimand

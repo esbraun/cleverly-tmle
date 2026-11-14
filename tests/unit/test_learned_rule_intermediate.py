@@ -663,10 +663,13 @@ class TestTheRefusals:
             fit_cde(frame, fit)
         assert set(fit_cde(frame, fit, cv_evaluation=False)) == set(LEVELS)
 
-    def test_the_value_of_the_optimal_rule_refuses_with_f3(self) -> None:
-        with pytest.raises(CapabilityError, match=r"X11 \(f3\)") as caught:
-            fit_cde(estimands=["ey_optimal_rule"])
-        assert "estimands=None" in str(caught.value)
+    def test_the_value_of_the_optimal_rule_runs_at_each_level(self) -> None:
+        """X11 (f3): the optimal value at a level is the learned-rule fit renamed."""
+        optimal = fit_cde(estimands=["ey_optimal_rule"])
+        for z in LEVELS:
+            name = "ey_optimal_rule[learned rule]"
+            assert list(optimal[z].estimates) == [name]
+            assert optimal[z].estimates[name].psi == _planted()[z].estimates[NAME].psi
 
     def test_the_bootstrap_keeps_its_row(self) -> None:
         with pytest.raises(CapabilityError, match="full-refit bootstrap"):
@@ -813,16 +816,19 @@ class TestTheMethodLayerSpelling:
         assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert "held at a level (here Z = 0)" in str(caught.value)
 
-    def test_a_rule_learner_and_the_optimal_value_keep_their_refusals(self) -> None:
+    def test_a_rule_learner_keeps_its_refusal_and_the_optimal_value_identifies(self) -> None:
         study = self._study()
-        with pytest.raises(CapabilityError, match=r"X11 \(j2\)"):
-            study.identify(
-                LearnedRuleValue(
-                    rule=LearnedRule(loss="blip", learner=LinearRegression()), intermediate=0.0
+        for estimand in (LearnedRuleValue, OptimalRuleValue):
+            with pytest.raises(CapabilityError, match=r"X11 \(j2\)"):
+                study.identify(
+                    estimand(
+                        rule=LearnedRule(loss="blip", learner=LinearRegression()),
+                        intermediate=0.0,
+                    )
                 )
-            )
-        with pytest.raises(CapabilityError, match=r"X11 \(f3\)"):
-            study.identify(OptimalRuleValue(intermediate=0.0))
+        effect = study.identify(OptimalRuleValue(intermediate=0.0))
+        assert effect.functional.target == "ey_optimal_rule"
+        assert effect.functional.intermediate == 0.0
 
 
 class TestTheFrozenRule:

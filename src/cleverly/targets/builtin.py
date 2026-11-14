@@ -193,7 +193,11 @@ _LEARNED_RULE_ID = Identification(
         "with n, with a fixed number of folds and at least 2 clusters in every validation "
         "fold; bounded observation weights under weights=, known and fixed, or declared "
         "estimated (weights_estimated=True), when the target is the value on the population "
-        "the supplied weights describe and the interval treats them as fixed; no missing "
+        "the supplied weights describe and the interval treats them as fixed; beside "
+        "weights=, supplied treatment_probabilities are read as the treatment mechanism of "
+        "that population, g_w(a | W) = g0(a | W) E[w | a, W] / E[w | W], which equals the "
+        "design probabilities g0 only when the weights depend on the covariates alone, so "
+        "with weights that depend on the treatment or the outcome g is estimated; no missing "
         "outcomes; an intermediate Z only held at a level z, where the rules are learned from "
         "the outcome regression at (a, z) and the assumptions of the intermediate apply",
     ),
@@ -212,11 +216,13 @@ _LEARNED_RULE_ID = Identification(
     ),
 )
 
-#: The value of the optimal rule (X11 (f)).  A fixed parameter, estimated by the
-#: cross-validated TMLE of the learned-rule value, so the point and interval are that fit's.
+#: The value of the optimal rule (X11 (f)).  A fixed parameter, estimated by the TMLE of
+#: the learned-rule value with the same setting, so the point and interval are that fit's.
 #: The source is van der Laan and Luedtke (2015), Section 7.2, last paragraph, with known g.
 #: Estimated g is the package's step from the decomposition of the error into the shipped
-#: learned-rule claim and the regret.
+#: learned-rule claim and the regret.  The compositions of X11 (f3) (weights, strata, an
+#: intermediate held at a level, the in-sample fit) apply the same decomposition under the
+#: setting's law, with Theorem 5 in place of Theorem 6 in sample.
 _OPTIMAL_RULE_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
@@ -224,9 +230,21 @@ _OPTIMAL_RULE_ID = Identification(
         "no unmeasured confounding: Y^a is independent of A given W",
         "the target is a fixed parameter, the value Psi_d0(P0) = E Qbar0(d0(W), W) of the "
         "optimal rule d0(w) = argmax_a Qbar0(a, w). It depends neither on the split nor on "
-        "the fitted rules. The estimator is the cross-validated TMLE of the learned-rule "
-        "value, so the point and the interval are those of ey_learned_rule on the same fit, "
-        "read as an estimate of another target",
+        "the fitted rules. Under weights= it is the optimal value of the population the "
+        "weights describe, Psi^w_d0w(P_w) = E_Pw Qbar_w(d0^w(W), W) with dP_w = w dP / E[w] "
+        "and d0^w(w) = argmax_a Qbar_w(a, w), the optimum under P_w. It equals d0 when the "
+        "weight does not depend on the outcome, and with a binary outcome also when it "
+        "depends on the covariates and the outcome alone; it can differ when the weight "
+        "depends jointly on the treatment and the outcome, or, with a continuous outcome, on "
+        "the outcome; with strata= "
+        "each stratum's estimate targets E0[Qbar0(d0(W), W) | S = s], the optimal value "
+        "within the stratum, because S is a function of W and d0 restricted to the stratum "
+        "is the stratum's optimal rule; with an intermediate Z held at a level z it is "
+        "Psi^z_d0z = E0 Qbar0(d0^z(W), z, W) with d0^z(w) = argmax_a Qbar0(a, z, w), the "
+        "best treatment with Z held at z. The estimator is the TMLE of the learned-rule "
+        "value with the same setting, cross-validated or, under cross_fit=False, in "
+        "sample, so the point and the interval are those of ey_learned_rule on the same "
+        "fit, read as an estimate of another target",
         "C1, a bounded outcome: Y lies in [0, 1] after the declared transform, so a binary "
         "outcome or a continuous one with a declared q_bounds",
         "C2, strong positivity: g0(a | W) >= delta > 0 for every arm almost surely; "
@@ -263,10 +281,29 @@ _OPTIMAL_RULE_ID = Identification(
         "learner its rate also depends on g_n through the learner's pseudo-outcome. The "
         "source states the result with g known (Section 7.2), so an estimated g is the "
         "package's step",
-        "C5: no Donsker condition is needed, so the learners may be flexible",
+        "C5: the cross-fitted fit needs no Donsker condition, so the learners may be "
+        "flexible. The in-sample fit (cross_fit=False) estimates the value of the one rule "
+        "d_n learned on every row and needs condition C5a of van der Laan and Luedtke "
+        "(2015), Theorem 5: the curve D*(d_n, Qbar*_n, g_n) lies in a P0-Donsker class with "
+        "probability tending to one, which a parametric learner gives and an adaptive "
+        "learner need not. The regret then reads the full-sample rule d_n in place of the "
+        "fold rules, under the same margin and rate conditions",
         "C6: iid rows; or, under id=, iid clusters of bounded size whose number grows with "
         "n, with a fixed number of folds and at least 2 clusters in every validation fold; "
-        "no observation weights, baseline strata, missing outcomes or intermediate variable. "
+        "bounded observation weights under weights=, known and fixed, or declared "
+        "estimated (weights_estimated=True), when the target is the optimal value on the "
+        "tilt the supplied weights define and the interval treats them as fixed, and the "
+        "regret and its margin and rate conditions are read under P_w; beside weights=, "
+        "supplied treatment_probabilities are read as the treatment mechanism of P_w, "
+        "g_w(a | W) = g0(a | W) E[w | a, W] / E[w | W], which equals the design "
+        "probabilities g0 only when the weights depend on the covariates alone, so with "
+        "weights that depend on the treatment or the outcome g is estimated; baseline strata "
+        "S = s(W), with the regret of each stratum at most the marginal regret over "
+        "P0(S = s) and the margin read within the stratum, and the marginal estimate the "
+        "share mixture of the stratum values; no missing outcomes; an intermediate Z only "
+        "held at a level z, where the rules are learned from the outcome regression at "
+        "(a, z), the assumptions of the intermediate apply, and C3, the non-exceptional "
+        "law and the regret are read on the level's blip Qbar0(1, z, W) - Qbar0(0, z, W). "
         "With repeats above 1 the fit reports the mean of estimators of this one fixed "
         "parameter. Luedtke and van der Laan (2016), Section 5.1, warn that an average over "
         "swapped sample splits fails under nonregularity; that warning concerns the "
@@ -286,17 +323,19 @@ _OPTIMAL_RULE_ID = Identification(
     ),
 )
 
+#: The two items a contrast of a learned column with a known regime adds (X11 (c)).
+_KNOWN_REGIME_CONTRAST_ITEMS = (
+    "positivity for each known regime: g0(a | W) > 0 wherever the regime assigns arm a "
+    "with positive probability, and each known regime is a known function of W",
+    "joint asymptotic linearity: the learned-rule estimator (Theorem 6 or Corollary 3) "
+    "and each known-regime estimator are asymptotically linear on the same folds, so "
+    "the stack is jointly normal and the contrast's curve is the difference of the two "
+    "curves. No source states the joint result; it is the package's step from the two "
+    "marginal results",
+)
+
 _LEARNED_RULE_CONTRAST_ID = Identification(
-    assumptions=(
-        *_LEARNED_RULE_ID.assumptions,
-        "positivity for each known regime: g0(a | W) > 0 wherever the regime assigns arm a "
-        "with positive probability, and each known regime is a known function of W",
-        "joint asymptotic linearity: the learned-rule estimator (Theorem 6 or Corollary 3) "
-        "and each known-regime estimator are asymptotically linear on the same folds, so "
-        "the stack is jointly normal and the contrast's curve is the difference of the two "
-        "curves. No source states the joint result; it is the package's step from the two "
-        "marginal results",
-    ),
+    assumptions=(*_LEARNED_RULE_ID.assumptions, *_KNOWN_REGIME_CONTRAST_ITEMS),
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
         "the remainder of each side is as for its own estimand; on Corollary 3's route "
@@ -306,6 +345,28 @@ _LEARNED_RULE_CONTRAST_ID = Identification(
         "D_L - D_K would be conservative; that form of D_g is not checked (X11 (c))"
     ),
     references=_LEARNED_RULE_ID.references,
+)
+
+#: The contrast of the value of the optimal rule with each known regime (X11 (f3)).  The
+#: estimator is the learned-rule contrast ``ate_learned_rule``; only the target and the
+#: regret item differ.
+_OPTIMAL_RULE_CONTRAST_ID = Identification(
+    assumptions=(
+        *_OPTIMAL_RULE_ID.assumptions,
+        *_KNOWN_REGIME_CONTRAST_ITEMS,
+        "the regret of the contrast: the target is Psi_d0 - Psi_dk for each known regime "
+        "d_k (Psi_dk - Psi_d0 when reference= names the learned rule), and the error of the "
+        "estimate is the error of the learned-rule contrast minus the regret of the learned "
+        "rules, because the known regime's value carries no regret. The interval covers "
+        "the contrast exactly where the regret item above makes the regret o_P(n^-1/2)",
+    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        "the remainder of each side is as for its own estimand, and the optimal side adds "
+        "the regret of the learned rules, o_P(n^-1/2) under the margin and rate conditions "
+        "of Lemma 1; the known side carries none"
+    ),
+    references=_OPTIMAL_RULE_ID.references,
 )
 
 _IPSI_ID = Identification(
@@ -723,6 +784,21 @@ def _ate_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
     :math:`\Psi_K(P_0) - \tilde\psi_{0n}`, with the same curve up to sign.  Every contrast
     reads the learned rule, so a contrast of two known regimes is never reported here.
     """
+    return _learned_column_contrasts(ctx, "ate_learned_rule")
+
+
+def _ate_optimal_rule(ctx: TargetContext) -> list[ParameterEstimate]:
+    r"""The value of the optimal rule against each known regime (X11 (f3)).
+
+    The arithmetic is :func:`_ate_learned_rule`'s, the learned column minus each known
+    regime.  Only the target differs, :math:`\Psi_{d_0} - \Psi_K(P_0)` in place of
+    :math:`\tilde\psi_{0n} - \Psi_K(P_0)`, and so does the reported name.
+    """
+    return _learned_column_contrasts(ctx, "ate_optimal_rule")
+
+
+def _learned_column_contrasts(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
+    """The learned column against each known regime, under ``stem``, with the sign of ``ctx``."""
     learned = ctx.means[LEARNED_RULE_CODE]
     flip = ctx.reference == LEARNED_RULE_CODE
     out = []
@@ -733,7 +809,7 @@ def _ate_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
         arm, versus = (code, LEARNED_RULE_CODE) if flip else (LEARNED_RULE_CODE, code)
         out.append(
             ctx.finish(
-                parameter_name("ate_learned_rule", arm=ctx.label(arm), versus=ctx.label(versus)),
+                parameter_name(stem, arm=ctx.label(arm), versus=ctx.label(versus)),
                 first.psi - second.psi,
                 first.influence_curve - second.influence_curve,
                 "difference",
@@ -1083,7 +1159,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         in_default_set=False,
         description=(
             "value of the optimal rule, E Qbar0(d0(W), W) with d0(w) = argmax_a Qbar0(a, w), "
-            "a fixed parameter estimated by the cross-validated TMLE of the learned-rule value"
+            "a fixed parameter estimated by the TMLE of the learned-rule value"
         ),
     ),
     Target(
@@ -1112,6 +1188,22 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         description=(
             "contrast of the learned-rule value with each known regime declared beside it, "
             "the learned rule minus the regime unless reference= names the learned rule"
+        ),
+    ),
+    Target(
+        name="ate_optimal_rule",
+        bounded="difference",
+        group="regime",
+        scale="difference",
+        build=_ate_optimal_rule,
+        identification=_OPTIMAL_RULE_CONTRAST_ID,
+        parameter_axis="learned_rule",
+        # Reported only beside ey_optimal_rule, which a caller names.
+        in_default_set=False,
+        description=(
+            "contrast of the value of the optimal rule with each known regime declared "
+            "beside it, Psi_d0 - Psi_dk unless reference= names the learned rule, "
+            "estimated by the learned-rule contrast"
         ),
     ),
     Target(

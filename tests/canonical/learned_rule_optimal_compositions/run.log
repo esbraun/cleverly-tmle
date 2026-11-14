@@ -1,0 +1,28 @@
+=== learned-rule-optimal-compositions declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\tests\canonical\learned_rule_optimal_compositions\regenerate.py' --jobs 16 --output 'C:\Users\erics\x11f3\run1'
+commit: 68f8ff4c672a31f6cd17f38cbcce809904d0964b; upstream 68f8ff4c672a31f6cd17f38cbcce809904d0964b
+clean tree: True
+cleverly 0.2.5 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 abd701a921e373fce350777589111aafe00d4dd021197fb228e5726e03d9d302
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-14T09:27:35+00:00
+note: warning: python is 3.13.16, not the declared 3.13.7
+note: warning: numpy is 2.5.4, not the declared 2.4.6
+note: warning: scipy is 1.18.1, not the declared 1.18.0
+note: warning: pandas is 3.1.1, not the declared 3.0.5
+note: warning: scikit_learn is 1.9.1, not the declared 1.9.0
+note: warning: joblib is 1.6.0, not the declared 1.5.3
+finished: 2026-11-14T09:59:15+00:00
+wall seconds: 1900.4
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: 1bb91612370b40f35128a9f463f65e275f00d1ee5083b305dc555fcc3ec6dbf9
+sha256 manifest.json: 97aed5fa5f5f49d4694c6b1cf929f35de5984c12cb67466dac92b77b13cd1cfa
+sha256 performance-tests.csv: 66fc56482e97d4a24959ec2a156ce97eb47554486d5377e288695eeee0fc777e
+sha256 properties.csv: 1e75876993d300f90fe3ee32bed9c590472c4a0dba1d3bb9ecc3399e1fc9cce4
+sha256 property-replicates.parquet: 7b28cc58b2147945d12f6886006414c50d704ac5ebdd14fae2de063e8a85ac05
+sha256 replicates.parquet: bfb0e4a818d05e6dce8872ac9fb5b2c3517c78995b1fa63a76f8b0cb10a76c47
+sha256 summary.csv: b77f4298e84ad3be02329f85dd57f31c6d9b0b97467418ce7225cef07c2db3cc
+
