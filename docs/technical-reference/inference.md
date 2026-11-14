@@ -60,6 +60,12 @@ under-covers erratically at moderate counts and near the boundary
 ([references](../references.md#intervals-for-a-proportion)); the logit interval cannot leave the
 range.
 
+A restricted mean of a continuous-time survival fit, which lies in $(0, \tau)$, opts in to the
+same rule through `range_interval`: $f$ is then the logit of $\hat\psi / \tau$, and its
+standard error and curve stay in time units
+([continuous-time survival](continuous-time-survival.md)). Every other estimate with bounds
+other than $(0, 1)$ keeps the identity interval.
+
 Every other estimate keeps its interval: a difference of two such means (identity scale, normal
 reference), a working-model coefficient of a binary outcome, a ratio or a transformed contrast
 (normal reference on its own scale), every estimate of a continuous outcome, and every clustered
@@ -100,8 +106,8 @@ times the cell means on the link scale. A coefficient then also reads each cell 
 inverse weights, so `msm[a:V]` with a binary `V` reads the treated cell at `V = 1`, as `ate[V=1]`
 does. A model with more cells than terms pools them, as a continuous modifier does, and its
 coefficients take the check on the whole rows alone; F41 records that limit. Policies of a
-continuous treatment have no arm cells, and a longitudinal fit has its own constant-outcome status,
-`"constant_node_plugin"`.
+continuous treatment have no arm cells, and a longitudinal fit outside the reach of the
+node-variance supplement has its own constant-outcome status, `"constant_node_plugin"`.
 
 Under either status `plugin_std_error` still returns the plug-in number, while `plugin_interval`
 is `(nan, nan)` and the plug-in p-value is `nan`: a constant cell's plug-in standard error is near
@@ -219,7 +225,7 @@ status. A shown status returns the plug-in interval and the estimate carries the
 | `"no_cluster_variance_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=` and fewer than 3 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 3. A Student t reference with $J - 2$ degrees of freedom has none left. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 | `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=` and 3 to 9 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with 3 to 19. The `LTMLE` range applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std. error` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | `"low_dose_support_plugin"` | a `DoseResponseTMLE` pair whose clever covariate has a Kish effective size below the declaration's `support_floor` (default 50). The pair stays in the simultaneous band. [Support](dose-response.md#support) gives the reason | shown: return the influence-curve values under the experimental label | `std. error` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) |
-| `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
+| `"constant_node_plugin"` | a longitudinal parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, on a fit outside the reach of the boundary-node supplement (SDR, IPSI, the IPW and g-formula baselines, repeated fold draws, `variance="policy_weighted"` and the other kinds [A node with no event](longitudinal-tmle.md#a-node-with-no-event) lists), and every contrast or restricted mean that reads it. An `LTMLE` iterated-mean or hazard fit inside the reach keeps its status and adds the node variance instead. The simultaneous band leaves it out. The other parameters of the fit keep their status | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) |
 | `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. The fit emits a `DataWarning` that names the arm and the failed condition. [Parametric per-arm intervals](collaborative-tmle.md#parametric-per-arm-intervals) gives the three conditions | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | `"constant_arm_cell_plugin"` | a mean of a yes/no outcome from `TMLE`, `DRTMLE`, `CTMLE` or another point-treatment TMLE-family fit with a discrete treatment, an arm mean or a mean under a regime, learned rule, IPSI tilt, policy or risk-ratio tilt, that reads a treatment arm holding a single observed outcome value (among rows of positive weight) in the stratum the estimate reads, and every contrast or ratio that reads it, `rr`, `or` and `paf` included. A working-model or projection coefficient of such a fit reads every arm and takes it too, and a coefficient of a model saturated over its arm-by-modifier cells also takes it when a cell it reads holds one outcome value. A difference reported by the same fit takes it too. The fit builds no simultaneous band. The other estimates keep their status. [Small-sample scale](#small-sample-scale) gives the reason | raise `CapabilityError` with the reason of the status. `plugin_interval` is `(nan, nan)` and no p-value is computed | `plug-in SE (diagnostic)` | [F41](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
 | `"out_of_range_plugin"` | an estimate of a mean or a difference of a yes/no outcome, clustered or not, whose value lies on or outside the range the parameter can take, `(0, 1)` or `(-1, 1)` in float arithmetic, and every contrast or ratio that reads it. A constant arm cell takes precedence. The estimate stays in a band with `band_scale="identity"`. [Small-sample scale](#small-sample-scale) gives the reason | raise `CapabilityError` with the reason of the status. `plugin_interval` is `(nan, nan)` and no p-value is computed | `plug-in SE (diagnostic)` | [F41](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
@@ -253,11 +259,12 @@ first shown status wins. A fit that loses its interval for one reason therefore 
 `tests/unit/test_inference_status_registry.py` pins the table order and the two tiers.
 
 A parameter status can sit beside the fit status on some estimates. Four statuses are parameter
-statuses. `LTMLE` stamps `"constant_node_plugin"` on a parameter whose recursion read a constant
-node regression, which is a fitted quantity. `CTMLE` stamps `"stack_failure_plugin"` on each
+statuses. A longitudinal fit outside the reach of the boundary-node supplement stamps
+`"constant_node_plugin"` on a parameter whose recursion read a constant node regression, which is
+a fitted quantity. `CTMLE` stamps `"stack_failure_plugin"` on each
 estimate that reads a failed arm stack. The builder of a bounded mean stamps
 `"constant_arm_cell_plugin"` or `"out_of_range_plugin"` ([Small-sample scale](#small-sample-scale)).
-The other estimates keep the fit status. So read each
+The other estimates keep the fit status, so read each
 estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
 `inference_status` stays the fit status unless every estimate carries the parameter status.
 
@@ -343,6 +350,7 @@ A selection that mixes statuses either takes the parameter status or raises `Val
 | function | selection | result |
 | --- | --- | --- |
 | `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes the status `precedent_status` picks. `"constant_node_plugin"` withholds its interval, so it wins over any fit status, and the derived estimate reports no interval |
+| the same functions | inputs that carry the node-variance supplement ([a node with no event](longitudinal-tmle.md#a-node-with-no-event)) | the derived estimate adds the supplement at its own gradient over the fit's shared loadings. Inputs whose loadings come from different fits raise `CapabilityError` |
 | the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
 | a longitudinal fit with `repeats` above 1, and its `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and band | one name with different statuses in different draws | each draw's estimate first takes the precedent status of the name's draws (`with_precedent_status`), so `median_estimates` sees one status. A `constant_node_plugin` in one draw withholds the interval of the report |

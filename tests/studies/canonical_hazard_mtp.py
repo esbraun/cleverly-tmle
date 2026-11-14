@@ -315,9 +315,9 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
     """The hazard and mechanism learners of one fit label and nuisance configuration.
 
     The wrong hazard learner is :class:`~tests.studies.hazard_mtp_law.NoWLogistic`.  The wrong
-    mechanism is the prior share for the levels and the arm, a Gaussian with no covariates for
-    the density route, and a classifier on the dose alone for the classifier route; the wrong
-    censoring learner is the prior share.
+    treatment and censoring learners are the prior share, on ``levels`` only: every fit set of
+    the other laws keeps the mechanism correct, so a wrong mechanism there is refused rather
+    than built.
     """
     from sklearn.dummy import DummyClassifier
 
@@ -325,6 +325,10 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
     _, ratio, _ = ALL_FITS[fit_label]
     hazard_correct = configuration in {"both_correct", "outcome_correct"}
     mechanism_correct = configuration in {"both_correct", "mechanism_correct"}
+    if not mechanism_correct and current.kind != "levels":
+        raise ValueError(
+            f"{fit_label!r} {configuration!r}: no fit set declares a wrong mechanism off levels"
+        )
     out: dict[str, Any] = {
         "outcome_learner": (
             law.HazardLogistic(current.kind) if hazard_correct else law.NoWLogistic(current.kind)
@@ -340,7 +344,7 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
             law.LevelsTreatment() if mechanism_correct else DummyClassifier(strategy="prior")
         )
     elif ratio == "classifier":
-        out["treatment_learner"] = law.RatioLogistic() if mechanism_correct else law.DoseOnlyRatio()
+        out["treatment_learner"] = law.RatioLogistic()
     else:
         bins = oracle_bins(len(frame))
         covariates = ("W1", "W2", "F") if current.kind == "vector" else ("W1", "W2")
@@ -348,7 +352,6 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
             tuple(float(v) for v in bin_edges(frame["A"].to_numpy(dtype=float), bins)),
             covariates,
             frame,
-            marginal=not mechanism_correct,
             bounds=current.bounds,
         )
     return out

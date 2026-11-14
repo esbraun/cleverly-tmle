@@ -453,7 +453,12 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
         (vocabulary.FAILED, count_text(summary.n_failed)),
     ]
     if diagnostic:
-        reason = "below_floor" if summary.below_floor else "declared"
+        if summary.below_floor:
+            reason = "below_floor"
+        elif summary.boundary_node:
+            reason = "boundary_node"
+        else:
+            reason = "declared"
         notes = [
             note(
                 "bootstrap_diagnostic",

@@ -346,6 +346,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/datasets/synthetic.py", "rows were selected; raise n_population"): "data "
     "generator argument: too small a population for the requested sample is a malformed "
     "argument of a generator",
+    (
+        "src/cleverly/longitudinal/hazard.py",
+        "pseudo_learner= is not used with survival_model='hazard'",
+    ): "an unused learner argument (H6): a hazard fit on a design with baseline covariates "
+    "only fits no pseudo-outcome, so the argument is malformed for that fit and no "
+    "estimator capability is missing",
     ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
@@ -387,6 +393,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/fluctuation/mechanism.py", "has no mechanism covariate"): _MALFORMED,
     ("src/cleverly/inference/cluster.py", "Only a fit whose status shows an interval"): (_INTERNAL),
     ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
+    (
+        "src/cleverly/inference/influence.py",
+        "boundary-node supplement adds to the centred curve variance only",
+    ): "low-level guard on a covariance_rule and node pair: LTMLE adds the boundary-node "
+    "supplement only under the default variance (the reach check in longitudinal/estimator.py), "
+    "so only a direct call of make_estimate with a malformed pair reaches it",
     ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
     ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,
@@ -398,6 +410,9 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/sensitivity/simulated_confounding.py", "must contain only numeric"): (
         _MALFORMED
     ),
+    ("src/cleverly/sensitivity/marginal.py", "this fit leaves a choice"): "a missing "
+    "argument: the fit reports two or more parameters the bounds take, so the call must name "
+    "one; the sensitivity facade defers the same case and asks for estimand=",
     ("src/cleverly/validation/refute.py", "support only failure_policy='fail'"): "a "
     "malformed argument: the field's declared type admits 'fail' alone",
     ("src/cleverly/validation/refute.py", "has no empirical draw records"): _INTERNAL,

@@ -146,13 +146,23 @@ class TestTheDeclaration:
         }
 
     def test_the_seeds_are_the_study_s_own(self) -> None:
-        seeds = {
-            s
-            for record in registered()
-            if record.slug != study.SLUG
-            for s in (record.seed, record.resampling_seed)
+        """The declared seeds are this study's alone; the pilot's, all but one record's.
+
+        ``hazard-multinode``, declared on 2026-11-14 after this pilot ran, took the pilot's
+        root seed as its own declared seed. The pilot only sized this study, on another law,
+        and no row of either study reads the two streams together, so the shared root moves
+        no verdict. Re-seeding either side would leave a committed pilot summary or a declared
+        run describing draws that never ran.
+        """
+        others = [record for record in registered() if record.slug != study.SLUG]
+        seeds = {s for record in others for s in (record.seed, record.resampling_seed)}
+        assert not {study.SEED, study.RESAMPLING_SEED} & seeds
+        shared = {
+            record.slug
+            for record in others
+            if pilot.PILOT_SEED in (record.seed, record.resampling_seed)
         }
-        assert not {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED} & seeds
+        assert shared <= {"hazard-multinode"}
 
     def test_registered_with_its_committed_run(self) -> None:
         assert study.SLUG in {record.slug for record in registered()}

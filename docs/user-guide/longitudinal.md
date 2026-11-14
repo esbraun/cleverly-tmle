@@ -54,6 +54,28 @@ measured standard-error ratios from 0.9797 to 1.0130 over 1,600 replications at 
 results apply only to that study's law and estimator settings. They do not establish calibrated
 variance for other laws, weights, clusters, survival outcomes, or sample sizes.
 
+### Check overlap at each time point
+
+To see where support thins out in the fit above, plot each unit's predicted chance of the
+plan's treatment at each time point:
+
+```python
+from cleverly.plotting import overlap
+
+fig = overlap(result, regimen="always", censoring=True)
+```
+
+Each top panel holds the units still following the plan up to that time point. Those who then took
+the plan's treatment sit above the axis, and those who did not sit below. Bars near 0 on the
+horizontal axis mark units with little chance of the plan's treatment. When few of them sit above
+the axis, the plan was rarely followed by units like them, and those who did follow it carry large
+weights. The lower panels show each time point's chance of staying in the study, among those who
+took the plan's treatment. The fit's limits apply to the product over time points, which
+`cleverly.plotting.weights(result)` draws, so no limit line is drawn here.
+
+`cleverly.plotting.learners(result)` and `cleverly.plotting.calibration(result)` draw the learner
+weights and calibration of each prediction model by time point.
+
 ## Read a long panel
 
 Customer data usually arrives as one row per customer and decision time. Each row holds the
@@ -75,7 +97,7 @@ container that `LongitudinalTreatment` builds from a wide frame. The reshape end
 | `times=` | every decision time, in time order. Omit it when the times are numbers, dates or durations, and the reader sorts them | the node order |
 | `cluster=` | an account or store identifier, constant within a customer | `id=` of the cluster contract |
 | `weights=` | a unit-level probability weight | `weights=` |
-| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row | `"column@t"` |
+| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row. Beside `weights=`, also pass `mechanism_law=` ([data design](data-design.md#known-chances-beside-weights)) | `"column@t"` |
 
 Declare exactly one of `outcome=` and `event=`. One customer trajectory is one observation for the
 inference model. Repeated rows of one customer add no independent observations. Declare
@@ -841,7 +863,7 @@ reason.
 | use one tilt per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
 | tilt one node and fix another | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
 | tilt a node with three levels | `Incremental({"high": 2.0, "low": 0.5})`. A scalar there is refused before any learner, and so is a key that is not a level of the node |
-| declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy |
+| declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy. Beside weights, `LTMLE` reads it as one only with `mechanism_law="target"`; with `"sample"` it refuses and `IPSI` estimates the tilt |
 
 A level can leave the outcome range, because the estimate is an average of influence-function
 values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also be non-monotone
@@ -946,7 +968,7 @@ so declare it in `baseline=` to keep it.
 `LTMLE(hazard_pooling="pooled")` fits one censoring model over every node, with the time as a column,
 in place of one model per node. On a hazard survival fit it also fits each cause's hazard once.
 Through a study, pass `ModelSpec(hazard_pooling="pooled")`. The option needs one baseline
-treatment and no covariate measured after baseline.
+treatment and no covariate measured after the first time point.
 
 `LTMLE(node_bounds={t: (lower, upper)})` declares the known range of the outcome regression at chosen
 nodes, keyed by grid time. Through a study, pass `Targeting(node_bounds=...)`. The node's

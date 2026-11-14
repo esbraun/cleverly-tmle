@@ -383,9 +383,19 @@ probabilities instead, or the fit uses clusters, several splits or a rule learne
 No setting tells cleverly whether the outcome model learned the true pattern of benefit, or whether
 the benefit is zero for many people. In the study, an outcome model that missed the pattern gave
 an interval that contained the best value in 9% of samples, and a setting where the benefit was
-zero for 60% of people gave 91%. The fit refuses `weights=`, `strata=`, the in-sample fit and a
-comparison with a fixed policy, and the omitted-variable bound and `simulated_confounding` refuse
-on its fit. Each refusal names the fit that runs instead. [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
+zero for 60% of people gave 91%. The fit takes `weights=` (then the answer is the best rule's
+value in the population the weights describe), `strata=` (the best rule's value inside each
+group), the in-sample fit and an intermediate held at a value, each marked experimental.
+
+Two checks of hidden confounding run on this fit. The omitted-variable bound, the range the
+estimate could move to under left-out common causes of a stated strength, reads that strength as
+holding for every rule. Its range reaches further above the estimate than below it, because hidden
+causes could also make another rule the best one, and it has no confidence limits.
+`simulated_confounding` learns the rule again in each simulated scenario, so the rule moves with
+the confounding. The
+[refusals of the value of the optimal rule](../technical-reference/scope-and-refusals.md#not-written-yet)
+list the settings where neither runs.
+[The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
 To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`
@@ -407,12 +417,16 @@ The three rows are marked supported when the treatment has two options, the fit 
 cross-fitting with one split and the rule comes from the outcome model, with no weights, clusters
 or strata. Otherwise they
 are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
-its message names this spelling.
+its message names this spelling. Adding `estimands=["ey_optimal_rule"]` to the same `TMLE` call
+compares the best rule's value with the fixed policy instead, reported as
+`ate_optimal_rule[learned rule vs always 1]` and marked experimental.
 
 To learn a rule while holding a yes-or-no variable that the treatment affects (an intermediate,
-such as whether a patient took a follow-up dose) at each of its values, use the `TMLE` estimator
-itself: `TMLE(learned_rule=LearnedRule()).fit(..., intermediate="Z")`. It returns one result per
-value $z$, and each result estimates the average outcome if everyone followed the rule learned for
+such as whether a patient took a follow-up dose) at one of its values, declare the variable with
+`PointTreatment(intermediate="Z")` and ask for `LearnedRuleValue(intermediate=0.0)` or
+`LearnedRuleValue(intermediate=1.0)`. The `TMLE` estimator gives both values at once:
+`TMLE(learned_rule=LearnedRule()).fit(..., intermediate="Z")` returns one result per value $z$,
+the same numbers as the study fit. Each result estimates the average outcome if everyone followed the rule learned for
 $Z = z$ with $Z$ set to $z$. That rule is the best treatment for a unit given $Z = z$, not the best
 choice of treatment and intermediate together. An
 [intermediate study](../technical-reference/method-evidence/learned-rule-intermediate.md) measured
@@ -424,8 +438,7 @@ rule from the outcome model, and experimental otherwise.
 
 Every one of these fits needs, among other things, a treatment with distinct options rather than
 a continuous dose and complete outcomes, and a cross-fitted fit needs at least two folds. A fit
-that lacks one of them refuses before any model is fitted, and so does a `CausalStudy` learned rule
-with an intermediate variable. The refusal table under
+that lacks one of them refuses before any model is fitted. The refusal table under
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) lists the rest.
 
 A refit that relearned the rules would estimate the value of other rules. So the `subset`,
@@ -437,7 +450,9 @@ refuse, because a learned rule has no generated truth yet.
 
 The omitted-variable bound runs for this target. It gives a point bound under cross-fitting, and
 in sample it also gives its one-sided limits. `benchmark()`, the E-value and the missingness tilt
-read `unavailable`. The support report and `truncation_curve` run.
+read `unavailable`. The support report and `truncation_curve` run. With an intermediate held at
+a value, the `placebo` test, `simulated_confounding` and the omitted-variable bound refuse, because
+each would need its own check at that value.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.

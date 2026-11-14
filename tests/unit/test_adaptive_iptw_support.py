@@ -229,6 +229,7 @@ class TestExperimentalByDesign:
             weights="wt",
             weights_estimated=True,
             treatment_probabilities=known.mechanism(frame),
+            mechanism_law="target",
         )
         assert result.inference_status == "estimated_weight_plugin"
         self._assert_experimental(result)

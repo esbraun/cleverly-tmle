@@ -86,6 +86,7 @@ learned-rule-contrast
 learned-rule-arms
 learned-rule-optimal-value
 learned-rule-intermediate
+learned-rule-optimal-compositions
 learned-regimen-ltmle
 conditional-projection
 ep-cate
@@ -119,12 +120,16 @@ survival-ctmle
 survival-dr-tmle
 hazard-msm
 hazard-mtp
+hazard-multinode
+hazard-time-varying
 continuous-time-survival
+continuous-survival-functionals
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
 mtp-policy-variance
 mtp-pricing
+mtp-pricing-censored
 mtp-tuning
 sequentially-doubly-robust-estimation
 ordinary-longitudinal-msm-projection
@@ -144,6 +149,7 @@ point-survival-curve-crossfit
 point-treatment-survival-policies
 survival-node-bounds
 known-treatment-mechanism
+known-score-att
 known-mechanism-dr-tmle
 dr-tmle-foldwise
 dr-tmle-foldwise-n1500
@@ -155,6 +161,7 @@ adaptive-iptw-pairing
 adaptive-tmle-trial
 adaptive-tmle-selective
 known-node-mechanisms-ltmle
+known-mechanism-sample-weights
 sequential-baselines
 structural-nested-mean
 parametric-gformula
@@ -167,6 +174,7 @@ long-horizon-sequentially-doubly-robust-estimation
 option-stopping-ltmle
 option-ratio-trim
 option-markov-order
+boundary-node-ltmle
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 ovb-limit-coverage

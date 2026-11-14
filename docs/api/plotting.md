@@ -68,5 +68,49 @@ The results that have one natural figure also draw it with `plot()`:
 `BootstrapResult.plot()` calls `bootstrap`.
 
 `LongitudinalResult.plot()` draws its curve over time with `curve`, or the estimates with
-`forest` when the fit has no curve, and `EffectCurveResult.plot()` draws the conditional effect
-over a modifier with `curve`.
+`forest` when the fit has no curve, `ContinuousSurvivalResult.plot()` draws its risks at the
+target times with `curve`, and `EffectCurveResult.plot()` draws the conditional effect over a
+modifier with `curve`.
+
+## Fits over time and with external data
+
+`overlap`, `learners` and `calibration` also draw fits whose treatment is set at more than one
+time point, or whose rows come from a trial and an external source.
+
+- A survival fit of a treatment given once at baseline draws, in `overlap`, each person's
+  predicted chance of each arm. The fit's probability limits apply to the product of that chance
+  and the chance of staying in follow-up, so `overlap(result, censoring=True)` adds that product
+  for each plan, with the limit drawn. A collaborative fit draws each arm's selected treatment
+  model, and `learners` draws each arm's path of added terms with the chosen one marked.
+- A fit with a treatment at several time points draws one panel per time point. `overlap` shows the
+  chance of the plan's treatment among the units still following the plan, split by whether they
+  then took it. It draws one block of panels per plan, up to three, or the plan that `regimen=`
+  names. `censoring=True` adds each time point's chance of staying in the study. An incremental or
+  modified treatment policy has no single chance to draw, so `overlap` refuses it and `weights`
+  draws its weights.
+- On the same fit, `learners` stacks each model's Super Learner weights by time point, and
+  `calibration` draws each probability model at each time point. Both draw the outcome models of one
+  plan, the first unless `regimen=` names one, and the models of one cause, the first unless
+  `cause=` names one. `nodes=` and `horizon=` choose further.
+- A structural nested mean fit draws, in `overlap`, each time point's chance of each treatment
+  level, with the margin from 0 and 1 that its positivity summary counts.
+- An adaptive fit with external data draws, in `overlap`, each trial patient's chance of
+  treatment and each row's chance of being a trial row, with the floor its positivity warning
+  checks. Its nuisance report keeps learner names only, so `learners` and `calibration` refuse.
+- A continuous-time survival fit draws, in `overlap`, each person's predicted chance of the
+  treated arm. Its floor bounds the product of the chance of the arm and the chance of staying in
+  follow-up just before a target time, so `overlap(result, censoring=True)` adds that product for
+  each arm, with the floor drawn. `weights` draws, at each target time, the weight that inverts
+  that product for each person under the arm they received, or under the other arm with
+  `counterfactual=True`. `learners` draws each hazard's and the treatment model's candidates with
+  the chosen one marked; a cross-fitted fit keeps the first fold's choices.
+- On the same fit, `curve` draws each arm's risk, or its cumulative incidence of each cause in one
+  column per cause, and their difference below. Each estimate is a point at a time in
+  `horizons=`, with its interval and, when the fit holds one, its simultaneous band. Nothing is
+  drawn between those times, because the fit estimates no risk there.
+  `curve(result, measure="rmst")` or `"rmtl"` draws the restricted means at the times in
+  `restricted_horizons=`. `result.plot()` calls `curve`.
+
+Covariate balance over time is not drawn for any fit over time, and the refusal names the
+[roadmap](../roadmap.md) item that tracks it. A continuous-time fit's truncation curve carries the
+point-treatment columns, so `sensitivity` draws it.

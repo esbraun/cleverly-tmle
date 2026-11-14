@@ -224,6 +224,8 @@ def fit(
         extra["strata"] = ["V"]
     if weights is not None:
         extra["weights"] = weights
+        if known:
+            extra["mechanism_law"] = "target"
     return estimator.fit(
         frame,
         **{"outcome": "Y", "treatment": "A", "covariates": ["W", "V"], **roles, **extra},

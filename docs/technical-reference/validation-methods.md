@@ -343,6 +343,34 @@ at one fold, so no fold factor enters that comparison.
 The combined diagnostic row reports the signed movement range for each parameter or working-model
 coefficient. The retained frame keeps the fitted pair and the per-bound values.
 
+A continuous-time survival fit bounds one product, $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$,
+from below at a floor $b$, in every cell of both arms. The walk masks the score to the received arm,
+but its tilt multiplies the bounded weight into each unit's hazards in both arms, so a floor that
+binds only counterfactual cells still moves the estimate. The curve refits the initial hazards once
+from the stored estimator, at its stored seed, and first replays the fitted floor. Every reported
+estimate and standard error, and the record's `initial_psi`, `bounded_share`,
+`last_time_floor_share`, `frozen_share` and `off_grid_share`, must equal the fit exactly; a mismatch
+raises `CapabilityError`, and the sentence names library versions, BLAS threads and
+`VersionMismatchWarning`. The walk then reruns at each other floor.
+
+The default grid is the fitted floor $f$ times 1/4, 1/2, 1, 2 and 4, inside $(0, 1)$, and its
+`1` point is $f$ exactly. An explicit grid takes floors in $(0, 1)$; `mechanism=True` is refused.
+The frame carries the point-treatment columns, so `plotting.sensitivity` draws it.
+`truncated_fraction` is the point definition: the share of units with any cell of
+$\hat\pi \hat S_c(u^-)$ on the time grid, in either arm, below $b$. `bounded_share` (the
+received-arm cells while followed) and `last_time_floor_share` are their own columns, with
+`frozen_share`, `converged` and `steps`. A row at another floor reads `experimental`, as a fit with
+that `g_bounds` does, and the fitted row keeps the fit's support.
+
+`tests/unit/test_continuous_survival_refute.py` checks the exact facts the construction gives. Two
+floors below the smallest cell give bit-identical estimates and `truncated_fraction = 0`. Both
+shares rise with $b$. Each row equals a refit of the stored estimator with `g_bounds=b`, on the
+sweep's law and on a law whose censoring depends on the arm. Its witnesses are a floor between the
+smallest cell and the smallest received-arm cell, which moves some estimate while `bounded_share`
+stays 0, and a corrupted stored time, which the replay refuses. Its mutation controls are a curve
+that floors received-arm cells only, which stays flat, and a floor on $\hat\pi$ alone, which fails
+the exact refit check on the arm-dependent law.
+
 `estimands=` restricts the emitted rows to the parameters you name. It accepts two forms.
 
 | you name | the curve emits |
@@ -447,6 +475,7 @@ the table.
 | `LONGITUDINAL_CLASSIFIER_RATIO` | `treatment` at a continuous node | the classifier ratio route fits no density |
 | `LONGITUDINAL_KNOWN_MECHANISM` | `treatment` or `censoring` at one node | the data declares the node's factor known, so the fit read the declaration and no learner ran |
 | `LONGITUDINAL_CONSTANT_TARGET` | `outcome` or `pseudo_outcome` at one node | every follower held 0, such as no event at the node, or every follower held 1. The regression is that value and no learner ran |
+| `LONGITUDINAL_CONTINUATION_NOT_SCORED` | `continuation` at each node before the last horizon, by regimen and cause | on a hazard fit with covariates after baseline, the regression of the future is a hazard curve fitted on soft events from the targeted later nodes, with no observed label to score it against |
 | `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD` | `outcome` or `pseudo_outcome` at one node | one or more training folds held 0, or held 1, while the sample did not. Those folds fitted no learner, and `folds` names them. The node's model row stays |
 
 `to_frame()` starts with the row identity, evaluation, loss, model name, and model kind. It then
@@ -730,10 +759,14 @@ reports a bare `ate` settles the `"ate"` default. A multi-arm fit reports `ate[h
 | `tipping_gamma` | sensitivity | `"ate"` |
 | `refute` | diagnostics | `"ate"` |
 | `evalue` | sensitivity | `None` |
+| `marginal_bounds` | sensitivity | `None`, the fit's reported parameter |
 
 The library reads that default from the routed signature. `benchmark` takes `covariates` first and
 `estimand` by keyword, and the keyword default is as ambiguous as a positional one. `evalue`
 selects its own contrast from a `None` default, and defers when two contrasts qualify.
+`marginal_bounds` reads the [default parameter](#marginal-sensitivity-model-bounds) rule of its
+own section. It can bound an arm parameter the fit did not report, so a fit that reports none it
+can take defers rather than reads `unavailable`.
 
 The count of eligible reported parameters selects the answer.
 
@@ -1082,6 +1115,62 @@ limits equal those of the known rule fitted in sample.
   $\hat\sigma^2$ reaches it exactly. The representer of one fold's rule alone misses the bias, and
   the realized-rule representer gives a $\nu^2$ of 2.078 against 1.823, so its bound overshoots.
   The test asserts the three quoted numbers.
+
+#### The point bound of the value of the optimal rule
+
+A fit of the [value of the optimal rule](point-treatment-tmle.md#learned-rules)
+(`estimands=["ey_optimal_rule"]`) gets an asymmetric point bound wherever the learned-rule bound
+above runs: rows, known weights, clusters, fold targeting, the in-sample fit, the fold-evaluated
+report and two arms. Its target $\theta = \max_\pi \Psi_\pi$ moves with the rule, so the bound reads
+$(\rho, c_Y, c_D)$ as upper bounds that hold uniformly over every regime $\pi$ measurable in $W$,
+deterministic or stochastic. A bound for every deterministic rule does not bound a stochastic
+regime, because $\nu^2_\pi = E\sum_a \pi(a \mid W)^2 / g(a \mid W)$ is quadratic in $\pi$, and the
+lower side reads the stochastic regime $\bar d = V^{-1}\sum_v 1\{a = d_v(w)\}$. With $\tilde\Psi$
+the short value and $\theta_s = \max_\pi \tilde\Psi_\pi$:
+
+- lower: $\theta \ge \Psi_{\bar d} \ge \tilde\Psi_{\bar d} - B(\bar d)$. $\tilde\Psi_{\bar d}$ is
+  the learned-rule target, which the fit estimates, and $B(\bar d)$ is the learned-rule bound, so
+  the lower side is the learned-rule lower point bound, and it needs no regret condition.
+- upper: $\theta = \Psi_{d_L} \le \tilde\Psi_{d_L} + B(d_L) \le \theta_s + \sup_\pi B(\pi)$, with
+  $d_L$ the long-optimal rule, unknown. $\nu^2_\pi$ is convex in $\pi$ and largest at a vertex, so
+  $\sup_\pi \nu^2_\pi = \nu^2_{\sup} = E[\max_a 1/g(a \mid W)]$, and
+  $B_{\sup} = \lvert\rho\rvert C_Y C_D\,\sigma\,\nu_{\sup}$. The fit estimates $\theta_s$ up to the
+  regret, which the fit's own conditions already make negligible for its point estimate.
+
+The point bound is $[\hat\psi - B(\bar d), \hat\psi + B_{\sup}]$. The steps are the shipped bound of
+each regime, the two one-sided inequalities and the convexity of $\nu^2_\pi$. The composition is this
+package's step, with no new limit theorem. The upper side is conservative up to the regret of
+$\hat\psi$ for $\theta_s$, which the fit's own conditions make negligible.
+
+| quantity | value of the optimal rule |
+| --- | --- |
+| lower side, `max_bias`, `nu2` | the learned-rule fit's, bit for bit: $\hat\psi - S\sqrt{\hat\sigma^2\hat\nu^2}$ with the combined representer $g^\star / g$ |
+| upper side, `max_bias_upper`, `nu2_upper` | $\hat\psi + S\sqrt{\hat\sigma^2\hat\nu^2_{\sup}}$, with $\hat\nu^2_{\sup} = \sum_i w_i \max_a 1/g_n(a \mid W_i) / \sum_i w_i$ under the bounded mechanism the representer reads: the known $g$ when it is supplied, and under weights the weighted-population mechanism the fit uses |
+| `nu2_estimator` | `"auto"` reads the plug-in $\hat\nu^2_{\sup}$ on the upper side and the doubly robust learned-rule $\hat\nu^2$ on the lower side, and `"plugin"` reads the plug-in on both. `"doubly_robust"` refuses with `inference_gap`: it needs the influence function of a maximum over arms, which is not differentiable where two arms' probabilities tie |
+| robustness value | the equal strength at which the side facing the null reaches it: the lower side's scale when the null lies below $\hat\psi$, the upper side's when it lies above. Its `side`, `max_bias` and `nu2_estimator` keys name that side, so it draws on the contour of the same `bound` |
+| contour | `bound="lower"` reads the lower scale and `bound="upper"` the upper one, and the contour's `max_bias` and `nu2` name that side |
+| limits, the confidence-limit robustness value, `limit_reading` | refused with the key `optimal_rule` and the reason `inference_gap`, the in-sample fit included, unlike the learned-rule in-sample bound. $\hat\nu^2_{\sup}$ has no curve, because its maximum is not differentiable at ties of $g$ |
+| `benchmark()` | refused with `implementation_gap`: its refit relearns the rule, and no witness relates the short model's gains to the uniform strengths ([X11](../roadmap.md#x11-learned-policy-follow-ups) part (n2)) |
+| strata, the stacked report, more than two arms, `repeats` above 1, an intermediate | refused with `implementation_gap`, as for the learned-rule value. The lower limit is that bound, which is not built, so the refusal names the setting and then gives the learned-rule reason (part (n2)) |
+| known regimes beside the rule | refused with `implementation_gap`: the fit also reports each known regime's value and the contrast `ate_optimal_rule`, and no witness checks the bound of a contrast whose first term carries the bound over every rule (part (n2)) |
+
+The summaries print a note that the strengths hold for every rule, random rules included, and that
+the interval is not symmetric. `tests/unit/test_optimal_rule_sensitivity.py` checks these claims:
+
+- On two exact laws with an omitted binary $U$, the fold rules agree with the short-optimal rule at
+  two levels of $W$ and differ from it at the third. The uniform strengths are the maxima over the
+  eight deterministic rules and $\bar d$, and $\theta$ lies in the asymmetric bound built from the
+  law's $\sigma$ and the fit's two $\hat\nu$. On the first law the long-optimal rule differs from
+  the short one, and a symmetric bound with the learned-rule $\nu$ misses $\theta$ by more than
+  0.04. On the second, a lower side centred at $\theta_s$ misses it by more than 0.025. One law
+  cannot carry both mutations, because the first needs $\theta > \theta_s$ and the second
+  $\theta < \theta_s$.
+- $\hat\nu^2_{\sup}$ equals $E[\max_a 1/g(a \mid W)]$ by enumeration to a relative tolerance of
+  $10^{-12}$, and the value at the fitted rules lies more than 0.5 below it.
+- The lower side, its scale, its representer and its robustness value equal the learned-rule
+  fit's bit for bit on rows, with known $g$, under weights and in sample.
+- Each side's robustness value moves that side to the null, and the two differ on a nonconstant
+  $g$.
 
 #### Omitted-variable limits and their coverage evidence
 
@@ -1860,6 +1949,24 @@ A cell reads confounding of the value of these fixed rules, not of the learned-r
 | nonzero cells | each cell equals a manual frozen-rule refit of its perturbed table |
 | frozen rules | a perturbed refit keeps every row's rule and the folds, and a relearning refit changes some rules |
 | fold weights | on folds of 81 and 80 rows, the cell equals the mean of the fold values and not the row-weighted mean |
+
+**The value of the optimal rule.** The value of the optimal rule moves with the rule, so its replay
+relearns the rule in every cell. Each cell refits the stored estimator, which carries the declared
+`LearnedRule`, on the fit's outer folds and with the seeds of its repeats, one relearning refit per
+stored split, so `repeats` above 1 runs. A declared known mechanism is rebuilt for the flipped treatment,
+as on any other fit. Each cell then estimates the optimal value of its perturbed law, and the
+summary's `optimal-rule reading` line says that the rule moves with the confounding. An unseeded
+fit replays with the seeds its repeats drew, and on a seeded fit an explicit `random_state` other
+than the fit's own redraws them. The replay
+refuses known regimes beside the rule, whose regimes and contrasts it would rebuild beside a
+relearned rule, baseline strata, and an intermediate held at a level, each with
+`implementation_gap` and [X11](../roadmap.md#x11-learned-policy-follow-ups) part (f4) or (j4).
+
+| check | witness in `tests/unit/test_optimal_rule_sensitivity.py` |
+| --- | --- |
+| zero strength | the cell equals the reported estimate, and a manual relearning refit on the fit's folds and seed reproduces it exactly. On an unseeded fit with a random forest, the refit a cell runs, rerun on the unperturbed table, reproduces the estimate exactly, and the same refit without the repeat seeds moves it by more than 0.0001 |
+| relearned rules | a perturbed refit's fold rules differ from the fit's on more than 2% of the entries |
+| nonzero cells | each cell equals a manual relearning refit of its perturbed table with the rebuilt mechanism, at `repeats=1` and `repeats=2`. The same refit with the original mechanism moves a flipped cell by more than 0.0005 |
 | mutation controls | a replay that relearns the rule, or that redraws the folds, fails the nonzero cell check |
 
 **Nonlinear and continuous MSMs.** The surface preserves built-in identity, log, and logit links.
@@ -2451,6 +2558,19 @@ influence curve, summed within clusters on a clustered fit. A fit with `repeats 
 median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
 narrower and is not shipped.
 
+**Reference distribution.** A clustered fit below the few-cluster threshold replaces $z$ with
+the fit's own reference, the Student $t$ quantile with $J - 2$ degrees of
+freedom over the clusters the bounded parameter reads (`reference_df` on the result). That is
+the rule of the fit's own clustered interval, except on a fold-evaluated fit, whose estimate reads
+$J - V$ while the bounds pool the cluster variance and keep $J - 2$. Those clustered limits stay
+descriptive.
+
+**Default parameter.** With no `estimand`, the bounds answer for the parameter the fit reported:
+the ATE when the fit reports it, else the one reported parameter they can take (`att` on an ATT
+fit, `rr` on a risk-ratio fit). A fit that reports two or more of them and no ATE, or none of
+them, has no default: the call raises and names the choices, and `result.sensitivity` reports the
+row as deferred until an `estimand` is passed.
+
 **Breakdown.** `breakdown` is the smallest grid $\Gamma$ whose bounds contain the null.
 The null is zero for a difference and one for a ratio. `limit_breakdown` reads the set
 interval. An arm mean has no null, so both are `None`.
@@ -2749,7 +2869,7 @@ reading, and one note per test with its purpose, its conditions and its rung in 
 | `placebo` | permutes the treatment column and refits. A dose whose declared support is a function moves each dose's position within its band instead (below) | one-sample t of the deviations from the exact null, on R - 1 degrees of freedom | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the paired shift against the original fit, in standard errors | how far the learners move when a noise column joins the adjustment set |
 | `subset` | refits on random subsamples | the scatter ratio rho against `SE * sqrt((n/m - 1) * n/(n - 1))`; `(R - 1) * rho^2` follows a chi-square law on R - 1 degrees of freedom | the reported standard error is the right size |
-| `negative_control_outcome` | refits on an outcome the treatment cannot affect | z against the exact null | the design, under the control assumptions the paragraph below states |
+| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the control refit's own Wald test of the exact null, on its interval scale and reference distribution (a few-cluster t, `tests/unit/test_refutation_reference.py`) | the design, under the control assumptions the paragraph below states |
 | `dummy_outcome` | draws an outcome independent of `W` and `A` and refits | bias, standard-error ratio, and coverage against equivalence bands | outcome replacement and the full estimator pipeline |
 | `simulated_outcome` | draws `Y` from a declared mean `m(a, W)` and refits | the same three readings, against the exact truth of the target | adjustment and treatment terms in the full pipeline |
 | `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `Y` from `m(a, W)`, and refits | bias, standard-error ratio, and coverage against the same bands | operating characteristics on a law fitted to resemble the data |
@@ -3068,6 +3188,61 @@ and a node-2 band that reads `L_2` and `A_1`. The node-2 regression is free of t
 treatment within `1e-12`. Its mutation control maps node 2 on the observed `A_1`. The doses then
 leave the band that the refit reads, and the regression moves by more than 0.1.
 
+#### Continuous-time survival refutation
+
+A `ContinuousSurvivalResult` stores a copy of its estimator, with its seed resolved and the outer
+fold label of each row recorded, and its data as a `ContinuousSurvivalData`.
+`result.estimator.refit(result.data, random_state=result.estimator.random_state)` reproduces the fit
+bit for bit in one process. Every learner reads that seed: the folds, the lasso members, an unseeded
+user treatment learner or sklearn hazard member (through `seed_unset`), the off-grid draws and the
+band. `refute()` refits the stored estimator on a perturbed copy of the data. No study calibrates
+these readings yet, so every one is descriptive: `passed` is `None`.
+
+| test | draw | reference |
+| --- | --- | --- |
+| `placebo` | the treatment column permuted among the units (`"permute"`, the default), or drawn from its empirical marginal (`"draw"`) | 0 for `ate_regimen`, 1 for `rr_regimen`, read on the log scale |
+| `random_common_cause` | one standard-normal baseline column; each refit keeps the fit's seed and so its folds | the paired shift against the original fit |
+| `subset` | `min(n, max(20, int(fraction * n)))` units drawn without replacement, each with its original outer fold label | `SE * sqrt((n/m - 1) * n/(n - 1))` |
+
+Treat censoring as cause 0. Then $P(\tilde T \ge u \mid a, L) = S(u^- \mid a, L) S_c(u^- \mid
+a, L)$ holds for the observed cause-specific hazards with or without censoring at random, so the
+identified risk and its efficient influence curve are functions of the observed law. Under the
+permutation law the treatment is independent of the covariates and the outcome, so the identified
+risk difference is exactly 0 and the ratio exactly 1. Every main-terms Cox model is misspecified on
+that law, so double robustness does not carry the null. Symmetry does: at a zero arm coefficient the
+risk-set mean of the placebo arm equals its marginal mean, so the Cox score for that coefficient
+vanishes for any covariate coefficients, as the logistic score does. The working models' limits are
+arm-symmetric, and the limiting difference is 0.
+
+The placebo `t` is `mean / (sd / sqrt R)` over the refits, so it does not lean on the
+influence-curve standard error, which need not hold on the misspecified placebo law. It reads the
+mean over permutations, which is exactly 0 when both arms have the same size and carries a bias of
+order $1/n$ otherwise; the detail names unequal arms. An arm's risk has no fixed placebo null: both
+arms equal one functional of the observed hazards, which equals the marginal risk only when
+censoring is independent of the event time given the covariates alone. The placebo is refused
+there, and the `refute` row defers on `tests`, so `random_common_cause` and `subset` still run.
+
+The subset reference holds for an asymptotically linear estimator whose refits keep the fit's
+split, so each drawn unit keeps its outer label, compacted as on a point fit. Every draw is checked
+against the engine's two guards before the first subset refit: an event of every cause in every arm
+by the first target time, and every arm followed to the last target time. The random common cause
+leaves the estimand unchanged, so its shift measures how far the nuisance fits move at this sample
+size; with every learner seeded it carries no learner-seed noise.
+
+The negative control, the generated outcomes and the plasmode, the two bootstrap tests,
+`future_treatment`, `placebo_mode="markov"` and `noise_nodes=True` are refused before any refit.
+`_continuous_survival_refute.py` holds each sentence, and
+[X105](../roadmap.md#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits)
+tracks the first three. A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk); at
+n = 4,000 a cross-fitted default fit takes 60 to 120 s.
+
+`tests/unit/test_continuous_survival_refute.py` checks each test and refusal. Its witnesses are a
+placebo copy whose treatment moved, a placebo `t` inside [-3, 3] beside an original `|t| > 5`,
+subset refits whose fold labels equal the fit's at the drawn rows, and a noise column that moves
+some estimate. Its mutation controls are a refit at another seed, an unseeded SAGA treatment learner
+without `seed_unset`, a placebo that keeps 80% of the recorded treatments (`|t| > 5`), and a subset
+refit that redraws its split.
+
 #### The longitudinal plasmode
 
 The plasmode resamples the baseline rows of the fit. It draws the rest of each history from models
@@ -3248,7 +3423,8 @@ test fits a point-treatment TMLE of `C` on `A_{t+1}`, adjusted for `H_{t+1}`, on
 node `t + 1`. `future_treatment_node=t` selects the node, and the default is 1.
 
 The test uses the outcome and treatment learners and the fold count of the fit. The bounds rule
-and the learner rule of the negative-control outcome apply to the control.
+and the learner rule of the negative-control outcome apply to the control. Its p-value is the
+control fit's own Wald test of 0, as for the negative-control outcome.
 
 The reading is valid only when `C` is measured before `A_{t+1}`, has no effect on `A_{t+1}`, and gets no feedback from `A_{t+1}`. The
 code cannot check this condition, so the report states it and stays at `L0`. `refute()` refuses
