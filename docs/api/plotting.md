@@ -112,4 +112,5 @@ time point, or whose rows come from a trial and an external source.
   `restricted_horizons=`. `result.plot()` calls `curve`.
 
 Covariate balance over time is not drawn for any fit over time, and the refusal names the
-[roadmap](../roadmap.md) item that tracks it.
+[roadmap](../roadmap.md) item that tracks it. A continuous-time fit's truncation curve carries the
+point-treatment columns, so `sensitivity` draws it.

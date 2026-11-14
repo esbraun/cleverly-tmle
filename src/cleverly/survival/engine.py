@@ -18,10 +18,11 @@ Two departures are stated in the design (X91 part G, rev 2):
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 
@@ -31,6 +32,7 @@ from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
+from ..learners._fitting import seed_unset
 from ._targeting import (
     Norm,
     Problem,
@@ -49,6 +51,9 @@ from .result import (
     continuous_survival_support,
     risk_names,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..inference.influence import ParameterEstimate
 
 __all__ = ["ContinuousSurvivalRecord", "ContinuousSurvivalTMLE"]
 
@@ -234,7 +239,9 @@ def _fit_propensity(
 
     Lt, At = L[train], A[train]
     if learner is not None:
-        model = clone(learner).fit(Lt, At)
+        # A user learner left unseeded takes the fit's seed, so a seeded fit is a function of
+        # its data and seed (docs/architecture-invariants.md).
+        model = clone(seed_unset(learner, random_state)).fit(Lt, At)
         return model.predict_proba(L[predict])[:, 1], None
     candidates = _logistic_candidates(random_state)
     losses = []
@@ -318,7 +325,9 @@ class ContinuousSurvivalTMLE:
     alpha : float
         Significance level of the intervals.
     random_state : int or None
-        Seed of the folds and the off-grid diagnostic.
+        Seed of the folds, the inner selection folds, the lasso members, any unseeded user
+        learner, the off-grid diagnostic and the band.  ``None`` draws one seed per fit,
+        which the result's stored estimator records.
     tilt : {"all", "factual"}
         ``"factual"`` reproduces the ``concrete`` 1.0.5 update, for the mutation control only.
     simultaneous : bool
@@ -406,6 +415,12 @@ class ContinuousSurvivalTMLE:
         self.n_multiplier = int(n_multiplier)
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        #: The outer cross-fitting label of each row, recorded on the estimator a result
+        #: stores; a subset refit reads them so its refits keep the fit's split.
+        self._outer_folds: IntArray | None = None
+        #: The frozen labels a refit was given in place of a draw, so a replay passes them
+        #: again; ``None`` when the folds were drawn from the seed.
+        self._fold_override: IntArray | None = None
 
     # ------------------------------------------------------------------ inputs
 
@@ -490,6 +505,7 @@ class ContinuousSurvivalTMLE:
             The targeted risks, their contrasts and the record.
         """
         from ..utils.frames import as_frame, backend_of
+        from .data import ContinuousSurvivalData
 
         frame = as_frame(data)
         T = frame[time].to_numpy().astype(float)
@@ -498,13 +514,19 @@ class ContinuousSurvivalTMLE:
             raise DataError("every follow-up time is a positive finite number")
         if not np.all(np.isfinite(D_raw)) or np.any(D_raw < 0) or np.any(D_raw % 1):
             raise DataError("every event code is a non-negative integer, 0 for censored")
-        D = D_raw.astype(int)
         L = np.column_stack([frame[name].to_numpy().astype(float) for name in baseline])
         if not np.all(np.isfinite(L)):
             raise DataError("baseline covariates are finite numbers")
-        arm_labels, A = self._arms(frame[treatment].to_numpy())
-        causes = self._causes(D)
-        return self._fit_arrays(T, D, A, L, arm_labels, causes, backend=backend_of(frame))
+        container = ContinuousSurvivalData(
+            T,
+            D_raw.astype(int),
+            frame[treatment].to_numpy(),
+            L,
+            (str(time), str(event), str(treatment), *(str(name) for name in baseline)),
+            None,
+            backend_of(frame),
+        )
+        return self._fit_data(container)
 
     def fit_data(self, data: Any) -> ContinuousSurvivalResult:
         """Fit a :class:`~cleverly.survival.data.ContinuousSurvivalData` container.
@@ -519,23 +541,123 @@ class ContinuousSurvivalTMLE:
         ContinuousSurvivalResult
             The targeted risks, their contrasts and the record.
         """
-        arm_labels, A = self._arms(data.treatment)
-        causes = self._causes(data.event, self.causes if self.causes is not None else data.causes)
-        return self._fit_arrays(
-            data.time, data.event, A, data.baseline, arm_labels, causes, backend=data.backend
+        return self._fit_data(data)
+
+    def refit(
+        self, data: Any, *, random_state: int | None, _frozen_folds: Any = None
+    ) -> ContinuousSurvivalResult:
+        """Fit a copy of this estimator, at the seed ``random_state``, to ``data``.
+
+        ``result.estimator.refit(result.data, random_state=result.estimator.random_state)``
+        reproduces the fit bit for bit in one process: the stored estimator carries the
+        fit's resolved seed, and every learner, the folds, the off-grid draws and the band
+        read that seed.
+
+        Parameters
+        ----------
+        data : ContinuousSurvivalData
+            The rows to fit.
+        random_state : int or None
+            The seed of the copy.  ``None`` draws one, which the new result's estimator
+            records.
+        _frozen_folds : array-like or None
+            Private: one outer cross-fitting label per row of ``data``, used instead of a
+            fresh draw.  A subset refutation passes each drawn unit's original label, so the
+            refits keep the fit's split.  When omitted, a fit that was itself produced with
+            frozen labels reuses them on data of the same size.
+
+        Returns
+        -------
+        ContinuousSurvivalResult
+            The fit of the copy.
+        """
+        folds = _frozen_folds
+        override = self._fold_override
+        if folds is None and override is not None and override.size == len(data.time):
+            folds = override
+        estimator = self._copy(random_state)
+        return estimator._fit_data(data, folds=folds)
+
+    def _copy(self, random_state: int | None) -> ContinuousSurvivalTMLE:
+        """A copy at ``random_state`` that shares no mapping with this estimator."""
+        estimator = copy.copy(self)
+        estimator.random_state = random_state
+        estimator.arms = None if self.arms is None else dict(self.arms)
+        estimator.causes = None if self.causes is None else dict(self.causes)
+        return estimator
+
+    def _resolved_seed(self) -> int:
+        """The seed every random draw of a fit reads: the declared one, or one drawn now."""
+        if self.random_state is not None:
+            return int(self.random_state)
+        return int(np.random.SeedSequence().generate_state(1)[0])
+
+    def _floor(self, n: int) -> float:
+        """The floor on :math:`\\pi(a \\mid L) S_c(u^- \\mid a, L)` that ``g_bounds`` sets."""
+        if self.g_bounds == "auto":
+            return float(5.0 / (np.sqrt(n) * np.log(n)))
+        return float(self.g_bounds)
+
+    def _fit_data(self, data: Any, *, folds: Any = None) -> ContinuousSurvivalResult:
+        seed = self._resolved_seed()
+        initial = self._initial(data, seed, folds=folds)
+        settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
+        estimates, record = self._target(
+            initial, self._floor(initial.n), settings=settings, consume=True
+        )
+        bands = None
+        if self.simultaneous:
+            from ..inference.multiplier import simultaneous_bands
+
+            # The band covers the risks and their differences, as the study's band row reads.
+            risks = risk_names(initial.arm_labels, tuple(initial.causes.values()), self.horizons)
+            banded = {k: estimates[k] for k in risks}
+            bands = simultaneous_bands(
+                banded,
+                alpha=self.alpha,
+                n_replicates=self.n_multiplier,
+                kind=self.multiplier_kind,  # type: ignore[arg-type]
+                random_state=seed,
+                band_scale=self.band_scale,  # type: ignore[arg-type]
+            )
+            bands = replace(bands, support=BAND_SUPPORT)
+        stored = self._copy(seed)
+        stored._outer_folds = initial.folds.copy()
+        stored._fold_override = None if folds is None else initial.folds.copy()
+        return ContinuousSurvivalResult(
+            estimates=estimates,
+            simultaneous=bands,
+            record=record,
+            arms=initial.arm_labels,
+            causes=tuple(initial.causes.values()),
+            horizons=self.horizons,
+            n=initial.n,
+            backend=data.backend,
+            restricted_horizons=self.restricted_horizons,
+            estimator=stored,
+            # Copy the arrays: the caller's frame or container may be edited after the fit,
+            # and a refutation must refit the rows this fit read.
+            data=replace(
+                data,
+                time=np.array(data.time, copy=True),
+                event=np.array(data.event, copy=True),
+                treatment=np.array(data.treatment, copy=True),
+                baseline=np.array(data.baseline, copy=True),
+            ),
         )
 
-    def _fit_arrays(
-        self,
-        T: FloatArray,
-        D: IntArray,
-        A: IntArray,
-        L: FloatArray,
-        arm_labels: tuple[str, str],
-        causes: dict[int, str],
-        *,
-        backend: str | None = None,
-    ) -> ContinuousSurvivalResult:
+    def _initial(self, data: Any, seed: int, *, folds: Any = None) -> _Initial:
+        """Fit every nuisance and build what each walk reads, at the seed ``seed``.
+
+        ``folds`` replaces the outer cross-fitting draw with one label per row.  The
+        generator state after the nuisance phase is kept, so each walk's off-grid draws
+        start from the same state.
+        """
+        arm_labels, A = self._arms(data.treatment)
+        causes = self._causes(data.event, self.causes if self.causes is not None else data.causes)
+        T = np.asarray(data.time, dtype=float)
+        D = np.asarray(data.event, dtype=int)
+        L = np.asarray(data.baseline, dtype=float)
         n = T.size
         codes = list(causes)
         J = len(codes)
@@ -579,13 +701,25 @@ class ContinuousSurvivalTMLE:
             + [restricted_weights(grid, tau)[None, :] / tau for tau in restricted]
         )
         X = np.column_stack([A.astype(float), L])
-        rng = np.random.default_rng(self.random_state)
-        folds = (
-            _stratified_folds(D, self.n_folds, rng) if self.cross_fit else np.zeros(n, dtype=int)
-        )
+        rng = np.random.default_rng(seed)
+        if folds is not None:
+            folds = np.asarray(folds, dtype=int).copy()
+            if folds.shape != (n,):
+                raise ValueError(f"frozen fold labels hold {folds.size} rows; the data hold {n}")
+            if not self.cross_fit and np.unique(folds).size != 1:
+                raise ValueError("an in-sample fit takes one frozen fold label")
+            n_folds = int(np.unique(folds).size) if self.cross_fit else 1
+        elif self.cross_fit:
+            folds = _stratified_folds(D, self.n_folds, rng)
+            n_folds = self.n_folds
+        else:
+            folds = np.zeros(n, dtype=int)
+            n_folds = 1
         gap = np.diff(np.unique(T))
         shift = 0.5 * float(gap.min()) if gap.size else 0.5
         censor_time = np.where(D > 0, T - shift, T)
+        hazard_library = tuple(seed_unset(member, seed) for member in self.hazard_library)
+        censoring_library = tuple(seed_unset(member, seed) for member in self.censoring_library)
 
         dlam = np.zeros((2, J, n, grid.size))
         dgam = np.zeros((2, n, grid.size))
@@ -599,7 +733,7 @@ class ContinuousSurvivalTMLE:
             inner = _stratified_folds(D[train], self.learner_folds, rng)
             for j, code in enumerate(codes):
                 selection = select_hazard(
-                    self.hazard_library, X[train], T[train], (D[train] == code).astype(float), inner
+                    hazard_library, X[train], T[train], (D[train] == code).astype(float), inner
                 )
                 for a in (0, 1):
                     Xa = X[predict].copy()
@@ -608,7 +742,7 @@ class ContinuousSurvivalTMLE:
                 if fold == folds.min():
                     hazard_records.append(selection)
             selection = select_hazard(
-                self.censoring_library,
+                censoring_library,
                 X[train],
                 censor_time[train],
                 (D[train] == 0).astype(float),
@@ -621,7 +755,7 @@ class ContinuousSurvivalTMLE:
             if fold == folds.min():
                 censoring_record = selection
             p1[predict], chosen = _fit_propensity(
-                self.treatment_learner, L, A, train, predict, inner, self.random_state
+                self.treatment_learner, L, A, train, predict, inner, seed
             )
             if fold == folds.min():
                 propensity_record = chosen
@@ -647,14 +781,7 @@ class ContinuousSurvivalTMLE:
         retention = np.cumprod(1.0 - np.clip(dgam, 0.0, 1.0), axis=-1)
         retention_before = np.concatenate([np.ones((2, n, 1)), retention[..., :-1]], axis=-1)
         pi = np.stack([1.0 - p1, p1])
-        floor = 5.0 / (np.sqrt(n) * np.log(n)) if self.g_bounds == "auto" else float(self.g_bounds)
         product = pi[:, :, None] * retention_before
-        weight = 1.0 / np.maximum(product, floor)
-        factual = A[None, :, None] == np.arange(2)[:, None, None]
-        reach = T[None, :, None] >= grid[None, None, :]
-        relevant = factual & reach
-        bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
-        last_time_floor_share = float(np.mean(product[..., -1] < floor))
         # Stored for the overlap readers; read before the arrays below are released, and no
         # estimate reads them.
         # S_c(t_k-) multiplies over the observed times strictly before t_k.
@@ -662,26 +789,87 @@ class ContinuousSurvivalTMLE:
         retention_at_targets = retention[..., np.maximum(before, 0)]
         retention_at_targets[..., before < 0] = 1.0
         # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
-        del survival, retention, retention_before, product, factual, reach, relevant, dgam
+        del survival, retention, retention_before, dgam
 
         # Indicators stay boolean: arithmetic with the float hazards promotes them on use.
         at_risk = T[:, None] >= grid[None, :]
         events = np.stack([(T[:, None] == grid[None, :]) & (D[:, None] == code) for code in codes])
-        problem = Problem(A, at_risk, events, weight, target_weights)
+        observed = T[D > 0]
+        initial = _Initial(
+            n=n,
+            T=T,
+            A=A,
+            arm_labels=arm_labels,
+            causes=causes,
+            grid=grid,
+            target_index=target_index,
+            target_weights=target_weights,
+            folds=folds,
+            n_folds=n_folds,
+            p1=p1,
+            retention_at_targets=retention_at_targets,
+            hazard_records=tuple(hazard_records),
+            censoring_record=censoring_record,
+            propensity_record=propensity_record,
+            at_risk=at_risk,
+            events=events,
+            # Risks first, then restricted means, in the order of the weight rows.
+            shares=tuple(
+                float(np.mean(observed <= time))
+                for time in (*self.horizons, *self.restricted_horizons)
+            ),
+            rng_state=rng.bit_generator.state,
+            product=product,
+            jumps=[dlam],
+        )
+        # Handed over through the container's list so no name here keeps the initial jumps
+        # alive once a consuming walk has replaced them (~400 MB at n = 4,000).
+        del dlam, product
+        return initial
+
+    def _target(
+        self,
+        initial: _Initial,
+        floor: float,
+        *,
+        settings: Mapping[str, Any],
+        consume: bool,
+    ) -> tuple[dict[str, ParameterEstimate], ContinuousSurvivalRecord]:
+        """Run the walk from ``initial`` with the weights bounded below by ``floor``.
+
+        ``settings`` holds the values of the keys of :data:`MEASURED_DEFAULTS` the support of
+        each estimate reads.  ``consume`` releases the initial jumps and the bounded product
+        into the walk, as a fit does; a truncation curve keeps both for its next floor.
+        """
+        n, A, T, grid = initial.n, initial.A, initial.T, initial.grid
+        if consume:
+            assert initial.product is not None
+            product = initial.product
+            initial.product = None
+        else:
+            assert initial.product is not None
+            product = initial.product
+        weight = 1.0 / np.maximum(product, floor)
+        factual = A[None, :, None] == np.arange(2)[:, None, None]
+        reach = T[None, :, None] >= grid[None, None, :]
+        relevant = factual & reach
+        bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
+        last_time_floor_share = float(np.mean(product[..., -1] < floor))
+        del product, factual, reach, relevant
+
+        problem = Problem(A, initial.at_risk, initial.events, weight, initial.target_weights)
         cutoff = default_cutoff(n) if self.tol is None else float(self.tol)
-        # Handed over through a list so no name here keeps the initial jumps alive once the
-        # walk has replaced them (~400 MB at n = 4,000).
-        jumps = [dlam]
-        del dlam
+        jumps = initial.jumps.pop() if consume else initial.jumps[0]
         result = walk(
             problem,
-            jumps.pop(),
+            jumps,
             cutoff=cutoff,
             norm=self.norm,
             step=self.step_size,
             max_steps=self.max_iter,
             tilt=self.tilt,
         )
+        del jumps
         if not result.converged:
             worst = np.argsort(-result.standardized_score)[:3]
             _warn(
@@ -691,11 +879,13 @@ class ContinuousSurvivalTMLE:
                 + " the cutoff. The estimate is kept and the record lists every target.",
                 ConvergenceWarning,
             )
+        rng = np.random.default_rng()
+        rng.bit_generator.state = initial.rng_state
         off_grid = _off_grid_share(problem, result, grid, rng, cutoff)
         record = ContinuousSurvivalRecord(
-            hazards=tuple(hazard_records),
-            censoring=censoring_record,
-            propensity=propensity_record,
+            hazards=initial.hazard_records,
+            censoring=initial.censoring_record,
+            propensity=initial.propensity_record,
             steps=result.steps,
             halvings=result.halvings,
             converged=result.converged,
@@ -707,22 +897,20 @@ class ContinuousSurvivalTMLE:
             frozen_share=result.frozen_share,
             off_grid_share=off_grid,
             cross_fitted=self.cross_fit,
-            n_folds=self.n_folds if self.cross_fit else 1,
+            n_folds=initial.n_folds,
             grid_size=int(grid.size),
             arm=A.copy(),
-            p1=p1.copy(),
-            retention_before=retention_at_targets,
+            p1=initial.p1.copy(),
+            retention_before=initial.retention_at_targets.copy(),
             weight_floor=float(floor),
         )
-        observed = T[D > 0]
-        # Risks first, then restricted means, in the order of the weight rows.
-        shares = [float(np.mean(observed <= time)) for time in (*self.horizons, *restricted)]
-        settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
+        J = len(initial.causes)
+        restricted = self.restricted_horizons
 
         def support(scale: str, q: int) -> Support:
             return continuous_survival_support(
                 scale=scale,
-                event_share=shares[q],
+                event_share=initial.shares[q],
                 n=n,
                 causes=J,
                 cross_fitted=self.cross_fit,
@@ -735,41 +923,49 @@ class ContinuousSurvivalTMLE:
 
         estimates = build_estimates(
             result,
-            arm_labels,
-            causes,
+            initial.arm_labels,
+            initial.causes,
             self.horizons,
             n=n,
             alpha=self.alpha,
             support=support,
             restricted=restricted,
         )
-        bands = None
-        if self.simultaneous:
-            from ..inference.multiplier import simultaneous_bands
+        return estimates, record
 
-            # The band covers the risks and their differences, as the study's band row reads.
-            risks = risk_names(arm_labels, tuple(causes.values()), self.horizons)
-            banded = {k: estimates[k] for k in risks}
-            bands = simultaneous_bands(
-                banded,
-                alpha=self.alpha,
-                n_replicates=self.n_multiplier,
-                kind=self.multiplier_kind,  # type: ignore[arg-type]
-                random_state=self.random_state,
-                band_scale=self.band_scale,  # type: ignore[arg-type]
-            )
-            bands = replace(bands, support=BAND_SUPPORT)
-        return ContinuousSurvivalResult(
-            estimates=estimates,
-            simultaneous=bands,
-            record=record,
-            arms=arm_labels,
-            causes=tuple(causes.values()),
-            horizons=self.horizons,
-            n=n,
-            backend=backend,
-            restricted_horizons=restricted,
-        )
+
+@dataclass
+class _Initial:
+    """What every walk of one fit reads: the nuisance fits and the fixed arrays.
+
+    ``product`` is :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` on the grid, shape
+    ``(2, n, M)``, and ``jumps`` holds the initial hazard jumps ``(2, J, n, M)`` in a
+    one-element list, so a consuming walk can take them without a second name keeping them
+    alive.  ``rng_state`` is the generator state after the nuisance phase, from which every
+    walk's off-grid draws start.
+    """
+
+    n: int
+    T: FloatArray
+    A: IntArray
+    arm_labels: tuple[str, str]
+    causes: dict[int, str]
+    grid: FloatArray
+    target_index: IntArray
+    target_weights: FloatArray
+    folds: IntArray
+    n_folds: int
+    p1: FloatArray
+    retention_at_targets: FloatArray
+    hazard_records: tuple[HazardSelection, ...]
+    censoring_record: HazardSelection
+    propensity_record: PropensitySelection | None
+    at_risk: Any
+    events: Any
+    shares: tuple[float, ...]
+    rng_state: Mapping[str, Any]
+    product: FloatArray | None
+    jumps: list[FloatArray]
 
 
 def _off_grid_share(

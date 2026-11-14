@@ -395,10 +395,10 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
     (
         "src/cleverly/inference/influence.py",
-        "the boundary-node supplement adds to the centred",
-    ): "make_estimate invariant: only the boundary-node LTMLE path attaches a node supplement, "
-    "under the centred rule, and contrasts and transforms carry it forward with that rule, so "
-    "only a direct call with a malformed covariance_rule reaches it",
+        "boundary-node supplement adds to the centred curve variance only",
+    ): "low-level guard on a covariance_rule and node pair: LTMLE adds the boundary-node "
+    "supplement only under the default variance (the reach check in longitudinal/estimator.py), "
+    "so only a direct call of make_estimate with a malformed pair reaches it",
     ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
     ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,

@@ -84,8 +84,9 @@ The readiness labels are defined under
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
 | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c), (a) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
-| [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the support, score, nuisance and influence diagnostics shipped | the shipped `ContinuousSurvivalTMLE` and its record |
+| [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the diagnostics, the descriptive refutation and the truncation curve shipped | the shipped `ContinuousSurvivalTMLE`, its record and its stored estimator and data |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
+| [X105](#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) Negative controls, generated outcomes and resampling for continuous-time fits | 6 | no new theory for the controls and generated outcomes; the resampling part needs the fold rule of X6 (d) | the shipped continuous-time refutation; X6 (d) for resampling |
 
 ### Longitudinal and sequential estimators
 
@@ -801,7 +802,7 @@ gates the same fit with one restricted horizon. This item holds what remains.
 | (a) the early-time standard error | at the first quartile of the event times the influence-curve standard error ran up to 8% below the sampling spread at n = 1,000 (5% at 4,000) and coverage fell to 0.88, while the estimates were unbiased with the efficient spread. The fit labels a time by which fewer than 40% of the events have happened experimental. A diagnosis, then a corrected variance or a declared finite-sample rule, would lift the label | the study's `early-time.csv`; the pilot at n = 4,000 in `tests/studies/continuous_survival_pilot.csv.gz` |
 | (b) one event type and more than two causes | a study of each; both run today and read experimental | Rytgaard and van der Laan (2024), Section 3.1, covers any number of causes |
 | (c) the band of a fit with restricted means | `curve()`, `contrast()`, `to_dict()`, `ratio()`, `rmtl()`, `rmst()` and `evalue` ship on `ContinuousSurvivalResult`, and `restricted_horizons=` targets each restricted mean. The registered study [continuous-time survival restricted means and risk ratios](technical-reference/method-evidence/continuous-survival-functionals.md) gates the risks, risk ratios and restricted means of a fit with one restricted horizon at the last target time. Its declared band row over every risk and risk difference runs as a second phase after the band thread's PR 2; until then the band reads experimental | the study's declaration in `tests/studies/continuous_survival_functionals_properties.py` |
-| (d) a bootstrap | a full-refit bootstrap of the continuous-time fit | none read |
+| (d) a bootstrap | a full-refit bootstrap of the continuous-time fit. A unit drawn twice must share a cross-fitting fold; the resampling refutations of [X105](#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) wait on the same fold rule | none read |
 | (e) time-varying treatment and covariates | the continuous-time intensity model and its targeting | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5) |
 | (f) a comparator | `concrete` 1.0.5 implements the form of Rytgaard, Eriksson and van der Laan (2023), tilts only each unit's received arm, which a mutation test shows is not doubly robust, and is archived. Pin it by commit before any paired cell | the `concrete` source |
 
@@ -815,15 +816,33 @@ holds the operations that refit or retarget the fit. The omitted-variable, margi
 wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation). The E-value of a risk
 ratio of the fit runs.
 
+Parts (a) and (c) are delivered ([delivered items](roadmap-delivered.md)). The result stores its
+estimator and data; `refute` runs the placebo on a contrast, the random common cause and the
+subset, descriptively, and the truncation curve reruns the walk at other floors
+([refutation operations](technical-reference/validation-methods.md#refutation-operations)).
+
 | part | what to add | base |
 | --- | --- | --- |
-| (a) refutation | the placebo, random-common-cause and subset refits of `refute`, which need the result to keep its estimator and its data | the point-treatment `refute` |
 | (b) simulated common cause | a replay that perturbs the event and censoring times of a continuous-time fit | the survival replay of X91 part (c), which reads a time grid |
-| (c) truncation curve | a rerun of the targeting walk at other floors on $\pi(a \mid L) S_c(u^- \mid a, L)$, which needs the initial hazard jumps kept or refitted | the record's `weight_floor`, `bounded_share` and `last_time_floor_share` |
+| (d) refutation verdicts | a registered calibration study of the placebo `t` and the subset `rho` on a risk difference, which licenses `L2` verdicts inside its measured event-share range, two causes and n >= 1,000 | the shipped descriptive refutation |
 
 Acceptance: each part that ships turns its capability row available, with a test that the row and
 the call agree in the capability sweep, and a nonzero witness that the refit changes the data it
 claims to perturb.
+
+### X105. Negative controls, generated outcomes and resampling for continuous-time fits
+
+`refute` on a `ContinuousSurvivalResult` runs the placebo, random-common-cause and subset tests
+([X101](#x101-assessment-of-continuous-time-survival-fits)) and refuses the rest. This item holds
+the refused tests that have a construction but no adapter. It starts on demand. Before part (b)
+lifts its refusals, the generated-outcome and plasmode verdict rows in `_interpretation.py`, which
+name no method today, must exclude continuous-time configurations until a study measures them.
+
+| part | what to add | base |
+| --- | --- | --- |
+| (a) negative-control outcome | a declaration of a control time-to-event pair, with its own censoring and target times, and a refit on it | the point and longitudinal negative-control readings |
+| (b) generated event-time outcomes | `dummy_outcome`, `simulated_outcome` and `plasmode` with an event-time process in continuous time; the shipped survival processes draw per-node indicators on a time grid | the generated-outcome readings of the survival panels |
+| (c) resampling refits | `bootstrap_stability` and `bootstrap_measurement_error`. A unit drawn twice must share a cross-fitting fold, and the engine draws its folds from the data | the fold rule of [X6](#x6-continuous-time-survival-and-competing-risks) part (d), which the full-refit bootstrap needs too |
 
 ### X70. Hazard targeting beyond a held baseline treatment
 
