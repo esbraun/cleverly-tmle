@@ -261,8 +261,10 @@ def test_t_a5_the_longitudinal_estimate_is_bit_identical() -> None:
         assert np.array_equal(declared[name].influence_curve, plain[name].influence_curve)
     # A bound inside the bins cuts each row's density at it (``learners.density``), so the
     # same declaration at u(h) moves the estimate: the nonzero witness of the reading.
+    # The move is about 8e-4, two percent of the standard error and far above rounding.
     binding = fit({"A1": Support(-10.0, 10.0), "A2": Support(0.0, law.upper)})
-    assert binding["ey_regimen[up at 2]"].psi != plain["ey_regimen[up at 2]"].psi
+    moved = binding["ey_regimen[up at 2]"].psi - plain["ey_regimen[up at 2]"].psi
+    assert abs(moved) > 1e-4, moved
 
 
 def _past_the_edges(h: Any) -> Any:

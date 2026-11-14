@@ -647,12 +647,30 @@ def test_w4a_the_core_survives_and_every_split_bin_holds_its_rows(n: int, core: 
         inner = edges[(edges >= base[b]) & (edges <= base[b + 1])]
         if inner.size == 2:
             continue
-        # A gap bin (no rows) ends a stretch: each stretch's bins hold min(20, m) of its rows.
-        counts = _bins_of(a, inner)
-        for stretch in np.split(counts, np.flatnonzero(counts == 0)):
-            held = stretch[stretch > 0]
-            if held.size:
-                assert held.min() >= min(TAIL_ROWS, int(held.sum())), (b, counts)
+        assert not _thin_stretches(a, inner), (b, _bins_of(a, inner))
+
+
+def _thin_stretches(a: np.ndarray, inner: np.ndarray) -> list[int]:
+    """A gap bin (no rows) ends a stretch: each stretch's bins hold min(20, m) of its rows.
+    The stretches that do not, by their smallest bin count."""
+    counts = _bins_of(a, inner)
+    thin = []
+    for stretch in np.split(counts, np.flatnonzero(counts == 0)):
+        held = stretch[stretch > 0]
+        if held.size and held.min() < min(TAIL_ROWS, int(held.sum())):
+            thin.append(int(held.min()))
+    return thin
+
+
+def test_w4a_without_the_floor_a_split_bin_is_thin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(density_module, "TAIL_ROWS", 1)
+    a = law.draw("G", 2000, 1).A.to_numpy()
+    edges = bin_edges(a, 26)
+    base = _equal_mass_edges(a, 26, None)
+    assert any(
+        _thin_stretches(a, edges[(edges >= base[b]) & (edges <= base[b + 1])])
+        for b in range(base.size - 1)
+    )
 
 
 def _upper_tail_bins(a: np.ndarray, clean_max: float) -> int:
@@ -995,6 +1013,19 @@ def test_w9c_a_straddling_bin_is_read_over_its_supported_part() -> None:
     inside = x <= stop
     np.testing.assert_allclose(read[inside], np.exp(slope * x[inside]) / total, rtol=1e-12)
     assert np.all(read[~inside] == 0.0)
+
+
+def test_w9c_a_bound_on_a_bin_edge_reads_the_bin_it_closes() -> None:
+    """A heaped dose at the bound itself reads the left limit of the reading, not zero."""
+    slope, edges = -1.3, W3B_EDGES
+    stop = float(edges[3])
+    total = np.expm1(slope * stop) / slope
+    capped = np.minimum(edges, stop)
+    p = (np.exp(slope * capped[1:]) - np.exp(slope * capped[:-1])) / slope / total
+    density = ConditionalDensity(p[None, :], edges, p > 0.0, (np.zeros(1), np.full(1, stop)))
+    at_bound = density.density_at(np.full(1, stop))[0]
+    np.testing.assert_allclose(at_bound, np.exp(slope * stop) / total, rtol=1e-12)
+    assert density.density_at(np.full(1, np.nextafter(stop, np.inf)))[0] == 0.0
 
 
 def _icb_seed(name: str, n: int, draw: int) -> int:

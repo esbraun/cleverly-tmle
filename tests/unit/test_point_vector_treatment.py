@@ -582,7 +582,8 @@ def _same(found: Any, expected: Any, where: str) -> None:
     assert left.shape == right.shape, f"{where}: {left.shape} numbers against {right.shape}"
     # A Hessian condition number past 1e15 marks a singular fluctuation (policies with equal
     # ratio columns), and its digits are rounding: both readings must be singular there.
-    singular = (np.abs(left) > 1e15) & (np.abs(right) > 1e15)
+    # Only the fluctuation record holds a condition number.
+    singular = (np.abs(left) > 1e15) & (np.abs(right) > 1e15) & (where == "result.fluctuations")
     np.testing.assert_allclose(
         left[~singular], right[~singular], rtol=1e-9, atol=1e-9, err_msg=where
     )

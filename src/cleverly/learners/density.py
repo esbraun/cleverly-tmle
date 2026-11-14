@@ -748,6 +748,12 @@ def _read(knots: _Knots, values: FloatArray) -> FloatArray:
     safe = np.where(finite, flat, e[0])
     index = np.clip(np.searchsorted(e, safe, side="right") - 1, 0, e.size - 2)
     at = knots.take(rows, index)
+    # A value on the left edge of a bin the support cuts away entirely is the row's upper
+    # bound itself, and reads the bin it closes.
+    closing = (at["width"] <= 0.0) & (index > 0) & (safe == e[index])
+    if closing.any():
+        index = np.where(closing, index - 1, index)
+        at = knots.take(rows, index)
     inside = finite & (safe >= e[0]) & (safe <= e[-1])
     inside &= (safe >= at["left"]) & (safe <= at["right"]) & (at["width"] > 0.0)
     slope = np.where(safe >= at["centre"], at["slope_right"], at["slope_left"])

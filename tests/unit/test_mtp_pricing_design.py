@@ -371,7 +371,7 @@ def _node_one_hazard(
     a = frame["A1"].to_numpy()  # type: ignore[index]
     history = frame[["W1", "L1"]].to_numpy()  # type: ignore[index]
     edges = bin_edges(a, bins)
-    index = np.clip(np.searchsorted(edges, a, side="right") - 1, 0, bins - 1)
+    index = np.clip(np.searchsorted(edges, a, side="right") - 1, 0, edges.size - 2)
     rows = np.repeat(np.arange(len(a)), index + 1)
     k = np.concatenate([np.arange(i + 1) for i in index])
     design = np.column_stack([history[rows], k])
