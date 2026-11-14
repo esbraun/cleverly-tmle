@@ -12,7 +12,6 @@ continuous node.
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import importlib
 import warnings
@@ -97,23 +96,16 @@ def test_w15_every_refit_reads_the_route_recorded_on_the_result(
 
 
 @pytest.mark.parametrize("name", ["mtp/shift/default", "mtp/panel/default"])
-def test_w15_a_refit_forced_to_the_other_route_fails_the_spy(
+def test_w15_a_refute_that_refits_the_other_route_fails_the_spy(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mutation (i): the refit reads the density route while the fit read the classifier."""
+    """Mutation (i): ``refute`` passes the density route while the fit read the classifier."""
     result = build(name)
-    estimator = type(result.estimator)
-    original = estimator.refit
-
-    def other(self: Any, *args: Any, **kw: Any) -> Any:
-        moved = copy.copy(self)
-        moved.ratio = "density"
-        return original(moved, *args, **kw)
-
-    monkeypatch.setattr(estimator, "refit", other)
+    assert result.config.ratio_route.route == "classifier"
+    kinds.refute_passing("density", monkeypatch)
     calls = _spy(monkeypatch)
     _refute(result)
-    assert "density" in calls and set(calls) != {result.config.ratio_route.route}
+    assert calls and set(calls) == {"density"}, calls
 
 
 def _adjusted_atoms(ratio: str | None) -> Any:
@@ -381,6 +373,28 @@ def _trim_reaches_the_estimate(estimator: type, ratio: str) -> list[str]:
         gap = float(np.max(np.abs(np.where(rows, numerator / safe - trim.cumulative, 0.0))))
         if gap > 1e-12:
             found.append(f"clever covariate off the trimmed product by {gap}")
+    else:
+        # SDR's weight on the path from node 1 to node s, on the result's mechanism, is the
+        # running product of min(r, Q_q) on a row whose lower bound does not bind.
+        plan = next(p for p in trimmed.replay_recipe.plans if p.label == "up")
+        data = trimmed.data
+        numerator = plan.intervention_density(data)
+        raw = sdr_module.node_factors(data, plan, trimmed.mechanism)
+        factors = sdr_module.trimmed_factors(numerator, raw, trim.threshold)
+        masks = plan.masks(data)
+        weights, _, _ = sdr_module.partial_weights(
+            numerator, factors, masks, 1, data.n_times, trimmed.config.g_bounds, factors != raw
+        )
+        running = np.cumprod(factors, axis=1)
+        for node, weight in enumerate(weights, start=1):
+            rows = (
+                masks.following(node)
+                & (trim.cumulative[:, node - 1] > 0.0)
+                & (running[:, node - 1] > trimmed.config.g_bounds[0])
+            )
+            gap = float(np.max(np.abs(weight[rows] - trim.cumulative[rows, node - 1])))
+            if not rows.any() or gap > 1e-12:
+                found.append(f"clever covariate off the trimmed product by {gap} at node {node}")
     return found
 
 
@@ -398,6 +412,7 @@ def test_w16_the_shipped_composition_leaves_the_estimate(
     _shipped(monkeypatch)
     found = " ".join(_trim_reaches_the_estimate(estimator, "classifier"))
     assert "ey_regimen[up] moved" in found
+    assert "clever covariate off the trimmed product" in found
 
 
 def test_w16_the_hazard_model_refuses_ratio_trim() -> None:

@@ -16,12 +16,17 @@ set of rows each one answered when the snapshot was measured, in the shape of
 
 from __future__ import annotations
 
+import copy
+import importlib
+import inspect
+import textwrap
 import warnings
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import TMLE
@@ -29,6 +34,8 @@ from cleverly.interventions import Shift, Support
 from cleverly.longitudinal import LTMLE
 from tests import dose_declarations
 from tests.studies import longitudinal_mtp_common as panel_law
+
+refute_module = importlib.import_module("cleverly.validation.refute")
 
 #: The ``ratio=`` setting of each route name.
 ROUTES: dict[str, str | None] = {"default": None, "density": "density", "classifier": "classifier"}
@@ -181,3 +188,25 @@ def builder(shape: str, route: str) -> Callable[[], Any]:
 FITS: dict[str, Callable[[], Any]] = {
     f"mtp/{shape}/{route}": builder(shape, route) for shape in SHAPES for route in ROUTES
 }
+
+
+def refute_passing(route: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutate ``refute`` so that it refits a copy of ``result.estimator`` set to ``route``.
+
+    The source of :func:`~cleverly.validation.refute` is edited where it reads the estimator
+    and the edited function replaces it in its module, which the facades import from at
+    call time.
+    """
+    source = textwrap.dedent(inspect.getsource(refute_module.refute))
+    marker = "    estimator = result.estimator\n"
+    assert source.count(marker) == 1, "refute no longer reads result.estimator once"
+    edited = source.replace(
+        marker,
+        f"    estimator = _copy.copy(result.estimator)\n    estimator.ratio = {route!r}\n",
+    )
+    namespace = {**vars(refute_module), "_copy": copy}
+    exec(
+        compile("from __future__ import annotations\n" + edited, "<mutated refute>", "exec"),
+        namespace,
+    )
+    monkeypatch.setattr(refute_module, "refute", namespace["refute"])

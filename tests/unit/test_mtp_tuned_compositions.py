@@ -519,7 +519,9 @@ def test_truncation_replay_reproduces_a_tuned_fit(atoms: bool) -> None:
     ).set_index("is_fitted_bound")
     psi = result.psi("ey_regimen[tuned]")
     assert curve.loc[True, "psi"] == pytest.approx(psi, abs=1e-12)
-    assert np.isfinite(curve.loc[False, "psi"])
+    # The trim at 0.95 binds and moves the estimate, so the sweep is not flat.
+    assert curve.loc[False, "trimmed_share"] > 0.0
+    assert abs(curve.loc[False, "delta_from_fitted"]) > 1e-8
 
 
 def test_dumps_and_loads_keep_a_tuned_result_with_a_support_and_atoms() -> None:

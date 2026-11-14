@@ -9,7 +9,6 @@ rule that chose it, and a refit reads the recorded route.
 
 from __future__ import annotations
 
-import copy
 import importlib
 import warnings
 from collections.abc import Callable
@@ -45,7 +44,6 @@ from cleverly.longitudinal import (
     SurvivalCTMLE,
     SurvivalDRTMLE,
 )
-from cleverly.validation import refute
 from tests import mtp_density_tails_law as tails
 from tests.studies import longitudinal_mtp_common as panel_law
 from tests.unit import _known_mechanism_support as known
@@ -337,23 +335,16 @@ def test_w13_a_band_rank_placebo_refits_on_the_recorded_route(
     forced: str | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The ``ratio=None`` fit on a declared band resolves to the classifier, and every
-    refit of its band-rank placebo reads it.  The mutation forces the refit onto the
+    refit of its band-rank placebo reads it.  The mutation makes ``refute`` pass the
     density route, and the spy sees it."""
     result = kinds.fit_band(None)
     assert result.estimator.ratio == CLASSIFIER
     if forced is not None:
-        original = TMLE.refit
-
-        def other_route(self: TMLE, *args: Any, **kw: Any) -> Any:
-            moved = copy.copy(self)
-            moved.ratio = forced  # type: ignore[assignment]
-            return original(moved, *args, **kw)
-
-        monkeypatch.setattr(TMLE, "refit", other_route)
+        kinds.refute_passing(forced, monkeypatch)
     calls = _route_calls(monkeypatch)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        refute(
+        kinds.refute_module.refute(
             result,
             estimand="ate_policy[inside vs natural course]",
             tests=["placebo"],

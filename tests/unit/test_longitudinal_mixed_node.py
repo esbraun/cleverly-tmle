@@ -397,6 +397,9 @@ def test_the_truncation_replay_reproduces_the_fit() -> None:
         result, [None, 0.95], estimands=["ey_regimen[flag gated]"]
     ).set_index("is_fitted_bound")
     assert curve.loc[True, "delta_from_fitted"] == 0.0
+    # The trim at 0.95 binds and moves the estimate, so the sweep is not flat.
+    assert curve.loc[False, "trimmed_share"] > 0.0
+    assert abs(curve.loc[False, "delta_from_fitted"]) > 1e-8
 
 
 def test_a_bootstrap_refits_mixed_nodes() -> None:
