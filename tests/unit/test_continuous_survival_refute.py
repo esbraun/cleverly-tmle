@@ -379,7 +379,8 @@ def test_t6_a_subset_refit_reproduces_under_its_own_refit(refits: list[Any]) -> 
 
 def test_the_stored_data_does_not_alias_the_callers_arrays() -> None:
     result = _fresh(_in_sample())
-    data = result.data
+    # A private copy: the fitted results are shared across tests.
+    data = dataclasses.replace(result.data, time=result.data.time.copy())
     before = data.time.copy()
     refitted = result.estimator.refit(data, random_state=result.estimator.random_state)
     data.time[:] = 0.0
