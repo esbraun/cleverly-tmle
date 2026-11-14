@@ -30,7 +30,7 @@ zero and not a truncation of any finite ratio this package reports.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -42,10 +42,33 @@ from ..utils.parallel import map_parallel
 from ._fitting import fit_learner, predict_mean
 from .crossfit import Folds
 
-__all__ = ["classifier_ratio"]
+__all__ = ["classifier_ratio", "omits_policy_steps"]
 
 #: The largest classifier probability read, so ``u / (1 - u)`` stays finite.
 _ODDS_GUARD = 1.0 - 1e-12
+
+#: A classifier that sets ``policy_steps = "omit"`` receives no step columns.
+OMIT_STEPS = "omit"
+
+#: ``steps(dose, rows, fold, train)``: the ``(rows.size, S)`` step columns at the doses
+#: ``dose`` of the rows ``rows``, for outer fold ``fold``, with bounds read from ``train``.
+PolicySteps = Callable[[FloatArray, IntArray, int, IntArray], FloatArray]
+
+
+def omits_policy_steps(learner: Any) -> bool:
+    """Whether a classifier opts out of the policy's step columns (``policy_steps = "omit"``).
+
+    Parameters
+    ----------
+    learner : object
+        The classifier.
+
+    Returns
+    -------
+    bool
+        ``True`` when the learner reads the design without step columns.
+    """
+    return getattr(learner, "policy_steps", None) == OMIT_STEPS
 
 
 def classifier_ratio(
@@ -62,6 +85,7 @@ def classifier_ratio(
     n_jobs: int = 1,
     atoms: Sequence[float] = (),
     assigned_by_fold: Sequence[Sequence[tuple[float, FloatArray]]] | None = None,
+    steps: PolicySteps | None = None,
 ) -> list[FloatArray]:
     """Cross-fit :math:`\\hat r = \\hat u / (1 - \\hat u)` and evaluate it at given doses.
 
@@ -102,6 +126,17 @@ def classifier_ratio(
         Per outer fold, the ``assigned`` blocks that fold's classifier stacks, in place of
         ``assigned``: the map of a tuned cap fitted on that fold's training rows.  ``None``
         stacks ``assigned`` in every fold.
+    steps : callable or None
+        The policy's step columns, ``steps(dose, rows, fold, train)``: the indicators at
+        which the true ratio can jump in the dose, as ``(rows.size, S)`` columns at the
+        doses ``dose`` of the rows ``rows``, for outer fold ``fold`` (0 for a single fold),
+        with any empirical bound read from the fold's fitted training rows ``train``.  Every
+        block of the stack is then ``[a, atom indicators, steps, H]``: the dose, one
+        indicator per declared atom in ``atoms`` order, the step columns, and the history.
+        A step column that is constant on a fold's stacked training rows, or equal there to
+        an atom indicator, is dropped from that fold's design and its predictions.  A
+        learner with ``policy_steps = "omit"`` receives ``[a, atom indicators, H]`` as with
+        ``steps=None``.  A vector design takes no ``steps``.
 
     Returns
     -------
@@ -116,6 +151,13 @@ def classifier_ratio(
     declared = tuple(float(atom) for atom in atoms)
     raw = _treatment_block(observed, n, None, "observed")
     width = raw.shape[1]
+    if steps is not None and omits_policy_steps(learner):
+        steps = None
+    if steps is not None and width != 1:
+        raise DataError(
+            "policy steps apply to a dose of one column; a vector design carries the "
+            "indicators of its components itself"
+        )
     a = _with_atoms(raw, declared)
     w = np.asarray(weights, dtype=float).reshape(-1)
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
@@ -138,19 +180,35 @@ def classifier_ratio(
         for dose in evaluate_at
     ]
 
-    def fit_on(rows: IntArray, stacked: list[tuple[float, float, FloatArray]] = blocks) -> Learner:
+    def fit_on(
+        rows: IntArray, fold: int, stacked: list[tuple[float, float, FloatArray]] = blocks
+    ) -> _Fitted:
         keep = rows[mask[rows]]
-        design = np.vstack([np.column_stack([dose[keep], h[keep]]) for _, _, dose in stacked])
+        parts = [dose[keep] for _, _, dose in stacked]
+        retained = None
+        if steps is not None:
+            columns = [_steps_at(steps, dose[keep, 0], keep, fold, keep) for _, _, dose in stacked]
+            retained = _retained_steps(np.vstack(columns), np.vstack(parts)[:, width:])
+            parts = [
+                np.column_stack([part, column[:, retained]])
+                for part, column in zip(parts, columns, strict=True)
+            ]
+        design = np.vstack([np.column_stack([part, h[keep]]) for part in parts])
         target = np.concatenate([np.full(keep.size, label) for label, _, _ in stacked])
         weight = np.concatenate([w[keep] * share for _, share, _ in stacked])
         unit = np.concatenate([units[keep] for _ in stacked])
-        return fit_learner(learner, design, target, weight, groups=unit, warn_unweighted=False)
+        model = fit_learner(learner, design, target, weight, groups=unit, warn_unweighted=False)
+        return _Fitted(model, fold, keep, retained)
 
-    def ratio_at(model: Learner, rows: IntArray) -> list[FloatArray]:
+    def ratio_at(fitted: _Fitted, rows: IntArray) -> list[FloatArray]:
         out = []
         for dose in requests:
             values = dose[rows]
-            u = predict_mean(model, np.column_stack([values, h[rows]]), "classification")
+            if fitted.retained is not None:
+                assert steps is not None
+                column = _steps_at(steps, values[:, 0], rows, fitted.fold, fitted.train)
+                values = np.column_stack([values, column[:, fitted.retained]])
+            u = predict_mean(fitted.model, np.column_stack([values, h[rows]]), "classification")
             u = np.minimum(np.clip(u, 0.0, 1.0), _ODDS_GUARD)
             out.append(np.asarray(u / (1.0 - u), dtype=float))
         return out
@@ -158,13 +216,13 @@ def classifier_ratio(
     results = [np.zeros(n) for _ in requests]
     if folds.is_single:
         everyone = np.arange(n, dtype=np.int64)
-        for target, values in zip(results, ratio_at(fit_on(everyone), everyone), strict=True):
+        for target, values in zip(results, ratio_at(fit_on(everyone, 0), everyone), strict=True):
             target[:] = values
         return results
 
     def run_fold(fold: int, train: IntArray, test: IntArray) -> tuple[IntArray, list[FloatArray]]:
         stacked = blocks if fold_blocks is None else fold_blocks[fold]
-        return test, ratio_at(fit_on(train, stacked), test)
+        return test, ratio_at(fit_on(train, fold, stacked), test)
 
     for test, parts in map_parallel(
         run_fold,
@@ -174,6 +232,38 @@ def classifier_ratio(
         for target, column in zip(results, parts, strict=True):
             target[test] = column
     return results
+
+
+class _Fitted:
+    """One fold's classifier, its fold, its fitted training rows and its retained steps."""
+
+    def __init__(self, model: Learner, fold: int, train: IntArray, retained: Any) -> None:
+        self.model = model
+        self.fold = fold
+        self.train = train
+        self.retained = retained
+
+
+def _steps_at(
+    steps: PolicySteps, dose: FloatArray, rows: IntArray, fold: int, train: IntArray
+) -> FloatArray:
+    """The step columns at ``dose`` on ``rows``, as an ``(rows.size, S)`` float block."""
+    block = np.asarray(steps(dose, rows, fold, train), dtype=float)
+    return block.reshape(rows.size, -1)
+
+
+def _retained_steps(columns: FloatArray, atoms: FloatArray) -> IntArray:
+    """The step columns a fold keeps: not constant on its stacked training rows, and not
+    equal there to an atom indicator.  Their order is the lowered map's."""
+    keep = []
+    for j in range(columns.shape[1]):
+        column = columns[:, j]
+        if column.size == 0 or np.all(column == column[0]):
+            continue
+        if any(np.array_equal(column, atoms[:, k]) for k in range(atoms.shape[1])):
+            continue
+        keep.append(j)
+    return np.asarray(keep, dtype=np.int64)
 
 
 def _with_atoms(block: FloatArray, atoms: tuple[float, ...]) -> FloatArray:

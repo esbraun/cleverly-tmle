@@ -1558,6 +1558,88 @@ def lowered_ratio(lowered: LoweredMap, values: FloatArray, density: DensityAt) -
     return np.asarray(covariate, dtype=float)
 
 
+def _policy_steps(
+    branches_by_fold: Sequence[Sequence[_Branch]],
+    frame: FrameSource,
+    n: int,
+    bounds: tuple[FloatArray, FloatArray] | None,
+    observed: FloatArray,
+) -> Callable[[FloatArray, IntArray, int, IntArray], FloatArray]:
+    """The classifier route's step columns of one or more branches (``steps=``).
+
+    On row ``i`` with support ``[L_i, U_i]``, Equation (3) of Díaz et al. (2023) jumps in
+    the dose only where one of these indicators jumps: per smooth piece ``k`` of a branch's
+    lowered map, ``s_k(x) = 1{b_k(x) finite, inside_k(b_k(x)), L_i <= b_k(x) <= U_i}``, and
+    per identity piece ``j``, ``t_j(x) = member_j(x)``.  The columns follow each branch's
+    lowered map: its smooth pieces, then its identity pieces.  An interval sent to an atom
+    adds none.
+
+    Parameters
+    ----------
+    branches_by_fold : sequence of sequence of _Branch
+        The branches whose steps are stacked, per outer fold.  One entry serves every
+        fold: a fold with a tuned cap of its own lowers its own map.
+    frame : callable
+        The policy frame of every row.
+    n : int
+        Rows of the frame.
+    bounds : tuple of ndarray or None
+        The declared support ``(lower, upper)`` on every row.  ``None`` reads the smallest
+        and largest observed dose over the fold's fitted training rows.
+    observed : ndarray
+        ``(n,)`` observed dose.  It fills the rows the callable is not asked about.
+
+    Returns
+    -------
+    callable
+        ``steps(dose, rows, fold, train)``, the ``(rows.size, S)`` columns at ``dose`` on
+        ``rows``.
+    """
+    natural = np.asarray(observed, dtype=float).reshape(-1)
+    maps: dict[int, list[LoweredMap]] = {}
+    declared = None
+    if bounds is not None:
+        lower = np.asarray(bounds[0], dtype=float).reshape(-1)
+        upper = np.asarray(bounds[1], dtype=float).reshape(-1)
+        declared = (
+            np.where(np.isnan(lower), -np.inf, lower),
+            np.where(np.isnan(upper), np.inf, upper),
+        )
+
+    def lowered(fold: int) -> list[LoweredMap]:
+        key = fold if len(branches_by_fold) > 1 else 0
+        if key not in maps:
+            maps[key] = [
+                branch.lowered(frame, n) for branch in branches_by_fold[key] if branch.continuous
+            ]
+        return maps[key]
+
+    def steps(dose: FloatArray, rows: IntArray, fold: int, train: IntArray) -> FloatArray:
+        if declared is None:
+            seen = natural[train]
+            low, high = np.full(n, float(seen.min())), np.full(n, float(seen.max()))
+        else:
+            low, high = declared
+        x = natural.copy()
+        x[rows] = np.asarray(dose, dtype=float).reshape(-1)
+        columns: list[BoolArray] = []
+        for lowered_map in lowered(fold):
+            for piece in lowered_map.smooth:
+                with np.errstate(all="ignore"):
+                    source = np.asarray(piece.inverse(x), dtype=float).reshape(-1)
+                usable = np.isfinite(source)
+                safe = np.where(usable, source, x)
+                inside = usable & np.asarray(piece.inside(safe), dtype=bool)
+                columns.append((inside & (safe >= low) & (safe <= high))[rows])
+            for member in lowered_map.identity:
+                columns.append(np.asarray(member(x), dtype=bool)[rows])
+        if not columns:
+            return np.zeros((rows.size, 0))
+        return np.column_stack(columns).astype(float)
+
+    return steps
+
+
 def _constant(value: float, n: int) -> Callable[[FloatArray], FloatArray]:
     return lambda b: np.full(np.asarray(b).reshape(-1).size, value)
 
@@ -4432,6 +4514,17 @@ class PolicySet:
         # and ``atoms=`` adds the indicator of each declared atom.
         block = data.component_design if data.is_vector_treatment else _same
         atoms = tuple(data.dose_atoms) if data.is_continuous_treatment else ()
+        # A dose's step columns (3.6 of the design): each branch's own lowered map, and with
+        # a fold-tuned cap on several folds, each fold's own map.
+        branch_sets: list[list[_Branch]] = []
+        if data.is_continuous_treatment:
+            branch_sets.append([b for policy in declared for _, b in policy_branches(policy)])
+            if by_fold is not None and not folds.is_single:
+                branch_sets = [
+                    [b for policy in fold_policies for _, b in policy_branches(policy)]
+                    for fold_policies in by_fold
+                ]
+        bounds = declared_support_bounds(data) if data.is_continuous_treatment else None
         for c in range(count):
             evaluated = classifier_ratio(
                 learner,
@@ -4448,6 +4541,13 @@ class PolicySet:
                     None
                     if fold_columns is None
                     else [((1.0, block(fold[:, c])),) for fold in fold_columns]
+                ),
+                steps=(
+                    _policy_steps(
+                        [[branches[c]] for branches in branch_sets], frame, data.n, bounds, a
+                    )
+                    if branch_sets
+                    else None
                 ),
             )
             ratio[:, c] = evaluated[0]

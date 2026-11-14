@@ -680,6 +680,10 @@ class OracleLogOdds(BaseEstimator):
         The plan whose node ratio is the feature.
     """
 
+    #: Reads the stacked design by position, so it takes the design without the policy's
+    #: step columns (``classifier_ratio(steps=)``).
+    policy_steps = "omit"
+
     def __init__(self, label: str = "up") -> None:
         self.label = label
 

@@ -555,6 +555,10 @@ class OracleRatio(BaseEstimator):
     stack's ``u / (1 - u)`` then returns the closed-form ratio, so no ratio is estimated.
     """
 
+    #: Reads the stacked design by position, so it takes the design without the policy's
+    #: step columns (``classifier_ratio(steps=)``).
+    policy_steps = "omit"
+
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleRatio:
         x = np.asarray(X, dtype=float)
         label = np.asarray(y, dtype=float)
@@ -683,6 +687,10 @@ class QuadraticLogistic(BaseEstimator):
     converges well inside its cap; unscaled, ``a^2`` and ``a h`` on ``[4, 10]`` left every fit
     at the 2,000-iteration cap (design review M8).  ``n_iter_`` records the iterations.
     """
+
+    #: Reads the stacked design by position, so it takes the design without the policy's
+    #: step columns (``classifier_ratio(steps=)``).
+    policy_steps = "omit"
 
     def _design(self, X: Any) -> np.ndarray:
         x = np.asarray(X, dtype=float)

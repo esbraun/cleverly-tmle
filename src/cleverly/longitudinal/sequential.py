@@ -166,6 +166,7 @@ from ..interventions.joint_density import (
 from ..interventions.policy import (
     JointPolicy,
     _atom_index,
+    _policy_steps,
     _refuse_undeclared_atoms,
     branch_ratio,
     check_component_atoms,
@@ -2187,6 +2188,10 @@ def _continuous_node_ratios(
     # The node's declared support, on the observed history: the density reads each row over
     # it (``learners.density``).  The hazard fit does not read it.
     support = None if declared is None or ratio != "density" else declared.bounds(frame, data.n)
+    # The classifier's step columns read the same declared support on the observed history.
+    steps_support = (
+        None if declared is None or ratio == "density" else declared.bounds(frame, data.n)
+    )
     if ratio == "density" and atoms:
         # A dose with declared atoms: the multinomial "which atom, or none" and the binned
         # density of the rows with no atom, on the same folds.  A
@@ -2263,6 +2268,8 @@ def _continuous_node_ratios(
                     groups=data.cluster,
                     n_jobs=n_jobs,
                     atoms=atoms,
+                    frame=frame,
+                    support=steps_support,
                 )
             numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
             shifted[plan.label][time] = {
@@ -2289,6 +2296,8 @@ def _continuous_node_ratios(
                 groups=data.cluster,
                 n_jobs=n_jobs,
                 atoms=atoms,
+                frame=frame,
+                support=steps_support,
             )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
     return density
@@ -2330,6 +2339,27 @@ def _density_numerator(
     return out
 
 
+def _node_steps(
+    plan: Plan,
+    time: int,
+    folds: Folds,
+    frame: Any,
+    support: tuple[FloatArray, FloatArray] | None,
+    dose: FloatArray,
+) -> Any:
+    """A node's step columns for a plan's classifier (``classifier_ratio(steps=)``).
+
+    Every branch of the plan's policy at the node lowers on the node's policy frame.  A plan
+    with fold plans on several folds lowers each fold's own map.  The bounds are the node's
+    declared support, or the fold's fitted training rows, which are at risk.
+    """
+    if frame is None:
+        return None
+    sources = plan.fold_plans if plan.fold_plans and not folds.is_single else (plan,)
+    branch_sets = [[branch for _, branch in _node_branches(source, time)] for source in sources]
+    return _policy_steps(branch_sets, frame, dose.size, support, dose)
+
+
 def _classifier_numerator(
     plan: Plan,
     time: int,
@@ -2344,6 +2374,8 @@ def _classifier_numerator(
     groups: Any,
     n_jobs: int,
     atoms: Sequence[float],
+    frame: Any = None,
+    support: tuple[FloatArray, FloatArray] | None = None,
 ) -> FloatArray:
     """The classifier-route ratio of one plan at a continuous node, at the observed doses.
 
@@ -2371,6 +2403,7 @@ def _classifier_numerator(
             (probability, target)
             for (probability, _), target in zip(branches, targets, strict=True)
         )
+    steps = _node_steps(plan, time, folds, frame, support, dose)
     (numerator,) = classifier_ratio(
         treatment_learner,
         history,
@@ -2384,6 +2417,7 @@ def _classifier_numerator(
         n_jobs=n_jobs,
         atoms=atoms,
         assigned_by_fold=by_fold,
+        steps=steps,
     )
     return numerator
 
@@ -2403,6 +2437,8 @@ def _classifier_numerators(
     groups: Any,
     n_jobs: int,
     atoms: Sequence[float],
+    frame: Any = None,
+    support: tuple[FloatArray, FloatArray] | None = None,
 ) -> list[FloatArray]:
     """:func:`_classifier_numerator`, and the same classifier's ratio at each dose of ``extra``.
 
@@ -2432,6 +2468,7 @@ def _classifier_numerators(
             (probability, target)
             for (probability, _), target in zip(branches, targets, strict=True)
         )
+    steps = _node_steps(plan, time, folds, frame, support, dose)
     return classifier_ratio(
         treatment_learner,
         history,
@@ -2445,6 +2482,7 @@ def _classifier_numerators(
         n_jobs=n_jobs,
         atoms=atoms,
         assigned_by_fold=by_fold,
+        steps=steps,
     )
 
 
