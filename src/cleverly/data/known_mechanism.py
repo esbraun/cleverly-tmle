@@ -49,6 +49,8 @@ __all__ = [
     "KNOWN_CTMLE_REFUSAL",
     "KNOWN_EVALUATION_REFUSAL",
     "KNOWN_POLICY_CLASSIFIER_REFUSAL",
+    "KNOWN_SCORE_ESTIMATED_REFUSAL",
+    "KNOWN_SCORE_NO_TARGET_REFUSAL",
     "KNOWN_SCREEN_REFUSAL",
     "KNOWN_TREATMENT_DELTA_REFUSAL",
     "KnownMechanism",
@@ -56,6 +58,9 @@ __all__ = [
     "KnownSource",
     "known_mechanism",
     "known_node_mechanisms",
+    "known_score_engine_refusal",
+    "known_score_fit",
+    "known_score_reader_refusal",
     "moved_known_values_refusal",
     "probability_columns",
 ]
@@ -94,6 +99,85 @@ KNOWN_POLICY_CLASSIFIER_REFUSAL = Refusal(
         "or fit without treatment_probabilities=."
     ),
 )
+#: The refusal of the known-score ATT and ATC on a fit that estimates the mechanism.
+KNOWN_SCORE_ESTIMATED_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    'conditional_form="known_score" weights the ATT and ATC by the declared treatment '
+    "mechanism, and this fit estimates the mechanism. The weighting term then carries the "
+    "first-order error of g_n, which the reported curve omits, so no interval holds.",
+    alternative=(
+        'Declare treatment_probabilities=, or keep conditional_form="arm_mean", the default.'
+    ),
+)
+#: The refusal of the known-score option on a fit that reports neither the ATT nor the ATC.
+KNOWN_SCORE_NO_TARGET_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    'conditional_form="known_score" changes only the att and atc estimates, and this fit '
+    "requests neither.",
+    alternative='Request att or atc, or drop conditional_form="known_score".',
+)
+
+
+def known_score_engine_refusal(engine: str) -> Refusal:
+    """The refusal of ``conditional_form="known_score"`` on an engine other than ``TMLE``.
+
+    Parameters
+    ----------
+    engine : str
+        The estimator's class name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` refusal.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f'conditional_form="known_score" is the known-score ATT and ATC of TMLE; {engine} '
+        "reports no such form.",
+        alternative='Fit TMLE(conditional_form="known_score") on data that declares '
+        "treatment_probabilities=.",
+    )
+
+
+def known_score_fit(result: object) -> bool:
+    """Whether ``result`` summarized its ATT and ATC with ``conditional_form="known_score"``.
+
+    Parameters
+    ----------
+    result : object
+        A fitted result; one with no point config reads ``False``.
+
+    Returns
+    -------
+    bool
+        ``True`` for a known-score fit.
+    """
+    config = getattr(result, "config", None)
+    return getattr(config, "conditional_form", "arm_mean") == "known_score"
+
+
+def known_score_reader_refusal(reader: str) -> Refusal:
+    """The refusal of a reader that rebuilds the ATT or ATC as the conditioning-arm mean.
+
+    Parameters
+    ----------
+    reader : str
+        The reader's name as the user calls it, such as ``"the MNAR tilt"``.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.INFERENCE_GAP` refusal.
+    """
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        f"{reader} recomputes the ATT and ATC as the mean over the conditioning arm, and it is "
+        'not derived for conditional_form="known_score".',
+        alternative=f'Refit with conditional_form="arm_mean" to use {reader} on the ATT or ATC.',
+    )
+
+
 #: The refusal of covariate screening beside a declared mechanism.
 KNOWN_SCREEN_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,

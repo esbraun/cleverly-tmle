@@ -144,6 +144,7 @@ point-survival-curve-crossfit
 point-treatment-survival-policies
 survival-node-bounds
 known-treatment-mechanism
+known-score-att
 known-mechanism-dr-tmle
 dr-tmle-foldwise
 dr-tmle-foldwise-n1500

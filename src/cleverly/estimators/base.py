@@ -114,6 +114,10 @@ DEFAULT_ESTIMANDS: tuple[str, ...] = tuple(
 )
 
 
+#: The two summaries of the ATT and ATC after targeting (``TMLE(conditional_form=)``).
+CONDITIONAL_FORMS: tuple[str, ...] = ("arm_mean", "known_score")
+
+
 @dataclass(frozen=True)
 class TMLEConfig:
     """A snapshot of the settings a fit actually used.
@@ -161,6 +165,10 @@ class TMLEConfig:
     #: Whether the outcome regression was fitted once per treatment arm
     #: (``outcome_by_arm=True``) rather than once on the covariates and the treatment.
     outcome_by_arm: bool = False
+    #: How the ATT and ATC were summarized (``TMLE(conditional_form=)``): ``"arm_mean"``,
+    #: the mean over the conditioning arm, or ``"known_score"``, the plug-in weighted by
+    #: the declared mechanism.
+    conditional_form: str = "arm_mean"
     #: Whether the treatment is a continuous dose, whose policy ratio reads a density that
     #: no bound truncates.  A categorical treatment's policy ratio reads the bounded
     #: propensity, so its summary prints the bound.

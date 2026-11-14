@@ -87,6 +87,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from .._warnings import warn as _warn
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
 from ..estimators.iptw import OPERATION_REFUSALS
@@ -100,7 +101,7 @@ from ..inference.influence import (
 )
 from ..interventions.learned import LEARNED_RULE_TILT_REFUSAL
 from ..msm import solve_projection
-from ..targets.base import arm_alias, parameter_name
+from ..targets.base import arm_alias, parameter_name, parameter_stem
 from ..targets.population_intervention import NATURAL_COURSE_TARGET
 from ..utils.bounds import expit, logit
 from ._objects import MissingnessTilt
@@ -288,6 +289,22 @@ class _TiltTarget:
 def _tilt_targets(result: Any) -> dict[str, _TiltTarget]:
     """Every reported parameter the tilt can re-mix, by name.
 
+    On a fit with ``conditional_form="known_score"`` the ATT and ATC are left out: the tilt
+    re-mixes them over the conditioning arm, which is the arm-mean form, so it refuses them.
+    """
+    out = _reported_tilt_targets(result)
+    if known_score_fit(result):
+        out = {
+            name: target
+            for name, target in out.items()
+            if parameter_stem(name) not in ("att", "atc")
+        }
+    return out
+
+
+def _reported_tilt_targets(result: Any) -> dict[str, _TiltTarget]:
+    """Every reported parameter the tilt's algebra can re-mix, by name, whatever the form.
+
     Composed forward through :func:`~cleverly.targets.parameter_name` and
     :func:`~cleverly.targets.base.arm_alias` from the codes the fit carries, the rule
     :mod:`cleverly.sensitivity._parameters` follows.  A stratum alias is a different name,
@@ -373,6 +390,8 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
     """
     if _tilt_targets(result):
         return None
+    if known_score_fit(result) and _reported_tilt_targets(result):
+        return known_score_reader_refusal("the MNAR tilt")
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt re-mixes the arm means and their contrasts and ratios, the "
@@ -667,6 +686,8 @@ def _tilt_payload(
             conditional = stratum_refusal(result, name, "the MNAR tilt")
             if conditional is not None:
                 raise CapabilityError.from_refusal(conditional)
+            if known_score_fit(result) and parameter_stem(name) in ("att", "atc"):
+                raise CapabilityError.from_refusal(known_score_reader_refusal("the MNAR tilt"))
     targets = tuple(tiltable[name] for name in requested if name in tiltable)
     if not targets:
         raise CapabilityError(

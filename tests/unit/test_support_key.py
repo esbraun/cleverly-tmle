@@ -138,6 +138,7 @@ class TestPointKey:
             "step_bound": "none",
             "iterate": "last",
             "outcome_by_arm": False,
+            "conditional_form": "arm_mean",
             "patience": False,
             "treatment_adjustment": False,
         }

@@ -299,6 +299,9 @@ def _structural_nested_mean() -> Any:
 FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_repeats": _point_tmle,
     "point_tmle_bootstrap": _point_bootstrap,
+    # The known-score ATT and ATC on a declared mechanism (X35): the same result class, whose
+    # ATT and ATC carry a different plug-in and influence curve.
+    "point_tmle_known_score": sweep.fit_known_score,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
@@ -354,6 +357,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "draws",
+    },
+    "point_tmle_known_score": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "ltmle_repeats": {
         "forest": "draws",

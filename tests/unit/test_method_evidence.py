@@ -1212,7 +1212,20 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own reading"
             )
 
-        accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
+        gain = published.loc[
+            (published["property"] == "efficiency_gain")
+            & published["role"].isin(["positive", "control"])
+        ]
+        for row in gain.itertuples():
+            below = row.spread_ratio_ci_upper < row.spread_ratio_boundary
+            expected = below if row.role == "positive" else not below
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own spread ratio"
+            )
+
+        accuracy = published.loc[
+            published["property"].isin(["known_mechanism_accuracy", "known_score_accuracy"])
+        ]
         for row in accuracy.itertuples():
             if row.role == "control":
                 expected = bool(row.bias_discriminated)
@@ -1994,6 +2007,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # The same three endpoints on a declared mechanism; its control answers to bias
         # discrimination.  Checked row by row below.
         "known_mechanism_accuracy",
+        "known_score_accuracy",
+        # The paired spread ratio of two forms: a positive's 99% upper bound below the
+        # boundary, a control's at or above it.  Checked row by row below.
+        "efficiency_gain",
         # A percentile bootstrap interval, gated on its coverage floor alone.
         "bootstrap_coverage",
         "power",
@@ -2114,6 +2131,10 @@ SAME_DRAW_FAMILIES = {
             }
         ),
     ),
+    # ``known-score-att`` (X35): the efficiency gain is the paired spread ratio of the two
+    # forms on the calibration draws, so it reads the fits the calibration cells measure by
+    # design. The pairing is what makes the ratio's interval narrow enough to gate.
+    "known-score-att": (frozenset({"efficiency_gain", "interval_calibration"}),),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in

@@ -54,6 +54,11 @@ StoppingRule = Literal["relative", "scaled_var", "sample_size"]
 #: norm (``tmle3``'s ``use_best``).
 IterateChoice = Literal["last", "best"]
 
+#: How a point-treatment TMLE summarizes the ATT and ATC after targeting
+#: (``TMLE(conditional_form=)``): over the conditioning arm, or weighted by the declared
+#: mechanism.
+ConditionalForm = Literal["arm_mean", "known_score"]
+
 #: How a longitudinal fit models a survival curve.
 SurvivalModel = Literal["iterated_mean", "hazard"]
 

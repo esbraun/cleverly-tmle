@@ -149,8 +149,9 @@ def truth(arms: int = 2) -> dict[str, float]:
 def ate_efficiency_sd(arms: int = 2, arm: int = 1) -> float:
     """The exact standard deviation of the efficient curve of ``ate[arm vs 0]``.
 
-    The bound is the same whether the mechanism is known or estimated (Hahn 1998, Theorems 1
-    and 2 compared), so it serves the known-mechanism cells too.
+    The bound is the same whether the mechanism is known or estimated (Imbens 2004, Section
+    2.5, and Frolich 2002, display (8), restating Hahn 1998), so it serves the known-mechanism
+    cells too.
     """
     w1, w2, w3, mass = _grid()
     g = mechanism(w2, arms)

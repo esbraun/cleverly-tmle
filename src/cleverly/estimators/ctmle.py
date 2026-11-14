@@ -351,7 +351,14 @@ from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
+from ..data.known_mechanism import known_score_engine_refusal
+from ..exceptions import (
+    CapabilityError,
+    DataWarning,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.cluster import influence_variance
@@ -807,6 +814,10 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
         "outcome_by_arm=False; the stack fits one outcome model with arm columns",
     ),
     "patience": (lambda v: v is None, "patience=None; the oat strategy scores no path"),
+    "conditional_form": (
+        lambda v: v == "arm_mean",
+        "conditional_form='arm_mean'; CTMLE refuses the known-score form at construction",
+    ),
     "random_state": (_anything, "any value"),
     "run_id": (_anything, "any value"),
     "n_jobs": (_anything, "any value"),
@@ -2368,6 +2379,8 @@ default="greedy"
         # The base constructor validates the fold policy. OAT has no selector folds,
         # so it must know the strategy before that validation runs.
         self.strategy = strategy
+        if kwargs.get("conditional_form", "arm_mean") != "arm_mean":
+            raise MethodConfigurationError.from_refusal(known_score_engine_refusal("CTMLE"))
         super().__init__(**kwargs)
         self.preorder = preorder
         self.ordering = ordering

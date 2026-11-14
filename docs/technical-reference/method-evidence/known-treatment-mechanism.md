@@ -28,6 +28,9 @@ It recalibrates `g1W` and fluctuates it beside the outcome regression. That cons
 equivalent to the known-mechanism ATT only at a correct outcome regression, so the study pairs
 the ATT and the ATC at `binary_q_correct` only.
 
+These cells measure the default `"arm_mean"` form. The known-score form, `conditional_form="known_score"`, has its own
+[study](known-score-att.md).
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->

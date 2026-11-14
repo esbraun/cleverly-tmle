@@ -1655,6 +1655,29 @@ ARMS.update(
     }
 )
 
+#: The cell labels of ``known-score-att`` (X35), mirrored from its properties module, which this
+#: module cannot import; :data:`STUDY_ARMS` gives the study's own words.
+ARMS.update(
+    {
+        "att_known_score_in_sample": "the known-score ATT, in sample",
+        "atc_known_score_in_sample": "the known-score ATC, in sample",
+        "att_known_score_stacked": "the known-score ATT, stacked over five folds",
+        "atc_known_score_stacked": "the known-score ATC, stacked over five folds",
+        "att_arm_mean_in_sample": "the arm-mean ATT, in sample",
+        "atc_arm_mean_in_sample": "the arm-mean ATC, in sample",
+        "att_zero_gain": "the ATT on the zero-gain law",
+        "atc_zero_gain": "the ATC on the zero-gain law",
+        "s_att": "the ATT on law S",
+        "s_atc": "the ATC on law S",
+        "b2_att": "the ATT on two-arm law B",
+        "b2_atc": "the ATC on two-arm law B",
+        "b3_att_1": "the ATT of arm 1 against arm 0 on three-arm law B",
+        "b3_att_2": "the ATT of arm 2 against arm 0 on three-arm law B",
+        "b3_atc_1": "the ATC of arm 1 against arm 0 on three-arm law B",
+        "b3_atc_2": "the ATC of arm 2 against arm 0 on three-arm law B",
+    }
+)
+
 #: The labels of ``hazard-mtp``: the contrast or the policy's risk at the last visit of one fit
 #: label, a fit label's band over every estimate, and a fit label's own draws.  Mirrored from
 #: ``tests.studies.hazard_mtp_properties``, which this module cannot import.
@@ -9298,6 +9321,104 @@ CELLS.update(
             _DIAGNOSTIC_REQUIRED,
         )
         for label, words in _BY_ARM_LAWS.items()
+    }
+)
+
+
+#: ``known-score-att`` (X35): point TMLE with conditional_form="known_score" on a declared
+#: treatment mechanism.  The laws, settings and cells are those of
+#: ``tests/studies/known_score_att_law.py`` and its properties module.
+_KS_SLUG = "known-score-att"
+_KS_LAW_S = (
+    "law S (W1 uniform on (-sqrt 3, sqrt 3), W2 binary, g0 = expit(-0.3 + W1 + 0.5 W2), effect "
+    "1 + 1.5 W1, uniform unit-variance noise), n = 2,000"
+)
+STUDY_SCENARIOS[(_KS_SLUG, "S")] = (
+    f"{_KS_LAW_S}: the declared mechanism, least squares on (1, A, W1, W2, A W1) (correct), "
+    "in sample; the known-score ATT and ATC"
+)
+STUDY_ARMS.update(
+    {
+        (_KS_SLUG, "att_known_score_in_sample"): f"{_KS_LAW_S}, the known-score ATT, in sample",
+        (_KS_SLUG, "atc_known_score_in_sample"): f"{_KS_LAW_S}, the known-score ATC, in sample",
+        (_KS_SLUG, "att_known_score_stacked"): (
+            f"{_KS_LAW_S}, the known-score ATT, stacked over five folds with q_bounds (-8, 8)"
+        ),
+        (_KS_SLUG, "atc_known_score_stacked"): (
+            f"{_KS_LAW_S}, the known-score ATC, stacked over five folds with q_bounds (-8, 8)"
+        ),
+        (_KS_SLUG, "att_arm_mean_in_sample"): (
+            f"{_KS_LAW_S}, the arm-mean ATT on the same draws, in sample"
+        ),
+        (_KS_SLUG, "atc_arm_mean_in_sample"): (
+            f"{_KS_LAW_S}, the arm-mean ATC on the same draws, in sample"
+        ),
+        (_KS_SLUG, "att"): f"{_KS_LAW_S}, the ATT",
+        (_KS_SLUG, "atc"): f"{_KS_LAW_S}, the ATC",
+        (_KS_SLUG, "att_zero_gain"): "law S with a constant effect (law S0), n = 2,000, the ATT",
+        (_KS_SLUG, "atc_zero_gain"): "law S with a constant effect (law S0), n = 2,000, the ATC",
+        (_KS_SLUG, "s_att"): f"{_KS_LAW_S}, the known-score ATT",
+        (_KS_SLUG, "s_atc"): f"{_KS_LAW_S}, the known-score ATC",
+        (_KS_SLUG, "b2_att"): "two-arm law B, n = 2,000, the known-score ATT",
+        (_KS_SLUG, "b2_atc"): "two-arm law B, n = 2,000, the known-score ATC",
+        (_KS_SLUG, "b3_att_1"): "three-arm law B, n = 2,000, the known-score ATT of arm 1",
+        (_KS_SLUG, "b3_att_2"): "three-arm law B, n = 2,000, the known-score ATT of arm 2",
+        (_KS_SLUG, "b3_atc_1"): "three-arm law B, n = 2,000, the known-score ATC of arm 1",
+        (_KS_SLUG, "b3_atc_2"): "three-arm law B, n = 2,000, the known-score ATC of arm 2",
+    }
+)
+PROPERTIES["efficiency_gain"] = (
+    "with the mechanism declared, the known-score ATT and ATC vary less than the arm-mean "
+    "forms fitted on the same draws, and do not when the effect is constant"
+)
+PROPERTIES["known_score_accuracy"] = (
+    "the known-score ATT and ATC are accurate and their intervals cover with a wrong outcome "
+    "regression, and a wrong declared mechanism is detected"
+)
+_KS_GAIN_RULE = "the 99% paired-bootstrap upper bound of SD(known score) / SD(arm mean)"
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_KS_SLUG, "efficiency_gain", label, "known_score"): (
+                "the known-score fit, paired with the arm-mean fit of the same draws",
+                f"{_KS_GAIN_RULE} lies below 0.98",
+            )
+            for label in ("att", "atc")
+        },
+        **{
+            (_KS_SLUG, "efficiency_gain", label, "known_score"): (
+                "the known-score fit where the gain is zero, paired with the arm-mean fit",
+                f"{_KS_GAIN_RULE} reaches 0.98",
+            )
+            for label in ("att_zero_gain", "atc_zero_gain")
+        },
+        **{
+            (_KS_SLUG, "efficiency_gain", label, "arm_mean"): (
+                "the arm-mean fit (conditional_form='arm_mean') on the same draws",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for label in ("att", "atc", "att_zero_gain", "atc_zero_gain")
+        },
+        **{
+            (_KS_SLUG, "known_score_accuracy", label, "q_wrong"): (
+                "the declared mechanism with a wrong outcome regression",
+                "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+            )
+            for label in (
+                "s_att",
+                "s_atc",
+                "b2_att",
+                "b2_atc",
+                "b3_att_1",
+                "b3_att_2",
+                "b3_atc_1",
+                "b3_atc_2",
+            )
+        },
+        (_KS_SLUG, "known_score_accuracy", "s_att", "declared_constant"): (
+            "the constant 0.49 declared as the mechanism, correct outcome regression",
+            "bias interval lies outside the margin",
+        ),
     }
 )
 
