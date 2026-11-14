@@ -545,6 +545,48 @@ def test_w3g_rows_at_the_pass_cap_keep_one_representation_and_their_masses() -> 
     np.testing.assert_allclose(total, 1.0, rtol=0, atol=1e-12)
 
 
+def _numeric_total(density: ConditionalDensity, nodes: int) -> np.ndarray:
+    """``int g^`` per row by a ``nodes``-point rule on every half bin, read at the reading."""
+    e = density.edges
+    x, w = np.polynomial.legendre.leggauss(nodes)
+    total = np.zeros(density.n)
+    for b in range(density.n_bins):
+        centre = 0.5 * (e[b] + e[b + 1])
+        for left, right in ((e[b], centre), (centre, e[b + 1])):
+            points = 0.5 * (right - left) * x + 0.5 * (right + left)
+            read = density_module._read(density._knots(), np.tile(points, (density.n, 1)))
+            total += 0.5 * (right - left) * read @ w
+    return total
+
+
+def test_w3g_the_capped_reading_integrates_to_its_bin_masses_numerically() -> None:
+    """The evaluated reading, not only the closed form, integrates to one at the cap."""
+    density = _dirichlet_steep()
+    assert density.knot_passes[1] > 0
+    np.testing.assert_allclose(_numeric_total(density, 200), 1.0, rtol=0, atol=4e-13)
+
+
+#: A support cut leaves a sliver of a bin beside a wide end bin of a two-bin segment, whose
+#: secant reaches -3,705: the integral of a half bin taken from the knot overflowed, and the
+#: segment kept its unscaled integral, 1.0153.
+SLIVER_EDGES = np.array(
+    [2.6916884599596416, 4.390315986019158, 4.653913866458826, 5.810636349280241, 7.782916569913741]
+)
+SLIVER_P = np.array(
+    [[0.3526788054780303, 0.6473211942004394, 2.921383534707928e-10, 2.9391921156518804e-11]]
+)
+SLIVER_SUPPORT = (np.array([4.6492475874067996]), np.array([6.7554954895816355]))
+
+
+def test_w3a_a_steep_segment_keeps_its_mass() -> None:
+    density = ConditionalDensity(SLIVER_P, SLIVER_EDGES, np.ones(4, dtype=bool), SLIVER_SUPPORT)
+    assert abs(density._knots().secant[0, 1]) > 3000.0
+    e = SLIVER_EDGES
+    total = density.mass_between(np.array([e[0] - 1.0]), np.array([e[-1] + 1.0]))
+    np.testing.assert_allclose(total, 1.0, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(density.integrated(), total, rtol=0, atol=1e-15)
+
+
 # ------------------------------------------------------------------ W4
 
 

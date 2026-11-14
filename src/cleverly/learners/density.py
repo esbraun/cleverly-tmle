@@ -499,14 +499,29 @@ def _phi(x: FloatArray) -> FloatArray:
     return np.asarray(out, dtype=float)
 
 
+def _log_exp_integral(start: FloatArray, slope: FloatArray, length: FloatArray) -> FloatArray:
+    """``log int_0^length exp(start + slope x) dx``; ``-inf`` where ``length <= 0``.
+
+    The integral is taken from the end of the piece with the larger log value, so it stays
+    finite however steep the piece: ``exp(top) * length * (1 - exp(-|z|)) / |z|`` with
+    ``z = slope * length``.
+    """
+    start = np.asarray(start, dtype=float)
+    slope = np.asarray(slope, dtype=float)
+    length = np.asarray(length, dtype=float)
+    z = np.abs(slope * length)
+    top = start + np.maximum(slope * length, 0.0)
+    small = z < 1e-8
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        relative = np.where(small, -0.5 * z, np.log(-np.expm1(-z) / np.where(small, 1.0, z)))
+        out = top + np.log(np.where(length > 0.0, length, 1.0)) + relative
+    return np.asarray(np.where(length > 0.0, out, -np.inf), dtype=float)
+
+
 def _exp_integral(start: FloatArray, slope: FloatArray, length: FloatArray) -> FloatArray:
-    """``int_0^length exp(start + slope x) dx``, stable as ``slope * length`` goes to zero."""
-    z = slope * length
-    small = np.abs(z) < 1e-8
-    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-        relative = np.where(small, 1.0 + 0.5 * z, np.expm1(z) / np.where(small, 1.0, z))
-        out = np.exp(start) * length * relative
-    return np.asarray(np.where(length > 0.0, out, 0.0), dtype=float)
+    """``int_0^length exp(start + slope x) dx``, stable in ``slope * length`` (zero or large)."""
+    with np.errstate(over="ignore"):
+        return np.asarray(np.exp(_log_exp_integral(start, slope, length)), dtype=float)
 
 
 @dataclass(frozen=True)
@@ -655,17 +670,32 @@ def _knots(
     multi = has_left | has_right
     slope_left = np.where(has_left, from_left, from_right)
     slope_right = np.where(has_right, from_right, from_left)
-    mass = _exp_integral(knot, -slope_left, centre - left) + _exp_integral(
-        knot, slope_right, right - centre
+    # Each half bin's integral in log space, from the end with the larger value, so a steep
+    # piece cannot overflow; the segment's log integral is a log-sum-exp over its halves.
+    log_mass = np.logaddexp(
+        _log_exp_integral(knot - slope_left * (centre - left), slope_left, centre - left),
+        _log_exp_integral(knot, slope_right, right - centre),
     )
+    log_mass = np.where(multi, log_mass, -np.inf)
     # Segment ids: a new segment starts wherever a bin is not linked to its left neighbour.
     segment = np.cumsum(~has_left, axis=1) - 1
     flat_index = (np.arange(n)[:, None] * n_bins + segment).ravel()
-    integral = np.bincount(flat_index, np.where(multi, mass, 0.0).ravel(), minlength=n * n_bins)
+    top = np.full(n * n_bins, -np.inf)
+    np.maximum.at(top, flat_index, log_mass.ravel())
+    safe_top = np.where(np.isfinite(top), top, 0.0)
+    with np.errstate(under="ignore"):
+        summed = np.bincount(
+            flat_index, np.exp(log_mass.ravel() - safe_top[flat_index]), minlength=n * n_bins
+        )
     held = np.bincount(flat_index, np.where(multi, projected, 0.0).ravel(), minlength=n * n_bins)
     with np.errstate(divide="ignore", invalid="ignore"):
-        shift = np.log(held) - np.log(integral)
-    shift = np.where(np.isfinite(shift), shift, 0.0)
+        shift = np.log(held) - (np.log(summed) + safe_top)
+    used_segments = np.unique(flat_index[multi.ravel()])
+    if not np.all(np.isfinite(shift[used_segments])):
+        raise FloatingPointError(
+            "a segment of the binned density's reading has no finite integral; its knots "
+            "are not finite (an internal error, please report it)"
+        )
     value = np.where(multi, knot + shift[flat_index].reshape(n, n_bins), 0.0)
     return _Knots(p, e, lower, upper, value, secant, link, scale, used, capped)
 
@@ -988,23 +1018,19 @@ class ConditionalDensity:
     def integrated(self) -> FloatArray:
         """``(n,)`` values of :math:`\\int \\hat g(a \\mid W_i)\\, da`, which must all be one.
 
-        Each segment of the reading keeps its total probability, and mass outside a
-        declared support is projected away, so this is a check on the arithmetic rather than
-        on the model; it is reported because a silent failure here would rescale every
-        clever covariate by an amount no other diagnostic would see.
+        The closed-form integral of the reading itself over the edges.  Each segment of the
+        reading keeps its total probability, and mass outside a declared support is
+        projected away, so this is a check on the arithmetic rather than on the model; it is
+        reported because a silent failure here would rescale every clever covariate by an
+        amount no other diagnostic would see.
 
         Returns
         -------
         ndarray
             ``(n,)`` integral of the fitted density over the support, per row.
         """
-        knots = self._knots()
-        p = np.asarray(self.bin_probabilities, dtype=float)
-        if self.support is None:
-            return np.asarray(p.sum(axis=1), dtype=float)
-        left, right = _effective(knots.edges, knots.lower, knots.upper, self.n)
-        inside = np.where(right > left, p, 0.0).sum(axis=1)
-        return np.asarray(inside / knots.scale, dtype=float)
+        e = np.asarray(self.edges, dtype=float)
+        return self.mass_between(np.full(self.n, e[0]), np.full(self.n, e[-1]))
 
     def flat_fraction(self, shifted: FloatArray, observed: FloatArray) -> float:
         """Share of moved rows whose observed and moved dose fall in one flat bin.
