@@ -10,6 +10,7 @@ are checked on constructed rows, each against a mutation that must turn it red.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -80,11 +81,11 @@ def test_the_deflated_and_reference_arms_keep_the_point(drawn) -> None:
     arms = study.draw_arms(frame, cell, truth)
     base = arms["t_reference"]
     assert arms["deflated_control"]["std_error"] == pytest.approx(
-        base["std_error"] * 0.85, rel=1e-12
+        base["std_error"] * 0.80, rel=1e-12
     )
     known = arms["known_propensity"]
     assert arms["known_deflated_control"]["std_error"] == pytest.approx(
-        known["std_error"] * 0.85, rel=1e-12
+        known["std_error"] * 0.80, rel=1e-12
     )
     for arm in study.ARMS[:6]:
         assert arms[arm]["psi"] == base["psi"]
@@ -216,7 +217,7 @@ def test_no_pilot_draw_is_lost_under_the_constant_target_rule(rows: pd.DataFrame
 def test_the_known_deflated_arm_is_derived_exactly(rows: pd.DataFrame) -> None:
     kept = rows["known_propensity_withheld"] == ""
     assert np.allclose(
-        rows["known_deflated_control_std_error"], rows["known_propensity_std_error"] * 0.85
+        rows["known_deflated_control_std_error"], rows["known_propensity_std_error"] * 0.80
     )
     # Mutation control: deflating the SE can only lose coverage.
     assert (
@@ -239,28 +240,79 @@ def test_the_predicted_reds_and_floors_are_the_declared_ones(readings, arm: str)
 
 @pytest.mark.parametrize(
     ("arm", "at_4000", "at_8000"),
-    [("t_reference", 0.970, 1.000), ("known_propensity", 0.850, 0.997)],
+    [("t_reference", 0.970, 1.000), ("known_propensity", 0.847, 0.997)],
 )
 def test_the_family_products_are_the_plan_s(
-    readings, arm: str, at_4000: float, at_8000: float
+    rows, readings, arm: str, at_4000: float, at_8000: float
 ) -> None:
-    """Plan 5.3: the product above each predicted floor, at 4,000 and at the declared 8,000."""
+    """Plan 4.6 and 5.3: the product above each predicted floor, controls included."""
     floor = study.PREDICTED_FLOOR[arm]
-    assert pilot.floor_product(readings[arm], floor, 4_000) == pytest.approx(at_4000, abs=5e-3)
+    assert pilot.floor_product(readings[arm], floor, 4_000) == pytest.approx(at_4000, abs=2e-3)
     assert pilot.floor_product(readings[arm], floor) == pytest.approx(at_8000, abs=2e-3)
-    assert pilot.floor_product(readings[arm], floor) >= 0.95
+    family = pilot.family_with_controls(rows, arm, floor)
+    assert family == pytest.approx(at_8000, abs=2e-3)
+    assert family >= 0.95
 
 
 @pytest.mark.parametrize("arm", study.POSITIVE_ARMS)
-def test_the_deflated_controls_fail_the_rule_except_where_predicted(rows, arm: str) -> None:
-    """Power of each deflated control to fail the positive rule, at the pilot's own readings."""
+def test_the_predictive_family_figures_are_reported(readings, arm: str) -> None:
+    """Plan section 5: the Jeffreys-predictive figure beside the plug-in one."""
+    floor = study.PREDICTED_FLOOR[arm]
+    predictive = pilot.predictive_product(readings[arm], floor)
+    assert predictive == pytest.approx(study.PREDICTIVE_FAMILY[arm], abs=2e-3)
+    # The predictive figure carries the pilot's own uncertainty, so it sits below the plug-in.
+    assert predictive < pilot.floor_product(readings[arm], floor)
+
+
+@pytest.mark.parametrize("arm", study.POSITIVE_ARMS)
+def test_the_deflated_controls_fail_the_rule_in_every_cell(rows, arm: str) -> None:
+    """At 0.80 squared each control fails the rule with power at least 0.999 in every cell."""
     control = study.DEFLATED_ARMS[arm]
-    weak = {
-        name
-        for name, reading in pilot.readings_of(rows, control).items()
-        if 1.0 - pilot.plug_in_pass(reading) < 0.90
-    }
-    assert weak == study.DEFLATED_PREDICTED_PASS[arm]
+    for name, reading in pilot.readings_of(rows, control).items():
+        assert pilot.control_power(reading) >= 0.999, name
+
+
+def test_the_deflation_was_sized_from_the_pilot(rows, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: at 0.85 squared the estimated ``equal10__v2_j12`` control is a coin flip.
+
+    The positive there is conservative (variance ratio 1.31), so a 15% narrower interval still
+    covers 0.927 and meets the rule; the deflation has to be larger, not R.
+    """
+    monkeypatch.setattr(study, "DEFLATION", 0.85**2)
+    weak = pilot.derive_deflated(rows)
+    reading = pilot.shapes(weak, "equal10__v2_j12", "deflated_control")
+    assert 0.4 < pilot.control_power(reading) < 0.7
+
+
+def test_the_red_cell_owner_is_listed_and_holds_every_predicted_red() -> None:
+    from tests.studies.evidence.red_cells import owner_ids
+
+    assert study.RED_OWNER in owner_ids()
+    predicted = {f"{cell}__{arm}" for arm, cells in study.PREDICTED_RED.items() for cell in cells}
+    assert set(study.PREDICTED_RED_OWNERS) == predicted
+    assert set(study.PREDICTED_RED_OWNERS.values()) == {study.RED_OWNER}
+    # Every predicted red sits below its configuration's predicted floor.
+    for arm, cells in study.PREDICTED_RED.items():
+        for cell in cells:
+            assert study.CELL_BY_NAME[cell].training < study.PREDICTED_FLOOR[arm]
+
+
+def test_the_known_configuration_is_the_declared_mechanism(drawn) -> None:
+    """Witness: ``treatment_probabilities=`` and the pilot's oracle learner give the same fit."""
+    cell, frame, _ = drawn
+    target = study.TARGETS[cell.law]
+    declared = study.fit(frame, cell.folds, (target,), known=cell.law)
+    oracle = study.fit(frame, cell.folds, (target,), known=cell.law, oracle=True)
+    assert declared[target].psi == pytest.approx(oracle[target].psi, abs=1e-12)
+    assert declared[target].plugin_std_error == pytest.approx(
+        oracle[target].plugin_std_error, abs=1e-12
+    )
+    assert declared[target].inference == oracle[target].inference
+    assert declared.nuisance.treatment_mechanism == "known"
+    assert oracle.nuisance.treatment_mechanism == "estimated"
+    # Mutation control: the fitted propensity gives another point on the same draw.
+    estimated = study.fit(frame, cell.folds, (target,))
+    assert estimated[target].psi != pytest.approx(declared[target].psi, abs=1e-6)
 
 
 def test_the_iid_control_has_power_in_every_cell(rows: pd.DataFrame, readings) -> None:
@@ -329,7 +381,7 @@ def _rows(seed: int = 0, replicates: int = 1_200) -> pd.DataFrame:
     covered = (np.arange(replicates) % 20 != 0).astype(int)
     out = []
     for arm in study.ARMS:
-        se = {"iid_t_control": 0.6, "deflated_control": 0.85, "known_deflated_control": 0.85}
+        se = {"iid_t_control": 0.6, "deflated_control": 0.80, "known_deflated_control": 0.80}
         deflated = arm in study.DEFLATED_ARMS.values()
         out.append(
             pd.DataFrame(
@@ -430,7 +482,7 @@ def test_a_deflated_control_fails_when_it_passes_the_positive_rule(
     """An undeflated control, at the positive's own SE and coverage, passes the rule: red."""
     verdicts = _verdicts(passing)
     assert verdicts.loc[control, "passed"] and not verdicts.loc[control, "positive_rule_passed"]
-    rows = _scaled(passing, control, 1 / 0.85)
+    rows = _scaled(passing, control, 1 / 0.80)
     rows.loc[rows["cell"] == control, "covered"] = rows.loc[
         rows["cell"] == positive, "covered"
     ].to_numpy()
@@ -486,23 +538,89 @@ def test_a_lost_draw_is_read_at_every_split() -> None:
     assert candidates[0][0] == "0 shown, 0 covered"
 
 
-def test_the_training_floor_is_the_smallest_count_from_which_every_cell_certifies() -> None:
+def _summary(**columns: Any) -> pd.DataFrame:
     names = [n for c in study.CELLS for n in (study.cell_name(c.name, a) for a in study.ARMS)]
-    summary = pd.DataFrame({"cell": names, "passed": True})
+    out = pd.DataFrame(
+        {"property": study.FAMILY, "cell": names, "passed": True, "variance_lower_passed": 1.0}
+    )
+    for key, value in columns.items():
+        out[key] = value
+    return out
 
-    def fail(cell: str, arm: str) -> None:
-        summary.loc[summary["cell"] == study.cell_name(cell, arm), "passed"] = False
 
+def _fail(summary: pd.DataFrame, cell: str, arm: str, *, variance: bool = True) -> None:
+    mask = summary["cell"] == study.cell_name(cell, arm)
+    summary.loc[mask, "passed"] = False
+    if not variance:
+        summary.loc[mask, "variance_lower_passed"] = 0.0
+
+
+def test_the_training_floor_is_the_smallest_count_from_which_every_cell_passes() -> None:
+    summary = _summary()
     assert properties.training_floor(summary, "t_reference") == 2
-    fail("cluster_covariate__v2_j4", "t_reference")
+    _fail(summary, "cluster_covariate__v2_j4", "t_reference")
     assert properties.training_floor(summary, "t_reference") == 4
-    # A blind deflated control at 6 training clusters certifies nothing there.
-    fail("equal10__v2_j12", "deflated_control")
+    _fail(summary, "equal10__v2_j12", "t_reference")
     assert properties.training_floor(summary, "t_reference") == 8
     # The other configuration has its own floor.
     assert properties.training_floor(summary, "known_propensity") == 2
-    fail("equal10__v5_j30", "known_propensity")
+    _fail(summary, "equal10__v5_j30", "known_propensity")
     assert properties.training_floor(summary, "known_propensity") is None
+
+
+def test_the_route_of_a_configuration_with_no_red_is_calibrated() -> None:
+    route = properties.declared_route(_summary(), "t_reference")
+    assert (route.outcome, route.floor, route.minimum) == (properties.CALIBRATED, 2, None)
+
+
+def test_the_route_of_the_predicted_reds_is_the_owned_floor() -> None:
+    summary = _summary()
+    for arm, cells in study.PREDICTED_RED.items():
+        for cell in cells:
+            _fail(summary, cell, arm)
+    for arm in study.POSITIVE_ARMS:
+        route = properties.declared_route(summary, arm)
+        assert route.outcome == properties.TRAINING_FLOOR
+        assert route.floor == route.minimum == study.PREDICTED_FLOOR[arm]
+        expected = {f"{c}__{arm}": study.RED_OWNER for c in study.PREDICTED_RED[arm]}
+        assert route.owners == expected
+
+
+def test_a_red_variance_lower_end_below_the_floor_is_a_defect_suspect() -> None:
+    """Mutation of the owned case: the same red, but an underestimated variance."""
+    summary = _summary()
+    _fail(summary, "equal10__v2_j4", "t_reference", variance=False)
+    route = properties.declared_route(summary, "t_reference")
+    assert route.outcome == properties.DEFECT_SUSPECT
+    assert route.owners == {"equal10__v2_j4__t_reference": None}
+
+
+def test_no_passing_count_is_a_defect_suspect() -> None:
+    summary = _summary()
+    _fail(summary, "equal10__v5_j30", "t_reference")
+    route = properties.declared_route(summary, "t_reference")
+    assert route.outcome == properties.DEFECT_SUSPECT and route.floor is None
+
+
+@pytest.mark.parametrize(
+    ("cell", "arm"),
+    [
+        ("equal10__v2_j12", "deflated_control"),
+        ("cluster_covariate__v5_j30", "deflated_control"),
+        ("equal10__v2_j8", "iid_t_control"),
+    ],
+)
+def test_a_control_that_does_not_do_its_job_withholds_the_licence(cell: str, arm: str) -> None:
+    """Plan 5.8: a must-fail control that passes the rule means nothing ships from the study."""
+    summary = _summary()
+    _fail(summary, cell, arm)
+    route = properties.declared_route(summary, "t_reference")
+    assert route.outcome == properties.UNLICENSED and route.minimum is None
+    # Mutation control: the other configuration's deflated control is not this one's licence.
+    if arm == "deflated_control":
+        assert properties.declared_route(summary, "known_propensity").outcome == (
+            properties.CALIBRATED
+        )
 
 
 def test_the_pilot_file_is_committed() -> None:

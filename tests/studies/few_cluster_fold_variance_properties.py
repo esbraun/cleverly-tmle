@@ -54,6 +54,7 @@ reads each configuration's training-cluster floor off a summary (plan 5.3).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 import numpy as np
@@ -139,6 +140,9 @@ READING_COLUMNS: Final[tuple[str, ...]] = (
     "paired_median_ratio",
     "paired_median_ci_lower",
     "paired_median_ci_upper",
+    "coverage_band_passed",
+    "g1_passed",
+    "variance_lower_passed",
     "positive_rule_passed",
 )
 
@@ -495,17 +499,25 @@ def fold_variance_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: An
         for column, value in values.items():
             summary.loc[index, column] = value
         if name in POSITIVE_CELLS or name in DEFLATED_CELLS:
+            for column, value in gate_readings(summary.loc[index]).items():
+                summary.loc[index, column] = float(value)
             summary.loc[index, "positive_rule_passed"] = float(positive_rule(summary.loc[index]))
 
 
+def gate_readings(row: pd.Series) -> dict[str, bool]:
+    """Each gate of the positive rule on one summary row (plan 5.3)."""
+    return {
+        "coverage_band_passed": bool(
+            COVERAGE_BAND[0] <= row["shown_ci_lower"] and row["shown_ci_upper"] <= COVERAGE_BAND[1]
+        ),
+        "g1_passed": bool(row["all_draw_ci_lower"] >= G1_FLOOR),
+        "variance_lower_passed": bool(row["variance_ratio_ci_lower"] >= VARIANCE_BAND[0]),
+    }
+
+
 def positive_rule(row: pd.Series) -> bool:
-    """The three gates of a positive cell, read off its summary row (plan 5.3, rev 3.2)."""
-    return bool(
-        COVERAGE_BAND[0] <= row["shown_ci_lower"]
-        and row["shown_ci_upper"] <= COVERAGE_BAND[1]
-        and row["all_draw_ci_lower"] >= G1_FLOOR
-        and row["variance_ratio_ci_lower"] >= VARIANCE_BAND[0]
-    )
+    """The three gates of a positive cell, read off its summary row (plan 5.3)."""
+    return all(gate_readings(row).values())
 
 
 def fold_variance_verdicts(summary: pd.DataFrame) -> None:
@@ -542,23 +554,107 @@ def training_floor(summary: pd.DataFrame, arm: str) -> int | None:
     """A configuration's training-cluster floor :math:`T^*` (plan 5.3), off a summary.
 
     The smallest count of :data:`~tests.studies.few_cluster_fold_variance.TRAINING_LADDER` from
-    which every cell of the configuration, on both laws, passes, and whose must-fail control
-    fails the positive rule: a cell whose deflated control passes the rule cannot certify
-    calibration. ``None`` when no count qualifies, including the largest.
+    which every positive cell of the configuration, on both laws, passes. ``None`` when no count
+    qualifies, including the largest. Whether the configuration may ship a floor at all is
+    :func:`declared_route`'s question.
     """
     passed = summary.set_index("cell")["passed"].astype(bool)
     certified = dict.fromkeys(study.TRAINING_LADDER, True)
     for cell in study.CELLS:
-        ok = bool(
-            passed[_cell(cell.name, arm)] and passed[_cell(cell.name, study.DEFLATED_ARMS[arm])]
-        )
-        certified[cell.training] = certified[cell.training] and ok
+        certified[cell.training] = certified[cell.training] and bool(passed[_cell(cell.name, arm)])
     floor = None
     for count in sorted(certified, reverse=True):
         if not certified[count]:
             break
         floor = count
     return floor
+
+
+#: The outcomes of :func:`declared_route` (plan 5.8, rev 3.4).
+CALIBRATED = "calibrated"
+TRAINING_FLOOR = "training floor"
+DEFECT_SUSPECT = "defect suspect"
+UNLICENSED = "unlicensed"
+
+
+@dataclass(frozen=True)
+class Route:
+    """The declared consequence of one configuration's verdicts (plan 5.8).
+
+    Parameters
+    ----------
+    arm : str
+        The positive arm, one of :data:`~tests.studies.few_cluster_fold_variance.POSITIVE_ARMS`.
+    outcome : str
+        :data:`CALIBRATED` (every cell passes: no floor ships), :data:`TRAINING_FLOOR`
+        (``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism] = floor`` ships), :data:`DEFECT_SUSPECT`
+        (diagnose and fix before anything ships) or :data:`UNLICENSED` (a must-fail control did
+        not fail, or the IID control saw no cluster effect, in some cell: nothing ships from the
+        configuration, and the study is redesigned under a fresh declaration).
+    floor : int or None
+        :func:`training_floor`.
+    minimum : int or None
+        The value of ``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism]`` the outcome ships, or ``None``.
+    owners : dict
+        Each red positive cell of the configuration with the red-cell owner that holds it.
+        ``None`` marks a red no owner holds, which is why the outcome is a defect suspect.
+    reasons : tuple of str
+        Why the outcome is what it is, one entry per failing condition.
+    """
+
+    arm: str
+    outcome: str
+    floor: int | None
+    minimum: int | None
+    owners: dict[str, str | None]
+    reasons: tuple[str, ...]
+
+
+def declared_route(summary: pd.DataFrame, arm: str) -> Route:
+    """Map a summary to the route plan 5.8 declares for one configuration.
+
+    1. Licence: in every cell the configuration's deflated control must fail the positive rule
+       and the IID control must pass. Otherwise the instrument could not see the failure it
+       targets, and the configuration is :data:`UNLICENSED`, whatever its positive cells read.
+    2. Floor: :func:`training_floor`. No qualifying count is a :data:`DEFECT_SUSPECT`.
+    3. A red positive cell below the floor is held by
+       :data:`~tests.studies.few_cluster_fold_variance.RED_OWNER` when only its coverage band or
+       G1 failed. A red variance-ratio lower end is an underestimated variance, which no owner
+       holds: a :data:`DEFECT_SUSPECT`.
+    4. Otherwise :data:`CALIBRATED` at a floor of 2, else :data:`TRAINING_FLOOR`.
+    """
+    rows = summary.loc[summary["property"] == FAMILY].set_index("cell")
+    passed = rows["passed"].astype(bool)
+    reasons: list[str] = []
+    control = study.DEFLATED_ARMS[arm]
+    for cell in study.CELLS:
+        if not passed[_cell(cell.name, control)]:
+            reasons.append(f"{_cell(cell.name, control)} passes the positive rule")
+        if not passed[_cell(cell.name, "iid_t_control")]:
+            reasons.append(f"{_cell(cell.name, 'iid_t_control')} sees no cluster effect")
+    floor = training_floor(summary, arm)
+    owners: dict[str, str | None] = {}
+    for cell in study.CELLS:
+        name = _cell(cell.name, arm)
+        if passed[name]:
+            continue
+        row = rows.loc[name]
+        held = floor is not None and cell.training < floor and bool(row["variance_lower_passed"])
+        owners[name] = study.RED_OWNER if held else None
+    if reasons:
+        return Route(arm, UNLICENSED, floor, None, owners, tuple(reasons))
+    if floor is None:
+        reasons.append("no training count from which every cell passes")
+    reasons.extend(
+        f"{name} reads a variance-ratio lower end below 0.8649"
+        for name, owner in owners.items()
+        if owner is None and floor is not None
+    )
+    if reasons:
+        return Route(arm, DEFECT_SUSPECT, floor, None, owners, tuple(reasons))
+    if floor == study.TRAINING_LADDER[0]:
+        return Route(arm, CALIBRATED, floor, None, owners, ())
+    return Route(arm, TRAINING_FLOOR, floor, floor, owners, ())
 
 
 # ------------------------------------------------------------------------------ declared rules
@@ -771,7 +867,9 @@ PROPERTY_RULES = (
 
 __all__: Sequence[str] = (
     "PROPERTY_RULES",
+    "Route",
     "declared_cells",
+    "declared_route",
     "generate_property_rows",
     "summarize_properties",
     "training_floor",

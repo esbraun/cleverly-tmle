@@ -48,7 +48,7 @@ arm                         variance and reference
 ``iid_t_control``           the same construction with rows as units (the uncentred fold second
                             moment), :math:`t_{J-V}` (control: its median paired SE ratio to the
                             positive arm must lie below 0.95)
-``deflated_control``        the shipped variance times :data:`DEFLATION`, :math:`0.85^2`
+``deflated_control``        the shipped variance times :data:`DEFLATION`, :math:`0.80^2`
                             (control: it must fail the positive rule)
 ``pooled_centered``         the stacked cluster variance of the same fit, centred at the pooled
                             point, :math:`t_{J-V}` (diagnostic; :data:`POOLED_CENTERED_GATED`
@@ -109,9 +109,13 @@ ESTIMANDS: Final[tuple[str, ...]] = ("ey0", "ey1", "ate")
 #: The propensity bounds of a fitted treatment regression, as the canonical DR-TMLE study uses.
 #: Both laws' true propensities reach 0.01 only beyond 6 SD of their logits.
 G_BOUNDS: Final[tuple[float, float]] = (0.01, 0.99)
-#: The multiplier of the ``deflated_control`` variance: :math:`0.85^2`, below the band's lower
-#: end :math:`0.93^2`.
-DEFLATION: Final[float] = 0.85**2
+#: The multiplier of each deflated control's variance: :math:`0.80^2`, an SE 20% too small,
+#: outside the SE-ratio band. Sized from the committed pilot columns before the run (plan rev
+#: 3.4): at :math:`0.85^2` the estimated ``equal10__v2_j12`` control failed the rule with
+#: probability 0.55, because the positive there is conservative (variance ratio 1.31, coverage
+#: 0.955); at :math:`0.80^2` every control of both configurations fails it with plug-in
+#: probability 1.000.
+DEFLATION: Final[float] = 0.80**2
 
 LAWS: Final[tuple[str, ...]] = ("equal10", "cluster_covariate")
 #: The estimand each law's cells measure. On ``cluster_covariate`` the cluster effect sits in the
@@ -190,7 +194,8 @@ CELL_BY_NAME: Final[dict[str, Cell]] = {cell.name: cell for cell in CELLS}
 #: The training-cluster counts of the design, the ladder each configuration's floor is read on.
 TRAINING_LADDER: Final[tuple[int, ...]] = tuple(sorted({cell.training for cell in CELLS}))
 #: The two gated configurations (plan 5.3, rev 3.2): the propensity estimated, and the same
-#: draw refitted with the law's propensity declared known. Each takes its own training floor.
+#: draw refitted with the law's propensity declared known (``treatment_probabilities=``). Each
+#: takes its own training floor.
 POSITIVE_ARMS: Final[tuple[str, ...]] = ("t_reference", "known_propensity")
 #: The mechanism each positive arm stands for, the key of a training floor.
 MECHANISMS: Final[dict[str, str]] = {"t_reference": "estimated", "known_propensity": "known"}
@@ -245,14 +250,26 @@ PREDICTED_FLOOR: Final[dict[str, int]] = {"t_reference": 4, "known_propensity": 
 #: The deflated controls whose power to fail the positive rule is below 0.90 at the pilot's
 #: readings: the estimated propensity's outlier SEs on 6 training clusters leave ``equal10`` a
 #: variance ratio of 1.31, so the deflated variance still reads 0.94 and its coverage 0.927.
-DEFLATED_PREDICTED_PASS: Final[dict[str, frozenset[str]]] = {
-    "t_reference": frozenset({"equal10__v2_j12"}),
-    "known_propensity": frozenset(),
+#: The red-cell owner of a positive cell below its configuration's training floor (the roadmap's
+#: Red-cell owners table): it holds that cell's coverage-band and G1 legs. A red variance-ratio
+#: lower end, a red at or above the floor, or a control that does not do its job is a defect
+#: suspect or an unlicensed configuration (:func:`~tests.studies.few_cluster_fold_variance_properties.declared_route`).
+RED_OWNER: Final[str] = "X54-training-floor"
+#: The owner of each predicted red, declared before the run.
+PREDICTED_RED_OWNERS: Final[dict[str, str]] = {
+    cell_name: RED_OWNER
+    for arm, cells in PREDICTED_RED.items()
+    for cell_name in (f"{cell}__{arm}" for cell in sorted(cells))
 }
+#: The predictive family figures (plan section 5): the shown coverage of each cell integrated
+#: over its Jeffreys posterior from the pilot, the variance ratio at its plug-in value, over the
+#: cells at or above each predicted floor. The rule gates the plug-in figure; a chance red at 16 or
+#: 24 training clusters is read against these.
+PREDICTIVE_FAMILY: Final[dict[str, float]] = {"t_reference": 0.718, "known_propensity": 0.646}
 
-#: Replications of every cell (plan 5.3, rev 3.2): 8,000, the plan's ceiling, where the plug-in
-#: family product of the cells above each configuration's predicted floor reads 1.000 (estimated)
-#: and 0.997 (known) against 0.970 and 0.850 at 4,000.
+#: Replications of every cell (plan 5.3, rev 3.4): 8,000, the plan's ceiling, where the plug-in
+#: family product of the cells above each configuration's predicted floor, controls included,
+#: reads 1.000 (estimated) and 0.997 (known), against 0.970 and 0.847 at 4,000.
 PROPERTY_REPLICATES: Final[dict[str, int]] = {cell.name: 8_000 for cell in CELLS}
 
 
@@ -330,8 +347,10 @@ CONFIGURATION = {
     "g_bounds": list(G_BOUNDS),
     "simultaneous_intervals": False,
     "deflation": DEFLATION,
+    "red_owner": RED_OWNER,
     "targets": dict(TARGETS),
     "known_propensity": "a second fit per draw with the law's true propensity declared known "
+    "through treatment_probabilities= "
     "(the second gated configuration)",
     "training_ladder": list(TRAINING_LADDER),
     "primary": f"{SCENARIO}: ey0, ey1 and ate",
@@ -376,7 +395,10 @@ def learner() -> LogisticRegression:
 
 
 class ExactPropensity:
-    """A law's true propensity in ``W1`` and ``W2``, as ``OracleTreatment`` reads it.
+    """A law's true propensity in ``W1`` and ``W2``.
+
+    ``treatment_probabilities=`` reads it as two frame columns; the pilot read it through
+    ``OracleTreatment``, which the design test shows gives the same fit.
 
     Parameters
     ----------
@@ -401,13 +423,25 @@ def fit(
     estimands: Sequence[str],
     *,
     known: str | None = None,
+    oracle: bool = False,
 ) -> Any:
     """The fold-evaluated ``TMLE`` of one draw, with ``id=`` and ``folds`` equal folds.
 
-    ``known`` names the law whose true propensity replaces the fitted one (the
-    ``known_propensity`` diagnostic); ``None`` fits the propensity.
+    ``known`` names the law whose true propensity is declared through
+    ``treatment_probabilities=`` (the ``known_propensity`` configuration), so no treatment
+    learner runs; ``None`` fits the propensity. ``oracle=True`` supplies the same propensity as an
+    ``OracleTreatment`` learner instead, the form the pilot ran; the design test shows the two
+    agree.
     """
-    treatment = learner() if known is None else OracleTreatment(ExactPropensity(known))
+    columns: dict[str, Any] = {}
+    treatment: Any = learner()
+    if known is not None:
+        probability = ExactPropensity(known).propensity(frame[["W1", "W2"]].to_numpy())
+        if oracle:
+            treatment = OracleTreatment(ExactPropensity(known))
+        else:
+            frame = frame.assign(_p1=probability, _p0=1.0 - probability)
+            columns = {"treatment_probabilities": {1: "_p1", 0: "_p0"}}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = (
@@ -426,7 +460,14 @@ def fit(
                 tol=1e-10,
                 random_state=0,
             )
-            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cluster")
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2"],
+                id="cluster",
+                **columns,
+            )
             .single()
         )
     cluster = np.asarray(frame["cluster"])
@@ -464,7 +505,7 @@ def draw_arms(frame: pd.DataFrame, cell: Cell, truth: float) -> dict[str, dict[s
     """The arms of :data:`ARMS` of one draw, off two fits.
 
     The first six read the study's fit; ``known_propensity`` and ``known_deflated_control`` read
-    a second fit of the same draw with the law's true propensity. Each arm holds its point, standard error, interval,
+    a second fit of the same draw with the law's true propensity declared known. Each arm holds its point, standard error, interval,
     ``withheld`` (the status of an estimate that withholds its interval, else ``""``),
     ``reference_df``, ``covered`` (0 when withheld) and ``rejected``.
     """

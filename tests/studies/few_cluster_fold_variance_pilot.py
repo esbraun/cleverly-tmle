@@ -99,37 +99,39 @@ def run(jobs: Sequence[tuple[str, int]], workers: int) -> pd.DataFrame:
 
 
 def read(path: Path) -> pd.DataFrame:
-    """The committed pilot rows, with any arm the pilot predates derived (:func:`derive_known_deflated`)."""
+    """The committed pilot rows, with both deflated arms derived at :data:`study.DEFLATION`."""
     frame = pd.read_csv(path)
     frame["lost"] = frame["lost"].fillna("")
-    if "known_deflated_control_std_error" not in frame:
-        frame = derive_known_deflated(frame)
     for arm in study.ARMS:
-        frame[f"{arm}_withheld"] = frame[f"{arm}_withheld"].fillna("")
-    return frame
+        if f"{arm}_withheld" in frame:
+            frame[f"{arm}_withheld"] = frame[f"{arm}_withheld"].fillna("")
+    return derive_deflated(frame)
 
 
-def derive_known_deflated(frame: pd.DataFrame) -> pd.DataFrame:
-    """``known_deflated_control`` from ``known_propensity``, as :func:`study.draw_arms` builds it.
+def derive_deflated(frame: pd.DataFrame) -> pd.DataFrame:
+    """Each deflated arm from its positive arm, as :func:`study.draw_arms` builds it.
 
-    The arm was added after the pilot ran (plan rev 3.2). It is the known-propensity fit's point
-    and SE times ``sqrt(DEFLATION)`` on the same ``t_{J-V}`` reference, so it is derived from the
-    committed columns exactly: no draw is refitted.
+    A deflated arm is its positive's point and SE times ``sqrt(DEFLATION)`` on the same
+    ``t_{J-V}`` reference, so it is derived from the committed positive columns exactly and no
+    draw is refitted. The pilot ran at a deflation of 0.85 squared and before
+    ``known_deflated_control`` existed; the factor was sized from these columns before the run
+    (plan rev 3.4).
     """
     out = frame.copy()
     factor = float(np.sqrt(study.DEFLATION))
-    out["known_deflated_control_psi"] = out["known_propensity_psi"]
-    out["known_deflated_control_std_error"] = out["known_propensity_std_error"] * factor
-    out["known_deflated_control_withheld"] = out["known_propensity_withheld"]
-    covered = np.zeros(len(out), dtype=int)
-    for cell in study.CELLS:
-        rows = (out["cell"] == cell.name).to_numpy()
-        truth = study.law_truth(cell.law)[study.TARGETS[cell.law]]
-        half = study.t_critical(cell.df) * out.loc[rows, "known_deflated_control_std_error"]
-        error = (out.loc[rows, "known_deflated_control_psi"] - truth).abs()
-        shown = out.loc[rows, "known_propensity_withheld"].fillna("") == ""
-        covered[rows] = ((error <= half) & shown).astype(int).to_numpy()
-    out["known_deflated_control_covered"] = covered
+    for positive, control in study.DEFLATED_ARMS.items():
+        withheld = out[f"{positive}_withheld"].fillna("")
+        out[f"{control}_psi"] = out[f"{positive}_psi"]
+        out[f"{control}_std_error"] = out[f"{positive}_std_error"] * factor
+        out[f"{control}_withheld"] = withheld
+        covered = np.zeros(len(out), dtype=int)
+        for cell in study.CELLS:
+            rows = (out["cell"] == cell.name).to_numpy()
+            truth = study.law_truth(cell.law)[study.TARGETS[cell.law]]
+            half = study.t_critical(cell.df) * out.loc[rows, f"{control}_std_error"]
+            error = (out.loc[rows, f"{control}_psi"] - truth).abs()
+            covered[rows] = ((error <= half) & (withheld[rows] == "")).astype(int).to_numpy()
+        out[f"{control}_covered"] = covered
     return out
 
 
@@ -327,6 +329,64 @@ def floor_product(
     """The plug-in pass probability of every cell with at least ``floor`` training clusters."""
     return float(
         np.prod([plug_in_pass(r, replicates) for r in readings.values() if r["training"] >= floor])
+    )
+
+
+def control_power(reading: Mapping[str, float], replicates: int = REPLICATES) -> float:
+    """P(a deflated control fails the positive rule) at its own pilot readings."""
+    return 1.0 - plug_in_pass(reading, replicates)
+
+
+def family_with_controls(
+    rows: pd.DataFrame, arm: str, floor: int, replicates: int = REPLICATES
+) -> float:
+    """Plan 4.6's family figure, controls included.
+
+    Every positive cell at or above ``floor`` passes, and in every cell the configuration's
+    deflated control fails the rule and the IID control passes: a control that does not do so in
+    any cell withholds the configuration's licence (:func:`declared_route`).
+    """
+    positives = readings_of(rows, arm)
+    controls = readings_of(rows, study.DEFLATED_ARMS[arm])
+    value = floor_product(positives, floor, replicates)
+    for cell in study.CELLS:
+        value *= control_power(controls[cell.name], replicates)
+        value *= iid_median_power(rows, cell.name, replicates)
+    return float(value)
+
+
+#: The quantile grid of the predictive figures: the midpoints of 400 equal-probability bins.
+_GRID: Final[np.ndarray] = (np.arange(400) + 0.5) / 400
+
+
+def predictive_pass(reading: Mapping[str, float], replicates: int = REPLICATES) -> float:
+    """The cell pass probability with the shown coverage integrated over its Jeffreys posterior.
+
+    The pilot's shown hits ``h`` of ``n`` give coverage the posterior Beta(h + 1/2, n - h + 1/2);
+    the all-draw coverage is that value times the pilot's shown share, and the variance ratio
+    stays at its plug-in value (plan section 5: the design test reports both figures).
+    """
+    n = int(reading["draws"])
+    hits = round(reading["coverage"] * n)
+    shown_share = 1.0 - reading["withheld"] - reading["lost"]
+    draws = max(int(replicates * shown_share), 2)
+    variance = variance_lower_pass(reading["relvar"], reading["kurtosis"], draws, reading["ratio"])
+    values = stats.beta.ppf(_GRID, hits + 0.5, n - hits + 0.5)
+    passes = [
+        band_pass(round(float(c), 4), draws) * g1_pass(round(float(c) * shown_share, 4), replicates)
+        for c in values
+    ]
+    return float(variance * np.mean(passes))
+
+
+def predictive_product(
+    readings: Mapping[str, Mapping[str, float]], floor: int, replicates: int = REPLICATES
+) -> float:
+    """:func:`predictive_pass` multiplied over the cells at or above ``floor``."""
+    return float(
+        np.prod(
+            [predictive_pass(r, replicates) for r in readings.values() if r["training"] >= floor]
+        )
     )
 
 

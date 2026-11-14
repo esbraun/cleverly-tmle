@@ -9,15 +9,18 @@ recomputed by ``tests/unit/test_few_cluster_fold_variance_design.py``. The recor
 ``registered()`` until its run is committed; until then its property module is an uncommitted
 subject of the property differential.
 
-Order of the work (plan X54 rev 3.2, sections 2.4, 3.3, 5.3 and 5.8): the cells and arms; the
+Order of the work (plan X54 rev 3.4, sections 2.4, 3.3, 5.3, 5.8 and 9): the cells and arms; the
 pilot of :mod:`tests.studies.few_cluster_fold_variance_pilot` on its own seed stream, 400 draws
 of each of the twelve cells and 1,600 of the eight whose plug-in pass probability was below 0.90
 at 400 under rev 3.1's rule; the rev 3.2 redesign from that pilot; the refit of the pilot's 43
-lost draws under the constant-target rule (``--refit-lost``); this declaration; the declared run.
+lost draws under the constant-target rule (``--refit-lost``); the pre-run design review and its
+fixes (rev 3.4: the deflation sized from the pilot, the red-cell owner, the declared route in
+code, the known mechanism declared through ``treatment_probabilities=``); the merge of
+``origin/main``; this declaration; the declared run.
 
-Budget: 0.03 to 0.07 s per key (two fits) on one core, so the 96,000 property keys take about
-1.3 CPU-h, and the 1,000-draw primary, the summaries and the failure accounting bring the run to
-about 2 CPU-h. Declared 20 CPU-h, the plan's figure (it assumed 0.25 s per fit).
+Budget: measured at 0.03 to 0.07 s per key (two fits) on one core, so the 96,000 property keys
+take about 1.5 CPU-h, and the run with its 1,000-draw primary, summaries and failure accounting
+about 1.5 to 2 CPU-h. The ceiling stays the plan's 20 CPU-h.
 
 **Design changes from the pilot, made before this declaration.** Each follows from the law or
 from the mechanism the pilot showed, not from a verdict:
@@ -29,9 +32,10 @@ from the mechanism the pilot showed, not from a verdict:
   per validation fold (2, 4, 6) as a second axis. At 2 clusters per validation fold the V = 5
   cells read variance ratios of 1.15 and 1.04 and the V = 2 cells 7.6 and 17: the limit is the
   complement the nuisances are fitted on, not the validation fold.
-* ``known_propensity`` (the same draw refitted with the law's propensity declared known) is a
-  second gated configuration with its own floor, and its deflated control
-  ``known_deflated_control`` is added.
+* ``known_propensity`` (the same draw refitted with the law's propensity declared known through
+  ``treatment_probabilities=``) is a second gated configuration with its own floor, and its
+  deflated control ``known_deflated_control`` is added. The pilot supplied the same propensity as
+  an oracle learner; the design test shows the two forms give the same point, SE and status.
 * The positive rule gates the variance ratio's lower end only. With an estimated propensity
   fitted on 2 to 6 training clusters, a few draws report an SE of 10 to 107 SDs of the estimate;
   they carry the mean of the squared SE (ratio 7.6 with coverage 0.952), so the upper side
@@ -42,7 +46,10 @@ from the mechanism the pilot showed, not from a verdict:
 * A deflated control must fail the positive rule, not only its variance leg. Where the estimated
   propensity's tail raises the positive variance ratio, a deflated variance can still read above
   0.8649 while its coverage falls; a control of the lower end alone would have no power there
-  (pilot: 6 of 12 cells).
+  (pilot: 6 of 12 cells). The deflation is 0.80 squared, an SE 20% too small, sized from the
+  committed pilot columns: at 0.85 squared the estimated ``equal10__v2_j12`` control failed the
+  rule with probability 0.55, because the positive there is conservative, and more draws would
+  lower that probability, not raise it.
 * A training complement that holds one outcome value takes the constant-target rule (a plain
   ``TMLE``'s pooled outcome regression predicts that value, ``tests/unit/test_fold_policy_rules.py``)
   instead of refusing. The pilot's 43 lost draws, all missing an outcome class, now fit; a
@@ -54,16 +61,17 @@ coverage inside [0.92, 0.98]; G1, the exact 99% lower end of coverage over every
 (withheld and lost fits as misses), at least 0.90; the 99% percentile-bootstrap lower end of the
 variance ratio, mean squared SE over the variance of the estimates over the shown fits, at least
 0.8649. On each ``deflated_control`` and ``known_deflated_control`` row (the positive's variance
-times 0.7225): the positive rule fails. On each ``iid_t_control`` row: the distribution-free exact
+times 0.64): the positive rule fails. On each ``iid_t_control`` row: the distribution-free exact
 99% upper end of the median paired IID/cluster SE ratio below 0.95. ``pooled_centered`` is not
 gated (:data:`~tests.studies.few_cluster_fold_variance.POOLED_CENTERED_GATED`). Reported: the
 variance ratio's interval, its trimmed form, the largest SE and the median SE in SDs, the SE ratio
 with ``c_k``, the ratio-of-means IID reading, the withheld counts and every diagnostic arm.
 
-**The training floor** of each configuration
-(:func:`~tests.studies.few_cluster_fold_variance_properties.training_floor`) is the smallest
-training count from which every cell of the configuration, on both laws, passes and has its
-deflated control fail the rule.
+**The declared route** of each configuration is code,
+:func:`~tests.studies.few_cluster_fold_variance_properties.declared_route`, tested branch by
+branch in the design test. Its training floor is the smallest training count from which every
+positive cell of the configuration, on both laws, passes
+(:func:`~tests.studies.few_cluster_fold_variance_properties.training_floor`).
 
 Pilot readings (``pilot.csv.gz``; per configuration the variance ratio, its 5%-trimmed form, the
 largest SE in SDs, shown coverage, all-draw coverage, and the plug-in pass probability at 8,000):
@@ -87,48 +95,45 @@ train  cell                           estimated                               kn
 
 **Sizing and predictions** (``tests/unit/test_few_cluster_fold_variance_design.py``). Every cell
 takes 8,000 draws. Predicted reds at the pilot's readings
-(:data:`~tests.studies.few_cluster_fold_variance.PREDICTED_RED`): estimated, both cells at 2
-training clusters (the covariate cell's coverage band, ``equal10``'s G1 at 5.4% withheld);
-known, the same two and ``equal10__v2_j8`` (coverage 0.926). Predicted floors: 4 estimated and 6
-known, the plan's. The plug-in pass probability of every cell above the predicted floor is 1.000
-(estimated) and 0.997 (known). The deflated controls fail the rule with power at least 0.999 in
-every cell but one: ``deflated_control`` of ``equal10__v2_j12``, power 0.55, where the estimated
-propensity's tail leaves the deflated variance ratio at 0.94 and its coverage at 0.927
-(:data:`~tests.studies.few_cluster_fold_variance.DEFLATED_PREDICTED_PASS`). If that control
-passes the rule, the estimated floor reads 8 instead of 4. The median IID control has power
-1.000 in every cell (medians 0.35 to 0.47 on the covariate law, 0.72 to 0.90 on ``equal10``).
+(:data:`~tests.studies.few_cluster_fold_variance.PREDICTED_RED`), each held by the red-cell owner
+``X54-training-floor`` (:data:`~tests.studies.few_cluster_fold_variance.PREDICTED_RED_OWNERS`):
+estimated, both cells at 2 training clusters (the covariate cell's coverage band, ``equal10``'s
+G1 at 5.4% withheld); known, the same two and ``equal10__v2_j8`` (coverage 0.926). Predicted
+floors: 4 estimated and 6 known, the plan's. Above them the plug-in family figure, with every
+cell's deflated and IID controls included, is 1.000 (estimated) and 0.997 (known), against 0.970
+and 0.847 at 4,000. Every deflated control fails the rule with plug-in power at least 0.999, and
+the median IID control has power 1.000 in every cell (medians 0.35 to 0.47 on the covariate law,
+0.72 to 0.90 on ``equal10``). The Jeffreys-predictive family figures, with each cell's shown
+coverage integrated over its pilot posterior, are 0.718 (estimated) and 0.646 (known)
+(:data:`~tests.studies.few_cluster_fold_variance.PREDICTIVE_FAMILY`). The weakest cells are known
+``equal10__v5_j20`` (0.87) and both configurations' ``cluster_covariate__v5_j10`` (0.91), so a
+chance red at 16 or 24 training clusters is read against these figures.
 
-**Red-cell readings** (plan 5.8, declared before any run). The record is ``reporting``, so a red
-gated verdict is published and takes the route named here. No cell is re-sized, re-drawn,
-dropped or relabelled after a verdict is seen.
+**Red-cell readings** (plan 5.8, declared before any run, and coded in
+:func:`~tests.studies.few_cluster_fold_variance_properties.declared_route`). The record is
+``reporting``, so a red gated verdict is published and takes the route named here. No cell is
+re-sized, re-drawn, dropped or relabelled after a verdict is seen.
 
-* Every cell of a configuration passes (``T* = 2``): no training floor for it; cv-tmle.md and
-  inference.md state that the centred fold variance is calibrated from 2 training clusters at 2
-  to 6 clusters per validation fold (V = 2 and 5), equal sizes, with that propensity; the X54 (e)
-  row is deleted.
-* A configuration passes from ``T* > 2``: ``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism] = T*``
-  (plan 3.3, keyed ``"estimated"`` and ``"known"``), so a fold-evaluated estimate whose smallest
-  training complement holds fewer positive-mass clusters takes ``"few_cluster_plugin"``;
-  validation folds keep only the preflight's 2. inference.md and cv-tmle.md state the floor per
-  mechanism and that the limit is the training complement; F28 gains the measured limit.
+* ``unlicensed``: in some cell the configuration's deflated control passes the positive rule, or
+  the IID control sees no cluster effect. The instrument could not see the failure it targets,
+  so nothing ships from the configuration, and the study is redesigned under a fresh
+  declaration (a design-test failure, not a red cell).
+* ``calibrated`` (``T* = 2``): no training floor for that mechanism; cv-tmle.md and inference.md
+  state that the centred fold variance is calibrated from 2 training clusters at 2 to 6 clusters
+  per validation fold (V = 2 and 5), equal sizes, with that propensity; the X54 (e) row is
+  deleted when both configurations have shipped.
+* ``training floor`` (``T* > 2``): ``MINIMUM_FOLD_TRAINING_CLUSTERS[mechanism] = T*`` (plan 3.3,
+  keyed ``"estimated"`` and ``"known"``), so a fold-evaluated estimate whose smallest training
+  complement holds fewer positive-mass clusters takes ``"few_cluster_plugin"``; validation folds
+  keep only the preflight's 2. Each red positive cell below ``T*`` whose variance-ratio lower end
+  passes is held by ``X54-training-floor`` (its coverage band and G1 legs). inference.md and
+  cv-tmle.md state the floor per mechanism and that the limit is the training complement.
+* ``defect suspect``: no training count from which every cell passes, or a red variance-ratio
+  lower end below the floor (an underestimated variance, which no owner holds). Diagnose (the
+  within-fold weight renormalisation, the centring) and fix before anything ships.
 * The variance ratio's upper side, the trimmed ratio or the largest SE shows outlier variance
   estimates: a reported limit, not a red cell; cv-tmle.md states it with the trimmed ratio and
   the largest SE at each training count.
-* No cell of a configuration passes even at 24 training clusters, or a variance-ratio lower end
-  fails with its interval excluding 1 at 16 and 24: a defect suspect, diagnosed (the within-fold
-  weight renormalisation, the centring) and fixed before anything ships.
-* A coverage interval reaching below 0.92 in a cell whose variance-ratio lower end passes: the
-  variance is too small on typical draws behind a heavy upper tail; the cell is red and counts
-  against the floor, and the reading is recorded with the median SE ratio.
-* A deflated control passes the rule in a cell: the instrument cannot see a deflated variance
-  there, so that cell certifies nothing for its configuration and the floor is read above it
-  (:func:`~tests.studies.few_cluster_fold_variance_properties.training_floor`). Predicted for
-  ``equal10__v2_j12`` (estimated) with probability 0.45. If a deflated control passes in a cell
-  at 16 or 24 training clusters, or in more than two cells, the study cannot license a
-  calibration verdict for that configuration (plan 5.8): nothing ships from it, and it is
-  redesigned under a fresh declaration.
-* An ``iid_t_control`` red: the law has no cluster effect the instrument can see in that cell, a
-  design-test failure, redesigned under a fresh declaration.
 * The primary (``equal10__v5_j20``, 1,000 draws, ``ey0``, ``ey1`` and ``ate`` of the shipped
   report) is read by the harness's G1, G2 and SE-ratio band of 0.8 to 1.2. A red primary is a
   defect suspect.

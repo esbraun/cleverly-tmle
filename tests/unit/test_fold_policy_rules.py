@@ -36,7 +36,7 @@ from cleverly.datasets import (
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators import drtmle as drtmle_module
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
-from cleverly.interventions import Shift
+from cleverly.interventions import LearnedRule, Shift
 from cleverly.learners import SuperLearner, random_partition
 from cleverly.learners.crossfit import _MAX_SEED
 from cleverly.longitudinal import LTMLE
@@ -1279,6 +1279,22 @@ class TestAPlainTMLETakesTheRule:
         estimator, frame = self.stranded(cv_evaluation=True)
         with pytest.raises(DataError, match="training complement contains no observed outcome 1"):
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+
+    def test_a_learned_rule_fit_keeps_the_refusal(self) -> None:
+        """A learned rule reads the outcome regression in its rule fit: the rule is not taken.
+
+        Pins the ``learned_rule is None`` condition: the stranded draw that a plain fit takes is
+        refused, with the learned-rule remedy.
+        """
+        estimator, frame = self.stranded(cv_evaluation=False)
+        learned = TestASingleEventOutcomeStatesASampleMinimum.binary_fit(
+            TMLE, random_state=estimator.random_state, learned_rule=LearnedRule(), estimands=None
+        )
+        with pytest.raises(DataError) as raised:
+            learned.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+        message = str(raised.value)
+        assert "training complement contains no observed outcome 1" in message
+        assert "value of the full-sample rule" in message
 
     def test_a_complement_without_an_arm_stays_refused(self) -> None:
         frame = self.frame()
