@@ -311,6 +311,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # X70 (d) and (c): the hazard working model and the hazard modified treatment policy.
     "hazard_msm": sweep.fit_hazard_msm,
     "hazard_mtp": sweep.fit_hazard_mtp,
+    # A fit that estimates no treatment mechanism: no plot may promise its weights.
+    "sequential_gcomp": sweep.fit_gcomp,
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -323,6 +325,7 @@ NOT_FITS = {
     "SimulatedConfoundingResult": "a simulated-confounding report; sensitivity() draws it",
     "StudyResult": "a simulation study; zipper() draws it",
     "VariableImportanceResult": "one TMLEResult per candidate, each covered as a point fit",
+    "TMLEResultSet": "one TMLEResult per level, each covered as a point fit",
 }
 
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
@@ -485,6 +488,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    "sequential_gcomp": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
+        "weights": "CapabilityError: a g-computation or parametric g-formula",
+        "balance": "CapabilityError: covariate_balance weighs the covariates by",
+        "learners": "X100",
+        "calibration": "X100",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
 }
 
 
@@ -588,7 +603,7 @@ def _public_result_classes() -> dict[str, type]:
         loaded = importlib.import_module(module.name)
         for name in getattr(loaded, "__all__", ()):
             value = getattr(loaded, name, None)
-            if inspect.isclass(value) and name.endswith("Result"):
+            if inspect.isclass(value) and name.endswith(("Result", "ResultSet")):
                 found[name] = value
     return found
 
