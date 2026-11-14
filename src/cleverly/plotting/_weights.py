@@ -175,7 +175,8 @@ def weights(
     Raises
     ------
     CapabilityError
-        When the result is a g-computation or parametric g-formula fit, which has no weights.
+        When the result is not a longitudinal fit, or is a g-computation or parametric
+        g-formula fit, which has no weights.
     DataError
         When the result holds more than three regimens and ``regimens`` is omitted, when
         ``regimens`` is a single string, empty, repeats a label or names more than three,
@@ -224,9 +225,23 @@ def weights(
     'Weights over time'
     >>> plt.close(fig)
     """
-    from ..exceptions import DataError
+    from .._refusal import RefusalReason
+    from ..exceptions import CapabilityError, DataError
+    from ..longitudinal.estimator import LongitudinalResult
     from ..longitudinal.weights import node_weights
 
+    if not isinstance(result, LongitudinalResult):
+        point_fit = hasattr(result, "nuisance") and hasattr(result, "repeats")
+        raise CapabilityError(
+            "weights() draws the cumulative inverse-probability weights of a longitudinal fit "
+            f"at each time point; this {type(result).__name__} "
+            + (
+                "fits its treatment once, so overlap() draws its treatment probabilities"
+                if point_fit
+                else "has no sequential weights"
+            ),
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     repeats = result.repeats
     if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= len(repeats):
         raise DataError(f"repeat must be an integer from 1 to {len(repeats)}; got {repeat!r}")

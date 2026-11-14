@@ -216,12 +216,12 @@ def overlap(
         from ..exceptions import CapabilityError
 
         raise CapabilityError(
-            f"overlap() draws a point-treatment fit's predicted probability of treatment; a "
-            f"{type(result).__name__} has one treatment probability per time point, which this "
-            "plot does not draw",
+            "overlap() draws a point-treatment fit's predicted probability of treatment; "
+            + _unread_overlap(result)
+            + ", which this plot does not draw yet",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
-            roadmap="X92",
+            roadmap="X100",
         )
     positivity_report(result)  # the report's own refusals: no mechanism, a continuous dose
     data = result.data
@@ -353,3 +353,26 @@ def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
 
 
 __all__ = ["overlap"]
+
+
+def _unread_overlap(result: Any) -> str:
+    """What the fit holds in place of one point-treatment propensity, in words."""
+    from ..estimators.atmle_result import AdaptiveTMLEResult
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(result, LongitudinalResult):
+        if bool(getattr(result.data, "treatment_held", False)):
+            return (
+                "a survival fit of a treatment given once at baseline holds that treatment's "
+                "probability beside a censoring model at each time point"
+            )
+        return "a longitudinal fit has one treatment probability per time point"
+    if isinstance(result, ContinuousSurvivalResult):
+        return "a continuous-time survival fit does not keep each row's treatment probability"
+    if isinstance(result, AdaptiveTMLEResult):
+        return (
+            "an adaptive TMLE fit holds a treatment probability and a trial-membership "
+            "probability for each row"
+        )
+    return f"this {type(result).__name__} holds no point-treatment propensity"

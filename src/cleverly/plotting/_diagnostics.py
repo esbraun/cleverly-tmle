@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -225,12 +225,14 @@ def _model_words(name: str, role: str | None = None) -> str:
 def _probability_models(source: Any) -> tuple[list[Any], _Context]:
     """The reports to draw and what the source states about them."""
     weighted: bool | None = None
+    _refuse_unread(source, "calibration")
     if hasattr(source, "diagnostics") and hasattr(source.diagnostics, "nuisance_models"):
         weights = getattr(getattr(source, "data", None), "weights", None)
         if weights is not None:
             values = np.asarray(weights, dtype=float)
             weighted = bool(values.size and not np.allclose(values, values[0]))
         source = source.diagnostics.nuisance_models()
+        _refuse_unread(source, "calibration")
         if not hasattr(source, "models"):
             raise ValueError(
                 "calibration() draws the point-treatment nuisance reports; this result "
@@ -253,9 +255,14 @@ def _probability_models(source: Any) -> tuple[list[Any], _Context]:
         if getattr(model, "kind", None) == "probability" and len(model.calibration.get("n", ()))
     ]
     if not drawn:
+        mean_only = bool(models) and all(
+            getattr(model, "kind", None) == "conditional mean" for model in models
+        )
         raise CapabilityError(
             "no probability model with a calibration table to draw: a conditional-mean "
-            "(continuous outcome) model has no probability to calibrate",
+            "(continuous outcome) model has no probability to calibrate"
+            if mean_only
+            else "no nuisance model here reports a calibration table of predicted probabilities",
             reason=RefusalReason.INVALID_DECLARATION,
         )
     return drawn, context
@@ -412,6 +419,9 @@ def calibration(
     ValueError
         When the source holds no probability model with a calibration table, a curve
         calibration has no finite bin, or ``ax`` is given for more than one panel.
+    CapabilityError
+        When the source is a longitudinal, continuous-time survival or adaptive TMLE fit, or
+        its nuisance report, whose models this plot does not draw yet.
 
     See Also
     --------
@@ -786,6 +796,9 @@ def learners(
         Learner), or ``ax`` is given for the two-panel plot.
     TypeError
         When the source is none of the above.
+    CapabilityError
+        When the source is a longitudinal, continuous-time survival or adaptive TMLE fit, or
+        its nuisance report, whose learners this plot does not draw yet.
 
     See Also
     --------
@@ -822,6 +835,7 @@ def learners(
     >>> plt.close(fig)
     """
     role = None
+    _refuse_unread(source, "learners")
     if hasattr(source, "ctmle_selection") or hasattr(source, "diagnostics"):
         selection = getattr(source, "ctmle_selection", None)
         if selection is not None and hasattr(selection, "cv_risk") and hasattr(selection, "path"):
@@ -831,6 +845,7 @@ def learners(
                 f"learners() cannot read the nuisance models of {type(source).__name__}"
             )
         source = source.diagnostics.nuisance_models()
+        _refuse_unread(source, "learners")
     if hasattr(source, "selected") and hasattr(source, "cv_risk") and hasattr(source, "path"):
         return _ctmle(source, ax)
     if ax is not None:
@@ -854,11 +869,48 @@ def learners(
         return _from_reports([source], role)
     raise TypeError(
         "learners() takes SuperLearnerDiagnostics, a CTMLESelection, a NuisanceModelReport, "
-        f"a fit's nuisance_models() or a fitted result; got {type(source).__name__}"
+        f"a point-treatment fit or its nuisance_models(); got {type(source).__name__}"
+    )
+
+
+def _refuse_unread(source: Any, plot: str) -> None:
+    """Refuse the fits and reports whose nuisance models this plot does not draw yet."""
+    from .._refusal import NO_ALTERNATIVE, RefusalReason
+    from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
+    from ..exceptions import CapabilityError
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.result import ContinuousSurvivalResult
+    from ..validation.longitudinal import LongitudinalNuisanceDiagnostics
+
+    if isinstance(source, (LongitudinalResult, LongitudinalNuisanceDiagnostics)):
+        what = "a longitudinal fit's nuisance models, one per node and role"
+    elif isinstance(source, ContinuousSurvivalResult):
+        what = "a continuous-time survival fit's hazard and treatment models"
+    elif isinstance(source, (AdaptiveTMLEResult, AdaptiveTMLENuisanceReport)):
+        what = "an adaptive TMLE fit's nuisance models"
+    else:
+        return
+    raise CapabilityError(
+        f"{plot}() does not yet draw {what}; read them with the fit's "
+        "diagnostics.nuisance_models() or summary(detail='full').",
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative=NO_ALTERNATIVE,
+        roadmap="X100",
     )
 
 
 # ---------------------------------------------------------------------------- repeats
+
+
+def _draw_values(draw: Any) -> Mapping[str, float]:
+    """Each estimate's value in one cross-fitting draw.
+
+    A point-treatment draw holds them as ``psi``; a longitudinal draw holds its whole
+    estimate mapping (``LongitudinalRepeat.estimates``).
+    """
+    if hasattr(draw, "psi"):
+        return dict(draw.psi)
+    return {str(key): float(value.psi) for key, value in draw.estimates.items()}
 
 
 def _estimate_of(result: Any, name: str | None) -> tuple[str, Any]:
@@ -907,7 +959,7 @@ def repeats(
 
     Parameters
     ----------
-    result : TMLEResult
+    result : TMLEResult or LongitudinalResult
         A fit with at least two cross-fitting repeats.
     name : str or None, default=None
         The estimand to draw; the first one when omitted.
@@ -946,6 +998,8 @@ def repeats(
     ValueError
         When the fit has one repeat, the estimand is unknown, or a repeat does not hold the
         estimand.
+    CapabilityError
+        When the result was not fitted with repeated cross-fitting splits.
 
     See Also
     --------
@@ -986,16 +1040,26 @@ def repeats(
     'Estimate across repeated splits'
     >>> plt.close(fig)
     """
+    if not hasattr(result, "repeats"):
+        from .._refusal import RefusalReason
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
+            "repeats() draws the estimate of each cross-fitting split of a fit run with "
+            f"repeats=; this {type(result).__name__} has no repeated splits",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     draws = tuple(result.repeats)
     if len(draws) < 2:
         raise ValueError(
             "this fit has one cross-fitting repeat, so there is no spread to show; fit with "
-            "repeats=3 or more"
+            "repeats=2 or more"
         )
     label, estimate = _estimate_of(result, name)
-    if any(label not in draw.psi for draw in draws):
+    per_draw = [_draw_values(draw) for draw in draws]
+    if any(label not in values for values in per_draw):
         raise ValueError(f"the repeats do not hold a per-repeat estimate of {label!r}")
-    values = np.asarray([float(draw.psi[label]) for draw in draws])
+    values = np.asarray([float(values[label]) for values in per_draw])
     shown = _core.estimate_interval(estimate, label)
     fig, axis = _core.figure_for(ax)
     rows = np.arange(1, len(values) + 1, dtype=float)
@@ -1555,7 +1619,7 @@ def influence(
     if result is not None:
         label, estimate = _estimate_of(result, name)
         if cluster is None:
-            cluster = getattr(result.data, "cluster", None)
+            cluster = getattr(getattr(result, "data", None), "cluster", None)
     elif hasattr(source, "influence_curve"):
         estimate, label = source, str(source.name)
     else:
