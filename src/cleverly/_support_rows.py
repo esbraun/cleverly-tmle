@@ -1315,9 +1315,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "the fold rules do not settle on the tie set (disagreement 0 to 0.735, mean "
                 "0.280), not because of the regret (mean 0.00086).",
                 "A rule learner, clusters, repeats above 1, fold targeting, the stacked report, "
-                "more than two arms and an estimated g stay experimental. Weights, strata, the "
-                "in-sample fit and contrasts with known regimes refuse. No comparator: no "
-                "maintained package fits a cross-validated TMLE of the value of the optimal "
+                "more than two arms and an estimated g stay experimental. Weights, strata, known "
+                "regimes beside the optimal value, the in-sample fit and an intermediate held "
+                "at a level, each with the known mechanism, have the rows T55. No comparator: "
+                "no maintained package fits a cross-validated TMLE of the value of the optimal "
                 "rule. No draw raised a solver warning.",
             ],
         )
@@ -1409,6 +1410,135 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ],
         )
     )
+    # X11 (f3) (X11 PR 2): the value of the optimal rule under the five compositions PR 2 admits,
+    # each with the known treatment mechanism: fixed weights (with the weighted population's own
+    # mechanism supplied), strata, known regimes beside it (``ate_optimal_rule``), the in-sample
+    # fit with the learner families of condition C5a, and an intermediate held at each level. One
+    # P12 row per composition, as ``SUPPORT_ROWS`` of
+    # ``tests/studies/learned_rule_optimal_compositions.py`` declared them before the run, because
+    # each declared condition held: the primary bias leg, coverage floor and SE sanity of every
+    # parameter of the setting, every ``interval_calibration`` verdict of its labels, and for the
+    # weighted row both ``weighted_target_control`` verdicts. An estimated g drops
+    # ``known_mechanism``, and the stacked report, fold targeting, repeats above 1, clusters, a
+    # rule learner, estimated weights and more than two arms key other axes or qualifiers, so each
+    # of those compositions matches no row. The numbers are the committed results
+    # (``tests/canonical/learned_rule_optimal_compositions``).
+    compositions_limits = [
+        "The study measures n = 2,000 on one law per setting (RM30's non_exceptional law, and "
+        "the learned-rule-intermediate law for the intermediate): a binary treatment and "
+        "outcome, ten equal folds, pooled targeting, the plug-in rule, repeats=1 and iid rows, "
+        "with a correctly specified parametric logistic outcome model, so its limit rule is the "
+        "optimal rule of the setting. The key holds neither the learner, the law nor n, so a "
+        "misspecified or flexible learner, a law with ties, a steeper margin or another n reads "
+        "supported and was not measured.",
+        "The interval covers the optimal value only up to the regret, the gap between the "
+        "optimal value and the value of the fold rules. Its mean is 0.0012 to 0.0028 across "
+        "the labels, and the calibration standardized bias against the fixed truth runs from "
+        "-0.153 to +0.096.",
+        "An estimated g drops known_mechanism and reads experimental, and so do estimated "
+        "weights, the stacked report, fold targeting, repeats above 1, clusters, a rule "
+        "learner and more than two arms. No comparator: no maintained package fits a "
+        "cross-validated TMLE of the value of the optimal rule under these compositions. No "
+        "fit failed, and no draw raised a solver warning.",
+    ]
+    compositions_rows: dict[str, dict[str, Any]] = {
+        "weighted": {
+            "weighting": "fixed",
+            "qualifiers": ("known_mechanism",),
+            "cells": [
+                "weighted",
+                "weighted__declared",
+                "weighted__target_gap_control",
+                "weighted__unweighted_rule_control",
+            ],
+            "limits": [
+                "It covers fixed observation weights with the weighted population's own "
+                "treatment mechanism supplied as treatment_probabilities=; the cell measures the "
+                "weight 1 + A Y with g_w = g0 E[w | A, W] / E[w | W]. Supplying the design "
+                "mechanism g0 beside weights that depend on the treatment or the outcome is the "
+                "Fix-16 defect, which the key cannot see and no cell measures.",
+                "The target is the optimal value of the weighted population, 0.690108 under "
+                "1 + A Y, whose optimal rule treats a further 0.347 of the population. The "
+                "calibration positive reads SE ratio 0.972 (99% interval 0.955 to 0.990) and "
+                "coverage 0.940 (10,000 draws), so the SE is about 3% small at n = 2,000. Read "
+                "against the unweighted optimal value the interval covers 0.000, and against "
+                "the weighted value of the unweighted optimal rule 0.503 (1,200 draws).",
+            ],
+        },
+        "strata": {
+            "qualifiers": ("known_mechanism", "strata"),
+            "cells": [
+                "strata",
+                "strata_all__declared",
+                "strata_s0__declared",
+                "strata_s1__declared",
+            ],
+            "limits": [
+                "Each stratum of one binary baseline column targets its own optimal value, and "
+                "the marginal estimate the optimal value. The calibration positives read SE "
+                "ratios 0.989, 0.996 and 0.993 and coverage 0.946, 0.948 and 0.948 (marginal, "
+                "W2 = 0, W2 = 1; 10,000 draws). The control without the stratum share reads SE "
+                "ratio 0.50, so the instrument resolves a gross normalisation error only; the "
+                "fold-local share rests on the unit witnesses.",
+            ],
+        },
+        "known_regimes": {
+            "qualifiers": ("known_mechanism", "known_regimes"),
+            "cells": ["known_regimes", "contrast_1__declared", "contrast_0__declared"],
+            "limits": [
+                "It covers the contrasts ate_optimal_rule[...] of the optimal value against "
+                "Static(1) and Static(0). The calibration positives read SE ratio 0.977 (99% "
+                "interval 0.960 to 0.995) and 0.988 (0.970 to 1.006), coverage 0.937 and 0.941 "
+                "(10,000 draws), so the SE of the contrast against Static(1) is about 2% small "
+                "at n = 2,000. Other known regimes, and reference= naming the learned rule, "
+                "read supported and were not measured.",
+            ],
+        },
+        "in_sample": {
+            "splitting": ("in_sample",),
+            "qualifiers": ("known_mechanism",),
+            "options": {
+                "outcome_learner_family": "parametric",
+                "treatment_learner_family": "known",
+            },
+            "cells": ["in_sample", "in_sample__declared"],
+            "limits": [
+                "It covers the in-sample fit (cross_fit=False) of the one rule learned on every "
+                "row with a parametric outcome learner and the known mechanism, under condition "
+                "C5a. The calibration positive reads SE ratio 1.000 (99% interval 0.982 to "
+                "1.018), coverage 0.950 and standardized bias +0.096 against the optimal value "
+                "(10,000 draws). Against the value of the rule it learned the standardized bias "
+                "is +0.179: the in-sample lean, which the regret partly offsets.",
+            ],
+        },
+        "intermediate": {
+            "missing": ("intermediate",),
+            "qualifiers": ("known_mechanism",),
+            "cells": ["intermediate", "intermediate_z0__declared", "intermediate_z1__declared"],
+            "limits": [
+                "Each level z of a binary intermediate targets the optimal value with Z held at "
+                "z, not the value of the total-effect rule. The calibration positives read SE "
+                "ratio 0.984 and 1.002 and coverage 0.942 and 0.946 (z = 0, z = 1; 10,000 "
+                "draws). The cell cannot tell a fit that ignores Z: the total-effect optimum is "
+                "0.44 and 0.46 SEs from the two level truths. That rests on the bit-for-bit "
+                "identity with the learned-rule fit, which learned-rule-intermediate measures, "
+                "and on the unit witnesses.",
+            ],
+        },
+    }
+    for setting, declared in compositions_rows.items():
+        own = declared.pop("limits")
+        rows.append(
+            point_row(
+                f"T55.{setting}",
+                ["learned-rule-optimal-compositions"],
+                families=("P12",),
+                splitting=declared.pop("splitting", ("fold_evaluated",)),
+                # Roadmap: X11.
+                limits=[*own, *compositions_limits],
+                **declared,
+            )
+        )
     # P1 (c): the learned-rule value when the EP curve sets each fold's rule
     # (``LearnedRule(loss="ep", modifiers=...)``), keyed ``rule_learner_ep``. The plan named these
     # rows T49; the conditional-projection rows took T49 and T50 first. Two rows, for the

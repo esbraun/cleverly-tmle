@@ -971,12 +971,14 @@ class TMLE:
         The result records the fold summaries under ``result.extra["learned_rule"]``.
         ``estimands=["ey_optimal_rule"]`` reports the same estimate as the value of the
         optimal rule, a fixed parameter, under the further conditions of the learned-rule
-        contract (X11 (f)).  Only the fold-evaluated report on rows with known
-        ``treatment_probabilities=`` reads supported.  It takes ``weights=`` (the optimal value
-        of the weighted population), ``strata=`` (each stratum's optimal value),
-        ``cross_fit=False``, ``intermediate=`` (the optimum at each level) and known regimes
-        beside it, whose contrasts it reports as ``ate_optimal_rule``, each experimental
-        (X11 (f3)); ``ey_learned_rule`` or ``ate_learned_rule`` beside it refuses.
+        contract (X11 (f)).  It takes ``weights=`` (the optimal value of the weighted
+        population), ``strata=`` (each stratum's optimal value), ``cross_fit=False``,
+        ``intermediate=`` (the optimum at each level) and known regimes beside it, whose
+        contrasts it reports as ``ate_optimal_rule`` (X11 (f3)); ``ey_learned_rule`` or
+        ``ate_learned_rule`` beside it refuses.  With known ``treatment_probabilities=``, the
+        fold-evaluated report on rows reads supported, alone or under one of these
+        compositions (the in-sample fit with a parametric outcome learner); every other fit
+        reads experimental.
     effect_modification:
         A :class:`~cleverly.effect_modification.EffectModification`: the projection of a
         conditional contrast of two arms onto a declared basis of the modifiers, reported

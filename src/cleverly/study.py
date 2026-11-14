@@ -2562,7 +2562,11 @@ class OptimalRuleValue:
     ``intermediate=z`` the target is the value of the best treatment with the intermediate
     held at ``z``.  The fold-evaluated fit on rows with known treatment probabilities
     (``treatment_probabilities=``) reads supported, from the ``learned-rule-optimal-value``
-    study; every other fit, an estimated treatment mechanism among them, reads experimental.
+    study, and so does such a fit with one of those compositions, or known regimes beside it,
+    from the ``learned-rule-optimal-compositions`` study (the in-sample fit with a parametric
+    outcome learner); every other fit, an estimated treatment mechanism among them, reads
+    experimental.  Under weights the probabilities must be the weighted population's own,
+    which the label cannot check.
 
     Parameters
     ----------

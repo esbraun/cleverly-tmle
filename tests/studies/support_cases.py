@@ -2655,6 +2655,31 @@ def _learned_rule_intermediate_cases() -> tuple[RowCase, ...]:
     return (case("T47", "learned_z0", False), case("T48", "known_z0", True))
 
 
+def _learned_rule_optimal_compositions_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-optimal-compositions`` (X11 (f3)): ``T55``.
+
+    Each runs the study's own fit of one setting with the known treatment mechanism on a draw of
+    its law at the primary size, up to the classifier.
+    """
+    module, slug = "_learned_rule_optimal_compositions_law", "learned-rule-optimal-compositions"
+
+    def case(setting: str) -> RowCase:
+        return _observed(
+            f"T55.{setting}",
+            slug,
+            setting,
+            f"{module}.py:512",
+            module,
+            lambda study: study.draw(setting, 2_000, 0),
+            lambda study, frame: study.fit(frame, setting, 0),
+        )
+
+    return tuple(
+        case(setting)
+        for setting in ("weighted", "strata", "known_regimes", "in_sample", "intermediate")
+    )
+
+
 def _learned_regimen_cases() -> tuple[RowCase, ...]:
     """The case of ``learned-regimen-ltmle`` (X11 PR K, X11 (b)).
 
@@ -3389,6 +3414,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_contrast_cases(),
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
+    *_learned_rule_optimal_compositions_cases(),
     *_learned_regimen_cases(),
     *_eliminated_cases(),
     *_separable_cases(),

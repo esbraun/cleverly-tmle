@@ -1,8 +1,10 @@
 # Compositions of the value of the optimal rule
 
-This directory will hold the gated repeated-sampling study of X11 part (f3) (X11 PR 2). The
-declaration is committed before any run; no declared run has been made, and the study is not yet
-in the evidence register. The subject is `TMLE(learned_rule=LearnedRule(),
+This directory holds the gated repeated-sampling study of X11 part (f3) (X11 PR 2). The
+declaration was committed before any run. The declared run passed every primary test and every
+property cell, and the study is registered with the support rows `T55`
+(`docs/technical-reference/method-evidence/learned-rule-optimal-compositions.md`).
+The subject is `TMLE(learned_rule=LearnedRule(),
 estimands=["ey_optimal_rule"], n_folds=10, cv_evaluation=True, targeting_scheme="pooled",
 g_bounds="auto")` with a known treatment mechanism, under the five compositions PR 2 admits.
 Each composition's estimator is the learned-rule fit with the same setting, so its error is the

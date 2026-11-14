@@ -88,6 +88,14 @@ class TestTheFits:
         for result in _measured(setting).results.values():
             assert "known_mechanism" in result.config.support_key.qualifiers
 
+    @pytest.mark.parametrize("setting", law.SETTINGS)
+    def test_every_fit_reads_its_registered_row(self, setting: str) -> None:
+        """The registered row ``T55.<setting>`` covers every estimate of the study's own fit."""
+        for result in _measured(setting).results.values():
+            for estimate in result.estimates.values():
+                assert estimate.support.label == "supported", setting
+                assert estimate.support.row == f"T55.{setting}", setting
+
     def test_a_fit_with_other_parameters_stops(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setitem(law.REPORTED, "weighted", ("something else",))
         with pytest.raises(base.HarnessMismatch, match="reports"):

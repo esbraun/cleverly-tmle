@@ -1079,9 +1079,14 @@ $O_P(1/n)$ there (mean 0.00138, about 0.09 estimate SDs), and a learner whose li
 the optimal rule misses $\Psi_{d_0}$ (coverage 0.09 at n = 2,500). An estimated $g$, a rule
 learner, clusters, several splits, fold targeting, the stacked report and more than two arms
 read experimental, and the study reports the estimated-$g$ cell and a partially exceptional law
-with no claim. Weights (the optimal value of the weighted population), strata (each stratum's
+with no claim.
+
+Weights (the optimal value of the weighted population), strata (each stratum's
 optimal value), known regimes (the contrasts `ate_optimal_rule`), the in-sample fit and an
-intermediate held at a level run too, experimental until a study registers them. The two
+intermediate held at a level run too. The
+[optimal-compositions study](technical-reference/method-evidence/learned-rule-optimal-compositions.md)
+calibrates each with known $g$ at n = 2,000, so those fits read supported (rows `T55`); the
+weighted row needs the weighted population's own mechanism supplied. The two
 sensitivity analyses that hold the rules fixed are part (f3). The online estimator that holds at
 an exceptional law is part (f2b).
 

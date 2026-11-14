@@ -2110,7 +2110,7 @@ The second is the regret, which C8 makes $o_P(n^{-1/2})$. For the plug-in rule i
 outcome regression. For a pseudo-outcome rule learner the blip estimate is built with $g_n$, so
 the regret's rate also depends on $g_n$, and C8 then needs that learner's rate under the estimated
 $g$. That step is the package's, so an estimated $g$ reads experimental, as does every composition
-here but the one the study below registers.
+here but those the two studies below register.
 
 With `repeats` above 1 the fit reports the mean of $R$ estimators of this one fixed parameter.
 Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1, warn that averaging
@@ -2123,11 +2123,12 @@ estimator, which is valid there, is a different estimator, and
 | --- | --- |
 | the fold-evaluated report on rows with known $g$ (`treatment_probabilities=`), the plug-in rule, two arms, `repeats=1` and pooled targeting | supported, row `T46` of the [optimal-value study](method-evidence/learned-rule-optimal-value.md). The key's family reads `P12` in place of `P11`, with the qualifier `known_mechanism`. The study measures one law with a correct parametric outcome model at n = 2,000 |
 | the stacked report, fold targeting, `id=`, `repeats` above 1 on rows, a rule learner, an estimated $g$, more than two arms | admitted, experimental. No row declares these keys |
-| `weights=`, known or estimated | admitted, experimental. The target is the optimal value of the weighted population, $\Psi^w_{d_0^w}(P_w)$ below |
-| `strata=` | admitted, experimental. Each stratum targets its own optimal value, and the marginal estimate $\Psi_{d_0}$ |
-| known regimes beside it (`interventions=`, `reference=`) | admitted, experimental. The fit reports `ey_known_regime[...]` and the contrasts `ate_optimal_rule[...]`, $\Psi_{d_0} - \Psi_{d_k}$ |
-| `cross_fit=False` | admitted, experimental. The in-sample TMLE of the full-sample rule's value, under C5a |
-| `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | admitted, experimental. Each level targets $\Psi^z_{d_0^z}$ |
+| `weights=`, fixed, with known $g$ supplied as the weighted population's $g_w$ | supported, row `T55.weighted` of the [optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md). The target is the optimal value of the weighted population, $\Psi^w_{d_0^w}(P_w)$ below. The key cannot tell $g_w$ from the design $g_0$, the Fix-16 case below |
+| `weights=`, estimated, or with an estimated $g$ | admitted, experimental |
+| `strata=` | with known $g$ under the fold-evaluated report, supported, row `T55.strata`; otherwise experimental. Each stratum targets its own optimal value, and the marginal estimate $\Psi_{d_0}$ |
+| known regimes beside it (`interventions=`, `reference=`) | with known $g$ under the fold-evaluated report, supported, row `T55.known_regimes`; otherwise experimental. The fit reports `ey_known_regime[...]` and the contrasts `ate_optimal_rule[...]`, $\Psi_{d_0} - \Psi_{d_k}$ |
+| `cross_fit=False` | with known $g$ and a parametric outcome learner, supported, row `T55.in_sample`; otherwise experimental. The in-sample TMLE of the full-sample rule's value, under C5a |
+| `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | with known $g$ under the fold-evaluated report, supported, row `T55.intermediate`; otherwise experimental. Each level targets $\Psi^z_{d_0^z}$ |
 | `ey_learned_rule` or `ate_learned_rule` beside it, or `ate_optimal_rule` without it | refused as a declaration, row 2: the names would read one estimate as two targets |
 | strata with `id=`, a rule learner with `intermediate=`, and every other row of the table below | refused as for the learned-rule value with the same setting, with the same text |
 | the omitted-variable bound and `simulated_confounding` | refused, X11 (f3), under every composition. Both hold the fold rules fixed, so they read the value of those rules, and confounding also moves which rule is optimal. The E-value and the missingness tilt keep their F27 rows. The `refute` tests run as on the learned-rule value |
@@ -2192,9 +2193,10 @@ their target and in where C3f, C7 and C8 are read.
   [intermediate study](method-evidence/learned-rule-intermediate.md) the two values at a level
   differ by 0.0068 and 0.0043.
 
-No study measures these compositions yet, so each reads experimental. Their point and interval
-are the learned-rule fit's with the same setting, which its own rows cover for the learned-rule
-target only.
+Their point and interval are the learned-rule fit's with the same setting. The
+[optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md) measures each
+composition with known $g$ under the fold-evaluated report, the in-sample one with a parametric
+outcome learner, and registers the rows `T55`; every other form of them reads experimental.
 
 The record's target reads `"value of the optimal rule, a fixed parameter"`, and its summary line
 states C3f, C7 and C8 in words, with C7 read as a tie of the best arm with another when there are
@@ -2235,6 +2237,16 @@ standardized bias of +0.004 and coverage of 0.952. At n = 2,500 the wrong-limit 
 covers $\Psi_{d_0}$ at 0.09 and its own $\tilde\psi_{0n}$ at 0.958. With an estimated $g$, and at
 a law whose blip is zero on 60% of the population (coverage 0.912), the study reports readings
 and makes no claim.
+
+The gated [optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md)
+measures the five compositions above with known $g$ at n = 2,000: the weight $1 + AY$ with $g_w$
+supplied, strata of $W_2$, the contrasts against `Static(1)` and `Static(0)`, the in-sample fit
+with the correct parametric outcome model, and an intermediate at each level. Every calibration
+positive passes over 10,000 draws, with SE ratios of 0.972 to 1.002 and coverage of 0.937 to
+0.950 against the fixed targets. Read against $\Psi_{d_0}(P_0)$ and against
+$\Psi^w_{d_0}(P_w)$, the weighted interval covers at 0.000 and 0.503, so it targets the weighted
+population's optimum and not the value of a rule learned without the weights. The in-sample
+label leans +0.096 SDs against $\Psi_{d_0}$ and +0.179 against the value of its own rule.
 
 #### An intermediate held at each level
 

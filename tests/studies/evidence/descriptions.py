@@ -1097,6 +1097,54 @@ ARMS.update(
     }
 )
 
+#: The labels of ``learned-rule-optimal-compositions`` (X11 (f3)): one per reported parameter of
+#: each setting. Mirrored from ``tests.studies.learned_rule_optimal_compositions``, which this
+#: module cannot import. A label another study already names keeps its shared words here, and
+#: the study's own words come from :data:`STUDY_ARMS`.
+_OPTIMAL_COMPOSITION_LABELS = {
+    "weighted": (
+        "the optimal value of the population the weight 1 + A Y describes, 0.690108, at the "
+        "learned-rule law with the blip 0.1 + W1, with the weighted population's own treatment "
+        "mechanism, n = 2,000"
+    ),
+    "strata_all": (
+        "the marginal optimal value of the fit with strata of W2, 0.577115, at the learned-rule "
+        "law with the blip 0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "strata_s0": (
+        "the optimal value within W2 = 0, 0.610609, at the learned-rule law with the blip "
+        "0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "strata_s1": (
+        "the optimal value within W2 = 1, 0.543621, at the learned-rule law with the blip "
+        "0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "contrast_1": (
+        "the optimal value minus the value of Static(1), 0.045499, at the learned-rule law with "
+        "the blip 0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "contrast_0": (
+        "the optimal value minus the value of Static(0), 0.064936, at the learned-rule law with "
+        "the blip 0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "in_sample": (
+        "the optimal value from the in-sample fit, 0.577115, at the learned-rule law with the "
+        "blip 0.1 + W1, a parametric outcome learner and the known treatment mechanism, "
+        "n = 2,000"
+    ),
+    "intermediate_z0": (
+        "the optimal value with the intermediate held at 0, 0.577115, at the learned-rule "
+        "intermediate law with the known treatment mechanism, n = 2,000"
+    ),
+    "intermediate_z1": (
+        "the optimal value with the intermediate held at 1, 0.597071, at the learned-rule "
+        "intermediate law with the known treatment mechanism, n = 2,000"
+    ),
+}
+ARMS.update(
+    {label: words for label, words in _OPTIMAL_COMPOSITION_LABELS.items() if label not in ARMS}
+)
+
 #: The labels of ``learned-rule-intermediate`` (X11 PR J, X11 (j)): the learned rule and the
 #: known rule ``1{W1 > 0}`` at each level of the binary intermediate, and the necessity learner
 #: at each level. Mirrored from ``tests.studies.learned_rule_intermediate``, which this module
@@ -2530,6 +2578,11 @@ PROPERTIES: dict[str, str] = {
     "optimal_target_control": (
         "whether the interval misses the value of the optimal rule when the outcome learner's "
         "limit rule is not the optimal rule, at n = 2,500"
+    ),
+    "weighted_target_control": (
+        "whether the weighted interval misses the unweighted optimal value and the weighted value "
+        "of the unweighted optimal rule, the targets of a fit that dropped the weights or learned "
+        "its rule without them"
     ),
     "estimated_g_report": (
         "the bias, SE ratio and coverage of the value of the optimal rule with the treatment "
@@ -7530,6 +7583,125 @@ STUDY_ARM_CELLS.update(
             "none. The cell reports its bias, SE ratio and coverage against the value of the "
             "optimal rule, with the mean regret, the readings against the realized rule value "
             "and the range of the fold-rule disagreement",
+        ),
+    }
+)
+
+
+#: ``learned-rule-optimal-compositions`` (X11 (f3)): the value of the optimal rule under the
+#: five compositions X11 PR 2 admits, each with the known treatment mechanism and RM30's
+#: interaction logistic outcome learner, read against fixed truths by quadrature. The laws are
+#: those of ``tests/studies/_learned_rule_optimal_compositions_law.py``; the labels and cells are
+#: those of ``tests/studies/learned_rule_optimal_compositions.py``.
+_OPTIMAL_COMPOSITIONS_SLUG = "learned-rule-optimal-compositions"
+IMPLEMENTATIONS["cleverly-learned-rule-optimal-compositions"] = (
+    "`cleverly` cross-validated TMLE of the value of the optimal rule under a composition: the "
+    "learned-rule fit with the same setting, the plug-in rule, one pooled fluctuation and the "
+    "known treatment mechanism, read against the fixed optimal value of the setting"
+)
+_RM30_NON_EXCEPTIONAL = (
+    "the learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome learner "
+    "and the known treatment mechanism"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_OPTIMAL_COMPOSITIONS_SLUG, "weighted"): (
+            "the learned-rule law with the blip 0.1 + W1 and the observation weight 1 + A Y, a "
+            "correct interaction logistic outcome learner and the weighted population's own "
+            "treatment mechanism, fold-evaluated report"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "strata"): (
+            f"{_RM30_NON_EXCEPTIONAL}, strata of W2, fold-evaluated report"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "known_regimes"): (
+            f"{_RM30_NON_EXCEPTIONAL}, beside Static(1) and Static(0), fold-evaluated report"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "in_sample"): (
+            f"{_RM30_NON_EXCEPTIONAL}, the outcome learner marked parametric, in-sample fit"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "intermediate"): (
+            "the learned-rule law with a binary intermediate Z after A and the level blips "
+            "0.1 + W1 - 0.6 z, correct interaction logistic outcome and intermediate learners and "
+            "the known treatment mechanism, intermediate held at each level, fold-evaluated report"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule]"): (
+            "value of the optimal rule of the setting, a fixed parameter: under weights the "
+            "optimal value of the weighted population, otherwise E Qbar0(d0(W), W)"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][W2=0.0]"): (
+            "value of the optimal rule within the stratum W2 = 0, E[Qbar0(d0(W), W) given W2 = 0]"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][W2=1.0]"): (
+            "value of the optimal rule within the stratum W2 = 1, E[Qbar0(d0(W), W) given W2 = 1]"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ate_optimal_rule[learned rule vs always 1]"): (
+            "value of the optimal rule minus the mean outcome when everyone is treated"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ate_optimal_rule[learned rule vs always 0]"): (
+            "value of the optimal rule minus the mean outcome when no one is treated"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][Z=0]"): (
+            "value of the optimal rule with the intermediate held at 0, "
+            "E Qbar0(d0^0(W), 0, W) with d0^0(w) = argmax_a Qbar0(a, 0, w)"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][Z=1]"): (
+            "value of the optimal rule with the intermediate held at 1, "
+            "E Qbar0(d0^1(W), 1, W) with d0^1(w) = argmax_a Qbar0(a, 1, w)"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_OPTIMAL_COMPOSITIONS_SLUG, label): words
+        for label, words in _OPTIMAL_COMPOSITION_LABELS.items()
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_OPTIMAL_COMPOSITIONS_SLUG, "interval_calibration", label, "declared"): (
+                "the declared fit of the setting with the known treatment mechanism",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for label in _OPTIMAL_COMPOSITION_LABELS
+        },
+        **{
+            (
+                _OPTIMAL_COMPOSITIONS_SLUG,
+                "interval_calibration",
+                label,
+                "unnormalised_curve_control",
+            ): (
+                "the same fit with each fold's stratum curve not divided by the fold's own "
+                "stratum share, so its SE is about the stratum share times the reported one",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for label in ("strata_s0", "strata_s1")
+        },
+        (
+            _OPTIMAL_COMPOSITIONS_SLUG,
+            "weighted_target_control",
+            "weighted",
+            "target_gap_control",
+        ): (
+            "the weighted fit's own estimate and SE, read against the unweighted optimal value "
+            "0.577115, 0.1130 below the target, which a fit that dropped the weights would cover",
+            "the coverage interval must lie wholly below 0.92",
+        ),
+        (
+            _OPTIMAL_COMPOSITIONS_SLUG,
+            "weighted_target_control",
+            "weighted",
+            "unweighted_rule_control",
+        ): (
+            "the weighted fit's own estimate and SE, read against the weighted value of the "
+            "unweighted optimal rule 0.662385, 0.0277 below the target, which a fit that learned "
+            "its rule without the weights would cover",
+            "the coverage interval must lie wholly below 0.92",
         ),
     }
 )

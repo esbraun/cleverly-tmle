@@ -346,8 +346,8 @@ class TestWf3IdIdentity:
         assert replace(key_b, family=key_a.family) == key_a
 
     @pytest.mark.parametrize("name", list(PAIRS))
-    def test_every_composition_reads_experimental(self, name: str) -> None:
-        """No study registers these keys yet, so no row covers any of them."""
+    def test_every_composition_without_a_known_g_reads_experimental(self, name: str) -> None:
+        """Every row ``T55`` needs ``known_mechanism``, which these fits do not key."""
         _, optimal = _pairs(name)
         for estimate in optimal.estimates.values():
             assert estimate.support.label == "experimental"

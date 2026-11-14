@@ -899,10 +899,10 @@ def measured(row: Any) -> str:
             f"min arm share {render(float(row.mean_min_arm_share))}, "
             f"lost-arm share {render(float(row.lost_arm_share))}"
         )
-    if family == "optimal_target_control":
-        # X11 PR I: the control answers to a coverage ceiling on the optimal value. Its coverage
-        # of the realized rule value and its mean regret are published beside it, read by no
-        # verdict.
+    if family in {"optimal_target_control", "weighted_target_control"}:
+        # X11 PR I and X11 (f3): the control answers to a coverage ceiling on a value other than
+        # its fit's target. Its coverage of the realized rule value and its mean regret are
+        # published beside it, read by no verdict.
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}, mean regret "
