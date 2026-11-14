@@ -358,7 +358,7 @@ def test_duplicates_are_found_through_digest_collisions(monkeypatch) -> None:
     matrix = np.column_stack([a, b, b, np.full(50, 2.0), zero, negative, c, a])
     names = ["a", "b", "b2", "const", "zero", "negzero", "c", "a2"]
     reference = _checked(matrix, names)
-    monkeypatch.setattr(validate, "_column_digest", lambda column: b"same")
+    monkeypatch.setattr(validate, "_column_digest", lambda column: 0)
     (kept, retained, dropped), messages = _checked(matrix, names)
     assert dropped == ["const", "b2", "a2"]  # constants first, then duplicates in order
     assert retained == ["a", "b", "zero", "negzero", "c"]  # signed zeros differ as bytes
