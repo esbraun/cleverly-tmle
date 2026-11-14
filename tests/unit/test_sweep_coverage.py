@@ -90,11 +90,6 @@ UNSWEPT: Mapping[str, Exemption] = {
         ),
     ),
     **_exempt(
-        "the continuous-time survival result has no assessment facades",
-        "X101",
-        ("result:ContinuousSurvivalResult",),
-    ),
-    **_exempt(
         "a fitted method with no kind",
         "Fix-15",
         (
