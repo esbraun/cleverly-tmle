@@ -67,18 +67,18 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 #: Set by the shared primary rule (``repeated_sizing.primary_replicates``, read by the design
-#: test) from the committed calibration pilots of the primary fit labels.  Provisional until
-#: those pilots are committed.
+#: test) from the committed calibration pilots of the primary fit labels.
 PRIMARY_REPLICATES = 2_400
 PRIMARY_N = 2_000
 SEED = 20261115
 RESAMPLING_SEED = 2026111501
 
 #: The targeting algorithm of the regimen fits: the per-horizon walk, the shipped default, at
-#: about 1.5 seconds a ``base`` fit at n = 2,000.  On one ``base`` draw the one-step walk took
-#: 0.6 seconds over always and never, 33.5 over the policy and "stay", and 96 over always,
-#: never and the policy: the enumerated policy slows the one-step walk, not the rule.  The
-#: one-step walk on regimen curves is read by the reported ``onestep`` fit label.
+#: 1.42 seconds a ``base`` draw at n = 2,000 in the calibration pilot.  On one ``base`` draw
+#: the one-step walk took 0.6 seconds over always and never, 33.5 over the policy and "stay",
+#: and 96 over always, never and the policy: the enumerated policy slows the one-step walk,
+#: not the rule.  The one-step walk on regimen curves is read by the reported ``onestep`` fit
+#: label.
 ALGORITHM = "iterative"
 #: The fit labels that take the one-step walk: the working model, the only fit whose scores
 #: the per-horizon walk does not target, and the reported ``onestep`` label.
