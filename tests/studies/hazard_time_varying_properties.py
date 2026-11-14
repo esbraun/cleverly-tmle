@@ -139,9 +139,9 @@ NECESSITY_N = DOUBLE_ROBUST_N
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
-#: Provisional: the arm-pooled rule over the eight calibration arms at a pilot that reads a
-#: ratio of one.  The committed calibration pilot sets it (the design test).
-CALIBRATION_REPLICATES = 4_000
+#: The arm-pooled rule over the eight calibration arms, read from the committed calibration
+#: pilot (the design test).
+CALIBRATION_REPLICATES = 4_800
 #: The power cell reads the ``one_cause`` calibration fits.
 POWER_REPLICATES = CALIBRATION_REPLICATES
 POWER_N = CALIBRATION_N

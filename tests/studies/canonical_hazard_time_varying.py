@@ -68,8 +68,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-#: Provisional until the calibration pilots of the primary fit labels are committed; the shared
-#: primary rule (``repeated_sizing.primary_replicates``, read by the design test) then sets it.
+#: The shared primary rule (``repeated_sizing.primary_replicates``) read from the committed
+#: calibration pilots of the primary fit labels (the design test).
 PRIMARY_REPLICATES = 2_400
 PRIMARY_N = 2_000
 SEED = 20261901
