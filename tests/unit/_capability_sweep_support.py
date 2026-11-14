@@ -26,12 +26,16 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import (
     CausalStudy,
     IncrementalEffect,
+    LearnedRuleValue,
     LongitudinalTreatment,
     ParametricGFormulaMethod,
+    PointTreatment,
     RegimeContrast,
     RegimeMean,
     SplitPlan,
@@ -219,6 +223,67 @@ def fit_learned_rule() -> Any:
     The summarize rows and ``truncation_curve`` run.
     """
     return learned_rule_support.fit()
+
+
+def fit_learned_rule_estimated_weights() -> Any:
+    """The fold-evaluated learned-rule fit with nonconstant weights declared estimated.
+
+    X11 part (k2) reads estimated weights conditionally: the point, the interval and the
+    fold rules equal the fit with the weights declared known. The weighting axis of the
+    support key reads ``estimated``, which no row covers, so the fit reads experimental.
+    Its rows are the learned-rule fit's.
+    """
+    frame = learned_rule_support.law_frame(300, 3).assign(w=lambda f: 1.0 + 1.5 * (f["W1"] > 0))
+    return (
+        learned_rule_support.learned_tmle()
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=learned_rule_support.COVARIATES,
+            weights="w",
+            weights_estimated=True,
+        )
+        .single()
+    )
+
+
+def fit_learned_rule_level() -> Any:
+    """The learned-rule value with the intermediate held at ``Z = 0``, by its study spelling.
+
+    ``LearnedRuleValue(intermediate=0.0)`` on a design that declares ``Z`` fits the engine's
+    learned-rule fit at that level (X11 part (j3)). ``simulated_confounding`` refuses the
+    level by name (X11 (j4)), and the refit rows refuse as on the direct learned-rule fit.
+    """
+    frame = learned_rule_support.law_frame(400, 5)
+    rng = np.random.default_rng(5)
+    frame["Z"] = rng.binomial(
+        1, 1.0 / (1.0 + np.exp(-(0.2 + 0.6 * frame["A"] - 0.4 * frame["W1"])))
+    )
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=learned_rule_support.COVARIATES,
+            intermediate="Z",
+        ),
+    )
+    interactions = Pipeline(
+        [
+            ("poly", PolynomialFeatures(2, interaction_only=True, include_bias=False)),
+            ("fit", LogisticRegression(max_iter=5000)),
+        ]
+    )
+    return study.identify(LearnedRuleValue(intermediate=0.0)).estimate(
+        outcome_learner=interactions,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        intermediate_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+        cv_evaluation=True,
+        simultaneous=False,
+        random_state=0,
+    )
 
 
 def fit_weighted() -> Any:
@@ -1020,6 +1085,13 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed (X11 part (n)). A refit relearns the
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
+    # Estimated weights change no number under the conditional reading (X11 (k2)).
+    "learned_rule+estimated_weights": _kind(
+        fit_learned_rule_estimated_weights, *_READ, "truncation_curve", *_PLUGIN_BOUND
+    ),
+    # At a level of the intermediate the omitted-variable rows refuse, as on the
+    # controlled direct effect, and simulated_confounding refuses by name (X11 (j4)).
+    "learned_rule+level": _kind(fit_learned_rule_level, *_LIVE),
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
@@ -1333,7 +1405,14 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
         # The learned-rule kind came after RM23. Its tilt rule is one the pre-RM23 rows did
         # not read, so M1 makes its tilt rows read available while both calls refuse.
-        frozenset((*DECLINED_TILT_KINDS, "learned_rule")),
+        frozenset(
+            (
+                *DECLINED_TILT_KINDS,
+                "learned_rule",
+                "learned_rule+estimated_weights",
+                "learned_rule+level",
+            )
+        ),
         _RAISED.format("missingness") + "missingness_tilt ",
     ),
     "M2": Mutation(
@@ -1365,13 +1444,15 @@ MUTATIONS: dict[str, Mutation] = {
                 "gcomp",
                 "ipw",
                 "gformula",
+                # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
+                "learned_rule+level",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
         # supplied plan no longer meets a default refusal, because ``subset`` keeps the
         # original fold labels, and an MSM coefficient has a placebo reference (X82 A2).
         _RAISED.format("refute")
-        + r"(the placebo refutation|"
+        + r"(the placebo refutation|the placebo has no exact null|"
         + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value)",
     ),
     "M4": Mutation(
@@ -1407,7 +1488,15 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         # A regime fit reports several parameters, and the benchmark refits it (X82 G2c).
         # A learned-rule fit runs the bound and refuses the benchmark refit (X11 part (n)).
-        frozenset({"split_plan", "regime", "regime+missing", "learned_rule"}),
+        frozenset(
+            {
+                "split_plan",
+                "regime",
+                "regime+missing",
+                "learned_rule",
+                "learned_rule+estimated_weights",
+            }
+        ),
         "("
         + _RAISED.format("benchmark")
         + "benchmark cannot drop every covariate"
