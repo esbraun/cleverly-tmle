@@ -461,6 +461,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_intermediate_properties as j_properties
     from tests.studies import learned_rule_learners as learners
     from tests.studies import learned_rule_learners_properties as learner_properties
+    from tests.studies import learned_rule_optimal_compositions as f3
+    from tests.studies import learned_rule_optimal_compositions_properties as f3_properties
     from tests.studies import learned_rule_optimal_value as i
     from tests.studies import learned_rule_optimal_value_properties as i_properties
     from tests.studies import learned_rule_split_mean as split_mean
@@ -483,6 +485,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (g, g.PRIMARY_REPLICATES, g_properties),
         (h, h.PRIMARY_REPLICATES, h_properties),
         (i, i.PRIMARY_REPLICATES, i_properties),
+        (f3, f3.PRIMARY_REPLICATES, f3_properties),
         (j, j.PRIMARY_REPLICATES, j_properties),
         (k, k.PRIMARY_REPLICATES, k_properties),
     ):
