@@ -369,12 +369,15 @@ def _row_fold_ratio(
     n_jobs: int = 1,
     atoms: Any = (),
     assigned_by_fold: Any = None,
+    steps: Any = None,
 ) -> list[np.ndarray]:
     """``classifier_ratio`` with its outer folds drawn over the ``2 n`` stacked rows.
 
     A unit's natural row and its assigned copy then fall in different folds about half the
     time, so the classifier that predicts a unit was trained on that unit's other block: the
-    cross-fold copy leak of M-c1 (``tests/unit/test_classifier_ratio_controls.py``).
+    cross-fold copy leak of M-c1 (``tests/unit/test_classifier_ratio_controls.py``).  The
+    policy's step columns are appended as the package appends them; law P declares its
+    support, so their bounds read no training row.
     """
     if folds.is_single or assigned_by_fold is not None or atoms:
         raise ValueError("the row-fold control reads a plain cross-fitted stack")
@@ -383,15 +386,31 @@ def _row_fold_ratio(
     a = np.asarray(observed, dtype=float).reshape(n, 1)
     w = np.asarray(weights, dtype=float).reshape(-1)
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
-    blocks = [(0.0, 1.0, a)] + [
-        (1.0, float(p), np.asarray(d, dtype=float).reshape(n, 1)) for p, d in assigned
+    everyone = np.arange(n)
+    if steps is not None and density_ratio.omits_policy_steps(learner):
+        steps = None
+
+    def with_steps(dose: np.ndarray) -> np.ndarray:
+        if steps is None:
+            return dose
+        return np.column_stack([dose, steps(dose[:, 0], everyone, 0, everyone)])
+
+    blocks = [(0.0, 1.0, with_steps(a))] + [
+        (1.0, float(p), with_steps(np.asarray(d, dtype=float).reshape(n, 1))) for p, d in assigned
     ]
+    requests = [with_steps(np.asarray(dose, dtype=float).reshape(n, 1)) for dose in evaluate_at]
+    if steps is not None:
+        # The package drops a step column that is constant on the stack.
+        stacked = np.vstack([dose[:, 1:] for _, _, dose in blocks])
+        retained = density_ratio._retained_steps(stacked, np.zeros((stacked.shape[0], 0)))
+        columns = np.concatenate([[0], 1 + retained])
+        blocks = [(label, share, dose[:, columns]) for label, share, dose in blocks]
+        requests = [dose[:, columns] for dose in requests]
     unit = np.tile(np.arange(n), len(blocks))
     design = np.vstack([np.column_stack([dose, h]) for _, _, dose in blocks])
     target = np.concatenate([np.full(n, label) for label, _, _ in blocks])
     weight = np.concatenate([w * share for _, share, _ in blocks])
     keep = np.tile(mask, len(blocks))
-    requests = [np.asarray(dose, dtype=float).reshape(n, 1) for dose in evaluate_at]
     results = [np.zeros(n) for _ in requests]
     for train, test in random_partition(design.shape[0], folds.n_folds, seed=5):
         train = train[keep[train]]

@@ -760,6 +760,10 @@ class OracleRatio(BaseEstimator):
         inverse branch, the ``branch_necessity`` defect of the boundaries study.
     """
 
+    #: Reads the stacked design by position, so it takes the design without the policy's
+    #: step columns (``classifier_ratio(steps=)``).
+    policy_steps = "omit"
+
     def __init__(self, one_branch: bool = False) -> None:
         self.one_branch = one_branch
 

@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LogisticRegression
 
 import tests.discrete_law_policy_point as law
 from cleverly.data import CausalData
@@ -620,6 +621,12 @@ SCALAR_READING = (
 )
 
 
+class _NoStepsLogit(LogisticRegression):  # type: ignore[misc]
+    """A logistic regression that takes the classifier design without policy steps."""
+
+    policy_steps = "omit"
+
+
 def _sample_fits(ratio: str = "classifier") -> tuple[Any, Any]:
     """A vector fit and its scalar reading on the same sample, folds and learners.
 
@@ -631,7 +638,8 @@ def _sample_fits(ratio: str = "classifier") -> tuple[Any, Any]:
     frame = law.mixed_sample(500, 7)
     configuration = {
         "outcome_learner": LogisticRegression(),
-        "treatment_learner": LogisticRegression(),
+        # The vector route adds no policy steps, so its scalar reading opts out of them.
+        "treatment_learner": _NoStepsLogit(),
         "ratio": ratio,
         "n_bootstrap": 5,
         "cross_fit": True,
