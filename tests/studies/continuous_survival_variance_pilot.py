@@ -26,6 +26,12 @@ script checks before a declared run (``regenerate.pilot_refusals``):
   (:data:`~tests.studies.continuous_survival_variance.V7_GATED`);
 * **the failure share** (:func:`failure_shares`): a gated cell that loses more than the failure
   bound of 0.01 is diagnosed before the declaration (a reported cell's share is recorded);
+* **the predicted failure bound** (:func:`failure_exceedance`): for each gated cell, the posterior
+  predictive probability, under a Jeffreys prior on the cell's failure rate and its failures over
+  all its pilot draws, that the declared run loses more fits than the failure accounting allows
+  (:func:`tests.studies.evidence.failures.allowed`).  Above :data:`FAILURE_EXCEEDANCE` the
+  declaration is refused (:func:`failure_refusals`): the bound would likely fail the gated record
+  after the full run, and the remedy would come after a verdict;
 * **the first-quartile plug-in check** (:func:`plug_in_checks`): each first-quartile row's
   calibration pass probability at the declared count, taking the pilot's SE ratio of the reported
   (switched) interval as true.  A gated cell with a row below 0.90 on its first 1,000 draws
@@ -51,6 +57,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.stats import betabinom
 
 from cleverly.utils.parallel import map_parallel
 from tests.studies import continuous_survival as registered
@@ -59,6 +66,7 @@ from tests.studies import continuous_survival_variance as study
 from tests.studies import continuous_survival_variance_law as laws
 from tests.studies import repeated_sizing as sizing
 from tests.studies.continuous_survival_variance_readings import shipped_interval
+from tests.studies.evidence.failures import allowed
 from tests.studies.evidence.seeds import stream_seed
 
 OUTPUT = Path(__file__).with_name("continuous_survival_variance_pilot.csv.gz")
@@ -72,6 +80,11 @@ WITNESS_BIAS = 0.2
 PLUG_IN_PASS = 0.90
 #: V7's coefficient before the halving rule (plan 5.1).
 V7_INITIAL = 0.3
+#: The largest posterior predictive probability that a gated cell's declared run exceeds its
+#: failure allowance at which the declaration may proceed.  A red bound fails the gated record
+#: after the whole run (about 50 CPU-h), so a cell whose pilot predicts that outcome more often
+#: than one time in ten is diagnosed first (X6 design review A, re-review 2, item 4b).
+FAILURE_EXCEEDANCE = 0.10
 #: The committed diagnosis a confirmed first-quartile departure needs before the declaration.
 DIAGNOSIS = study.STUDY.artifacts / "pilot-diagnosis.md"
 
@@ -228,6 +241,61 @@ def failure_shares(rows: pd.DataFrame) -> dict[str, float]:
         chosen = at_law(rows, cell)
         raised = chosen.loc[chosen["refusal"].fillna("").ne(""), "replicate"].nunique()
         out[cell] = raised / max(int(chosen["replicate"].nunique()), 1)
+    return out
+
+
+def failed_draws(rows: pd.DataFrame, cell: str) -> int:
+    """The draws of ``cell`` at its declared law whose fit raised."""
+    chosen = at_law(rows, cell)
+    return int(chosen.loc[chosen["refusal"].fillna("").ne(""), "replicate"].nunique())
+
+
+def predicted_exceedance(failed: int, pilot_draws: int, replicates: int, allowance: int) -> float:
+    """The posterior predictive probability that more than ``allowance`` of ``replicates`` fail.
+
+    The failure rate takes the Jeffreys prior, so its posterior after ``failed`` of
+    ``pilot_draws`` is Beta(failed + 1/2, pilot_draws - failed + 1/2), and the declared run's
+    failure count is beta-binomial at ``replicates``.
+    """
+    law = betabinom(replicates, failed + 0.5, pilot_draws - failed + 0.5)
+    return float(law.sf(allowance))
+
+
+def failure_exceedance(rows: pd.DataFrame, cell: str) -> float:
+    """:func:`predicted_exceedance` of ``cell`` from all its pilot draws, at the record's count.
+
+    The allowance is the failure accounting's own (:func:`~tests.studies.evidence.failures.allowed`),
+    so the pilot reads the bound the declared run will be held to.
+    """
+    record = study.STUDY
+    return predicted_exceedance(
+        failed_draws(rows, cell),
+        draws(rows, cell),
+        record.replicates_of(record.implementation, cell),
+        allowed(record, record.implementation, cell),
+    )
+
+
+def failure_refusals(rows: pd.DataFrame) -> list[str]:
+    """One refusal per gated cell whose predicted failure bound exceeds :data:`FAILURE_EXCEEDANCE`."""
+    record = study.STUDY
+    out = []
+    for cell in study.GATED_CELLS:
+        if not draws(rows, cell):
+            out.append(f"the pilot holds no draws of {cell}; run its pilot")
+            continue
+        probability = failure_exceedance(rows, cell)
+        if probability > FAILURE_EXCEEDANCE:
+            out.append(
+                f"{cell} lost {failed_draws(rows, cell)} of {draws(rows, cell):,} pilot fits, and "
+                f"the declared run of {record.replicates_of(record.implementation, cell):,} "
+                f"loses more than the {allowed(record, record.implementation, cell)} its failure "
+                f"bound allows with predictive probability {probability:.3f}, above "
+                f"{FAILURE_EXCEEDANCE:.2f}; the cell's failures come from DataError where the initial "
+                "hazard fit's survival reaches zero before the last horizon, which under the "
+                f"red-cell rule is a defect suspect, so the row's {DIAGNOSIS.name} must diagnose "
+                "it before the declaration"
+            )
     return out
 
 

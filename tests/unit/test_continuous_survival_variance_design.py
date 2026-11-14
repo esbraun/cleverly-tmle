@@ -332,6 +332,58 @@ def test_a_declared_run_waits_for_the_pilot(monkeypatch: pytest.MonkeyPatch) -> 
     regenerate.refuse_undeclared()
 
 
+def _failures(cell: str, failed: int, total: int) -> pd.DataFrame:
+    """Synthetic pilot rows: one row per draw of ``cell``, the first ``failed`` raising."""
+    return pd.DataFrame(
+        {
+            "label": cell,
+            "replicate": np.arange(total),
+            "quadratic": study.law_of(cell).quadratic,
+            "refusal": ["DataError"] * failed + [""] * (total - failed),
+        }
+    )
+
+
+def test_a_gated_cell_whose_pilot_predicts_its_failure_bound_fails_refuses() -> None:
+    # The allowance is the failure accounting's, so the pilot reads the bound the run is held to.
+    from tests.studies.evidence.failures import allowed
+
+    record = study.STUDY
+    assert allowed(record, record.implementation, "v1_rare_cause2") == 60
+    assert pilot.FAILURE_EXCEEDANCE == 0.10
+    # Nonzero witness: 2 of 2,000 passes, 20 of 2,000 (a rate of 0.010, the allowance's own)
+    # refuses, so a check that never fires, or reads the wrong side, fails here.
+    passing = pilot.failure_exceedance(_failures("v1_rare_cause2", 2, 2_000), "v1_rare_cause2")
+    refusing = pilot.failure_exceedance(_failures("v1_rare_cause2", 20, 2_000), "v1_rare_cause2")
+    assert passing < 1e-4
+    assert refusing > 0.4
+
+    def v1_refusals(failed: int) -> list[str]:
+        rows = _failures("v1_rare_cause2", failed, 2_000)
+        return [m for m in pilot.failure_refusals(rows) if "v1_rare_cause2" in m]
+
+    assert v1_refusals(2) == []
+    (message,) = v1_refusals(20)
+    assert message.startswith("v1_rare_cause2 lost 20 of 2,000 pilot fits")
+    assert "DataError" in message and "defect suspect" in message
+    assert pilot.DIAGNOSIS.name in message
+    # A reported cell over its bound is not refused: its failures gate nothing.
+    assert not [m for m in pilot.failure_refusals(_failures("v3_half_n", 40, 2_000)) if "v3" in m]
+    # The predictive is wider than the binomial at the pilot's point rate: 8 of 1,000 exceeds 60
+    # of 6,000 with binomial probability 0.039, and with predictive probability near 0.28.
+    assert 0.25 < pilot.predicted_exceedance(8, 1_000, 6_000, 60) < 0.30
+    if PILOT.empty:
+        return
+    for cell in study.GATED_CELLS:
+        probability = pilot.failure_exceedance(PILOT, cell)
+        print(
+            f"{cell}: {pilot.failed_draws(PILOT, cell)} of {pilot.draws(PILOT, cell)} failed, "
+            f"predictive exceedance {probability:.3f}"
+        )
+        refused = any(m.startswith(f"{cell} lost") for m in pilot.failure_refusals(PILOT))
+        assert refused == (probability > pilot.FAILURE_EXCEEDANCE)
+
+
 def test_the_committed_readings_follow_from_the_committed_rows() -> None:
     # The ship rule and the floors are recomputed from the committed candidate readings, and the
     # variance rows carry the published replicates' estimates and standard errors.

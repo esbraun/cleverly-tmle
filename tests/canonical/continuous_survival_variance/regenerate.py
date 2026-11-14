@@ -28,6 +28,10 @@ a declared run until that file is committed and agrees with the declaration
   at the declared coefficient;
 * ``V7_GATED`` agrees with V7's non-null witness at the declared coefficient;
 * no gated cell's pilot loses more than the failure bound of 0.01 of its fits;
+* no gated cell's pilot predicts, with posterior predictive probability above 0.10 (Jeffreys
+  prior on its failure rate over all its pilot draws), that the declared run loses more fits than
+  the failure accounting allows (``pilot.failure_refusals``); such a cell's ``DataError`` is a
+  defect suspect, diagnosed in ``pilot-diagnosis.md`` before the declaration;
 * each gated cell flagged by the first-quartile plug-in check holds 2,000 draws, and each row still
   below 0.90 on them is named in a committed ``pilot-diagnosis.md`` beside this script.
 
@@ -136,6 +140,7 @@ def pilot_refusals() -> list[str]:
     for cell, share in pilot.failure_shares(rows).items():
         if cell in study.GATED_CELLS and share > study.FAILURE_BOUND:
             out.append(f"{cell} lost {share:.3f} of its pilot fits; diagnose it")
+    out.extend(pilot.failure_refusals(rows))
     count = pilot.primary_count(rows)
     if count > study.REPLICATE_CAP:
         out.append(f"the pilot asks for {count} replicates, above the cap; stop and report")
