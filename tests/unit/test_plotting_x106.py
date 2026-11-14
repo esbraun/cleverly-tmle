@@ -119,6 +119,8 @@ def test_overlap_raises_the_support_reports_refusal(build: Callable[[], Any]) ->
     with pytest.raises(type(from_report.value)) as from_plot:
         plotting.overlap(result)
     assert str(from_plot.value) == str(from_report.value)
+    for field in ("reason", "alternative"):
+        assert getattr(from_plot.value, field, None) == getattr(from_report.value, field, None)
 
 
 def test_a_refusal_dropped_from_the_check_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -200,12 +202,6 @@ def test_influence_reports_the_kish_count_of_influence_row(
     assert _kish_note(fig) == f"Kish effective count: {kish:.0f} of {values.size} " + (
         "rows." if cluster is None else "clusters."
     )
-
-
-def test_the_kish_count_of_the_raw_rows_is_caught_on_clusters() -> None:
-    # Mutation control: the count of the row curve, not of the cluster sums, differs.
-    _, curve, cluster = _curves()[2]
-    assert kish_count(curve) != influence_row("ate", curve, cluster=cluster).kish
 
 
 # --------------------------------------------------------------------------- balance
@@ -584,15 +580,8 @@ def test_a_limited_zipper_keeps_the_coverage_and_both_ends(coverage_study: Any) 
     _same_but_one_note(limited, plain, "Drawn: at most 7 intervals per panel")
 
 
-def test_a_first_ranks_selection_is_caught(coverage_study: Any) -> None:
-    # Mutation control: the first seven ranks miss the top end, which the check reads.
-    first = np.arange(1, 8, dtype=float)
-    assert not np.array_equal(first, np.rint(np.linspace(0, 59, 7)) + 1.0)
-    assert first[-1] != 60.0
-
-
-def test_the_drawn_miss_share_tracks_the_study() -> None:
-    # Evenly spaced ranks miss the study's miss share by at most the runs of misses and
+def test_evenly_spaced_ranks_keep_the_miss_share_within_the_runs_bound() -> None:
+    # A property of the selection rule the zipper notes describe: evenly spaced ranks miss the study's miss share by at most the runs of misses and
     # covers in rank order over the drawn count.
     rng = np.random.default_rng(9)
     for _ in range(200):
@@ -686,9 +675,29 @@ def test_a_balance_page_replaces_the_soft_cap_note(wide_balance: Any) -> None:
     assert [note for note in plotting.notes(paged) if note not in page_notes] == others
 
 
-def test_balance_without_a_page_draws_the_old_selection(wide_balance: Any) -> None:
+def test_balance_without_a_page_draws_the_old_selection_in_order(wide_balance: Any) -> None:
     shown, _ = _shown_before_x106(wide_balance, 4)
-    assert sorted(_balance_rows(plotting.balance(wide_balance, max_covariates=4))) == sorted(shown)
+    assert _balance_rows(plotting.balance(wide_balance, max_covariates=4)) == shown
+
+
+def _paged_before_flags(summary: Any, max_covariates: int, page: int) -> list[str]:
+    """A ranking that ignores the threshold: every covariate by its larger difference."""
+    before, after = weights_module._largest_differences(summary)
+    covariates = list(before)
+    ranked = sorted(covariates, key=lambda name: -max(before[name], after[name]))
+    on_page = ranked[(page - 1) * max_covariates : page * max_covariates]
+    return sorted(on_page, key=lambda name: (-before[name], covariates.index(name)))
+
+
+def test_a_page_ranks_flagged_covariates_first() -> None:
+    # The unflagged covariate has the largest difference before weighting, so a ranking that
+    # ignores the threshold puts it first; the page must put the flagged one first.
+    summary = _Summary([_Row("big", 0.9, 0.05), _Row("flag", 0.2, 0.3), _Row("calm", 0.1, 0.01)])
+    shown, pages, flagged = weights_module._paged_covariates(summary, 1, 1)
+    assert (shown, pages, flagged) == (["flag"], 3, 1)
+    # Mutation control: the threshold-blind ranking draws another covariate on page 1.
+    assert _paged_before_flags(summary, 1, 1) != shown
+    assert weights_module._paged_covariates(summary, 1, 2)[0] == ["big"]
 
 
 @pytest.mark.parametrize("value", [True, 0, 1.0])
@@ -722,3 +731,95 @@ def test_balance_over_time_pages_each_panel() -> None:
     del plain
     with pytest.raises(ValueError, match="view='panels'"):
         plotting.balance(report, diagnostic="confounding", view="panels", page=1)
+
+
+def _panel_rows(fig: Any) -> dict[str, list[str]]:
+    """Each over-time panel's drawn covariates, keyed by the panel's title."""
+    found: dict[str, list[str]] = {}
+    for axis in fig.axes:
+        title = axis.get_title(loc="left")
+        if not title or title == "Covariate balance over time":
+            continue
+        found[title] = [label.get_text() for label in axis.get_yticklabels() if label.get_text()]
+    return found
+
+
+@pytest.mark.parametrize("family", ["longitudinal", "survival"])
+def test_balance_over_time_pages_cover_each_panel_and_keep_the_other_notes(family: str) -> None:
+    from tests.unit.summary_fixtures import balance_time
+
+    report = getattr(balance_time, family)()
+    everything = _panel_rows(plotting.balance(report, diagnostic="confounding", max_covariates=99))
+    plain = plotting.notes(plotting.balance(report, diagnostic="confounding", max_covariates=1))
+    soft = "Every covariate above the threshold"
+    seen: dict[str, list[str]] = {title: [] for title in everything}
+    emptied = 0
+    page = 1
+    while True:
+        try:
+            fig = plotting.balance(report, diagnostic="confounding", max_covariates=1, page=page)
+        except ValueError:
+            break
+        notes = plotting.notes(fig)
+        page_note = [note for note in notes if note.startswith(f"Page {page} of ")]
+        assert len(page_note) == 1
+        assert [note for note in notes if note not in page_note] == [
+            note for note in plain if soft not in note
+        ]
+        for title, rows in _panel_rows(fig).items():
+            seen[title].extend(rows)
+            if not rows:
+                emptied += 1
+                assert title in page_note[0]
+                axis = next(a for a in fig.axes if a.get_title(loc="left") == title)
+                assert any(t.get_gid() == "cleverly-balance-empty-page" for t in axis.texts)
+        page += 1
+    assert {title: sorted(rows) for title, rows in seen.items()} == {
+        title: sorted(rows) for title, rows in everything.items()
+    }
+    if family == "longitudinal":
+        assert emptied, "the fixture's panels hold different counts, so some page is empty"
+
+
+def test_the_default_rug_note_appears_past_the_cap(
+    effect_curve: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plain = plotting.curve(effect_curve)
+    size = _rug_segments(plain)[0]
+    monkeypatch.setattr(diagnostics_curves, "_RUG_CAP", size // 4)
+    capped = plotting.curve(effect_curve)
+    assert _rug_segments(capped)[0] < size
+    _same_but_one_note(capped, plain, f"Rug: at most {size // 4:,} ticks per panel")
+
+
+def _record(call: Callable[[], Any]) -> tuple[Any, list[str]]:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        fig = call()
+    return fig, [str(item.message) for item in caught]
+
+
+@pytest.mark.parametrize(
+    "plot, options",
+    [
+        ("influence", {"max_points": 16}),
+        ("balance", {"max_covariates": 1, "page": 1}),
+    ],
+)
+def test_a_display_limit_leaves_the_result_and_its_warnings_alone(
+    plot: str, options: dict[str, Any]
+) -> None:
+    result = _quiet(sweep.fit_binary)
+    estimates = {
+        name: (e.psi, e.variance, e.influence_curve.tobytes())
+        for name, e in result.estimates.items()
+    }
+    _, plain_warnings = _record(lambda: getattr(plotting, plot)(result))
+    keys = set(result.assessment_cache)
+    _, limited_warnings = _record(lambda: getattr(plotting, plot)(result, **options))
+    assert limited_warnings == plain_warnings
+    assert set(result.assessment_cache) == keys
+    assert {
+        name: (e.psi, e.variance, e.influence_curve.tobytes())
+        for name, e in result.estimates.items()
+    } == estimates

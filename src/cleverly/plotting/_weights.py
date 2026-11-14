@@ -708,7 +708,7 @@ def balance(
     max_covariates : int, default=30
         The most covariates to draw. Every covariate above the threshold after weighting is
         drawn, then those with the largest difference before or after weighting. With
-        ``page``, the exact number of covariates on each page.
+        ``page``, the number on each page; the last page may hold fewer.
     page : int or None, default=None
         The page of covariates to draw, starting at 1. Covariates are ranked, those above the
         threshold after weighting first, and each page holds ``max_covariates`` of them, so

@@ -246,6 +246,7 @@ def _summary_view(
         (math.ceil(len(ranked) / max_covariates) for ranked in ranked_by_panel.values()),
         default=1,
     )
+    unpaged = dict(shown_by_panel)
     if page is not None:
         if page > pages:
             raise ValueError(f"page must be at most {pages}, the number of pages; got {page}")
@@ -361,6 +362,10 @@ def _summary_view(
         )
     for axis in axes[len(panels) :]:
         axis.set_axis_off()
+    if page is not None:
+        # The note counts the strata of the unpaged selection, as the figure without pages
+        # does, so a page changes no note but its own.
+        opposite = _opposite(unpaged, strata)
     finite = [g for g in groups if np.isfinite(g["smd_weighted"])]
     worst = max(finite, key=lambda g: abs(g["smd_weighted"])) if finite else None
     pieces = [DIAGNOSTIC_WORDS[diagnostic]]
@@ -390,7 +395,8 @@ def _summary_view(
         none = (
             "; "
             + ", ".join(_said(f"{e}: {c}", summary, treatment_label) for e, c in empty)
-            + " have none on this page"
+            + (" has" if len(empty) == 1 else " have")
+            + " none on this page"
             if empty
             else ""
         )
@@ -406,6 +412,23 @@ def _summary_view(
     _core.add_notes(fig, found)
     fit_height(fig, axes, columns, panel_height)
     return fig
+
+
+def _opposite(
+    shown_by_panel: dict[tuple[str, str], list[dict[str, Any]]],
+    strata: dict[tuple[str, str, str], list[float]],
+) -> int:
+    """The strata that differ after weighting opposite to their drawn covariate's average."""
+    count = 0
+    for panel, members in shown_by_panel.items():
+        for m in members:
+            values = [
+                v for v in strata.get((panel[0], panel[1], m["covariate"]), []) if np.isfinite(v)
+            ]
+            if len(values) > 1:
+                sign = np.sign(m["smd_weighted"]) if np.isfinite(m["smd_weighted"]) else 0.0
+                count += sum(1 for v in values if sign and np.sign(v) == -sign)
+    return count
 
 
 def _notes(summary: BalanceOverTime, diagnostic: str) -> list[str]:

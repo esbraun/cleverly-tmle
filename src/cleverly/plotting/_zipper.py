@@ -214,6 +214,9 @@ def zipper(
         order = np.argsort(place["centre"], kind="stable")
         height = np.arange(1, len(order) + 1)
         low, high, hit = place["low"][order], place["high"][order], place["covered"][order]
+        # Which kinds the study holds, so the key names both even when a limit draws none
+        # of one kind.
+        held = {"covered": bool(hit.any()), "missed": bool((~hit).any())}
         if limit is not None and len(order) > limit:
             # Evenly spaced places in the sorted order, both ends kept, at their own heights.
             kept = np.unique(np.rint(np.linspace(0.0, len(order) - 1.0, limit)).astype(int))
@@ -230,7 +233,7 @@ def zipper(
             (hit, _core.PALETTE[0], "Covers the true value", "cleverly-zipper-covered"),
             (~hit, _core.PALETTE[1], "Misses the true value", "cleverly-zipper-missed"),
         ):
-            if mask.any():
+            if mask.any() or held[gid.rsplit("-", 1)[1]]:
                 axis.hlines(
                     height[mask],
                     low[mask],
