@@ -827,9 +827,10 @@ nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
 
-Hazard targeting (`survival_model="hazard"`) requires a held baseline decision over a categorical
-treatment and no covariate measured after baseline. It refuses any other design before any learner
-(H1 to H3, H7 and H11 of
+Hazard targeting (`survival_model="hazard"`) requires a held baseline decision and no covariate
+measured after baseline. A categorical treatment takes any regimen; a continuous treatment or a
+vector with a dose takes a modified treatment policy. It refuses any other design before any learner
+(H1 to H3 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
 The hazard model conditions on the baseline treatment and the baseline covariates only. A later
 treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard

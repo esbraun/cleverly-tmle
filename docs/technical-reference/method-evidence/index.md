@@ -118,6 +118,7 @@ separable-effects
 survival-ctmle
 survival-dr-tmle
 hazard-msm
+hazard-mtp
 continuous-time-survival
 categorical-incremental
 vector-modified-treatment-policies

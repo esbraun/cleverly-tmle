@@ -215,13 +215,21 @@ def overlap(
         from .._refusal import NO_ALTERNATIVE, RefusalReason
         from ..exceptions import CapabilityError
 
+        gap = _unread_overlap(result)
+        if gap is None:
+            raise CapabilityError(
+                "overlap() draws a point-treatment fit's predicted probability of treatment; "
+                + _not_a_propensity(result)
+                + ".",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         raise CapabilityError(
-            f"overlap() draws a point-treatment fit's predicted probability of treatment; a "
-            f"{type(result).__name__} has one treatment probability per time point, which this "
-            "plot does not draw",
+            "overlap() draws a point-treatment fit's predicted probability of treatment; "
+            + gap
+            + ", which this plot does not draw yet.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
-            roadmap="X92",
+            roadmap="X100",
         )
     positivity_report(result)  # the report's own refusals: no mechanism, a continuous dose
     data = result.data
@@ -353,3 +361,49 @@ def _limits(result: Any) -> list[tuple[tuple[float, float], str]]:
 
 
 __all__ = ["overlap"]
+
+
+def _unread_overlap(result: Any) -> str | None:
+    """What a fit X100 will draw holds in place of one propensity, or ``None``."""
+    from ..estimators.atmle_result import AdaptiveTMLEResult
+    from ..longitudinal.estimator import LongitudinalResult
+    from ..longitudinal.structural import StructuralNestedMeanResult
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(result, LongitudinalResult):
+        if result.config.estimator in ("gcomp", "parametric_gformula"):
+            return None
+        if bool(getattr(result.data, "treatment_held", False)):
+            return (
+                "a survival fit of a treatment given once at baseline holds that treatment's "
+                "probability beside a censoring model at each time point"
+            )
+        return "a longitudinal fit has one treatment probability per time point"
+    if isinstance(result, StructuralNestedMeanResult):
+        return "a structural nested mean fit has one treatment probability per time point"
+    if isinstance(result, ContinuousSurvivalResult):
+        return "a continuous-time survival fit does not keep each row's treatment probability"
+    if isinstance(result, AdaptiveTMLEResult):
+        return (
+            "an adaptive TMLE fit holds a treatment probability and a trial-membership "
+            "probability for each row"
+        )
+    return None
+
+
+def _not_a_propensity(result: Any) -> str:
+    """Why a result outside X100 has no propensity this plot can draw, in words."""
+    from ..effect_curves import EffectCurveResult
+    from ..estimators.dose_response import DoseResponseResult
+    from ..longitudinal.estimator import LongitudinalResult
+
+    if isinstance(result, LongitudinalResult):
+        return (
+            "a g-computation or parametric g-formula fit estimates no treatment mechanism; "
+            "fit SequentialIPW or LTMLE for treatment probabilities"
+        )
+    if isinstance(result, DoseResponseResult):
+        return "a dose-response fit has a continuous treatment, which has no probability per arm"
+    if isinstance(result, EffectCurveResult):
+        return "an effect curve is a summary of a fit; pass the fit it came from"
+    return f"this {type(result).__name__} is not a point-treatment fit"

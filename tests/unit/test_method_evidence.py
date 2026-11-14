@@ -1344,6 +1344,13 @@ class TestPublishedVerdicts:
             # the accounting row names ``worst case fails`` as the reason.
             worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    # A reported row of the family (``hazard-mtp``'s untruncated density
+                    # route) carries no claim, so it must not publish a red verdict.
+                    assert bool(row.passed) and bool(row.property_passed), (
+                        f"{row.cell} is a diagnostic row and publishes a verdict"
+                    )
+                    continue
                 # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
                 # cell ``correctly_specified`` and ``shift-policies`` names its control
                 # ``shrunken_se_control``, with no ``__`` at all, while the longitudinal
