@@ -9,7 +9,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.2943404639991059,
+          "seconds": 1.0988001800001257,
           "converged": true,
           "largest_node_score": 9.104888239448114e-11,
           "walk_steps": 1643,
@@ -18,7 +18,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.0152422589999333,
+          "seconds": 0.8762896980001642,
           "converged": true,
           "largest_node_score": 9.599653557738835e-11,
           "walk_steps": 1107,
@@ -33,7 +33,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.0133413950024988,
+          "seconds": 0.9177589910000279,
           "converged": true,
           "largest_node_score": 9.983004383226158e-11,
           "walk_steps": 1410,
@@ -42,7 +42,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.9966786179975315,
+          "seconds": 0.8933037040001182,
           "converged": true,
           "largest_node_score": 9.318842024003668e-11,
           "walk_steps": 1575,
@@ -57,7 +57,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 2.055978979999054,
+          "seconds": 1.9005956060000244,
           "converged": true,
           "largest_node_score": 9.695291466876228e-11,
           "walk_steps": 4908,
@@ -66,7 +66,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 2.3310250989998167,
+          "seconds": 1.9330836340000133,
           "converged": true,
           "largest_node_score": 9.875263823533248e-11,
           "walk_steps": 5321,
@@ -81,7 +81,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.1416254579999077,
+          "seconds": 1.021321794999949,
           "converged": true,
           "largest_node_score": 9.440935077846285e-11,
           "walk_steps": 1721,
@@ -90,7 +90,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.1746567690024676,
+          "seconds": 0.9901211789997433,
           "converged": true,
           "largest_node_score": 9.631252226651643e-11,
           "walk_steps": 1601,
@@ -105,7 +105,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.1019106729982013,
+          "seconds": 1.021561937000115,
           "converged": true,
           "largest_node_score": 9.543916051255059e-11,
           "walk_steps": 1711,
@@ -114,7 +114,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.5071589150029467,
+          "seconds": 1.3688506009998491,
           "converged": true,
           "largest_node_score": 9.802997698334086e-11,
           "walk_steps": 3118,
@@ -129,7 +129,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.5041723309986992,
+          "seconds": 1.456793650000236,
           "converged": true,
           "largest_node_score": 9.399938532213695e-11,
           "walk_steps": 1375,
@@ -138,7 +138,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 1.7115218529979757,
+          "seconds": 1.555196806999902,
           "converged": true,
           "largest_node_score": 9.469943828254262e-11,
           "walk_steps": 1788,
@@ -153,7 +153,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.7530941410004743,
+          "seconds": 0.6651914359999864,
           "converged": true,
           "largest_node_score": 9.315095880050823e-11,
           "walk_steps": 1600,
@@ -162,7 +162,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.8910639370005811,
+          "seconds": 0.9340323450001051,
           "converged": true,
           "largest_node_score": 9.505260679346931e-11,
           "walk_steps": 1737,
@@ -177,7 +177,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 2.7336516460018174,
+          "seconds": 3.046962024000095,
           "converged": true,
           "largest_node_score": 9.94800016725568e-11,
           "walk_steps": 1247,
@@ -186,7 +186,7 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 2.588447563997761,
+          "seconds": 2.741770439999982,
           "converged": true,
           "largest_node_score": 9.294196086229895e-11,
           "walk_steps": 988,
@@ -201,14 +201,14 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.13688518600247335,
+          "seconds": 0.1304891250001674,
           "converged": true,
           "unexpected_warnings": []
         },
         {
           "held": false,
           "failure": "",
-          "seconds": 0.13486257399927126,
+          "seconds": 0.13048505799997656,
           "converged": true,
           "unexpected_warnings": []
         }
@@ -221,14 +221,14 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.13212345600186381,
+          "seconds": 0.3836100759999681,
           "converged": true,
           "unexpected_warnings": []
         },
         {
           "held": false,
           "failure": "",
-          "seconds": 0.1276996729975508,
+          "seconds": 0.4683361489996969,
           "converged": true,
           "unexpected_warnings": []
         }
@@ -241,14 +241,14 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.14443849199960823,
+          "seconds": 0.1545674220001274,
           "converged": true,
           "unexpected_warnings": []
         },
         {
           "held": false,
           "failure": "",
-          "seconds": 0.17520733299897984,
+          "seconds": 0.15339927200011516,
           "converged": true,
           "unexpected_warnings": []
         }
@@ -261,14 +261,14 @@
         {
           "held": false,
           "failure": "",
-          "seconds": 0.15304383200054872,
+          "seconds": 0.1610636909999812,
           "converged": true,
           "unexpected_warnings": []
         },
         {
           "held": false,
           "failure": "",
-          "seconds": 0.143612714997289,
+          "seconds": 0.15216820799969355,
           "converged": true,
           "unexpected_warnings": []
         }

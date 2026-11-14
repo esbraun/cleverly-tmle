@@ -575,7 +575,8 @@ SMOKE_CELLS: dict[str, tuple[str, str, str, int]] = {
     "multinode/n_1000": ("hazard", "multinode", "both_correct", 1_000),
     "multinode/n_8000": ("hazard", "multinode", "both_correct", 8_000),
     "untargeted/mechanism_correct": ("untargeted", "multinode", "mechanism_correct", PRIMARY_N),
-    "untargeted/outcome_correct": ("untargeted", "multinode", "outcome_correct", PRIMARY_N),
+    # The untargeted arms run at n = 8,000 (plan X70 rev 3.8), the n of this cell.
+    "untargeted/outcome_correct": ("untargeted", "multinode", "outcome_correct", 8_000),
     "iterated/both_correct": ("iterated", "multinode", "both_correct", PRIMARY_N),
     "isotonic/both_correct": ("isotonic", "multinode", "both_correct", PRIMARY_N),
 }

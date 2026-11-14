@@ -52,6 +52,7 @@ harness refuses a cell that lost more than its bound.
 
 from __future__ import annotations
 
+import functools
 import itertools
 from collections.abc import Sequence
 from typing import Any
@@ -136,8 +137,9 @@ RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
 #: The per-arm rule (``mtp_study_tools.per_arm_replicates``) at the committed calibration
-#: pilot's SE ratios (plan X70 rev 3.8, the design test).  The arms' heavy-tailed influence
-#: curves put their expected SE ratios below one (:func:`predicted_se_ratio`), so each arm is
+#: pilot's SE ratios (plan X70 rev 3.8, the design test).  The arms' expected SE ratios lie
+#: below one and differ by arm (:func:`expected_se_ratio`, and the estimates' SD a little above
+#: the bound), so the arms are not exchangeable and each is
 #: sized at its own reading rather than pooled toward one.
 CALIBRATION_REPLICATES = 15_600
 POWER_REPLICATES = CALIBRATION_REPLICATES
@@ -208,15 +210,71 @@ EIF_KURTOSIS = _kurtosis()
 
 
 def predicted_se_ratio(label: str, n: int) -> float:
-    r"""The expected mean SE over the estimates' SD of one arm at ``n``, to first order.
+    r"""The first-order approximation of :func:`expected_se_ratio`, a cross-check only.
 
-    The reported SE is :math:`\hat\sigma / \sqrt{n}` with :math:`\hat\sigma` the root mean
-    square of the influence curve, and :math:`E \hat\sigma \approx \sigma (1 - (\kappa - 1) /
-    (8 n))`: a heavy-tailed curve reads a mean SE below the bound while its variance estimate
-    stays unbiased (plan X70 rev 3.8).  The calibration screen and its off-mean test are centred
-    here rather than on one.
+    With :math:`u = \hat\sigma^2 / \sigma^2 - 1` and :math:`\mathrm{Var}\,u = (\kappa - 1) / n`,
+    :math:`E \sqrt{1 + u} \approx 1 - (\kappa - 1) / (8 n)`.  At :math:`\kappa \approx 600` and
+    n = 2,000 the SD of :math:`u` is 0.55 and the influence curve's skewness is 12, so the
+    higher terms are not small: the formula gives 0.963 on the policy arms where the exact value
+    is 0.978 (plan X70 rev 3.8 addendum).
     """
     return 1.0 - (EIF_KURTOSIS[label] - 1.0) / (8.0 * n)
+
+
+#: The seed of the exact simulation behind :func:`expected_se_ratio`, a stream no declared,
+#: pilot or diagnosis draw reads (the design test's seed check lists it).
+EXPECTED_RATIO_SEED = stream_seed(STUDY, "expected_se_ratio")
+#: The simulated samples per n: the Monte Carlo SE of the policy arms' expected ratio at
+#: n = 2,000 is about 0.0014, a twentieth of the screen's half-width.
+EXPECTED_RATIO_DRAWS = 40_000
+
+
+@functools.cache
+def _expected_ratios(n: int) -> dict[str, float]:
+    rng = np.random.default_rng([EXPECTED_RATIO_SEED, n])
+    probs = law.LAW.probs / law.LAW.probs.sum()
+    curves = {label: target(label).curve(law.LAW) for label in FIT_OF}
+    totals = dict.fromkeys(curves, 0.0)
+    chunk = 4_000
+    for _ in range(EXPECTED_RATIO_DRAWS // chunk):
+        counts = rng.multinomial(n, probs, size=chunk).astype(float)
+        for label, curve in curves.items():
+            mean = counts @ curve / n
+            sd = np.sqrt(np.maximum(counts @ curve**2 / n - mean**2, 0.0))
+            totals[label] += float(np.sum(sd)) / EFFICIENCY_SD[label]
+    return {label: total / EXPECTED_RATIO_DRAWS for label, total in totals.items()}
+
+
+def expected_se_ratio(label: str, n: int) -> float:
+    r""":math:`E \hat\sigma / \sigma` of one arm at ``n``, by an exact simulation of the law.
+
+    The reported SE is :math:`\hat\sigma / \sqrt{n}`, with :math:`\hat\sigma` the SD of the
+    influence curve.  Each simulated sample is a multinomial draw of ``n`` units from the law's
+    support (:data:`EXPECTED_RATIO_SEED`, :data:`EXPECTED_RATIO_DRAWS`), and its
+    :math:`\hat\sigma` is the SD of the exact efficient influence function over it: no fit is
+    involved.  A heavy-tailed curve reads :math:`E \hat\sigma` below :math:`\sigma` while
+    :math:`E \hat\sigma^2 = \sigma^2`.
+
+    The screen statistic, mean SE over the estimates' SD, has expectation about this value times
+    :math:`(\sigma / \sqrt{n}) / SD(\hat\psi)`.  The second factor is the estimator's own
+    second-order variance excess, which the law alone does not give; the calibration pilot reads
+    :math:`SD(\hat\psi)` at 1.003 to 1.026 bounds.  The calibration screen and its off-mean test
+    are centred on this value, so that excess counts toward the departure the screen bounds; it
+    is not divided out with the pilot's own SD, which would centre the screen on the reading it
+    tests (plan X70 rev 3.8 addendum).
+    """
+    return _expected_ratios(n)[label]
+
+
+def finite_sample_red(label: str, low: float, high: float) -> bool:
+    """Whether a red calibration row's SE-ratio interval allows the finite-sample route.
+
+    Declared before the run (plan X70 rev 3.8 addendum, ``regenerate.py``): the 99% interval
+    ``[low, high]`` of the arm's SE ratio must contain the arm's expected ratio
+    (:func:`expected_se_ratio` at :data:`CALIBRATION_N`), not 1.  The row's other conditions,
+    coverage consistent with 0.95 and no defect found, are read as the plans guide states.
+    """
+    return low <= expected_se_ratio(label, CALIBRATION_N) <= high
 
 
 def large_fit_tolerance(label: str, n: int) -> float:

@@ -9,8 +9,9 @@ counts, the band, the influence-curve gap, the agreement report) read
 ``tests/canonical/hazard_time_varying_multinode/pilot.csv.gz``, as in
 ``tests/unit/test_hazard_time_varying_study_design.py``.  A pilot group with some labels
 committed fails, naming the rest; a group with none committed skips.  The calibration screen
-and the large fit's influence-curve SD are read against each arm's exact kurtosis (plan X70
-rev 3.8).
+is centred on each arm's expected SE ratio from an exact simulation of the law, and the large
+fit's influence-curve SD is read against each arm's exact kurtosis (plan X70 rev 3.8 and its
+addendum).
 
 Each gap below is in efficiency SEs at the arm's size: the exact limit minus the truth over
 :math:`\\sigma / \\sqrt{n}`, with :math:`\\sigma` the SD of the efficient influence function, at
@@ -123,10 +124,12 @@ WITNESS_GAPS: dict[tuple[str, str, bool], float] = {
     ("observed_slot", POLICY_RISK, True): 4.359,
 }
 #: The plan's floor of each component's witness: 3 SEs, or, where no coefficient inside the
-#: positivity and hazard limits reaches it, the largest gap reached and at least 1 SE.
+#: positivity and hazard limits reaches it, the largest gap reached and at least 1 SE.  With the
+#: untargeted arms at n = 8,000 the held slot reaches 3 (3.90); the policy's prefix, at 2.29,
+#: keeps the fallback.
 COMPONENT_FLOORS = {
     "level_plan": 3.0,
-    "held_slot": 1.0,
+    "held_slot": 3.0,
     "policy_prefix": 1.0,
     "observed_slot": 3.0,
 }
@@ -683,7 +686,6 @@ def _pilot(label: str) -> pd.DataFrame:
     return PILOT.loc[PILOT["label"] == label] if not PILOT.empty else PILOT
 
 
-CALIBRATION_PILOTED = not PILOT.empty and PILOT["label"].str.startswith("calibration_").any()
 #: The pilot label groups whose readings are read together.  A group with some labels committed
 #: and others not fails, naming the missing labels; a group with none committed skips.
 #: ``untargeted`` is the n = 8,000 label that plan X70 rev 3.8 added after the first eight.
@@ -875,22 +877,6 @@ class TestTheSizes:
             )
             assert probability >= sizing.discrimination_floor(2)
 
-    @pytest.mark.skipif(CALIBRATION_PILOTED, reason="the committed calibration pilot sizes R")
-    def test_the_calibration_replicates_at_a_calibrated_pilot(self) -> None:
-        """The provisional count: the arm-pooled rule at an 8,000-draw pilot reading a ratio of
-        one on the six arms.  The committed pilot replaces it."""
-        assert len(properties.CALIBRATION_LABELS) == 6
-        replicates, cell, family = mtp_study_tools.smallest_replicates(
-            1.0, sizing.CALIBRATION_PILOT_DRAWS, len(properties.CALIBRATION_LABELS)
-        )
-        assert replicates == properties.CALIBRATION_REPLICATES
-        assert cell >= mtp_study_tools.CELL_TARGET and family >= mtp_study_tools.FAMILY_TARGET
-        assert all(
-            draws == sizing.CALIBRATION_PILOT_DRAWS
-            for label, (_, draws) in pilot.PILOTS.items()
-            if label.startswith("calibration_")
-        )
-
     def test_every_positive_arm_passes_at_its_exact_limit(self) -> None:
         """Each positive bias arm passes with probability at least 0.99 at standardized bias 0."""
         for cell in properties.declared_cells():
@@ -925,25 +911,84 @@ class TestTheSizes:
             ratios[label] = float(arm["std_error"].mean() / arm["estimate"].std(ddof=1))
         return ratios
 
-    def test_the_calibration_screen_reads_the_kurtosis(self) -> None:
-        """The defect screen, centred on each arm's expected SE ratio (plan X70 rev 3.8).
+    def test_the_calibration_screen_reads_the_expected_ratio(self) -> None:
+        """The defect screen, centred on each arm's expected SE ratio (plan X70 rev 3.8 addendum).
 
-        A heavy-tailed influence curve reads a mean SE below the estimates' SD by about
-        :math:`(\\kappa - 1) / (8 n)` (:func:`~tests.studies.
-        hazard_time_varying_multinode_properties.predicted_se_ratio`), 0.037 for the policy arms
-        at :math:`\\kappa = 599`.  Each arm's pilot ratio must lie within the screen's half-width
-        of its prediction, and the arms' mean departure from their predictions within the
-        off-mean bound, as the pooled rule asks of a departure from one.
+        A heavy-tailed influence curve reads :math:`E \\hat\\sigma` below :math:`\\sigma`:
+        :func:`~tests.studies.hazard_time_varying_multinode_properties.expected_se_ratio`, an
+        exact simulation of the law with no fit, gives 0.978 for the policy arms
+        (:math:`\\kappa = 599`) and 0.987 to 0.994 for the rest.  The rest of the policy arms'
+        pilot deficit is the estimates' SD above the bound, a second-order excess the screen
+        counts as departure.  Each arm's pilot ratio must lie within the screen's half-width of
+        its centre, and the arms' mean departure within the off-mean bound, as the pooled rule
+        asks of a departure from one.
         """
         ratios = self._calibration_ratios()
         departures = {
-            label: ratio - properties.predicted_se_ratio(label, properties.CALIBRATION_N)
+            label: ratio - properties.expected_se_ratio(label, properties.CALIBRATION_N)
             for label, ratio in ratios.items()
         }
         half = mtp_study_tools.screen_half_width(sizing.CALIBRATION_PILOT_DRAWS)
         assert all(abs(value) <= half for value in departures.values()), departures
         assert abs(np.mean(list(departures.values()))) < mtp_study_tools.OFF_MEAN, departures
+
+    def test_the_expected_ratio_is_simulated_exactly(self) -> None:
+        """The simulated centre against its first-order cross-check and the kurtosis.
+
+        The first-order formula overstates the deficit, most where the curve is most
+        heavy-tailed: by 0.015 on the policy arms and by 0.003 or less on the rest.
+        """
         assert properties.EIF_KURTOSIS["multinode_policy"] == pytest.approx(599.35, abs=0.01)
+        n = properties.CALIBRATION_N
+        for label in properties.CALIBRATION_LABELS:
+            exact = properties.expected_se_ratio(label, n)
+            first = properties.predicted_se_ratio(label, n)
+            assert first < exact < 1.0, label
+            limit = 0.02 if properties.EIF_KURTOSIS[label] > 500 else 0.004
+            assert exact - first < limit, (label, exact, first)
+        assert properties.expected_se_ratio("multinode_policy", n) == pytest.approx(
+            0.978, abs=0.003
+        )
+        assert properties.expected_se_ratio(
+            "multinode_contrast", n
+        ) == properties.expected_se_ratio("crossfit_contrast", n)
+
+    def test_the_calibration_rms_ratio_is_one(self) -> None:
+        """Root mean square SE over the estimates' SD, within the screen's half-width of one.
+
+        The rule, declared before this reading was written (plan X70 rev 3.8 addendum): it
+        reads :math:`E[SE^2] = \\mathrm{Var}\\,\\hat\\psi` with no approximation and no
+        kurtosis, so it is centred on one.  Its tolerance is the screen's,
+        :math:`2.576\\,\\sigma_P + 0.01` with :math:`\\sigma_P` the model's SE of an 8,000-draw
+        ratio (0.0085), which bounds the bootstrap Monte Carlo SE of this ratio on every arm of
+        the committed pilot (0.0078 to 0.0083); the 0.01 allows the second-order excess of the
+        estimates' SD over the bound.
+        """
+        half = mtp_study_tools.screen_half_width(sizing.CALIBRATION_PILOT_DRAWS)
+        for label in properties.CALIBRATION_LABELS:
+            rows = self._calibration_rows(properties.FIT_OF[label])
+            arm = rows.loc[rows["estimand"] == properties.ESTIMAND[label]]
+            se = arm["std_error"].to_numpy(dtype=float)
+            ratio = float(np.sqrt(np.mean(se**2)) / arm["estimate"].std(ddof=1))
+            assert abs(ratio - 1.0) <= half, (label, ratio)
+
+    def test_a_red_calibration_row_is_read_against_its_expected_ratio(self) -> None:
+        """The finite-sample route of a red calibration row, declared before the run.
+
+        Its 99% SE-ratio interval must contain the arm's expected ratio, not 1
+        (``finite_sample_red``, named in ``regenerate.py``): an interval about the policy
+        arms' expected 0.978 that excludes 1 takes the route, and one that contains 1 but not
+        0.978 does not.
+        """
+        policy = properties.expected_se_ratio("multinode_policy", properties.CALIBRATION_N)
+        assert properties.finite_sample_red("multinode_policy", policy - 0.016, policy + 0.016)
+        assert policy + 0.016 < 1.0
+        assert not properties.finite_sample_red("multinode_policy", policy + 0.005, 1.01)
+        text = (ROOT / "tests/canonical/hazard_time_varying_multinode/regenerate.py").read_text(
+            encoding="utf-8"
+        )
+        assert "finite_sample_red" in text
+        assert "contains 1," not in text
 
     def test_the_calibration_replicates_follow_the_pilot(self) -> None:
         """The per-arm rule at the pilot's own ratios (plan X70 rev 3.8): each arm is sized at
@@ -1022,7 +1067,7 @@ class TestTheSizes:
         replicates = properties.CALIBRATION_REPLICATES
         assert band_pass_probability(0.95, replicates) > 0.999
         assert band_pass_probability(0.915, replicates) < 0.01
-        assert band_pass_probability(0.92, replicates) < JOINT_PASS
+        assert band_pass_probability(0.925, replicates) < JOINT_PASS
 
     @pytest.mark.parametrize("joint", study.JOINT_LABELS)
     def test_the_joint_band_pilot_meets_the_band(self, joint: str) -> None:
@@ -1120,6 +1165,28 @@ class TestTheSmokeGate:
         assert sizes == set(study.RATE_SIZES)
         configurations = {c for kind, _, c, _ in study.SMOKE_CELLS.values() if kind == "hazard"}
         assert configurations == set(study.CONFIGURATIONS)
+
+    def test_each_smoke_cell_is_a_declared_fit(self) -> None:
+        """Each smoke cell's ``(kind, fit label, configuration, n)`` is a fit the run makes, and
+        every kind of fit the run makes has a smoke cell."""
+        declared = set()
+        for family, stream, configuration, n, _, fit_label in properties.FIT_SETS:
+            if family == properties.DIFFERENCE_FAMILY:
+                declared |= {
+                    (kind, fit_label, configuration, n) for kind in ("iterated", "isotonic")
+                }
+            elif stream == properties.UNTARGETED_STREAM:
+                declared.add(("untargeted", fit_label, configuration, n))
+            else:
+                declared.add(("hazard", fit_label, configuration, n))
+                if family == "double_robustness" and configuration == (
+                    properties.NECESSITY_CONFIGURATION
+                ):
+                    declared.add(("untargeted", fit_label, configuration, n))
+        cells = set(study.SMOKE_CELLS.values())
+        assert cells <= declared, cells - declared
+        assert {cell[:3] for cell in cells} == {cell[:3] for cell in declared}
+        assert study.SMOKE_CELLS["untargeted/outcome_correct"][3] == properties.UNTARGETED_N
 
     def test_the_committed_smoke_cleared(self) -> None:
         """``smoke.json``, written by ``python -m
@@ -1235,6 +1302,8 @@ class TestTheCells:
             stream_seed(study.STUDY, "pilot", "ic_gap", fit, n, r)
             for fit, n, r in pilot.IC_GAP_JOBS
         ]
+        seeds.append(properties.EXPECTED_RATIO_SEED)
+        assert properties.EXPECTED_RATIO_SEED not in taken | _pilot_seeds()
         assert len(set(seeds)) == len(seeds)
         foreign = {
             replicate_seed(record, scenario, r)
