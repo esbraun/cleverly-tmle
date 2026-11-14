@@ -3,8 +3,9 @@
 :class:`~cleverly.survival.ContinuousSurvivalResult` declares the family
 ``"continuous_survival"``. Its diagnostics read the engine's own record: the hazard,
 censoring and treatment selections, the standardized scores of the targeting walk, the
-influence curves, and the treatment and censoring probabilities. The refutations, the
-truncation curve and every sensitivity analysis of :mod:`cleverly.sensitivity` and
+influence curves, and the treatment and censoring probabilities. The E-value reads the
+fit's risk ratio. The refutations, the truncation curve and every other sensitivity
+analysis of :mod:`cleverly.sensitivity` and
 :mod:`cleverly.validation` read a point-treatment result's nuisance fits, configuration and
 targeting state, or derive a bound for a mean of one outcome regression. None of them is
 implemented or derived for a continuous-time risk, so each refuses with the record
@@ -23,7 +24,6 @@ from ._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 
 __all__ = [
     "CONTINUOUS_SURVIVAL_FAMILY",
-    "EVALUE_REFUSAL",
     "SCORE_TOLERANCE_REFUSAL",
     "continuous_survival_refusal",
     "is_continuous_survival",
@@ -85,19 +85,6 @@ _TILT: Final = Refusal(
     roadmap="F16",
 )
 
-#: The E-value: the risk ratio is reported, but no reading of its confidence-limit E-value is
-#: registered.  :func:`cleverly.sensitivity.evalue.evalue` raises this record too.
-EVALUE_REFUSAL: Final = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "the E-value of a continuous-time survival fit has no registered reading of its "
-    "confidence-limit E-value yet.",
-    alternative=(
-        "Call cleverly.sensitivity.evalue_from_rr on the fit's reported rr_regimen "
-        "estimate, and on the limit of its interval nearer 1, for a descriptive reading."
-    ),
-    roadmap="X6",
-)
-
 #: An explicit tolerance on ``score_equations``: the walk's own cutoff gates the report.
 SCORE_TOLERANCE_REFUSAL: Final = Refusal(
     RefusalReason.INVALID_DECLARATION,
@@ -138,7 +125,6 @@ _BY_OPERATION: Final[dict[str, Refusal]] = {
     "marginal_bounds": _MARGINAL,
     "missingness": _TILT,
     "tipping_gamma": _TILT,
-    "evalue": EVALUE_REFUSAL,
     "corrections": _CORRECTIONS,
 }
 
@@ -168,8 +154,8 @@ def continuous_survival_refusal(operation: str) -> Refusal:
     -------
     Refusal
         An ``implementation_gap`` record naming ``X101`` for the refits and the truncation
-        curve, ``F16`` for the omitted-variable, marginal and tilt bounds, and ``X6`` for
-        the E-value; an ``invalid_declaration`` record for the correction identities, which
+        curve and ``F16`` for the omitted-variable, marginal and tilt bounds; an
+        ``invalid_declaration`` record for the correction identities, which
         the fit does not use; an ``api_redirection`` record for a point-treatment report.
 
     Examples

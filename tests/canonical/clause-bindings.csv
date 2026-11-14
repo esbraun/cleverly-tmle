@@ -476,6 +476,10 @@ conditional-projection,interval_calibration,se ratio in calibration band,affine
 conditional-projection,power,rejection floor,affine
 conditional-projection,type_i_error,coverage floor,coverage/0.5
 conditional-projection,type_i_error,rejection ceiling,rejection/0.1
+continuous-survival-functionals,interval_calibration,coverage in calibration band,shift/0.7
+continuous-survival-functionals,interval_calibration,noise se ratio below band,se_high
+continuous-survival-functionals,interval_calibration,se ratio below band,se_high
+continuous-survival-functionals,interval_calibration,se ratio in calibration band,se/0.05
 continuous-time-survival,double_robustness,bias discriminated,pair_collapse
 continuous-time-survival,double_robustness,bias equivalent,bias
 continuous-time-survival,double_robustness,se ratio in union band,se/0.05

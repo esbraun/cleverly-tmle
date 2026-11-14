@@ -25,7 +25,7 @@ from cleverly.exceptions import (
     MethodConfigurationError,
 )
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, StratifiedNelsonAalen, _targeting
-from cleverly.survival._targeting import Problem, evaluate, walk
+from cleverly.survival._targeting import Problem, evaluate, point_weights, walk
 from cleverly.survival.cox import (
     _design,
     _loglik_parts,
@@ -126,7 +126,8 @@ def _problem(
         [((T[:, None] == grid[None, :]) & (D[:, None] == j + 1)).astype(float) for j in range(2)]
     )
     index = np.searchsorted(grid, HORIZONS, side="right") - 1
-    return Problem(A, at_risk, events, 1.0 / (pi[:, :, None] * retention), index), dlam
+    weights = point_weights(index, grid.size)
+    return Problem(A, at_risk, events, 1.0 / (pi[:, :, None] * retention), weights), dlam
 
 
 def _ic_error(problem: Problem, dlam: np.ndarray) -> float:
@@ -679,7 +680,7 @@ def test_the_study_route_answers_the_setup_questions_and_reads_the_band_default(
         warnings.simplefilter("ignore")
         fit = effect.estimate(cross_fit=False, random_state=0)
     assert fit.simultaneous is not None
-    with pytest.raises(CapabilityError, match="evalue_from_rr"):
+    with pytest.raises(CapabilityError, match="two arms' risks at one cause"):
         evalue(fit)
 
 

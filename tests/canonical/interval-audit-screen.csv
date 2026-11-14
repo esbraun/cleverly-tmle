@@ -36,6 +36,7 @@ clustered-tmle,neutral,2,2,0.00375,,,0,
 clustered-unequal-cvtmle,neutral,7,6,0.0025,,,0,
 composite-missing-drtmle,audited,21,20,0.017917,,corrected_mar_inference/composite_binary_ate__mechanism_drift;ordinary_targeting/binary;ordinary_targeting/binary_regime;root_n_and_efficiency/n_2000,3,interval-audit.parquet
 conditional-projection,neutral,12,12,0.014,,,0,
+continuous-survival-functionals,neutral,8,0,0.0,,,0,
 continuous-time-survival,neutral,10,10,0.007948,,,0,
 cross-fitted-longitudinal-msm,neutral,9,9,0.068,,double_robustness/(intercept)__both_correct;root_n_and_efficiency/(intercept)__n_2000;root_n_and_efficiency/(intercept)__n_8000,1,
 ctmle-derivative,neutral,13,13,0.016667,,double_robustness/outcome_correct,0,

@@ -227,7 +227,7 @@ class TestAControlledDirectEffect:
     """Each branch on a CDE fit converts to the risk-ratio scale, then takes the square root."""
 
     def test_the_requests_reach_every_point_branch(self) -> None:
-        point_branches = set(typing.get_args(_Branch)) - {"time_to_event_rr"}
+        point_branches = set(typing.get_args(_Branch)) - {"time_to_event_rr", "continuous_rr"}
         assert {case.branch for case in REQUESTS} == point_branches
 
     @pytest.mark.parametrize("case", REQUESTS, ids=ids)
