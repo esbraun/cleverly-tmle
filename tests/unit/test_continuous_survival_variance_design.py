@@ -125,18 +125,24 @@ def test_the_count_is_the_shared_rule_on_the_committed_pilot() -> None:
 
 
 def test_the_reported_cells_are_the_pilots() -> None:
-    # V2 and V3 are reported cells, declared from the committed pilot before any primary run:
-    # they stay in the record and its readings and leave the count and the merge gate.
-    assert {"v2_heavy_weights", "v3_half_n"} == study.REPORTED_CELLS
+    # V2 alone is a reported cell, declared from the committed pilot before any primary run: it
+    # stays in the record and its readings and leaves the count and the merge gate.  V3 is gated
+    # since the rerun pilot lost none of its fits, so its failure bound gates the record.
+    assert {"v2_heavy_weights"} == study.REPORTED_CELLS
     assert study.STUDY.reported_scenarios == study.REPORTED_CELLS
-    assert study.GATED_CELLS == ("v1_rare_cause2", "v4_in_sample", "v7_quadratic")
+    assert study.GATED_CELLS == ("v1_rare_cause2", "v3_half_n", "v4_in_sample", "v7_quadratic")
     assert set(study.STUDY.scenarios) >= study.REPORTED_CELLS
+    # The opt-out from gating reported bounds is kept only while a reported cell remains.
+    assert study.STUDY.reported_bounds_gate is False
     if PILOT.empty:
         return
     shares = pilot.failure_shares(PILOT)
-    assert shares["v3_half_n"] > study.FAILURE_BOUND
+    assert shares["v3_half_n"] == 0.0
     assert all(shares[cell] <= study.FAILURE_BOUND for cell in study.GATED_CELLS)
-    # With either reported cell back in the sizing the count leaves the cap.
+    # The gated count holds 6,000 with V3 inside it.
+    assert "v3_half_n" in study.GATED_CELLS
+    assert pilot.primary_count(PILOT) == 6_000
+    # With V2 back in the sizing the count leaves the cap.
     for cell in study.REPORTED_CELLS:
         widened = (*study.GATED_CELLS, cell)
         original = study.GATED_CELLS
@@ -152,20 +158,36 @@ def test_the_reported_cells_are_the_pilots() -> None:
 
 
 def test_the_floor_constants_are_pending_until_the_run() -> None:
-    # V3 (500 units) is published only: no reading of this study moves the size floor, which
-    # stays 1,000 until roadmap item X6 (a2) moves 500-unit fits off experimental.
-    assert survival_result.MEASURED_N == 1_000
     committed = study.STUDY.artifacts.joinpath(study.FLOORS_FILE).exists()
     if not committed:
         assert survival_result.MEASURED_REL_SD is None
         assert survival_result.MEASURED_REL_SD_EARLY is None
         assert survival_result.MEASURED_EVENT_SHARE[0] == 0.4
+        assert survival_result.MEASURED_N == 1_000
         return
     values = readings.floor_values(pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE)))
     assert values["r_prim"] == survival_result.MEASURED_REL_SD
     assert values["share_floor"] == survival_result.MEASURED_EVENT_SHARE[0]
     assert values["r_cal"] == survival_result.MEASURED_REL_SD_EARLY
-    assert "measured_n" not in values
+    assert values["measured_n"] == survival_result.MEASURED_N
+
+
+def test_the_size_floor_falls_only_when_every_v3_row_passes() -> None:
+    # Nonzero witness: one red V3 primary row keeps the size floor at 1,000, and a red row of
+    # another cell does not move it; all V3 rows green lowers it to 500.
+    table = pd.DataFrame(
+        {
+            "scenario": ["v3_half_n", "v3_half_n", "v1_rare_cause2", "v3_half_n"],
+            "estimand": ["a", "b", "a", "early"],
+            "rule": ["primary", "primary", "primary", "calibration"],
+            "median_rel_sd": [0.05, 0.1, 0.05, 0.3],
+            "rule_passed": [True, True, False, False],
+            "default": "s",
+        }
+    )
+    assert readings.floor_values(table)["measured_n"] == 500
+    red = table.assign(rule_passed=[True, False, True, True])
+    assert readings.floor_values(red)["measured_n"] == 1_000
 
 
 def test_the_default_variance_is_the_ship_rules() -> None:
@@ -368,7 +390,10 @@ def test_a_gated_cell_whose_pilot_predicts_its_failure_bound_fails_refuses() -> 
     assert "defect suspect" in message and "rerun the cell's pilot" in message
     assert pilot.DIAGNOSIS.name in message
     # A reported cell over its bound is not refused: its failures gate nothing.
-    assert not [m for m in pilot.failure_refusals(_failures("v3_half_n", 40, 2_000)) if "v3" in m]
+    reported = pilot.failure_refusals(_failures("v2_heavy_weights", 40, 2_000))
+    assert not [m for m in reported if "v2_heavy_weights" in m]
+    # V3 is gated, so the same losses in V3 are refused.
+    assert [m for m in pilot.failure_refusals(_failures("v3_half_n", 40, 2_000)) if "v3" in m]
     # The predictive is wider than the binomial at the pilot's point rate: 8 of 1,000 exceeds 60
     # of 6,000 with binomial probability 0.039, and with predictive probability near 0.28.
     assert 0.25 < pilot.predicted_exceedance(8, 1_000, 6_000, 60) < 0.30

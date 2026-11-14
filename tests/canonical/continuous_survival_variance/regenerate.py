@@ -36,39 +36,44 @@ a declared run until that file is committed and agrees with the declaration
   below 0.90 on them is named in a committed ``pilot-diagnosis.md`` beside this script.
 
 Cells (a pilot-informed change, declared before any primary run).  ``v1_rare_cause2``,
-``v4_in_sample`` and ``v7_quadratic`` are gated cells; ``v2_heavy_weights`` and ``v3_half_n`` are
-reported cells (``REPORTED_CELLS``, ``StudyRecord.reported_scenarios``).  The committed pilot
-(1,000 draws per cell, 789258e6) read V2's switched interval covering control cause 1 at 1.12 at
-0.894 with SE ratio 0.88 (the influence curve's at 0.874), the cause-1 difference at 1.12 at 0.907
-and treated cause 2 at 1.12 at 0.915; with V2 the shared rule finds no count up to 50,000.  V3
-lost 12 of 1,000 fits to ``DataError`` (0.012 against the bound of 0.01), and with V3 the rule
-asks for 10,800.  V1, V4 and V7 read worst coverages of 0.929 to 0.941.  The reported cells run at
-the same count on the same seeds, are left out of the count, the pilot's failure-share refusal
-and the merge gate, and still feed ``r_prim`` (a red row of either caps it) and both clauses of
-the ship rule.  V3 does not move ``MEASURED_N``, which stays 1,000: V3 is published only.  A
-reported cell's failure share is published in the failure accounting, red above 0.01, and gates
-nothing (``failures.BOUND_REPORTED``; the record opts out with
-``StudyRecord.reported_bounds_gate=False``), so V3's ``DataError`` share cannot fail the run.  Roadmap item X6 (a2) owns both reported cells: the
-weight-driven shortfall of V2 and the initial-fit failures of V3 at 500 units.
+``v3_half_n``, ``v4_in_sample`` and ``v7_quadratic`` are gated cells; ``v2_heavy_weights`` alone
+is a reported cell (``REPORTED_CELLS``, ``StudyRecord.reported_scenarios``).  The first committed
+pilot (1,000 draws per cell, 789258e6) read V2's switched interval covering control cause 1 at
+1.12 at 0.894 with SE ratio 0.88 (the influence curve's at 0.874), the cause-1 difference at 1.12
+at 0.907 and treated cause 2 at 1.12 at 0.915; with V2 the shared rule finds no count up to
+50,000, on that pilot and on the rerun.  That pilot also lost 12 of 1,000 V3 fits to
+``DataError``, so V3 was first reported too.  The defect fix (bc630ef4) removed those failures:
+the rerun pilot (aa2c4167) loses no fit in any cell, and with V3 in the sizing the count stays
+6,000, so V3 is gated (decided 2026-11-14).  On the rerun V1, V3, V4 and V7 read worst coverages
+of 0.928 to 0.939.  V2 runs at the same count on the same seeds, is left out of the count, the
+pilot's failure-share refusal and the merge gate, and still feeds ``r_prim`` (a red V2 row caps
+it) and both clauses of the ship rule.  V2's failure share is published in the failure
+accounting, red above 0.01, and gates nothing (``failures.BOUND_REPORTED``; the record opts out
+with ``StudyRecord.reported_bounds_gate=False``, which it keeps only while it holds a reported
+cell).  V3's failure share gates under the bound of 0.01 like every gated cell's.  Roadmap item
+X6 (a2) owns V2, the weight-driven shortfall.
 
-Sizes.  6,000 per cell, the shared primary rule on the 36 rows of the gated cells (clause (a)
+Sizes.  6,000 per cell, the shared primary rule on the 48 rows of the gated cells (clause (a)
 binds: a row whose true bias is 0.15 SD passes the 0.2 SD bias gate with 0.903 at 6,000), above
 the 3,600 at-target count of the first-quartile rows.  Four cells at n = 1,000 and ``v3_half_n``
 at 500; V7's witness held (0.45 SD) and halving did not fire.
 
-Budget.  Median seconds per fit in the pilot, on one core: ``v1_rare_cause2`` 6.47,
-``v2_heavy_weights`` 7.37, ``v3_half_n`` 3.02, ``v4_in_sample`` 3.16, ``v7_quadratic`` 6.97, so
-27.0 s per replicate across the five cells; the declared fit adds the no-square reading, about
-5% (one fit per cell, 2026-11-14).  At 6,000 per cell the primary takes about 47 CPU-h.  The
-pilot's plug-in check still flags two gated cells (``v1_rare_cause2`` and ``v4_in_sample``), whose
-extension to 2,000 draws takes about 2.7 CPU-h.  About 50 CPU-h, 75 with a 1.5 margin, and about
-89 with margin at the cap.  Cloud, one job per cell; the slowest cell (V2) takes about 13 CPU-h,
-under 4 h on a 4-core runner.
+Budget.  Median seconds per fit in the rerun pilot, on one core: ``v1_rare_cause2`` 5.80,
+``v2_heavy_weights`` 5.97, ``v3_half_n`` 2.45, ``v4_in_sample`` 2.34, ``v7_quadratic`` 5.75, so
+22.3 s per replicate across the five cells; the declared fit adds the no-square reading, about
+5% (one fit per cell, 2026-11-14).  At 6,000 per cell the primary takes about 39 CPU-h, of which
+V3, gated at 6,000, takes about 4 CPU-h at 2.45 s per fit.  V1 and V4 already hold 2,000 pilot
+draws; the plug-in check now also flags V3, whose extension to 2,000 draws takes about 0.7 CPU-h.
+About 40 CPU-h, 60 with a 1.5 margin, and about 71 with margin at the cap.  Cloud, one job per
+cell; the slowest cell (V2) takes about 10.4 CPU-h, under 3 h on a 4-core runner.
 
 Red-cell readings (declared before any run).  The record is ``gated``: every median and
 upper-quartile row of every gated cell is a merge gate under the primary rule, and any red
 verdict fails the run.  A reported cell's rows publish bias, coverage and the SE ratio with no
-verdict; they decide no gate and feed the floors and the ship rule as stated above.  The support floors only label estimates; a floor that falls below a red
+verdict; they decide no gate and feed ``r_prim`` and the ship rule as stated above.  The size
+floor ``MEASURED_N`` falls from 1,000 to 500 only if every primary row of ``v3_half_n`` passes; a
+lost V3 replicate counts against it, because a V3 failure share above 0.01 fails the gated record
+and no floor is read from a failed record.  The support floors only label estimates; a floor that falls below a red
 row's rung does not turn the row green or the record into ``reporting``.  No cell is re-sized,
 re-drawn or downgraded after a verdict is seen.
 
@@ -94,13 +99,14 @@ re-drawn or downgraded after a verdict is seen.
   calibration rule at each cell's sparsest first-quartile row; where it does not, the cell does
   not exercise the sparse-cell failure, and the reading says so.
 * A replication that raises is never redrawn; a ``DataError`` is a recordable fit failure bounded
-  by 0.01 per gated cell.  A reported cell's failures are recorded and published with its bound
+  by 0.01 per gated cell, V3 included.  V2's failures are recorded and published with its bound
   leg, and gate nothing; a share above 0.01 there is a reading for X6 (a2), its owner.
-* A reported cell's rows carry no verdict.  Their readings are X6 (a2)'s evidence: V2's
-  heavy-weight shortfall and V3's initial-fit failures at 500 units.  A 500-unit fit reads
-  experimental under the ``MEASURED_N`` floor of 1,000 until (a2).  A heavy-weight fit carries no
-  configuration label: nothing detects heavy weights, and its estimates read experimental only
-  where their ``variance_rel_sd`` lies above ``r_prim``; (a2) owns measuring that configuration.
+* V2's rows carry no verdict.  Their readings are X6 (a2)'s evidence of the heavy-weight
+  shortfall.  A heavy-weight fit carries no configuration label: nothing detects heavy weights,
+  and its estimates read experimental only where their ``variance_rel_sd`` lies above ``r_prim``;
+  (a2) owns measuring that configuration.
+* A red V3 row is read like any gated red row above, and it keeps ``MEASURED_N`` at 1,000, so a
+  500-unit fit keeps reading experimental under the size floor.
 """
 
 import sys

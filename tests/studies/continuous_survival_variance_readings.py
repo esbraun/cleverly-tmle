@@ -38,10 +38,11 @@ width-matched IC's, with :math:`k_{\mathrm{row}}` recomputed on each resample.
 ships S, the IC's otherwise.  ``r_prim`` is the largest median ``variance_rel_sd`` rung over the
 gated rows of all five cells such that every primary row at or below it passes
 (:func:`rel_sd_floor`); the share floor falls from 0.40 to 0.25 only if every first-quartile row
-passes the calibration rule, and then ``r_cal`` is read the same way from those rows.  No reading
-moves ``MEASURED_N``: it stays 1,000, and ``v3_half_n``'s rows at 500 units are published (they
-enter ``r_prim`` and the ship rule like V2's) while roadmap item X6 (a2) owns moving 500-unit fits
-off experimental.
+passes the calibration rule, and then ``r_cal`` is read the same way from those rows;
+``MEASURED_N`` falls from 1,000 to 500 only if every primary row of ``v3_half_n`` passes.  A lost
+V3 replicate counts against that reading too: V3 is a gated cell, so a V3 failure share above the
+bound of 0.01 fails the record, and no floor is read from a failed record.  The reported cell
+``v2_heavy_weights`` enters ``r_prim`` and the ship rule and moves no other floor.
 """
 
 from __future__ import annotations
@@ -454,13 +455,15 @@ def floors(candidates: pd.DataFrame) -> pd.DataFrame:
 
 
 def floor_values(table: pd.DataFrame) -> Mapping[str, Any]:
-    """The floors from ``floors.csv``: ``r_prim``, the share floor and ``r_cal``.
+    """The three floors from ``floors.csv``: ``r_prim``, the share floor with ``r_cal``, and ``n``.
 
-    ``MEASURED_N`` is not read here: no cell of this study lowers it (module docstring).
+    ``measured_n`` is 500 only if every primary row of ``v3_half_n`` passes.  V3's failure bound
+    is not read here: V3 is gated, so a breach fails the record before any floor is read.
     """
     primary = table.loc[table["rule"] == "primary"]
     early = table.loc[table["rule"] == "calibration"]
     share = 0.25 if bool(early["rule_passed"].all()) else 0.40
+    v3 = primary.loc[primary["scenario"] == "v3_half_n"]
     return {
         "default": str(table["default"].iloc[0]),
         "r_prim": rel_sd_floor(
@@ -472,4 +475,5 @@ def floor_values(table: pd.DataFrame) -> Mapping[str, Any]:
         )
         if share == 0.25
         else None,
+        "measured_n": 500 if not v3.empty and bool(v3["rule_passed"].all()) else 1_000,
     }

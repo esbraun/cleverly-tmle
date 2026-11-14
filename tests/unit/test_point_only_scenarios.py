@@ -99,8 +99,9 @@ def _bound_row(record: object, scenario: str, lost: int) -> list[dict[str, objec
 @pytest.mark.parametrize(
     ("scenario", "lost", "gate_passed", "reason"),
     [
-        ("v3_half_n", 72, True, "bound exceeded, reported cell"),
-        ("v3_half_n", 10, True, "within bound"),
+        ("v2_heavy_weights", 72, True, "bound exceeded, reported cell"),
+        ("v2_heavy_weights", 10, True, "within bound"),
+        ("v3_half_n", 72, False, "bound exceeded"),
         ("v1_rare_cause2", 72, False, "bound exceeded"),
         ("v1_rare_cause2", 10, True, "within bound"),
     ],
@@ -110,7 +111,7 @@ def test_an_opted_out_reported_cell_publishes_its_failure_bound_and_gates_nothin
 ) -> None:
     """A reported cell of a record that opts out over its bound passes the gate with its red
     leg published; a gated cell over the same bound still fails (``continuous-survival-variance``:
-    V3 reported, V1 gated, 0.01 of 6,000 replicates allows 60)."""
+    V2 reported, V1 and V3 gated, 0.01 of 6,000 replicates allows 60)."""
     from tests.studies import continuous_survival_variance as variance
     from tests.studies.evidence import failures
 
@@ -132,9 +133,9 @@ def test_a_reported_cell_gates_its_failure_bound_unless_the_record_opts_out() ->
     from tests.studies import continuous_survival_variance as variance
     from tests.studies.evidence import failures
 
-    # The same record and cell with the opt-out removed: V3 over its bound now fails.
+    # The same record and cell with the opt-out removed: V2 over its bound now fails.
     gated = dataclasses.replace(variance.STUDY, reported_bounds_gate=True)
-    (row,) = _bound_row(gated, "v3_half_n", 72)
+    (row,) = _bound_row(gated, "v2_heavy_weights", 72)
     assert (row["leg_passed"], row["gate_passed"], row["reason"]) == (
         False,
         False,

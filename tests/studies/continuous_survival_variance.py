@@ -14,8 +14,8 @@ of :mod:`tests.studies.continuous_survival_variance_law` that no registered stud
   cause 2 by the first quartile;
 * ``v2_heavy_weights``: propensity :math:`\omega = (2, -1, 1.5)`, :math:`n = 1{,}000`; heavier
   control weights (the excess-spread mechanism M2);
-* ``v3_half_n``: the base law at :math:`n = 500`, published only: it does not move ``MEASURED_N``,
-  which stays 1,000 until roadmap item X6 (a2) moves 500-unit fits off experimental;
+* ``v3_half_n``: the base law at :math:`n = 500`, which decides whether ``MEASURED_N`` falls
+  to 500;
 * ``v4_in_sample``: the base law, ``cross_fit=False``, where the IC standard error runs lowest;
 * ``v7_quadratic``: :math:`0.3 (X_3^2 - 1)` in the cause-1 log hazard, outside every default
   Cox member, where the PV's omitted drift could show.
@@ -24,11 +24,11 @@ of :mod:`tests.studies.continuous_survival_variance_law` that no registered stud
 (:func:`~tests.studies.continuous_survival_variance_law.gated`) take the primary rule of
 :data:`MARGINS` on the default's reported interval: the coverage interval above 0.90 and below
 0.99, the SE ratio's interval inside (0.8, 1.2) and the bias equivalent to zero within 0.2 SD.
-In ``v1_rare_cause2``, ``v4_in_sample`` and ``v7_quadratic`` they are the merge gate;
-``v2_heavy_weights`` and ``v3_half_n`` are reported cells (:data:`REPORTED_CELLS`, declared from
-the pilot before any primary run), whose rows carry no verdict and still feed every reading.  The
-six first-quartile targets of each fit ride on every gated row of
-that fit (:data:`EARLY_COLUMNS`) and are read by
+In ``v1_rare_cause2``, ``v3_half_n``, ``v4_in_sample`` and ``v7_quadratic`` they are the merge
+gate; ``v2_heavy_weights`` alone is a reported cell (:data:`REPORTED_CELLS`, declared from the
+pilot before any primary run): with it in the sizing the shared primary rule finds no count up to
+50,000, and its rows carry no verdict and still feed every reading.  The six first-quartile targets
+of each fit ride on every gated row of that fit (:data:`EARLY_COLUMNS`) and are read by
 :mod:`tests.studies.continuous_survival_variance_readings` under the calibration rule: they decide
 the ship rule's benefit clause and the share floor, and are no merge gate.
 
@@ -39,7 +39,7 @@ controls, the width-matched readings for (a2), and the three support floors.
 
 **Size and seeds.**  The pilot (:mod:`tests.studies.continuous_survival_variance_pilot`, 1,000
 draws per cell on its own stream) sets :data:`PRIMARY_REPLICATES`: the larger of the shared
-primary rule (:func:`~tests.studies.repeated_sizing.primary_replicates`, on the 36 rows of the
+primary rule (:func:`~tests.studies.repeated_sizing.primary_replicates`, on the 48 rows of the
 gated cells' covered counts and per-cell biases) and the at-target count of the 30 first-quartile calibration
 rows (family pass at least 0.95 at SE ratio 1, coverage 0.95).  Until the pilot is committed the
 count is :data:`PENDING_REPLICATES` and ``regenerate.py`` refuses a declared run; the design test
@@ -50,6 +50,11 @@ probability, which extends a cell's pilot to :data:`EXTENSION_REPLICATES` draws 
 departure is confirmed, asks for a committed diagnosis before the declaration.  :data:`SEED` and
 :data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a cell draws from
 ``replicate_seed(STUDY, cell, r)``.
+
+**Budget.**  The rerun pilot's median seconds per fit on one core (V1 5.80, V2 5.97, V3 2.45, V4
+2.34, V7 5.75) give 22.3 s per replicate across the five cells and about 39 CPU-h at 6,000 per
+cell with the no-square reading; V3, gated at 6,000, takes about 4 CPU-h of it at 2.45 s per fit
+(``regenerate.py`` states the full budget).
 """
 
 from __future__ import annotations
@@ -123,25 +128,25 @@ CELLS: dict[str, tuple[str, int, bool]] = {
     cell: spec for cell, spec in ALL_CELLS.items() if V7_GATED or cell != "v7_quadratic"
 }
 #: The record cells declared *reported* after the pilot and before any primary run (X6 plan
-#: 5.1, pilot-informed change).  The committed pilot (1,000 draws per cell, 789258e6) found:
+#: 5.1, pilot-informed change).  The first committed pilot (1,000 draws per cell, 789258e6) read
+#: ``v2_heavy_weights``'s switched interval covering control cause 1 at 1.12 at 0.894 with SE
+#: ratio 0.88 (the influence curve's at 0.874), the cause-1 difference at 1.12 at 0.907 and
+#: treated cause 2 at 1.12 at 0.915; the rerun pilot at the stable clever covariate (aa2c4167)
+#: reads 0.893, 0.908 and 0.916.  With V2 in the sizing the shared primary rule finds no count up
+#: to 50,000.
 #:
-#: * ``v2_heavy_weights``: the switched interval covers control cause 1 at 1.12 at 0.894 with SE
-#:   ratio 0.88 (the influence curve's at 0.874), the cause-1 difference at 1.12 at 0.907 and
-#:   treated cause 2 at 1.12 at 0.915.  With it in the sizing the shared primary rule finds no
-#:   count up to 50,000;
-#: * ``v3_half_n``: 12 of 1,000 fits raised ``DataError``, a share of 0.012 against the bound of
-#:   0.01, and with it in the sizing the rule asks for 10,800.
+#: ``v3_half_n`` was reported too after the first pilot, where it lost 12 of 1,000 fits to
+#: ``DataError``.  The defect fix (bc630ef4) removed those failures: the rerun pilot loses no V3
+#: fit, and with V3 in the sizing the count stays 6,000, so V3 is gated (decided 2026-11-14).
 #:
-#: Both run at the record's count on the same seeds.  They leave the count, the pilot's
-#: failure-share refusal and the merge gate (their truth rows carry no verdict,
-#: ``StudyRecord.reported_scenarios``), and they still feed every reading: V2's rows enter the
-#: ``variance_rel_sd`` floor, so a red row caps ``r_prim`` below its rung, and so do V3's;
-#: neither moves ``MEASURED_N``, which stays 1,000 (V3 is published only, and X6 (a2) owns
-#: moving 500-unit fits off experimental); both stay in the ship rule's harm clause and its
-#: readings.  A reported cell's failure share is published in the failure
-#: accounting and gates nothing (``failures.BOUND_REPORTED``), because the record opts out of
-#: gating reported bounds (``reported_bounds_gate=False``).  Roadmap item X6 (a2) owns both.
-REPORTED_CELLS: frozenset[str] = frozenset({"v2_heavy_weights", "v3_half_n"})
+#: V2 runs at the record's count on the same seeds.  It leaves the count, the pilot's
+#: failure-share refusal and the merge gate (its truth rows carry no verdict,
+#: ``StudyRecord.reported_scenarios``), and it still feeds every reading: its rows enter the
+#: ``variance_rel_sd`` floor, so a red row caps ``r_prim`` below its rung, and it stays in the ship
+#: rule's harm clause and its readings.  Its failure share is published in the failure accounting
+#: and gates nothing (``failures.BOUND_REPORTED``), because the record opts out of gating reported
+#: bounds (``reported_bounds_gate=False``).  Roadmap item X6 (a2) owns it.
+REPORTED_CELLS: frozenset[str] = frozenset({"v2_heavy_weights"})
 #: The record cells that are merge gates and size the count.
 GATED_CELLS: tuple[str, ...] = tuple(cell for cell in CELLS if cell not in REPORTED_CELLS)
 ESTIMANDS: dict[str, tuple[str, ...]] = {
@@ -179,7 +184,8 @@ STUDY = StudyRecord(
     anchor="continuous-time-survival-switched-variance",
     scenarios=dict(ESTIMANDS),
     reported_scenarios=REPORTED_CELLS,
-    # A reported cell's failure share is X6 (a2)'s evidence, published red and not gated.
+    # V2's failure share is X6 (a2)'s evidence, published red and not gated; every gated cell's
+    # share, V3's included, gates under FAILURE_BOUND.
     reported_bounds_gate=False,
     scenario_n={cell: n for cell, (_, n, _) in CELLS.items() if n != PRIMARY_N},
     replicates=PRIMARY_REPLICATES,

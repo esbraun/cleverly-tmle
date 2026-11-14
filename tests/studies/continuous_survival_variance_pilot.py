@@ -11,7 +11,7 @@ mixes draws from two laws.
 The committed rows give these readings of X6 plan rev 5, section 5.1, which the regeneration
 script checks before a declared run (``regenerate.pilot_refusals``):
 
-* **the count** (:func:`primary_count`): the larger of the shared primary rule on the 36 rows of
+* **the count** (:func:`primary_count`): the larger of the shared primary rule on the 48 rows of
   the gated cells and the at-target count of the 30 first-quartile calibration rows (3,600: family pass
   0.977 at SE ratio 1 and coverage 0.95), read on each cell's first 1,000 draws;
 * **V7's coefficient** (:func:`v7_halving`, on the draws at 0.3 only): if the pilot's
