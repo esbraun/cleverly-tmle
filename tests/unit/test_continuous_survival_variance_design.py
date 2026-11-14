@@ -152,18 +152,20 @@ def test_the_reported_cells_are_the_pilots() -> None:
 
 
 def test_the_floor_constants_are_pending_until_the_run() -> None:
+    # V3 (500 units) is published only: no reading of this study moves the size floor, which
+    # stays 1,000 until roadmap item X6 (a2) moves 500-unit fits off experimental.
+    assert survival_result.MEASURED_N == 1_000
     committed = study.STUDY.artifacts.joinpath(study.FLOORS_FILE).exists()
     if not committed:
         assert survival_result.MEASURED_REL_SD is None
         assert survival_result.MEASURED_REL_SD_EARLY is None
         assert survival_result.MEASURED_EVENT_SHARE[0] == 0.4
-        assert survival_result.MEASURED_N == 1_000
         return
     values = readings.floor_values(pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE)))
     assert values["r_prim"] == survival_result.MEASURED_REL_SD
     assert values["share_floor"] == survival_result.MEASURED_EVENT_SHARE[0]
     assert values["r_cal"] == survival_result.MEASURED_REL_SD_EARLY
-    assert values["measured_n"] == survival_result.MEASURED_N
+    assert "measured_n" not in values
 
 
 def test_the_default_variance_is_the_ship_rules() -> None:

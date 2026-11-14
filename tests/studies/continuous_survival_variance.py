@@ -14,7 +14,8 @@ of :mod:`tests.studies.continuous_survival_variance_law` that no registered stud
   cause 2 by the first quartile;
 * ``v2_heavy_weights``: propensity :math:`\omega = (2, -1, 1.5)`, :math:`n = 1{,}000`; heavier
   control weights (the excess-spread mechanism M2);
-* ``v3_half_n``: the base law at :math:`n = 500`, which decides whether ``MEASURED_N`` falls;
+* ``v3_half_n``: the base law at :math:`n = 500`, published only: it does not move ``MEASURED_N``,
+  which stays 1,000 until roadmap item X6 (a2) moves 500-unit fits off experimental;
 * ``v4_in_sample``: the base law, ``cross_fit=False``, where the IC standard error runs lowest;
 * ``v7_quadratic``: :math:`0.3 (X_3^2 - 1)` in the cause-1 log hazard, outside every default
   Cox member, where the PV's omitted drift could show.
@@ -134,9 +135,10 @@ CELLS: dict[str, tuple[str, int, bool]] = {
 #: Both run at the record's count on the same seeds.  They leave the count, the pilot's
 #: failure-share refusal and the merge gate (their truth rows carry no verdict,
 #: ``StudyRecord.reported_scenarios``), and they still feed every reading: V2's rows enter the
-#: ``variance_rel_sd`` floor, so a red row caps ``r_prim`` below its rung; V3 alone decides
-#: ``MEASURED_N``, which stays 1,000 unless every V3 row passes; both stay in the ship rule's
-#: harm clause and its readings.  A reported cell's failure share is published in the failure
+#: ``variance_rel_sd`` floor, so a red row caps ``r_prim`` below its rung, and so do V3's;
+#: neither moves ``MEASURED_N``, which stays 1,000 (V3 is published only, and X6 (a2) owns
+#: moving 500-unit fits off experimental); both stay in the ship rule's harm clause and its
+#: readings.  A reported cell's failure share is published in the failure
 #: accounting and gates nothing (``failures.BOUND_REPORTED``).  Roadmap item X6 (a2) owns both.
 REPORTED_CELLS: frozenset[str] = frozenset({"v2_heavy_weights", "v3_half_n"})
 #: The record cells that are merge gates and size the count.

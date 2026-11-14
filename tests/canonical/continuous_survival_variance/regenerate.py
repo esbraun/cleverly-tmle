@@ -40,8 +40,8 @@ and treated cause 2 at 1.12 at 0.915; with V2 the shared rule finds no count up 
 lost 12 of 1,000 fits to ``DataError`` (0.012 against the bound of 0.01), and with V3 the rule
 asks for 10,800.  V1, V4 and V7 read worst coverages of 0.929 to 0.941.  The reported cells run at
 the same count on the same seeds, are left out of the count, the pilot's failure-share refusal
-and the merge gate, and still feed the floors (V2's red rows cap ``r_prim``; V3 alone decides
-``MEASURED_N``) and both clauses of the ship rule.  A reported cell's failure share is published
+and the merge gate, and still feed ``r_prim`` (a red row of either caps it) and both clauses of
+the ship rule.  V3 does not move ``MEASURED_N``, which stays 1,000: V3 is published only.  A reported cell's failure share is published
 in the failure accounting, red above 0.01, and gates nothing (``failures.BOUND_REPORTED``), so
 V3's ``DataError`` share cannot fail the run.  Roadmap item X6 (a2) owns both reported cells: the
 weight-driven shortfall of V2 and the initial-fit failures of V3 at 500 units.
@@ -92,8 +92,10 @@ re-drawn or downgraded after a verdict is seen.
   by 0.01 per gated cell.  A reported cell's failures are recorded and published with its bound
   leg, and gate nothing; a share above 0.01 there is a reading for X6 (a2), its owner.
 * A reported cell's rows carry no verdict.  Their readings are X6 (a2)'s evidence: V2's
-  heavy-weight shortfall and V3's initial-fit failures at 500 units, each of which keeps its
-  configuration experimental until (a2) moves it.
+  heavy-weight shortfall and V3's initial-fit failures at 500 units.  A 500-unit fit reads
+  experimental under the ``MEASURED_N`` floor of 1,000 until (a2).  A heavy-weight fit carries no
+  configuration label: nothing detects heavy weights, and its estimates read experimental only
+  where their ``variance_rel_sd`` lies above ``r_prim``; (a2) owns measuring that configuration.
 """
 
 import sys

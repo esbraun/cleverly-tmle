@@ -28,7 +28,7 @@ registered study measures:
 | --- | --- | --- | --- | --- |
 | `v1_rare_cause2` | cause-2 log-hazard intercept $-2.6$ in place of $-2$; times 0.52, 1.29, 2.69 | 1,000 | cross-fitted | a rarer cause: about 9.5 treated cause-2 events by the first quartile |
 | `v2_heavy_weights` | treatment model $\omega = (2, -1, 1.5)$ | 1,000 | cross-fitted | heavier control weights; the risks do not move |
-| `v3_half_n` | base | 500 | cross-fitted | half the events; decides whether the size floor falls to 500 |
+| `v3_half_n` | base | 500 | cross-fitted | half the events; published only, and the size floor stays 1,000 |
 | `v4_in_sample` | base | 1,000 | in sample | where the influence-curve standard error runs lowest |
 | `v7_quadratic` | $0.3\,(X_3^2 - 1)$ added to the cause-1 log hazard | 1,000 | cross-fitted | a hazard no default Cox model holds |
 
@@ -55,8 +55,8 @@ empty.
 The twelve targets at the median and upper quartile of `v1_rare_cause2`, `v4_in_sample` and
 `v7_quadratic` are gated by the primary rule: coverage above 0.90 and below 0.99, the SE ratio
 inside (0.8, 1.2) and the bias within 0.2 SD. `v2_heavy_weights` and `v3_half_n` are reported
-cells: their rows publish the same readings with no verdict, enter the `variance_rel_sd` floor
-(V2) and the size floor (V3), and stay in the ship rule.
+cells: their rows publish the same readings with no verdict, enter the `variance_rel_sd` floor,
+and stay in the ship rule. V3 does not move the size floor.
 The six first-quartile targets of each fit are read under the calibration rule (SE ratio inside
 (0.93, 1.07), coverage inside (0.92, 0.98), both at 99%) and are no gate.
 
@@ -67,7 +67,10 @@ cause 2 at 0.915, and with V2 the sizing rule found no count up to 50,000. `v3_h
 1,000 fits to `DataError`, against a bound of 10, and with it the rule asked for 10,800. A
 reported cell's failure share is published beside its rows and fails nothing. Roadmap item
 [X6 (a2)](../../roadmap.md#x6-continuous-time-survival-and-competing-risks) owns both reported
-cells, and their configurations stay experimental until it moves them.
+cells. A fit with fewer than 1,000 units reads experimental under the size floor
+(`MEASURED_N`) until (a2) moves it. No label detects heavy weights: such a fit's estimates read
+experimental only where their `variance_rel_sd` lies above the floor, and (a2) owns measuring
+that configuration.
 
 The pilot sets the count before the run: the larger of the shared primary rule on the gated
 cells and 3,600, the count at which the 30 first-quartile
@@ -99,7 +102,7 @@ rows and committed as `ship-rule.csv`, `candidate-readings.csv` and `floors.csv`
 | controls | the predictable variation times 1.3 must fire the harm clause; a switch that never fires must fail the benefit clause; the standard error times 0.85 must fail the calibration rule at every gated row | the run is void if one does not behave so |
 | reported controls | the gated rows the primary rule turns red at 0.85 times the standard error (about 0.96 per row), and the cells whose sparsest first-quartile influence-curve row passes the calibration rule | nothing; the first is the merge gate's own sensitivity, the second says whether a cell exercises the sparse-cell failure |
 | paired readings | each candidate's coverage minus the influence curve's, and minus the influence-curve interval widened to the candidate's mean width in its row, each with its paired 99% bootstrap interval | nothing; the evidence of roadmap item X6 (a2) |
-| floors | the largest `variance_rel_sd` rung at which every gated row passes; the event-share floor (0.40, or 0.25 if every first-quartile row passes); the size floor (1,000, or 500 if every `v3_half_n` row passes) | which risks and risk differences read `supported` |
+| floors | the largest `variance_rel_sd` rung at which every gated row passes; the event-share floor (0.40, or 0.25 if every first-quartile row passes); the size floor stays 1,000 (`v3_half_n` is published only) | which risks and risk differences read `supported` |
 
 At 3,600 replicates the harm clause passes with probability 0.997 or more when every true switched
 row is inside the band, and fires with probability 0.89 at a true SE ratio of 1.12. The benefit
