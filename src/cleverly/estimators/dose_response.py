@@ -642,8 +642,11 @@ class DoseResponseTMLE:
             )
         n_bins = default_density_bins(data.n) if self.density_bins is None else self.density_bins
         edges = bin_edges(data.treatment, n_bins, name=data.treatment_name)
-        rule = curve.quadrature(edges)
-        fine = curve.quadrature(edges, refine=2)
+        # The density is log-linear between a bin edge and a bin centre, so both break the
+        # rule and every piece integrates a smooth integrand.
+        breaks = np.concatenate([edges, 0.5 * (edges[:-1] + edges[1:])])
+        rule = curve.quadrature(breaks)
+        fine = curve.quadrature(breaks, refine=2)
         nodes = np.concatenate([rule.nodes, fine.nodes])
         self._preflight_memory(data, nodes.size)
         folds = engine._folds(data, self.random_state)

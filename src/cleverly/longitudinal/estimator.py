@@ -7567,7 +7567,8 @@ class LTMLE(_SequentialEstimator):
         influence curve, standard error and critical value is unchanged.  A curve with no
         violation is returned bit for bit.
     density_bins : int or None
-        The bin count of a continuous node's conditional density.
+        The core bin count of a continuous node's conditional density; its wide outer bins
+        are refined (:func:`~cleverly.learners.bin_edges`).
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated.
     ratio_trim : float or None

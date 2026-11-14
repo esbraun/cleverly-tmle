@@ -102,6 +102,7 @@ from ..learners.density import (
     DensityDiagnostics,
     PredictionMemory,
     bin_edges,
+    bin_occupancy,
     default_density_bins,
     fit_conditional_density,
     preflight_conditional_densities,
@@ -120,6 +121,7 @@ from .policy import (
     _call,
     _categorical_component,
     _check_monotone,
+    _component_frame,
     _is_identity_map,
     _member,
     _per_row,
@@ -386,6 +388,10 @@ class NodeLayout:
         The node, for the refusals.
     atoms : tuple of tuple of float
         Per dose, in column order, its declared atoms.  Empty when no dose declares one.
+    supports : tuple of Support or None
+        Per dose, in column order, its declared support or ``None``.  Empty when no dose
+        declares one.  Each dose's density is read over its support, evaluated on the frame
+        of every design it is read at.
     """
 
     components: tuple[JointComponent, ...]
@@ -395,6 +401,47 @@ class NodeLayout:
     conditioning: FloatArray
     where: str
     atoms: tuple[tuple[float, ...], ...] = ()
+    supports: tuple[Any, ...] = ()
+
+    def support_on(
+        self, position: int, codes: FloatArray, doses: FloatArray
+    ) -> tuple[FloatArray, FloatArray] | None:
+        """The declared support of the dose at ``position`` on a design's frame, or ``None``.
+
+        The frame is the dose's chain-rule conditioning set (:func:`_component_frame`): the
+        history, the categorical codes ``codes`` (one row, or one per row) and the earlier
+        doses ``doses``.
+
+        Parameters
+        ----------
+        position : int
+            The dose's position among the doses, in column order.
+        codes : ndarray
+            ``(1, q)`` or ``(n, q)`` categorical codes.
+        doses : ndarray
+            ``(n, k)`` values of the doses before it, ``k >= position``.
+
+        Returns
+        -------
+        tuple of ndarray or None
+            ``(lower, upper)`` per row.
+        """
+        support = self.supports[position] if self.supports else None
+        if support is None:
+            return None
+        values = np.zeros((self.n, len(self.components)))
+        cell = np.asarray(codes, dtype=float)
+        if cell.size:
+            values[:, list(self.categorical)] = np.broadcast_to(
+                cell.reshape(-1, len(self.categorical)), (self.n, len(self.categorical))
+            )
+        earlier = np.asarray(doses, dtype=float)
+        for k in range(position):
+            values[:, self.doses[k]] = earlier[:, k]
+        index = self.doses[position]
+        frame = _component_frame(self.components, index, values, self.frame_with)
+        lower, upper = support.bounds(frame, self.n)
+        return np.asarray(lower, dtype=float), np.asarray(upper, dtype=float)
 
     def dose_atoms(self, position: int) -> tuple[float, ...]:
         """The declared atoms of the dose at ``position`` among the doses, or ``()``.
@@ -765,16 +812,22 @@ class _Requests:
 
     layout: NodeLayout
     designs: list[dict[Hashable, _Design]]
-    values: list[dict[Hashable, list[FloatArray]]]
+    values: list[dict[Hashable, list[Any]]]
 
     def ask(
         self,
         position: int,
         codes: FloatArray,
         doses: FloatArray,
-        at: FloatArray,
+        at: FloatArray | tuple[FloatArray, FloatArray],
         cell: tuple[int, ...] | None = None,
     ) -> tuple[int, Hashable, int]:
+        """Ask for the density of the dose at ``position`` at ``at`` given a design.
+
+        ``at`` is ``(n,)`` values, or an interval ``(lower, upper)`` whose mean density is
+        asked for.  Intervals are kept under their own key beside the design's values, with
+        the same design.
+        """
         layout = self.layout
         earlier = np.asarray(doses, dtype=float)[:, :position]
         if cell is None:
@@ -799,14 +852,26 @@ class _Requests:
                 tuple(layout.dose_atoms(k) for k in range(position)),
             )
             self.values[position][key] = []
-        self.values[position][key].append(np.asarray(at, dtype=float))
+        if isinstance(at, tuple):
+            design = designs[key]
+            key = (key, "interval")
+            if key not in designs:
+                designs[key] = design
+                self.values[position][key] = []
+            asked: Any = (np.asarray(at[0], dtype=float), np.asarray(at[1], dtype=float))
+        else:
+            asked = np.asarray(at, dtype=float)
+        self.values[position][key].append(asked)
         return position, key, len(self.values[position][key]) - 1
 
     def memory(self, position: int, n_bins: int, folds: Folds) -> PredictionMemory:
         """What the designs and values of the dose at ``position`` hold while it is fitted."""
         n = self.layout.n
         stored = sum(design.nbytes for design in self.designs[position].values())
-        values = sum(8 * n * len(columns) for columns in self.values[position].values())
+        values = sum(
+            8 * n * len(columns) * (2 if columns and isinstance(columns[0], tuple) else 1)
+            for columns in self.values[position].values()
+        )
         # The predictions are allocated up front and, across folds, also arrive at once.
         predictions = values if folds.is_single else 2 * values
         held_out = n if folds.is_single else max(int(test.size) for _, test in folds)
@@ -822,6 +887,17 @@ class _Requests:
             rows=rows,
             kept=values,
         )
+
+
+#: One path of the enumeration: the preimages by dose column, validity, Jacobian, the
+#: collapsed dose or ``None``, and the collapsed dose's overlap interval or ``None``.
+_Path = tuple[
+    dict[int, FloatArray],
+    BoolArray,
+    FloatArray,
+    str | None,
+    tuple[FloatArray, FloatArray] | None,
+]
 
 
 @dataclass(frozen=True)
@@ -956,14 +1032,13 @@ def _enumerate(
             names[index]: layout.labels(index, cell_codes[:, j])
             for j, index in enumerate(categorical)
         }
-        # (betas by dose column index, valid, Jacobian, the collapsed dose or None)
-        paths: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = [
-            ({}, layout.rows.copy(), np.ones(layout.n), None)
-        ]
+        # (betas by dose column index, valid, Jacobian, the collapsed dose or None, and the
+        # interval of the collapsed dose whose mean density the path reads, or None)
+        paths: list[_Path] = [({}, layout.rows.copy(), np.ones(layout.n), None, None)]
         for position, index in enumerate(order):
             earlier = order[:position]
-            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []
-            for betas, valid, jacobian, collapsed in paths:
+            grown: list[_Path] = []
+            for betas, valid, jacobian, collapsed, interval in paths:
                 readable = dict(cell_labels)
                 readable.update({names[e]: betas[e] for e in earlier})
                 frame = guarded_source(layout.frame_with, readable, set(names) - set(readable))
@@ -998,11 +1073,12 @@ def _enumerate(
                             kept,
                             jacobian * np.abs(np.where(kept, slope, 0.0)),
                             collapsed,
+                            interval,
                         )
                     )
                 if atoms:
                     grown.extend(
-                        (*path, collapsed)
+                        (*path, collapsed, interval)
                         for path in _atom_paths(
                             branch.name,
                             policy,
@@ -1025,8 +1101,8 @@ def _enumerate(
                             )
                         )
                     grown.extend(
-                        (*path, names[index])
-                        for path in _collapse_paths(
+                        (betas_, valid_, jacobian_, names[index], interval_)
+                        for betas_, valid_, jacobian_, interval_ in _collapse_paths(
                             collapsing,
                             b,
                             atoms,
@@ -1056,7 +1132,7 @@ def _enumerate(
                 # A map that caught its own refused read still refuses.
                 frame.check()
             paths = grown
-        for betas, valid, jacobian, collapsed in paths:
+        for betas, valid, jacobian, collapsed, interval in paths:
             dose_values = np.column_stack([betas[index] for index in doses])
             if collapsed is None:
                 image = _image(layout, branch, cell_codes, dose_values, valid)
@@ -1066,11 +1142,13 @@ def _enumerate(
             weight = np.where(hit, jacobian, 0.0)
             factors = []
             for position in range(len(doses)):
-                factors.append(
-                    requests.ask(
-                        position, cell_codes, dose_values, dose_values[:, position], cell=cell
-                    )
+                # A collapse path reads the last dose's mean density over its interval.
+                at: FloatArray | tuple[FloatArray, FloatArray] = (
+                    interval
+                    if interval is not None and position == len(doses) - 1
+                    else dose_values[:, position]
                 )
+                factors.append(requests.ask(position, cell_codes, dose_values, at, cell=cell))
             terms.append(_Term(cell_index, weight, tuple(factors)))
     return terms
 
@@ -1156,18 +1234,22 @@ def _collapse_paths(
     index: int,
     frame: FrameSource,
     edges: Sequence[float] | None,
-) -> list[tuple[dict[int, FloatArray], BoolArray, FloatArray]]:
+) -> list[tuple[dict[int, FloatArray], BoolArray, FloatArray, tuple[FloatArray, FloatArray]]]:
     r"""The paths of the last dose that a collapsing piece sends to the evaluated atom.
 
     At an atom value :math:`b = a` of the last dose, a piece that sends :math:`I(h)` to
-    :math:`a` adds :math:`(1 - \sum_j p_j) \int_{I(h)} f(s)\,ds`.  The binned density is
-    constant on each bin, so the integral is
-    :math:`\sum_m f(s_m) |I(h) \cap B_m|`, exactly: one path per bin :math:`B_m`, read at a
-    point :math:`s_m` inside it that is no atom, with weight the overlap length.  The
-    atoms inside :math:`I(h)` reach :math:`a` by their own paths (:func:`_atom_paths`).
+    :math:`a` adds :math:`(1 - \sum_j p_j) \int_{I(h)} f(s)\,ds`.  The integral is split at
+    the bin edges, :math:`\sum_m \int_{I(h) \cap B_m} f(s)\,ds`: one path per bin
+    :math:`B_m`, carrying its overlap interval, whose density is read as the mean of the
+    reading over that interval, with weight the overlap length.  Their product is the exact
+    integral of the reading.  The path's dose value, which the categorical maps see, is a
+    point inside the bin that is no atom.  The atoms inside :math:`I(h)` reach :math:`a` by
+    their own paths (:func:`_atom_paths`).
     """
     betas, valid, jacobian = path
-    out: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []
+    out: list[
+        tuple[dict[int, FloatArray], BoolArray, FloatArray, tuple[FloatArray, FloatArray]]
+    ] = []
     if edges is None:
         # Every row at risk holds an atom of this dose, so it has no continuous mass.
         return out
@@ -1181,9 +1263,9 @@ def _collapse_paths(
         hit = valid & (at_atom >= 0) & (at_atom == target)
         for m in range(left.size):
             with np.errstate(invalid="ignore"):
-                overlap = np.clip(
-                    np.minimum(upper, right[m]) - np.maximum(lower, left[m]), 0.0, None
-                )
+                start = np.maximum(lower, left[m])
+                stop = np.minimum(upper, right[m])
+                overlap = np.clip(stop - start, 0.0, None)
             reach = hit & (np.nan_to_num(overlap) > 0.0)
             if not reach.any():
                 continue
@@ -1193,6 +1275,7 @@ def _collapse_paths(
                     {**betas, index: np.full(n, point)},
                     reach,
                     np.where(reach, jacobian * np.nan_to_num(overlap), 0.0),
+                    (np.where(reach, start, point), np.where(reach, stop, point)),
                 )
             )
     return out
@@ -1375,6 +1458,14 @@ def evaluate_joint_density(
             continue
         bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
         dose_edges.append(bin_edges(grid_values, bins, name=names[doses[k]]).tolist())
+    # The occupancy travels with the edges: it is read from the same rows, so a restricted
+    # fit breaks its segments at the bins the out-of-fold fit breaks them at.
+    dose_occupied = [
+        None
+        if edges is None
+        else bin_occupancy(natural_doses[rows & (natural_atoms[k] < 0), k], np.asarray(edges))
+        for k, edges in enumerate(dose_edges)
+    ]
     # The range a fitted density can be positive on.  The density lookup returns exactly 0
     # outside its outer edges (``learners.density._lookup``), so a frame whose earlier
     # preimages leave this range contributes nothing, and :func:`_inside` skips its checks.
@@ -1479,13 +1570,21 @@ def evaluate_joint_density(
                 folds,
                 n_bins=n_bins,
                 edges=edges,
+                occupied=dose_occupied[position],
+                support=layout.support_on(
+                    position, layout.natural[:, layout.categorical], natural_doses
+                ),
                 groups=groups,
                 n_jobs=n_jobs,
                 fit_mask=train & continuous if atoms else train,
                 name=names[index],
                 retained=retained,
                 predict_designs={
-                    key: (design, np.column_stack(requests.values[position][key]))
+                    key: _predict_entry(
+                        design,
+                        requests.values[position][key],
+                        layout.support_on(position, design.codes, design.doses),
+                    )
                     for key, design in requests.designs[position].items()
                 },
             )
@@ -1532,6 +1631,17 @@ def evaluate_joint_density(
         diagnostics=diagnostics,
         cell_diagnostics=tuple(cell_diagnostics),
     )
+
+
+def _predict_entry(
+    design: _Design, asked: list[Any], support: tuple[FloatArray, FloatArray] | None
+) -> tuple[Any, ...]:
+    """One ``predict_designs`` entry: the design, its values or interval request, its support."""
+    if asked and isinstance(asked[0], tuple):
+        lower = np.column_stack([interval[0] for interval in asked])
+        upper = np.column_stack([interval[1] for interval in asked])
+        return design, (lower, upper), support
+    return design, np.column_stack(asked), support
 
 
 def _mixed_factor(
@@ -1591,8 +1701,13 @@ def _mixed_factor(
         probabilities = np.asarray(predicted[str(number)], dtype=float)
         p = probabilities[:, 1:] if none else probabilities
         share = np.clip(1.0 - p.sum(axis=1), 0.0, 1.0)
-        values = np.column_stack(requests.values[position][key])
         density = np.asarray(density_values[key], dtype=float)
+        asked = requests.values[position][key]
+        if asked and isinstance(asked[0], tuple):
+            # An interval's mean density: the continuous mass of the interval, no atom.
+            out[key] = share[:, None] * density
+            continue
+        values = np.column_stack(asked)
         columns = []
         for column in range(values.shape[1]):
             which = _atom_index(values[:, column], atoms)

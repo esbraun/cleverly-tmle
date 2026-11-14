@@ -128,7 +128,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..learners.crossfit import Folds
-from ..learners.density import ConditionalDensity, MixedDensity, warn_if_unresolved
+from ..learners.density import ConditionalDensity, MixedDensity, warn_if_flat
 from .support import _intervention_loads, _InterventionLoadRow
 from .tuning import (
     DoseQuantile,
@@ -4597,6 +4597,7 @@ class PolicySet:
             np.asarray(data.mechanism_covariates, dtype=float),
             setup.where,
             component_atom_layout(setup.components, data.component_atoms),
+            component_support_layout(setup.components, data.component_supports),
         )
         branches = [
             JointBranch(policy.name, mapping, policy.order) for _, policy, mapping in setup.owners
@@ -4633,7 +4634,7 @@ class PolicySet:
                     changed = shifted[:, c, index] != setup.natural[:, index]
                     if not changed.any():
                         continue
-                    warn_if_unresolved(
+                    warn_if_flat(
                         parts.densities[component.name],
                         shifted[changed, c, index],
                         setup.natural[changed, index],
@@ -4955,6 +4956,28 @@ def joint_policy_moves(policy: object) -> bool:
     )
 
 
+def component_support_layout(
+    components: Sequence[JointComponent], supports: Mapping[str, Any]
+) -> tuple[Any, ...]:
+    """Each dose's declared support, in the column order of the doses, or ``()`` for none.
+
+    Parameters
+    ----------
+    components : sequence of JointComponent
+        The node's components, in column order.
+    supports : mapping of str to Support
+        The declared support of each continuous component that declares one.
+
+    Returns
+    -------
+    tuple of Support or None
+        One entry per dose, empty when no dose declares a support.
+    """
+    if not supports:
+        return ()
+    return tuple(supports.get(component.name) for component in components if component.continuous)
+
+
 def component_atom_layout(
     components: Sequence[JointComponent], atoms: Mapping[str, Sequence[float]]
 ) -> tuple[tuple[float, ...], ...]:
@@ -5217,7 +5240,7 @@ def _continuous_components(
         if branch.identity:
             continue
         if resolution is not None:
-            warn_if_unresolved(resolution, shifted[:, column], a)
+            warn_if_flat(resolution, shifted[:, column], a)
         _warn_outside_support(label, branch.cap, shifted[:, column], a)
     moved = np.asarray(shifted != a[:, None], dtype=bool)
     capped = np.column_stack([branch.held(a) for branch in branches])

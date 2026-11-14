@@ -18,44 +18,65 @@ Then
 .. math::
 
     P\bigl(b(A) = b \mid W\bigr)
-      = \lambda_b(W) \prod_{j < b} \bigl(1 - \lambda_j(W)\bigr),
-    \qquad
-    \hat g(a \mid W) = \frac{P(b(A) = b(a) \mid W)}{e_{b(a)+1} - e_{b(a)}} .
+      = \lambda_b(W) \prod_{j < b} \bigl(1 - \lambda_j(W)\bigr).
 
 Every :math:`\lambda_b` is a conditional probability of a binary event, so **one** binary
 classifier fit on a long ``(unit, bin)`` expansion estimates all of them at once.  That is
 why :data:`~cleverly._typing.Learner` needs no ``predict_density``: any scikit-learn
 classifier, any preset library, and :class:`~cleverly.learners.SuperLearner` itself serve
-here unchanged, and the Super Learner's negative log-likelihood on the long data *is* the
-discretised conditional log-likelihood up to the constant :math:`\log(e_{b+1} - e_b)`, so
-its model selection is genuinely selecting a density.
+here unchanged.  The Super Learner's negative log-likelihood on the long data is the
+discretised conditional log-likelihood of the bin masses, so its model selection selects
+bin masses; the reading below derives the density from them.
 
 The construction follows Diaz & van der Laan (2011).
 
-**What the bins cost, stated rather than hidden.**  A histogram density is constant within
-a bin.  A shift :math:`\delta` much smaller than a bin width therefore leaves
-:math:`\hat g(a - \delta \mid W) / \hat g(a \mid W)` at exactly one for most rows, and the
-intervention becomes invisible to the estimator -- not noisy, *invisible*.
-:attr:`DensityDiagnostics.crossing_fraction` reports the share of rows a shift actually
-moves across a bin edge, and a fit warns when it is small.  The bias is
-:math:`O(h)` in the smoothness of :math:`\log g`; the plain statement is that **the bin
-edges are the resolution at which a policy is legible.**
+**The grid.**  :func:`bin_edges` starts from ``K`` equal-mass bins, the *core*, and refines
+the outer ones.  A core bin wider than the mean width ``h`` of the interior core bins is cut
+into pieces no wider than ``h``.  An empty run of pieces longer than ``2 h`` and longer than
+the span of the :data:`TAIL_ROWS` observations beside it becomes one empty *gap* bin, and the
+other pieces are merged from the outside in until each holds at least
+``min(TAIL_ROWS, m)`` of the ``m`` observations of its stretch.  Core edges are never removed,
+so ``density_bins`` keeps meaning ``K``.  Equal-mass bins alone widen in the tails as ``n``
+grows (Diaz & van der Laan 2011, Section 2.2, relay Denby and Mallows: equal-area bins
+oversmooth the tails), and a density ratio read from them does not converge there.
+
+**The reading.**  The density is not read as a histogram.  For each row, take its bin
+probabilities :math:`p_b`, and, if the fit declares a support :math:`[l_i, u_i]`, each bin's
+*effective interval*, its intersection with that support (the whole bin otherwise).  Mass on
+bins wholly outside the support is dropped and the row rescaled to one.  A bin is *active*
+when it holds an observation of the sample the edges were read from (:attr:`occupied`), its
+effective interval has positive length, and :math:`p_b > 10^{-10}`.  A maximal run of active
+bins is a *segment*.  Inside a segment of two or more bins, :math:`\log \hat g` is the
+corrected log frequency polygon: linear between knots at the effective bin centres, with
+values :math:`c_b = \log(p_b / w_b) - \varphi(s_b w_b)`, where
+:math:`\varphi(x) = \log(\sinh(x/2) / (x/2))` turns a bin average into a point value under a
+local slope :math:`s_b`, and the knots are the fixed point of the slopes they imply.  The end
+half-bins continue the end secant (linear log tails, as in Kooperberg & Stone 1991,
+Section 2).  Each segment is rescaled to its total mass, so the total mass, the fitted
+hazards and the pooled likelihood are unchanged.  An inactive bin and a one-bin segment read
+:math:`p_b / w_b` on the effective interval.  The density is zero outside the edges and
+outside a declared support.  The reading is exact for a density that is exponential on a
+segment, and its local error is second order in the bin width where :math:`\log g` has a
+bounded second derivative.  How fast a ratio read this way converges is the package's own
+argument and is measured, not taken from a published theorem; the technical reference states
+it with its conditions.
 
 **Why the edges come from the whole sample.**  They discretise the *support*, and marginal
 quantiles of :math:`A` involve neither :math:`W` nor :math:`Y`, so the dependence they
 introduce is far weaker than the conditional fit the cross-fitting exists to protect.  The
 alternative -- edges per fold -- would give each fold its own grid, and the evaluated
 density could then no longer be one ``(n, B)`` matrix that
-:meth:`ConditionalDensity.density_at` reads by lookup.  Pass ``edges=`` to remove the
+:meth:`ConditionalDensity.density_at` reads row by row.  Pass ``edges=`` to remove the
 question entirely.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Protocol, overload
+from typing import Any, Protocol, cast, overload
 
 import numpy as np
 
@@ -75,9 +96,10 @@ __all__ = [
     "MixedDensity",
     "PredictionMemory",
     "bin_edges",
+    "bin_occupancy",
     "fit_conditional_density",
     "preflight_conditional_densities",
-    "warn_if_unresolved",
+    "warn_if_flat",
 ]
 
 #: Hazards are floored away from 0 and 1 before the log.  ``pyproject.toml`` turns a
@@ -85,10 +107,34 @@ __all__ = [
 #: classifier saturates is a build failure rather than a ``-inf`` that propagates.
 _HAZARD_EPS = 1e-12
 
-#: Below this share of rows moved across a bin edge, a shift is mostly invisible to a
-#: binned density and the fit says so.  Not a threshold with a derivation behind it -- it
-#: is the point at which most rows contribute a clever covariate of exactly one.
-_CROSSING_WARNING = 0.5
+#: Above this share of moved rows whose observed and moved dose share one flat bin, the
+#: ratio carries no information from the density for most rows and the fit says so.  Not a
+#: threshold with a derivation behind it: it is the point at which most moved rows read a
+#: ratio fixed by the bin alone (exactly one for a shift).
+_FLAT_WARNING = 0.5
+
+#: The fewest observations a refined outer bin holds, where its stretch has that many.  A bin
+#: probability estimated from ``m`` rows has a relative standard error of about
+#: ``1 / sqrt(m)``, 22% at 20 rows, and the outer bins are where a density ratio weights that
+#: error most.
+TAIL_ROWS = 20
+
+#: A bin whose probability is at most this is inactive for its row and breaks the row's
+#: segment.  Hazards are clipped to ``[1e-12, 1 - 1e-12]`` (:data:`_HAZARD_EPS`), so a bin
+#: outside a row's support, or past the bin where its hazard reaches the upper clip, carries
+#: at most about ``1e-12`` of the row's mass; the floor sits a factor of 100 above that.
+_ACTIVE_FLOOR = 1e-10
+
+#: The knots of a row are iterated until no knot moves by more than this, in log units.
+_KNOT_TOLERANCE = 1e-10
+
+#: The most passes of the knot iteration.  A row still moving at the cap keeps its capped
+#: iterate; segment masses are exact either way, because each segment is rescaled after.
+_KNOT_PASSES = 200
+
+#: The reading works on blocks of rows of about this many ``(row, bin)`` entries, which
+#: bounds its temporaries at a few tens of megabytes whatever ``n`` and ``B`` are.
+_BLOCK_ENTRIES = 500_000
 
 
 #: The smallest default bin count, the count every fit used before the default grew with n.
@@ -160,6 +206,8 @@ def _refuse_unaffordable(
     concurrent: int = 1,
     retained: int = 0,
     designs: int = 0,
+    table_at: Callable[[int], int] | None = None,
+    core: int | None = None,
 ) -> None:
     """Refuse a hazard design larger than the available memory, before it is allocated.
 
@@ -167,8 +215,12 @@ def _refuse_unaffordable(
     is the number of parallel workers of a cross-fitted fit.  ``retained`` is the bytes that
     stay allocated beside the table, such as the evaluated densities of the earlier
     components of a vector node.  A refusal names the design's size, the memory available,
-    and the largest bin count whose design fits in half of it.  Where the platform reports no
-    available memory, nothing is checked.
+    and the largest core count (``density_bins``) whose design fits in half of it.  Where the
+    platform reports no available memory, nothing is checked.
+
+    ``table_at`` gives the bytes of the table at a core count, on the refined grid that count
+    gives the same rows (:func:`bin_edges`), and ``core`` is the core count of this grid.
+    Without them the advice falls back to :func:`hazard_design_bytes` at ``n_bins``.
 
     ``designs`` is the bytes the counterfactual predictions of a vector node hold beside the
     table (:class:`PredictionMemory`), which no bin count changes.  When they alone exceed
@@ -179,14 +231,28 @@ def _refuse_unaffordable(
     needed = table * concurrent + retained + designs
     if free is None or needed <= free:
         return
-    fits = [
-        k
-        for k in range(2, n_bins)
-        if hazard_design_bytes(n, k, n_covariates, index_only=index_only) * concurrent
-        + retained
-        + designs
-        <= free // 2
-    ]
+
+    def bytes_at(k: int) -> int:
+        if table_at is None:
+            return hazard_design_bytes(n, k, n_covariates, index_only=index_only)
+        return table_at(k)
+
+    def affordable(k: int) -> bool:
+        return bytes_at(k) * concurrent + retained + designs <= free // 2
+
+    # The table grows with the core count, so the largest affordable count is found by
+    # bisection; each candidate's refined grid is computed before its memory is quoted.
+    top = (n_bins if core is None else core) - 1
+    fits: list[int] = []
+    if top >= 2 and affordable(2):
+        low, high = 2, top
+        while low < high:
+            middle = (low + high + 1) // 2
+            if affordable(middle):
+                low = middle
+            else:
+                high = middle - 1
+        fits = [low]
     advice = (
         f"Pass density_bins={max(fits)} or fewer, whose design takes at most half of it."
         if fits
@@ -217,19 +283,8 @@ def _refuse_unaffordable(
     )
 
 
-def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> FloatArray:
-    """Equal-mass bin edges for ``values``: ``n_bins + 1`` of them, strictly increasing.
-
-    Empirical quantiles, so each bin holds about the same number of observations rather
-    than the same width.  That is the right default for a density whose tails are the
-    part positivity depends on: equal-width bins put almost no data in the tails, and the
-    hazard there is then estimated from a handful of rows.
-
-    Ties can make two quantiles coincide; duplicates are dropped and the bin count falls,
-    which is reported rather than worked around.  ``name`` is the column the values belong
-    to, which a refusal names; a vector node fits one density per continuous component.
-    """
-    a = np.asarray(values, dtype=float).reshape(-1)
+def _equal_mass_edges(a: FloatArray, n_bins: int, name: str | None) -> FloatArray:
+    """Equal-mass edges: empirical quantiles, duplicates dropped, outer edges padded."""
     if n_bins < 2:
         raise DataError(f"a binned density needs at least 2 bins; got {n_bins}")
     quantiles = np.linspace(0.0, 1.0, n_bins + 1)
@@ -251,6 +306,464 @@ def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> Fl
     return np.asarray(edges, dtype=float)
 
 
+def _count(ordered: FloatArray, lower: float, upper: float) -> int:
+    """How many sorted values lie in the closed interval ``[lower, upper]``."""
+    return int(
+        np.searchsorted(ordered, upper, side="right") - np.searchsorted(ordered, lower, side="left")
+    )
+
+
+def _merge_stretch(ordered: FloatArray, cuts: FloatArray, upper: bool) -> list[float]:
+    """The inner cuts of one non-empty stretch that survive the :data:`TAIL_ROWS` floor.
+
+    The stretch is merged from its outer end inward: a bin closes once it holds at least
+    ``min(TAIL_ROWS, m)`` of the stretch's ``m`` observations, and a short remainder at the
+    inner end joins the last closed bin.
+    """
+    lower, higher = float(cuts[0]), float(cuts[-1])
+    need = min(TAIL_ROWS, _count(ordered, lower, higher))
+    inner = [float(cut) for cut in cuts[1:-1]]
+    sequence = inner[::-1] if upper else inner
+    kept: list[float] = []
+    start = higher if upper else lower
+    for cut in sequence:
+        held = _count(ordered, cut, start) if upper else _count(ordered, start, cut)
+        if held >= need:
+            kept.append(cut)
+            start = cut
+    if kept:
+        end = lower if upper else higher
+        rest = _count(ordered, end, kept[-1]) if upper else _count(ordered, kept[-1], end)
+        if rest < need:
+            kept.pop()
+    return kept
+
+
+def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
+    """The outer refinement of an equal-mass core: width cap, gap bins and the row floor."""
+    k = core.size - 1
+    if k < 3:
+        return core
+    h = float(core[k - 1] - core[1]) / (k - 2)
+    if not h > 0.0:
+        return core
+    ordered = np.sort(a)
+    median = float(np.median(a))
+    out = [float(core[0])]
+    for lower, higher in itertools.pairwise(core):
+        parts = math.ceil((higher - lower) / h - 1e-9)
+        if parts <= 1:
+            out.append(float(higher))
+            continue
+        cuts = np.linspace(lower, higher, parts + 1)
+        # Each piece is half open on the right, as a bin is, except the last.
+        counts = np.array(
+            [
+                _count(ordered, x, y) - (0 if j == parts - 1 else _count(ordered, y, y))
+                for j, (x, y) in enumerate(itertools.pairwise(cuts))
+            ]
+        )
+        upper = 0.5 * (lower + higher) > median
+        stretches: list[tuple[str, int, int]] = []
+        start = 0
+        j = 0
+        while j < parts:
+            if counts[j] > 0:
+                j += 1
+                continue
+            stop = j
+            while stop < parts and counts[stop] == 0:
+                stop += 1
+            x0, x1 = float(cuts[j]), float(cuts[stop])
+            # The span of the TAIL_ROWS observations next to the run on its inner side: an
+            # empty run shorter than that is ordinary spacing in a thinning tail, not a gap.
+            if upper:
+                below = int(np.searchsorted(ordered, x0, side="right"))
+                local = x0 - float(ordered[max(below - TAIL_ROWS, 0)])
+            else:
+                above = int(np.searchsorted(ordered, x1, side="left"))
+                local = float(ordered[min(above + TAIL_ROWS - 1, ordered.size - 1)]) - x1
+            if x1 - x0 > 2.0 * h and x1 - x0 > local:
+                if j > start:
+                    stretches.append(("data", start, j))
+                stretches.append(("gap", j, stop))
+                start = stop
+            j = stop
+        if parts > start:
+            stretches.append(("data", start, parts))
+        for kind, first, last in stretches:
+            piece = cuts[first : last + 1]
+            out.extend([float(piece[0]), float(piece[-1])])
+            if kind == "data":
+                out.extend(_merge_stretch(ordered, piece, upper))
+        out.append(float(higher))
+    return np.asarray(np.unique(np.asarray(out, dtype=float)), dtype=float)
+
+
+def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> FloatArray:
+    """The bin edges of a binned density: an equal-mass core of ``n_bins`` bins, refined outside.
+
+    The core is the empirical quantiles, so each core bin holds about the same number of
+    observations.  Ties can make two quantiles coincide; duplicates are dropped and the core
+    count falls, which is reported rather than worked around.  Equal-mass bins widen in the
+    tails as the sample grows, so the outer core bins are refined:
+
+    - a core bin wider than ``h``, the mean width of the interior core bins, is cut into equal
+      pieces no wider than ``h``;
+    - a run of pieces holding no observation becomes one empty *gap* bin when it is longer
+      than ``2 h`` and longer than the span of the :data:`TAIL_ROWS` observations next to it
+      on its inner side;
+    - the other pieces are merged from the outer end inward until each bin holds at least
+      ``min(TAIL_ROWS, m)`` of the ``m`` observations of its stretch.
+
+    Core edges are never removed, so the grid has at least ``n_bins`` bins, and a core bin
+    that is not split keeps its share of the rows.  ``name`` is the column the values belong
+    to, which a refusal names; a vector node fits one density per continuous component.
+
+    Parameters
+    ----------
+    values : ndarray
+        The doses the grid is read from.
+    n_bins : int
+        The core count ``K``.
+    name : str or None
+        The dose's name, for the refusal.
+
+    Returns
+    -------
+    ndarray
+        Strictly increasing edges, at least ``n_bins + 1`` of them when no quantiles tie.
+
+    Raises
+    ------
+    DataError
+        If fewer than two core bins survive the ties, or ``n_bins`` is below two.
+    """
+    a = np.asarray(values, dtype=float).reshape(-1)
+    return _refine(a, _equal_mass_edges(a, n_bins, name))
+
+
+def bin_occupancy(values: FloatArray, edges: FloatArray) -> BoolArray:
+    """The ``(B,)`` mask of bins that hold at least one of ``values``.
+
+    A bin holds a value in ``[e_b, e_{b+1})``, and the last bin holds its upper edge too, as
+    the density fit assigns rows to bins.  Values outside the edges are ignored.
+
+    Parameters
+    ----------
+    values : ndarray
+        The doses the edges were read from.
+    edges : ndarray
+        ``(B + 1,)`` bin edges.
+
+    Returns
+    -------
+    ndarray
+        ``(B,)`` booleans.
+    """
+    a = np.asarray(values, dtype=float).reshape(-1)
+    e = np.asarray(edges, dtype=float)
+    inside = a[(a >= e[0]) & (a <= e[-1])]
+    index = np.clip(np.digitize(inside, e) - 1, 0, e.size - 2)
+    return np.asarray(np.bincount(index, minlength=e.size - 1) > 0, dtype=bool)
+
+
+# ------------------------------------------------------------------- the reading
+
+
+def _phi(x: FloatArray) -> FloatArray:
+    """``log(sinh(x/2) / (x/2))``: the log-average of ``exp(s (a - m))`` over a bin, ``x = s w``."""
+    half = np.abs(np.asarray(x, dtype=float)) * 0.5
+    small = half < 5e-3
+    large = half > 300.0
+    middle = np.where(small | large, 1.0, half)
+    out = np.log(np.sinh(middle) / middle)
+    if small.any():
+        h2 = half[small] ** 2
+        out[small] = h2 / 6.0 - h2 * h2 / 180.0 + h2 * h2 * h2 / 2835.0
+    if large.any():
+        out[large] = half[large] - np.log(2.0 * half[large])
+    return np.asarray(out, dtype=float)
+
+
+def _exp_integral(start: FloatArray, slope: FloatArray, length: FloatArray) -> FloatArray:
+    """``int_0^length exp(start + slope x) dx``, stable as ``slope * length`` goes to zero."""
+    z = slope * length
+    small = np.abs(z) < 1e-8
+    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        relative = np.where(small, 1.0 + 0.5 * z, np.expm1(z) / np.where(small, 1.0, z))
+        out = np.exp(start) * length * relative
+    return np.asarray(np.where(length > 0.0, out, 0.0), dtype=float)
+
+
+@dataclass(frozen=True)
+class _Knots:
+    """The reading of a block of rows: knot values, secants, links and the projection.
+
+    ``value`` holds each bin's knot after the segment rescale (zero off multi-bin segments),
+    ``secant`` the slope between two linked knots, and ``link`` whether bins ``b`` and
+    ``b + 1`` lie in one segment of the row.  ``scale`` is the support projection's row
+    factor: a bin's projected probability is its probability over ``scale`` inside the
+    row's support.
+    """
+
+    probabilities: FloatArray
+    edges: FloatArray
+    lower: FloatArray | None
+    upper: FloatArray | None
+    value: FloatArray
+    secant: FloatArray
+    link: BoolArray
+    scale: FloatArray
+    passes: int
+    capped: int
+
+    @property
+    def nbytes(self) -> int:
+        return int(self.value.nbytes + self.secant.nbytes + self.link.nbytes + self.scale.nbytes)
+
+    def take(self, rows: IntArray, index: IntArray) -> dict[str, FloatArray]:
+        """Per-row arrays at bins ``index`` (one bin per entry of ``rows``)."""
+        e = self.edges
+        n_bins = e.size - 1
+        left = e[index]
+        right = e[index + 1]
+        if self.lower is not None:
+            left = np.maximum(left, self.lower[rows])
+        if self.upper is not None:
+            right = np.minimum(right, self.upper[rows])
+        width = np.clip(right - left, 0.0, None)
+        linked_left = np.where(index > 0, self.link[rows, np.maximum(index - 1, 0)], False)
+        linked_right = np.where(
+            index < n_bins - 1, self.link[rows, np.minimum(index, n_bins - 2)], False
+        )
+        secant_left = np.where(linked_left, self.secant[rows, np.maximum(index - 1, 0)], 0.0)
+        secant_right = np.where(linked_right, self.secant[rows, np.minimum(index, n_bins - 2)], 0.0)
+        probability = self.probabilities[rows, index] / self.scale[rows]
+        probability = np.where(width > 0.0, probability, 0.0)
+        return {
+            "left": left,
+            "right": right,
+            "width": width,
+            "centre": 0.5 * (left + right),
+            "multi": linked_left | linked_right,
+            "value": self.value[rows, index],
+            "slope_left": np.where(linked_left, secant_left, secant_right),
+            "slope_right": np.where(linked_right, secant_right, secant_left),
+            "flat": probability / np.where(width > 0.0, width, 1.0),
+        }
+
+
+def _effective(
+    edges: FloatArray, lower: FloatArray | None, upper: FloatArray | None, n: int
+) -> tuple[FloatArray, FloatArray]:
+    left = np.broadcast_to(edges[:-1], (n, edges.size - 1))
+    right = np.broadcast_to(edges[1:], (n, edges.size - 1))
+    if lower is not None:
+        left = np.maximum(left, lower[:, None])
+    if upper is not None:
+        right = np.minimum(right, upper[:, None])
+    return np.asarray(left, dtype=float), np.asarray(right, dtype=float)
+
+
+def _knots(
+    probabilities: FloatArray,
+    edges: FloatArray,
+    occupied: BoolArray,
+    lower: FloatArray | None = None,
+    upper: FloatArray | None = None,
+    *,
+    floor: float = _ACTIVE_FLOOR,
+    passes: int = _KNOT_PASSES,
+) -> _Knots:
+    """The corrected log polygon of each row's bin probabilities (the module docstring)."""
+    p = np.asarray(probabilities, dtype=float)
+    n, n_bins = p.shape
+    e = np.asarray(edges, dtype=float)
+    left, right = _effective(e, lower, upper, n)
+    width = np.clip(right - left, 0.0, None)
+    supported = width > 0.0
+    scale = np.ones(n)
+    if lower is not None or upper is not None:
+        total = np.where(supported, p, 0.0).sum(axis=1)
+        scale = np.where(total > 0.0, total, 1.0)
+    projected = np.where(supported, p, 0.0) / scale[:, None]
+    active = np.asarray(occupied, dtype=bool)[None, :] & supported & (projected > floor)
+    safe_width = np.where(supported, width, 1.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        level = np.where(active, np.log(np.where(active, projected, 1.0) / safe_width), 0.0)
+    centre = 0.5 * (left + right)
+    link = active[:, :-1] & active[:, 1:]
+    gap = np.where(link, centre[:, 1:] - centre[:, :-1], 1.0)
+    has_left = np.zeros((n, n_bins), dtype=bool)
+    has_right = np.zeros((n, n_bins), dtype=bool)
+    has_left[:, 1:] = link
+    has_right[:, :-1] = link
+    # The slope map: an interior bin averages its two secants, an end bin of a segment takes
+    # the secant to its one neighbour, and a bin outside every segment has no slope.
+    from_left_weight = np.where(has_left, np.where(has_right, 0.5, 1.0), 0.0)
+    from_right_weight = np.where(has_right, np.where(has_left, 0.5, 1.0), 0.0)
+    inverse_gap = np.where(link, 1.0 / gap, 0.0)
+    slope = np.zeros((n, n_bins))
+    todo = np.flatnonzero(link.any(axis=1))
+    work_level, work_width = level[todo], width[todo]
+    work_gap = inverse_gap[todo]
+    work_left, work_right = from_left_weight[todo][:, 1:], from_right_weight[todo][:, :-1]
+    work_slope = np.zeros((todo.size, n_bins))
+    previous = np.full((todo.size, n_bins), np.inf)
+    used = 0
+    while todo.size and used < passes:
+        used += 1
+        knot = work_level - _phi(work_slope * work_width)
+        secant = np.diff(knot, axis=1) * work_gap
+        work_slope = np.zeros_like(knot)
+        work_slope[:, 1:] += work_left * secant
+        work_slope[:, :-1] += work_right * secant
+        moving = np.max(np.abs(knot - previous), axis=1) > _KNOT_TOLERANCE
+        previous = knot
+        if not moving.all():
+            slope[todo[~moving]] = work_slope[~moving]
+            todo = todo[moving]
+            work_level, work_width = work_level[moving], work_width[moving]
+            work_gap, work_slope = work_gap[moving], work_slope[moving]
+            work_left, work_right = work_left[moving], work_right[moving]
+            previous = previous[moving]
+    slope[todo] = work_slope
+    capped = int(todo.size)
+    knot = np.where(active, level - _phi(slope * width), 0.0)
+    secant = np.where(link, np.diff(knot, axis=1) / gap, 0.0)
+    from_left = np.zeros((n, n_bins))
+    from_right = np.zeros((n, n_bins))
+    from_left[:, 1:] = secant
+    from_right[:, :-1] = secant
+    multi = has_left | has_right
+    slope_left = np.where(has_left, from_left, from_right)
+    slope_right = np.where(has_right, from_right, from_left)
+    mass = _exp_integral(knot, -slope_left, centre - left) + _exp_integral(
+        knot, slope_right, right - centre
+    )
+    # Segment ids: a new segment starts wherever a bin is not linked to its left neighbour.
+    segment = np.cumsum(~has_left, axis=1) - 1
+    flat_index = (np.arange(n)[:, None] * n_bins + segment).ravel()
+    integral = np.bincount(flat_index, np.where(multi, mass, 0.0).ravel(), minlength=n * n_bins)
+    held = np.bincount(flat_index, np.where(multi, projected, 0.0).ravel(), minlength=n * n_bins)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shift = np.log(held) - np.log(integral)
+    shift = np.where(np.isfinite(shift), shift, 0.0)
+    value = np.where(multi, knot + shift[flat_index].reshape(n, n_bins), 0.0)
+    return _Knots(p, e, lower, upper, value, secant, link, scale, used, capped)
+
+
+def _knots_by_block(
+    probabilities: FloatArray,
+    edges: FloatArray,
+    occupied: BoolArray,
+    lower: FloatArray | None,
+    upper: FloatArray | None,
+) -> _Knots:
+    """:func:`_knots` a block of rows at a time; every step is row-wise, so the values agree."""
+    p = np.asarray(probabilities, dtype=float)
+    n, n_bins = p.shape
+    block = max(1, _BLOCK_ENTRIES // max(n_bins, 1))
+    if n <= block:
+        return _knots(p, edges, occupied, lower, upper)
+    parts = [
+        _knots(
+            p[start : start + block],
+            edges,
+            occupied,
+            None if lower is None else lower[start : start + block],
+            None if upper is None else upper[start : start + block],
+        )
+        for start in range(0, n, block)
+    ]
+    return _Knots(
+        p,
+        np.asarray(edges, dtype=float),
+        lower,
+        upper,
+        np.vstack([part.value for part in parts]),
+        np.vstack([part.secant for part in parts]),
+        np.vstack([part.link for part in parts]),
+        np.concatenate([part.scale for part in parts]),
+        max(part.passes for part in parts),
+        sum(part.capped for part in parts),
+    )
+
+
+def _read(knots: _Knots, values: FloatArray) -> FloatArray:
+    """The reading at ``(n, m)`` values, one row of values per row of the knots."""
+    e = knots.edges
+    n = knots.value.shape[0]
+    v = np.asarray(values, dtype=float).reshape(n, -1)
+    rows = np.repeat(np.arange(n), v.shape[1])
+    flat = v.ravel()
+    finite = np.isfinite(flat)
+    safe = np.where(finite, flat, e[0])
+    index = np.clip(np.searchsorted(e, safe, side="right") - 1, 0, e.size - 2)
+    at = knots.take(rows, index)
+    inside = finite & (safe >= e[0]) & (safe <= e[-1])
+    inside &= (safe >= at["left"]) & (safe <= at["right"]) & (at["width"] > 0.0)
+    slope = np.where(safe >= at["centre"], at["slope_right"], at["slope_left"])
+    with np.errstate(over="ignore"):
+        polygon = np.exp(at["value"] + slope * (safe - at["centre"]))
+    out = np.where(at["multi"], polygon, at["flat"])
+    out = np.where(inside & np.isfinite(out), out, 0.0)
+    return np.asarray(out.reshape(v.shape), dtype=float)
+
+
+def _mass(knots: _Knots, lower: FloatArray, upper: FloatArray) -> FloatArray:
+    """``int_lower^upper`` of the reading, per row; zero where ``upper <= lower``."""
+    n, n_bins = knots.value.shape
+    lo = np.broadcast_to(np.asarray(lower, dtype=float).reshape(-1), (n,))
+    hi = np.broadcast_to(np.asarray(upper, dtype=float).reshape(-1), (n,))
+    out = np.zeros(n)
+    block = max(1, _BLOCK_ENTRIES // max(n_bins, 1))
+    columns = np.arange(n_bins)
+    for start in range(0, n, block):
+        rows = np.arange(start, min(n, start + block))
+        k = rows.size
+        r = np.repeat(rows, n_bins)
+        at = knots.take(r, np.tile(columns, k))
+        a = np.repeat(lo[rows], n_bins)
+        b = np.repeat(hi[rows], n_bins)
+        x0 = np.clip(np.maximum(a, at["left"]), at["left"], at["right"])
+        x1 = np.clip(np.minimum(b, at["right"]), at["left"], at["right"])
+        length = np.clip(x1 - x0, 0.0, None)
+        centre = at["centre"]
+        # The left half [left, centre] and the right half [centre, right] of a multi bin.
+        l0, l1 = x0, np.minimum(x1, centre)
+        r0, r1 = np.maximum(x0, centre), x1
+        start_left = at["value"] + at["slope_left"] * (l0 - centre)
+        start_right = at["value"] + at["slope_right"] * (r0 - centre)
+        polygon = _exp_integral(
+            start_left, at["slope_left"], np.clip(l1 - l0, 0.0, None)
+        ) + _exp_integral(start_right, at["slope_right"], np.clip(r1 - r0, 0.0, None))
+        piece = np.where(at["multi"], polygon, at["flat"] * length)
+        out[rows] = np.sum(np.where(length > 0.0, piece, 0.0).reshape(k, n_bins), axis=1)
+    return np.asarray(np.where(hi > lo, out, 0.0), dtype=float)
+
+
+def _check_support(
+    support: tuple[FloatArray, FloatArray] | None, n: int
+) -> tuple[FloatArray, FloatArray] | None:
+    if support is None:
+        return None
+    lower = np.asarray(support[0], dtype=float).reshape(-1)
+    upper = np.asarray(support[1], dtype=float).reshape(-1)
+    if lower.shape != (n,) or upper.shape != (n,):
+        raise ValueError(
+            f"a declared support needs (lower, upper) of shape ({n},); got "
+            f"{lower.shape} and {upper.shape}"
+        )
+    # A row with no bound (NaN, such as a row that does not hold the node) is unbounded.
+    lower = np.where(np.isnan(lower), -np.inf, lower)
+    upper = np.where(np.isnan(upper), np.inf, upper)
+    if np.any(np.logical_not(lower < upper)):
+        raise ValueError("a declared support needs lower < upper on every row")
+    return lower, upper
+
+
 @dataclass(frozen=True)
 class DensityDiagnostics:
     """What the density fit looked like, for the report and for the positivity check.
@@ -270,6 +783,10 @@ class DensityDiagnostics:
         modelling matter.
     learner : tuple of SuperLearnerDiagnostics
         Per-fold Super Learner diagnostics, empty when the learner is not an ensemble.
+    knot_passes : tuple of int
+        ``(passes, capped)`` of the reading's knot iteration: the most passes any row
+        needed, and the rows still moving at the cap of 200, which keep their capped
+        iterate with exact segment masses.
     """
 
     n_bins: int
@@ -277,6 +794,7 @@ class DensityDiagnostics:
     min_density: float
     integrated: tuple[float, float]
     learner: tuple[SuperLearnerDiagnostics, ...] = ()
+    knot_passes: tuple[int, int] = (0, 0)
 
 
 @dataclass(frozen=True)
@@ -286,14 +804,15 @@ class ConditionalDensity:
     Like :class:`~cleverly.interventions.RegimeSet`, this holds *evaluated arrays and no
     callables*.  The density is estimated once, out of fold, and stored as the ``(n, B)``
     matrix :math:`P(b(A) = b \\mid W_i)`; every later evaluation -- at the observed
-    treatment, at a shifted one, at a grid for a plot -- is a **lookup into row** ``i``,
-    not a model call.
+    treatment, at a shifted one, at a grid for a plot -- reads row ``i`` by the corrected
+    log polygon of the module docstring, not a model call.
 
     That is not only an efficiency: it is what makes "``g(A | W)`` and ``g(A - delta | W)``
     come from the same out-of-fold model" a structural fact rather than an invariant
     somebody has to maintain.  It is also what lets a fit survive
     :func:`~cleverly.load`, a bootstrap resample and every
-    :meth:`~cleverly.estimators.TMLE.retarget` without the learner being refit.
+    :meth:`~cleverly.estimators.TMLE.retarget` without the learner being refit.  The knots of
+    the reading are computed once per instance and are not saved with it.
 
     Parameters
     ----------
@@ -301,10 +820,18 @@ class ConditionalDensity:
         ``(n, B)``, rows summing to one.  Out-of-fold predictions.
     edges : ndarray
         ``(B + 1,)`` bin boundaries, strictly increasing.
+    occupied : ndarray
+        ``(B,)`` booleans: the bins that hold an observation of the sample the edges were
+        read from.  An empty bin breaks every row's segment.
+    support : tuple of ndarray or None
+        The declared support ``(lower, upper)`` on each row, or ``None``.  The density is
+        read over each bin's intersection with the row's support and is zero outside it.
     """
 
     bin_probabilities: FloatArray
     edges: FloatArray
+    occupied: BoolArray
+    support: tuple[FloatArray, FloatArray] | None = None
 
     def __post_init__(self) -> None:
         p = np.asarray(self.bin_probabilities, dtype=float)
@@ -317,6 +844,27 @@ class ConditionalDensity:
             )
         if np.any(np.diff(e) <= 0.0):
             raise ValueError("bin edges must be strictly increasing")
+        occupied = np.asarray(self.occupied)
+        if occupied.shape != (p.shape[1],) or occupied.dtype != bool:
+            raise ValueError(
+                f"occupied must be a boolean mask of shape ({p.shape[1]},); got "
+                f"{occupied.dtype} of shape {occupied.shape}"
+            )
+        object.__setattr__(self, "support", _check_support(self.support, p.shape[0]))
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state.pop("_reading", None)
+        return state
+
+    def _knots(self) -> _Knots:
+        """The reading's knots, computed once per instance."""
+        found = self.__dict__.get("_reading")
+        if found is None:
+            lower, upper = (None, None) if self.support is None else self.support
+            found = _knots_by_block(self.bin_probabilities, self.edges, self.occupied, lower, upper)
+            object.__setattr__(self, "_reading", found)
+        return cast(_Knots, found)
 
     # ------------------------------------------------------------------ access
 
@@ -342,12 +890,17 @@ class ConditionalDensity:
         return np.asarray(np.diff(self.edges), dtype=float)
 
     @property
-    def support(self) -> tuple[float, float]:
-        """``(lower, upper)`` -- the range the density is nonzero on."""
-        return float(self.edges[0]), float(self.edges[-1])
+    def knot_passes(self) -> tuple[int, int]:
+        """``(passes, capped)``: the knot iteration's passes and the rows left at its cap.
+
+        A row still moving after the cap keeps its capped iterate.  Its segment masses are
+        exact either way, because each segment is rescaled to its total probability.
+        """
+        knots = self._knots()
+        return knots.passes, knots.capped
 
     def bin_of(self, values: FloatArray) -> IntArray:
-        """Which bin each value falls in; ``-1`` outside the support.
+        """Which bin each value falls in; ``-1`` outside the edges.
 
         ``-1`` rather than a clamp, so a caller that evaluates outside the observed range
         gets a zero density and can see that it did, instead of silently reading the
@@ -361,7 +914,7 @@ class ConditionalDensity:
         Returns
         -------
         ndarray
-            ``(n,)`` bin index per row, and ``-1`` where the value is outside the support.
+            ``(n,)`` bin index per row, and ``-1`` where the value is outside the edges.
         """
         a = np.asarray(values, dtype=float).reshape(-1)
         index = np.digitize(a, self.edges) - 1
@@ -372,8 +925,9 @@ class ConditionalDensity:
     def density_at(self, values: FloatArray) -> FloatArray:
         """:math:`\\hat g(a_i \\mid W_i)` for one value per row; zero outside the support.
 
-        A pure lookup into :attr:`bin_probabilities`, so this can be called as often as an
-        estimand needs without refitting anything.
+        The corrected log polygon of row ``i``'s bin probabilities (the module docstring),
+        evaluated at ``values[i]``.  The knots are computed on the first call and kept, so
+        this can be called as often as an estimand needs without refitting anything.
 
         Parameters
         ----------
@@ -383,38 +937,62 @@ class ConditionalDensity:
         Returns
         -------
         ndarray
-            ``(n,)`` density at those values, and zero outside the support.
+            ``(n,)`` density at those values, and zero outside the edges and outside a
+            declared support.
         """
         a = np.asarray(values, dtype=float).reshape(-1)
         if a.size != self.n:
             raise ValueError(f"density_at needs one value per row: got {a.size} for {self.n} rows")
-        index = self.bin_of(a)
-        inside = index >= 0
-        safe = np.where(inside, index, 0)
-        probability = self.bin_probabilities[np.arange(self.n), safe]
-        density = probability / self.widths[safe]
-        return np.asarray(np.where(inside, density, 0.0), dtype=float)
+        return _read(self._knots(), a).reshape(-1)
+
+    def mass_between(self, lower: FloatArray, upper: FloatArray) -> FloatArray:
+        """``(n,)`` values of :math:`\\int_{l_i}^{u_i} \\hat g(a \\mid W_i)\\, da`, in closed form.
+
+        The reading is exponential-linear on each half of a bin, so the integral is a sum of
+        closed forms over the pieces ``[lower, upper]`` overlaps.
+
+        Parameters
+        ----------
+        lower : ndarray
+            ``(n,)`` lower end per row, or a scalar.
+        upper : ndarray
+            ``(n,)`` upper end per row, or a scalar.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` probability per row; zero where ``upper <= lower``.
+        """
+        return _mass(self._knots(), lower, upper)
 
     def integrated(self) -> FloatArray:
         """``(n,)`` values of :math:`\\int \\hat g(a \\mid W_i)\\, da`, which must all be one.
 
-        The hazard product is constructed to sum to one exactly, so this is a check on the
-        arithmetic rather than on the model; it is reported because a silent failure here
-        would rescale every clever covariate by an amount no other diagnostic would see.
+        Each segment of the reading keeps its total probability, and mass outside a
+        declared support is projected away, so this is a check on the arithmetic rather than
+        on the model; it is reported because a silent failure here would rescale every
+        clever covariate by an amount no other diagnostic would see.
 
         Returns
         -------
         ndarray
             ``(n,)`` integral of the fitted density over the support, per row.
         """
-        return np.asarray(self.bin_probabilities.sum(axis=1), dtype=float)
+        knots = self._knots()
+        p = np.asarray(self.bin_probabilities, dtype=float)
+        if self.support is None:
+            return np.asarray(p.sum(axis=1), dtype=float)
+        left, right = _effective(knots.edges, knots.lower, knots.upper, self.n)
+        inside = np.where(right > left, p, 0.0).sum(axis=1)
+        return np.asarray(inside / knots.scale, dtype=float)
 
-    def crossing_fraction(self, shifted: FloatArray, observed: FloatArray) -> float:
-        """Share of rows a shift actually moves into a different bin.
+    def flat_fraction(self, shifted: FloatArray, observed: FloatArray) -> float:
+        """Share of moved rows whose observed and moved dose fall in one flat bin.
 
-        The resolution guard described in the module docstring: a shift that moves nobody
-        across an edge has a clever covariate of exactly one everywhere and estimates
-        nothing, however clean the fit looks.
+        A bin is *flat* for a row when the reading is constant on it: an empty bin, a bin
+        with almost no mass, or a one-bin segment.  Where both doses share such a bin, the
+        density ratio carries no information from the density (for a shift it is exactly
+        one there, for ``Scale(c)`` it is ``1 / c``).
 
         Parameters
         ----------
@@ -426,15 +1004,26 @@ class ConditionalDensity:
         Returns
         -------
         float
-            Share of rows whose shifted dose falls in a different bin. A shift that
-            moves nobody across a bin boundary is invisible to a binned density.
+            The share among rows whose dose moves; zero when no dose moves.
         """
-        return float(np.mean(self.bin_of(shifted) != self.bin_of(observed)))
+        moved_to = np.asarray(shifted, dtype=float).reshape(-1)
+        a = np.asarray(observed, dtype=float).reshape(-1)
+        moved = moved_to != a
+        if not moved.any():
+            return 0.0
+        here = self.bin_of(a)
+        there = self.bin_of(moved_to)
+        same = moved & (here >= 0) & (here == there)
+        if not same.any():
+            return 0.0
+        rows = np.flatnonzero(same)
+        multi = self._knots().take(rows, here[rows])["multi"]
+        return float(np.count_nonzero(np.logical_not(multi)) / np.count_nonzero(moved))
 
     def subset(self, index: Any) -> ConditionalDensity:
         """The same density on a row subset -- a bootstrap resample, a validation fold.
 
-        The rows are sliced and the edges kept, exactly as
+        The rows are sliced and the edges and occupancy kept, exactly as
         :meth:`~cleverly.interventions.RegimeSet.subset` slices its densities: re-deriving
         the edges from the resample would give the subset a different discretisation from
         the fit it is meant to be a replicate of.
@@ -452,7 +1041,8 @@ class ConditionalDensity:
         idx = np.asarray(index)
         if idx.dtype == bool:
             idx = np.flatnonzero(idx)
-        return replace(self, bin_probabilities=self.bin_probabilities[idx])
+        support = None if self.support is None else (self.support[0][idx], self.support[1][idx])
+        return replace(self, bin_probabilities=self.bin_probabilities[idx], support=support)
 
 
 @dataclass(frozen=True)
@@ -553,8 +1143,8 @@ class MixedDensity:
     def mass_between(self, lower: FloatArray, upper: FloatArray) -> FloatArray:
         r"""The probability that the dose has no atom and lies in ``[lower, upper]``, per row.
 
-        :math:`(1 - \sum_k p_k(h_i)) \int_{l_i}^{u_i} f(s \mid h_i)\,ds`.  The binned
-        density is constant within a bin, so a partial bin adds its linear share.
+        :math:`(1 - \sum_k p_k(h_i)) \int_{l_i}^{u_i} f(s \mid h_i)\,ds`, with the integral
+        of the continuous part in closed form (:meth:`ConditionalDensity.mass_between`).
 
         Parameters
         ----------
@@ -570,13 +1160,7 @@ class MixedDensity:
         """
         if self.continuous is None:
             return np.zeros(self.n)
-        lo = np.broadcast_to(np.asarray(lower, dtype=float).reshape(-1), (self.n,))
-        hi = np.broadcast_to(np.asarray(upper, dtype=float).reshape(-1), (self.n,))
-        edges = self.continuous.edges
-        left = np.maximum(lo[:, None], edges[None, :-1])
-        right = np.minimum(hi[:, None], edges[None, 1:])
-        share = np.clip(right - left, 0.0, None) / self.continuous.widths[None, :]
-        mass = np.sum(self.continuous.bin_probabilities * share, axis=1)
+        mass = self.continuous.mass_between(lower, upper)
         return np.asarray(self._continuous_share() * mass, dtype=float)
 
     def subset(self, index: Any) -> MixedDensity:
@@ -718,20 +1302,30 @@ class DesignRows(Protocol):
         ...
 
 
-#: Out-of-fold densities at further conditioning designs: by key, ``(design, values)``, with
-#: ``design`` the ``(n, p)`` covariates the density conditions on, or a :class:`DesignRows`
-#: that builds them, and ``values`` the ``(n,)`` or ``(n, m)`` doses it is evaluated at.
-PredictDesigns = Mapping[Hashable, tuple["FloatArray | DesignRows", FloatArray]]
+#: Out-of-fold densities at further conditioning designs: by key, ``(design, values)`` or
+#: ``(design, values, support)``, with ``design`` the ``(n, p)`` covariates the density
+#: conditions on, or a :class:`DesignRows` that builds them, and ``values`` the ``(n,)`` or
+#: ``(n, m)`` doses it is evaluated at.  ``values`` may instead be an interval request
+#: ``(lower, upper)`` of two such arrays, which returns the mean density over each interval.
+#: ``support`` is the declared ``(lower, upper)`` on each row of that design.
+PredictDesigns = Mapping[Hashable, tuple[Any, ...]]
 
 
 @dataclass(frozen=True)
 class _Grid:
-    """The bins of one density fit, read from the rows it is fitted on."""
+    """The bins of one density fit, read from the rows it is fitted on.
+
+    ``core`` is the core count of a grid the fit built itself and ``None`` for explicit
+    edges.  ``values`` are the doses the grid was read from, for the refusal's advice.
+    """
 
     edges: FloatArray
     bins: IntArray
     n_total: int
     n_hazards: int
+    occupied: BoolArray
+    core: int | None = None
+    values: FloatArray | None = None
 
 
 def _grid(
@@ -740,21 +1334,55 @@ def _grid(
     n_bins: int | None,
     edges: Sequence[float] | None,
     name: str | None,
+    occupied: BoolArray | None = None,
 ) -> _Grid:
-    """The edges and each row's bin, with the bin count's default and the edges checked."""
+    """The edges, the occupancy and each row's bin, with the default and the edges checked.
+
+    ``occupied`` travels with explicit ``edges``: a caller that reads its edges from another
+    sample passes that sample's occupancy beside them.  Without it the occupancy is read
+    from the rows the grid is read from.
+    """
     grid_values = treatment if mask is None else treatment[mask]
-    if n_bins is None:
-        n_bins = default_density_bins(grid_values.size)
-    grid = (
-        bin_edges(grid_values, n_bins, name=name)
-        if edges is None
-        else np.asarray(edges, dtype=float)
-    )
+    if occupied is not None and edges is None:
+        raise TypeError("occupied= travels with edges=; pass both or neither")
+    core = None
+    if edges is None:
+        core = default_density_bins(grid_values.size) if n_bins is None else n_bins
+        grid = bin_edges(grid_values, core, name=name)
+    else:
+        grid = np.asarray(edges, dtype=float)
     if grid.ndim != 1 or grid.size < 3 or np.any(np.diff(grid) <= 0.0):
         raise DataError("edges= must be a strictly increasing sequence of at least 3 values")
     n_total = int(grid.size - 1)
     bins = np.clip(np.digitize(treatment, grid) - 1, 0, n_total - 1).astype(np.int64)
-    return _Grid(grid, bins, n_total, n_total - 1)
+    mask_bins = (
+        bin_occupancy(grid_values, grid)
+        if occupied is None
+        else np.asarray(occupied, dtype=bool).reshape(-1)
+    )
+    if mask_bins.shape != (n_total,):
+        raise ValueError(f"occupied= needs one entry per bin ({n_total}); got {mask_bins.shape}")
+    return _Grid(grid, bins, n_total, n_total - 1, mask_bins, core, grid_values)
+
+
+def _table_at(
+    learner: Learner, n_covariates: int, grid: _Grid, name: str | None
+) -> Callable[[int], int] | None:
+    """The bytes of the hazard table at another core count, on that count's refined grid."""
+    if grid.core is None or grid.values is None:
+        return None
+    values = grid.values
+    index_only = _index_only(learner)
+
+    def table(k: int) -> int:
+        edges = bin_edges(values, k, name=name)
+        b = edges.size - 1
+        bins = np.clip(np.digitize(values, edges) - 1, 0, b - 1)
+        records = int(np.sum(np.minimum(bins, b - 2) + 1))
+        width = _bin_block(np.zeros(1, dtype=np.int64), b - 1, index_only).shape[1]
+        return records * (n_covariates + width) * 8
+
+    return table
 
 
 def _table_size(
@@ -883,20 +1511,65 @@ def preflight_conditional_densities(
             concurrent=concurrent,
             retained=retained,
             designs=cost.peak(concurrent),
+            table_at=_table_at(learner, n_covariates, grid, name),
+            core=grid.core,
         )
         retained += a.size * grid.n_total * 8 + cost.kept
 
 
-def _lookup(probabilities: FloatArray, edges: FloatArray, values: FloatArray) -> FloatArray:
-    """The density of each row's bin probabilities at its ``(m,)`` values: ``(rows, m)``."""
-    widths = np.diff(edges)
-    n_total = widths.size
-    v = np.asarray(values, dtype=float).reshape(probabilities.shape[0], -1)
-    index = np.clip(np.digitize(v, edges) - 1, 0, n_total - 1)
-    inside = (v >= edges[0]) & (v <= edges[-1]) & np.isfinite(v)
-    rows = np.arange(probabilities.shape[0])[:, None]
-    density = probabilities[rows, index] / widths[index]
-    return np.asarray(np.where(inside, density, 0.0), dtype=float)
+def _lookup(
+    probabilities: FloatArray,
+    edges: FloatArray,
+    occupied: BoolArray,
+    support: tuple[FloatArray, FloatArray] | None,
+    values: FloatArray,
+) -> FloatArray:
+    """The reading of each row's bin probabilities at its ``(m,)`` values: ``(rows, m)``.
+
+    The same reading as :meth:`ConditionalDensity.density_at`, for bin probabilities that
+    are not kept, such as a fold's predictions at a counterfactual design.
+    """
+    p = np.asarray(probabilities, dtype=float)
+    lower, upper = (None, None) if support is None else support
+    knots = _knots_by_block(p, edges, occupied, lower, upper)
+    return _read(knots, np.asarray(values, dtype=float).reshape(p.shape[0], -1))
+
+
+def _lookup_mean(
+    probabilities: FloatArray,
+    edges: FloatArray,
+    occupied: BoolArray,
+    support: tuple[FloatArray, FloatArray] | None,
+    lower: FloatArray,
+    upper: FloatArray,
+) -> FloatArray:
+    """The mean of the reading over each row's ``(m,)`` intervals: ``(rows, m)``.
+
+    ``mean * (upper - lower)`` is the closed-form integral of :func:`_lookup` over the
+    interval.  A zero-length interval reads the density at its point.
+    """
+    p = np.asarray(probabilities, dtype=float)
+    lo_support, hi_support = (None, None) if support is None else support
+    knots = _knots_by_block(p, edges, occupied, lo_support, hi_support)
+    lo = np.asarray(lower, dtype=float).reshape(p.shape[0], -1)
+    hi = np.asarray(upper, dtype=float).reshape(p.shape[0], -1)
+    out = np.zeros(lo.shape)
+    point = _read(knots, lo)
+    for j in range(lo.shape[1]):
+        length = hi[:, j] - lo[:, j]
+        mass = _mass(knots, lo[:, j], hi[:, j])
+        safe = np.where(length > 0.0, length, 1.0)
+        out[:, j] = np.where(length > 0.0, mass / safe, point[:, j])
+    return out
+
+
+@dataclass(frozen=True)
+class _Request:
+    """One entry of ``predict_designs``: a design, its values or interval, its support."""
+
+    design: Any
+    values: list[FloatArray]
+    support: tuple[FloatArray, FloatArray] | None
 
 
 @overload
@@ -909,6 +1582,8 @@ def fit_conditional_density(
     *,
     n_bins: int | None = ...,
     edges: Sequence[float] | None = ...,
+    occupied: BoolArray | None = ...,
+    support: tuple[FloatArray, FloatArray] | None = ...,
     groups: IntArray | None = ...,
     n_jobs: int = ...,
     fit_mask: Any = ...,
@@ -928,6 +1603,8 @@ def fit_conditional_density(
     *,
     n_bins: int | None = ...,
     edges: Sequence[float] | None = ...,
+    occupied: BoolArray | None = ...,
+    support: tuple[FloatArray, FloatArray] | None = ...,
     groups: IntArray | None = ...,
     n_jobs: int = ...,
     fit_mask: Any = ...,
@@ -946,6 +1623,8 @@ def fit_conditional_density(
     *,
     n_bins: int | None = None,
     edges: Sequence[float] | None = None,
+    occupied: BoolArray | None = None,
+    support: tuple[FloatArray, FloatArray] | None = None,
     groups: IntArray | None = None,
     n_jobs: int = 1,
     fit_mask: Any = None,
@@ -971,9 +1650,23 @@ def fit_conditional_density(
     from, to the rows that hold a dose: a longitudinal node is fitted on the units still in
     the study before it.  ``None`` reads every row, the point-treatment fit unchanged.
 
+    ``edges=`` fixes the grid.  ``occupied=`` travels with it: a caller that reads the edges
+    from another sample passes that sample's :func:`bin_occupancy` beside them, so that a
+    density fitted on a subset breaks its segments at the same bins as the density fitted
+    on every row.  ``edges=`` alone takes the occupancy of the rows the fit reads the grid
+    from; ``occupied=`` without ``edges=`` is a :class:`TypeError`.
+
+    ``support=`` is the declared support ``(lower, upper)`` on each row of ``covariates``.
+    The hazard fit does not read it.  The returned density reads each row over its support
+    (the module docstring), and is zero outside it.
+
     ``predict_designs`` evaluates the density at further conditioning designs, by key: each
-    entry is ``(design, values)``, and the result holds the density at ``values`` given
-    ``design``, one value per entry of ``values``.  Row ``i`` of every design is predicted by
+    entry is ``(design, values)`` or ``(design, values, support)``, and the result holds the
+    density at ``values`` given ``design``, one value per entry of ``values``, read with
+    that design's declared support when it carries one.  ``values`` may also be an interval
+    request ``(lower, upper)`` of two arrays of one shape; the result then holds the mean
+    density over each interval, whose product with the interval's length is the exact
+    integral of the reading.  Row ``i`` of every design is predicted by
     the model of the fold that held row ``i`` out, as
     :func:`~cleverly.estimators._nuisance.cross_fit_predictions` predicts its designs.  Only
     these values are kept, not the bin probabilities at each design.  The density of a
@@ -991,7 +1684,7 @@ def fit_conditional_density(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     sample_weight = np.asarray(weights, dtype=float).reshape(-1)
     mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
-    grid = _grid(a, mask, n_bins, edges, name)
+    grid = _grid(a, mask, n_bins, edges, name, occupied)
     n_total, n_hazards, bins = grid.n_total, grid.n_hazards, grid.bins
     index_only = _index_only(learner)
     records, columns, rows_fitted = _table_size(learner, w.shape[1], grid, mask)
@@ -1004,9 +1697,15 @@ def fit_conditional_density(
         index_only,
         concurrent=_concurrent_folds(folds, n_jobs),
         retained=retained,
+        table_at=_table_at(learner, w.shape[1], grid, name),
+        core=grid.core,
     )
-    designs = {} if predict_designs is None else dict(predict_designs)
-    for key, (design, values) in designs.items():
+    declared = _check_support(support, a.size)
+    designs: dict[Hashable, _Request] = {}
+    for key, entry in ({} if predict_designs is None else dict(predict_designs)).items():
+        design, values = entry[0], entry[1]
+        bounds = _check_support(entry[2] if len(entry) > 2 else None, a.size)
+        interval = isinstance(values, tuple)
         shape = (
             (a.size, design(np.zeros(1, dtype=np.int64), w[:1]).shape[1])
             if callable(design) and a.size
@@ -1017,8 +1716,12 @@ def fit_conditional_density(
                 f"predict design {key!r} has shape {shape}; the density "
                 f"conditions on {(a.size, w.shape[1])}"
             )
-        if np.asarray(values).shape[0] != a.size:
+        parts = [np.asarray(v, dtype=float) for v in (values if interval else (values,))]
+        if any(part.shape[0] != a.size for part in parts) or (
+            interval and (len(parts) != 2 or parts[0].shape != parts[1].shape)
+        ):
             raise ValueError(f"predict design {key!r} needs one row of values per unit")
+        designs[key] = _Request(design, parts, bounds)
 
     def fit_on(rows: IntArray) -> Learner:
         if mask is not None:
@@ -1035,7 +1738,8 @@ def fit_conditional_density(
 
     def predicted_at(model: Learner, test: IntArray) -> dict[Hashable, FloatArray]:
         out = {}
-        for key, (design, values) in designs.items():
+        for key, request in designs.items():
+            design = request.design
             held_out = (
                 np.asarray(design(test, w[test]), dtype=float)
                 if callable(design)
@@ -1044,13 +1748,30 @@ def fit_conditional_density(
             probabilities = _probabilities_from_hazards(
                 _hazard_matrix(model, held_out, n_hazards, index_only)
             )
-            out[key] = _lookup(probabilities, grid.edges, np.asarray(values, dtype=float)[test])
+            bounds = (
+                None
+                if request.support is None
+                else (request.support[0][test], request.support[1][test])
+            )
+            if len(request.values) == 2:
+                out[key] = _lookup_mean(
+                    probabilities,
+                    grid.edges,
+                    grid.occupied,
+                    bounds,
+                    request.values[0][test],
+                    request.values[1][test],
+                )
+            else:
+                out[key] = _lookup(
+                    probabilities, grid.edges, grid.occupied, bounds, request.values[0][test]
+                )
         return out
 
     probabilities = np.empty((a.size, n_total), dtype=float)
     predictions = {
-        key: np.zeros((a.size, int(np.prod(np.asarray(values).shape[1:], dtype=int))))
-        for key, (_, values) in designs.items()
+        key: np.zeros((a.size, int(np.prod(request.values[0].shape[1:], dtype=int))))
+        for key, request in designs.items()
     }
     diagnostics: list[SuperLearnerDiagnostics] = []
 
@@ -1088,7 +1809,7 @@ def fit_conditional_density(
             if found is not None:
                 diagnostics.append(found)
 
-    density = ConditionalDensity(probabilities, grid.edges)
+    density = ConditionalDensity(probabilities, grid.edges, grid.occupied, declared)
     integrated = density.integrated()
     observed = density.density_at(a)
     if mask is not None:
@@ -1099,54 +1820,73 @@ def fit_conditional_density(
         min_density=float(observed.min()),
         integrated=(float(integrated.min()), float(integrated.max())),
         learner=tuple(diagnostics),
+        knot_passes=density.knot_passes,
     )
     if predict_designs is None:
         return density, report
     shaped = {
-        key: predictions[key].reshape(np.asarray(values).shape)
-        for key, (_, values) in designs.items()
+        key: predictions[key].reshape(request.values[0].shape) for key, request in designs.items()
     }
     return density, report, shaped
 
 
-def warn_if_unresolved(
+def warn_if_flat(
     density: ConditionalDensity,
     shifted: FloatArray,
     observed: FloatArray,
     component: str | None = None,
 ) -> float:
-    """Warn when a policy moves too few rows across a bin edge, and return the share.
+    """Warn when most moved rows keep their dose inside one flat bin, and return the share.
 
     Separated from the fit so the check happens where the *policy* is known: the density
-    knows its own resolution, but only an intervention knows how far it means to move.
+    knows its own resolution, but only an intervention knows how far it means to move.  The
+    share is :meth:`ConditionalDensity.flat_fraction`.
 
     ``component`` names the dose of a vector node.  Its caller passes only the rows whose
     dose the policy changes, so a gated map is not charged for the rows it leaves alone, and
     the message names the dose rather than the clever covariate: another component of the
     node can move on the same row, so that row's ratio need not be one.
+
+    Parameters
+    ----------
+    density : ConditionalDensity
+        The fitted density.
+    shifted : ndarray
+        ``(n,)`` dose the policy assigns.
+    observed : ndarray
+        ``(n,)`` dose received.
+    component : str or None
+        The dose's name at a vector node.
+
+    Returns
+    -------
+    float
+        The flat share.
     """
-    crossing = density.crossing_fraction(shifted, observed)
-    if crossing < _CROSSING_WARNING:
-        grid = f"({density.n_bins} bins over [{density.support[0]:.3g}, {density.support[1]:.3g}])"
+    flat = density.flat_fraction(shifted, observed)
+    if flat > _FLAT_WARNING:
+        grid = f"({density.n_bins} bins over [{density.edges[0]:.3g}, {density.edges[-1]:.3g}])"
         if component is None:
             message = (
-                f"the policy moves only {crossing:.1%} of rows across a bin edge of the "
-                f"estimated density {grid}. A binned density is constant within a bin, so "
-                "for the rest the clever covariate is exactly one and the intervention is "
-                "invisible rather than merely noisy."
+                f"the policy keeps {flat:.1%} of the rows it moves inside one flat bin of the "
+                f"estimated density {grid}: an empty bin, a bin with almost no mass, or an "
+                "isolated bin, where the density is read as constant. For those rows the "
+                "density ratio is fixed by the bin alone (exactly one for a shift), so the "
+                "intervention is invisible rather than merely noisy."
             )
         else:
             message = (
-                f"the policy changes {component!r} on {np.size(shifted)} rows, and moves only "
-                f"{crossing:.1%} of them across a bin edge of its estimated density {grid}. A "
-                "binned density is constant within a bin, so on the rest the density of "
-                f"{component!r} cannot tell the changed dose from the natural one, and that "
-                "change is invisible rather than merely noisy."
+                f"the policy changes {component!r} on {np.size(shifted)} rows, and keeps "
+                f"{flat:.1%} of them inside one flat bin of its estimated density {grid}: an "
+                "empty bin, a bin with almost no mass, or an isolated bin, where the density "
+                f"is read as constant. On those rows the density of {component!r} cannot tell "
+                "the changed dose from the natural one, and that change is invisible rather "
+                "than merely noisy."
             )
         _warn(
             f"{message} Use more bins, or a larger change of dose, or read the estimate as the "
-            "effect of a policy the bin width can resolve.",
+            "effect of a policy the bins can resolve.",
             UserWarning,
             stacklevel=3,
         )
-    return crossing
+    return flat

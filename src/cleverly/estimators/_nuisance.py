@@ -40,6 +40,7 @@ from ..interventions.policy import (
     JointComponent,
     check_component_atoms,
     check_declared_atoms,
+    declared_support_bounds,
     vector_route_refusal,
 )
 from ..learners._fitting import (
@@ -2007,6 +2008,7 @@ def fit_mixed_density(
     n_jobs: int = 1,
     fit_mask: BoolArray | None = None,
     edge_rows: BoolArray | None = None,
+    support: tuple[FloatArray, FloatArray] | None = None,
 ) -> tuple[MixedDensity, dict[str, Any]]:
     r"""Cross-fit the law of a dose with declared atoms, out of fold.
 
@@ -2042,6 +2044,11 @@ def fit_mixed_density(
         The rows the fits train on.
     edge_rows : ndarray or None
         The rows the default bin edges are read from, when they differ from ``fit_mask``.
+        Their occupancy travels with the edges, so a fit on a subset reads its density
+        with the segments of the fit on every row.
+    support : tuple of ndarray or None
+        The declared support ``(lower, upper)`` on each row, which the continuous part's
+        reading uses.
 
     Returns
     -------
@@ -2081,12 +2088,14 @@ def fit_mixed_density(
     continuous_diagnostics = None
     if none.any():
         grid = edges
+        occupied = None
         if grid is None and edge_rows is not None:
-            from ..learners.density import bin_edges, default_density_bins
+            from ..learners.density import bin_edges, bin_occupancy, default_density_bins
 
             source = a[np.asarray(edge_rows, bool) & (index < 0)]
             bins = default_density_bins(source.size) if n_bins is None else n_bins
             grid = bin_edges(source, bins).tolist()
+            occupied = bin_occupancy(source, np.asarray(grid))
         continuous, continuous_diagnostics = fit_conditional_density(
             learner,
             covariates,
@@ -2095,6 +2104,8 @@ def fit_mixed_density(
             folds,
             n_bins=n_bins,
             edges=grid,
+            occupied=occupied,
+            support=support,
             groups=groups,
             n_jobs=n_jobs,
             fit_mask=none,
@@ -2354,6 +2365,7 @@ def fit_nuisances(
                 n_bins=density_bins,
                 groups=groups,
                 n_jobs=n_jobs,
+                support=declared_support_bounds(data),
             )
         else:
             density, density_diagnostics = fit_conditional_density(
@@ -2363,6 +2375,7 @@ def fit_nuisances(
                 data.weights,
                 folds,
                 n_bins=density_bins,
+                support=declared_support_bounds(data),
                 groups=groups,
                 n_jobs=n_jobs,
             )

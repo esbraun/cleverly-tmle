@@ -449,9 +449,11 @@ class ModelSpec:
         Learner of the prevented-cause factor of a design that declares ``eliminate=``.
         ``None`` uses the censoring learner.
     density_bins : int or None
-        Number of bins for a continuous-treatment conditional density.  ``None`` grows the
-        count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
-        a consistent density, and the hazard learner must also be consistent.
+        The core bin count of a continuous-treatment conditional density: that many
+        equal-mass bins, whose wide outer bins are then refined so that each refined bin
+        still holds at least 20 rows (:func:`~cleverly.learners.bin_edges`).  ``None`` grows
+        the core count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is
+        necessary for a consistent density, and the hazard learner must also be consistent.
     ratio : {"density", "classifier"}
         How a modified treatment policy's density ratio is estimated.  ``"density"`` divides
         two fitted conditional densities.  ``"classifier"`` reads the odds of a stacked

@@ -172,6 +172,7 @@ from ..interventions.policy import (
     check_declared_atoms,
     check_observed_support,
     component_atom_layout,
+    component_support_layout,
     induced_probabilities,
     joint_branches,
     joint_policy_moves,
@@ -185,6 +186,7 @@ from ..learners.density import (
     ConditionalDensity,
     MixedDensity,
     bin_edges,
+    bin_occupancy,
     default_density_bins,
     fit_conditional_density,
 )
@@ -2181,6 +2183,10 @@ def _continuous_node_ratios(
     frame = lazy_frame(lambda: data.policy_frame(time))
     atoms = data.node_atoms(time)
     density: ConditionalDensity | MixedDensity | None = None
+    declared = data.node_support(time)
+    # The node's declared support, on the observed history: the density reads each row over
+    # it (``learners.density``).  The hazard fit does not read it.
+    support = None if declared is None or ratio != "density" else declared.bounds(frame, data.n)
     if ratio == "density" and atoms:
         # A dose with declared atoms: the multinomial "which atom, or none" and the binned
         # density of the rows with no atom, on the same folds.  A
@@ -2197,16 +2203,21 @@ def _continuous_node_ratios(
             n_jobs=n_jobs,
             fit_mask=fit_at,
             edge_rows=None if np.array_equal(fit_at, at_risk) else at_risk,
+            support=support,
         )
     elif ratio == "density":
         edges = None
+        occupied = None
         if not np.array_equal(fit_at, at_risk):
             # One outer training fold's own density (``fit_rows=``).  Its bin edges are the
-            # out-of-fold fit's, read from every row at risk, so at the fold's held-out rows
-            # it is the model the out-of-fold mechanism uses there.
+            # out-of-fold fit's, read from every row at risk, and so is the occupancy that
+            # breaks its segments, so at the fold's held-out rows it is the model the
+            # out-of-fold mechanism uses there.
             grid_values = dose[at_risk]
             bins = default_density_bins(grid_values.size) if density_bins is None else density_bins
-            edges = bin_edges(grid_values, bins).tolist()
+            grid = bin_edges(grid_values, bins)
+            edges = grid.tolist()
+            occupied = bin_occupancy(grid_values, grid)
         density, _ = fit_conditional_density(
             treatment_learner,
             history,
@@ -2215,6 +2226,8 @@ def _continuous_node_ratios(
             folds,
             n_bins=density_bins,
             edges=edges,
+            occupied=occupied,
+            support=support,
             groups=data.cluster,
             n_jobs=n_jobs,
             fit_mask=fit_at,
@@ -2532,6 +2545,7 @@ def _mixed_node_density(
         data.history_design(time),
         f"node {data.treatment_names[time - 1]!r} at time {time}",
         component_atom_layout(components, data.component_atoms(time)),
+        component_support_layout(components, data.component_supports(time)),
     )
     branches: list[JointBranch] = []
     # ``(plan, probability, branch, fold)``: the fold whose rows a branch's ratio serves,
