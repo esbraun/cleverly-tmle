@@ -41,6 +41,12 @@ Its pooled SE ratio already sat below 1, so a red row was expected to fail the f
 rule. In that case it is a defect suspect, held by `X8-drtmle-small-stratum` until that owner's
 small-stratum correction re-reads it.
 
+The run predates the logit interval of a bounded mean, so its rows hold the identity interval.
+On the same committed estimates and standard errors, the logit interval covers `ey[1][V=2]` at
+0.919, with a 99% interval from 0.9075, above the floor
+(`tests/canonical/stratified_drtmle_foldwise/interval-audit.parquet`). The SE ratio is unchanged,
+so the row stays published red with its owner as the record of the identity interval.
+
 The ladder reads each rung's SE ratio only; its bias and coverage are published. A rung's
 under-coverage is mostly the bias the slope already reads, so each rung's coverage is published
 beside the coverage its measured standardized bias `b` and SE ratio `r` imply,
