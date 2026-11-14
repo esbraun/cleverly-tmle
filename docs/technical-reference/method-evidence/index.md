@@ -119,6 +119,7 @@ survival-ctmle
 survival-dr-tmle
 hazard-msm
 hazard-mtp
+hazard-time-varying
 continuous-time-survival
 continuous-survival-functionals
 categorical-incremental
