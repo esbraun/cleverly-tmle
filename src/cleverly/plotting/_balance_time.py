@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from ..exceptions import CapabilityError, RefusalReason
 from . import _core
 from ._strips import fit_height, strip_figure
 
@@ -168,9 +169,11 @@ def draw(
     rows = summary.rows_of(chosen)
     if view == "panels":
         if summary.family == "continuous_survival":
-            raise ValueError(
+            raise CapabilityError(
                 "view='panels' draws one dot per stratum of earlier treatments, and a "
-                "continuous-time fit has none; use view='summary'."
+                "continuous-time fit has none.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Draw the averaged comparisons with view='summary'.",
             )
         return _trellis(summary, chosen, rows, nodes, labels, title)
     return _summary_view(
