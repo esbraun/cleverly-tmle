@@ -221,6 +221,114 @@ def fit_learned_rule() -> Any:
     return learned_rule_support.fit()
 
 
+def _projection(scale: str = "difference") -> Any:
+    from cleverly.bases import Linear, Modifiers
+    from cleverly.effect_modification import EffectModification
+
+    return EffectModification(Linear(["W1"]), Modifiers(["W1"]), scale)  # type: ignore[arg-type]
+
+
+def _projection_binary_frame() -> Any:
+    """``make_binary_outcome(400, 17)`` with a baseline stratum ``V`` and a recording flag."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    rng = np.random.default_rng(3)
+    recorded = rng.uniform(size=len(frame)) < 0.75 + 0.15 * np.tanh(frame["W2"].to_numpy())
+    return frame.assign(
+        V=(frame["W3"] > 0).astype(float),
+        DeltaA=recorded.astype(float),
+        A=frame["A"].where(recorded),
+    )
+
+
+def fit_projection() -> Any:
+    """The projection of the CATE on ``Linear(["W1"])``, in sample (P1 part (a))."""
+    return (
+        TMLE(**linear_in_sample(), effect_modification=_projection())
+        .fit(_linear_frame(), outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def fit_projection_missing_treatment() -> Any:
+    """The projection with a missing treatment, through the composite indicator (P1 PR 1)."""
+    frame = _projection_binary_frame()
+    return (
+        TMLE(
+            **linear_in_sample(),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            effect_modification=_projection(),
+        )
+        .fit(frame.drop(columns=["V"]), outcome="Y", treatment="A", treatment_delta="DeltaA")
+        .single()
+    )
+
+
+def _projection_strata(scale: str) -> Any:
+    frame = _projection_binary_frame().drop(columns=["DeltaA"])
+    frame["A"] = make_binary_outcome(n=400, seed=17)[0]["A"]
+    return (
+        TMLE(**linear_in_sample(), effect_modification=_projection(scale))
+        .fit(frame, outcome="Y", treatment="A", strata=["V"])
+        .single()
+    )
+
+
+def fit_projection_strata() -> Any:
+    """The projection with ``strata=``: marginal and stratum coefficients (P1 PR 1)."""
+    return _projection_strata("difference")
+
+
+def fit_projection_strata_crr() -> Any:
+    """The log-ratio projection with ``strata=``: two fluctuation groups (P1 PR 1)."""
+    return _projection_strata("log_ratio")
+
+
+def fit_projection_repeated() -> Any:
+    """The cross-fitted projection with ``repeats=3``, the median rule (P1 PR 1)."""
+    settings = {**linear_in_sample(), "cross_fit": True, "n_folds": 3, "repeats": 3}
+    settings["outcome_learner"] = LogisticRegression(max_iter=1000)
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return (
+        TMLE(**settings, effect_modification=_projection())
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def _ep_rule(**keywords: Any) -> Any:
+    from cleverly.bases import Modifiers
+    from cleverly.interventions import LearnedRule
+
+    modifiers = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
+    return LearnedRule(loss="ep", modifiers=modifiers, **keywords)
+
+
+def fit_learned_rule_ep_sieve() -> Any:
+    """The EP rule with a declared fixed-size B-spline sieve (P1 PR 1, part (v))."""
+    from cleverly.bases import Additive, BSpline, Indicators, Sieve
+
+    sieve = Sieve(Additive(BSpline(["W1"], 4), Indicators("W2")), size=3)
+    return learned_rule_support.fit(learned_rule=_ep_rule(sieve=sieve))
+
+
+def fit_learned_rule_ep_learner() -> Any:
+    """The EP rule with a declared final learner and a fixed-size default sieve (P1 PR 1)."""
+    from cleverly.bases import Modifiers, Sieve
+
+    modifiers = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
+    sieve = Sieve.default(modifiers, max_size=3, size=2)
+    return learned_rule_support.fit(learned_rule=_ep_rule(sieve=sieve, learner=LinearRegression()))
+
+
+def fit_projection_bootstrap() -> Any:
+    """The in-sample projection with the full-refit bootstrap (P1 PR 1)."""
+    return (
+        TMLE(**linear_in_sample(), n_bootstrap=10, effect_modification=_projection())
+        .fit(_linear_frame(), outcome="Y", treatment="A")
+        .single()
+    )
+
+
 def fit_weighted() -> Any:
     """``make_linear_ate(400, 2)`` with nonconstant observation weights of mean one."""
     frame = _linear_frame()
@@ -1020,6 +1128,23 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed (X11 part (n)). A refit relearns the
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
+    # The projection of a conditional contrast and its P1 PR 1 compositions. The summarize
+    # rows and the truncation curve run; refute and every sensitivity row refuse a
+    # working-model coefficient by name, with the ATE or the risk ratio as the alternative.
+    "projection": _kind(fit_projection, *_READ, "truncation_curve"),
+    "projection+missing_treatment": _kind(
+        fit_projection_missing_treatment, *_READ, "truncation_curve"
+    ),
+    "projection+strata": _kind(fit_projection_strata, *_READ, "truncation_curve"),
+    "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, "truncation_curve"),
+    "projection+repeats": _kind(fit_projection_repeated, *_READ, "truncation_curve"),
+    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, "truncation_curve"),
+    "learned_rule_ep_sieve": _kind(
+        fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
+    ),
+    "learned_rule_ep_learner": _kind(
+        fit_learned_rule_ep_learner, *_READ, "truncation_curve", *_PLUGIN_BOUND
+    ),
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
