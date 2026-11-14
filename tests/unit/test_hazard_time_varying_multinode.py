@@ -17,6 +17,7 @@ mechanism that omits ``L_k``.  Each mutation keeps a control on which its term v
 from __future__ import annotations
 
 import re
+import traceback
 import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -665,13 +666,11 @@ def test_unequal_level_counts_key_each_node_by_its_own_levels() -> None:
         out = original(*args, **kwargs)
         return replace(out, n_keys=len(args[0].treatment_levels[0]))
 
-    with spied("node_panel") as panels, patched(backward, "node_slots", short):
-        try:
-            fit(held, ("policy",))
-        except (IndexError, ValueError):
-            return
-    node2 = next(panel for panel in panels if panel.node == 2)
-    assert not (node2.inputs.empty.shape[1] == 3 and node2.inputs.empty[0, 2, 0])
+    # Two keys at node 2 leave no cell for the third level, so reading the held cells of the
+    # level-2 followers indexes past the panel.
+    with patched(backward, "node_slots", short), pytest.raises(IndexError) as raised:
+        fit(held, ("policy",))
+    assert traceback.extract_tb(raised.tb)[-1].name == "held_cells"
 
 
 def test_a_held_cell_is_keyed_by_the_node_treatment() -> None:

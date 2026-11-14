@@ -984,6 +984,16 @@ def test_a_hazard_policy_names_its_shifted_weights(fits: Any) -> None:
     plt.close(fig)
 
 
+@_SHARED
+def test_a_static_arm_of_a_multinode_hazard_fit_draws_its_overlap(fits: Any) -> None:
+    """X70 (b2): overlap of every regimen refuses on the known policy, so one static arm is
+    drawn on its own, by the same path as the held designs."""
+    result = fits("hazard_time_varying_multinode")
+    fig = plotting.overlap(result, regimen="a1")
+    assert fig.axes
+    plt.close(fig)
+
+
 def test_a_held_rule_is_capped_at_its_last_node() -> None:
     """A one-node known rule on a held design: later nodes are held, and the limit caps them.
 
