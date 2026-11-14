@@ -1,4 +1,4 @@
-"""Registered evidence for censored boundary-binding price plans (``mtp-pricing-censored``).
+"""Registered evidence for censored continuous-treatment modified policies (``mtp-pricing-censored``).
 
 The subject is a modified treatment policy on a price with dropout after each price node: the
 ``price_up`` plan of ``mtp-pricing`` at three nodes on law P-C
@@ -142,7 +142,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
 }
 
 STUDY = StudyRecord(
-    name="censored boundary-binding price plans",
+    name="censored continuous-treatment modified policies",
     slug="mtp-pricing-censored",
     artifacts=ROOT / "tests" / "canonical" / "mtp_pricing_censored",
     document="docs/technical-reference/method-evidence/mtp-pricing-censored.md",
