@@ -81,15 +81,25 @@ def refuse_pooled_designs(data: LongitudinalData, mtp: Sequence[str] = ()) -> No
     Raises
     ------
     CapabilityError
-        When the design has a treatment decision at more than one node, or time-varying
-        covariates, so its node designs have different columns, or when ``mtp`` names a
+        When the design has a treatment decision at more than one node, covariates
+        measured at a node after the first, or a node-1 covariate block under
+        ``markov_order=``, so its node designs have different columns, or when ``mtp`` names a
         regimen.
     """
     reasons = []
     if not data.treatment_held and data.n_times > 1:
         reasons.append(f"a treatment decision at each of its {data.n_times} nodes")
-    if any(names for names in data.time_varying_names):
+    # A block at node 1 precedes the first decision and enters every node's design alike
+    # (``history_design`` reads ``L_1`` at every node), so only a later block is refused.
+    if any(names for names in data.time_varying_names[1:]):
         reasons.append("time-varying covariates")
+    elif data.markov_order is not None and data.time_varying_names[0]:
+        # Under ``markov_order=`` the window drops ``L_1`` from the nodes past ``k + 1``, so a
+        # node-1 block alone also gives the nodes designs of different widths.
+        reasons.append(
+            f"a node-1 covariate block that the Markov order {data.markov_order} window "
+            "leaves out of the later nodes"
+        )
     if reasons:
         raise CapabilityError(
             "hazard_pooling='pooled' fits one regression over every node, so every node needs "

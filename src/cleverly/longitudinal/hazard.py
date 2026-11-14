@@ -148,7 +148,7 @@ __all__ = [
 ]
 
 #: The two hazard targeting algorithms.
-HazardAlgorithm = Literal["per_horizon", "one_step"]
+HazardAlgorithm = Literal["per_horizon", "one_step", "untargeted"]
 
 #: The roadmap item that tracks hazard targeting outside its held baseline design.
 HAZARD_ROADMAP = "X70"
@@ -520,7 +520,8 @@ class HazardInputs:
         ``(n, T)`` :math:`R_k`: uncensored through ``k`` and event-free before ``k``.
     events : FloatArray
         ``(n, T, J)`` :math:`dN_l(k)`, the event of each cause at each node, on the rows at
-        risk and zero elsewhere.
+        risk and zero elsewhere.  A fraction in ``[0, 1]`` on the node panel of a fit with
+        covariates after baseline: the walk loss and the scores are linear in it.
     observed : IntArray
         ``(n,)`` dense code of the baseline treatment each unit received.
     inverse : FloatArray
@@ -946,6 +947,18 @@ class HazardFit:
         For a separable fit, the targeting phase that reached the reported state: the
         one-step walk, the iterative TMLE, or Newton steps on the full score Jacobian.
         ``None`` for every other fit.
+    nodes : tuple of HazardFit
+        On a fit with covariates after baseline, the record of each node walk of the regimen's
+        backward pass, node 1 first (:mod:`cleverly.longitudinal.hazard_backward`).  The
+        regimen's record then sums the node scores and scales, each multiplied by
+        :math:`n_k / n`, ``n_iter`` is the total of accepted steps, ``trace`` holds the final
+        relative score of each node walk in walk order (the last node first), and
+        ``initial_levels`` is node 1's initial plug-in.  That plug-in's continuation was
+        fitted on the *targeted* later nodes, so it is not the untargeted estimator's
+        plug-in; :func:`~cleverly.longitudinal.hazard_backward.untargeted` gives that one.
+        The summed score of a stalled node is divided by the scale summed over every node and
+        can cancel against another node's, so :attr:`relative_score` reads the largest node
+        relative score instead.  Empty on every other fit.
     """
 
     algorithm: HazardAlgorithm
@@ -972,10 +985,17 @@ class HazardFit:
     bound_excludes_data: tuple[tuple[int, int, int], ...] = ()
     share_clipped: tuple[tuple[int, int, float], ...] = ()
     phase: Literal["walk", "iterative", "jacobian"] | None = None
+    nodes: tuple[HazardFit, ...] = ()
 
     @property
     def relative_score(self) -> float:
-        """The largest target score relative to its scale, at the reported hazards."""
+        """The largest target score relative to its scale, at the reported hazards.
+
+        On a backward pass the largest over the node walks, each read on its own score and
+        scale, so a stalled node walk is not diluted by the others.
+        """
+        if self.nodes:
+            return max(node.relative_score for node in self.nodes)
         return relative_score(self.score, self.score_scale)
 
 
@@ -1080,6 +1100,7 @@ def fit_hazards(
     hazard_pooling: str = "node",
     cause_order: Sequence[int] | None = None,
     slots: Sequence[MTPSlots] = (),
+    fit_rows: BoolArray | None = None,
 ) -> InitialHazards:
     """Fit the sequential pseudo-hazards at every node and cause, out of fold.
 
@@ -1092,7 +1113,8 @@ def fit_hazards(
     Parameters
     ----------
     data : LongitudinalData
-        A survival panel of a held design with no covariate after baseline.
+        A survival panel of a held design.  A covariate block at a node up to ``k`` enters
+        the node-``k`` design through the mechanism history.
     levels : sequence of Plan
         One plan per treatment level, from :func:`level_plans`.
     learner : object
@@ -1115,6 +1137,10 @@ def fit_hazards(
         Every slot is predicted from the same fit, at :func:`slot_design`, and the observed
         treatment is predicted at the fit's own design.  ``"pooled"`` is refused beside one
         (H24).
+    fit_rows : BoolArray or None
+        ``(n,)`` the rows every regression may train on, ``None`` for every row.  An outer
+        fold's untargeted backward pass of a fit with covariates after baseline trains on its
+        own training rows with the single fold, and predicts every row.
 
     Returns
     -------
@@ -1157,6 +1183,8 @@ def fit_hazards(
         node_diagnostics: dict[int, tuple[object, ...]] = {}
         for cause in range(n_causes) if cause_order is None else cause_order:
             rows = at_risk[:, time - 1] & ~earlier
+            if fit_rows is not None:
+                rows = rows & fit_rows
             target = events[:, time - 1, cause]
             if not np.any(target[rows] * data.weights[rows] > 0):
                 no_events.append((time, cause))
@@ -3400,11 +3428,12 @@ def refuse_hazard_settings(
     step_size: float,
     isotonic: bool,
     msm: bool,
-    pseudo_learner: bool,
     step_bound: float | None = None,
     ratio_trim: float | None = None,
 ) -> None:
-    """Refuse a hazard or isotonic setting that needs no data (H4-H6, H8, H13, H14, R-d1).
+    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H8, H13, H14, R-d1).
+
+    ``pseudo_learner=`` (H6) reads the design, so :func:`refuse_hazard_design` refuses it.
 
     ``iterate=`` and ``stopping=`` apply to both hazard algorithms, and ``step_bound=`` to
     ``targeting="iterative"``.  The one-step walk takes its steps in ``step_size``, so a step
@@ -3422,8 +3451,6 @@ def refuse_hazard_settings(
         The ``isotonic=`` value.
     msm : bool
         Whether ``msm=`` was passed.
-    pseudo_learner : bool
-        Whether ``pseudo_learner=`` was passed.
     step_bound : float or None, default=None
         The ``step_bound=`` value. The caller has validated it.
     ratio_trim : float or None, default=None
@@ -3468,12 +3495,6 @@ def refuse_hazard_settings(
         raise MethodConfigurationError.from_refusal(HAZARD_STEP_BOUND_ONE_STEP_REFUSAL)
     if survival_model == "hazard" and ratio_trim is not None:
         raise CapabilityError.from_refusal(HAZARD_RATIO_TRIM_REFUSAL)
-    if pseudo_learner and survival_model == "hazard":
-        raise ValueError(
-            "pseudo_learner= is not used with survival_model='hazard'. A hazard fit "
-            "regresses the event indicator at each node and fits no pseudo-outcome. Pass "
-            "the hazard learner as outcome_learner="
-        )
 
 
 def refuse_hazard_design(
@@ -3483,12 +3504,18 @@ def refuse_hazard_design(
     survival_model: str,
     isotonic: bool,
     msm: bool = False,
+    targeting: str = "one_step",
+    stopping: str = "relative",
+    pseudo_learner: bool = False,
 ) -> None:
-    """Refuse a design the hazard model or the projection does not support (H1-H3, H16, H19).
+    """Refuse a design the hazard model or the projection does not support.
 
-    Called after the data and the regimens are read, before any learner.  A modified
+    Called after the data and the regimens are read, before any learner: H1, H2, H6, H16,
+    H19 and, on a held design with covariates after baseline, H28 to H30.  A modified
     treatment policy at the baseline decision is fitted on a categorical, continuous or
-    mixed node (X70 part (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).
+    mixed node (X70 part (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).  A
+    held design with covariates after baseline is fitted by the backward pass of
+    :mod:`cleverly.longitudinal.hazard_backward` (X70 part (b1)).
 
     Parameters
     ----------
@@ -3502,11 +3529,22 @@ def refuse_hazard_design(
         The ``isotonic=`` value.
     msm : bool, default False
         Whether ``msm=`` was passed.
+    targeting : str, default "one_step"
+        The ``targeting=`` value.
+    stopping : str, default "relative"
+        The ``stopping=`` value.
+    pseudo_learner : bool, default False
+        Whether ``pseudo_learner=`` was passed.
 
     Raises
     ------
     CapabilityError
         On any refused design.
+    MethodConfigurationError
+        On the per-horizon algorithm (H28) or a declared stopping rule (H30) beside covariates
+        after baseline.
+    ValueError
+        On ``pseudo_learner=`` beside a design without covariates after baseline (H6).
     """
     if survival_model == "hazard" and not data.is_survival:
         raise CapabilityError(
@@ -3523,7 +3561,31 @@ def refuse_hazard_design(
         )
     if survival_model != "hazard":
         return
-    if not data.treatment_held and data.n_decisions > 1:
+    from .hazard_backward import (
+        hazard_iterative_refusal,
+        hazard_msm_refusal,
+        hazard_stopping_refusal,
+        later_covariates,
+    )
+
+    blocks = [name for block in data.time_varying_names for name in block]
+    multinode = not data.treatment_held and data.n_decisions > 1
+    if multinode and blocks:
+        raise CapabilityError(
+            "survival_model='hazard' on a design with a treatment at several nodes models the "
+            "event and censoring hazards given the treatment history and the baseline "
+            "covariates. This fit declares covariates measured after baseline "
+            f"({', '.join(blocks)}), and hazard targeting with such covariates on a design with "
+            "a treatment at several nodes is not built.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap=HAZARD_ROADMAP,
+            alternative=(
+                "LTMLE with survival_model='iterated_mean' adjusts for them, and "
+                "isotonic=True makes its curve monotone. If one baseline treatment is held over "
+                "every node, declare treatment='A'."
+            ),
+        )
+    if multinode:
         raise CapabilityError(
             "survival_model='hazard' is built for one baseline treatment held over every "
             f"node, and this design declares a treatment at {data.n_decisions} nodes. Hazard "
@@ -3536,20 +3598,19 @@ def refuse_hazard_design(
                 "node, declare treatment='A'."
             ),
         )
-    later = [name for block in data.time_varying_names for name in block]
+    later = later_covariates(data)
     if later:
-        raise CapabilityError(
-            "survival_model='hazard' models the event and censoring hazards given the "
-            "baseline treatment and the baseline covariates. This fit declares covariates "
-            f"measured after baseline ({', '.join(later)}), and hazard targeting with such "
-            "covariates is not built: it needs a model and a fluctuation of each later "
-            "covariate.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap=HAZARD_ROADMAP,
-            alternative=(
-                "LTMLE with survival_model='iterated_mean' adjusts for them, and "
-                "isotonic=True makes its curve monotone."
-            ),
+        if targeting != "one_step":
+            raise MethodConfigurationError.from_refusal(hazard_iterative_refusal(later))
+        if msm:
+            raise CapabilityError.from_refusal(hazard_msm_refusal())
+        if stopping != "relative":
+            raise MethodConfigurationError.from_refusal(hazard_stopping_refusal(stopping))
+    elif pseudo_learner:
+        raise ValueError(
+            "pseudo_learner= is not used with survival_model='hazard' on a design with "
+            "baseline covariates only. Such a fit regresses the event indicator at each node "
+            "and fits no pseudo-outcome. Pass the hazard learner as outcome_learner="
         )
     for regimen in regimens:
         label = getattr(regimen, "label", "")

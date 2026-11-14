@@ -581,7 +581,7 @@ that the call refuses reads `unavailable`.
 An ambiguous default estimand is a deferral on both facades. Several operations default to
 `estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
 no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
-`unavailable`, because no argument makes a missing derivation run.
+`unavailable`, because no argument makes a missing derivation run. `marginal_bounds()` defaults to `None`, which it resolves to the fit's reported parameter, and defers on the same rule. It can bound an arm parameter the fit did not report, so a fit with no eligible reported parameter defers rather than reads `unavailable`.
 
 One eligible parameter is the case each facade answers for itself. A facade that substitutes that
 name runs the row under it. A facade that substitutes nothing defers the row, because the
@@ -827,14 +827,18 @@ nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
 
-Hazard targeting (`survival_model="hazard"`) requires a held baseline decision and no covariate
-measured after baseline. A categorical treatment takes any regimen; a continuous treatment or a
-vector with a dose takes a modified treatment policy. It refuses any other design before any learner
-(H1 to H3 of
+Hazard targeting (`survival_model="hazard"`) requires a held baseline decision. A categorical
+treatment takes any regimen; a continuous treatment or a vector with a dose takes a modified
+treatment policy. It refuses any other design before any learner (H1 to H3 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
-The hazard model conditions on the baseline treatment and the baseline covariates only. A later
-treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard
-construction for a treatment at several nodes or for a later covariate.
+A later treatment node needs its own model and fluctuation. *Reconsider when* a read source gives
+the hazard construction for a treatment at several nodes.
+
+On a held design with covariates measured after baseline, the fit runs one backward pass per
+regimen in `longitudinal/hazard_backward.py`: each node's hazards and its regression of the future
+are targeted once, after every later node is final, and nothing is refit after it is walked. That
+order is what solves every term of the influence-curve equation, so the per-horizon algorithm, which
+restarts from the initial fits, is refused there (H28).
 
 A one-step hazard fit's levels are non-decreasing in floating point for every regimen and cause.
 Every horizon's plug-in mean reduces its column in one order that does not depend on the values.

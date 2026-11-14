@@ -499,6 +499,7 @@ class TestLongitudinalControls:
             ("stopping", "sample_size"),
             ("step_bound", "search"),
             ("iterate", "best"),
+            ("later_covariates", True),
         ],
     )
     def test_an_x33_option_leaves_a_default_row(self, name: str, value: Any) -> None:
