@@ -623,3 +623,13 @@ and its `anchor` followed, the module docstrings gained the cell-to-claim readin
 and clause bindings were added, and the interval audit screens the study. The manifest keeps the
 name the run recorded, "censored boundary-binding price plans". No seed, size, learner, margin, law
 or verdict input moved, so a regeneration would write the same rows.
+
+## Zero-spread resamples in `boundary-node-ltmle`'s firing SE ratio
+
+After its declared run at `8169c609`, `firing_se_ratio` in `tests/studies/boundary_node_properties.py`
+took a result-neutral edit. A bootstrap resample whose errors all share one value has zero spread,
+and its ratio of mean reported SE to that spread divided by zero. The ratio is now `+inf` there,
+and a quantile between two infinite resamples reads `+inf`; a finite resample computes the same
+value as before. No draw of the committed run reaches the branch: its firing groups hold hundreds of
+distinct errors. Only a perturbed law of the property differential, such as `two_point`, does. No
+seed, size, margin or verdict input moved, so a regeneration would write the same rows.
