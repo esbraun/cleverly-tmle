@@ -281,15 +281,39 @@ class TestWeights:
             weighted[support.NAME].std_error, rel=1e-12
         )
 
-    def test_estimated_weights_refuse_before_any_learner(self) -> None:
-        frame = support.law_frame(120, 3).assign(w=lambda f: 1.0 + 0.5 * f["W2"])
-        NeverFit.calls = 0
-        with pytest.raises(CapabilityError) as caught:
-            support.learned_tmle(**never_fit_learners()).fit(
-                frame, weights="w", weights_estimated=True, **FIT
+    def test_estimated_weights_give_the_known_weight_fit_under_the_conditional_reading(
+        self,
+    ) -> None:
+        """X11 (k2): estimated weights change no number, and the key reads them as estimated.
+
+        The interval conditions on the supplied weights, as every ordinary TMLE fit does, so
+        the point, the SE and the fold rules equal the fit with the weights declared known.
+        The weighting axis of the key reads ``estimated``, which no row covers, so the fit
+        reads experimental. The nonzero witness: the weights move the value, so a fit that
+        dropped them would not match.
+        """
+        frame = support.law_frame(300, 3).assign(w=lambda f: 1.0 + 1.5 * (f["W1"] > 0))
+        estimated = support.learned_tmle().fit(frame, weights="w", weights_estimated=True, **FIT)
+        known = support.learned_tmle().fit(frame, weights="w", weights_estimated=False, **FIT)
+        unweighted = support.fit(frame.drop(columns="w"))
+        for attribute in ("psi", "std_error"):
+            assert getattr(estimated.single()[support.NAME], attribute) == getattr(
+                known.single()[support.NAME], attribute
             )
-        assert NeverFit.calls == 0
-        assert "X11 (k2)" in str(caught.value)
+        np.testing.assert_array_equal(
+            estimated.single().nuisance.regimes.fold_rules,
+            known.single().nuisance.regimes.fold_rules,
+        )
+        assert estimated.single()[support.NAME].psi != pytest.approx(
+            unweighted[support.NAME].psi, abs=1e-3
+        )
+        keys = [
+            _support.point_key(support.learned_tmle(), result.single().data, (support.NAME,))[0]
+            for result in (estimated, known)
+        ]
+        assert [key.weighting for key in keys] == ["estimated", "fixed"]
+        assert estimated.single().estimates[support.NAME].support.label == "experimental"
+        assert "w, estimated" in str(estimated.single().summary())
 
 
 class TestFoldLocalWeightNormalisation:

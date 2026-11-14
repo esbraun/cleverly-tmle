@@ -130,8 +130,6 @@ def _frame(kind: str = "binary") -> Any:
         frame["Delta"] = (np.arange(len(frame)) % 5 != 0).astype(float)
     if kind.startswith("intermediate"):
         frame["Z"] = (np.arange(len(frame)) % 2).astype(float)
-    if kind == "estimated_weights":
-        frame["w"] = 1.0 + 0.5 * frame["W2"]
     if kind in ("clusters", "strata_clusters"):
         frame["c"] = np.arange(len(frame)) % 20
     return frame
@@ -145,7 +143,6 @@ _FIT_ARGUMENTS: dict[str, dict[str, Any]] = {
     "multi_arm_classification": {},
     "delta": {"delta": "Delta"},
     "intermediate_blip": {"intermediate": "Z"},
-    "estimated_weights": {"weights": "w", "weights_estimated": True},
     "strata_clusters": {"strata": ("W2",), "id": "c"},
     "clusters": {"id": "c"},
 }
@@ -176,7 +173,6 @@ DATA_ROWS: dict[str, str] = {
     "multi_arm_classification": "X11 (d2)",
     "delta": "F27",
     "intermediate_blip": "X11 (j2)",
-    "estimated_weights": "X11 (k2)",
     "strata_clusters": "X28",
 }
 
@@ -745,7 +741,6 @@ class TestTheStudyRefusesTheSameRows:
                 "continuous": {"treatment_kind": "continuous"},
                 "delta": {"missingness": "Delta"},
                 "intermediate_blip": {"intermediate": "Z"},
-                "estimated_weights": {"weights": "w", "weights_estimated": True},
                 "strata_clusters": {"strata": ("W2",), "cluster": "c"},
             }.get(kind, {})
         )
@@ -921,16 +916,12 @@ class TestTheCompositionRemediesRunAsWritten:
     def _weighted(self) -> pd.DataFrame:
         return support.law_frame(200, 4).assign(w=lambda f: 1.0 + 0.5 * f["W2"])
 
-    def test_the_estimated_weights_remedies_fit(self) -> None:
+    def test_estimated_weights_fit_as_the_fixed_rule_does(self) -> None:
+        """X11 (k2): a learned rule takes estimated weights, as a fixed rule does."""
         frame = self._weighted()
         fit = {"outcome": "Y", "treatment": "A", "covariates": support.COVARIATES}
-        message = _refused(
-            lambda: _engine().fit(frame, weights="w", weights_estimated=True, **fit), "X11 (k2)"
-        )
-        assert "weights_estimated=False" in message
-        assert "TMLE(interventions=[Rule(..., rule_kind='known')])" in message
-        known = support.learned_tmle().fit(frame, weights="w", weights_estimated=False, **fit)
-        assert np.isfinite(known.single().estimates[support.NAME].psi)
+        learned = support.learned_tmle().fit(frame, weights="w", weights_estimated=True, **fit)
+        assert np.isfinite(learned.single().estimates[support.NAME].psi)
         rule = Rule(lambda w: (w["W1"] > 0).astype(int), name="w1", rule_kind="known")
         fixed = TMLE(
             interventions=[rule],
