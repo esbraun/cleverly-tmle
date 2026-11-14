@@ -380,12 +380,26 @@ A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a p
 bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
 The bootstrap is opt in. A fit never turns it on.
 
+A policy that shifts a continuous dose, such as a price cut, is different: the bootstrap does not
+help there. On the five-period price plan of the
+[pricing study](../technical-reference/method-evidence/mtp-pricing.md), the BCa interval covers
+about 91% to 92% of the time, no better than the Wald interval.
+
+Pass `variance="policy_weighted"` instead. It also works out the standard error from every row at the dose the policy would set, and
+reports the larger of that and the usual one. The interval is never narrower than the default, and
+a few extreme rows no longer make it too narrow, but it can be wider than it needs to be. Its
+coverage holds when the treatment model's density ratio is known exactly, or, when that ratio is
+learned, when the outcome model is right.
+[The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
+states which fits it refuses and what it was validated against.
+
 | option | what it does | label today |
 | --- | --- | --- |
 | `n_bootstrap=B` | refits the whole estimator on `B` resamples and attaches an interval to each estimate | `supported` only for a covered fit, otherwise `experimental` |
 | `bootstrap_interval="percentile"` | takes the quantiles of the `B` draws. This is the default | as above |
 | `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `supported` for a single-fold fit that matches a long-horizon row, within the limits below, otherwise `experimental` |
 | `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `supported` for a three-level `LTMLE` fit at five decisions that matches `G46.tmle.categorical_k5`, otherwise `experimental` |
+| `variance="policy_weighted"` | for a continuous-dose policy, reports the larger of the usual standard error and one read at each row's policy dose. Not combined with `n_bootstrap` | `supported` where a support row licenses it ([policy-weighted variance study](../technical-reference/method-evidence/mtp-policy-variance.md)), otherwise `experimental` |
 | `result.diagnostics.influence()` | reports how few rows carry each influence curve. Call it directly: `run_all()` does not include it | a diagnostic, with no label |
 
 The label checks the plan family of the fit. It does not check $n$, the learners or the quantity.
