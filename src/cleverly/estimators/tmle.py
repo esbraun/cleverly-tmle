@@ -87,7 +87,7 @@ import copy
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import TYPE_CHECKING, Any, Final, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, cast, get_args
 
 import numpy as np
 
@@ -97,6 +97,14 @@ from .._inference_status import (
     OUT_OF_RANGE_STATUS,
     InferenceStatus,
     supplies_inference,
+)
+from .._ratio_route import (
+    REQUESTED,
+    RatioRoute,
+    check_ratio,
+    refuse_classifier_settings,
+    resolve_ratio,
+    warn_isolated_clusters,
 )
 from .._support import (
     Classification,
@@ -1316,7 +1324,7 @@ class TMLE:
         effect_modification: EffectModification | None = None,
         learned_rule: LearnedRule | None = None,
         density_bins: int | None = None,
-        ratio: Literal["density", "classifier"] = "density",
+        ratio: Literal["density", "classifier"] | None = None,
         reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
@@ -1552,12 +1560,8 @@ class TMLE:
             raise ValueError(
                 f"stratify_folds must be one of {allowed}; got {self.stratify_folds!r}"
             )
-        if self.ratio not in ("density", "classifier"):
-            raise ValueError(
-                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}. 'density' "
-                "estimates a policy's ratio from a binned conditional density of the dose, and "
-                "'classifier' from a stacked classification (Diaz et al. 2023, Section 5.4)"
-            )
+        check_ratio(self.ratio)
+        refuse_classifier_settings(self.ratio, self.density_bins, self.treatment_learner)
         if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(
                 f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
@@ -1759,6 +1763,12 @@ class TMLE:
             treatment_covariates=treatment_covariates,
             continuous_treatment=continuous_treatment,
         ).with_dose_declarations(treatment_support, dose_atoms)
+        resolved = self._resolved(prepared)
+        resolved._warn_dose_clusters(prepared)
+        return resolved._fit_prepared(prepared)
+
+    def _fit_prepared(self, prepared: CausalData) -> TMLEResultSet:
+        """:meth:`fit` on prepared data, by an estimator whose ``ratio`` is resolved."""
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
         if isinstance(self.learned_rule, FrozenLearnedRule):
@@ -1909,7 +1919,7 @@ class TMLE:
         TMLEResult
             The result of the whole fit on ``data``.
         """
-        estimator = self._configured_for_refit(data)
+        estimator = self._configured_for_refit(data)._resolved(data)
         if frozen_folds is not None:
             if estimator is self:
                 estimator = copy.copy(self)
@@ -1928,6 +1938,86 @@ class TMLE:
                 estimator = copy.copy(self)
             estimator.random_state = random_state
         return estimator._fit_single(data, intermediate_value=intermediate_value)
+
+    #: Why every fit of this class reads the density route only, as the result records it
+    #: when ``ratio=None`` resolves; ``None`` where the default can be the classifier.
+    _density_only_ratio: ClassVar[str | None] = None
+    #: The rule that chose ``ratio`` on a resolved copy; a set ``ratio`` was requested.
+    _resolved_reason: str = REQUESTED
+
+    def ratio_route(self, data: CausalData) -> RatioRoute:
+        """The route this estimator estimates a policy ratio by on ``data``, and why.
+
+        ``ratio=None`` resolves to the classifier for a policy on a continuous or vector
+        dose, and to the binned density otherwise, and in these cases even with such a
+        dose: ``density_bins`` set, a treatment learner that declares ``bin_design``, a
+        declared treatment mechanism, and an estimator that reads the density only.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        RatioRoute
+            The route and the rule that chose it.
+        """
+        if self.ratio is not None and self._resolved_reason != REQUESTED:
+            # A resolved copy, as a result records it: the rule that chose its route.
+            return RatioRoute(str(self.ratio), self._resolved_reason)
+        only = self._density_only_ratio
+        if only is None and data.known_treatment is not None:
+            only = "a declared treatment mechanism fixes the ratio's denominator"
+        return resolve_ratio(
+            self.ratio,
+            policy_dose=bool(self.policies) and _has_no_arms(data),
+            density_bins=self.density_bins,
+            learner=self.treatment_learner,
+            density_only=only,
+        )
+
+    def _resolved(self, data: CausalData) -> TMLE:
+        """This estimator with its ``ratio`` resolved on ``data``.
+
+        Itself when ``ratio`` is set or no policy reads it, else a copy, so this instance
+        keeps ``ratio=None``.  The copy is the estimator the result records, so a refit of
+        the result reads the same route.
+        """
+        if self.ratio is not None or not self.policies:
+            return self
+        route = self.ratio_route(data)
+        resolved = copy.copy(self)
+        resolved.ratio = route.route  # type: ignore[assignment]
+        resolved._resolved_reason = route.reason
+        return resolved
+
+    def _warn_dose_clusters(self, data: CausalData) -> None:
+        """Warn of isolated dose clusters when this resolved fit reads the classifier."""
+        if self.ratio != "classifier" or not self.policies or not _has_no_arms(data):
+            return
+        if data.treatment_components is None:
+            doses = {data.treatment_name: data.treatment}
+        else:
+            doses = {
+                name: data.treatment_components[:, index]
+                for index, (name, levels) in enumerate(
+                    zip(data.component_names, data.component_levels, strict=True)
+                )
+                if not levels
+            }
+        warn_isolated_clusters(doses)
+
+    def _route_record(self) -> RatioRoute | None:
+        """The resolved route this estimator fits by, or ``None`` before resolution."""
+        if self.ratio is None:
+            return None
+        return RatioRoute(str(self.ratio), self._resolved_reason)
+
+    @property
+    def _route(self) -> str:
+        """The resolved ``ratio``; a fit reads it only after :meth:`_resolved`."""
+        return "density" if self.ratio is None else str(self.ratio)
 
     def _configured_for_refit(self, data: CausalData) -> TMLE:
         """The estimator a refit on ``data`` runs, which is this one.
@@ -3582,7 +3672,7 @@ class TMLE:
                     lambda value: f"row(s) in arm {data.arm_label(value)}",
                 )
             )
-        cells = _fitted_cells(data, self.ratio) if fits_treatment else None
+        cells = _fitted_cells(data, self._route) if fits_treatment else None
         if cells is not None:
             # The density route's categorical factor classifies the cells, so a package
             # Super Learner there splits on them as it would on arms.
@@ -3798,7 +3888,7 @@ class TMLE:
 
         describe: Callable[[float], str] = describe_arm
         what, noun = "treatment arm", "arm"
-        cells = _fitted_cells(data, self.ratio)
+        cells = _fitted_cells(data, self._route)
         if cells is not None:
             treatment, arms, describe = cells
             what = f"cell of the categorical components of {data.treatment_name!r}"
@@ -4143,7 +4233,7 @@ class TMLE:
                 preflight_vector_policies(
                     in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
                     data,
-                    ratio=self.ratio,
+                    ratio=self._route,
                     density_bins=self.density_bins,
                 )
             return
@@ -4166,7 +4256,7 @@ class TMLE:
             preflight_point_policies(
                 in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
                 data,
-                ratio=self.ratio,
+                ratio=self._route,
                 density_bins=self.density_bins,
             )
         elif data.treatment_support is not None or data.dose_atoms:
@@ -4449,7 +4539,7 @@ class TMLE:
                 else preflight_point_policies
             )
             for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
-                preflight(fold_policies, data, ratio=self.ratio, density_bins=self.density_bins)
+                preflight(fold_policies, data, ratio=self._route, density_bins=self.density_bins)
         reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,
@@ -4493,7 +4583,7 @@ class TMLE:
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
-            policy_ratio=self.ratio,
+            policy_ratio=self._route,
             msm=msm,
             companion=companion,
             n_jobs=self.n_jobs,
@@ -4791,6 +4881,7 @@ class TMLE:
                 else "estimated"
             ),
             continuous_treatment=_has_no_arms(data),
+            ratio_route=self._route_record() if self.policies else None,
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
             outcome_by_arm=self.outcome_by_arm,

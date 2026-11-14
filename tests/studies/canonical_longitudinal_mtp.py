@@ -405,7 +405,7 @@ def fit(
         n_folds=folds,
         learner_folds=LEARNER_FOLDS,
         g_bounds=G_BOUNDS,
-        density_bins=oracle_bins(len(frame)),
+        density_bins=oracle_bins(len(frame)) if ratio == "density" else None,
         ratio=ratio,
         simultaneous=simultaneous,
         max_iter=100,

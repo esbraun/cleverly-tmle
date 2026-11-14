@@ -1547,6 +1547,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("drtmle", "univariate")
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads static arms only"
 
     def __init__(
         self,
@@ -1593,7 +1594,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         pseudo_learner: Learner | None = None,
         competing_learner: Learner | None = None,
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         reduction: str = "univariate",
         reduced_outcome_learner: Learner | None = None,
         reduced_treatment_learner: Learner | None = None,
@@ -1679,7 +1680,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             return SURVIVAL_MODEL_REFUSAL
         if self.competing_learner is not None:
             return COMPETING_LEARNER_REFUSAL
-        if self.density_bins is not None or self.ratio != "density":
+        if self.density_bins is not None or self.ratio == "classifier":
             return DOSE_SETTINGS_REFUSAL
         if self.targeting != "iterative":
             return ONE_STEP_REFUSAL

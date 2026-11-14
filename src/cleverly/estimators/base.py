@@ -19,6 +19,7 @@ from .._inference_status import (
     InferenceStatus,
     is_labelled,
 )
+from .._ratio_route import RatioRoute
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
 from .._support import Classification, SupportKey, combine_support
@@ -158,6 +159,9 @@ class TMLEConfig:
     #: (:attr:`~cleverly.data.CausalData.known_treatment`), else ``"estimated"``.  Recorded
     #: so a result read back from disk says which one its interval rests on.
     treatment_mechanism: str = "estimated"
+    #: The route of a policy fit's density ratio and the rule that chose it
+    #: (:func:`~cleverly._ratio_route.resolve_ratio`); ``None`` for a fit with no policy.
+    ratio_route: RatioRoute | None = None
     #: Whether the outcome regression was fitted once per treatment arm
     #: (``outcome_by_arm=True``) rather than once on the covariates and the treatment.
     outcome_by_arm: bool = False

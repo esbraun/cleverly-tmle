@@ -93,11 +93,13 @@ __all__ = [
     "ConditionalDensity",
     "DensityDiagnostics",
     "DesignRows",
+    "DoseCluster",
     "MixedDensity",
     "PredictionMemory",
     "bin_edges",
     "bin_occupancy",
     "fit_conditional_density",
+    "isolated_dose_clusters",
     "preflight_conditional_densities",
     "warn_if_flat",
 ]
@@ -454,6 +456,99 @@ def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> Fl
     """
     a = np.asarray(values, dtype=float).reshape(-1)
     return _refine(a, _equal_mass_edges(a, n_bins, name))
+
+
+@dataclass(frozen=True)
+class DoseCluster:
+    """A cluster of doses beyond an empty gap bin of the density grid.
+
+    Parameters
+    ----------
+    lower : float
+        The smallest dose of the cluster.
+    upper : float
+        The largest dose of the cluster.
+    rows : int
+        The number of doses in the cluster.
+    """
+
+    lower: float
+    upper: float
+    rows: int
+
+
+def isolated_dose_clusters(
+    values: FloatArray, min_rows: int = 3, *, n_bins: int | None = None
+) -> tuple[DoseCluster, ...]:
+    """The clusters of doses that lie beyond a gap bin of the density grid.
+
+    The grid is :func:`bin_edges` at ``n_bins`` core bins, by default
+    :func:`default_density_bins` of the number of doses.  A gap bin is an empty refined bin
+    wider than twice the mean interior core width.  A cluster is the doses between a gap bin
+    and the next gap bin, or the end of the doses, on the gap's outer side.  A cluster of
+    ``min_rows`` doses or more is returned.  A stacked classifier can smooth over such a
+    cluster, so a fit on the classifier route warns when it finds one.  A far cluster of one
+    or two doses is not returned at the default ``min_rows=3``.
+
+    Parameters
+    ----------
+    values : array-like
+        The observed doses.  Values that are not finite are ignored.
+    min_rows : int, default=3
+        The fewest doses a returned cluster holds.
+    n_bins : int or None
+        The core bin count of the grid; ``None`` takes the default.
+
+    Returns
+    -------
+    tuple of DoseCluster
+        The clusters, in increasing dose order.
+
+    Raises
+    ------
+    ValueError
+        If ``min_rows`` is below one.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.learners import isolated_dose_clusters
+    >>> rng = np.random.default_rng(0)
+    >>> doses = np.r_[rng.normal(size=2000), np.full(6, 8.0)]
+    >>> isolated_dose_clusters(doses)
+    (DoseCluster(lower=8.0, upper=8.0, rows=6),)
+    """
+    if int(min_rows) < 1:
+        raise ValueError(f"min_rows must be at least 1; got {min_rows!r}")
+    a = np.asarray(values, dtype=float).reshape(-1)
+    a = np.sort(a[np.isfinite(a)])
+    k = default_density_bins(a.size) if n_bins is None else int(n_bins)
+    if a.size == 0 or np.unique(a).size <= k:
+        return ()
+    core = _equal_mass_edges(a, k, None)
+    if core.size - 1 < 3:
+        return ()
+    h = _width_cap(core)
+    if not h > 0.0:
+        return ()
+    edges = _refine(a, core)
+    held = bin_occupancy(a, edges)
+    widths = np.diff(edges)
+    gaps = np.flatnonzero(~held & (widths > 2.0 * h))
+    median = float(np.median(a))
+    found: dict[tuple[float, float], int] = {}
+    for g in gaps:
+        if 0.5 * (edges[g] + edges[g + 1]) > median:
+            later = gaps[gaps > g]
+            low, high = edges[g + 1], (edges[later[0]] if later.size else np.inf)
+            inside = a[(a >= low) & (a < high)]
+        else:
+            earlier = gaps[gaps < g]
+            low, high = (edges[earlier[-1] + 1] if earlier.size else -np.inf), edges[g]
+            inside = a[(a > low) & (a <= high)]
+        if inside.size >= min_rows:
+            found[(float(inside[0]), float(inside[-1]))] = int(inside.size)
+    return tuple(DoseCluster(lo, hi, rows) for (lo, hi), rows in sorted(found.items()))
 
 
 def bin_occupancy(values: FloatArray, edges: FloatArray) -> BoolArray:
@@ -1900,6 +1995,14 @@ def fit_conditional_density(
     return density, report, shaped
 
 
+#: The warning of a policy that moves no row's dose, on either ratio route.
+UNMOVED_WARNING = (
+    "the policy changes no row's dose, so its density ratio is one on every row and the "
+    "intervention is invisible: it estimates the natural course. Check the policy's cap or "
+    "gate if it was meant to move some doses."
+)
+
+
 def warn_if_flat(
     density: ConditionalDensity,
     shifted: FloatArray,
@@ -1938,13 +2041,7 @@ def warn_if_flat(
     if flat > _FLAT_WARNING:
         grid = f"({density.n_bins} bins over [{density.edges[0]:.3g}, {density.edges[-1]:.3g}])"
         if not np.any(np.asarray(shifted, dtype=float) != np.asarray(observed, dtype=float)):
-            _warn(
-                "the policy changes no row's dose, so its density ratio is one on every row "
-                "and the intervention is invisible: it estimates the natural course. Check the "
-                "policy's cap or gate if it was meant to move some doses.",
-                UserWarning,
-                stacklevel=3,
-            )
+            _warn(UNMOVED_WARNING, UserWarning, stacklevel=3)
             return flat
         if component is None:
             message = (

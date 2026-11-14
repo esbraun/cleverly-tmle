@@ -128,7 +128,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..learners.crossfit import Folds
-from ..learners.density import ConditionalDensity, MixedDensity, warn_if_flat
+from ..learners.density import UNMOVED_WARNING, ConditionalDensity, MixedDensity, warn_if_flat
 from .support import _intervention_loads, _InterventionLoadRow
 from .tuning import (
     DoseQuantile,
@@ -4481,6 +4481,10 @@ class PolicySet:
                     owners.append((index, probability))
                     columns.append(np.asarray(branch.assign(a, frame), dtype=float))
                     held.append(branch.held(a))
+                    # No density to read a flat bin from, but a policy that moves nobody
+                    # is as invisible here; the natural course is meant to move nobody.
+                    if not branch.identity and not np.any(columns[-1] != a):
+                        _warn(UNMOVED_WARNING, UserWarning, stacklevel=3)
         else:
             levels = tuple(data.arm_label(code) for code in data.arm_codes)
             observed_codes = a.astype(np.int64)
@@ -4514,7 +4518,7 @@ class PolicySet:
         # and ``atoms=`` adds the indicator of each declared atom.
         block = data.component_design if data.is_vector_treatment else _same
         atoms = tuple(data.dose_atoms) if data.is_continuous_treatment else ()
-        # A dose's step columns (3.6 of the design): each branch's own lowered map, and with
+        # A dose's step columns: each branch's own lowered map, and with
         # a fold-tuned cap on several folds, each fold's own map.
         branch_sets: list[list[_Branch]] = []
         if data.is_continuous_treatment:

@@ -36,6 +36,8 @@ MISSINGNESS_MODEL: Final = "Missingness model"
 WEIGHTED: Final = " (weighted)"
 #: The model of whether a row's treatment was recorded.
 RECORDING_MODEL: Final = "Recording model"
+#: The route a policy fit estimates its density ratio by, and the rule that chose it.
+POLICY_RATIO: Final = "Policy ratio"
 #: The model of the intermediate variable a controlled direct effect holds fixed.
 INTERMEDIATE_MODEL: Final = "Intermediate model"
 CLUSTERS: Final = "Clusters"

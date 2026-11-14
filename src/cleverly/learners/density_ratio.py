@@ -17,6 +17,12 @@ Any binary classifier estimates :math:`u = P(\lambda = 1 \mid a, h)`, and
 randomizer value, each weighted by the value's known probability, so the assigned block
 still has total weight one per unit.
 
+**Step columns.**  A capped shift or a banded policy makes the true ratio jump in the dose: at
+the cap, at a band edge, at a declared support bound.  A smooth classifier would round such a
+jump off, so on a dose of one column the policy hands the classifier one indicator per place
+where its ratio can jump, and every stacked block reads ``[a, atom indicators, steps, H]``.  A
+classifier that sets ``policy_steps = "omit"`` reads the design without them.
+
 **The split is over units, never over stacked rows.**  A unit's two copies share
 :math:`H_i`, and a fold that trained on one copy and predicted the other would put the
 unit's own row in the fit that predicts it.  So each outer fold trains on both copies of its

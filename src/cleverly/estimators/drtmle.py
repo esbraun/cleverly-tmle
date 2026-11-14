@@ -619,6 +619,9 @@ class DRTMLE(TMLE):
     """
 
     _assessment_method = "drtmle"
+    #: ``ratio=None`` resolves to the density route on this estimator, which has no
+    #: classifier route of its own.
+    _density_only_ratio = "this estimator reads the density route only"
     #: The refit refits the reduced regressions on the perturbed table.
     simulated_confounding_replay = True
 

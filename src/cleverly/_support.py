@@ -829,7 +829,8 @@ def point_key(
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
-        options["ratio"] = estimator.ratio
+        # A ratio left unset reads the route it resolves to on this data.
+        options["ratio"] = estimator.ratio_route(data).route
         from .estimators._tuned_policies import declares_tuned
 
         if declares_tuned(tuple(getattr(estimator, "policies", None) or ())):
@@ -903,6 +904,14 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
         if not (mtp or tilt):
             kinds.add("stochastic" if plan.has_policy else "static")
     return frozenset(kinds)
+
+
+def _resolved_ratio(estimator: Any, data: Any) -> str:
+    """The route a fit reads its policy ratio by: ``ratio=None`` as it resolves on ``data``."""
+    route = getattr(estimator, "ratio_route", None)
+    if route is None:
+        return str(getattr(estimator, "ratio", "density"))
+    return str(route(data).route)
 
 
 def longitudinal_key(
@@ -994,7 +1003,7 @@ def longitudinal_key(
         ),
         options=(
             ("normalization", _option(estimator._normalization())),
-            ("ratio", _option(getattr(estimator, "ratio", "density"))),
+            ("ratio", _option(_resolved_ratio(estimator, data))),
             ("survival_model", _option(estimator.survival_model)),
             ("targeting", _option(estimator.targeting)),
             ("isotonic", _option(estimator.isotonic)),

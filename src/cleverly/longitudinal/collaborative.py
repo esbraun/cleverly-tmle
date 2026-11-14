@@ -1485,6 +1485,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("collaborative_tmle", "greedy")
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads static arms only"
 
     def __init__(
         self,
@@ -1533,7 +1534,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         censoring_learner: Learner | None = None,
         competing_learner: Learner | None = None,
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         strategy: str = "greedy",
         patience: int | None = None,
         candidates: Any = None,
@@ -1698,7 +1699,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             )
         ):
             return LEARNERS_REFUSAL
-        if self.density_bins is not None or self.ratio != "density":
+        if self.density_bins is not None or self.ratio == "classifier":
             return DOSE_SETTINGS_REFUSAL
         return None
 

@@ -312,14 +312,16 @@ def test_a_point_dose_vector_takes_the_route_ratio_names() -> None:
     name = "ate_policy[dose up vs natural]"
     psis = {}
     for ratio in ("classifier", "density"):
+        # The bins are a density setting, which the classifier route refuses.
+        bins = 5 if ratio == "density" else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             direct = (
-                TMLE(policies=policies, ratio=ratio, density_bins=5, **_sample_learners())
+                TMLE(policies=policies, ratio=ratio, density_bins=bins, **_sample_learners())
                 .fit(data)
                 .single()
             )
-        study = _sample_estimate(identified, ratio=ratio, density_bins=5, **_sample_learners())
+        study = _sample_estimate(identified, ratio=ratio, density_bins=bins, **_sample_learners())
         assert study.psi(name) == pytest.approx(direct.psi(name), abs=1e-12)
         psis[ratio] = direct.psi(name)
     assert abs(psis["classifier"] - psis["density"]) > 1e-4
@@ -415,7 +417,9 @@ def test_ipsi_refuses_density_bins() -> None:
 
 
 def test_ratio_is_validated_at_construction() -> None:
-    with pytest.raises(MethodConfigurationError, match="ratio must be 'density' or 'classifier'"):
+    with pytest.raises(
+        MethodConfigurationError, match="ratio must be None, 'density' or 'classifier'"
+    ):
         ModelSpec(ratio="odds")  # type: ignore[arg-type]
 
 
@@ -423,9 +427,12 @@ def test_the_ratio_and_bins_shortcuts_reach_both_engines() -> None:
     """``ratio`` and ``density_bins`` set ``ModelSpec`` and reach both translations."""
     assert SHORTCUTS["models"]["ratio"] == "ratio"
     assert SHORTCUTS["models"]["density_bins"] == "density_bins"
-    method = TMLEMethod().with_overrides(ratio="classifier", density_bins=7)
-    assert method.models.ratio == "classifier" and method.models.density_bins == 7
+    # The classifier route fits no binned density, so the pair is refused (3.7).
+    with pytest.raises(MethodConfigurationError, match="density_bins=7 would change nothing"):
+        TMLEMethod().with_overrides(ratio="classifier", density_bins=7)
+    method = TMLEMethod().with_overrides(ratio="density", density_bins=7)
+    assert method.models.ratio == "density" and method.models.density_bins == 7
     for longitudinal in (False, True):
         kwargs = method.estimator_kwargs(longitudinal=longitudinal)
-        assert kwargs["ratio"] == "classifier"
+        assert kwargs["ratio"] == "density"
         assert kwargs["density_bins"] == 7

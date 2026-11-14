@@ -29,8 +29,10 @@ from .crossfit import (
 from .density import (
     ConditionalDensity,
     DensityDiagnostics,
+    DoseCluster,
     bin_edges,
     fit_conditional_density,
+    isolated_dose_clusters,
 )
 from .glm import GLM
 from .library import default_library
@@ -44,6 +46,7 @@ __all__ = [
     "CorrelationScreener",
     "CrossFitPlan",
     "DensityDiagnostics",
+    "DoseCluster",
     "FoldOrigin",
     "Folds",
     "ParametricFitDiagnostics",
@@ -60,6 +63,7 @@ __all__ = [
     "fit_learner",
     "get_thread_limit",
     "infer_task",
+    "isolated_dose_clusters",
     "make_folds",
     "predict_mean",
     "random_partition",

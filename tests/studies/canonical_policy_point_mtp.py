@@ -432,7 +432,7 @@ def fit(
             treatment_learner=density if treatment_learner is None else treatment_learner,
             cross_fit=False,
             simultaneous=False,
-            density_bins=oracle_bins(len(frame)),
+            density_bins=oracle_bins(len(frame)) if ratio == "density" else None,
             ratio=ratio,
             max_iter=100,
             tol=1e-10,

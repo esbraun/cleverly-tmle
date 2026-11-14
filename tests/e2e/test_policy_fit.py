@@ -161,7 +161,7 @@ def test_the_support_report_counts_the_rows_a_cap_holds(dose_fit: Any) -> None:
     assert report["trim high"].capped_fraction == 0.0
     held = report["x1.1"].summary().facts[vocabulary.SUPPORT_CAPPED]
     assert held == f"{expected:.1%}"
-    by_classifier = _dose_fit(ratio="classifier").diagnostics.support()
+    by_classifier = _dose_fit(ratio="classifier", density_bins=None).diagnostics.support()
     assert by_classifier["x1.1"].capped_fraction == pytest.approx(expected, abs=1e-12)
 
 
@@ -172,7 +172,7 @@ def test_a_categorical_support_report_evaluates_no_cap() -> None:
 
 
 def test_the_classifier_route_runs_and_agrees_with_the_density_route(dose_fit: Any) -> None:
-    by_classifier = _dose_fit(ratio="classifier")
+    by_classifier = _dose_fit(ratio="classifier", density_bins=None)
     for policy in CONTINUOUS:
         name = f"ey_policy[{policy.name}]"
         assert by_classifier.estimates[name].psi == pytest.approx(
@@ -197,7 +197,6 @@ def test_a_cross_fitted_clustered_policy_fit_runs() -> None:
             cross_fit=True,
             n_folds=3,
             policies=[Shift(0.0, cap=None), Scale(1.1, cap=5.0, name="x1.1")],
-            density_bins=10,
             ratio="classifier",
             simultaneous=False,
             random_state=0,

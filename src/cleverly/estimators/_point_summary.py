@@ -125,6 +125,8 @@ def base_summary_facts(result: TMLEResult) -> SummaryFacts:
             # The design restricts what the treatment model reads.
             treatment_model += " on " + (", ".join(sources) if sources else "no covariates")
     header: list[tuple[str, str]] = []
+    if config.ratio_route is not None:
+        header.append((vocabulary.POLICY_RATIO, config.ratio_route.describe()))
     data = result.data
     if specs is not None:
         if data.has_missing_outcome:

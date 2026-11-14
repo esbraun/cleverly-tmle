@@ -1306,6 +1306,29 @@ def _refuse_learned_rule_splits(result: TMLEResult, axis: bool) -> Refusal | Non
     )
 
 
+def _refuse_policy_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
+    """Refuse the propensity axis of a policy fit on a dose, whose propensity is empty.
+
+    On a continuous or vector dose the policy's density ratio is the fit's only treatment
+    weight, and a point fit has no bound on it: ``ratio_trim=`` is refused there.  A
+    ``g(W)`` bound would act on the empty propensity and move nothing.
+    """
+    nuisance = result.nuisance
+    if axis or nuisance.policies is None or np.asarray(nuisance.propensity.values).shape[1]:
+        return None
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "on a modified treatment policy of a continuous or vector dose the density ratio "
+        "is the only treatment weight, and a point fit fits no propensity g(W) and has no "
+        "bound on that ratio, so a g(W) bound would move nothing.",
+        alternative=(
+            "Declare the treatment as a one-node LongitudinalTreatment and sweep its "
+            "ratio_trim= with longitudinal_truncation_curve(), or pass mechanism=True "
+            "where the fit has missing outcomes."
+        ),
+    )
+
+
 #: Every refusal of a point-treatment truncation curve that the requested axis decides, in
 #: the one order the module call and the capability row both use.  Each rule reads the
 #: resolved axis from :func:`truncation_axis`.  The names are the introspection contract,
@@ -1315,6 +1338,7 @@ _TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], Refusal | None]
     ("incremental", _refuse_incremental),
     ("natural_course", _refuse_natural_course),
     ("learned_rule_splits", _refuse_learned_rule_splits),
+    ("policy_ratio", _refuse_policy_ratio),
 )
 
 
@@ -1476,7 +1500,9 @@ def truncation_curve(
     ------
     CapabilityError
         When the requested axis is refused, as :func:`truncation_refusal` states, or when an
-        explicit ``g(W)`` bound moves a value of a declared known mechanism.
+        explicit ``g(W)`` bound moves a value of a declared known mechanism.  A modified
+        treatment policy of a continuous or vector dose refuses the ``g(W)`` axis: its fit
+        has no propensity, and the density ratio, its only treatment weight, has no bound.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
     estimator = result.estimator

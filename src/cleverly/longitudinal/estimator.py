@@ -83,6 +83,14 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
+from .._ratio_route import (
+    REQUESTED,
+    RatioRoute,
+    check_ratio,
+    refuse_classifier_settings,
+    resolve_ratio,
+    warn_isolated_clusters,
+)
 from .._support import (
     UNCLASSIFIED,
     Classification,
@@ -1624,6 +1632,9 @@ class LongitudinalConfig:
     #: The variance of the reported intervals: ``"influence_curve"``, or
     #: ``"policy_weighted"`` for the larger of that and the policy-weighted variance.
     variance: str = "influence_curve"
+    #: The route each continuous node's policy ratio was estimated by, and the rule that
+    #: chose it; ``None`` on a fit with no continuous or vector node.
+    ratio_route: RatioRoute | None = None
 
 
 @dataclass(frozen=True)
@@ -4816,6 +4827,11 @@ class _SequentialEstimator:
     _allow_set_dose: ClassVar[bool] = False
     #: Whether the fit reads a density ratio at a continuous node, which R-b4 of X40 guards.
     _reads_density_ratio: ClassVar[bool] = True
+    #: Why ``ratio=None`` resolves to the density route on this estimator whatever the data,
+    #: as the result records it; ``None`` where the default can be the classifier.
+    _density_only_ratio: ClassVar[str | None] = None
+    #: The rule that chose ``ratio`` on a resolved copy; a set ``ratio`` was requested.
+    _resolved_reason: str = REQUESTED
 
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
@@ -4853,7 +4869,7 @@ class _SequentialEstimator:
         bootstrap_resampling: Resampling = "auto",
         bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         ratio_trim: float | None = None,
         hazard_pooling: str = "node",
         repeats: int = 1,
@@ -4963,12 +4979,8 @@ class _SequentialEstimator:
                 "full-refit bootstrap, and n_bootstrap=0 runs none. Pass n_bootstrap= too, "
                 "such as n_bootstrap=199"
             )
-        if self.ratio not in ("density", "classifier"):
-            raise ValueError(
-                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}. It is how a "
-                "continuous node's policy ratio is estimated: a binned conditional density, or "
-                "a stacked classification (Diaz et al. 2023, Section 5.4)"
-            )
+        check_ratio(self.ratio)
+        refuse_classifier_settings(self.ratio, self.density_bins, self.treatment_learner)
         check_ratio_trim(self.ratio_trim)
         check_hazard_pooling(self.hazard_pooling)
         if self.density_bins is not None and self.density_bins < 3:
@@ -5252,7 +5264,7 @@ class _SequentialEstimator:
             folds=folds,
             n_jobs=self.n_jobs,
             density_bins=self.density_bins,
-            ratio=self.ratio,
+            ratio=self._route,
             hazard_pooling=self.hazard_pooling,
             shifted_ratios=self.variance == "policy_weighted",
         )
@@ -5329,7 +5341,7 @@ class _SequentialEstimator:
         preflight_declared_doses(
             prepared,
             regimens,
-            ratio=self.ratio,
+            ratio=self.ratio_route(prepared).route,
             density_bins=self.density_bins,
             undeclared_atoms=self._reads_density_ratio,
         )
@@ -5573,6 +5585,12 @@ class _SequentialEstimator:
             dose_atoms=dose_atoms,
         ).eliminating(eliminate)
         self._refuse_prepared(prepared)
+        if self.ratio is None:
+            # ``ratio=None`` resolves once, on the prepared data, before any check reads it.
+            # The resolved copy fits, so the result it keeps reads the same route on a refit.
+            return self._resolved(prepared).fit(prepared)
+        if self.ratio == "classifier":
+            self._warn_dose_clusters(prepared)
         if learned is not None:
             refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
@@ -5628,7 +5646,7 @@ class _SequentialEstimator:
         preflight_declared_doses(
             prepared,
             regimens,
-            ratio=self.ratio,
+            ratio=self._route,
             density_bins=self.density_bins,
             undeclared_atoms=self._reads_density_ratio,
         )
@@ -5727,7 +5745,7 @@ class _SequentialEstimator:
         masks = prepared.regimen_masks(prepared.treatment)
         for index, (folds, _) in enumerate(draws, start=1):
             try:
-                preflight_mechanism_support(prepared, masks, folds, ratio=self.ratio)
+                preflight_mechanism_support(prepared, masks, folds, ratio=self._route)
                 self._preflight_followers(prepared, checked, horizons, folds)
             except Exception as error:
                 if len(draws) == 1:
@@ -5829,6 +5847,14 @@ class _SequentialEstimator:
             support_key=None if classification is None else classification.key,
             estimator=self._estimator,
             normalization=self._normalization(),
+            ratio_route=(
+                self._route_record()
+                if any(
+                    prepared.node_kind(time) in ("continuous", "mixed")
+                    for time in range(1, prepared.n_decisions + 1)
+                )
+                else None
+            ),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
@@ -6256,7 +6282,7 @@ class _SequentialEstimator:
                     competing_learner=competing_learner,
                     folds=folds,
                     density_bins=self.density_bins,
-                    ratio=self.ratio,
+                    ratio=self._route,
                     hazard_pooling=self.hazard_pooling,
                     n_jobs=self.n_jobs,
                 )
@@ -6553,7 +6579,7 @@ class _SequentialEstimator:
                 censoring_learner=censoring_learner,
                 folds=Folds.single(data.n),
                 density_bins=self.density_bins,
-                ratio=self.ratio,
+                ratio=self._route,
             )
             return tuple(resolved), mechanism
 
@@ -6584,6 +6610,85 @@ class _SequentialEstimator:
         replicate.simultaneous = False
         replicate.n_jobs = 1
         return replicate
+
+    def ratio_route(self, data: LongitudinalData) -> RatioRoute:
+        """The route this estimator estimates a policy ratio by on ``data``, and why.
+
+        ``ratio=None`` resolves to the classifier when a node holds a continuous dose or a
+        vector with one, and to the binned density otherwise, and in these cases even with
+        such a node: ``density_bins`` set, a treatment learner that declares ``bin_design``,
+        and an estimator that reads the density only.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared container.
+
+        Returns
+        -------
+        RatioRoute
+            The route and the rule that chose it.
+        """
+        if self.ratio is not None and self._resolved_reason != REQUESTED:
+            # A resolved copy, as a result records it: the rule that chose its route.
+            return RatioRoute(str(self.ratio), self._resolved_reason)
+        dose = any(
+            data.node_kind(time) in ("continuous", "mixed")
+            for time in range(1, data.n_decisions + 1)
+        )
+        return resolve_ratio(
+            self.ratio,
+            policy_dose=dose,
+            density_bins=self.density_bins,
+            learner=self.treatment_learner,
+            density_only=self._density_only_ratio,
+        )
+
+    def _resolved(self, data: LongitudinalData) -> _SequentialEstimator:
+        """A copy of this estimator with ``ratio`` resolved on ``data``, so this instance
+        keeps ``ratio=None`` and the result records the copy."""
+        route = self.ratio_route(data)
+        resolved = copy.copy(self)
+        resolved.ratio = route.route
+        resolved._resolved_reason = route.reason
+        return resolved
+
+    def _route_record(self) -> RatioRoute | None:
+        """The resolved route this estimator fits by, or ``None`` before resolution."""
+        if self.ratio is None:
+            return None
+        return RatioRoute(str(self.ratio), self._resolved_reason)
+
+    @property
+    def _route(self) -> str:
+        """The resolved ``ratio``; a fit reads it only after :meth:`_resolved`."""
+        return "density" if self.ratio is None else str(self.ratio)
+
+    def _warn_dose_clusters(self, data: LongitudinalData) -> None:
+        """Warn of isolated clusters among each continuous node's doses at risk.
+
+        The rows at risk of node ``t`` are uncensored and event-free through ``t - 1`` and
+        hold a treatment at ``t``; a row not at risk holds no dose, and its filler is never
+        read.
+        """
+        doses: dict[str, FloatArray] = {}
+        for time in range(1, data.n_decisions + 1):
+            kind = data.node_kind(time)
+            if kind not in ("continuous", "mixed"):
+                continue
+            rows = (
+                data.node_present(time)
+                & data.uncensored_through(time - 1)
+                & data.event_free_through(time - 1)
+            )
+            if kind == "continuous":
+                doses[data.decision_name(time)] = data.node_codes(time)[rows]
+                continue
+            values = data.node_values(time)
+            for index, component in enumerate(data.node_components(time)):
+                if not component.levels:
+                    doses[f"{component.name} at node {time}"] = values[rows, index]
+        warn_isolated_clusters(doses)
 
     def _refit_template(self) -> _SequentialEstimator:
         """The configuration a result keeps, so that a refutation can refit it.
@@ -7568,13 +7673,21 @@ class LTMLE(_SequentialEstimator):
         violation is returned bit for bit.
     density_bins : int or None
         The core bin count of a continuous node's conditional density; its wide outer bins
-        are refined (:func:`~cleverly.learners.bin_edges`).
-    ratio : {"density", "classifier"}
-        How a continuous node's policy ratio is estimated.
+        are refined (:func:`~cleverly.learners.bin_edges`).  Setting it makes ``ratio=None``
+        resolve to the density route.
+    ratio : {"density", "classifier"} or None
+        How a continuous node's policy ratio is estimated: a binned conditional density, or
+        a stacked classification (Diaz et al. 2023, Section 5.4).  ``None`` chooses per
+        fit: the classifier where a node holds a continuous dose or a vector with one, and
+        the density otherwise, or when ``density_bins`` is set or the treatment learner
+        declares ``bin_design``.  ``"classifier"`` with either of those is refused.  The
+        result records the route and the rule that chose it.
     ratio_trim : float or None
         A quantile in ``(0, 1)`` at which every per-node density ratio is trimmed, as
         ``lmtp``'s ``.trim`` does (:mod:`cleverly.longitudinal.ratio_trim`).  A fit whose
-        trim moves a ratio reports no interval.  ``None`` trims nothing.
+        trim moves a ratio reports no interval.  ``None`` trims nothing.  On a trimmed
+        row of a plan with a policy node only the lower limit of ``g_bounds`` applies, so
+        the trim reaches a continuous node's ratio.
         ``survival_model="hazard"`` refuses it with
         :class:`~cleverly.exceptions.CapabilityError`, because the hazard targeting has no
         density-ratio matrix to trim.
@@ -7662,7 +7775,7 @@ class LTMLE(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         repeats: int = 1,
         stopping: StoppingRule = "relative",
         step_bound: float | None = None,
@@ -7863,8 +7976,9 @@ class SDR(_SequentialEstimator):
         ``experimental``.
     density_bins : int or None
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
-    ratio : {"density", "classifier"}
-        How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
+    ratio : {"density", "classifier"} or None
+        How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.  ``None``
+        chooses per fit.
     ratio_trim : float or None
         The per-node ratio trim, as for :class:`LTMLE`.  Each partial weight
         :math:`W_{t,s}` is then the product of the trimmed ratios, as in ``lmtp``
@@ -7944,7 +8058,7 @@ class SDR(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         ratio_trim: float | None = None,
         hazard_pooling: str = "node",
         repeats: int = 1,
@@ -8200,6 +8314,7 @@ class IPSI(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "ipsi"
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads the density route only"
 
     def __init__(
         self,
@@ -8411,7 +8526,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
                 folds=folds,
                 n_jobs=self.n_jobs,
                 density_bins=self.density_bins,
-                ratio=self.ratio,
+                ratio=self._route,
             )
         except DataError as error:
             _warn(GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=5)
@@ -8473,7 +8588,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         msm: MSM | None = None,
         **refused: Any,
     ) -> None:
@@ -8630,9 +8745,11 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     density_bins : int or None
-        The bin count of a continuous node's diagnostic density.
-    ratio : {"density", "classifier"}
-        How a continuous node's diagnostic policy ratio is estimated.
+        The bin count of a continuous node's diagnostic density.  Setting it makes
+        ``ratio=None`` resolve to the density route.
+    ratio : {"density", "classifier"} or None
+        How a continuous node's diagnostic policy ratio is estimated.  ``None`` chooses
+        per fit, as for :class:`LTMLE`.
     msm : None
         Refused: a working model over regimens is fitted by :class:`LTMLE` or :class:`SDR`.
     **refused : Any
@@ -8888,6 +9005,7 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     """
 
     _estimator: ClassVar[str] = "ipw"
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads the density route only"
 
     def __init__(
         self,
@@ -8907,7 +9025,7 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
                 IPW_DENSITY_REFUSAL.format(name="density_bins"),
                 reason=RefusalReason.INVALID_DECLARATION,
             )
-        if kwargs.get("ratio", "density") != "density":
+        if kwargs.get("ratio") not in (None, "density"):
             raise CapabilityError(
                 IPW_DENSITY_REFUSAL.format(name="ratio"),
                 reason=RefusalReason.INVALID_DECLARATION,
@@ -9167,6 +9285,7 @@ class ParametricGFormula(_Baseline):
     _allow_set_dose: ClassVar[bool] = True
     #: The simulation draws the natural dose from its fitted law and reads no ratio.
     _reads_density_ratio: ClassVar[bool] = False
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads the density route only"
 
     def __init__(
         self,
@@ -9900,6 +10019,136 @@ def hazard_mtp_replay(result: LongitudinalResult) -> Refusal | None:
     return None
 
 
+def _fitted_ratio_trim(result: LongitudinalResult) -> float | None:
+    """The ``ratio_trim=`` quantile a fit used, or ``None`` when it trimmed nothing."""
+    for trim in result.repeats[0].mechanism.ratio_trims.values():
+        return float(trim.quantile)
+    return None
+
+
+def _ratio_trim_curve(
+    result: LongitudinalResult,
+    bounds: Sequence[Any],
+    estimands: Sequence[str] | None,
+) -> Any:
+    """:func:`longitudinal_truncation_curve` of a fit with a modified treatment policy.
+
+    Each entry of ``bounds`` is a ``ratio_trim=`` quantile in ``(0, 1)``, or ``None`` for no
+    trim.  Each draw is replayed on its stored mechanism with every plan's per-node ratios
+    trimmed at that quantile and the targeting run again, at the fit's own cumulative
+    bounds and with no nuisance refit.  The replay at the fit's own quantile must reproduce
+    the fit.  A row reports the largest trimmed share of the plans behind its estimand and
+    the inference status a fit with that trim takes.
+    """
+    estimator = result.config.estimator
+    if estimator in ("gcomp", "parametric_gformula", "ipw"):
+        raise CapabilityError(refusal=BASELINE_RATIO_TRIM_REFUSAL)
+    if estimator == "ipsi":
+        raise CapabilityError.from_refusal(IPSI_RATIO_TRIM_REFUSAL)
+    omissions = tuple(
+        dict.fromkeys(item for draw in result.repeats for item in draw.replay_recipe.omissions)
+    )
+    if omissions:
+        _refuse_replay(*omissions, reason=RefusalReason.INVALID_DECLARATION)
+    try:
+        quantiles = tuple(dict.fromkeys(None if q is None else float(q) for q in bounds))
+        for quantile in quantiles:
+            check_ratio_trim(quantile)
+    except (TypeError, ValueError) as error:
+        raise CapabilityError.from_refusal(
+            _caught_refusal(
+                "a longitudinal truncation curve of a modified treatment policy sweeps "
+                "ratio_trim=, so its bounds are quantiles in (0, 1), or None for no trim: ",
+                error,
+            )
+        ) from error
+    if not quantiles:
+        raise CapabilityError(
+            "a longitudinal truncation curve needs at least one ratio_trim quantile; the "
+            "requested grid is empty.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    try:
+        reported = select_estimates(result.estimates, estimands)
+    except (KeyError, ValueError) as error:
+        raise CapabilityError.from_refusal(
+            _caught_refusal(
+                "a longitudinal truncation curve cannot report the requested estimands: ",
+                error,
+            )
+        ) from error
+    fitted_quantile = _fitted_ratio_trim(result)
+    fitted_bounds = result.config.g_bounds
+    fitted_replays = []
+    for draw in result.repeats:
+        replay = _refit_bound(result, draw, fitted_bounds)
+        if not _fitted_replay_matches(result, draw, replay):
+            _refuse_replay(
+                LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH,
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        fitted_replays.append(replay)
+    rows: list[dict[str, Any]] = []
+    for quantile in quantiles:
+        if quantile == fitted_quantile:
+            draws = list(result.repeats)
+            replays = fitted_replays
+        else:
+            draws = []
+            for draw in result.repeats:
+                untrimmed = replace(draw.mechanism, ratio_trims={})
+                trims = (
+                    {} if quantile is None else _quantile_trims(result, draw, untrimmed, quantile)
+                )
+                draws.append(replace(draw, mechanism=replace(untrimmed, ratio_trims=trims)))
+            replays = [_refit_bound(result, draw, fitted_bounds) for draw in draws]
+        if len(replays) == 1:
+            estimates = replays[0].estimates
+        else:
+            estimates = median_estimates(
+                with_precedent_status([replay.estimates for replay in replays])
+            )
+        for name in reported:
+            shares = [
+                draw.mechanism.ratio_trims[fit.regimen.label].trimmed_share
+                for draw, replay in zip(draws, replays, strict=True)
+                for fit in replay.contributors[name]
+                if fit.regimen.label in draw.mechanism.ratio_trims
+            ]
+            fitted = float(result.estimates[name].psi)
+            estimate = float(estimates[name].psi)
+            rows.append(
+                {
+                    "ratio_trim": quantile,
+                    "estimand": name,
+                    "psi": estimate,
+                    "is_fitted_bound": quantile == fitted_quantile,
+                    "fitted_ratio_trim": fitted_quantile,
+                    "fitted_psi": fitted,
+                    "delta_from_fitted": estimate - fitted,
+                    "trimmed_share": max(shares, default=0.0),
+                    "inference_status": str(estimates[name].inference),
+                }
+            )
+    return result.data.frame_like({name: [row[name] for row in rows] for name in rows[0]})
+
+
+def _quantile_trims(
+    result: LongitudinalResult,
+    draw: LongitudinalRepeat,
+    mechanism: Mechanism,
+    quantile: float,
+) -> dict[str, Any]:
+    """Every plan's trim at ``quantile`` on one draw's untrimmed mechanism, refused as a fit
+    would refuse it."""
+    try:
+        return trim_ratios(result.data, draw.replay_recipe.plans, mechanism, quantile)
+    except DataError as error:
+        raise CapabilityError.from_refusal(
+            _caught_refusal("a longitudinal truncation curve cannot trim at this quantile: ", error)
+        ) from error
+
+
 def longitudinal_truncation_curve(
     result: LongitudinalResult,
     bounds: Sequence[CumulativeGBounds],
@@ -9908,13 +10157,21 @@ def longitudinal_truncation_curve(
 ) -> Any:
     """Refit the complete longitudinal recursion at explicit cumulative bounds.
 
+    On a fit with a modified treatment policy a cumulative bound acts on no continuous
+    node's ratio, so the curve sweeps ``ratio_trim=`` instead: each entry of ``bounds`` is a
+    quantile in ``(0, 1)``, or ``None`` for no trim, and each row reports the estimate with
+    every plan's per-node ratios trimmed there, its trimmed share and the inference status
+    a fit with that trim takes.  An engine that refuses ``ratio_trim=`` refuses this curve
+    with the same reason.
+
     Parameters
     ----------
     result : LongitudinalResult
         The fit to replay.
     bounds : sequence
         The cumulative bound grid. A scalar ``b`` means ``(b, 1)``, and a pair is kept
-        exactly. Repeated entries are replayed once and reported once.
+        exactly. Repeated entries are replayed once and reported once.  On a fit with a
+        modified treatment policy, the ``ratio_trim=`` quantiles.
     estimands : sequence of str or None
         Reported estimands to include. All of them are the default.
 
@@ -9956,6 +10213,10 @@ def longitudinal_truncation_curve(
         from .drift import TRUNCATION_REFUSAL as DRIFT_TRUNCATION_REFUSAL
 
         raise CapabilityError(refusal=DRIFT_TRUNCATION_REFUSAL)
+    if any(plan.has_mtp for draw in result.repeats for plan in draw.replay_recipe.plans):
+        # A cumulative bound acts on no continuous node's ratio, so a curve of a modified
+        # treatment policy sweeps the one ratio truncation the engines have, ratio_trim=.
+        return _ratio_trim_curve(result, bounds, estimands)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     if result.config.estimator == "parametric_gformula":

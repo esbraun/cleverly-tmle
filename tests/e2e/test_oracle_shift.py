@@ -269,6 +269,8 @@ class TestTheDegenerateShifts:
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             policies=[Shift(1.0, cap=low, name="unreachable")],
+            # The density route: the identity is the binned ratio's indicator algebra.
+            ratio="density",
             random_state=0,
             simultaneous=False,
         )

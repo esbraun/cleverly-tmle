@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from dataclasses import fields as dataclass_fields
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
+from ._ratio_route import refuse_classifier_settings
 from ._typing import (
     FluctuationKind,
     FoldStrata,
@@ -454,12 +455,19 @@ class ModelSpec:
         still holds at least 20 rows (:func:`~cleverly.learners.bin_edges`).  ``None`` grows
         the core count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is
         necessary for a consistent density, and the hazard learner must also be consistent.
-    ratio : {"density", "classifier"}
+        It applies only where the density route runs, and setting it makes ``ratio=None``
+        resolve to that route.
+    ratio : {"density", "classifier"} or None
         How a modified treatment policy's density ratio is estimated.  ``"density"`` divides
         two fitted conditional densities.  ``"classifier"`` reads the odds of a stacked
         classifier (Díaz et al. 2023, Section 5.4).  It applies to a point fit with
         ``ModifiedTreatmentPolicy`` and to a longitudinal fit with a continuous or vector
-        node.  A study refuses ``"classifier"`` where no policy ratio is estimated.
+        node.  ``None``, the default, chooses per fit: the classifier for a policy on a
+        continuous or vector dose, and the density otherwise, or when ``density_bins`` is
+        set, the treatment learner declares ``bin_design``, the treatment mechanism is
+        declared, or the method reads the density only.  The result records the route and
+        the rule that chose it.  ``"classifier"`` with ``density_bins`` or a ``bin_design``
+        learner is refused, and a study refuses it where no policy ratio is estimated.
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float
@@ -512,7 +520,7 @@ class ModelSpec:
     censoring_learner: Any = None
     competing_learner: Any = None
     density_bins: int | None = None
-    ratio: Literal["density", "classifier"] = "density"
+    ratio: Literal["density", "classifier"] | None = None
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
@@ -532,10 +540,11 @@ class ModelSpec:
             "competing_learner",
         ):
             _validate_learner(getattr(self, name), name)
-        if self.ratio not in ("density", "classifier"):
+        if self.ratio not in (None, "density", "classifier"):
             raise MethodConfigurationError(
-                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}"
+                f"ratio must be None, 'density' or 'classifier'; got {self.ratio!r}"
             )
+        refuse_classifier_settings(self.ratio, self.density_bins, self.treatment_learner)
 
 
 @dataclass(frozen=True)
@@ -1163,7 +1172,7 @@ class TMLEMethod:
         )
         if refusal is not None:
             raise MethodConfigurationError.from_refusal(refusal)
-        if self.models.ratio != "density" and self._ratio_refusal is not None:
+        if self.models.ratio == "classifier" and self._ratio_refusal is not None:
             raise MethodConfigurationError.from_refusal(self._ratio_refusal)
         if self.models.density_bins is not None and self._density_bins_refusal is not None:
             raise MethodConfigurationError.from_refusal(self._density_bins_refusal)

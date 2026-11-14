@@ -679,6 +679,8 @@ def _header(result: LongitudinalResult) -> tuple[list[tuple[str, str]], int]:
                 fact = _model_fact(result, role, learners)
                 if fact is not None:
                     right.append((label, fact))
+    if config.ratio_route is not None:
+        right.append((vocabulary.POLICY_RATIO, config.ratio_route.describe()))
     if config.estimator not in ("gcomp", "parametric_gformula"):
         low, high = config.g_bounds
         right.append((vocabulary.PROBABILITY_LIMITS, f"[{low:.4g}, {high:.4g}]"))
