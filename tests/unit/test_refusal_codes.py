@@ -323,6 +323,17 @@ _MALFORMED = "a malformed argument: a value or a type outside the argument's dom
 #: text. The value says why the raise reports a malformed argument and refuses no capability.
 BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     (
+        "src/cleverly/sensitivity/balance_time.py",
+        "distances= applies to over='all' only",
+    ): "BalanceOverTime.average argument: distances= paired with another over= is a malformed "
+    "call of the report's own method, and no estimator capability is involved",
+    (
+        "src/cleverly/sensitivity/balance_time.py",
+        "This fit's balance has no",
+    ): "BalanceOverTime diagnostic= argument: a name the report holds no rows for (joint on a "
+    "longitudinal fit) is a malformed argument; a check the fit omits raises a coded "
+    "CapabilityError just above",
+    (
         "src/cleverly/datasets/synthetic.py",
         "This is refused rather than clipped",
     ): "make_* generator argument: an outcome_mean outside the probability range is a "

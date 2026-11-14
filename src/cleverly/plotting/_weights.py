@@ -581,8 +581,11 @@ def _zero_text(zeros: Sequence[_Zeros], time_label: str, *, named: bool) -> str:
 
 def _balance_object(source: Any) -> Any:
     from ..sensitivity.balance import CovariateBalance, covariate_balance
+    from ..sensitivity.balance_time import BalanceOverTime
 
-    return source if isinstance(source, CovariateBalance) else covariate_balance(source)
+    if isinstance(source, (CovariateBalance, BalanceOverTime)):
+        return source
+    return covariate_balance(source)
 
 
 def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int]:
@@ -628,6 +631,9 @@ def balance(
     max_covariates: int = 30,
     treatment_label: str | None = None,
     labels: dict[str, str] | None = None,
+    diagnostic: str | None = None,
+    view: Literal["summary", "panels"] = "summary",
+    nodes: Sequence[int] | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -652,11 +658,18 @@ def balance(
     is compared with all the others, one panel per arm. A categorical covariate has a row
     per level. The figure is descriptive: it carries no interval or test.
 
+    A fit over time (longitudinal, discrete-time survival or continuous-time survival) draws
+    its :class:`~cleverly.sensitivity.BalanceOverTime` instead. The summary view has one
+    panel per treatment and comparison, each marker the covariate's difference averaged over
+    the strata of earlier treatments, with a whisker across the strata after weighting. The
+    panels view draws every stratum's signed difference as a dot, one panel per treatment
+    time and covariate time.
+
     Parameters
     ----------
-    source : CovariateBalance or TMLEResult
-        The balance, or a fitted point-treatment result to compute it from with the default
-        estimand.
+    source : CovariateBalance, BalanceOverTime or a fitted result
+        The balance, or a fitted result to compute it from: a point-treatment result with
+        the default estimand, or a longitudinal or survival result.
     max_covariates : int, default=30
         The most covariates to draw. Every covariate above the threshold after weighting is
         drawn, then those with the largest difference before or after weighting.
@@ -665,6 +678,15 @@ def balance(
         (read ``"Offer = 1 vs Offer = 0"``); its column name when omitted.
     labels : dict or None, default=None
         Words for each covariate, keyed by its name.
+    diagnostic : {"confounding", "feedback", "censoring", "joint"} or None, default=None
+        Which check of a fit over time to draw; the first the report has when omitted.
+        Point-treatment fits take none.
+    view : {"summary", "panels"}, default="summary"
+        For a fit over time, the averaged markers or one dot per stratum. A continuous-time
+        survival fit has no strata, so it draws the summary view only.
+    nodes : sequence of int or None, default=None
+        For a fit over time, the treatment time points to draw; every one in the summary
+        view, and the last four in the panels view, when omitted.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -690,11 +712,15 @@ def balance(
     Raises
     ------
     CapabilityError
-        When the fit estimated no treatment mechanism, or is not a point-treatment fit.
+        When the fit estimated no treatment mechanism or no weights, or ``diagnostic`` names
+        a check the fit omits, such as feedback on a survival fit, or ``view="panels"`` is
+        asked of a continuous-time survival fit, which has no strata.
     DataError
-        When the treatment is continuous.
+        When the treatment, or a treatment node of a fit over time, is continuous.
     ValueError
-        When ``max_covariates`` is less than one.
+        When ``max_covariates`` is less than one, ``diagnostic``, ``view`` or ``nodes``
+        names something the report does not have, or one of them is given for a
+        point-treatment fit.
 
     See Also
     --------
@@ -741,7 +767,22 @@ def balance(
         raise ValueError(f"max_covariates must be an integer of at least 1; got {max_covariates!r}")
     if max_covariates < 1:
         raise ValueError(f"max_covariates must be at least 1; got {max_covariates!r}")
+    from ..sensitivity.balance_time import BalanceOverTime
+    from ._balance_time import check_point_keywords, draw
+
     summary = _balance_object(source)
+    if isinstance(summary, BalanceOverTime):
+        return draw(
+            summary,
+            diagnostic=diagnostic,
+            view=view,
+            nodes=nodes,
+            max_covariates=max_covariates,
+            treatment_label=treatment_label,
+            labels=labels,
+            title=title or None,
+        )
+    check_point_keywords(diagnostic, view, nodes)
     contrasts = summary.contrasts
 
     def said(contrast: str) -> str:

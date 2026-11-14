@@ -166,6 +166,13 @@ class ContinuousSurvivalRecord:
         The lower bound on :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` that the
         targeting weights applied, exactly as resolved: ``g_bounds`` as given, or
         :math:`5 / (\\sqrt n \\log n)` for ``"auto"``.
+    retention_at_time : ndarray
+        ``(n,)`` each row's estimated probability of remaining uncensored just before its own
+        observed time, at the arm it received, :math:`\\hat S_c(\\min(\\tilde T_i, u_M)^-
+        \\mid A_i, L_i)`, with :math:`u_M` the grid's last time. Predicted as :attr:`p1` is,
+        before any bound. No estimate reads it; the covariate balance of a unit whose event
+        was observed before a target time does
+        (:func:`~cleverly.sensitivity.covariate_balance`).
     """
 
     hazards: tuple[HazardSelection, ...]
@@ -188,6 +195,7 @@ class ContinuousSurvivalRecord:
     p1: FloatArray
     retention_before: FloatArray
     weight_floor: float
+    retention_at_time: FloatArray
 
 
 #: The inverse L1 penalties of the lasso members of the treatment-model library.
@@ -788,6 +796,10 @@ class ContinuousSurvivalTMLE:
         before = np.searchsorted(grid, self.horizons, side="left") - 1
         retention_at_targets = retention[..., np.maximum(before, 0)]
         retention_at_targets[..., before < 0] = 1.0
+        # S_c just before each row's own time (strictly before, as the targets read), at the
+        # arm it received; a time past the grid's end reads the grid's last time.
+        own = np.minimum(np.searchsorted(grid, T, side="left"), grid.size - 1)
+        retention_at_time = retention_before[A, np.arange(n), own]
         # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
         del survival, retention, retention_before, dgam
 
@@ -808,6 +820,7 @@ class ContinuousSurvivalTMLE:
             n_folds=n_folds,
             p1=p1,
             retention_at_targets=retention_at_targets,
+            retention_at_time=retention_at_time,
             hazard_records=tuple(hazard_records),
             censoring_record=censoring_record,
             propensity_record=propensity_record,
@@ -903,6 +916,7 @@ class ContinuousSurvivalTMLE:
             p1=initial.p1.copy(),
             retention_before=initial.retention_at_targets.copy(),
             weight_floor=float(floor),
+            retention_at_time=initial.retention_at_time.copy(),
         )
         J = len(initial.causes)
         restricted = self.restricted_horizons
@@ -957,6 +971,7 @@ class _Initial:
     n_folds: int
     p1: FloatArray
     retention_at_targets: FloatArray
+    retention_at_time: FloatArray
     hazard_records: tuple[HazardSelection, ...]
     censoring_record: HazardSelection
     propensity_record: PropensitySelection | None

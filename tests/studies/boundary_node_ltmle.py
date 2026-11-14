@@ -253,7 +253,7 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly",
-    failure_bound={"cleverly": 0.05},
+    failure_bound={"cleverly": 0.01},
     modules=(
         "tests/studies/boundary_node_ltmle.py",
         "tests/studies/boundary_node_properties.py",

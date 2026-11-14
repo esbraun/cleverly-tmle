@@ -526,6 +526,8 @@ BACKEND_ROUTES: dict[str, str] = {
     # Balance and per-node weight readings (X92 part 3b): built from a fit's weights,
     # so the caller names the backend.
     "CovariateBalance": "argument",
+    # Balance over time (X103): built from a fit's data and weights alone.
+    "BalanceOverTime": "argument",
     "NodeWeights": "argument",
     # The MSM working model's mean at each level (X92 part 2): built from a fit's
     # coefficients alone, so the caller names the backend.
