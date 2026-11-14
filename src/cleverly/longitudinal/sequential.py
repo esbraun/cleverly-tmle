@@ -469,6 +469,10 @@ class Mechanism:
         On a plan with a ratio trim (:attr:`ratio_trims`) the raw prefix is the cumulative
         mechanism the trimmed ratio implies, :meth:`RatioTrim.implied_cumulative`, and the
         bound applies to it.  On a row whose ratios were never trimmed it is the raw prefix.
+        On a trimmed row of a plan with a policy node only the lower bound applies: there
+        the implied mechanism :math:`\\pi / \\tilde R` is no probability, since the policy
+        density sits in the numerator, and an upper bound of one would restore the
+        untrimmed weight.
         """
         raw, bounded = self._cumulative_with_unbounded(data, plan, bounds)
         trim = self.ratio_trims.get(plan.label)
@@ -477,7 +481,11 @@ class Mechanism:
         density = plan.intervention_density(data)
         implied = trim.implied_cumulative(np.cumprod(density, axis=1, dtype=np.float64), raw)
         lower, upper = bounds
-        return implied, bound(implied, lower, upper)
+        limited = bound(implied, lower, upper)
+        if not plan.has_policy:
+            return implied, limited
+        touched = np.logical_or.accumulate(trim.trimmed, axis=1)
+        return implied, np.where(touched, np.maximum(implied, lower), limited)
 
     def _cumulative_with_unbounded(
         self,
