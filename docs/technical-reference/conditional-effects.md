@@ -635,7 +635,10 @@ The in-sample fit, a missing treatment, `strata=`, `repeats` above 1 and the boo
 `experimental` too. The study that measures them, `projection-compositions`, is declared in
 `tests/studies/projection_compositions.py`, and `tests/unit/test_projection_compositions_design.py`
 checks its laws, cells and the design numbers that need no pilot. It has not run: its calibration
-`R` is computed from pilots first, and its rows join this table when it is registered.
+`R` is computed first from the pilot, `python -m tests.studies.projection_compositions_pilot`, on
+seed streams the run never draws. The declared run is
+`python -m tests.canonical.projection_compositions.regenerate`, whose docstring holds the red-cell
+readings, and its rows join this table when it is registered.
 
 The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
 `tests/studies/conditional_projection_properties.py`, and its declared run is

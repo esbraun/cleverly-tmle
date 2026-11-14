@@ -50,7 +50,7 @@ from tests.studies import conditional_projection as cp
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
-from tests.studies.evidence.seeds import draw_replicate, replicate_seed
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 SLUG = "projection-compositions"
 
@@ -284,8 +284,9 @@ class Group:
     folds : int or None
         Outer folds; ``None`` keeps the estimator's default.
     seconds : float
-        Declared single-thread seconds per replication (the plan's estimates; the smoke
-        replaces them).
+        Single-thread seconds per replication, measured by the design review on the
+        declaration's container through :func:`fit_group` (one to three fits per group).  The
+        smoke's cost gate (:data:`COST_GATE`) reads the committed smoke timings against it.
     """
 
     label: str
@@ -338,7 +339,7 @@ GROUPS: tuple[Group, ...] = (
         bootstrap=True,
         arms=("__wald_diff", "__boot_diff"),
         controls={"boot_shrunk": cp.TERMS},
-        seconds=12.0,
+        seconds=8.9,
     ),
     Group(
         "insample_crr_2k",
@@ -349,7 +350,7 @@ GROUPS: tuple[Group, ...] = (
         splitting="in_sample",
         bootstrap=True,
         arms=("__wald_crr", "__boot_crr"),
-        seconds=20.0,
+        seconds=12.3,
     ),
     Group(
         "boot_stacked_2k",
@@ -359,7 +360,7 @@ GROUPS: tuple[Group, ...] = (
         bootstrap=True,
         arms=("__boot_stacked",),
         reporting=True,
-        seconds=44.0,
+        seconds=35.8,
     ),
     Group(
         "mtreat_4k",
@@ -369,7 +370,7 @@ GROUPS: tuple[Group, ...] = (
         splitting="in_sample",
         arms=("__mtreat",),
         controls={"complete_case": ("(intercept)",)},
-        seconds=0.7,
+        seconds=0.86,
     ),
     Group(
         "mtreat_both_4k",
@@ -378,7 +379,7 @@ GROUPS: tuple[Group, ...] = (
         R,
         splitting="in_sample",
         arms=("__mtreat_both",),
-        seconds=0.7,
+        seconds=0.48,
     ),
     Group(
         "mtreat_crr_4k",
@@ -388,7 +389,7 @@ GROUPS: tuple[Group, ...] = (
         scale="log_ratio",
         splitting="in_sample",
         arms=("__mtreat_crr",),
-        seconds=0.7,
+        seconds=0.46,
     ),
     Group(
         "mtreat_dr_4k",
@@ -399,7 +400,7 @@ GROUPS: tuple[Group, ...] = (
         splitting="in_sample",
         bias_rows=MTREAT_TERMS,
         controls={"no_treatment_observation": ("(intercept)",)},
-        seconds=0.7,
+        seconds=0.42,
     ),
     Group(
         "strata_4k",
@@ -419,7 +420,7 @@ GROUPS: tuple[Group, ...] = (
         learner="strata_spline",
         scale="log_ratio",
         arms=("__strata_crr",),
-        seconds=0.7,
+        seconds=0.73,
     ),
     Group(
         "rep3_obs_4k",
@@ -429,7 +430,7 @@ GROUPS: tuple[Group, ...] = (
         repeats=3,
         arms=("__rep3",),
         controls={"se_over_root_r": cp.TERMS},
-        seconds=1.4,
+        seconds=1.83,
     ),
     Group(
         "rep3_crr_4k",
@@ -439,18 +440,7 @@ GROUPS: tuple[Group, ...] = (
         scale="log_ratio",
         repeats=3,
         arms=("__rep3_crr",),
-        seconds=1.4,
-    ),
-    Group(
-        "rep3_sl_2k",
-        "observational",
-        2_000,
-        R,
-        learner="ensemble",
-        repeats=3,
-        folds=5,
-        arms=("__rep3_sl",),
-        seconds=111.0,
+        seconds=1.90,
     ),
     Group(
         "rep3_null_2k",
@@ -459,7 +449,7 @@ GROUPS: tuple[Group, ...] = (
         2_400,
         learner="risk_glm",
         repeats=3,
-        seconds=0.6,
+        seconds=0.70,
     ),
     Group(
         "rep3_power_4k",
@@ -469,7 +459,7 @@ GROUPS: tuple[Group, ...] = (
         learner="risk_glm",
         repeats=3,
         slope=0.10,
-        seconds=1.0,
+        seconds=1.5,
     ),
 )
 
@@ -489,8 +479,16 @@ CONTROL_CLAIMS: Mapping[str, str] = {
     "independent replicates: its SE-ratio interval must fall below the band",
 }
 
-#: The controls read by ``interval_calibration`` (the rest are ``bias`` controls).
-CALIBRATION_CONTROLS = frozenset({"boot_shrunk", "se_over_root_r"})
+#: The controls read by ``interval_calibration`` (the rest are ``bias`` controls), with the
+#: shared calibration kind each cell name ends in (``label__kind``), which
+#: :func:`~tests.studies.evidence.property_verdicts.calibration_verdicts` reads: the shrunken
+#: percentile interval is the shared ``shrunken_se_control``, and the SE over ``sqrt(3)`` is
+#: X11 PR B's ``independent_splits_control`` (three draws read as independent samples).
+CALIBRATION_CONTROL_KINDS: Mapping[str, str] = {
+    "boot_shrunk": "shrunken_se_control",
+    "se_over_root_r": "independent_splits_control",
+}
+CALIBRATION_CONTROLS = frozenset(CALIBRATION_CONTROL_KINDS)
 
 
 def term_label(term: str) -> str:
@@ -512,8 +510,19 @@ def calibration_cell(group: Group, arm: str, name: str) -> str:
 
 
 def control_label(control: str, group: Group) -> str:
-    """The cell prefix of ``control`` on ``group``: the control name and the size."""
+    """The cell prefix of a ``bias`` control on ``group``: the control name and the size."""
     return f"{control}_{group.label.rsplit('_', 1)[-1]}"
+
+
+def control_cell(control: str, group: Group, term: str) -> str:
+    """The cell of ``control``'s row for ``term`` on ``group``.
+
+    A calibration control is ``<group>_<term>__<kind>``, so the shared verdict reads its kind;
+    a bias control is ``<control>_<size>_<term>``.
+    """
+    if control in CALIBRATION_CONTROL_KINDS:
+        return f"{group.label}_{term_label(term)}__{CALIBRATION_CONTROL_KINDS[control]}"
+    return f"{control_label(control, group)}_{term_label(term)}"
 
 
 def group_cells(group: Group) -> dict[str, tuple[str, ...]]:
@@ -524,7 +533,7 @@ def group_cells(group: Group) -> dict[str, tuple[str, ...]]:
     cells[BIAS] += [f"{group.label}_{term_label(term)}" for term in group.bias_rows]
     for control, terms in group.controls.items():
         family = CALIBRATION if control in CALIBRATION_CONTROLS else BIAS
-        cells[family] += [f"{control_label(control, group)}_{term_label(term)}" for term in terms]
+        cells[family] += [control_cell(control, group, term) for term in terms]
     if group.label == "rep3_null_2k":
         cells[TYPE_I].append("heterogeneity__rep3_sharp_null")
     if group.label == "rep3_power_4k":
@@ -591,13 +600,8 @@ class StrataSpline(LogisticRegression):
 def learners(group: Group) -> dict[str, Any]:
     """The nuisance learners and fit settings of ``group``."""
     glm = LogisticRegression(max_iter=2_000)
-    if group.learner == "ensemble":
-        settings: dict[str, Any] = {
-            "outcome_learner": cp.ensemble((0.005, 0.995)),
-            "treatment_learner": cp.ensemble((0.01, 0.99)),
-            "outcome_by_arm": True,
-        }
-    elif group.learner == "risk_glm":
+    settings: dict[str, Any]
+    if group.learner == "risk_glm":
         settings = {"outcome_learner": cp.RiskGLM(), "outcome_by_arm": True}
     elif group.learner == "declared_missing":
         settings = {"outcome_learner": cp.DeclaredOutcome("missing"), "treatment_learner": glm}
@@ -800,6 +804,9 @@ STUDY = StudyRecord(
         "src/cleverly/estimators/_strata.py",
         "src/cleverly/estimators/base.py",
         "src/cleverly/inference/bootstrap.py",
+        "src/cleverly/inference/influence.py",
+        "src/cleverly/inference/results.py",
+        "src/cleverly/inference/multiplier.py",
         "tests/studies/evidence/properties.py",
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
@@ -842,7 +849,8 @@ def primary_rows(
 ) -> list[dict[str, Any]]:
     """One primary row per coefficient of the ``mtreat_4k`` fit."""
     group = GROUP_BY_LABEL[scenario]
-    fitted = fit_group(group, frame, random_state=replicate)["estimates"]
+    fold_seed = stream_seed(STUDY, "fold_partition", "primary", scenario, replicate)
+    fitted = fit_group(group, frame, random_state=fold_seed)["estimates"]
     rows = []
     for name in SCENARIOS[scenario]:
         estimate = fitted[name]
@@ -1148,5 +1156,52 @@ def design_numbers() -> dict[str, Any]:
         "power_noncentrality": noncentrality,
         "power": power,
         "calibration_arms": {arm: len(rows) for arm, rows in CALIBRATION_ARMS.items()},
-        "cpu_hours": sum(g.seconds * g.replicates for g in GROUPS) / 3_600.0,
+        "cpu_hours": run_cpu_hours(),
+        "pilot_cpu_hours": pilot_cpu_hours(),
     }
+
+
+# ------------------------------------------------------------------------- the run's cost
+
+
+def run_cpu_hours() -> float:
+    """Single-thread CPU-hours of the declared property run and its primary phase."""
+    primary = GROUP_BY_LABEL[PRIMARY_GROUP].seconds * PRIMARY_REPLICATES
+    return (sum(g.seconds * g.replicates for g in GROUPS) + primary) / 3_600.0
+
+
+def pilot_cpu_hours() -> float:
+    """Single-thread CPU-hours of the SE-ratio pilot: :data:`PILOT_DRAWS` per gated group."""
+    gated = [g for g in GROUPS if g.arms and not g.reporting]
+    return sum(g.seconds * PILOT_DRAWS for g in gated) / 3_600.0
+
+
+#: Plan 5.0's cost rule: a group whose smoke cost exceeds this multiple of its declared
+#: ``seconds`` runs as a second declared run.  The design test reads it against the committed
+#: smoke timings (:data:`SMOKE_TIMINGS`).
+COST_GATE = 1.5
+
+#: The smoke timings, one row per group (``group``, ``fits``, ``seconds_per_fit``), written by
+#: ``tests/canonical/projection_compositions/regenerate.py --property-smoke`` on the smoke stream.
+SMOKE_TIMINGS = ROOT / "tests" / "studies" / "projection_compositions_smoke.csv"
+
+#: Every file the declared run writes into :attr:`StudyRecord.artifacts`, which the
+#: registration commit commits: the shared driver's artifacts, the run record, and the property
+#: failure files when a property fit recorded a failure.  The pilot summary
+#: (:data:`tests.studies.projection_compositions_pilot.PILOT_CSV`) is committed with the
+#: declaration, before the run.
+RUN_FILES = (
+    "replicates.parquet",
+    "summary.csv",
+    "equivalence.csv",
+    "performance-tests.csv",
+    "property-replicates.parquet",
+    "properties.csv",
+    "manifest.json",
+    "run.log",
+)
+CONDITIONAL_RUN_FILES = (
+    "property-failures.csv",
+    "property-failure-accounting.csv",
+    "property-failure-witnesses.parquet",
+)

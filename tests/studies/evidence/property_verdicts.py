@@ -1260,10 +1260,16 @@ def calibration_verdicts(
     ``positive_suffix`` names the positive arm, for the reason
     :func:`calibration_controls` takes it.  A study whose positives carry more than one name,
     because some of its cells are not correctly specified, passes them all.
+
+    A :data:`DIAGNOSTIC_ROLE` row publishes its intervals and states no verdict, as the
+    coverage and joint-coverage readers treat it.
     """
     positives = (positive_suffix,) if isinstance(positive_suffix, str) else tuple(positive_suffix)
     calibration = summary["property"] == "interval_calibration"
     for index in summary.index[calibration]:
+        if "role" in summary.columns and summary.loc[index, "role"] == DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = True
+            continue
         kind = str(summary.loc[index, "cell"]).rsplit("__", 1)[-1]
         ratio = summary_interval(summary, index, "se_ratio")
         if kind in positives:

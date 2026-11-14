@@ -1,0 +1,14 @@
+group,fits,seconds_per_fit
+insample_2k,2,8.946
+insample_crr_2k,3,12.21
+boot_stacked_2k,3,34.9
+mtreat_4k,3,0.7441
+mtreat_both_4k,3,0.4584
+mtreat_crr_4k,3,0.5108
+mtreat_dr_4k,3,0.4466
+strata_4k,3,0.6571
+strata_crr_4k,3,0.8037
+rep3_obs_4k,3,1.796
+rep3_crr_4k,3,2.064
+rep3_null_2k,3,0.733
+rep3_power_4k,3,1.488

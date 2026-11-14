@@ -7,9 +7,10 @@ replication, and its rows fill the cells
 - ``interval_calibration``: each reported name's row in each of the group's arms.  A Wald arm
   reads the reported interval; a bootstrap arm (``__boot_*``) reads the percentile interval and
   the bootstrap standard error the fit publishes, and its row carries the failed-replicate
-  count.  The ``boot_shrunk`` control shrinks the percentile interval by 0.70 about the
-  replicates' median and the ``se_over_root_r`` control divides the reported SE by ``sqrt(3)``;
-  both must fall below the band.
+  count.  The ``boot_shrunk`` control (cells ``<group>_<term>__shrunken_se_control``) shrinks
+  the percentile interval by 0.70 about the replicates' median, and the ``se_over_root_r``
+  control (cells ``<group>_<term>__independent_splits_control``) divides the reported SE by
+  ``sqrt(3)``; both must fall below the band.
 - ``bias``: the ``mtreat_dr_4k`` TMLE rows, each inside +-0.25 of its own SD, and the
   ``complete_case``, ``no_treatment_observation`` and ``marginal_as_stratum`` control rows,
   each wholly outside it.
@@ -17,11 +18,17 @@ replication, and its rows fill the cells
   ``hetero_trial``, through the matrix rule.
 
 Two readings are declared beside the verdicts (plan 5.0).  Every ``rep3_*`` row publishes the
-SE ratio of ``se_without_displacement`` (the median rule with the displacement dropped); a row
-red above the band whose ratio of that column lies in the band reads as the median rule's split
-adjustment.  A bootstrap row whose mean failed-replicate share exceeds 1% reports
+SE ratio of ``se_without_displacement`` (the median rule with the displacement dropped) with its
+99% bootstrap interval; a row red above the band whose interval of that ratio lies in the band
+reads as the median rule's split adjustment.  A bootstrap row whose mean failed-replicate share exceeds 1% reports
 ``bootstrap_conditional`` and claims no coverage.  ``boot_stacked_2k`` publishes without a
 verdict: it is the evidence the cross-fitted bootstrap's experimental reason cites.
+
+Every draw names its stream (:data:`STREAMS`): the declared run reads ``property``, the SE-ratio
+pilot ``pilot`` and a smoke ``smoke``.  A stream fixes both the sample seed
+``stream_seed(STUDY, <sample label>, group, replicate)`` and the fold seed
+``stream_seed(STUDY, <fold label>, group, replicate)``, so no two groups, and no pilot or smoke
+draw, share a sample or a split with the declared run.
 """
 
 from __future__ import annotations
@@ -34,7 +41,12 @@ import pandas as pd
 from tests.parallel import STUDY_JOBS
 from tests.studies import projection_compositions as study
 from tests.studies.evidence import property_verdicts
-from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row, replicate_row
+from tests.studies.evidence.properties import (
+    REPLICATE_COLUMNS,
+    control_row,
+    ratio_intervals,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     bias_role_rule,
@@ -66,17 +78,43 @@ SUMMARY_COLUMNS = (
     "bootstrap_failed_fraction",
     "bootstrap_conditional",
     "se_ratio_without_displacement",
+    "se_ratio_without_displacement_ci_lower",
+    "se_ratio_without_displacement_ci_upper",
 )
 
 #: The mean failed-replicate share above which a bootstrap row claims no coverage.
 BOOTSTRAP_CONDITIONAL_SHARE = 0.01
 
+#: The sample and fold labels of each stream.  ``property`` is the declared run.
+STREAMS: dict[str, tuple[str, str]] = {
+    "property": ("property_sample", "fold_partition"),
+    "pilot": ("pilot_sample", "pilot_fold_partition"),
+    "smoke": ("smoke_sample", "smoke_fold_partition"),
+}
 
-def _draw(label: str, replicate: int) -> Any:
-    """The draw of replication ``replicate`` of a group, from the stream keyed by its label."""
+#: The positive calibration kinds, one per gated arm (the cell suffix after ``__``).
+POSITIVE_ARMS: tuple[str, ...] = tuple(arm.removeprefix("__") for arm in study.CALIBRATION_ARMS)
+
+#: The kinds of the reporting groups' calibration rows, which carry the diagnostic role.
+DIAGNOSTIC_ARMS: tuple[str, ...] = tuple(
+    arm.removeprefix("__") for group in study.GROUPS if group.reporting for arm in group.arms
+)
+
+
+def sample_seed(label: str, replicate: int, stream: str = "property") -> int:
+    """The sample seed of replication ``replicate`` of a group on ``stream``."""
+    return stream_seed(STUDY, STREAMS[stream][0], label, replicate)
+
+
+def fold_seed(label: str, replicate: int, stream: str = "property") -> int:
+    """The fold seed of replication ``replicate`` of a group on ``stream``."""
+    return stream_seed(STUDY, STREAMS[stream][1], label, replicate)
+
+
+def _draw(label: str, replicate: int, stream: str) -> Any:
+    """The draw of replication ``replicate`` of a group on ``stream``."""
     group = study.GROUP_BY_LABEL[label]
-    seed = stream_seed(STUDY, "property_sample", label, replicate)
-    return study.draw_from_seed(label, group.n, seed)
+    return study.draw_from_seed(label, group.n, sample_seed(label, replicate, stream))
 
 
 def _extras(group: study.Group, fitted: dict[str, Any], name: str) -> dict[str, float]:
@@ -139,7 +177,7 @@ def _control_rows(
         values = fitted["controls"][control]
         for term in terms:
             name = f"{group.stem}[{term}]"
-            cell = f"{study.control_label(control, group)}_{study.term_label(term)}"
+            cell = study.control_cell(control, group, term)
             truth = study.control_truth(group, control, term, truths)
             estimate = float(fitted["estimates"][name].psi)
             if control == "boot_shrunk":
@@ -185,11 +223,11 @@ def _control_rows(
     return rows
 
 
-def _replicate(label: str, replicate: int, drawn: Any) -> list[dict[str, Any]]:
+def _replicate(label: str, replicate: int, stream: str, drawn: Any) -> list[dict[str, Any]]:
     """Every property row of one replication of one group."""
     group = study.GROUP_BY_LABEL[label]
     frame, truths = drawn
-    fitted = study.fit_group(group, frame, random_state=replicate)
+    fitted = study.fit_group(group, frame, random_state=fold_seed(label, replicate, stream))
     rows = _calibration_rows(group, replicate, truths, fitted)
     for term in group.bias_rows:
         name = f"{group.stem}[{term}]"
@@ -233,39 +271,44 @@ def _replicate(label: str, replicate: int, drawn: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _cells_of(key: tuple[str, int]) -> list[str]:
+def _cells_of(key: tuple[str, int, str]) -> list[str]:
     group = study.GROUP_BY_LABEL[key[0]]
     return [
         f"{family}/{cell}" for family, cells in study.group_cells(group).items() for cell in cells
     ]
 
 
-def _cell_of(key: tuple[str, int]) -> str:
+def _cell_of(key: tuple[str, int, str]) -> str:
     return f"group/{key[0]}"
 
 
-def _replicate_of(key: tuple[str, int]) -> int:
+def _replicate_of(key: tuple[str, int, str]) -> int:
     return key[1]
 
 
-def payloads(budget: int | None = None) -> list[tuple[str, int]]:
-    """Every ``(group, replicate)`` key, in group order; ``budget`` caps each group."""
+def payloads(budget: int | None = None, stream: str = "property") -> list[tuple[str, int, str]]:
+    """Every ``(group, replicate, stream)`` key, in group order; ``budget`` caps each group."""
     return [
-        (group.label, index)
+        (group.label, index, stream)
         for group in study.GROUPS
         for index in range(group.replicates if budget is None else min(budget, group.replicates))
     ]
 
 
 def generate_property_rows(
-    *, n_jobs: int = STUDY_JOBS, budget: int | None = None, groups: tuple[str, ...] | None = None
+    *,
+    n_jobs: int = STUDY_JOBS,
+    budget: int | None = None,
+    groups: tuple[str, ...] | None = None,
+    stream: str = "property",
 ) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each group and ``groups`` picks some.
 
-    A run of every group must fill exactly the declared cells; a smoke over ``groups`` checks
-    only that each row it wrote is declared.
+    ``stream`` names the draws (:data:`STREAMS`): the declared run is ``property``.  A run of
+    every group must fill exactly the declared cells; a run over ``groups`` checks only that
+    each row it wrote is declared.
     """
-    keys = [key for key in payloads(budget) if groups is None or key[0] in groups]
+    keys = [key for key in payloads(budget, stream) if groups is None or key[0] in groups]
     outcomes = fit_properties(
         keys,
         splat_drawn(_replicate),
@@ -274,7 +317,7 @@ def generate_property_rows(
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,
-        seed_of=lambda key: stream_seed(STUDY, "property_sample", key[0], key[1]),
+        seed_of=lambda key: sample_seed(*key),
     )
     rows = pd.DataFrame([row for records in outcomes for row in records])
     if budget is not None:
@@ -290,18 +333,30 @@ def declared_readings(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     """Add the two declared readings' columns to ``summary`` in place (plan 5.0).
 
     ``se_ratio_without_displacement`` is the mean ``se_without_displacement`` over the
-    empirical SD of the estimates, on every repeated row; ``bootstrap_failed_fraction`` is the
-    mean failed-replicate share on every bootstrap row, and ``bootstrap_conditional`` marks a
-    share above :data:`BOOTSTRAP_CONDITIONAL_SHARE`.
+    empirical SD of the estimates, on every positive repeated row, with its 99% bootstrap interval
+    (``se_ratio_without_displacement_ci_lower`` and ``_ci_upper``), drawn as the summary draws
+    ``se_ratio``'s: the study's resampling seed, the margins' resample count and level, and
+    the same joint resampling of numerator and denominator.  ``bootstrap_failed_fraction`` is
+    the mean failed-replicate share on every bootstrap row, and ``bootstrap_conditional``
+    marks a share above :data:`BOOTSTRAP_CONDITIONAL_SHARE`.
     """
     for column in SUMMARY_COLUMNS:
         summary[column] = np.nan
+    margins = STUDY.margins
     for index, row in summary.iterrows():
         cell_rows = rows.loc[(rows["property"] == row["property"]) & (rows["cell"] == row["cell"])]
         without = cell_rows["se_without_displacement"].astype(float)
-        if without.notna().all() and len(without) > 1:
+        if row["role"] == "positive" and without.notna().all() and len(without) > 1:
             spread = float(cell_rows["estimate"].astype(float).std(ddof=1))
             summary.loc[index, "se_ratio_without_displacement"] = float(without.mean()) / spread
+            interval = ratio_intervals(
+                cell_rows.assign(std_error=without),
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(STUDY, "se_without_displacement", str(row["cell"])),
+            )["se_ratio"]
+            summary.loc[index, "se_ratio_without_displacement_ci_lower"] = interval.low
+            summary.loc[index, "se_ratio_without_displacement_ci_upper"] = interval.high
         requested = cell_rows["bootstrap_requested"].astype(float)
         if (requested > 0).all() and len(requested):
             share = float((cell_rows["bootstrap_failed"].astype(float) / requested).mean())
@@ -314,7 +369,11 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows.loc[:, list(REPLICATE_COLUMNS)], STUDY, rate_labels=()
     )
-    calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=None)
+    # The reporting group's rows (``boot_stacked``) carry the diagnostic role: they publish
+    # their intervals and read no margin; every other calibration row reads its kind's rule.
+    calibration_verdicts(
+        summary, margins=STUDY.margins, efficiency_band=None, positive_suffix=POSITIVE_ARMS
+    )
     bias_role_verdicts(summary, families=BIAS_FAMILIES)
     declared_readings(summary, rows)
     return finish(summary, rates)
