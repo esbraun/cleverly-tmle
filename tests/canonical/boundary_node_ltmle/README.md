@@ -14,23 +14,27 @@ one-sided binomial bound of its hazard. It has no comparator.
 
 ## State of this directory
 
-Redeclared, not yet rerun. The first declared run (declaration `91cb39ae`, artifacts `cbbd634c`)
-is committed here and stays in history; the rerun under this declaration overwrites its
-artifacts. Its paired clause (ii) compared the plug-in's coverage on firing draws (0.845) with
-its coverage on the non-firing draws of the same cell (0.861). Those draws hold one or two events
-at node 4 and under-cover for the rare-event reason, so the clause compared the wrong groups, and
-it went red although the supplement gained 304 firing draws and lost none.
+Registered from the rerun under declaration `27cd70c3` (review revisions `6c94eeab`, artifacts
+`8169c609`). The first declared run (declaration `91cb39ae`, artifacts `cbbd634c`) stays in
+history. Its paired clause (ii) compared the plug-in's coverage on firing draws with its coverage
+on the non-firing draws of the same cell, which under-cover for the rare-event reason, so it went
+red although the supplement gained 304 firing draws and lost none. Clause (ii') replaced it: on
+the same firing draws, the coverage of the interval with the flagged node's true variance
+(`oracle_node`) minus the plug-in's, with its exact 99% lower end at least 0.05. A withheld
+target reads as a miss with a NaN standard error. `regenerate.py` holds the declaration, its
+reasons and the budget.
 
-This redeclaration is informed by that run. Clause (ii') replaces clause (ii): on the same firing
-draws, the coverage of the interval with the flagged node's true variance (`oracle_node`) minus
-the plug-in's, with its exact 99% lower end at least 0.05. A withheld target now reads as a miss
-with a NaN standard error instead of losing its draw, and the rerun uses fresh seeds and stream
-labels. Every other cell, gate, margin and owner is unchanged. `regenerate.py` holds the
-declaration, its reasons and the budget.
+After the run, the statistic label of clause (ii') moved from S7 to S2: it reads a coverage rate
+on the control's firing draws against a diagnostic arm, not the positive-control pair, and a lost
+draw counts as a firing miss of both arms. The control cell lost no draws, so the verdict and
+every committed number are unchanged.
 
-The record is not in `registered()`, and the evidence page and grid rows land with the
-registration, after the rerun. The two-replicate smoke below runs the primary phase and writes
-the artefacts and the manifest; its primary rows are red by size alone and are not evidence.
+The ungated reading `width_ratio_to_oracle` in `properties.csv` has a defect: its median is not
+NaN-aware, so it reads NaN in a cell with a withheld draw (interior_n100, `always` and the
+contrast). The fixed formula is the median, over firing draws where both standard errors are
+finite, of the supplemented standard error over the `oracle_node` one. The column is published as
+run, because `properties.csv` is hashed in `manifest.json` and the harness has no re-analysis path
+that leaves that hash describing bytes that ran. The fix lands with the next rerun.
 
 ## Run
 

@@ -575,7 +575,12 @@ def test_the_firing_floor_is_gated_where_600_firing_draws_are_expected() -> None
 
 
 def test_the_seeds_are_the_study_s_own() -> None:
-    seeds = {s for record in registered() for s in (record.seed, record.resampling_seed)}
+    seeds = {
+        s
+        for record in registered()
+        if record.slug != study.STUDY.slug
+        for s in (record.seed, record.resampling_seed)
+    }
     first = {study.FIRST_DECLARED_RUN["seed"], study.FIRST_DECLARED_RUN["resampling_seed"]}
     assert not {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED} & (seeds | first)
     assert len({study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED}) == 3
@@ -615,20 +620,27 @@ def test_the_first_declared_run_is_reproduced_by_its_recorded_stream() -> None:
     assert np.isfinite(result[study.TARGETS["always"]].psi)
 
 
-def test_declared_and_not_yet_registered() -> None:
-    from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
-
-    assert study.STUDY.slug not in {record.slug for record in registered()}
-    # The first declared run's artifacts stay in the tree until the rerun overwrites them; any
-    # committed record is that run's or this declaration's.
-    manifest = study.STUDY.artifact("manifest.json")
-    if manifest.exists():
-        configuration = json.loads(manifest.read_text())["configuration"]
-        assert configuration["seed"] in {study.FIRST_DECLARED_RUN["seed"], study.SEED}
-    assert properties.__name__ in UNCOMMITTED_MODULES
+def test_registered_from_the_rerun_of_this_declaration() -> None:
+    """The record is registered from the rev 3.3 rerun, not from the first declared run."""
+    assert study.STUDY.slug in {record.slug for record in registered()}
+    manifest = json.loads(study.STUDY.artifact("manifest.json").read_text())
+    assert manifest["configuration"]["seed"] == study.SEED
+    assert manifest["configuration"]["resampling_seed"] == study.RESAMPLING_SEED
+    commit = manifest["generated_with"]["subject"]["cleverly_commit"]
+    assert commit != study.FIRST_DECLARED_RUN["declaration"]
     assert study.STUDY.publication_policy == "reporting"
     assert properties.FAILURE_BOUND == 0.05
     assert study.STUDY.failure_bound == {"cleverly": 0.05}
+
+
+def test_the_registered_primary_reds_are_its_declared_readings() -> None:
+    """Every red primary leg of the committed run is a leg its row's declared reading holds."""
+    performance = pd.read_csv(study.STUDY.artifact("performance-tests.csv"))
+    assert study.unowned_primary_failures(performance) == []
+    red = performance.loc[~performance["passed"].astype(bool), "estimand"]
+    assert set(red) == {study.TARGETS["always"], study.TARGETS["contrast"]}
+    for estimand in red:
+        assert study.PRIMARY_RED_READINGS[estimand].owner == "X54-supplement-width"
 
 
 def _separated_draw() -> tuple[pd.DataFrame, study.Cell]:

@@ -10315,3 +10315,70 @@ for _twin, _words in _PV_LARGE.items():
                 f"{_words}, {_quantity}, 400 draws: {_tested}",
                 _DIAGNOSTIC_REQUIRED,
             )
+
+#: ``boundary-node-ltmle`` (X54 part (i)): the boundary-node supplement of ``LTMLE``, read in
+#: three arms off one fit per draw. The cells are those of
+#: ``tests/studies/boundary_node_ltmle.py`` and its properties module.
+_BN_SLUG = "boundary-node-ltmle"
+STUDY_SCENARIOS[(_BN_SLUG, "interior_n200")] = (
+    "law A, three known treatment decisions before event nodes 1, 3 and 4 with every hazard "
+    "near 0.08, in-sample iterated-mean LTMLE at n = 200: node 4 is flagged under always on "
+    "about half the draws, and the shipped interval adds its variance at the exact one-sided "
+    "bound of its hazard"
+)
+PROPERTIES["boundary_node"] = (
+    "the supplemented interval covers where a flagged node fires, its point estimate is "
+    "unbiased, and the flagged node's true variance is what the plug-in interval misses"
+)
+_BN_CELLS = {
+    "interior_n100": "law A in sample at n = 100",
+    "interior_n200": "law A in sample at n = 200",
+    "interior_n400": "law A in sample at n = 400",
+    "interior_n200_crossfit": "law A cross-fitted with five folds at n = 200",
+    "clustered_j40": "law A with a cluster effect, 40 clusters of 10 rows",
+    "zero_n200": "law A with a true node-4 hazard of 0 under always, n = 200",
+    "held_n200": "law B, one held baseline decision, hazard path, n = 200",
+    "held_zero_n200": "law B with a true node-4 hazard of 0 under always, hazard path, n = 200",
+}
+_BN_TARGETS = {
+    "always": "risk under always at horizon 4",
+    "never": "risk under never at horizon 4",
+    "contrast": "always-minus-never risk difference at horizon 4",
+}
+_BN_ARMS = {
+    "supplemented": "the shipped interval, the curve's variance plus the supplement",
+    "plugin": "the same estimate at the curve's variance alone, the supplement removed",
+    "oracle_node": (
+        "the same estimate at the curve's variance plus the flagged nodes' variance at the "
+        "true row hazards"
+    ),
+}
+
+
+def _bn_required(cell: str, target: str, arm: str) -> str:
+    from tests.studies import boundary_node_properties as _bn
+
+    name = f"{cell}__{target}__{arm}"
+    if name == _bn.CONTROL_CELL:
+        return (
+            "on the firing draws, the exact 99% McNemar lower end of supplemented minus plug-in "
+            "coverage above 0, and the exact 99% lower end of oracle-node minus plug-in coverage "
+            "at least 0.05"
+        )
+    if arm != "supplemented":
+        return _DIAGNOSTIC_REQUIRED
+    clauses = ["bias inside the margin"]
+    if name in _bn.FIRING_CELLS:
+        clauses.append("the exact 99% lower end of coverage on the firing draws at least 0.90")
+    if name in _bn.ZERO_CELLS:
+        clauses.append("the exact 99% lower end of all-draw coverage at least 0.92")
+    return ", ".join(clauses[:-1]) + (" and " if len(clauses) > 1 else "") + clauses[-1]
+
+
+for _bn_cell, _bn_words in _BN_CELLS.items():
+    for _bn_target, _bn_quantity in _BN_TARGETS.items():
+        for _bn_arm, _bn_interval in _BN_ARMS.items():
+            CELLS[("boundary_node", f"{_bn_cell}__{_bn_target}__{_bn_arm}")] = (
+                f"{_bn_words}, {_bn_quantity}: {_bn_interval}",
+                _bn_required(_bn_cell, _bn_target, _bn_arm),
+            )

@@ -1557,6 +1557,30 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own clause"
             )
 
+        # ``boundary-node-ltmle``: restated from the declaration in the driver's docstring.
+        # The control's clauses are statements about its own firing draws, read against the
+        # paired arms, and the readings they rest on are columns of the control's own row.
+        boundary = published.loc[published["property"] == "boundary_node"]
+        if not boundary.empty:
+            module = study.properties()
+            for row in boundary.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.role == "control":
+                    expected = (
+                        row.mcnemar_lower > 0.0
+                        and row.oracle_gain_lower >= module.ORACLE_GAIN_MARGIN
+                    )
+                else:
+                    expected = bool(row.bias_equivalent)
+                    if row.cell in module.FIRING_CELLS:
+                        expected = expected and row.firing_ci_lower >= module.FIRING_FLOOR
+                    if row.cell in module.ZERO_CELLS:
+                        expected = expected and row.coverage_ci_lower >= module.ZERO_FLOOR
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
@@ -1928,6 +1952,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Checked row by row below.
         "policy_variance",
         "policy_calibration",
+        # ``boundary-node-ltmle``: a supplemented row answers to its bias, its firing floor
+        # where gated and the zero-cell floor where declared; the paired control to its two
+        # clauses on the control's firing draws; the other arms carry the diagnostic role.
+        # Checked row by row below.
+        "boundary_node",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
@@ -4240,7 +4269,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.boundary_node_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

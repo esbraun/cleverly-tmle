@@ -584,6 +584,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The declared negative control of ``sequential-baselines``: law ``X`` makes every
     # main-terms ``GLM`` wrong, so the calibration rule must fail.  Nothing is owed.
+    # The supplement's declared width cost (X54 part (i)): the SE-ratio leg of the always risk
+    # and the contrast, declared red before the run (boundary_node_ltmle.PRIMARY_RED_READINGS).
+    "X54-supplement-width": _keys(
+        "boundary-node-ltmle",
+        "truth",
+        "cleverly/interior_n200/risk_regimen[always @ t=4]",
+        "cleverly/interior_n200/ate_regimen[always vs never @ t=4]",
+    ),
     "X41-negative-control": _keys(
         "sequential-baselines",
         "property",

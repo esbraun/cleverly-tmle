@@ -1084,22 +1084,28 @@ differs from the ordinary one only on that event. At a true hazard of exactly 0 
 zero and the supplement only widens a correct interval. In finite samples at a law where the
 event is common, nothing here guarantees coverage.
 
-The study `boundary-node-ltmle` is declared to measure it and has not run, so a supplemented
-estimate carries the support label its fit already has. Its gates read only what the supplement
-changes: coverage on the draws where node 4 is flagged, bias, and a zero-hazard cell. On the
-iterated-mean path a paired control also requires that the interval without the supplement
-loses coverage on those draws. On the hazard path, which targets a held baseline treatment
-only, a flagged node often carries a small share of the variance, so no such control has power.
+The registered study [`boundary-node-ltmle`](method-evidence/boundary-node-ltmle.md) measures it,
+and a supplemented estimate carries the support label its fit already has. Its gates read only what
+the supplement changes: coverage on the draws where node 4 is flagged, bias, and a zero-hazard
+cell. Every gated row passes. On the iterated-mean path at n = 200, the supplemented interval
+covers every one of the 2,039 draws where node 4 is flagged under `always`. The interval without
+the supplement covers 0.830 of them, and the same estimate with the flagged node's true variance
+added covers 346 draws more than it, an exact 99% lower end of 0.149 against the declared 0.05.
 
-Law B measures the coverage of the hazard-path interval on draws with a flagged node, and the
-coefficient bound rests on its unit witness. A draw on which no node is flagged or supplemented
-keeps the ordinary interval at a node with one or two events. The study publishes that coverage
-and declares a shortfall there as F31's rare-event limit, not as a failure of the supplement.
-The primary's standard-error ratio for the risk under `always` and for the contrast is declared
-red before the run under the owner `X54-supplement-width`, because a one-sided bound is wider
-than the node's own variance. A red coverage leg of the risk under `never` would be the same
-rare-event limit, owned by `X54-rare-event-coverage`. Each owner covers that one leg only
-(`tests/canonical/boundary_node_ltmle/regenerate.py`).
+On the hazard path, which targets a held baseline treatment only, a flagged node carries a small
+share of the variance, so no such paired control has power. Law B measures the coverage of the
+hazard-path interval on draws with a flagged node, and the coefficient bound rests on its unit
+witness.
+
+The supplement is a bound, so it costs width. For the risk under `always`, on the flagged draws
+of the law A cells, the supplemented interval is 1.6 to 1.8 times as wide as the one with the
+node's true variance, 3.2 times in the zero cell, and 1.07 times on law B. The primary's standard-error ratio reads 1.26 for the risk under `always` and
+1.17 for the contrast, above the 1.20 band's upper end or with an interval reaching past it,
+while their coverage reads 0.927 and 0.947. Those two SE-ratio legs were declared red before the
+run under the owner `X54-supplement-width`. A draw on which no node is flagged or supplemented
+keeps the ordinary interval at a node with one or two events. The study publishes that coverage,
+whose exact lower end falls below 0.90 at n = 100 and 200, as F31's rare-event limit and not as a
+failure of the supplement (`tests/canonical/boundary_node_ltmle/regenerate.py`).
 
 The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
 one fold draw, the default variance, and no isotonic projection, fold average, learned rule or

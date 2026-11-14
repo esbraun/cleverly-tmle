@@ -54,6 +54,7 @@ reading states the second fact beside it and gates nothing.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
@@ -272,6 +273,29 @@ def _replicate_of(key: tuple[str, int]) -> int:
     return key[1]
 
 
+@dataclasses.dataclass(frozen=True)
+class CellLaw:
+    """A cell's law as the shared cell checks read it: a name and its truth by estimand.
+
+    Parameters
+    ----------
+    variant : str
+        The law's variant in :func:`tests.studies.boundary_node_laws.law_of`.
+    """
+
+    variant: str
+
+    @property
+    def name(self) -> str:
+        """The law's name, which with the cell's seed names its sample stream."""
+        return f"boundary_node_{self.variant}"
+
+    def truth(self) -> dict[str, float]:
+        """The exact truth of each reported estimand under this law."""
+        truths = laws.law_of(self.variant).truths()
+        return {name: float(truths[target]) for target, name in study.TARGETS.items()}
+
+
 def declared_cells() -> tuple[Any, ...]:
     """Every published cell, with its role, size and requested replicates."""
     from tests.studies.evidence.properties import PropertyCell
@@ -285,7 +309,7 @@ def declared_cells() -> tuple[Any, ...]:
                     PropertyCell(
                         property=FAMILY,
                         cell=name,
-                        dgp=laws.law_of(cell.variant),
+                        dgp=CellLaw(cell.variant),
                         outcome_learner=lambda: None,
                         treatment_learner=lambda: None,
                         n=cell.n,
@@ -589,11 +613,11 @@ def _oracle_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]
 
 
 def _paired_reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
-    return [(FAMILY, PAIRED_POSITIVE)]
+    return [(FAMILY, CONTROL_CELL), (FAMILY, PAIRED_POSITIVE)]
 
 
 def _oracle_reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
-    return [(FAMILY, PAIRED_ORACLE)]
+    return [(FAMILY, CONTROL_CELL), (FAMILY, PAIRED_ORACLE)]
 
 
 #: The failure accounting's declared rules: the verdicts of :func:`boundary_node_verdicts`.
@@ -626,9 +650,11 @@ PROPERTY_RULES = (
                 imputation=SUPPORT,
                 reads=_paired_reads,
             ),
+            # A coverage rate on the control's firing draws against a diagnostic arm, so S2
+            # and not the S7 positive-control pair: a lost draw is a firing miss of both arms.
             Clause(
                 "node variance matters",
-                "S7",
+                "S2",
                 cells(CONTROL_CELL),
                 _oracle_read,
                 _oracle_candidates,

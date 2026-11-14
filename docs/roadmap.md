@@ -460,8 +460,9 @@ The `X54-supplement-width` owner holds the primary rows of `boundary-node-ltmle`
 error is declared, before the run, to sit above the sanity band because the boundary-node
 supplement is a one-sided bound. The `X54-rare-event-coverage` owner holds that study's
 `risk[never]` primary row if its coverage leg is red, as F31's rare-event limit. Each owner covers
-only the leg its row names, and neither claims a row until the study runs. Both are standing
-records of a reading, and they gate no release.
+only the leg its row names. In the registered run the first owner holds the SE-ratio legs of the
+always risk and the contrast, and the second holds no row, because the `risk[never]` coverage leg
+passed. Both are standing records of a reading, and they gate no release.
 
 The `mtp-point-calibration` owner holds one calibration cell of the point modified-treatment-policy
 study. Its standard error is conservative, and the diagnosis finds no defect.
@@ -557,8 +558,8 @@ on new held-out laws.
 | `X92-paired-conservative` | the `interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified` cell of `targeting-curves`, the paired TOC(0.1) difference of two correlated scores, declared `reporting` before the run | reading `conservative, contracting`, declared before the run. With the true nuisances the oracle computation (`tests/studies/targeting_curves_oracle.csv`) read the half-sample SE ratio of this row at 1.063 at n = 2,000, 1.051 at 4,000 and 1.024 at 8,000. The run reads an SE ratio of 1.060 (99% interval 1.035 to 1.086) and coverage 0.963 (0.956 to 0.969). The row's one-sided gate, lower ends of 0.93 and 0.92, passes (`tests/unit/test_targeting_curves_design.py`). The owner closes when a re-declared cell at a size chosen before its run passes the two-sided band. Until then the cell stays published red under `reporting`, and the interval reads `supported` because it errs on the wide side |
 | `X93-upper-dose-calibration` | the paired `dose_response[h=2,a=3.5]` row of `dose-response-npcausal`, declared before the run as the upper-dose red signature | reading `pre-registered upper-dose over-report`. Every leg but calibration passes. The upper bound of the calibration excess is 0.0558, above the margin of 0.05. At dose 3.5 `cleverly`'s mean SE is 1.10 efficient SDs, its SE ratio 1.068 and its coverage 0.963, so its interval is too wide, not too narrow. The reflected pilot fits trace the excess to the pooled-hazard density of the dose. The owner asks for a dose density that does not over-report the SE at the upper dose. It closes when a re-declared comparison with that density passes the calibration leg at dose 3.5 |
 | `X93-failure-worst-case` | the paired `dose_response[h=2,a=2.5]` and `dose_response[h=2.5,a=3.5]` rows of `dose-response-npcausal`, diagnosed after the run | reading `failure-accounting worst case, a sizing miss`. On their complete cases both rows conclude equivalent. `ctseff` failed on six of 4,800 replications, and the failure accounting imputes those six at their worst case. That imputation lowers the calibration slack by 0.011 to 0.013, more than the complete-case slacks of 0.0111 and 0.0107, so both rows read unaccounted. The declaration sized the paired legs on complete cases and did not price the imputation in. The owner asks for a re-declared run whose size prices the worst case at the expected number of comparator failures. It closes when such a run passes both rows |
-| `X54-supplement-width` | the `interior_n200` truth rows `risk_regimen[always @ t=4]` and `ate_regimen[always vs never @ t=4]` of `boundary-node-ltmle`, declared before the run | reading `one-sided bound, wider by design`. On about half the draws the supplement adds a flagged node's variance at the exact one-sided binomial bound of its hazard, not at the hazard itself, so the reported standard error runs above the empirical spread. The 2,000-draw pilot reads SE ratios of 1.29 and 1.19, against the band's upper end of 1.20, with coverage 0.950 and 0.958, and the design test predicts a pass probability below 0.10 for each SE-ratio leg. The owner covers the SE-ratio leg only: a red coverage or bias leg on these rows is a defect suspect (`unowned_primary_failures` in `tests/studies/boundary_node_ltmle.py`). A standing record of a reading; the owner closes when an interval for a flagged node that is not a one-sided bound ships with its own registered study ([F31](#f31-inference-at-a-boundary-node-estimate)) |
-| `X54-rare-event-coverage` | the `interior_n200` truth row `risk_regimen[never @ t=4]` of `boundary-node-ltmle`, if its coverage leg is red, declared before the run | reading `F31 rare-event limit`, the reading the study's property family gives a quiet-draw shortfall. Node 4 is flagged under `never` on one draw in ten, so most draws show the ordinary interval at a node with one or two expected events, the regime [F31](#f31-inference-at-a-boundary-node-estimate) keeps. The pilot reads coverage 0.940 and a predicted pass probability of 0.945 for the leg. The owner covers the coverage leg only: a red bias or SE-ratio leg on the row is a defect suspect (`unowned_primary_failures` in `tests/studies/boundary_node_ltmle.py`). A standing record of a reading; the owner closes with F31's rare-event regime |
+| `X54-supplement-width` | the `interior_n200` truth rows `risk_regimen[always @ t=4]` and `ate_regimen[always vs never @ t=4]` of `boundary-node-ltmle`, declared before the run | reading `one-sided bound, wider by design`. On about half the draws the supplement adds a flagged node's variance at the exact one-sided binomial bound of its hazard, not at the hazard itself, so the reported standard error runs above the empirical spread. The registered run reads SE ratios of 1.261 (99% interval 1.160 to 1.370) and 1.171 (1.093 to 1.262), against the band's upper end of 1.20, with coverage 0.927 and 0.947 and both bias legs equivalent; the 2,000-draw pilot had read 1.29 and 1.19. The owner covers the SE-ratio leg only: a red coverage or bias leg on these rows is a defect suspect (`unowned_primary_failures` in `tests/studies/boundary_node_ltmle.py`). A standing record of a reading; the owner closes when an interval for a flagged node that is not a one-sided bound ships with its own registered study ([F31](#f31-inference-at-a-boundary-node-estimate)) |
+| `X54-rare-event-coverage` | the `interior_n200` truth row `risk_regimen[never @ t=4]` of `boundary-node-ltmle`, if its coverage leg is red, declared before the run | reading `F31 rare-event limit`, the reading the study's property family gives a quiet-draw shortfall. Node 4 is flagged under `never` on one draw in ten, so most draws show the ordinary interval at a node with one or two expected events, the regime [F31](#f31-inference-at-a-boundary-node-estimate) keeps. The pilot read coverage 0.940 and a predicted pass probability of 0.945 for the leg. In the registered run the leg passed (coverage 0.941), so the owner holds no row. The owner covers the coverage leg only: a red bias or SE-ratio leg on the row is a defect suspect (`unowned_primary_failures` in `tests/studies/boundary_node_ltmle.py`). A standing record of a reading; the owner closes with F31's rare-event regime |
 
 ## Detailed implementation contracts
 
@@ -1260,7 +1261,7 @@ Acceptance: a nonzero witness for each changed term; a registered study for each
 The cluster-as-unit theory is the same at 4 clusters as at 10. Each part below needs a registered
 measurement or a declared construction, not a theorem.
 [F28](#f28-finite-sample-limits-of-clustered-intervals) stays the owner id of the clustered red
-cells. Parts (d), (f) and (g) are delivered
+cells. Parts (d), (f), (g) and (i) are delivered
 ([delivered items](roadmap-delivered.md)).
 
 | part | request | the evidence that reopens it |
@@ -1270,7 +1271,6 @@ cells. Parts (d), (f) and (g) are delivered
 | (c) | a small-sample reference other than $t_{J-2}$ | a reference with its registered study. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. Fang et al., arXiv:2510.08438, Section 3.3, gives another |
 | (e) | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The few-cluster study measures it at 2, 4 and 6 clusters per fold, at equal sizes only, because `cv_evaluation=True` refuses clusters of unequal size |
 | (h) | complex nuisance learners at about 20 clusters | a registered study. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. The registered evidence uses parametric nuisance learners only |
-| (i) | an interval at a boundary node estimate, at a fixed law | the run of the declared study `boundary-node-ltmle`. The node-variance supplement ships for an `LTMLE` fit inside its reach ([a node with no event](technical-reference/longitudinal-tmle.md#a-node-with-no-event)), with the support label its fit already has. At a law with interior hazards, and a node risk set that grows linearly in $n$, a zero-event node has exponentially small probability, and the supplemented interval differs from the ordinary one only on that event. At a true hazard of 0 the supplement only widens a correct interval. The study gates coverage on the draws with a flagged node, bias, the zero-hazard cells and a paired control (`tests/canonical/boundary_node_ltmle/regenerate.py`). It has not run |
 
 [F31](#f31-inference-at-a-boundary-node-estimate) keeps the rare-event regime, and F28 keeps fits
 below 4 clusters. Acceptance: each part's registered study passes under a declaration fixed before
@@ -2647,9 +2647,10 @@ way. The node's term of the influence curve is then identically zero, although t
 there can be positive. So the plug-in standard error leaves that node's variance out.
 
 An `LTMLE` fit inside the reach of the node-variance supplement adds the node's variance at the
-exact binomial bound of its hazard, so it reports an interval.
-[X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) holds the
-measurement of that interval at a fixed law, whose study is declared and has not run.
+exact binomial bound of its hazard, so it reports an interval. The registered study
+[`boundary-node-ltmle`](technical-reference/method-evidence/boundary-node-ltmle.md) measures that
+interval at a fixed law (X54 part (i), [delivered](roadmap-delivered.md)). F31 keeps the claims
+below: the rare-event regime, and fits outside the supplement's reach.
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |

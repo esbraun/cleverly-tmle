@@ -157,7 +157,8 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 209 | 42 studies |
+| [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
+| total | 211 | 43 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -250,6 +251,8 @@ same text as the "measured" column of its study page.
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `double_robustness/static__both_wrong` | control | its own rule | bias -0.0251 to -0.0151, margin 0.0167, SE ratio 0.6640 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to 1.0442 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
 | [long-horizon sequentially doubly robust estimation](long-horizon-sequentially-doubly-robust-estimation.md) | truth | `cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]` | cleverly-long-horizon-sdr | its truth legs; a reporting row, with n below the tail size | bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) |
+| [the boundary-node supplement of LTMLE](boundary-node-ltmle.md) | truth | `cleverly/interior_n200/ate_regimen[always vs never @ t=4]` | cleverly | its truth gate | bias -0.0037 to 0.0133, coverage 0.9470, SE ratio 1.1713 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) |
+| [the boundary-node supplement of LTMLE](boundary-node-ltmle.md) | truth | `cleverly/interior_n200/risk_regimen[always @ t=4]` | cleverly | its truth gate | bias -0.000905 to 0.0124, coverage 0.9270, SE ratio 1.2605 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) |
 | [point-treatment survival](point-treatment-survival.md) | property | `interval_calibration/weighted_t5__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to 1.0015 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted point-treatment survival](cross-fitted-point-treatment-survival.md) | property | `interval_calibration/three_arm_t3__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to 1.0764 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ate__flexible` | positive | its own rule | bias 0.0204 to 0.0254, margin 0.0048 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |
