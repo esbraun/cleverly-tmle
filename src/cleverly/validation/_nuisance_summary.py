@@ -237,6 +237,8 @@ def _notes(check: NuisanceDiagnostics) -> list[Note]:
         notes.append(note("collaborative_model", texts["collaborative_model"]))
     if check.treatment_role == "declared_treatment_law":
         notes.append(note("declared_treatment", texts["declared_treatment"]))
+    if check.treatment_omission is not None:
+        notes.append(note("classifier_ratio", texts["classifier_ratio"]))
     if is_labelled(check.inference):
         sentences = status_record(check.inference).plain_reason
         if not supplies_inference(check.inference):
@@ -268,6 +270,10 @@ def _details(check: NuisanceDiagnostics) -> list[SummarySection]:
         )
     if check.outcome_omission is not None:
         lines.append(omissions["outcome"].format(reason=without_roadmap(check.outcome_omission)))
+    if check.treatment_omission is not None:
+        lines.append(
+            omissions["treatment"].format(reason=without_roadmap(check.treatment_omission))
+        )
     if check.n_repeats > 1 and check.repeat_spread_omission is not None:
         lines.append(
             omissions["spread"].format(reason=without_roadmap(check.repeat_spread_omission))

@@ -115,6 +115,30 @@ def test_w15_a_refit_forced_to_the_other_route_fails_the_spy(
     assert "density" in calls and set(calls) != {result.config.ratio_route.route}
 
 
+# ------------------------------------------------------------------ the nuisance report
+
+
+@pytest.mark.parametrize("name", list(kinds.FITS))
+def test_w15_the_nuisance_report_states_the_classifier_route(name: str) -> None:
+    """A classifier-route fit says that it fitted no treatment model; a density fit does not."""
+    from cleverly.validation.longitudinal import LONGITUDINAL_CLASSIFIER_RATIO
+    from cleverly.validation.nuisance import NUISANCE_CLASSIFIER_RATIO
+
+    result = build(name)
+    classifier = result.config.ratio_route.route == "classifier"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = dataclasses.replace(result).diagnostics.nuisance_models()
+    if name in PANEL:
+        stated = {o.time for o in report.omissions if o.reason == LONGITUDINAL_CLASSIFIER_RATIO}
+        assert stated == ({1, 2} if classifier else set())
+        return
+    assert report.treatment_omission == (NUISANCE_CLASSIFIER_RATIO if classifier else None)
+    codes = [item.code for item in report.summary().notes]
+    assert ("classifier_ratio" in codes) is classifier
+    assert ("No treatment model was fitted" in str(report.summary("full"))) is classifier
+
+
 # ------------------------------------------------------------------ truncation
 
 

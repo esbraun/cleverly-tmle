@@ -1500,6 +1500,7 @@ T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "calibration": "note",
         "collaborative_model": "note",
         "declared_treatment": "note",
+        "classifier_ratio": "note",
         "fit_status": "note",
         "selection": "note",
         "split_ratio": "note",
@@ -1544,6 +1545,10 @@ T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "declared_treatment": (
             "The treatment probabilities were declared, not fitted, so the treatment rows "
             "compare the declaration with the treatment each row received."
+        ),
+        "classifier_ratio": (
+            "The policy weights come from a classifier that tells each row's policy dose from "
+            "its observed dose, so the fit has no separate treatment model to check here."
         ),
         "fit_status": "{sentences}",
         "selection": "{sentence}",
@@ -1639,6 +1644,7 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
+        "treatment": "No treatment model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
     }
 )

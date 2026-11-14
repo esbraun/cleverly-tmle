@@ -100,6 +100,12 @@ NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact
 #: The fit is an AdaptiveIPTW fit, which weights the observed outcomes and fits none.
 NO_OUTCOME_REGRESSION = "AdaptiveIPTW fits no outcome regression"
 
+#: The policy fit read its ratio by classification, so it fitted no treatment model.
+NUISANCE_CLASSIFIER_RATIO = (
+    "the policy ratio comes from a classifier that tells each row's policy dose "
+    "from its observed dose, so no separate treatment model is fitted"
+)
+
 #: The fit drew the cross-fitting split once, so there is no between-draw spread. Not a
 #: fault: it is the ordinary state of an ordinary fit.
 SPREAD_SINGLE_DRAW = "the fit used one cross-fitting draw"
@@ -525,6 +531,9 @@ class NuisanceDiagnostics:
     outcome_omission : str or None
         The reason the fit has no outcome-regression report, or ``None`` where it has one.
         An AdaptiveIPTW fit fits the treatment and missingness models only.
+    treatment_omission : str or None
+        The reason the fit has no treatment-model report, or ``None``. A policy fit on the
+        classifier route reads its ratio from a classifier and fits no treatment model.
     inference : str
         The inference status the fit's estimates declare. One of
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
@@ -561,6 +570,7 @@ class NuisanceDiagnostics:
     #: draw the fitted result retains method-specific extras for.
     reported_repeat: int = REPORTED_DRAW
     outcome_omission: str | None = None
+    treatment_omission: str | None = None
     #: Keyed on what the estimates declare rather than on :attr:`treatment_role`, which
     #: cannot tell a selector path from the outcome-adaptive one.
     inference: InferenceStatus = "influence_curve"
@@ -1053,6 +1063,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             )
         )
     spread_rows, spread_omission = _spread_rows(result)
+    route = result.config.ratio_route
     evaluation: EvaluationBasis = "in_sample" if nuisance.folds.is_single else "out_of_fold"
     return NuisanceDiagnostics(
         models=tuple(replace(model, evaluation=evaluation) for model in models),
@@ -1076,6 +1087,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
         outcome_omission=outcome_omission,
+        treatment_omission=(
+            NUISANCE_CLASSIFIER_RATIO if route is not None and route.route == "classifier" else None
+        ),
         inference=result.inference_status,
     )
 
