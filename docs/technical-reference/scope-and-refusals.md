@@ -647,7 +647,9 @@ Under `markov_order=` the window leaves that block out of the later nodes' desig
 the iterated-mean path, and keeps the held treatment at every node
 (`LongitudinalData.window_arm_start`). `tests/unit/test_hazard_time_varying.py` checks that a
 window fit on law (H) is exact with saturated outcome learners and a wrong treatment model, and
-that a window whose first arm skips the held treatment misses.
+that a window whose first arm skips the held treatment misses. The node designs then differ in
+width, so `hazard_pooling="pooled"` refuses a node-1 block under `markov_order=`, on either
+survival model, and names `hazard_pooling="node"`.
 `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen still refuse any block, one at node 1
 included, because each source fits baseline covariates only. Declare such a block in `baseline=`
 instead: it precedes the treatment, so the estimand is the same.

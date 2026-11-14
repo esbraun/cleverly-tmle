@@ -1053,6 +1053,30 @@ def test_a_markov_window_on_a_node_one_block_alone_is_exact(n_times: int) -> Non
     assert worst_miss(law, fit(law, STATIC, **settings), STATIC_DENSITIES) < EXACT
 
 
+@pytest.mark.parametrize("model", ["hazard", "iterated_mean"])
+@pytest.mark.parametrize("order", [0, 1])
+def test_a_pooled_fit_refuses_a_node_one_block_under_a_markov_window(
+    model: str, order: int
+) -> None:
+    """The window drops ``L_1`` after node ``k + 1``, so the node designs differ: refused.
+
+    Without ``markov_order=`` the same block is fitted pooled
+    (``test_a_covariate_at_node_one_alone_is_the_baseline_fit``).  With node hazards the
+    window fit runs (``test_a_markov_window_on_a_node_one_block_alone_is_exact``).
+    """
+    law = HeldLaw(n_times=4, censored=True)
+    frame, columns = _l1_or_l2(law, True)
+    data = replace(LongitudinalData.from_frame(frame, **columns), markov_order=order)
+    kw: dict[str, Any] = {"hazard": CellMeans(), "hazard_pooling": "pooled"}
+    if model == "hazard":
+        kw["continuation"] = False
+    else:
+        kw.update(continuation=CellMeans(), survival_model=model, targeting="iterative")
+    with pytest.raises(CapabilityError, match="node-1 covariate block") as caught:
+        fit(law, STATIC, frame=data, columns={}, **kw)
+    assert caught.value.refusal.alternative == "Use hazard_pooling='node'."
+
+
 def test_node_bounds_bound_the_node_hazard_only() -> None:
     """Bounds that contain the true node hazards: the truth, and the continuation unbounded."""
     law = HeldLaw()

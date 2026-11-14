@@ -280,9 +280,12 @@ held. The pilot's SE ratios run from 0.995 (`one_cause` contrast) to 1.024 (`cro
 contrast), with mean 1.004. The rule gives 4,800 replicates, with per-cell and family-wise pass
 probabilities 0.994 and 0.954. At 4,800 replicates the shrunken-SE control (standard errors
 scaled by 0.7) leaves the SE-ratio band, and the noise control leaves the efficiency band, with
-probability above 0.999999. The power cell's design power at n = 2,000 rounds to one. The
-necessity cells read the `mechanism_correct` robustness fits and the power cell the
-calibration fits, so neither adds a fit set.
+probability above 0.999999. The power cell's design power at n = 2,000 rounds to one.
+
+The necessity cells read the `mechanism_correct` robustness fits and the power cell the
+calibration fits, so neither adds a fit set. The targeted necessity cell therefore restates the
+`one_cause` `mechanism_correct` robustness cell on the same draws and is not a second
+confirmation. The untargeted plug-in control is the cell that adds evidence.
 
 The bands read the node-1 risks, whose influence curves had a median smallest Kish count of 19
 in the calibration pilots (5% quantile 12 to 13) and a median predicted Wald coverage loss of
