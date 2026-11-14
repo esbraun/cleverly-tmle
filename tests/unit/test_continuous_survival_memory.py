@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 
 from cleverly import CausalStudy, RegimeContrast, TimeToEvent
-from cleverly.exceptions import MethodConfigurationError
+from cleverly.exceptions import DataError, MethodConfigurationError
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, _memory, engine
 from cleverly.survival.data import ContinuousSurvivalData
 from cleverly.survival.diagnostics import continuous_truncation_curve
@@ -271,7 +271,7 @@ def test_the_default_budget_reads_the_available_memory(monkeypatch: pytest.Monke
 
 @pytest.mark.parametrize("value", [0, -1, 1.5, True, "1"])
 def test_the_budget_is_a_positive_integer(value: Any) -> None:
-    with pytest.raises(ValueError, match="max_memory_bytes"):
+    with pytest.raises(DataError, match="max_memory_bytes"):
         _estimator(max_memory_bytes=value)
 
 
