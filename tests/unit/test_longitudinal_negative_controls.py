@@ -424,3 +424,29 @@ class TestFutureTreatment:
     def test_the_test_needs_a_control(self, fitted: Any) -> None:
         with pytest.raises(ValueError, match="future_treatment_control"):
             _run(fitted, tests=("future_treatment",))
+
+
+def test_a_few_cluster_future_treatment_reads_the_t_reference() -> None:
+    """Fix-15: the control fit takes the panel's clusters, so 12 clusters read t on 10 df."""
+    from scipy import stats
+
+    frame = _panel(n=600, seed=5)
+    frame["cluster"] = np.arange(len(frame)) % 12
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = _ltmle().fit(
+            frame,
+            outcome="Y2",
+            treatment=["A1", "A2"],
+            baseline=["W"],
+            time_varying=[[], ["Y1", "L2"]],
+            id="cluster",
+        )
+    control = frame["U"].to_numpy()
+    reading = _run(result, tests=("future_treatment",), future_treatment_control=control)[
+        "future_treatment"
+    ]
+    z = reading.statistic
+    np.testing.assert_allclose(reading.statistic_pvalue, 2.0 * stats.t.sf(abs(z), 10), rtol=1e-10)
+    # Mutation control: the normal tail the reading took before is smaller.
+    assert reading.statistic_pvalue > 2.0 * stats.norm.sf(abs(z)) + 1e-4
