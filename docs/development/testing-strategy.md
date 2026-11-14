@@ -52,8 +52,8 @@ behavior. This includes these checks:
 - exact-law, Gateaux, remainder, identity, and mutation instruments;
 - targeting, cross-fitting, nuisance routing, and inference formulas on compact data;
 - artifact hashes, schemas, provenance, generated claims, and verdict recomputation;
-- documentation parsing, links, and executable examples.
-- coverage of every estimator by the capability sweep (`tests/unit/test_sweep_coverage.py`) and by the plot result matrix.
+- documentation parsing, links, and executable examples;
+- coverage of every estimator by the capability sweep (`tests/unit/test_sweep_coverage.py`).
 
 Use `tests.conftest.FAST_KWARGS` and explicit parametric learners for estimator tests. Use a
 flexible learner only when flexible learning is the subject.
