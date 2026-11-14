@@ -120,6 +120,7 @@ survival-dr-tmle
 hazard-msm
 hazard-mtp
 continuous-time-survival
+continuous-survival-functionals
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries

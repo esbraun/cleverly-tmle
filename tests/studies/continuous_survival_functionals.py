@@ -28,7 +28,7 @@ which also holds the targeting-necessity reading and the declared second-phase b
 **Size and seeds.** The pilot (:mod:`tests.studies.continuous_survival_functionals_pilot`,
 :data:`PILOT_REPLICATES` draws on its own stream) sets :data:`PRIMARY_REPLICATES` by the shared
 primary rule, :func:`~tests.studies.repeated_sizing.primary_replicates`.  Until the pilot is
-committed the count is the placeholder 0, and ``regenerate.py`` refuses a declared run; the
+committed the count was the placeholder 0, and ``regenerate.py`` refused a declared run; the
 design test recomputes the count from the committed pilot and fails on any other value.
 :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a cell
 draws from ``replicate_seed(STUDY, cell, r)``.
@@ -124,6 +124,9 @@ STUDY = StudyRecord(
         ),
     },
     property_artifacts=("necessity-cells.csv", "necessity-replicates.csv"),
+    # The calibration cell reads the coverage and SE-ratio bands only; the efficient spread
+    # scales the noise control and is not claimed as an efficiency ratio.
+    calibration_efficiency_ratio=False,
 )
 
 CONFIGURATION = {

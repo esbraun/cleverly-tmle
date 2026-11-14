@@ -1625,6 +1625,9 @@ ARMS.update(
 #: The calibration label of ``isotonic-binding`` (X76 part (g)), mirrored from its properties
 #: module; :data:`STUDY_ARMS` gives the study's own words.
 ARMS["projected_t1"] = "the never regimen's horizon-1 interval at the projected level"
+ARMS["rmst_rd"] = (
+    "the difference in the restricted mean survival time between treatment and no treatment"
+)
 
 #: The fit labels of the stopping-rule studies (``option-stopping-point``,
 #: ``option-stopping-ltmle``): law, rule and walk.  :data:`STUDY_ARMS` gives each study's words.
@@ -9999,6 +10002,66 @@ STUDY_ARM_CELLS.update(
             "efficiency-ratio intervals inside their bands",
         ),
     }
+)
+
+#: ``continuous-survival-functionals`` (X6 part (c)): the continuous-time TMLE fitted with
+#: ``restricted_horizons=(2.32,)``, whose walk targets each restricted mean time lost beside the
+#: risks.  The names are those of ``tests/studies/continuous_survival_functionals.py``, its law
+#: module and its properties module.
+_FUNCTIONALS_SLUG = "continuous-survival-functionals"
+IMPLEMENTATIONS["cleverly-continuous-survival-functionals"] = (
+    "`cleverly` ContinuousSurvivalTMLE with restricted_horizons=(2.32,): the one-step TMLE whose "
+    "walk targets each arm's restricted mean time lost to each cause beside the risks "
+    "(Rytgaard and van der Laan 2024)"
+)
+STUDY_SCENARIOS[(_FUNCTIONALS_SLUG, "functionals_cf_1k")] = (
+    "the continuous-time competing-risks law of the continuous-time survival study; the default "
+    "Cox libraries and treatment learner, ten outer folds, target times 0.46, 1.12 and 2.32 and "
+    "one restricted horizon at 2.32, n = 1,000"
+)
+for _arm, _words in _CONTINUOUS_ARMS.items():
+    for _cause in (1, 2):
+        for _time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[
+                (_FUNCTIONALS_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")
+            ] = f"risk of cause {_cause} by t = {_time} under {_words}, in the restricted fit"
+        STUDY_ESTIMANDS[(_FUNCTIONALS_SLUG, f"rmtl_regimen[{_arm}, cause{_cause} @ t=2.32]")] = (
+            f"restricted mean time lost to cause {_cause} up to 2.32 under {_words}"
+        )
+    STUDY_ESTIMANDS[(_FUNCTIONALS_SLUG, f"rmst_regimen[{_arm} @ t=2.32]")] = (
+        f"restricted mean survival time up to 2.32 under {_words}"
+    )
+for _cause in (1, 2):
+    for _time in ("1.12", "2.32"):
+        STUDY_ESTIMANDS[
+            (_FUNCTIONALS_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment, in the restricted fit"
+        )
+        STUDY_ESTIMANDS[
+            (_FUNCTIONALS_SLUG, f"rr_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"ratio of the risks of cause {_cause} by t = {_time} under treatment and no "
+            "treatment, on the log scale"
+        )
+    STUDY_ESTIMANDS[
+        (_FUNCTIONALS_SLUG, f"rmtl_regimen[treated vs control, cause{_cause} @ t=2.32]")
+    ] = (
+        f"difference in the restricted mean time lost to cause {_cause} up to 2.32 between "
+        "treatment and no treatment"
+    )
+STUDY_ESTIMANDS[(_FUNCTIONALS_SLUG, "rmst_regimen[treated vs control @ t=2.32]")] = (
+    "difference in the restricted mean survival time up to 2.32 between treatment and no treatment"
+)
+STUDY_ARMS[(_FUNCTIONALS_SLUG, "rmst_rd")] = (
+    "the continuous-time competing-risks law, the difference in the restricted mean survival "
+    "time up to 2.32 between treatment and no treatment, in the restricted fit, ten outer "
+    "folds, n = 1,000"
+)
+STUDY_ARM_CELLS[(_FUNCTIONALS_SLUG, "interval_calibration", "rmst_rd", "correctly_specified")] = (
+    "the default libraries, each of which holds the true model",
+    "SE ratio and coverage intervals both inside their calibration bands",
 )
 
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one

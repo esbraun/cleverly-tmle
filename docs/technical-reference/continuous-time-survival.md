@@ -229,9 +229,29 @@ cause have happened
 (`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
 ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
 early reads experimental. The time condition is calibrated on this one law and does not read
-how many events each arm and cause has. No registered study measures a risk ratio, an odds ratio,
-a restricted mean, a smooth contrast, or any estimate of a fit with `restricted_horizons=`, whose
-extra targets move its risks, so each of these reads experimental. `tests/unit/test_continuous_survival.py` checks the influence curve
+how many events each arm and cause has.
+
+The registered study [continuous-time survival restricted means and risk
+ratios](method-evidence/continuous-survival-functionals.md) gates the same configuration with
+`restricted_horizons=(2.32,)`, the upper quartile and last target time: the risks and risk
+differences of that fit, whose extra targets move them, the log risk ratios at the median and
+upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
+at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
+calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
+its last target time reads `supported` under the conditions above, and its restricted means read
+`supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
+(`RESTRICTED_EVENT_SHARE`). The measured $\tau$ sits at about 75%, and a restricted mean at an
+earlier $\tau$ weights the sparse early times, where the risks' standard error ran low, more
+heavily.
+
+A fit with several restricted horizons, or one past its last target time, whose grid
+the walk then extends, reads experimental for every estimate: only the exact-law tests below
+measure that extension. The risk ratio of a fit without restricted means, an odds ratio, the
+survival view, a smooth contrast and the band read experimental. A risk-only walk on the
+study's draws left the RMTL score above the cutoff in 25% to 51% of fits but was unbiased on
+this law, so the claim that a restricted mean must be targeted rests on the score test below.
+
+`tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
 control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
 checks the restricted mean's curve against the Gateaux derivative of the same law and the weighted
