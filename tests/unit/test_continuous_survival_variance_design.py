@@ -219,14 +219,14 @@ def test_the_readings_run_on_rows_like_the_studys() -> None:
     # Early IC 30% low, S calibrated there: the benefit clause must find a row, the harm clause
     # none, and the controls must behave as declared.
     rows = _synthetic(se_scale=0.7, switched_scale=1.0 / 0.7)
-    candidates = readings.candidate_readings(rows, replicates=400)
+    candidates = readings.candidate_readings(readings.long_rows(rows), replicates=400)
     assert set(candidates["candidate"]) == set(readings.CANDIDATES)
     assert len(candidates) == len(readings.CANDIDATES) * 18 * len(study.CELLS)
     rule = readings.ship_rule(candidates).set_index("candidate")
     assert bool(rule.loc["s", "benefit_pass"])
     assert not bool(rule.loc["s_never", "benefit_pass"])
     assert bool(rule.loc["s_shrunk", "instrument_ok"])
-    table = readings.floors(rows, candidates)
+    table = readings.floors(candidates)
     assert set(table["rule"]) == {"primary", "calibration"}
     assert set(table["default"]) == {readings.floor_values(table)["default"]}
 
@@ -250,3 +250,24 @@ def test_a_declared_run_waits_for_the_pilot(monkeypatch: pytest.MonkeyPatch) -> 
         assert regenerate.pilot_refusals() == []
     monkeypatch.setattr(sys, "argv", ["regenerate", "--replicates", "2", "--output", "/tmp/x"])
     regenerate.refuse_undeclared()
+
+
+def test_the_committed_readings_follow_from_the_committed_rows() -> None:
+    # The ship rule and the floors are recomputed from the committed candidate readings, and the
+    # variance rows carry the published replicates' estimates and standard errors.
+    if not study.STUDY.artifacts.joinpath(study.CANDIDATES_FILE).exists():
+        pytest.skip("the study has not run")
+    candidates = pd.read_csv(study.STUDY.artifact(study.CANDIDATES_FILE))
+    rule = pd.read_csv(study.STUDY.artifact(study.SHIP_FILE))
+    pd.testing.assert_frame_equal(
+        readings.ship_rule(candidates).fillna(""), rule.fillna(""), check_dtype=False
+    )
+    floors = pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE))
+    pd.testing.assert_frame_equal(readings.floors(candidates), floors, check_dtype=False)
+    long = pd.read_csv(study.STUDY.artifact(study.VARIANCE_ROWS_FILE))
+    published = pd.read_parquet(study.STUDY.artifact("replicates.parquet"))
+    keys = ["scenario", "replicate", "estimand"]
+    joined = published.merge(long, on=keys, suffixes=("", "_long"))
+    assert len(joined) == len(published)
+    assert np.allclose(joined["estimate"], joined["estimate_long"])
+    assert np.allclose(joined["std_error"], joined["std_error_long"])

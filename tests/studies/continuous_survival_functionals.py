@@ -14,10 +14,15 @@ targets enlarge the walk, so these estimates differ from the registered study's 
 rows), and each cause's risk ratio on the log scale.  At :math:`\tau = 2.32`: the RMTL of each arm
 and cause, the RMST of each arm, and their differences.
 
-**Interval.** The one the library ships when the study runs: today the influence-curve variance,
-the range-logit interval of :math:`(0, 1)` for a risk and of :math:`(0, \tau)` for an RMTL or RMST
-(Fix-3 PR 2, #637, and X6 (c)), the log interval for a ratio, and the identity interval for a
-difference until Fix-3 PR 3.  The standard error of every level is on its reported scale.
+**Interval.** The one the library ships when the study runs: today the switched variance (X6
+part (a): the influence-curve variance raised to the predictable variation where the curve's
+``variance_rel_sd`` exceeds 0.125, so never below it), the range-logit interval of
+:math:`(0, 1)` for a risk and of :math:`(0, \tau)` for an RMTL or RMST (Fix-3 PR 2, #637, and
+X6 (c)), the log interval for a ratio, and the identity interval for a difference until Fix-3
+PR 3.  The standard error of every level is on its reported scale.  The pilot read the
+influence-curve variance (it ran before part (a)); the switched one is never smaller, so the
+pilot's covered counts are a floor for the shipped interval's and its biases are unchanged, and
+in eight probe fits the RMST difference of the calibration cell never switched.
 
 **Gates.** Every row takes the primary rule of :data:`MARGINS`: the coverage interval above
 0.90, the SE ratio's interval inside (0.8, 1.2) and the bias equivalent to zero within 0.2 SD.
@@ -136,7 +141,7 @@ CONFIGURATION = {
     "learner_folds": LEARNER_FOLDS,
     "learners": "cox.default_library() for each hazard; logistic + lasso C in (1, 0.1, 0.03)",
     "sizes": dict(SCENARIOS),
-    "variance_method": "influence curve",
+    "variance_method": "switched (influence curve raised to predictable variation)",
 }
 
 

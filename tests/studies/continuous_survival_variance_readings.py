@@ -157,10 +157,13 @@ def _seed(scenario: str, estimand: str) -> int:
     return int(sequence.generate_state(1)[0])
 
 
-def candidate_readings(rows: pd.DataFrame, *, replicates: int = BOOTSTRAP) -> pd.DataFrame:
-    """Per cell, target and candidate: bias, SE ratio, coverage and the paired differences."""
+def candidate_readings(long: pd.DataFrame, *, replicates: int = BOOTSTRAP) -> pd.DataFrame:
+    """Per cell, target and candidate: bias, SE ratio, coverage and the paired differences.
+
+    ``long`` is :func:`long_rows` of the primary rows, the committed ``variance-rows.csv.gz``.
+    """
     records: list[dict[str, Any]] = []
-    for (scenario, estimand), group in long_rows(rows).groupby(["scenario", "estimand"]):
+    for (scenario, estimand), group in long.groupby(["scenario", "estimand"]):
         estimate = group["estimate"].to_numpy(dtype=float)
         truth = float(group["truth"].iloc[0])
         level = group["level"].to_numpy(dtype=bool)
@@ -356,7 +359,7 @@ def rel_sd_floor(rungs: Sequence[float], passed: Sequence[bool]) -> float:
     return floor
 
 
-def floors(rows: pd.DataFrame, candidates: pd.DataFrame) -> pd.DataFrame:
+def floors(candidates: pd.DataFrame) -> pd.DataFrame:
     """Per gated and first-quartile row of the default: its rung, its rule and whether it passes."""
     default = "s" if ships(ship_rule(candidates)) else "ic"
     frame = candidates.loc[candidates["candidate"] == default].copy()

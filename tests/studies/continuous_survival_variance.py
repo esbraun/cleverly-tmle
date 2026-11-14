@@ -28,9 +28,10 @@ that fit (:data:`EARLY_COLUMNS`) and are read by
 :mod:`tests.studies.continuous_survival_variance_readings` under the calibration rule: they decide
 the ship rule's benefit clause and the share floor, and are no merge gate.
 
-**Readings** (``candidate-readings.csv``, ``ship-rule.csv``, ``floors.csv``; computed from the
-committed rows by code, :mod:`tests.studies.continuous_survival_variance_readings`).  The ship rule
-of plan 5.1 with its controls, the width-matched readings for (a2), and the three support floors.
+**Readings** (``candidate-readings.csv``, ``ship-rule.csv``, ``floors.csv``), computed by
+:mod:`tests.studies.continuous_survival_variance_readings` from ``variance-rows.csv.gz``, which
+holds every target of every fit with all its standard errors: the ship rule of plan 5.1 with its
+controls, the width-matched readings for (a2), and the three support floors.
 
 **Size and seeds.** :data:`PRIMARY_REPLICATES` is the plan's 3,600 per cell, where the ship rule's
 power is stated (plan 5.1; the at-target branch of ``guide/studies.md`` for the first-quartile
@@ -97,6 +98,9 @@ READINGS_FILE = "targeting-readings.csv"
 CANDIDATES_FILE = "candidate-readings.csv"
 SHIP_FILE = "ship-rule.csv"
 FLOORS_FILE = "floors.csv"
+#: Every target of every fit, first quartile included, with all its standard errors: the rows
+#: every reading is computed from (the published replicates keep only the schema's columns).
+VARIANCE_ROWS_FILE = "variance-rows.csv.gz"
 
 #: The per-estimate variance readings every target carries: the IC and PV standard errors,
 #: the PV with the multinomial square dropped (T-a2's mutation, reported), the relative SD the
@@ -129,7 +133,7 @@ STUDY = StudyRecord(
     reference=None,
     failure_bound={SUBJECT: FAILURE_BOUND},
     nuisance_count=3,
-    extra_artifacts=(READINGS_FILE, CANDIDATES_FILE, SHIP_FILE, FLOORS_FILE),
+    extra_artifacts=(READINGS_FILE, VARIANCE_ROWS_FILE, CANDIDATES_FILE, SHIP_FILE, FLOORS_FILE),
     modules=(
         "tests/studies/continuous_survival_variance.py",
         "tests/studies/continuous_survival_variance_law.py",
@@ -396,10 +400,12 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """The targeting record, the candidates' readings, the ship rule and the floors."""
     from tests.studies import continuous_survival_variance_readings as readings
 
-    candidates = readings.candidate_readings(rows)
+    long = readings.long_rows(rows)
+    candidates = readings.candidate_readings(long)
     return {
         READINGS_FILE: registered.targeting_readings(rows),
+        VARIANCE_ROWS_FILE: long,
         CANDIDATES_FILE: candidates,
         SHIP_FILE: readings.ship_rule(candidates),
-        FLOORS_FILE: readings.floors(rows, candidates),
+        FLOORS_FILE: readings.floors(candidates),
     }
