@@ -18,10 +18,10 @@ and the matrix rule.  Everything a run reads is fixed here before it starts:
   strata learner's population limit, and the heterogeneity power;
 - the study record (:data:`STUDY`).
 
-The calibration ``R`` is not here: the plan computes it from 3,200-draw pilots per arm
-(``calibration_family_pass_probability`` over the arms of :data:`CALIBRATION_ARMS`), which have
-not run.  :data:`BUDGETED_R` is the plan's budget; the declaration commit replaces it by the
-computed ``R`` when that is larger, and never lowers it.  The study is not registered: it joins
+The calibration ``R`` is the pilot's: X32a's rule over the arms of :data:`CALIBRATION_ARMS`
+on the committed 3,200-draw pilot (:mod:`tests.studies.projection_compositions_pilot`) computes
+20,400, and :data:`BUDGETED_R` is that value, declared before the run.  The pilot's low rows
+were diagnosed before the declaration (:data:`DIAGNOSED_READINGS`).  The study is not registered: it joins
 :func:`tests.studies.evidence.registry.registered` with the artifacts of its declared run.
 """
 
@@ -77,8 +77,30 @@ N_BOOTSTRAP = 200
 #: The shrink factor of the ``boot_shrunk`` control, about the median of the replicates.
 SHRUNKEN_FACTOR = 0.70
 
-#: The plan's budgeted calibration ``R`` (5.1); the pilots' computed ``R`` replaces it if larger.
-BUDGETED_R = 6_000
+#: The calibration ``R``: X32a's rule on the committed pilot computes 20,400, above the plan's
+#: budget of 6,000, so the declaration takes it (plan 5.1, rev 2.2).
+BUDGETED_R = 20_400
+
+#: The pilot diagnosis (P1, before the run): the expected SE ratio of each row whose pilot ratio
+#: sat low, measured with a paired-oracle control variate on fresh draws at the declared ``n``.
+#: The departures are finite-sample effects of the shared in-sample composite construction and
+#: of the log-ratio scale, and they shrink as ``n`` grows; no defect was found.  Each row is
+#: expected to pass, its 99% SE-ratio interval possibly just below 1.  A red on any of them is a
+#: defect suspect, not a finite-sample red, and no rerun is allowed without a diagnosis that
+#: points at code.
+DIAGNOSED_READINGS: dict[str, float] = {
+    "mtreat_both_4k_intercept__mtreat_both": 0.982,
+    "mtreat_both_4k_W1__mtreat_both": 0.987,
+    "insample_crr_2k_intercept__wald_crr": 0.989,
+    "insample_crr_2k_W1__wald_crr": 0.987,
+    "insample_crr_2k_W3__wald_crr": 0.998,
+    "mtreat_crr_4k_intercept__mtreat_crr": 0.986,
+    "mtreat_crr_4k_W1__mtreat_crr": 0.983,
+    "strata_crr_4k_intercept_S0__strata_crr": 0.999,
+}
+#: A diagnosed row whose declared SE ratio reads below this contradicts the diagnosis at more
+#: than 99% and reopens the defect search, starting with the composite curve's residual term.
+DEFECT_SEARCH_BELOW = 0.965
 #: Pilot draws per calibration arm (5.1).
 PILOT_DRAWS = 3_200
 

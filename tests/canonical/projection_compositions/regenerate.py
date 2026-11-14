@@ -52,6 +52,16 @@ re-sized, re-drawn or downgraded after the run.
 * The primary phase (``mtreat_4k``, 1,000 replicates) red on its coverage floor or SE screen
   while ``mtreat_4k_*__mtreat`` is green reads as the primary phase's finite-sample noise and is
   reported; red with a red calibration row reads with that row.
+* Pilot diagnosis (before the run, at R = 20,400): the rows of
+  :data:`tests.studies.projection_compositions.DIAGNOSED_READINGS` (``mtreat_both_4k``, the
+  ``insample_crr_2k`` Wald rows, ``mtreat_crr_4k`` and the ``strata_crr_4k`` S0 intercept) are
+  expected to pass, their 99% SE-ratio intervals possibly just below 1: a finite-sample
+  shortfall of the in-sample composite and of the in-sample log ratio, which the evidence page
+  states with its n-scaling. A red on any of them is a defect suspect, not a finite-sample red.
+  A declared SE ratio below
+  :data:`~tests.studies.projection_compositions.DEFECT_SEARCH_BELOW` (0.965) on any of them
+  reopens the defect search, starting with the composite curve's residual term; no rerun
+  without a diagnosis that points at code. Every other row keeps the readings above.
 * No replicate count, law, learner, margin or seed moves after a verdict is seen. No re-run
   buys a pass.
 """

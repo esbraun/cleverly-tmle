@@ -256,7 +256,21 @@ def test_the_smoke_cost_stays_inside_the_cost_gate() -> None:
         declared = study.GROUP_BY_LABEL[row.group].seconds
         assert row.seconds_per_fit <= study.COST_GATE * declared, row.group
     assert numbers()["cpu_hours"] == pytest.approx(study.run_cpu_hours())
-    assert numbers()["cpu_hours"] + numbers()["pilot_cpu_hours"] < 100.0
+    # The pilot diagnosis's budget at R = 20,400: about 170 CPU-h single-thread.
+    assert numbers()["cpu_hours"] == pytest.approx(170.0, abs=2.0)
+
+
+def test_the_diagnosed_rows_pass_at_the_declared_r() -> None:
+    """The pilot diagnosis: each low pilot row passes at R = 20,400 even at the search floor."""
+    cells = {cell for arm in study.CALIBRATION_ARMS.values() for cell in arm}
+    assert set(study.DIAGNOSED_READINGS) <= cells
+    margins = study.STUDY.margins
+    for cell, ratio in study.DIAGNOSED_READINGS.items():
+        assert study.DEFECT_SEARCH_BELOW < ratio <= 1.0, cell
+    floor = float(
+        repeated_sizing.calibration_pass(margins, study.BUDGETED_R, study.DEFECT_SEARCH_BELOW)
+    )
+    assert floor >= 0.999
 
 
 def test_the_declaration_names_every_file_a_run_writes() -> None:
