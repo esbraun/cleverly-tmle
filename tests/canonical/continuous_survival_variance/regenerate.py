@@ -8,8 +8,11 @@ module, declared from X6 plan rev 5, section 5.1 ("if S"), and checked by
 ``tests/unit/test_continuous_survival_variance_design.py``.
 
 Merge condition.  PR A does not merge before this study's committed readings pass the ship rule
-(``ship-rule.csv``, candidate ``s``) and the regenerated ``continuous-time-survival`` rows, written
-under the switched default, are committed (X6 plan 5.2).  Until then the branch's default
+(``ship-rule.csv``, candidate ``s``) and the regenerated ``continuous-time-survival`` and
+``continuous-survival-functionals`` rows are committed (X6 plan 5.2).  Both regenerate whatever the
+ship rule reads: their committed failures are the survival-floor refusal that bc630ef4 removed
+(the clever covariate now keeps its digits where the fitted survival is tiny), so their recorded
+replicate sets describe code that no longer exists.  Until then the branch's default
 ``variance="switched"`` and ``MEASURED_DEFAULTS["variance"]`` describe a configuration no committed
 study measures.  Once ``ship-rule.csv`` is committed the design test ties both to it: they equal
 ``"switched"`` if and only if the rule ships S.
@@ -30,8 +33,9 @@ a declared run until that file is committed and agrees with the declaration
 * no gated cell's pilot loses more than the failure bound of 0.01 of its fits;
 * no gated cell's pilot predicts, with posterior predictive probability above 0.10 (Jeffreys
   prior on its failure rate over all its pilot draws), that the declared run loses more fits than
-  the failure accounting allows (``pilot.failure_refusals``); such a cell's ``DataError`` is a
-  defect suspect, diagnosed in ``pilot-diagnosis.md`` before the declaration;
+  the failure accounting allows (``pilot.failure_refusals``); such a cell's refusals are a
+  defect suspect, to be diagnosed, fixed and the cell's pilot rerun (a diagnosis does not lift
+  this check);
 * each gated cell flagged by the first-quartile plug-in check holds 2,000 draws, and each row still
   below 0.90 on them is named in a committed ``pilot-diagnosis.md`` beside this script.
 
@@ -63,7 +67,7 @@ Budget.  Median seconds per fit in the rerun pilot, on one core: ``v1_rare_cause
 22.3 s per replicate across the five cells; the declared fit adds the no-square reading, about
 5% (one fit per cell, 2026-11-14).  At 6,000 per cell the primary takes about 39 CPU-h, of which
 V3, gated at 6,000, takes about 4 CPU-h at 2.45 s per fit.  V1 and V4 already hold 2,000 pilot
-draws; the plug-in check now also flags V3, whose extension to 2,000 draws takes about 0.7 CPU-h.
+draws; the plug-in check also flagged V3, whose pilot was extended to 2,000 draws (about 0.7 CPU-h).
 About 40 CPU-h, 60 with a 1.5 margin, and about 71 with margin at the cap.  Cloud, one job per
 cell; the slowest cell (V2) takes about 10.4 CPU-h, under 3 h on a 4-core runner.
 
@@ -72,8 +76,8 @@ upper-quartile row of every gated cell is a merge gate under the primary rule, a
 verdict fails the run.  A reported cell's rows publish bias, coverage and the SE ratio with no
 verdict; they decide no gate and feed ``r_prim`` and the ship rule as stated above.  The size
 floor ``MEASURED_N`` falls from 1,000 to 500 only if every primary row of ``v3_half_n`` passes; a
-lost V3 replicate counts against it, because a V3 failure share above 0.01 fails the gated record
-and no floor is read from a failed record.  The support floors only label estimates; a floor that falls below a red
+V3 rows read the fits that returned, and lost fits are bounded instead: a V3 failure share above
+0.01 fails the gated record, and no floor is read from a failed record.  The support floors only label estimates; a floor that falls below a red
 row's rung does not turn the row green or the record into ``reporting``.  No cell is re-sized,
 re-drawn or downgraded after a verdict is seen.
 
@@ -87,8 +91,9 @@ re-drawn or downgraded after a verdict is seen.
 * If the ship rule fails, S does not ship: the engine default and ``MEASURED_DEFAULTS["variance"]``
   revert to ``"influence_curve"``, the floors read the IC's rows (``floors.csv`` does so already),
   and the study's S rows are reported, not gated: the record moves to ``reporting`` and its
-  performance verdicts on S describe a candidate the library does not ship.  The
-  ``continuous-time-survival`` study then does not regenerate (plan 5.2).
+  performance verdicts on S describe a candidate the library does not ship.  The two
+  continuous-time studies still regenerate, under the influence-curve default (see the merge
+  condition).
 * First-quartile rows are no gates.  On the S path a first-quartile red whose SE-ratio interval
   lies above 1 while the IC's paired row is green is S's designed over-width: it goes to Eric as a
   red-cell decision, not an automatic owner row.

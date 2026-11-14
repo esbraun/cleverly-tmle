@@ -18,7 +18,7 @@ is the share of draws where the switched variance raised the influence-curve var
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | v1_rare_cause2/cif_regimen[treated, cause2 @ t=0.52] | 2,000 | +0.034 | 0.960 | 0.867 | 0.458 | 0.68 |
 | v3_half_n/cif_regimen[treated, cause2 @ t=0.46] | 1,995 | +0.025 | 0.959 | 0.882 | 0.465 | 0.64 |
-| v4_in_sample/ate_regimen[treated vs control, cause1 @ t=0.46] | 2,000 | +0.025 | 0.933 | 0.897 | 0.168 | 0.61 |
+| v4_in_sample/ate_regimen[treated vs control, cause1 @ t=0.46] | 2,000 | +0.025 | 0.933 | 0.897 | 0.168 | 0.62 |
 | v4_in_sample/cif_regimen[control, cause1 @ t=0.46] | 2,000 | -0.013 | 0.935 | 0.885 | 0.216 | 0.68 |
 | v4_in_sample/cif_regimen[control, cause2 @ t=0.46] | 2,000 | +0.024 | 1.034 | 0.995 | 0.175 | 0.73 |
 | v4_in_sample/cif_regimen[treated, cause2 @ t=0.46] | 2,000 | +0.052 | 0.953 | 0.864 | 0.360 | 0.74 |
@@ -36,10 +36,14 @@ is the share of draws where the switched variance raised the influence-curve var
   under 0.04 SD, so the point estimate is not at fault, and every such estimate reads
   experimental under the share floor of 0.40 and the `variance_rel_sd` floor.
 - **The in-sample cell (V4).** V4 fits the nuisance models on the same rows it targets
-  (`cross_fit=False`). Its influence-curve SE runs short at every sparse first-quartile row
-  (0.86 to 0.90), which is the known optimism of in-sample nuisance fits where few events inform
-  the hazard: the empirical variance of the estimated influence curve is taken on the rows the
-  learner already fitted. S again recovers most of it (0.93 to 0.95). V4's median and
+  (`cross_fit=False`). Its influence-curve SE runs short at four first-quartile rows (0.86 to
+  0.90), including control cause 1 and the cause-1 difference, which are not sparse (median
+  `variance_rel_sd` 0.17 to 0.22). That points at the in-sample fit rather than sparsity: the
+  empirical variance of the estimated influence curve is taken on the rows the learner already
+  fitted, which understates it where few events inform the early hazard. The cross-fitted cells
+  on the same base law confirm it: control cause 1 and the cause-1 difference at 0.46 read S SE
+  ratios of 0.985 and 0.978 in V3, and 1.013 and 1.018 in V7 (IC 0.986 and 0.998). S recovers
+  most of V4's gap (0.93 to 0.95). V4's median and
   upper-quartile rows, which are its gates, read S SE ratios of 0.97 to 1.02 on the pilot. Bias is
   at most 0.05 SD.
 - **V4 control cause 2 (over-width).** The one departure above 1: S reads 1.034 where the IC
@@ -49,10 +53,20 @@ is the share of draws where the switched variance raised the influence-curve var
   above 1 while the IC's paired row is green, it goes to Eric as a red-cell decision
   (regenerate.py), not an owner row.
 
-No row shows a defect: every bias is small, the IC's shortfall in each row matches the sparsity
-the plan documented, and S moves every under-width row toward 1. The declared run publishes these
-rows under the calibration rule, and their estimates stay experimental through the share floor
-until X6 (a2) supplies a corrected first-quartile interval.
+No row shows a defect in the estimator: every bias is small, the IC's shortfall follows the
+sparsity the plan documented (V1, V3) or the in-sample fit (V4), and S moves every under-width
+row toward 1.
+
+At 6,000 replicates the five under-width rows (S SE ratios 0.933 to 0.960) will read red with a
+99% SE-ratio interval that excludes 1, which `guide/studies.md` calls a defect suspect, not a
+finite-sample red. The route is fixed now, before any verdict:
+
+- these rows are first-quartile rows and gate nothing (regenerate.py, red-cell readings);
+- the share floor stays at 0.40, so every first-quartile estimate stays experimental (V2's
+  first-quartile rows, at SE ratios 0.83 to 0.89, already keep it there);
+- the shortfall is roadmap item X6 (a2), a corrected first-quartile interval, with the in-sample
+  shortfall of V4 recorded there beside the sparse-cell one. It never becomes a red-cell owner
+  row, because no gated row is red.
 
 ## Failures in the gated cells
 
@@ -60,7 +74,10 @@ V3 lost 5 of 2,000 pilot fits (V1, V4 and V7 lost none). Refitting draws 1182 an
 two kinds of refusal the code keeps on purpose at 500 units:
 
 - `DataError` (draws 1182, 1587, 1870): an initial hazard fit puts a combined jump of one or more
-  at a late time with few units at risk, so the product-limit survival is not a probability.
+  at a late time with few units at risk, so the product-limit survival is not a probability. The
+  check (`engine.py`, the combined-jump guard, from X91 part G) reads both arms' fitted hazards
+  up to the last target time; the pilot does not record which arm trips it, and the fix that
+  removed the survival floor does not touch this guard.
 - `CapabilityError` (draws 1521, 1776): the treated arm has no cause-2 event by the first target
   time, so that risk's influence curve is zero and its interval undefined.
 

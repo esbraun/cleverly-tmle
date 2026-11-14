@@ -39,9 +39,10 @@ ships S, the IC's otherwise.  ``r_prim`` is the largest median ``variance_rel_sd
 gated rows of all five cells such that every primary row at or below it passes
 (:func:`rel_sd_floor`); the share floor falls from 0.40 to 0.25 only if every first-quartile row
 passes the calibration rule, and then ``r_cal`` is read the same way from those rows;
-``MEASURED_N`` falls from 1,000 to 500 only if every primary row of ``v3_half_n`` passes.  A lost
-V3 replicate counts against that reading too: V3 is a gated cell, so a V3 failure share above the
-bound of 0.01 fails the record, and no floor is read from a failed record.  The reported cell
+``MEASURED_N`` falls from 1,000 to 500 only if every primary row of ``v3_half_n`` passes.  The V3
+rows read the fits that returned; lost fits, each an explicit refusal with no interval, are
+bounded instead: V3 is a gated cell, so a V3 failure share above the bound of 0.01 fails the
+record, and no floor is read from a failed record.  The reported cell
 ``v2_heavy_weights`` enters ``r_prim`` and the ship rule and moves no other floor.
 """
 
