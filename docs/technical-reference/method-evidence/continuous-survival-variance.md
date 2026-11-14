@@ -64,8 +64,11 @@ The split was made from the pilot, before any primary run. In 1,000 pilot draws 
 interval of `v2_heavy_weights` covered control cause 1 at time 1.12 at 0.894 with an SE ratio of
 0.88 (the influence curve's covered 0.874), the cause-1 difference there at 0.907 and treated
 cause 2 at 0.915, and with V2 the sizing rule found no count up to 50,000. `v3_half_n` lost 12 of
-1,000 fits to `DataError`, against a bound of 10, and with it the rule asked for 10,800. A
-reported cell's failure share is published beside its rows and fails nothing. Roadmap item
+1,000 fits to `DataError`, against a bound of 10, and with it the rule asked for 10,800. Those
+refusals came from a loss of digits in the clever covariate where the fitted survival is tiny;
+the stable form now fits those draws, and the pilot reruns at that code before the declaration.
+
+A reported cell's failure share is published beside its rows and fails nothing. Roadmap item
 [X6 (a2)](../../roadmap.md#x6-continuous-time-survival-and-competing-risks) owns both reported
 cells. A fit with fewer than 1,000 units reads experimental under the size floor
 (`MEASURED_N`) until (a2) moves it. No label detects heavy weights: such a fit's estimates read

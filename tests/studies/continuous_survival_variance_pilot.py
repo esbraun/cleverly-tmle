@@ -291,10 +291,9 @@ def failure_refusals(rows: pd.DataFrame) -> list[str]:
                 f"the declared run of {record.replicates_of(record.implementation, cell):,} "
                 f"loses more than the {allowed(record, record.implementation, cell)} its failure "
                 f"bound allows with predictive probability {probability:.3f}, above "
-                f"{FAILURE_EXCEEDANCE:.2f}; the cell's failures come from DataError where the initial "
-                "hazard fit's survival reaches zero before the last horizon, which under the "
-                f"red-cell rule is a defect suspect, so the row's {DIAGNOSIS.name} must diagnose "
-                "it before the declaration"
+                f"{FAILURE_EXCEEDANCE:.2f}; under the red-cell rule a refused fit is a defect "
+                "suspect, so diagnose and fix the refusal and rerun the cell's pilot (a "
+                f"{DIAGNOSIS.name} does not lift this check)"
             )
     return out
 

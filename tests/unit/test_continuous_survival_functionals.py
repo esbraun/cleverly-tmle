@@ -307,8 +307,9 @@ RECORDED = {
 def test_the_stable_quotient_reproduces_the_fit_where_the_survival_is_ordinary() -> None:
     fit = _fit()
     for name, (psi, std_error) in RECORDED.items():
-        assert fit[name].psi == pytest.approx(psi, rel=1e-7, abs=1e-9), name
-        assert fit[name].std_error == pytest.approx(std_error, rel=1e-6), name
+        # The propensity fit's solver tolerance (1e-4) bounds what a library release can move.
+        assert fit[name].psi == pytest.approx(psi, rel=1e-4, abs=1e-6), name
+        assert fit[name].std_error == pytest.approx(std_error, rel=1e-3), name
 
 
 def test_the_fit_reports_and_targets_every_restricted_mean() -> None:

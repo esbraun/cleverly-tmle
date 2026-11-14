@@ -365,7 +365,7 @@ def test_a_gated_cell_whose_pilot_predicts_its_failure_bound_fails_refuses() -> 
     assert v1_refusals(2) == []
     (message,) = v1_refusals(20)
     assert message.startswith("v1_rare_cause2 lost 20 of 2,000 pilot fits")
-    assert "DataError" in message and "defect suspect" in message
+    assert "defect suspect" in message and "rerun the cell's pilot" in message
     assert pilot.DIAGNOSIS.name in message
     # A reported cell over its bound is not refused: its failures gate nothing.
     assert not [m for m in pilot.failure_refusals(_failures("v3_half_n", 40, 2_000)) if "v3" in m]
