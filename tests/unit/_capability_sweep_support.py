@@ -1500,8 +1500,11 @@ def fit_hazard_time_varying() -> Any:
     )
 
 
-def fit_hazard_multinode() -> Any:
-    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a))."""
+def fit_hazard_multinode(**options: Any) -> Any:
+    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a)).
+
+    In sample unless ``options`` say otherwise; they override the estimate's settings.
+    """
     frame, _ = make_longitudinal_survival(n=600, seed=12)
     study = CausalStudy(
         frame.drop(columns=["L2"]),
@@ -1520,7 +1523,7 @@ def fit_hazard_multinode() -> Any:
         targeting="iterative",
         random_state=5,
         simultaneous=False,
-        **IN_SAMPLE,
+        **{**IN_SAMPLE, **options},
     )
 
 
