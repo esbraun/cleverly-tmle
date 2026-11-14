@@ -584,7 +584,7 @@ def arm_means(
     return out
 
 
-def held_weights(target: PointTarget, data: Any) -> np.ndarray:
+def held_weights(target: PointTarget, data: Any, *, known_score: bool = False) -> np.ndarray:
     """Return the population weight of each held row: the fit weight within the population.
 
     Parameters
@@ -593,6 +593,11 @@ def held_weights(target: PointTarget, data: Any) -> np.ndarray:
         The target whose population and stratum the weights select.
     data : CausalData
         The held rows.
+    known_score : bool
+        Whether the fit summarized its ATT and ATC with ``conditional_form="known_score"``.
+        The population of such a target is then every held row weighted by its declared
+        probability of the conditioning arm, the functional that fit estimates, instead of
+        the held rows observed in that arm.
 
     Returns
     -------
@@ -605,6 +610,10 @@ def held_weights(target: PointTarget, data: Any) -> np.ndarray:
     code = target.population_code()
     if code is None:
         return weights
+    known = getattr(data, "known_treatment", None)
+    if known_score and known is not None:
+        column = list(data.arm_codes).index(code)
+        return weights * np.asarray(known.values, dtype=float)[:, column]
     return np.where(np.asarray(data.treatment, dtype=float) == code, weights, 0.0)
 
 

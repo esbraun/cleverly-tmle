@@ -58,6 +58,7 @@ __all__ = [
     "KnownSource",
     "known_mechanism",
     "known_node_mechanisms",
+    "known_score_engine_refusal",
     "known_score_fit",
     "known_score_reader_refusal",
     "moved_known_values_refusal",
@@ -115,6 +116,28 @@ KNOWN_SCORE_NO_TARGET_REFUSAL = Refusal(
     "requests neither.",
     alternative='Request att or atc, or drop conditional_form="known_score".',
 )
+
+
+def known_score_engine_refusal(engine: str) -> Refusal:
+    """The refusal of ``conditional_form="known_score"`` on an engine other than ``TMLE``.
+
+    Parameters
+    ----------
+    engine : str
+        The estimator's class name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` refusal.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f'conditional_form="known_score" is the known-score ATT and ATC of TMLE; {engine} '
+        "reports no such form.",
+        alternative='Fit TMLE(conditional_form="known_score") on data that declares '
+        "treatment_probabilities=.",
+    )
 
 
 def known_score_fit(result: object) -> bool:

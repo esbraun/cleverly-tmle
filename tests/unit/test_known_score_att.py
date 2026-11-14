@@ -546,6 +546,23 @@ class TestReaders:
         assert result.bootstrap is not None
         assert np.all(np.isfinite(result.bootstrap.draws["att"]))
 
+    def test_generated_outcome_truths_weight_by_the_declared_score(self) -> None:
+        # The dummy and simulated outcomes hold the covariates and the treatment and take
+        # the ATT truth over the held rows. A known-score fit estimates the score-weighted
+        # mean, so its truth weights every held row by g0(c | W).
+        from types import SimpleNamespace
+
+        from cleverly.validation._point_generated import held_weights
+
+        result = _sampled_fit(_sampled_frame(), KNOWN, ("att",))
+        data = result.data
+        target = SimpleNamespace(stratum=None, population_code=lambda: 1.0)
+        known = held_weights(target, data, known_score=True)  # type: ignore[arg-type]
+        arm = held_weights(target, data)  # type: ignore[arg-type]
+        g1 = np.asarray(data.known_treatment.values)[:, 1]
+        np.testing.assert_allclose(known, np.asarray(data.weights) * g1, rtol=0, atol=1e-15)
+        np.testing.assert_array_equal(arm > 0, np.asarray(data.treatment) == 1.0)
+
 
 # ----------------------------------------------------------------------------- study API
 
@@ -573,3 +590,12 @@ class TestStudyAPI:
         assert result.config.conditional_form == KNOWN
         direct = _sampled_fit(frame, KNOWN, ("att",))
         assert result.estimates["att"].psi == pytest.approx(direct.estimates["att"].psi, abs=1e-12)
+
+
+class TestOtherEngines:
+    @pytest.mark.parametrize("name", ["DRTMLE", "CTMLE"])
+    def test_refuse_the_option(self, name: str) -> None:
+        import cleverly.estimators as estimators
+
+        with pytest.raises(MethodConfigurationError, match="reports no such form"):
+            getattr(estimators, name)(conditional_form=KNOWN)

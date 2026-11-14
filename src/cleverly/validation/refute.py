@@ -89,6 +89,7 @@ import numpy as np
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import augmented_trial_refusal, is_augmented_trial, refuse_augmented_trial
+from ..data.known_mechanism import known_score_fit
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
@@ -4081,7 +4082,7 @@ def _generated_outcome_test(
             intermediate=target.intermediate,
             doses=target.doses,
         )
-        weights = held_weights(target, data)
+        weights = held_weights(target, data, known_score=known_score_fit(result))
         mixture = held_mixture(target, data)
         # The truth is the sample-conditional functional of the held rows. The held design
         # reads the SE ratio and coverage only where the covariate part of the curve is
