@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import math
+import numbers
 import textwrap
 import weakref
 from collections.abc import Callable, Iterator, Sequence
@@ -591,6 +592,21 @@ def subtitle_text(ax: Axes) -> str | None:
         if text.get_gid() == GID_SUBTITLE:
             return " ".join(text.get_text().split())
     return None
+
+
+def display_limit(value: Any, name: str, minimum: int) -> int | None:
+    """A display-limit argument checked: ``None``, or an integer of at least ``minimum``.
+
+    A display limit changes only what is drawn, never a computed number, so a wrong value is
+    refused here rather than drawn as something else.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        raise ValueError(f"{name} must be None or an integer of at least {minimum}; got {value!r}")
+    if int(value) < minimum:
+        raise ValueError(f"{name} must be at least {minimum}; got {value!r}")
+    return int(value)
 
 
 #: The attribute of a figure that holds the notes a plot recorded for it.
