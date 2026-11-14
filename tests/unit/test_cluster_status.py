@@ -43,8 +43,9 @@ from cleverly import (
     PointTreatment,
     Runtime,
     TMLEMethod,
+    _inference_status,
 )
-from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, STATUS_RECORDS
+from cleverly._inference_status import DEFAULT_POINT_INTERVAL_CLUSTERS, STATUS_RECORDS
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
@@ -145,7 +146,7 @@ def unequal_frame(equal_frame: Any) -> Any:
 def few_frame() -> Any:
     """9 clusters of 40 rows, one below the floor."""
     frame = make_clustered(n=360, cluster_size=40, seed=7)[0]
-    assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS - 1, 40, 40)
+    assert sizes(frame) == (DEFAULT_POINT_INTERVAL_CLUSTERS - 1, 40, 40)
     return frame
 
 
@@ -161,7 +162,7 @@ def two_frame() -> Any:
 def floor_frame() -> Any:
     """10 clusters of 40 rows, at the floor."""
     frame = make_clustered(n=400, cluster_size=40, seed=7)[0]
-    assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS, 40, 40)
+    assert sizes(frame) == (DEFAULT_POINT_INTERVAL_CLUSTERS, 40, 40)
     return frame
 
 
@@ -257,7 +258,7 @@ class TestFewClustersShowALabelledTInterval:
     ) -> None:
         """Nine clusters read t(7): the interval is the plug-in Wald interval on that quantile."""
         result = fit(few_frame, estimator=estimator, **settings)
-        assert_shows_interval(result, FEW, MINIMUM_INTERVAL_CLUSTERS - 3)
+        assert_shows_interval(result, FEW, DEFAULT_POINT_INTERVAL_CLUSTERS - 3)
 
     def test_the_label_and_the_summary_carry_the_reason(self, few_frame: Any) -> None:
         result = fit(few_frame, **IN_SAMPLE)
@@ -394,7 +395,7 @@ class TestAStratumWithFewClustersReadsItsOwnCount:
 
     def test_a_stratum_at_the_floor_keeps_the_interval(self) -> None:
         """The control: 50 clusters split 10 and 40, the small stratum at the floor."""
-        frame = stratified_frame(50, small=MINIMUM_INTERVAL_CLUSTERS)
+        frame = stratified_frame(50, small=DEFAULT_POINT_INTERVAL_CLUSTERS)
         result = fit_stratified(frame)
         assert_keeps_inference(result)
         assert result["ate[S='small']"].reference_df == 8
@@ -469,7 +470,9 @@ class TestThePrecedence:
             )
             .single()
         )
-        assert_shows_interval(result, "estimated_weight_plugin", MINIMUM_INTERVAL_CLUSTERS - 3)
+        assert_shows_interval(
+            result, "estimated_weight_plugin", DEFAULT_POINT_INTERVAL_CLUSTERS - 3
+        )
         # The witness that the few-cluster status applies to this data on its own.
         assert cluster_inference_status(result.data.cluster) == FEW
         support = result["ate"].support
@@ -566,8 +569,12 @@ class TestTheStatusIsTheHooksToWithhold:
     def test_a_floor_of_zero_fails_the_few_cluster_check(
         self, few_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The rule's own module compares against a floor of zero."""
-        monkeypatch.setattr(cluster_module, "MINIMUM_INTERVAL_CLUSTERS", 0)
+        """The fit's family floor read as zero: the in-sample TMLE floor drives the status."""
+        monkeypatch.setattr(
+            _inference_status,
+            "CLUSTER_INTERVAL_FLOORS",
+            {**_inference_status.CLUSTER_INTERVAL_FLOORS, "tmle_in_sample": 0},
+        )
         with pytest.raises((AssertionError, ValueError)):
             assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, 7)
 

@@ -30,9 +30,10 @@ from typing import Any, Final, Literal
 
 from ._inference_status import (
     FEW_CLUSTER_THRESHOLD,
-    MINIMUM_INTERVAL_CLUSTERS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     STATUS_RECORDS,
+    cluster_interval_floor,
+    longitudinal_floor_family,
+    point_floor_family,
     supplies_inference,
 )
 from ._refusal import Refusal
@@ -330,8 +331,8 @@ class SupportKey:
         1) and ``supplied_plan`` where they apply.
     dependence : {"iid", "clustered", "t", "below_floor"}
         ``clustered`` from 40 clusters with positive weight mass, ``t`` from the interval floor
-        to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
-        longitudinal one.
+        to 39, ``below_floor`` under the floor. The floor is the fit's floor family's
+        (:func:`interval_floor`).
     qualifiers : frozenset of str
         ``strata``, ``known_mechanism``, ``tilted_mechanism`` (a declaration read in the
         weighted sample, ``mechanism_law="sample"``, which the fit estimates as a tilt) and, on a
@@ -453,8 +454,41 @@ def _jsonable(value: Any) -> Any:
     return repr(value)
 
 
+def floor_family(key: SupportKey) -> str | None:
+    """The floor family of the fit ``key`` describes, or ``None`` for an unmeasured one.
+
+    It reads the axes the estimators' own floor hooks read: the engine, the splitting scheme,
+    the ``known_mechanism`` qualifier and DR-TMLE's ``reduced_crossfit`` option.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The fit's key.
+
+    Returns
+    -------
+    str or None
+        A key of :data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`, or ``None``.
+    """
+    scheme = key.splitting[0] if key.splitting else ""
+    repeated = "repeated" in key.splitting
+    if key.kind == "point":
+        return point_floor_family(
+            key.engine[0] if key.engine else "",
+            scheme,
+            repeated=repeated,
+            known_mechanism="known_mechanism" in key.qualifiers,
+            foldwise=dict(key.options).get("reduced_crossfit") == "foldwise",
+        )
+    return longitudinal_floor_family(
+        key.engine[0] if key.engine else "",
+        cross_fitted=scheme == "cross_fitted",
+        repeated=repeated,
+    )
+
+
 def interval_floor(key: SupportKey) -> int:
-    """The cluster count below which ``key`` reads ``below_floor``: 10 for a point fit, else 20.
+    """The cluster count below which ``key`` reads ``below_floor``: its floor family's floor.
 
     Parameters
     ----------
@@ -464,11 +498,10 @@ def interval_floor(key: SupportKey) -> int:
     Returns
     -------
     int
-        The interval floor of the fit's kind.
+        The interval floor of the fit's family (:func:`floor_family`), or the default floor of
+        its kind.
     """
-    if key.kind == "point":
-        return MINIMUM_INTERVAL_CLUSTERS
-    return MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+    return cluster_interval_floor(floor_family(key), longitudinal=key.kind != "point")
 
 
 def _dependence(clusters: int | None, floor: int) -> str:
@@ -480,6 +513,11 @@ def _dependence(clusters: int | None, floor: int) -> str:
     if clusters >= floor:
         return "t"
     return "below_floor"
+
+
+def _with_dependence(key: SupportKey, data: Any) -> SupportKey:
+    """``key`` with its dependence tier, read against the floor of its floor family."""
+    return replace(key, dependence=_dependence(_positive_mass_clusters(data), interval_floor(key)))
 
 
 def _positive_mass_clusters(data: Any) -> int | None:
@@ -725,6 +763,61 @@ def _stopping_options(estimator: Any) -> dict[str, str]:
     }
 
 
+def point_scheme(estimator: Any) -> str:
+    """The splitting scheme of a point-treatment fit, the first entry of its key's ``splitting``.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, as constructed.
+
+    Returns
+    -------
+    str
+        ``"in_sample"``, ``"stacked"``, ``"fold_evaluated"``, ``"fold_targeted"`` or
+        ``"fold_targeted_evaluated"``.
+    """
+    if not estimator.cross_fit:
+        return "in_sample"
+    folded = estimator.targeting_scheme != "pooled"
+    if estimator.cv_evaluation:
+        return "fold_targeted_evaluated" if folded else "fold_evaluated"
+    return "fold_targeted" if folded else "stacked"
+
+
+def point_interval_floor(estimator: Any, data: Any) -> int:
+    """The interval floor of a point-treatment fit, read from its configuration before any learner.
+
+    It reads what :func:`point_key` reads for :func:`floor_family`, so the status an estimator
+    stamps and the dependence tier of its key agree. The treatment mechanism does not enter
+    for TMLE: the floor study measures each TMLE family with a declared and an estimated
+    mechanism, and a count passes only when both do.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, as constructed.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    int
+        The floor of the fit's floor family, or
+        :data:`~cleverly._inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS`.
+    """
+    method = str(getattr(estimator, "_assessment_method", type(estimator).__name__))
+    foldwise = getattr(estimator, "_foldwise", None)
+    family = point_floor_family(
+        method,
+        point_scheme(estimator),
+        repeated=getattr(estimator, "repeats", 1) != 1,
+        known_mechanism=divides_by_declaration(data),
+        foldwise=bool(foldwise()) if callable(foldwise) else False,
+    )
+    return cluster_interval_floor(family, longitudinal=False)
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -755,14 +848,7 @@ def point_key(
             # engine: a row for it never matches a per-arm fit that keeps the shipped curve.
             engine += ("parametric_stack",)
 
-    if estimator.cross_fit:
-        folded = estimator.targeting_scheme != "pooled"
-        if estimator.cv_evaluation:
-            scheme = "fold_targeted_evaluated" if folded else "fold_evaluated"
-        else:
-            scheme = "fold_targeted" if folded else "stacked"
-    else:
-        scheme = "in_sample"
+    scheme = point_scheme(estimator)
     splitting = [scheme]
     if estimator.repeats != 1:
         splitting.append("repeated")
@@ -862,10 +948,11 @@ def point_key(
         treatment=treatment,
         weighting=_weighting(data),
         splitting=tuple(splitting),
-        dependence=_dependence(_positive_mass_clusters(data), MINIMUM_INTERVAL_CLUSTERS),
+        dependence="",
         qualifiers=frozenset(qualifiers),
         options=tuple(sorted((name, _option(value)) for name, value in options.items())),
     )
+    key = _with_dependence(key, data)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "treatment": _learner_type(estimator.treatment_learner),
@@ -999,9 +1086,7 @@ def longitudinal_key(
             if cross_fitted
             else ("in_sample",)
         ),
-        dependence=_dependence(
-            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        ),
+        dependence="",
         qualifiers=frozenset(
             (
                 *known_factors,
@@ -1036,6 +1121,7 @@ def longitudinal_key(
             ),
         ),
     )
+    key = _with_dependence(key, data)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "pseudo": _learner_type(estimator.pseudo_learner),
@@ -1102,12 +1188,11 @@ def structural_key(
         treatment=levels,
         weighting=_weighting(data),
         splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
-        dependence=_dependence(
-            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        ),
+        dependence="",
         qualifiers=frozenset(),
         options=(("covariate_features", bool(covariate_features)),),
     )
+    key = _with_dependence(key, data)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "treatment": _learner_type(estimator.treatment_learner),

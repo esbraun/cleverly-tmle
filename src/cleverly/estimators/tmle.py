@@ -104,6 +104,7 @@ from .._support import (
     band_shape,
     band_support,
     classify_point_fit,
+    point_interval_floor,
     record_fit,
     record_refusal_site,
 )
@@ -1183,15 +1184,38 @@ class TMLE:
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
             labels. It gives ``"influence_curve"`` on an unclustered fit, and
-            ``"few_cluster_plugin"`` on a fit with fewer than ten clusters with positive
-            weight mass in total or in one baseline stratum. The cluster sizes do not
-            enter, in sample or cross-fitted.
+            ``"few_cluster_plugin"`` on a fit with fewer clusters with positive weight mass,
+            in total or in one baseline stratum, than the fit's interval floor
+            (:meth:`_cluster_interval_floor`). The cluster sizes do not enter, in sample or
+            cross-fitted.
         """
         return cluster_inference_status(
             data.cluster,
             strata=data.strata,
             weights=data.weights if data.is_weighted else None,
+            minimum=self._cluster_interval_floor(data),
         )
+
+    def _cluster_interval_floor(self, data: CausalData) -> int:
+        """The fewest positive-mass clusters from which this fit's interval carries no label.
+
+        The floor of the fit's floor family (:func:`~cleverly._support.point_interval_floor`):
+        in-sample, stacked and fold-evaluated ``TMLE`` each have their own, and cross-fitted
+        foldwise ``DRTMLE`` has one under a declared treatment mechanism only, where its linear
+        remainder vanishes. Every other configuration keeps
+        :data:`~cleverly._inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS`.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        int
+            The floor.
+        """
+        return point_interval_floor(self, data)
 
     def _summary_facts(self, result: TMLEResult) -> SummaryFacts:
         """The method facts :meth:`TMLEResult.summary` prints for a fit of this estimator.

@@ -10,8 +10,8 @@ import warnings
 from typing import Any
 
 from cleverly._inference_status import (
-    MINIMUM_INTERVAL_CLUSTERS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
 )
 from cleverly.datasets import make_longitudinal
 from tests.unit.test_ltmle_bootstrap import _end_columns, _estimator
@@ -29,10 +29,10 @@ def test_a_longitudinal_fit_at_fifteen_clusters_names_the_floor_of_twenty() -> N
     estimate = next(iter(_longitudinal(15).estimates.values()))
     summary = estimate.bootstrap
     assert summary is not None and summary.below_floor
-    assert summary.cluster_floor == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+    assert summary.cluster_floor == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
     text = str(summary.summary())
-    assert f"fewer than {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} clusters" in text
-    assert f"fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters" not in text
+    assert f"fewer than {DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} clusters" in text
+    assert f"fewer than {DEFAULT_POINT_INTERVAL_CLUSTERS} clusters" not in text
 
 
 def test_a_point_fit_below_its_floor_names_the_floor_of_ten() -> None:
@@ -40,9 +40,9 @@ def test_a_point_fit_below_its_floor_names_the_floor_of_ten() -> None:
     result = drtmle_estimated_weights(7)
     summary = result["ate"].bootstrap
     assert summary is not None and summary.below_floor
-    assert summary.cluster_floor == MINIMUM_INTERVAL_CLUSTERS
+    assert summary.cluster_floor == DEFAULT_POINT_INTERVAL_CLUSTERS
     for text in (str(summary.summary()), str(result.summary())):
-        assert f"fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters" in text
+        assert f"fewer than {DEFAULT_POINT_INTERVAL_CLUSTERS} clusters" in text
 
 
 def test_a_fit_above_the_floor_carries_no_floor() -> None:

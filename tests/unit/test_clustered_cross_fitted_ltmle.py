@@ -34,9 +34,10 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly._inference_status import (
+    CLUSTER_INTERVAL_FLOORS,
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
     FEW_CLUSTER_THRESHOLD,
-    MINIMUM_INTERVAL_CLUSTERS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_T_REFERENCE_BANDS,
     STATUS_RECORDS,
 )
@@ -601,26 +602,27 @@ class TestEveryTargetKind:
         assert {e.reference_df for e in result.estimates.values()} == {19}
 
     def test_the_cross_fitted_floor_is_the_smallest_measured_count(self) -> None:
-        """20 clusters keep t(18) and 19 show a labelled t(17), cross-fitted and in sample.
+        """The family floor keeps t(J - 2), and one below shows a labelled t, in both splits.
 
-        ``few-cluster-cross-fitted-ltmle`` measures 20 and 30 clusters, and
-        ``clustered-few-cluster-tmle`` measures in-sample ``LTMLE`` from 20, so every ``LTMLE``
-        fit below 20 reports its interval under the experimental label. A point-treatment fit
-        keeps the floor of 10.
+        ``few-cluster-cross-fitted-ltmle`` and ``clustered-few-cluster-tmle`` measure
+        ``LTMLE`` from 20 clusters; ``few-cluster-floor-cross-fitted-ltmle`` and
+        ``few-cluster-floor-tmle`` set each family's floor at or below it. A point-treatment
+        fit keeps its own floor.
         """
-        assert MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS == 20
-        kept = fit_law(20)
+        crossed = CLUSTER_INTERVAL_FLOORS["ltmle_cross_fitted"]
+        kept = fit_law(crossed)
         assert kept.inference_status == "influence_curve"
-        assert {e.reference_df for e in kept.estimates.values()} == {18}
-        withheld = fit_law(19)
+        assert {e.reference_df for e in kept.estimates.values()} == {crossed - 2}
+        withheld = fit_law(crossed - 1)
         assert withheld.inference_status == "few_cluster_plugin"
-        assert_shows_interval(withheld, "few_cluster_plugin", 17)
+        assert_shows_interval(withheld, "few_cluster_plugin", crossed - 3)
         reason = STATUS_RECORDS["few_cluster_plugin"].reason
-        assert "one below 20 on a longitudinal fit" in reason
+        assert f"cross-fitted LTMLE {crossed}" in reason
         assert "X54" in reason
-        assert fit_law(19, n_folds=1).inference_status == "few_cluster_plugin"
-        in_sample = fit_law(20, n_folds=1)
-        assert {e.reference_df for e in in_sample.estimates.values()} == {18}
+        in_sample = CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"]
+        assert fit_law(in_sample - 1, n_folds=1).inference_status == "few_cluster_plugin"
+        kept_in_sample = fit_law(in_sample, n_folds=1)
+        assert {e.reference_df for e in kept_in_sample.estimates.values()} == {in_sample - 2}
 
     def test_the_point_treatment_floor_fails_the_longitudinal_witness(
         self, monkeypatch: pytest.MonkeyPatch
@@ -631,7 +633,7 @@ class TestEveryTargetKind:
             longitudinal_estimator,
             "cluster_inference_status",
             lambda cluster, **kwargs: original(
-                cluster, **{**kwargs, "minimum": MINIMUM_INTERVAL_CLUSTERS}
+                cluster, **{**kwargs, "minimum": DEFAULT_POINT_INTERVAL_CLUSTERS}
             ),
         )
         assert fit_law(19).inference_status == "influence_curve"
@@ -642,9 +644,9 @@ class TestEveryTargetKind:
         """20 labels, one with zero weight mass: 19 count, so the fit withholds its interval."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = _weighted(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS)
-        assert result.data.n_clusters == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        assert positive_mass_clusters(result) == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1
+            result = _weighted(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
+        assert result.data.n_clusters == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+        assert positive_mass_clusters(result) == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1
         assert result.inference_status == "few_cluster_plugin"
 
     def test_a_status_that_counts_labels_fails_the_zero_mass_witness(

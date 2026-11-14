@@ -75,11 +75,12 @@ from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     BOUNDARY_NODE_OUT_OF_REACH,
     CONSTANT_NODE_STATUS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     PARAMETER_STATUSES,
     TRIMMED_RATIO_STATUS,
     InferenceStatus,
+    cluster_interval_floor,
     is_labelled,
+    longitudinal_floor_family,
     precedent_status,
     status_record,
     supplies_inference,
@@ -4243,6 +4244,7 @@ def _inference_status(
     *,
     estimator: str = "tmle",
     parametric: bool = True,
+    repeated: bool = False,
 ) -> InferenceStatus:
     """The fit status that every estimate of a longitudinal fit starts from.
 
@@ -4251,11 +4253,11 @@ def _inference_status(
 
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
-    so the count is the number of clusters with positive weight mass in the whole fit, and
-    :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS` is the
-    threshold, in sample and cross-fitted: the registered few-cluster studies measure
-    ``LTMLE`` from 20 clusters, in sample (``clustered-few-cluster-tmle``) and cross-fitted
-    (``few-cluster-cross-fitted-ltmle``).
+    so the count is the number of clusters with positive weight mass in the whole fit. The
+    threshold is the floor of the fit's floor family
+    (:func:`~cleverly._inference_status.longitudinal_floor_family`): ``LTMLE`` in sample and
+    cross-fitted each have their own, and SDR, IPSI, the baselines and a repeated split keep
+    :data:`~cleverly._inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`.
 
     The targeting pools every follower, so the curve is centred at the pooled estimate and
     the folds do not enter the status or the degrees of freedom.  This status can be
@@ -4281,6 +4283,8 @@ def _inference_status(
         The recursion the fit ran.
     parametric : bool
         On a g-computation or IPW fit, whether every regression it reads is a GLM.
+    repeated : bool
+        Whether the fit combines several fold draws (``repeats`` above 1).
 
     Returns
     -------
@@ -4288,10 +4292,13 @@ def _inference_status(
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
+    family = longitudinal_floor_family(
+        estimator, cross_fitted=not folds.is_single, repeated=repeated
+    )
     cluster = cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
-        minimum=MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+        minimum=cluster_interval_floor(family, longitudinal=True),
     )
     if estimator not in _BASELINES:
         return cluster
@@ -5691,11 +5698,12 @@ class _SequentialEstimator:
         ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
 
         ``id=`` names a cluster column, and the variance is then cluster robust.  A fit
-        with fewer than
-        :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`
-        clusters with positive weight mass reports no interval, p-value or standard error:
-        every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
-        does.  From that count up to
+        with fewer clusters with positive weight mass than its interval floor
+        (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS` for ``LTMLE`` in sample
+        and cross-fitted, else
+        :data:`~cleverly._inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`) shows an
+        experimental interval: every estimate takes the ``"few_cluster_plugin"`` status, as a
+        point-treatment fit does.  From that count up to
         :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` it reports Student t
         intervals with ``J - 2`` degrees of freedom, in sample and cross-fitted.
         The point estimate stands.  The inference reference, section *Clusters*, gives
@@ -6408,7 +6416,13 @@ class _SequentialEstimator:
             :func:`_inference_status`, then :func:`_trimmed_status`.
         """
         return _trimmed_status(
-            _inference_status(prepared, folds, estimator=self._estimator, parametric=parametric),
+            _inference_status(
+                prepared,
+                folds,
+                estimator=self._estimator,
+                parametric=parametric,
+                repeated=getattr(self, "repeats", 1) != 1,
+            ),
             mechanism,
         )
 
@@ -10081,7 +10095,11 @@ def _refit_bound(
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
     status = _trimmed_status(
         _inference_status(
-            result.data, draw.folds, estimator=recipe.estimator, parametric=recipe.parametric
+            result.data,
+            draw.folds,
+            estimator=recipe.estimator,
+            parametric=recipe.parametric,
+            repeated=result.config.repeats != 1,
         ),
         draw.mechanism,
     )

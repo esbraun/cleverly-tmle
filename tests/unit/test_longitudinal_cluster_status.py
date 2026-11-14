@@ -1,7 +1,7 @@
 """A clustered ``LTMLE`` fit shows a labelled t interval below 20 clusters.
 
 The point-treatment few-cluster status applies to the longitudinal path too, with the floor of
-:data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`. A fit with 3 to 19
+:data:`~cleverly._inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`. A fit with 3 to 19
 positive-mass clusters stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
 coefficient. Each estimate keeps its interval on a Student t reference with ``J - 2`` degrees of
 freedom, under the experimental label, and X54 holds the evidence for those fits. From 20 to 39
@@ -28,10 +28,10 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean, _inference_status
 from cleverly._inference_status import (
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
     FEW_CLUSTER_THRESHOLD,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     STATUS_RECORDS,
@@ -139,7 +139,7 @@ DESIGNS = [(kind, 1) for kind in FITS] + [(kind, 5) for kind in FITS if kind != 
 def floor(n_folds: int) -> int:
     """The interval floor of a fit: 20, in sample and cross-fitted (the measured counts)."""
     del n_folds
-    return MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+    return DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
 
 
 @pytest.fixture(scope="module", params=DESIGNS, ids=[f"{k}-{f} fold(s)" for k, f in DESIGNS])
@@ -234,16 +234,16 @@ class TestFewClustersShowALabelledLongitudinalInterval:
     def test_an_explicit_band_request_is_skipped_and_named(self) -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1, simultaneous=True)
+            result = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1, simultaneous=True)
         assert not caught
         assert result.simultaneous is None
         assert NO_T_REFERENCE_BANDS in result.summary(detail="full").section("Settings").lines
 
     def test_the_nuisance_item_and_the_assessment_carry_the_note(self) -> None:
-        assert_assessment_note(fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1), FEW)
+        assert_assessment_note(fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1), FEW)
 
     def test_the_truncation_curve_replays_under_the_status(self) -> None:
-        result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
+        result = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
         curve = result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
         fitted = curve[curve["is_fitted_bound"]]
         assert len(fitted) == len(result.estimates)
@@ -251,13 +251,13 @@ class TestFewClustersShowALabelledLongitudinalInterval:
             assert row.psi == result[row.estimand].psi
 
     def test_zero_mass_clusters_do_not_count(self) -> None:
-        result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS, **ONE_ZERO_MASS_CLUSTER)
+        result = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS, **ONE_ZERO_MASS_CLUSTER)
         # The witness that the labels alone would keep the interval.
-        assert result.data.n_clusters == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        assert_shows_interval(result, FEW, MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
+        assert result.data.n_clusters == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+        assert_shows_interval(result, FEW, DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
         assert dict(result.summary().header)["Clusters"] == (
-            f"{MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, positive weight mass in "
-            f"{MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1}"
+            f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS}, positive weight mass in "
+            f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1}"
         )
 
     def test_the_study_workflow_reads_a_t_reference(self) -> None:
@@ -336,7 +336,7 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
 
     def test_all_positive_weights_keep_the_interval(self) -> None:
         result = fit_end_of_study(
-            MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS, weights=lambda cluster: np.ones(cluster.size)
+            DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS, weights=lambda cluster: np.ones(cluster.size)
         )
         assert_keeps_inference(result)
         assert "positive weight mass in" not in result.summary()
@@ -356,17 +356,25 @@ class TestTheMutationsFailTheWitness:
         )
         with pytest.raises(AssertionError):
             assert_shows_interval(
-                FITS[kind](MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1),
+                FITS[kind](DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1),
                 FEW,
-                MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
+                DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
             )
 
     def test_a_threshold_of_zero_fails_the_witness(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The longitudinal path reads its own floor in its own module."""
-        monkeypatch.setattr(longitudinal_estimator, "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS", 0)
-        result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
+        """The longitudinal path reads its family's floor: both LTMLE floors read as zero."""
+        monkeypatch.setattr(
+            _inference_status,
+            "CLUSTER_INTERVAL_FLOORS",
+            {
+                **_inference_status.CLUSTER_INTERVAL_FLOORS,
+                "ltmle_in_sample": 0,
+                "ltmle_cross_fitted": 0,
+            },
+        )
+        result = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
         with pytest.raises(AssertionError):
-            assert_shows_interval(result, FEW, MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
+            assert_shows_interval(result, FEW, DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
         with pytest.raises(AssertionError):
             assert_assessment_note(result, FEW)
 
@@ -376,12 +384,12 @@ class TestTheMutationsFailTheWitness:
         monkeypatch.setattr(longitudinal_estimator, "cluster_inference_status", at_or_below)
         # The mutant still passes the witness, so only the control can catch it.
         assert_shows_interval(
-            fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1),
+            fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1),
             FEW,
-            MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
+            DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
         )
         with pytest.raises(AssertionError):
-            assert_keeps_inference(fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS))
+            assert_keeps_inference(fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS))
 
     def test_a_status_that_ignores_the_weights_fails_the_zero_mass_witness(
         self, monkeypatch: pytest.MonkeyPatch
@@ -393,16 +401,16 @@ class TestTheMutationsFailTheWitness:
         )
         with pytest.raises((AssertionError, ValueError)):
             assert_shows_interval(
-                fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS, **ONE_ZERO_MASS_CLUSTER),
+                fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS, **ONE_ZERO_MASS_CLUSTER),
                 FEW,
-                MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
+                DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
             )
 
     def test_a_replay_without_the_status_fails_the_truncation_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The stamp belongs in the builders the replay shares, and not in ``fit`` alone."""
-        result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
+        result = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
         refit = longitudinal_estimator._refit_bound
 
         def unstamped(*args: Any, **kwargs: Any) -> Any:
@@ -423,7 +431,7 @@ class TestASavedLongitudinalResult:
 
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_few_cluster_fit_keeps_its_status(self, route: str) -> None:
-        result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1, simultaneous=True)
+        result = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1, simultaneous=True)
         restored = assert_round_trips(result, FEW, route)
         # The status and the replay read the same data and folds, so the replay matches.
         curve = restored.diagnostics.truncation_curve(bounds=[0.05])

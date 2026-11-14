@@ -20,7 +20,7 @@ import numpy as np
 
 from .._inference_status import (
     BOUNDARY_NODE_BAND_NOTE,
-    MINIMUM_INTERVAL_CLUSTERS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
     NO_CONSTANT_ARM_BANDS,
     NO_KNOWN_REGIME_BANDS,
     NO_LOGIT_RANGE_BANDS,
@@ -459,7 +459,7 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
     assert bootstrap is not None
     rows: list[tuple[Cell, ...]] = []
     diagnostic: dict[str, list[str]] = {}
-    floor = MINIMUM_INTERVAL_CLUSTERS
+    floor = DEFAULT_POINT_INTERVAL_CLUSTERS
     experimental: list[str] = []
     interval_name = ""
     for name, estimate in result.estimates.items():

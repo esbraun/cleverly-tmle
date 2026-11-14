@@ -484,9 +484,13 @@ Wang et al. (2024), Remark 3, caution against complex nuisance learners at about
 registered few-cluster evidence uses parametric nuisance learners only.
 
 The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
-reported baseline stratum. Its upper bound, 9 (19 for `LTMLE`), is
-one below the smallest count that the registered few-cluster study measures for that fit
-(`MINIMUM_INTERVAL_CLUSTERS` and `MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`).
+reported baseline stratum. Its upper bound is one below the fit's interval floor, the smallest
+count from which a registered few-cluster study measures that fit. `CLUSTER_INTERVAL_FLOORS`
+holds one floor per measured fit family: in-sample, stacked and fold-evaluated `TMLE`,
+cross-fitted foldwise `DRTMLE` with a declared treatment mechanism, and in-sample and
+cross-fitted `LTMLE`. Every other fit takes the default of its kind,
+`DEFAULT_POINT_INTERVAL_CLUSTERS` (10) or `DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS` (20). Each
+family holds its kind's default until a registered floor study sets a lower count.
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds
 the counts from 3 to each bound. With fewer than 3 clusters (`MINIMUM_T_REFERENCE_CLUSTERS`), a
 $t$ reference has no degree of freedom left. The fit takes `"no_cluster_variance_plugin"` and
@@ -521,10 +525,11 @@ when some have zero mass, and the fewest contributing clusters in one stratum.
 `LongitudinalResult.summary()` prints the cluster count too. It adds the count of clusters with
 positive weight mass when some clusters have zero mass.
 
-`FEW_CLUSTER_THRESHOLD` and `MINIMUM_INTERVAL_CLUSTERS` in `cleverly._inference_status` hold
-the counts 40 and 10, and `MINIMUM_T_REFERENCE_CLUSTERS` holds 3. `tests/unit/test_cluster_status.py`,
-`tests/unit/test_longitudinal_cluster_status.py` and `tests/unit/test_few_cluster_reference.py`
-hold a witness, a control, and a mutation for each rule.
+`FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the count 40, and
+`MINIMUM_T_REFERENCE_CLUSTERS` holds 3. `tests/unit/test_cluster_status.py`,
+`tests/unit/test_longitudinal_cluster_status.py`, `tests/unit/test_few_cluster_reference.py` and
+`tests/unit/test_cluster_interval_floors.py` hold a witness, a control, and a mutation for each
+rule.
 [References](../references.md#grouped-folds-and-clustered-cross-fitting) gives the sources.
 
 ## Transformed parameters

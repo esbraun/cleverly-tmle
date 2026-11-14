@@ -6,7 +6,7 @@ that rule for in-sample ``LTMLE`` from 20 clusters. This study measures it for t
 ``LTMLE`` with five whole-cluster folds, whose targeting pools every follower, so the fold count
 does not enter the degrees of freedom. The grid starts at 20, and an ``LTMLE`` fit below 20
 clusters, in sample or cross-fitted, takes ``"few_cluster_plugin"``
-(``cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS``).
+(``cleverly._inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS``).
 
 The subject is the ``clustered-cross-fitted-ltmle`` subject. The law is the end-of-study law
 of :mod:`tests.studies.clustered_longitudinal_laws` with the **scaled** latent

@@ -33,8 +33,8 @@ from typing import Final
 import numpy as np
 
 from .._inference_status import (
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
     FEW_CLUSTER_THRESHOLD,
-    MINIMUM_INTERVAL_CLUSTERS,
     MINIMUM_T_REFERENCE_CLUSTERS,
     InferenceStatus,
 )
@@ -634,8 +634,8 @@ def cluster_inference_status(
     with positive weight mass than
     :data:`~cleverly._inference_status.MINIMUM_T_REFERENCE_CLUSTERS`: a Student t reference
     with :math:`J - 2` degrees of freedom has none left. ``"few_cluster_plugin"`` from that
-    count to one below :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`: the fit
-    shows a labelled interval on the t reference. That is the whole fit, or, with baseline
+    count to one below the fit's interval floor, ``minimum``: the fit shows a labelled interval
+    on the t reference. That is the whole fit, or, with baseline
     strata, any one stratum: :func:`fewest_clusters` gives the count. The fit takes one status,
     so the stratum with the fewest clusters decides it for every estimate. Otherwise
     ``"influence_curve"``, in sample or cross-fitted, at equal or unequal cluster sizes. Below
@@ -656,9 +656,9 @@ def cluster_inference_status(
     weights : ndarray of float or None, default None
         The observation weight of each row, or ``None`` for an unweighted fit.
     minimum : int or None, default None
-        The floor. ``None`` reads
-        :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`. ``LTMLE`` passes
-        :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`.
+        The fit's interval floor, which each estimator reads from its floor family
+        (:func:`~cleverly._inference_status.cluster_interval_floor`). ``None`` reads
+        :data:`~cleverly._inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS`.
 
     Returns
     -------
@@ -673,6 +673,8 @@ def cluster_inference_status(
     'influence_curve'
     >>> cluster_inference_status(np.repeat(np.arange(9), 3))
     'few_cluster_plugin'
+    >>> cluster_inference_status(np.repeat(np.arange(9), 3), minimum=6)
+    'influence_curve'
     >>> cluster_inference_status(np.repeat(np.arange(2), 3))
     'no_cluster_variance_plugin'
     >>> equal = np.repeat(np.arange(40), 10)
@@ -683,7 +685,7 @@ def cluster_inference_status(
     """
     if cluster is None:
         return "influence_curve"
-    floor = MINIMUM_INTERVAL_CLUSTERS if minimum is None else minimum
+    floor = DEFAULT_POINT_INTERVAL_CLUSTERS if minimum is None else minimum
     fewest = fewest_clusters(cluster, strata, weights)
     if fewest < MINIMUM_T_REFERENCE_CLUSTERS:
         return "no_cluster_variance_plugin"
