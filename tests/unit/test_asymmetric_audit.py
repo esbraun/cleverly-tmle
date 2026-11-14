@@ -9,6 +9,9 @@ committed rows of the screen's MOVER and refit studies from the committed artefa
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -292,7 +295,7 @@ def _replay_records(rows: list[tuple[str, str, float, float]]) -> pd.DataFrame:
     committed = _truth_group(covered_at=0.97).rows.iloc[0]
     out = []
     for group, scale, shift, se_shift in rows:
-        record = dict.fromkeys(refit.RECORD_COLUMNS, np.nan)
+        record: dict[str, Any] = dict.fromkeys(refit.RECORD_COLUMNS, np.nan)
         record.update(
             stage="scope",
             phase="primary",
@@ -374,3 +377,204 @@ def test_every_committed_refit_record_names_a_scale_and_each_mismatch_is_judged(
         row = by_study.loc[directory.name]
         if missed and not str(row["scope"]).startswith("mismatch:"):
             assert int(row["replay_shifts"]) > 0, directory.name
+
+
+# ------------------------------------------------------------------ settling by a full refit
+
+
+def _settle_records(group: screen_module.Group, lower_ratio: np.ndarray) -> pd.DataFrame:
+    """Settle records of every replicate of ``group`` that replay it, each with the shipped
+    lower side at ``lower_ratio`` times the normal half-width and the upper side normal."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    rows = group.rows
+    z = float(stats.norm.ppf(0.975))
+    half = z * rows["std_error"].to_numpy(float)
+    estimate = rows["estimate"].to_numpy(float)
+    frame = pd.DataFrame(
+        {
+            "stage": "settle",
+            "phase": "primary",
+            "group": group.key,
+            "replicate": rows["replicate"].to_numpy(int),
+            "estimate": estimate,
+            "std_error": rows["std_error"].to_numpy(float),
+            "committed_estimate": estimate,
+            "committed_std_error": rows["std_error"].to_numpy(float),
+            "replay": "ok",
+            "scale": "skew_t",
+            "alpha": 0.05,
+            "shipped_lower": estimate - np.broadcast_to(lower_ratio, estimate.shape) * half,
+            "shipped_upper": estimate + half,
+            "normal_lower": estimate - half,
+            "normal_upper": estimate + half,
+        }
+    )
+    return frame.reindex(columns=list(refit.RECORD_COLUMNS))
+
+
+def _narrowing_study() -> tuple[screen_module._Study, dict[str, screen_module.Group], float]:
+    record = interval_audit.record_for("canonical-stratified-tmle")
+    group = _truth_group(covered_at=0.97)
+    return (
+        screen_module._Study(record, None, [group]),
+        {group.key: group},
+        float(stats.norm.ppf(0.975)),
+    )
+
+
+def test_a_settled_flip_that_holds_is_listed_settled_and_keeps_the_study_moved() -> None:
+    """Every replicate's refitted lower side at 0.9 normal half-widths uncovers the rows at
+    0.97, as the bound's narrow corner does: the verdict moves on the exact intervals alone."""
+    study, groups, z = _narrowing_study()
+    group = groups["s/ate"]
+    exact = screen_module.settled_verdicts(_settle_records(group, np.array(0.9)), group, z)
+    assert exact is not None
+    flips = screen_module.bound_flips(study, groups, {}, z, {"s/ate": exact})
+    assert flips == ["s/ate@settled"]
+    reading = screen_module.RefitReading("ok", ["s/ate"], flips, 0, 1)
+    disposition, reason = screen_module._disposition("x", False, True, reading)
+    assert disposition == "moved"
+    assert "settled by full refit of 1 group" in reason and "regenerate" in reason
+
+
+def test_a_settled_flip_that_clears_makes_the_study_neutral() -> None:
+    """The R_a bound narrows the lower side to 0.9 and flips the verdict at its corners; the
+    refitted intervals narrow it to 0.99 only, which uncovers nothing."""
+    study, groups, z = _narrowing_study()
+    group = groups["s/ate"]
+    assert screen_module.bound_flips(study, groups, {"s/ate": (0.9, 1.0, 1.0, 1.0)}, z)
+    exact = screen_module.settled_verdicts(_settle_records(group, np.array(0.99)), group, z)
+    assert exact is not None
+    assert screen_module.bound_flips(study, groups, {}, z, {"s/ate": exact}) == []
+    reading = screen_module.RefitReading("ok", ["s/ate"], [], 0, 1)
+    disposition, reason = screen_module._disposition("x", False, True, reading)
+    assert disposition == "neutral" and reason.startswith("settled by full refit")
+
+
+def test_the_settled_judgement_reads_each_replicates_own_interval() -> None:
+    """Mutation control: the narrowing sits only on the replicates at 0.97, and no uniform
+    ratio a corner applies reproduces it.  Judged per replicate it flips the floor; with the
+    records' replicates rotated by one, so each interval lands on another row, it does not,
+    and the records with every other replicate dropped settle nothing."""
+    study, groups, z = _narrowing_study()
+    group = groups["s/ate"]
+    far = (group.rows["estimate"] - group.rows["truth"]).to_numpy() > 0.6 * 1.959964 * 0.1
+    ratio = np.where(far, 0.9, 1.0)
+    records = _settle_records(group, ratio)
+    exact = screen_module.settled_verdicts(records, group, z)
+    assert exact is not None
+    assert int((exact[0] == 0).sum()) == int(far.sum())
+    assert screen_module.bound_flips(study, groups, {}, z, {"s/ate": exact}) == ["s/ate@settled"]
+    rotated = screen_module.settled_verdicts(_settle_records(group, np.roll(ratio, 1)), group, z)
+    assert rotated is not None and not np.array_equal(rotated[0], exact[0])
+    assert screen_module.bound_flips(study, groups, {}, z, {"s/ate": rotated}) == []
+    assert screen_module.settled_verdicts(records.iloc[::2], group, z) is None
+
+
+def test_a_settle_record_off_the_committed_interval_does_not_settle() -> None:
+    """The substitution needs the committed ``covered`` to be the refit's normal interval: a
+    group whose committed run read a wider interval (here 1.1 normal half-widths, so the rows
+    at 1.05 are covered) stays on its bound."""
+    group = _truth_group(covered_at=1.05)
+    rows = group.rows.copy()
+    z = float(stats.norm.ppf(0.975))
+    rows["covered"] = (
+        (rows["estimate"] - rows["truth"]).abs() <= 1.1 * z * rows["std_error"]
+    ).astype(int)
+    wider = screen_module.Group(group.key, group.kind, group.pool, rows, group.index)
+    assert screen_module.settled_verdicts(_settle_records(wider, np.array(1.0)), wider, z) is None
+    assert screen_module.settled_verdicts(_settle_records(group, np.array(1.0)), group, z)
+
+
+def test_an_accepted_settle_mismatch_is_placed_on_the_committed_row() -> None:
+    """A refit that missed its committed row inside the replay rule keeps its own ratio, moved
+    to the committed estimate and scaled by the committed standard error; an ``own`` record
+    keeps the committed ``covered`` whatever its limits."""
+    _, groups, z = _narrowing_study()
+    group = groups["s/ate"]
+    records = _settle_records(group, np.array(1.0))
+    first = records.index[0]
+    records.loc[first, ["estimate", "shipped_lower", "normal_lower", "shipped_upper",
+                        "normal_upper"]] += 0.01  # fmt: skip
+    records.loc[first, "replay"] = "mismatch"
+    exact = screen_module.settled_verdicts(records, group, z)
+    assert exact is not None
+    assert np.array_equal(exact[0], group.rows["covered"].to_numpy(int))
+    owned = _settle_records(group, np.array(0.5)).assign(scale="own")
+    kept = screen_module.settled_verdicts(owned, group, z)
+    assert kept is not None and np.array_equal(kept[0], group.rows["covered"].to_numpy(int))
+
+
+def test_the_refit_reading_settles_from_the_committed_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end on record files: the R_a refits narrow the lower side to 0.9 and the study
+    reads ``moved`` at the corners; a ``settle.csv`` whose every replicate narrows it to 0.99
+    clears the flip and settles the group."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    study, groups, z = _narrowing_study()
+    group = groups["s/ate"]
+    directory = tmp_path / study.record.slug
+    directory.mkdir()
+    monkeypatch.setattr(refit, "AUDIT_DIR", tmp_path)
+    head = _settle_records(group, np.array(1.0)).assign(stage="scope").iloc[:1]
+    head.to_csv(directory / refit.SCOPE_FILE, index=False)
+    ratios = np.linspace(0.9, 1.0, refit.REFIT_REPLICATES)
+    some = _settle_records(group, np.ones(len(group.rows)))
+    some = some.iloc[: refit.REFIT_REPLICATES].assign(stage="refits")
+    some["shipped_lower"] = some["estimate"] - ratios * (some["estimate"] - some["normal_lower"])
+    some.to_csv(directory / refit.REFITS_FILE, index=False)
+    corners = screen_module._refit_reading(study, groups, z, needed=["s/ate"], exact=set())
+    assert corners.scope == "ok" and corners.settled == 0
+    assert any(flip.startswith("s/ate@lo") for flip in corners.flips), corners.flips
+    _settle_records(group, np.array(0.99)).to_csv(directory / refit.SETTLE_FILE, index=False)
+    settled = screen_module._refit_reading(study, groups, z, needed=["s/ate"], exact=set())
+    assert (settled.scope, settled.flips, settled.settled) == ("ok", [], 1)
+    _settle_records(group, np.array(0.9)).to_csv(directory / refit.SETTLE_FILE, index=False)
+    held = screen_module._refit_reading(study, groups, z, needed=["s/ate"], exact=set())
+    assert (held.flips, held.settled) == (["s/ate@settled"], 1)
+
+
+def test_the_settle_stage_refits_every_replicate_of_each_flagged_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The settle stage names the screen's flagged groups (a name that holds ``@`` keeps it)
+    and selects every replicate of each, where the R_a stage selects the first 20."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    screen = pd.DataFrame(
+        {
+            "study": ["a", "b", "c"],
+            "disposition": ["moved", "neutral", "moved"],
+            "bound_flips": ["s/x@lo-lo;s/x@hi-hi;L4/y[1 vs 0 @ t=5]@unbounded", "", ""],
+        }
+    )
+    assert refit.settle_groups("a", screen) == {"s/x", "L4/y[1 vs 0 @ t=5]"}
+    assert refit.settle_groups("b", screen) == set()
+    assert refit.settle_targets(screen) == ["a"]
+    keys = [(cell, replicate) for cell in ("s", "t") for replicate in range(50)]
+    job = refit.Job(
+        "primary", "primary", keys, [], lambda key, drawn: None, 2,
+        lambda key: key[0], lambda key: key[1], None, None,
+        lambda key: {f"{key[0]}/x"},
+    )  # fmt: skip
+    every = refit.select(job, replicates=None, names={"s/x"})
+    assert every == list(range(50))
+    assert refit.select(job, replicates=refit.REFIT_REPLICATES, names={"s/x"}) == list(range(20))
+    monkeypatch.setattr(refit, "settle_groups", lambda slug: {"s/x"})
+    assert refit.stage_selection("a", "settle") == ({"s/x"}, None)
+    assert refit.stage_selection("a", "scope") == (None, 1)
+
+
+def test_a_key_of_several_scenarios_writes_each_ones_groups() -> None:
+    """A primary key that fits two scenarios on one draw names its cell ``a;b``; it writes
+    the groups of both, so the scope stage selects it (the ``missing:<k>`` of ``cde-tmle``)."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    names = refit._ScenarioGroups(
+        lambda key: ";".join(key[0]), {"z0": ("ey0", "ate"), "z1": ("ey0",)}
+    )
+    assert names((("z0", "z1"), 0, 2000)) == {"z0/ey0", "z0/ate", "z1/ey0"}
+    assert names((("z1",), 0, 2000)) == {"z1/ey0"}

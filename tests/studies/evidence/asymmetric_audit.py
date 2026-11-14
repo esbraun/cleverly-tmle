@@ -52,6 +52,20 @@ bound (:func:`side_bounds`, :data:`CORNERS`), narrowing as well as widening, by 
 rule.  No verdict moving makes the study ``neutral``; a move lists it as ``moved``, for a targeted
 rerun.  ``tests/unit/test_asymmetric_audit.py`` fails while any study reads ``refits``.
 
+**A moved study is settled by a full refit** (the ``settle`` stage).  The bound is conservative,
+so ``moved`` means only that a verdict may move.  When the study's ``settle.csv`` refits every
+committed replicate of a remaining group, the screen drops the bound for that group and judges
+its committed verdicts on each replicate's refitted shipped interval
+(:func:`settled_verdicts`), by the same rule (:func:`bound_flips` with ``exact``).  The refitted
+interval is placed on the committed row: a refit that replays it is used as fitted, and an
+accepted mismatch (the replay rule below) is moved to the committed estimate and scaled by the
+committed standard error.  A replicate whose refit reads no package interval (``own``) keeps
+its committed ``covered``.  The substitution holds only where the committed ``covered`` is the
+refit's own normal interval on every replicate (the interval the committed run read); a group
+failing that check, or missing a replicate, stays on its bound.  A verdict that moves on the
+exact intervals alone is listed ``<verdict>@settled`` and the study stays ``moved``, for a real
+regeneration; a study whose flips all clear reads ``neutral``, settled by full refit.
+
 **A refit that misses its committed row** (``replay`` = ``mismatch``) is judged, not discarded
 (:func:`replay_shifts`).  The R_a bound is a ratio of the shipped to the normal half-width per
 side, and the screen applies it to the *committed* row's estimate and standard error, so a
@@ -69,7 +83,9 @@ refit reads no package interval (``own``) is accepted whatever its shift: the sc
 the code path, not by the estimate, and no shipped interval reaches its verdict.  A group the
 screen never judges is accepted too.  Any other mismatch (a larger shift, or a refit that
 failed where the committed fit did not) leaves the study reading ``refits`` with
-``mismatch:<k>``.  :data:`REPLAY_CAUSES` records the diagnosed cause of each study's
+``mismatch:<k>``.  A refit stage fits whole keys, so its records also hold groups the stage was
+not run for; a mismatch in a group that takes neither new scale (or that the screen recomputes
+exactly) is accepted and counted, as the bound never reads it.  :data:`REPLAY_CAUSES` records the diagnosed cause of each study's
 mismatches: a fit that moved on main after the study's run (``stale on main``, routed to that
 study's owner, not a PR 3 defect), floating-point drift between machines, or a row whose
 estimate column PR 3 itself moves.
@@ -505,12 +521,16 @@ class RefitReading:
         a remaining group whose committed interval is not the normal one is ``<key>@unbounded``.
     shifts : int, default=0
         The mismatched records :func:`replay_shifts` accepted.
+    settled : int, default=0
+        The remaining groups judged on the full refit of every replicate (``settle.csv``)
+        instead of on the R_a bound.
     """
 
     scope: str
     remaining: list[str]
     flips: list[str]
     shifts: int = 0
+    settled: int = 0
 
 
 def exact_groups(slug: str) -> set[str]:
@@ -566,16 +586,35 @@ def side_bounds(records: pd.DataFrame) -> tuple[float, float, float, float] | No
 CORNERS = (("lo", "lo"), ("hi", "hi"), ("lo", "hi"), ("hi", "lo"))
 
 
+def _moved(group: Group, covered: np.ndarray, rejected: np.ndarray | None) -> bool:
+    return bool(
+        (covered != group.rows["covered"].to_numpy(dtype=int)).any()
+        or (rejected is not None and (rejected != group.rows["rejected"].to_numpy(float)).any())
+    )
+
+
 def bound_flips(
     study: _Study,
     groups: Mapping[str, Group],
     bounds: Mapping[str, tuple[float, float, float, float]],
     z: float,
+    exact: Mapping[str, tuple[np.ndarray, np.ndarray | None]] | None = None,
 ) -> list[str]:
-    """The verdicts that move at some corner of the bound, each group at its own range."""
+    """The verdicts that move at some corner of the bound, each group at its own range.
+
+    ``exact`` holds the settled groups' ``covered`` and ``rejected`` under the refitted shipped
+    intervals (:func:`settled_verdicts`).  A verdict that moves on those alone is listed
+    ``<verdict>@settled``; the corners then judge the settled groups at their exact values and
+    every other group at its bound, and list only verdicts not already settled.
+    """
     flips: list[str] = []
-    for corner in CORNERS:
-        moved: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+    fixed: dict[str, tuple[np.ndarray, np.ndarray | None]] = {
+        key: value for key, value in (exact or {}).items() if _moved(groups[key], *value)
+    }
+    settled = set(_judge(study, fixed, groups)) if fixed else set()
+    flips.extend(f"{key}@settled" for key in settled)
+    for corner in CORNERS if bounds else ():
+        moved: dict[str, tuple[np.ndarray, np.ndarray | None]] = dict(fixed)
         for key, (lower_low, lower_high, upper_low, upper_high) in bounds.items():
             group = groups[key]
             down = lower_low if corner[0] == "lo" else lower_high
@@ -586,13 +625,86 @@ def bound_flips(
             rejected = None
             if group.kind == "property" and _null_zero_consistent(group, z):
                 rejected = ((low > 0.0) | (high < 0.0)).astype(float)
-            if (covered != group.rows["covered"].to_numpy(dtype=int)).any() or (
-                rejected is not None and (rejected != group.rows["rejected"].to_numpy(float)).any()
-            ):
+            if _moved(group, covered, rejected):
                 moved[key] = (covered, rejected)
         label = f"{corner[0]}-{corner[1]}"
-        flips.extend(f"{key}@{label}" for key in _judge(study, moved, groups))
+        flips.extend(f"{key}@{label}" for key in _judge(study, moved, groups) if key not in settled)
     return sorted(set(flips))
+
+
+def settled_verdicts(
+    records: pd.DataFrame, group: Group, z: float
+) -> tuple[np.ndarray, np.ndarray | None] | None:
+    """A group's ``covered`` and ``rejected`` under the refitted shipped interval of every
+    committed replicate, or ``None`` when the settle records cannot stand in for it.
+
+    Each committed replicate needs one record.  A record that replays its committed row gives
+    its shipped limits as fitted; an accepted mismatch (:func:`replay_shifts`, applied by the
+    caller) has its limits moved to the committed estimate and scaled by the ratio of the
+    committed to the refitted standard error.  A record whose scale is ``own``, or a committed
+    row with no finite estimate, keeps its committed ``covered`` and ``rejected``.  ``None``
+    when a replicate has no record or no finite shipped interval, or when the refit's normal
+    interval, placed the same way, does not reproduce the committed ``covered`` (to round-off):
+    the committed run then read another interval, and the shipped one does not replace it.
+    ``rejected`` is recomputed against the null 0 where the committed ``rejected`` reads it.
+
+    Parameters
+    ----------
+    records : pandas.DataFrame
+        The settle records of this group (:data:`~asymmetric_refit.RECORD_COLUMNS`).
+    group : Group
+        The committed group.
+    z : float
+        The normal quantile of the study's level.
+
+    Returns
+    -------
+    tuple or None
+        ``covered`` and ``rejected`` (``None`` where not recomputed), aligned with
+        ``group.rows``.
+    """
+    by_replicate = records.drop_duplicates("replicate", keep="last").set_index("replicate")
+    replicates = group.rows.index
+    if not replicates.isin(by_replicate.index).all():
+        return None
+    rows = by_replicate.loc[replicates]
+    estimate, se, truth = (_values(group, c) for c in ("estimate", "std_error", "truth"))
+    committed = group.rows["covered"].to_numpy(dtype=int)
+    keep = (rows["scale"].astype(str) == "own").to_numpy() | ~np.isfinite(estimate)
+    psi = rows["estimate"].to_numpy(float)
+    refit_se = rows["std_error"].to_numpy(float)
+    shifted = (rows["replay"].astype(str) == "mismatch").to_numpy()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        scale = np.where(shifted, se / refit_se, 1.0)
+        centre = np.where(shifted, estimate, psi)
+
+        def placed(lower: str, upper: str) -> tuple[np.ndarray, np.ndarray]:
+            low = centre - (psi - rows[lower].to_numpy(float)) * scale
+            high = centre + (rows[upper].to_numpy(float) - psi) * scale
+            return low, high
+
+        low, high = placed("shipped_lower", "shipped_upper")
+        normal_low, normal_high = placed("normal_lower", "normal_upper")
+        finite = (
+            np.isfinite(low)
+            & np.isfinite(high)
+            & np.isfinite(normal_low)
+            & np.isfinite(normal_high)
+        )
+        if not (finite | keep).all():
+            return None
+        width = np.maximum(np.abs(normal_high - normal_low), 1e-300)
+        gap = np.minimum(np.abs(truth - normal_low), np.abs(truth - normal_high))
+        clear = gap > 1e-9 * width
+        normal = ((normal_low <= truth) & (truth <= normal_high)).astype(int)
+        if not (normal == committed)[~keep & clear].all():
+            return None
+        covered = np.where(keep, committed, ((low <= truth) & (truth <= high)).astype(int))
+        rejected = None
+        if group.kind == "property" and _null_zero_consistent(group, z):
+            old = group.rows["rejected"].to_numpy(dtype=float)
+            rejected = np.where(keep, old, ((low > 0.0) | (high < 0.0)).astype(float))
+    return covered, rejected
 
 
 def replay_shifts(records: pd.DataFrame, groups: Mapping[str, Group]) -> tuple[int, list[str]]:
@@ -672,17 +784,34 @@ def _refit_reading(
     remaining = sorted(set(remaining))
     if not remaining:
         return RefitReading("ok", [], [], shifted)
+    # A refit stage fits whole keys; a group outside ``remaining`` is not read here, so its
+    # mismatches are accepted and counted (``replay_shifts`` accepts a group it is not given).
+    judged = {key: groups[key] for key in remaining}
     records = refit.read_records(slug, refit.REFITS_FILE)
     if records is not None:
-        records = records.loc[records["group"].isin(remaining)]
-        more, unresolved = replay_shifts(records, groups)
+        more, unresolved = replay_shifts(records, judged)
         shifted += more
         if unresolved:
             return RefitReading(f"mismatch:{len(unresolved)}", remaining, [], shifted)
+        records = records.loc[records["group"].isin(remaining)]
+    full: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+    settle = refit.read_records(slug, refit.SETTLE_FILE)
+    if settle is not None:
+        more, unresolved = replay_shifts(settle, judged)
+        shifted += more
+        if unresolved:
+            return RefitReading(f"mismatch:{len(unresolved)}", remaining, [], shifted)
+        for key in remaining:
+            rows = settle.loc[settle["group"] == key]
+            verdicts = None if rows.empty else settled_verdicts(rows, groups[key], z)
+            if verdicts is not None:
+                full[key] = verdicts
     bounds: dict[str, tuple[float, float, float, float]] = {}
     lacking = 0
     unbounded = []
     for key in remaining:
+        if key in full:
+            continue
         if not _identity_consistent(groups[key], z):
             unbounded.append(f"{key}@unbounded")
             continue
@@ -693,9 +822,9 @@ def _refit_reading(
         else:
             bounds[key] = bound
     if lacking:
-        return RefitReading(f"refits:{lacking}", remaining, [], shifted)
-    flips = unbounded + bound_flips(study, groups, bounds, z)
-    return RefitReading("ok", remaining, flips, shifted)
+        return RefitReading(f"refits:{lacking}", remaining, [], shifted, len(full))
+    flips = unbounded + bound_flips(study, groups, bounds, z, full)
+    return RefitReading("ok", remaining, flips, shifted, len(full))
 
 
 def _disposition(
@@ -716,10 +845,25 @@ def _disposition(
         return "neutral", ""
     if refit.scope != "ok":
         return "refits", f"refit records: {refit.scope}"
-    if refit.flips:
+    plural = "" if refit.settled == 1 else "s"
+    settled = f"settled by full refit of {refit.settled} group{plural}"
+    if any(flip.endswith("@settled") for flip in refit.flips):
+        disposition, reason = (
+            "moved",
+            f"{settled}: a verdict moves under the refitted shipped intervals; regenerate",
+        )
+    elif refit.flips:
         disposition, reason = (
             "moved",
             "a verdict moves inside the R_a bound; listed for a targeted rerun",
+        )
+        if refit.settled:
+            reason += f" ({settled}, which move none on their own)"
+    elif refit.settled:
+        rest = " or at the R_a bound of the rest" if refit.settled < len(refit.remaining) else ""
+        disposition, reason = (
+            "neutral",
+            f"{settled}: no verdict moves under the refitted shipped intervals{rest}",
         )
     elif not refit.remaining:
         disposition, reason = (

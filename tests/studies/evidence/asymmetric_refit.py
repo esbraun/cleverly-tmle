@@ -31,16 +31,27 @@ screen widens the observed spread of each side's ratio by :data:`INFLATION` (pla
 ``c``), takes the :data:`QUANTILE` quantiles, and judges each committed verdict at both ends of
 both sides (narrowing and widening), with the study's own rule.
 
-Outputs, one directory per study under :data:`AUDIT_DIR`: ``scope.csv``, ``refits.csv`` and
-``capture.json``.  Commands, each resumable from ``--cache`` and skipping a study whose output
-exists::
+**Settle refits.**  The R_a bound is conservative, so a study it lists ``moved`` has only possibly
+moved.  For each such study (:func:`settle_targets`), the ``settle`` stage refits *every*
+replicate of each group its screen row names in ``bound_flips`` (:func:`settle_groups`), and the
+screen then judges those groups' committed verdicts on the refitted shipped interval of each
+replicate instead of on the bound's corners.  The settle checkpoints sit under their own stage
+label and never reuse the R_a refits: a checkpoint does not record the code that wrote it, and
+the R_a refits hold 20 replicates of groups whose settle run holds hundreds.
+
+Outputs, one directory per study under :data:`AUDIT_DIR`: ``scope.csv``, ``refits.csv``,
+``settle.csv`` and ``capture.json``.  Commands, each resumable from ``--cache`` and skipping a
+study whose output exists::
 
     python -m tests.studies.evidence.asymmetric_refit scope --jobs N --cache DIR [slug ...]
     python -m tests.studies.evidence.asymmetric_refit project [slug ...]
     python -m tests.studies.evidence.asymmetric_refit refits --jobs N --cache DIR [slug ...]
+    python -m tests.studies.evidence.asymmetric_refit project --settle [slug ...]
+    python -m tests.studies.evidence.asymmetric_refit settle --jobs N --cache DIR [slug ...]
 
 ``project`` fits nothing: it prints each study's R_a keys and their CPU-hours projected from the
-scope stage's seconds per key.  A fitting command exits 1 when a study crashed or a key failed;
+scope stage's seconds per key; with ``--settle``, each study's settle keys projected from the
+refits stage's seconds per key.  A fitting command exits 1 when a study crashed or a key failed;
 replay mismatches are counted in ``capture.json`` and judged by the screen.
 
 Every fitting command refuses to start unless each of
@@ -71,7 +82,10 @@ from tests.studies.evidence.registry import ROOT, StudyRecord
 AUDIT_DIR = ROOT / "tests" / "canonical" / "asymmetric-refit"
 SCOPE_FILE = "scope.csv"
 REFITS_FILE = "refits.csv"
+SETTLE_FILE = "settle.csv"
 CAPTURE_FILE = "capture.json"
+#: The record file each fitting stage writes.
+STAGE_FILES = {"scope": SCOPE_FILE, "refits": REFITS_FILE, "settle": SETTLE_FILE}
 
 #: Replicates refitted per remaining group (plan 9.8's ``R_a``).
 REFIT_REPLICATES = 20
@@ -314,8 +328,13 @@ class _ScenarioGroups:
     scenarios: Mapping[str, tuple[str, ...]]
 
     def __call__(self, key: Any) -> set[str]:
-        scenario = self.cell_of(key)
-        return {f"{scenario}/{estimand}" for estimand in self.scenarios.get(scenario, ())}
+        # A key that fits several scenarios on one draw names its cell ``a;b``
+        # (``canonical_cde_tmle``, ``canonical_point_survival``): it writes each one's groups.
+        return {
+            f"{scenario}/{estimand}"
+            for scenario in str(self.cell_of(key)).split(";")
+            for estimand in self.scenarios.get(scenario, ())
+        }
 
 
 def capture_primary(record: StudyRecord) -> list[Job]:
@@ -381,9 +400,10 @@ def capture_properties(record: StudyRecord) -> list[Job]:
     return jobs
 
 
-def select(job: Job, *, replicates: int, names: set[str] | None = None) -> list[int]:
+def select(job: Job, *, replicates: int | None, names: set[str] | None = None) -> list[int]:
     """The positions of the keys that hold the first ``replicates`` replicates of each named
-    group (every group the job writes when ``names`` is ``None``)."""
+    group (every group the job writes when ``names`` is ``None``; every replicate when
+    ``replicates`` is ``None``)."""
     by_name: dict[str, list[tuple[int, int]]] = {}
     for position, key in enumerate(job.keys):
         replicate = int(job.replicate_of(key))
@@ -392,6 +412,9 @@ def select(job: Job, *, replicates: int, names: set[str] | None = None) -> list[
                 by_name.setdefault(name, []).append((replicate, position))
     chosen: set[int] = set()
     for items in by_name.values():
+        if replicates is None:
+            chosen.update(position for _, position in items)
+            continue
         first = set(sorted({replicate for replicate, _ in items})[:replicates])
         chosen.update(position for replicate, position in items if replicate in first)
     return sorted(chosen)
@@ -527,6 +550,43 @@ def targets() -> list[str]:
     return sorted(chosen["study"])
 
 
+def settle_groups(slug: str, screen: pd.DataFrame | None = None) -> set[str]:
+    """The groups the settle stage refits: each group the study's screen row names in
+    ``bound_flips``, with its ``@corner`` (or ``@unbounded``, ``@settled``) stripped."""
+    from tests.studies.evidence import asymmetric_audit
+
+    screen = asymmetric_audit.read_screen() if screen is None else screen
+    row = screen.loc[screen["study"] == slug]
+    if row.empty:
+        return set()
+    flips = str(row.iloc[0]["bound_flips"])
+    return {flip.rsplit("@", 1)[0] for flip in flips.split(";") if flip}
+
+
+def settle_targets(screen: pd.DataFrame | None = None) -> list[str]:
+    """The studies the settle stage refits: every screen row ``moved`` with a ``bound_flips``
+    entry."""
+    from tests.studies.evidence import asymmetric_audit
+
+    screen = asymmetric_audit.read_screen() if screen is None else screen
+    chosen = screen.loc[(screen["disposition"] == "moved") & (screen["bound_flips"] != "")]
+    return sorted(chosen["study"])
+
+
+def stage_selection(
+    slug: str, stage: str, *, output: Path = AUDIT_DIR
+) -> tuple[set[str] | None, int | None]:
+    """``(names, replicates)``: the groups a stage refits (``None`` for every group) and the
+    replicates of each (``None`` for every replicate)."""
+    if stage == "scope":
+        return None, 1
+    if stage == "refits":
+        return remaining_groups(slug, read_records(output / slug, SCOPE_FILE)), REFIT_REPLICATES
+    if stage == "settle":
+        return settle_groups(slug), None
+    raise ValueError(f"no fitting stage {stage!r}")
+
+
 def _fit(record: StudyRecord, job: Job, *, jobs: int, cache: Path | None, stage: str) -> list[Any]:
     outcomes = replication.fit_replicates(
         [job.keys[i] for i in job.selected],
@@ -578,19 +638,15 @@ def remaining_groups(slug: str, scope: pd.DataFrame | None = None) -> set[str]:
 def run_study(
     slug: str, *, stage: str, jobs: int, cache: Path | None, output: Path = AUDIT_DIR
 ) -> dict[str, Any]:
-    """Refit one study's scope (``stage="scope"``) or remaining groups (``"refits"``)."""
+    """Refit one study's scope (``stage="scope"``), remaining groups (``"refits"``) or flagged
+    groups on every replicate (``"settle"``)."""
     band_rerun.require_threads()
     record = band_rerun.record_for(slug)
     started = time.perf_counter()
     property_jobs = capture_properties(record)
     primary_jobs = capture_primary(record)
     captured = time.perf_counter() - started
-    if stage == "scope":
-        names: set[str] | None = None
-        replicates = 1
-    else:
-        names = remaining_groups(slug, read_records(output / slug, SCOPE_FILE))
-        replicates = REFIT_REPLICATES
+    names, replicates = stage_selection(slug, stage, output=output)
     committed = committed_rows(record)
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -606,8 +662,8 @@ def run_study(
         errors.extend(failed)
     frame = pd.DataFrame(rows, columns=list(RECORD_COLUMNS))
     frame = frame.sort_values(["phase", "group", "replicate"], kind="stable")
-    name = SCOPE_FILE if stage == "scope" else REFITS_FILE
-    summary = {
+    name = STAGE_FILES[stage]
+    summary: dict[str, Any] = {
         "study": slug,
         "stage": stage,
         "property_calls": [job.label for job in property_jobs],
@@ -626,6 +682,8 @@ def run_study(
         (output / slug / f"{stage}-errors.txt").write_text("\n".join(errors), encoding="utf-8")
     if stage == "refits" and not names:
         summary["rows"] = 0
+    if stage == "settle":
+        summary["groups"] = sorted(names or ())
     _write(frame, output / slug / name)
     capture_path = output / slug / CAPTURE_FILE
     previous = json.loads(capture_path.read_text()) if capture_path.exists() else {}
@@ -634,20 +692,28 @@ def run_study(
     return summary
 
 
-def project(slug: str, *, output: Path = AUDIT_DIR) -> dict[str, Any]:
-    """The R_a keys of one study and their projected CPU seconds, from its scope records and
-    the scope stage's seconds per key; nothing is fitted."""
+def project(slug: str, *, output: Path = AUDIT_DIR, stage: str = "refits") -> dict[str, Any]:
+    """The keys one fitting stage refits for one study and their projected CPU seconds;
+    nothing is fitted.
+
+    The R_a keys (``stage="refits"``) are projected from the scope stage's seconds per key, and
+    the settle keys (``"settle"``) from the refits stage's, which fitted the same groups.
+    """
     record = band_rerun.record_for(slug)
-    scope = json.loads((output / slug / CAPTURE_FILE).read_text())["scope"]
-    names = remaining_groups(slug, read_records(output / slug, SCOPE_FILE))
+    captured = json.loads((output / slug / CAPTURE_FILE).read_text())
+    timed = captured["scope"]
+    if stage == "settle" and captured.get("refits", {}).get("keys_fitted"):
+        timed = captured["refits"]
+    names, replicates = stage_selection(slug, stage, output=output)
     keys = 0
     if names:
         for job in [*capture_properties(record), *capture_primary(record)]:
-            keys += len(select(job, replicates=REFIT_REPLICATES, names=names))
-    per_key = scope["seconds_fit"] * scope["jobs"] / max(1, scope["keys_fitted"])
+            keys += len(select(job, replicates=replicates, names=names))
+    per_key = timed["seconds_fit"] * timed["jobs"] / max(1, timed["keys_fitted"])
     return {
         "study": slug,
-        "remaining_groups": len(names),
+        "stage": stage,
+        "remaining_groups": len(names or ()),
         "refit_keys": keys,
         "cpu_seconds_per_key": round(per_key, 2),
         "projected_cpu_hours": round(keys * per_key / 3600.0, 3),
@@ -657,29 +723,38 @@ def project(slug: str, *, output: Path = AUDIT_DIR) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run a stage over the chosen studies, skipping studies whose output exists."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("stage", choices=("scope", "refits", "project", "targets"))
+    parser.add_argument("stage", choices=("scope", "refits", "settle", "project", "targets"))
     parser.add_argument("studies", nargs="*")
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--cache", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=AUDIT_DIR)
     parser.add_argument("--force", action="store_true", help="refit a study whose output exists")
+    parser.add_argument(
+        "--settle", action="store_true", help="with project or targets: the settle stage's"
+    )
     arguments = parser.parse_args(argv)
-    chosen = arguments.studies or targets()
+    settling = arguments.stage == "settle" or arguments.settle
+    chosen = arguments.studies or (settle_targets() if settling else targets())
     if arguments.stage == "targets":
         print("\n".join(chosen))
         return 0
     if arguments.stage == "project":
-        rows = [project(slug, output=arguments.output) for slug in chosen]
+        stage = "settle" if settling else "refits"
+        rows = [project(slug, output=arguments.output, stage=stage) for slug in chosen]
         for row in rows:
             print(json.dumps(row, sort_keys=True), flush=True)
         total = sum(row["projected_cpu_hours"] for row in rows)
-        print(f"projected R_a CPU-hours: {total:.2f}", flush=True)
+        label = "settle" if settling else "R_a"
+        print(f"projected {label} CPU-hours: {total:.2f}", flush=True)
         return 0
-    name = SCOPE_FILE if arguments.stage == "scope" else REFITS_FILE
+    name = STAGE_FILES[arguments.stage]
     status = 0
     for slug in chosen:
         if (arguments.output / slug / name).exists() and not arguments.force:
             print(f"{slug}: {name} exists, skipped", flush=True)
+            continue
+        if arguments.stage == "settle" and not settle_groups(slug):
+            print(f"{slug}: the screen flags no group to settle, skipped", flush=True)
             continue
         if (
             arguments.stage == "refits"
