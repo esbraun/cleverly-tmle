@@ -470,7 +470,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, or a treatment with categories at each time point when no covariate is measured after baseline. A baseline treatment can also be a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, or a treatment with categories at each time point. A baseline treatment can also be a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit uses `pseudo_learner` only when the
@@ -535,6 +535,14 @@ competing events, risks that add up to at most one for each person. With well-fi
 between the two estimates shrinks faster than their standard errors as the sample grows, so on a
 large sample they nearly agree.
 
+A treatment with categories at each time point fits beside such covariates too. A plan can fix the
+treatment at each time point, follow a known rule that reads the latest covariate, or draw the
+treatment with known probabilities that may read the covariate and the earlier treatment. At each
+time point the fit predicts the event for every treatment level at each person's own history, so it
+never builds the treatment sequences a plan could follow. Its validation study is designed but has
+not run, so the fit is labelled `experimental`
+([its evidence page](../technical-reference/method-evidence/hazard-time-varying-multinode.md)).
+
 A covariate declared at the first time point only is measured before the treatment, so it is an
 ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in
 `baseline=`. Under `markov_order=` the hazard model, like the default fit, drops that covariate
@@ -548,8 +556,11 @@ moves everyone up one treatment level.
 gives the exact estimand, the settings it refuses, and its checks.
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points together with a covariate measured
-after baseline. Its message points to the default model, which fits that design.
+With a treatment at several time points and a covariate measured after baseline, the hazard model
+refuses a plan that moves people to another treatment level, or one that multiplies the odds of
+treatment when you supplied the treatment probabilities yourself
+([H27 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+Its message points to the default model, which fits that plan.
 
 A treatment with categories at each time point also fits on the hazard model, when no covariate
 is measured after baseline. A plan can fix the treatment at each time point, follow a rule that
