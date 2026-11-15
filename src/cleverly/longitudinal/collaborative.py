@@ -678,6 +678,33 @@ class _Retention:
 
 
 @dataclass(frozen=True)
+class _TreatmentFits:
+    """The fits behind :math:`\\hat g_1` of one branch and term set, without row predictions.
+
+    ``parts`` holds ``(predicted rows, fit, share)`` per split; ``fit`` is ``None`` at
+    :math:`M_0`, whose prediction is the weighted share.
+    """
+
+    parts: tuple[tuple[BoolArray, _Logistic | None, float], ...]
+    converged: bool
+    dropped: int
+
+
+@dataclass(frozen=True)
+class _RetentionFits:
+    """The fits behind :math:`\\hat c_k` of one branch and term set, without row predictions.
+
+    ``parts`` holds ``(predicted rows, all-censored nodes, fit, fitted nodes)`` per split, with
+    nodes counted from zero; ``fit`` is ``None`` when the split fits no node.
+    """
+
+    parts: tuple[tuple[BoolArray, tuple[int, ...], _Logistic | None, tuple[int, ...]], ...]
+    converged: bool
+    dropped: int
+    held: tuple[tuple[int, int, str], ...]
+
+
+@dataclass(frozen=True)
 class Candidate:
     """One candidate pair of mechanisms, evaluated at every treatment level.
 
@@ -726,7 +753,7 @@ class _Mechanisms:
     The two fitted models are cached by branch, mechanism and term set, since every arm and
     horizon reads them.  A candidate pair's cumulative products are not: they cost one pass
     over ``(n, T, L)`` to rebuild, and a cache of every pair the searches reach held most of
-    a fit's memory (X106 J1).
+    a fit's memory.
     """
 
     def __init__(
@@ -748,8 +775,8 @@ class _Mechanisms:
         #: A mutation hook for the full-set check: evaluate the censoring model at each unit's
         #: observed treatment rather than at every level.  Never set by a fit.
         self.evaluate_at_observed = evaluate_at_observed
-        self._g1: dict[tuple[str, tuple[str, ...]], _Treatment] = {}
-        self._g2: dict[tuple[str, tuple[str, ...]], _Retention] = {}
+        self._g1: dict[tuple[str, tuple[str, ...]], _TreatmentFits] = {}
+        self._g2: dict[tuple[str, tuple[str, ...]], _RetentionFits] = {}
 
     # -- branches
 
@@ -779,56 +806,91 @@ class _Mechanisms:
     # -- g1
 
     def treatment(self, branch: str, train: BoolArray | None, terms: tuple[str, ...]) -> _Treatment:
+        """:math:`\\hat g_1` of a branch and term set, predicted from its cached fits."""
         key = (branch, terms)
         cached = self._g1.get(key)
-        if cached is not None:
-            return cached
+        if cached is None:
+            cached = self._fit_treatment(branch, train, terms)
+            self._g1[key] = cached
+        data = self.data
+        columns = [self.covariates.index(name) for name in terms]
+        design = np.asarray(data.baseline[:, columns], dtype=float).reshape(data.n, len(columns))
+        p = np.empty(data.n)
+        for predict, fit, share in cached.parts:
+            if fit is None:
+                p[predict] = share
+            else:
+                p[predict] = _predict(fit, design[predict])
+        return _Treatment(np.column_stack([1.0 - p, p]), cached.converged, cached.dropped)
+
+    def _fit_treatment(
+        self, branch: str, train: BoolArray | None, terms: tuple[str, ...]
+    ) -> _TreatmentFits:
         data = self.data
         target = (self.observed == 1).astype(float)
         columns = [self.covariates.index(name) for name in terms]
         design = np.asarray(data.baseline[:, columns], dtype=float).reshape(data.n, len(columns))
-        p = np.empty(data.n)
+        parts: list[tuple[BoolArray, _Logistic | None, float]] = []
         converged, dropped = True, 0
         for _, fit_rows, predict in self._splits(branch, train):
             w = data.weights[fit_rows]
             if not terms:
                 # M0: the weighted share treated, by hand, as point _intercept_propensity does.
-                p[predict] = float(np.sum(w * target[fit_rows]) / np.sum(w))
+                parts.append((predict, None, float(np.sum(w * target[fit_rows]) / np.sum(w))))
                 continue
             fit = _logistic(design[fit_rows], target[fit_rows], w)
             converged = converged and fit.converged
             dropped = max(dropped, int(np.count_nonzero(~fit.active[1:])))
-            p[predict] = _predict(fit, design[predict])
-        probabilities = np.column_stack([1.0 - p, p])
-        out = _Treatment(probabilities, converged, dropped)
-        self._g1[key] = out
-        return out
+            parts.append((predict, fit, 0.0))
+        return _TreatmentFits(tuple(parts), converged, dropped)
 
     # -- g2
 
     def retention(self, branch: str, train: BoolArray | None, terms: tuple[str, ...]) -> _Retention:
+        """:math:`\\hat c_k(l, W)` of a branch and term set, predicted from its cached fits."""
         key = (branch, terms)
         cached = self._g2.get(key)
-        if cached is not None:
-            return cached
+        if cached is None:
+            cached = self._fit_retention(branch, train, terms)
+            self._g2[key] = cached
         data = self.data
-        n, n_times, n_levels = data.n, data.n_times, self.n_levels
-        retention = np.ones((n, n_times, n_levels))
+        retention = np.ones((data.n, data.n_times, self.n_levels))
+        for predict, all_censored, fit, fitted in cached.parts:
+            for k in all_censored:
+                retention[predict, k, :] = _HELD_RETENTION
+            if fit is None:
+                continue
+            index = np.flatnonzero(predict)
+            for k in fitted:
+                for level in range(self.n_levels):
+                    at = None if self.evaluate_at_observed else level
+                    hazard = _predict(fit, self._g2_design(index, k, fitted, terms, at))
+                    retention[index, k, level] = 1.0 - hazard
+        return _Retention(retention, cached.converged, cached.dropped, cached.held)
+
+    def _fit_retention(
+        self, branch: str, train: BoolArray | None, terms: tuple[str, ...]
+    ) -> _RetentionFits:
+        data = self.data
+        n_times = data.n_times
+        parts: list[tuple[BoolArray, tuple[int, ...], _Logistic | None, tuple[int, ...]]] = []
         converged, dropped = True, 0
         held: list[tuple[int, int, str]] = []
         if data.censoring_names:
             for fold, fit_rows, predict in self._splits(branch, train):
                 fitted: list[int] = []
+                all_censored: list[int] = []
                 for k in range(n_times):
                     rows = self.eligible[:, k] & fit_rows
                     if not rows.any() or not self.censored[rows, k].any():
                         held.append((fold, k + 1, NO_CENSORING))
                     elif bool(np.all(self.censored[rows, k])):
                         held.append((fold, k + 1, ALL_CENSORED))
-                        retention[predict, k, :] = _HELD_RETENTION
+                        all_censored.append(k)
                     else:
                         fitted.append(k)
                 if not fitted:
+                    parts.append((predict, tuple(all_censored), None, ()))
                     continue
                 design_rows, target, weights = [], [], []
                 for k in fitted:
@@ -842,15 +904,8 @@ class _Mechanisms:
                 converged = converged and fit.converged
                 indicators = len(fitted) - 1
                 dropped = max(dropped, int(np.count_nonzero(~fit.active[1 + indicators :])))
-                index = np.flatnonzero(predict)
-                for k in fitted:
-                    for level in range(n_levels):
-                        at = None if self.evaluate_at_observed else level
-                        hazard = _predict(fit, self._g2_design(index, k, fitted, terms, at))
-                        retention[index, k, level] = 1.0 - hazard
-        out = _Retention(retention, converged, dropped, tuple(held))
-        self._g2[key] = out
-        return out
+                parts.append((predict, tuple(all_censored), fit, tuple(fitted)))
+        return _RetentionFits(tuple(parts), converged, dropped, tuple(held))
 
     def _g2_design(
         self,
@@ -930,7 +985,7 @@ class _Mechanisms:
 
 
 @dataclass(frozen=True)
-class PathCounts:
+class _PathCounts:
     """The work of one selection path.
 
     Parameters
@@ -1068,7 +1123,7 @@ class _HazardSelector:
             plan.label: hazard_inputs(data, [plan], ones, alpha=alpha) for plan in self.plans
         }
         #: ``(label, horizon, branch)`` to the solve and candidate counts of each path run.
-        self.counts: dict[tuple[str, int, str], PathCounts] = {}
+        self.counts: dict[tuple[str, int, str], _PathCounts] = {}
         first = next(iter(self.base.values()))
         self.start = HazardState.from_hazards(
             initial.hazards, first.bounds, first.empty, first.full
@@ -1196,6 +1251,8 @@ class _HazardSelector:
             )
 
         def retained(key: _Key) -> _Position:
+            # Only a position the rule has scored can be asked for again.
+            assert key in risks, key
             position = kept.get(key)
             if position is None:
                 tally["rebuilt"] += 1
@@ -1244,7 +1301,7 @@ class _HazardSelector:
             retained((tuple(moves[:index]), move, n_steps))
             for index, (move, n_steps) in enumerate(rule[1:])
         ]
-        self.counts[(plan.label, int(horizon), branch)] = PathCounts(
+        self.counts[(plan.label, int(horizon), branch)] = _PathCounts(
             tally["solves"], len(built), tally["rebuilt"]
         )
         return out
@@ -1269,7 +1326,7 @@ class _HazardSelector:
                 risk[index] += loss + penalty
             held.extend((fold, node, kind) for _, node, kind in path[0].candidate.held)
             # Released before the next fold's search, which would otherwise run beside it.
-            del path
+            del path, position
         return risk, tuple(sorted(set(held)))
 
 
@@ -1445,7 +1502,7 @@ class SurvivalSelection:
             kind="other",
         )
         chosen_g1, chosen_g2 = self.selected_terms
-        header = (
+        header: tuple[tuple[str, str], ...] = (
             ("Arm", self.arm),
             ("Horizon", str(self.horizon)),
             ("Penalty", "printed (24)" if self.penalized else "none"),
@@ -2019,7 +2076,7 @@ def run_selection(
     diagnostic = int(horizons[-1])
     unconverged: list[str] = []
     glm_unconverged = 0
-    by_arm: dict[tuple[int, int], tuple[dict[str, Any], int, _Position | None]] = {}
+    by_arm: dict[tuple[int, int], tuple[SurvivalSelection, int, _Position] | None] = {}
     for plan in selector.plans:
         arm = selector.arm(plan)
         for t in horizons:
@@ -2027,37 +2084,32 @@ def run_selection(
             if key not in by_arm:
                 # The folds first, so the full-data path is the only one alive when its
                 # chosen position is kept.  Every solve is a pure function of its inputs, so
-                # the order moves no number.
+                # the order moves no number.  Only the record and the chosen position outlive
+                # the search.
                 cv_risk, held = selector.cross_validate(plan, t)
                 path = selector.path(plan, t, "full", None)
                 chosen = _finite_argmin(cv_risk)
-                # Only scalars and the chosen position outlive the search (X106 J1).
-                fields = _path_fields(path, cv_risk, held, chosen)
-                fields.update(_counts(selector, plan.label, int(t)))
-                unfitted = sum(not p.candidate.converged for p in path)
-                by_arm[key] = (fields, unfitted, path[chosen] if chosen >= 0 else None)
+                by_arm[key] = None
+                if chosen >= 0:
+                    record = _selection_record(
+                        selector, plan, int(t), path, (cv_risk, held, chosen), diagnostic
+                    )
+                    unfitted = sum(not p.candidate.converged for p in path)
+                    by_arm[key] = (record, unfitted, path[chosen])
                 del path
-            fields, unfitted, position = by_arm[key]
-            chosen = fields["selected"]
-            if position is None:
+            searched = by_arm[key]
+            if searched is None:
                 raise LongitudinalError(
                     f"every cross-validated risk of {plan.label} at horizon {t} is not finite, "
                     "so no move count can be selected. Check the overlap of the arms and of "
                     "censoring, or bind g_bounds further from zero"
                 )
+            record, unfitted, position = searched
             positions[(plan.label, int(t))] = position
             glm_unconverged += unfitted
             if not position.record.converged:
                 unconverged.append(f"{plan.label} at horizon {t}")
-            records[(plan.label, int(t))] = SurvivalSelection(
-                arm=plan.label,
-                horizon=int(t),
-                penalized=selector.penalty,
-                folds=selector.selection,
-                covariates=selector.mechanisms.covariates,
-                diagnostic_horizon=diagnostic,
-                **fields,
-            )
+            records[(plan.label, int(t))] = replace(record, arm=plan.label)
             fits[_fit_key(plan.label, None, int(t), True)] = _regimen_fit(
                 data, plan, position, int(t)
             )
@@ -2080,39 +2132,44 @@ def run_selection(
     return fits, records, positions
 
 
-def _path_fields(
+def _selection_record(
+    selector: _HazardSelector,
+    plan: Plan,
+    horizon: int,
     path: Sequence[_Position],
-    cv_risk: FloatArray,
-    held: tuple[tuple[int, int, str], ...],
-    chosen: int,
-) -> dict[str, Any]:
-    """The :class:`SurvivalSelection` fields one full-data path and its folds determine."""
-    return {
-        "moves": tuple(p.move for p in path),
-        "g1_terms": tuple(p.candidate.g1_terms for p in path),
-        "g2_terms": tuple(p.candidate.g2_terms for p in path),
-        "n_steps": tuple(p.n_steps for p in path),
-        "train_loss": np.array([p.loss for p in path]),
-        "train_penalty": np.array([p.penalty for p in path]),
-        "train_risk": np.array([p.risk for p in path]),
-        "cv_risk": np.asarray(cv_risk, dtype=float),
-        "converged": tuple(bool(p.record.converged) for p in path),
-        "clipped": tuple(p.clipped for p in path),
-        "dropped_terms": tuple(p.candidate.dropped for p in path),
-        "selected": chosen,
-        "fold_held_nodes": held,
-    }
+    folds: tuple[FloatArray, tuple[tuple[int, int, str], ...], int],
+    diagnostic: int,
+) -> SurvivalSelection:
+    """The record of one arm's selection at ``horizon``, from its full-data path and folds.
 
-
-def _counts(selector: _HazardSelector, label: str, horizon: int) -> dict[str, Any]:
-    """The solve and candidate counts of the full-data path, then of each selection fold."""
+    ``folds`` is the cross-validated risk, the fold-held nodes and the chosen position.
+    """
+    cv_risk, held, chosen = folds
     branches = ["full", *(f"cv{fold}" for fold in range(1, selector.selection.n_folds + 1))]
-    runs = [selector.counts.get((label, horizon, branch)) for branch in branches]
-    found = [run for run in runs if run is not None]
-    return {
-        "target_solves": tuple(run.solves for run in found),
-        "candidate_pairs": tuple(run.candidates for run in found),
-    }
+    runs = [selector.counts[(plan.label, horizon, branch)] for branch in branches]
+    return SurvivalSelection(
+        arm=plan.label,
+        horizon=horizon,
+        moves=tuple(p.move for p in path),
+        g1_terms=tuple(p.candidate.g1_terms for p in path),
+        g2_terms=tuple(p.candidate.g2_terms for p in path),
+        n_steps=tuple(p.n_steps for p in path),
+        train_loss=np.array([p.loss for p in path]),
+        train_penalty=np.array([p.penalty for p in path]),
+        train_risk=np.array([p.risk for p in path]),
+        cv_risk=np.asarray(cv_risk, dtype=float),
+        converged=tuple(bool(p.record.converged) for p in path),
+        clipped=tuple(p.clipped for p in path),
+        dropped_terms=tuple(p.candidate.dropped for p in path),
+        selected=chosen,
+        penalized=selector.penalty,
+        folds=selector.selection,
+        covariates=selector.mechanisms.covariates,
+        diagnostic_horizon=diagnostic,
+        fold_held_nodes=held,
+        target_solves=tuple(run.solves for run in runs),
+        candidate_pairs=tuple(run.candidates for run in runs),
+    )
 
 
 def _regimen_fit(
