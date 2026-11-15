@@ -565,12 +565,15 @@ class ContinuousSurvivalTMLE:
         ends = [(self.horizons[-1], "target time", "risk")]
         if restricted:
             ends.append((restricted[-1], "restricted horizon", "restricted mean"))
+        # Both checks below read this draw's events and follow-up, not the configuration, so a
+        # draw that trips one is a data failure (a study records it as a lost replicate), not an
+        # unsupported composition.
         for a in (0, 1):
             for code, label in causes.items():
                 first_event = T[(a == A) & (code == D)]
                 if first_event.size == 0 or first_event.min() > first:
                     what = "risk" if first_kind == "target time" else "restricted mean"
-                    raise _gap(
+                    raise DataError(
                         f"Arm {arm_labels[a]!r} has no event of cause {label!r} at or before "
                         f"the first {first_kind} {_time_text(first)}, so that {what}'s "
                         "influence curve is zero and its interval undefined. Choose a later "
@@ -580,7 +583,7 @@ class ContinuousSurvivalTMLE:
             followed = float(T[a == A].max())
             for end, kind, what in ends:
                 if followed < end:
-                    raise _gap(
+                    raise DataError(
                         f"Arm {arm_labels[a]!r} is followed only to {_time_text(followed)}, "
                         f"before the last {kind} {_time_text(end)}, so its {what} there would "
                         "be an extrapolation of the hazard model with no data behind it. "

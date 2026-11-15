@@ -641,7 +641,7 @@ def test_a_flexible_treatment_learner_needs_cross_fitting() -> None:
 def test_a_target_before_any_event_of_a_cause_in_an_arm_is_refused() -> None:
     frame = _sample()
     early = float(frame["time"][frame["event"] > 0].min()) / 2
-    with pytest.raises(CapabilityError, match="no event of cause"):
+    with pytest.raises(DataError, match="no event of cause"):
         ContinuousSurvivalTMLE([early], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
@@ -748,7 +748,7 @@ def test_a_target_past_one_arms_follow_up_is_refused() -> None:
     frame = pd.DataFrame(
         {"time": np.minimum(T, C), "event": (T <= C).astype(int), "Z": Z, "X3": X3}
     )
-    with pytest.raises(CapabilityError, match="followed only to"):
+    with pytest.raises(DataError, match="followed only to"):
         ContinuousSurvivalTMLE([2.0, 6.0], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )

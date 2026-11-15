@@ -302,6 +302,10 @@ the model its own fold did not train.
 | a restricted horizon past one arm's follow-up, or before the first event of some cause in some arm | as for a target time |
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
 
+The rows on an arm's first event of a cause and on an arm's follow-up read the drawn data, not the
+request, so they raise `DataError`, and a repeated-sampling study records such a draw as a lost
+replicate. The other rows raise `CapabilityError`.
+
 ## Evidence
 
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)

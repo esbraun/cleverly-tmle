@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 
 from cleverly._refusal import RefusalReason
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import make_estimate
 from cleverly.inference.results import _reported_curve
@@ -444,12 +444,12 @@ def test_the_engine_refuses_restricted_horizons_it_cannot_target() -> None:
         ContinuousSurvivalTMLE([1.0], restricted_horizons=(2.0, 1.0))
     frame = _sample()
     followed = float(frame.loc[frame["Z"] == 0, "time"].max())
-    with pytest.raises(CapabilityError, match="before the last restricted horizon"):
+    with pytest.raises(DataError, match="before the last restricted horizon"):
         ContinuousSurvivalTMLE([1.0], restricted_horizons=(followed + 1.0,), cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
     early = float(frame["time"][frame["event"] > 0].min()) / 2
-    with pytest.raises(CapabilityError, match="first restricted horizon"):
+    with pytest.raises(DataError, match="first restricted horizon"):
         ContinuousSurvivalTMLE([1.0], restricted_horizons=(early,), cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
