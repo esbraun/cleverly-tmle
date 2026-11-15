@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ._inference_status import is_labelled, supplies_inference
+from ._warnings import muted
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
@@ -28,7 +29,12 @@ from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_datafr
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ._summary import Detail, Summary
 
-__all__ = ["VariableImportanceEntry", "VariableImportanceResult", "variable_importance"]
+__all__ = [
+    "ImportanceFacts",
+    "VariableImportanceEntry",
+    "VariableImportanceResult",
+    "variable_importance",
+]
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,33 @@ class VariableImportanceEntry:
 
 
 @dataclass(frozen=True)
+class ImportanceFacts:
+    """What a variable-importance summary reads from the candidates' fits.
+
+    Kept on every result, so the summary does not need the fits themselves.
+
+    Parameters
+    ----------
+    candidates : tuple of str
+        The candidates, in the order they were fitted.
+    first_fit : mapping of str to str
+        The header facts of the first candidate's fit summary.
+    outcome : str
+        The outcome column.
+    n : int
+        The number of rows.
+    cautious : tuple of str
+        The candidates whose fit summary carries a warning note, in candidate order.
+    """
+
+    candidates: tuple[str, ...]
+    first_fit: Mapping[str, str]
+    outcome: str
+    n: int
+    cautious: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class VariableImportanceResult:
     """Candidate-exposure estimates with multiplicity-adjusted null tests.
 
@@ -66,18 +99,48 @@ class VariableImportanceResult:
     ----------
     entries : tuple of VariableImportanceEntry
         One entry per candidate and parameter.
-    fits : mapping of str to TMLEResult
-        The fit behind each candidate.
+    facts : ImportanceFacts
+        What the summary reads from the fits, kept whether or not the fits are.
+    keep_fits : bool
+        Whether the run kept each candidate's fit. ``False`` keeps the entries and the facts
+        only, and :attr:`fits` then refuses.
     method : str
         Multiplicity adjustment applied to the p-values.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns.
+    kept_fits : mapping of str to TMLEResult
+        The fits a run with ``keep_fits=True`` kept, empty otherwise. Read them through
+        :attr:`fits`, which refuses when they were not kept.
+
+    Attributes
+    ----------
+    fits : mapping of str to TMLEResult
     """
 
     entries: tuple[VariableImportanceEntry, ...]
-    fits: Mapping[str, TMLEResult]
+    facts: ImportanceFacts
+    keep_fits: bool = True
     method: str = "Benjamini-Hochberg"
     backend: str | None = None
+    kept_fits: Mapping[str, TMLEResult] = field(default_factory=dict, repr=False)
+
+    @property
+    def fits(self) -> Mapping[str, TMLEResult]:
+        """The fit behind each candidate.
+
+        Raises
+        ------
+        CapabilityError
+            When the run used ``keep_fits=False``, which kept no fit.
+        """
+        if not self.keep_fits:
+            raise CapabilityError(
+                "This variable-importance run used keep_fits=False, which keeps each "
+                "candidate's estimates and drops its fit.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative="Run variable_importance again with keep_fits=True.",
+            )
+        return self.kept_fits
 
     def __getitem__(self, index: int) -> VariableImportanceEntry:
         return self.entries[index]
@@ -152,7 +215,7 @@ class VariableImportanceResult:
     def __repr__(self) -> str:
         from ._summary import pvalue_text, short_repr
 
-        facts: list[tuple[str, Any]] = [("candidates", len(self.fits))]
+        facts: list[tuple[str, Any]] = [("candidates", len(self.facts.candidates))]
         if self.entries and self.entries[0].adjusted_pvalue is not None:
             top = self.entries[0]
             facts.append(("top", f"{top.candidate} adj. p={pvalue_text(top.adjusted_pvalue)}"))
@@ -204,22 +267,22 @@ def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Sum
         rows.append((key, *row[1:], *extra))
     columns = table.columns + ((vocabulary.ADJUSTED_P_VALUE,) if inferential else ())
     table = SummaryTable(columns, tuple(rows), title=table.title, kind="estimates")
-    first = next(iter(result.fits.values()), None)
+    kept = result.facts
     header: list[tuple[str, str]] = []
-    if first is not None:
-        facts = first.summary().facts
+    if kept.candidates:
+        facts = kept.first_fit
         header.append(
             (
                 vocabulary.QUESTION,
-                f"effect of each candidate on {first.data.outcome_name}, one fit per candidate",
+                f"effect of each candidate on {kept.outcome}, one fit per candidate",
             )
         )
         header.append((vocabulary.OUTCOME, facts.get(vocabulary.OUTCOME, "")))
         for label in (vocabulary.METHOD, vocabulary.OUTCOME_MODEL, vocabulary.TREATMENT_MODEL):
             if label in facts:
                 header.append((label, facts[label]))
-        header.append((vocabulary.ROWS, count_text(first.data.n)))
-    header.append((vocabulary.CANDIDATES, count_text(len(result.fits))))
+        header.append((vocabulary.ROWS, count_text(kept.n)))
+    header.append((vocabulary.CANDIDATES, count_text(len(kept.candidates))))
     if inferential:
         header.append((vocabulary.ADJUSTMENT, f"{result.method}, {count_text(len(entries))} tests"))
     notes = list(notes)
@@ -233,11 +296,7 @@ def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Sum
             )
         )
     notes.append(note("separate_fits", vocabulary.NOTE_TEXTS["separate_fits"]))
-    cautious = [
-        candidate
-        for candidate, fit in result.fits.items()
-        if any(item.kind == "warning" for item in fit.summary().notes)
-    ]
+    cautious = kept.cautious
     if cautious:
         notes.append(
             note(
@@ -293,6 +352,7 @@ def variable_importance(
     weights_type: str = "probability",
     weights_estimated: bool = False,
     id: str | None = None,
+    keep_fits: bool = True,
 ) -> VariableImportanceResult:
     """Estimate one causal importance parameter per candidate exposure.
 
@@ -347,6 +407,11 @@ def variable_importance(
         Whether the supplied weights were estimated from these data.
     id : str or None
         Independent-cluster identifier used for variance estimation.
+    keep_fits : bool
+        Whether the result keeps each candidate's fit. ``False`` keeps the estimates, the
+        adjusted p-values and the summary, and releases each candidate's data and fit before
+        the next one starts, so memory no longer grows with the number of candidates. Each
+        candidate's data is then prepared a second time for its fit.
 
     Returns
     -------
@@ -386,8 +451,24 @@ def variable_importance(
     # asked of the estimator's own hook on the prepared data, which is what
     # ``_retarget_detailed`` stamps the estimates with, so the refusal and the estimates
     # the adjustment would read cannot disagree.
-    prepared: dict[str, tuple[tuple[str, ...], CausalData]] = {}
+    prepared: dict[str, tuple[tuple[str, ...], CausalData | None]] = {}
     frame_view = as_frame(data)
+
+    def prepare(candidate: str, adjustment_set: tuple[str, ...]) -> CausalData:
+        return template._prepare(
+            data,
+            outcome=outcome,
+            treatment=candidate,
+            covariates=adjustment_set,
+            delta=delta,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            id=id,
+            intermediate=None,
+            treatment_kind="discrete",
+        )
+
     for candidate in candidate_names:
         adjustment = [name for name in base_covariates if name != candidate]
         if adjust_for_other_candidates:
@@ -405,19 +486,7 @@ def variable_importance(
                 "row, which a missing treatment leaves unidentified. Drop those rows or "
                 "impute the candidate first."
             )
-        candidate_data = template._prepare(
-            data,
-            outcome=outcome,
-            treatment=candidate,
-            covariates=adjustment_set,
-            delta=delta,
-            weights=weights,
-            weights_type=weights_type,
-            weights_estimated=weights_estimated,
-            id=id,
-            intermediate=None,
-            treatment_kind="discrete",
-        )
+        candidate_data = prepare(candidate, adjustment_set)
         # The outcome-scale refusal of every fit comes before the status, as the fold
         # policy does.
         template._refuse_unbounded_cross_fitted_scale(candidate_data)
@@ -431,17 +500,39 @@ def variable_importance(
             fitted_estimator._inference_status(candidate_data),
             operation="variable_importance()",
         )
-        prepared[candidate] = (adjustment_set, candidate_data)
+        # Without kept fits, the data is prepared again for its fit, so no candidate's data
+        # outlives its own turn.
+        prepared[candidate] = (adjustment_set, candidate_data if keep_fits else None)
+        del candidate_data
     fits: dict[str, TMLEResult] = {}
+    first_fit: Mapping[str, str] = {}
+    outcome_name, n_rows = outcome, 0
+    cautious: list[str] = []
     raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
-    for candidate, (adjustment_set, candidate_data) in prepared.items():
+    for candidate in list(prepared):
+        adjustment_set, kept_data = prepared[candidate]
+        if kept_data is None:
+            # The user saw this data's warnings when the pre-pass built it; the fit still
+            # records them.
+            with muted():
+                kept_data = prepare(candidate, adjustment_set)
+        else:
+            prepared[candidate] = (adjustment_set, None)
         fitted_estimator = copy(template)
         fitted_estimator.estimands = estimand
         # A candidate treatment has no declared mechanism, so the known-score ATT and ATC
         # (which weight by one) do not apply; the candidate fit summarizes over the arm.
         fitted_estimator.conditional_form = "arm_mean"
-        result = fitted_estimator.fit(candidate_data).single()
-        fits[candidate] = result
+        result = fitted_estimator.fit(kept_data).single()
+        del kept_data
+        fit_summary = result.summary()
+        if not raw:
+            first_fit = dict(fit_summary.facts)
+            outcome_name, n_rows = result.data.outcome_name, int(result.data.n)
+        if any(item.kind == "warning" for item in fit_summary.notes):
+            cautious.append(candidate)
+        if keep_fits:
+            fits[candidate] = result
         estimates = [
             estimate
             for name, estimate in result.estimates.items()
@@ -452,6 +543,7 @@ def variable_importance(
                 f"the fit for {candidate!r} produced no parameter from target {estimand!r}"
             )
         raw.extend((candidate, estimate.name, adjustment_set, estimate) for estimate in estimates)
+        del result, estimates, fit_summary
 
     adjusted = _bh_adjust([item[3].pvalue for item in raw])
     ranked = sorted(zip(raw, adjusted, strict=True), key=lambda item: float(item[1]))
@@ -459,8 +551,17 @@ def variable_importance(
         VariableImportanceEntry(candidate, parameter, adjustment, estimate, float(pvalue))
         for (candidate, parameter, adjustment, estimate), pvalue in ranked
     ]
+    facts = ImportanceFacts(
+        candidates=tuple(prepared),
+        first_fit=first_fit,
+        outcome=outcome_name,
+        n=n_rows,
+        cautious=tuple(cautious),
+    )
     return VariableImportanceResult(
         tuple(entries),
-        fits,
+        facts,
+        keep_fits=keep_fits,
         backend=backend_of(as_frame(data)),
+        kept_fits=fits,
     )

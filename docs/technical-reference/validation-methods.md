@@ -3877,6 +3877,14 @@ adjusts one p-value per candidate with Benjamini and Hochberg, and a withheld st
 p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 
+By default the result keeps every candidate's fit in `result.fits`. With `keep_fits=False` it keeps
+only the entries and what the summary reads, and releases each candidate's prepared data and fit
+before the next candidate starts. Memory then stays near one candidate's fit instead of growing
+with the number of candidates, each of whose data carries the other candidates as covariates. The
+estimates, p-values, frame and summary are the same under both settings. Each candidate's data is
+prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
+`CapabilityError`.
+
 ## How the library certifies itself
 
 The three layers above review *your fit*. This layer reviews *the implementation*. It is the
