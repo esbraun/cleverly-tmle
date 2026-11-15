@@ -44,8 +44,8 @@ from .atmle import (
     AdaptiveTMLEFit,
     CheckedInputs,
     WorkingModel,
+    _fit_checked,
     check_adaptive_inputs,
-    fit_adaptive_tmle,
     stratified_partition,
 )
 
@@ -1032,26 +1032,20 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
     seed, family, learners, g_bounds = prefix.seed, prefix.family, prefix.learners, prefix.g_bounds
     checked = prefix.checked
     inner = kwargs["inner_folds"]
-    fit = fit_adaptive_tmle(
-        checked.y,
-        checked.a,
-        checked.s,
-        checked.w,
+    fit = _fit_checked(
+        checked,
         outcome_learner=learners["outcome"],
         treatment_learner=learners["treatment"],
         source_learner=learners["trial membership"],
         g_bounds=g_bounds,
-        observed=checked.seen,
         missingness_learner=learners.get("missingness"),
         basis=kwargs["basis"],
         form=kwargs["form"],
         population=estimand.population,
         force_arm=kwargs["force_arm"],
-        folds=checked.split,
         inner_folds=inner,
         random_state=seed,
         outcome_family=family,
-        covariate_names=data.covariate_names,
     )
     alpha = method.inference.alpha
     n = data.n

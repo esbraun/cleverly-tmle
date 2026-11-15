@@ -1399,15 +1399,20 @@ def planned_fits_summary(plan: PlannedFits, detail: Detail) -> Summary:
         rows.append(
             (
                 Cell(row.role, row.role),
-                Cell(row.scope, row.scope),
-                Cell(row.learner, row.learner),
                 Cell(row.fits, _bounded(row.fits, exact)),
                 Cell(row.candidate_fits, _bounded(row.candidate_fits, exact)),
+                Cell(row.scope, row.scope),
             )
         )
+    learners = tuple(dict.fromkeys((row.role, row.learner) for row in plan.rows))
     tables = [
         SummaryTable(
             vocabulary.PLANNED_ROW_COLUMNS, tuple(rows), title=vocabulary.PLANNED_ROWS_TITLE
+        ),
+        SummaryTable(
+            vocabulary.PLANNED_LEARNER_COLUMNS,
+            tuple((Cell(role, role), Cell(learner, learner)) for role, learner in learners),
+            title=vocabulary.PLANNED_LEARNERS_TITLE,
         ),
         SummaryTable(
             vocabulary.PLANNED_CANDIDATE_COLUMNS,

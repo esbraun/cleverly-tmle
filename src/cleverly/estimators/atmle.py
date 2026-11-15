@@ -2001,6 +2001,44 @@ def fit_adaptive_tmle(
         outcome_family=outcome_family,
         covariate_names=covariate_names,
     )
+    return _fit_checked(
+        checked,
+        outcome_learner=outcome_learner,
+        treatment_learner=treatment_learner,
+        source_learner=source_learner,
+        g_bounds=g_bounds,
+        missingness_learner=missingness_learner,
+        basis=basis,
+        form=form,
+        population=population,
+        force_arm=force_arm,
+        inner_folds=inner_folds,
+        random_state=random_state,
+        outcome_family=outcome_family,
+    )
+
+
+def _fit_checked(
+    checked: Any,
+    *,
+    outcome_learner: Learner,
+    treatment_learner: Learner,
+    source_learner: Learner,
+    g_bounds: tuple[float, float],
+    missingness_learner: Learner | None,
+    basis: Any,
+    form: Form,
+    population: Population,
+    force_arm: bool,
+    inner_folds: int,
+    random_state: int,
+    outcome_family: Literal["gaussian", "binomial"],
+) -> AdaptiveTMLEFit:
+    """Fit :func:`fit_adaptive_tmle` on inputs :func:`check_adaptive_inputs` already checked.
+
+    The study's trial fit runs the check in the prefix it shares with its preview, so it
+    enters here and the check runs once per fit.
+    """
     y, a, s, w = checked.y, checked.a, checked.s, checked.w
     seen, split = checked.seen, checked.split
     n = y.size

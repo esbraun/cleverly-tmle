@@ -4913,7 +4913,9 @@ PLANNED_FOLDS_TEXT: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 PLANNED_ROWS_TITLE: Final = "Fits by model"
-PLANNED_ROW_COLUMNS: Final = ("model", "what and how often", "learner", "fits", "candidate fits")
+PLANNED_ROW_COLUMNS: Final = ("model", "fits", "candidate fits", "what and how often")
+PLANNED_LEARNERS_TITLE: Final = "Learners"
+PLANNED_LEARNER_COLUMNS: Final = ("model", "learner")
 PLANNED_CANDIDATES_TITLE: Final = "Fits by candidate"
 PLANNED_CANDIDATE_COLUMNS: Final = ("candidate", "fits", "own CV folds")
 PLANNED_UPPER_MARK: Final = "at most {fits}"
@@ -4923,7 +4925,9 @@ SECTION_UNPREVIEWED: Final = "Checks left to the fit"
 PLANNED_UNPREVIEWED_LEAD: Final = (
     "These checks read a fitted tuner, so estimate() runs them after the count stops:"
 )
-PLANNED_NO_NOTES: Final = "Fluctuation and targeting steps fit no learner and are not counted."
+PLANNED_NO_NOTES: Final = (
+    "The correction step that follows the model fits fits no learner and is not counted."
+)
 HEADER_LABELS = HEADER_LABELS | {
     PLANNED_FITS_TOTAL,
     PLANNED_CANDIDATE_TOTAL,

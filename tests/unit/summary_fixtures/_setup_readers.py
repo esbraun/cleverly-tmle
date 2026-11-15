@@ -549,10 +549,14 @@ def read_planned_fits(plan: Any, text: str) -> None:
     rows = table_rows(text, vocabulary.PLANNED_ROWS_TITLE)
     assert [row[0] for row in rows] == [row.role for row in plan.rows]
     for cells, row in zip(rows, plan.rows, strict=True):
-        assert cells[1] == row.scope and cells[2] == row.learner, (cells, row)
-        assert _close(_bound_number(cells[3]), row.fits), (cells, row)
-        assert _close(_bound_number(cells[4]), row.candidate_fits), (cells, row)
-        assert cells[3].startswith("at most") == (row.bound != "exact"), (cells, row)
+        assert cells[3] == row.scope, (cells, row)
+        assert _close(_bound_number(cells[1]), row.fits), (cells, row)
+        assert _close(_bound_number(cells[2]), row.candidate_fits), (cells, row)
+        assert cells[1].startswith("at most") == (row.bound != "exact"), (cells, row)
+    learner_rows = table_rows(text, vocabulary.PLANNED_LEARNERS_TITLE)
+    assert [tuple(cells) for cells in learner_rows] == list(
+        dict.fromkeys((row.role, row.learner) for row in plan.rows)
+    )
     candidates = table_rows(text, vocabulary.PLANNED_CANDIDATES_TITLE)
     assert [cells[0] for cells in candidates] == [name for name, _, _ in plan.candidates]
     for cells, (_, fits, folds) in zip(candidates, plan.candidates, strict=True):
