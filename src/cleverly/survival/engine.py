@@ -33,6 +33,7 @@ from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
+from ..utils.memory import check_max_memory_bytes
 from ._memory import check_memory, largest_fold, peak_bytes
 from ._targeting import (
     Norm,
@@ -387,12 +388,7 @@ class ContinuousSurvivalTMLE:
         band_scale: str = DEFAULT_BAND_SCALE,
         max_memory_bytes: int | None = None,
     ) -> None:
-        if max_memory_bytes is not None and (
-            isinstance(max_memory_bytes, bool)
-            or not isinstance(max_memory_bytes, (int, np.integer))
-            or max_memory_bytes <= 0
-        ):
-            raise ValueError("max_memory_bytes is a positive integer number of bytes, or None")
+        budget = check_max_memory_bytes(max_memory_bytes)
         times = tuple(float(t) for t in horizons)
         if not times or any(not np.isfinite(t) or t <= 0 for t in times):
             raise ValueError("horizons are positive finite target times, at least one")
@@ -441,7 +437,7 @@ class ContinuousSurvivalTMLE:
         self.n_multiplier = int(n_multiplier)
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
-        self.max_memory_bytes = None if max_memory_bytes is None else int(max_memory_bytes)
+        self.max_memory_bytes = budget
         #: The outer cross-fitting label of each row, recorded on the estimator a result
         #: stores; a subset refit reads them so its refits keep the fit's split.
         self._outer_folds: IntArray | None = None

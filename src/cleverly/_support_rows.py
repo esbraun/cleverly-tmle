@@ -6643,6 +6643,13 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "two primary SE-ratio legs red by design under the owner X54-supplement-width. No "
         "support row was declared before the run, so the study licenses none and moves no label."
     ),
+    "few-cluster-fold-variance": (
+        "It measures the centred fold cluster variance of cross-fitted TMLE to set "
+        "MINIMUM_FOLD_TRAINING_CLUSTERS, below which an estimate takes few_cluster_plugin. Its "
+        "red rows, held by X54-training-floor, are cells at 2 training clusters, below the "
+        "floor. No support row was declared before the run, so the study licenses none and "
+        "moves no label."
+    ),
     "band-t-reference-held-out": (
         "It holds out one t band cell, the strata law at n = 1,000, to test the rule out of "
         "sample. The cell licenses no row: band-t-reference licenses the t band, and this study "
