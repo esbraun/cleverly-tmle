@@ -22,12 +22,12 @@ from scipy.special import expit
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import DataError
+from cleverly import CapabilityError, DataError
 from cleverly.data import CausalData
 from cleverly.data.causal_data import RowDesign
 from cleverly.dose_response import DoseResponse
-from cleverly.estimators import DRTMLE, TMLE, DoseResponseTMLE, _nuisance
-from cleverly.interventions import Shift
+from cleverly.estimators import DRTMLE, TMLE, AdaptiveIPTW, DoseResponseTMLE, _nuisance
+from cleverly.interventions import LearnedRule, Shift
 
 LOGIT = LogisticRegression(max_iter=1000)
 
@@ -176,7 +176,11 @@ def _arrays(value: Any, path: str = "") -> Iterator[tuple[str, bytes]]:
             yield path, value.dtype.str.encode() + repr(value.shape).encode() + value.tobytes()
     elif dataclasses.is_dataclass(value) and not isinstance(value, type):
         for item in dataclasses.fields(value):
-            yield from _arrays(getattr(value, item.name), f"{path}.{item.name}")
+            try:
+                field = getattr(value, item.name)
+            except CapabilityError:  # an outcome-free fit's outcome accessors refuse
+                continue
+            yield from _arrays(field, f"{path}.{item.name}")
     elif isinstance(value, dict):
         for key in sorted(value, key=repr):
             yield from _arrays(value[key], f"{path}[{key!r}]")
@@ -328,7 +332,38 @@ def _dose_response_fit() -> Any:
     ).fit(frame, outcome="Y", treatment="A", covariates=["W0"])
 
 
+def _learned_rule_fit() -> Any:
+    """A plug-in rule reads every fold's model at every row of each arm's design."""
+    frame = _frame()
+    return TMLE(
+        learned_rule=LearnedRule(),
+        outcome_learner=LOGIT,
+        treatment_learner=LOGIT,
+        n_folds=3,
+        random_state=4,
+        simultaneous=False,
+    ).fit(frame, outcome="Y", treatment="A", covariates=_covariates(frame))
+
+
+def _adaptive_iptw_fit() -> Any:
+    """``fit_fold_mechanisms`` reads the missingness model at each arm's design."""
+    frame = _frame()
+    rng = np.random.default_rng(12)
+    frame["R"] = (rng.uniform(size=len(frame)) >= 0.15).astype(float)
+    frame.loc[frame["R"] == 0.0, "Y"] = np.nan
+    return AdaptiveIPTW(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LOGIT,
+        missingness_learner=LOGIT,
+        n_folds=3,
+        random_state=4,
+        estimands=("ate",),
+    ).fit(frame, outcome="Y", treatment="A", covariates=_covariates(frame), delta="R")
+
+
 FITS: dict[str, Callable[[], Any]] = {
+    "learned rule, plug-in": _learned_rule_fit,
+    "adaptive IPTW, missing outcomes": _adaptive_iptw_fit,
     "dose response, stacked": _dose_response_fit,
     "binary": _binary_fit,
     "single fold": _single_fold_fit,

@@ -1483,13 +1483,15 @@ class CausalData:
         treatment_value: float | FloatArray,
         *,
         intermediate_value: float | None = None,
-    ) -> RowDesign:
+    ) -> RowDesign | FloatArray:
         """:meth:`counterfactual_design`, built for the rows a prediction asks for.
 
-        The same validation runs here and now, so a bad value is refused before any learner
-        is fitted.  What comes back holds the treatment block and a reference to the
-        covariates rather than a copy, and :meth:`RowDesign.rows` returns exactly the rows
-        of :meth:`counterfactual_design`.
+        The same validation runs here and now, at the call site that used to build the full
+        design, so a bad value is refused at the same point.  What comes back holds the
+        treatment block and a reference to the covariates rather than a copy, and
+        :meth:`RowDesign.rows` returns exactly the rows of :meth:`counterfactual_design`,
+        with the same memory order.  A vector treatment gets the full design itself: its
+        component block is checked against the whole sample, and its fits are small.
 
         Parameters
         ----------
@@ -1500,9 +1502,13 @@ class CausalData:
 
         Returns
         -------
-        RowDesign
-            The design, built on demand.
+        RowDesign or ndarray
+            The design, built on demand; the full design for a vector treatment.
         """
+        if self.treatment_kind == "vector":
+            return self.counterfactual_design(
+                treatment_value, intermediate_value=intermediate_value
+            )
         blocks = self._counterfactual_blocks(treatment_value, intermediate_value=intermediate_value)
         level = None if intermediate_value is None else float(intermediate_value)
         return RowDesign(blocks[0], blocks[1], level)

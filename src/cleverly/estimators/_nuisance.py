@@ -2017,7 +2017,11 @@ def _mechanism_designs(
         return {_arm_key(arm): data.counterfactual_rows(arm) for arm in arms}
     designs: dict[str, Design] = {_OBSERVED_KEY: design}
     for index, code in enumerate(policy_set.component_keys):
-        designs[_arm_key(code)] = data.counterfactual_rows(policy_set.shifted[:, index])
+        if data.treatment_kind == "vector":
+            # A vector treatment keeps its full designs (``CausalData.counterfactual_rows``).
+            designs[_arm_key(code)] = data.counterfactual_design(policy_set.shifted[:, index])
+        else:
+            designs[_arm_key(code)] = data.counterfactual_rows(policy_set.shifted[:, index])
     return designs
 
 
@@ -2728,7 +2732,11 @@ def fit_nuisances(
             # With an intermediate, at every level z, from the model at (a, z) (X11 (j)).
             for level in levels:
                 for arm in arms:
-                    companion_designs[_rule_key(arm, level)] = designs[_design_key(arm, level)]
+                    # Built whole once here: every fold reads every row of it, so a
+                    # per-fold build would repeat the copy K times for no saving.
+                    companion_designs[_rule_key(arm, level)] = _design_rows(
+                        designs[_design_key(arm, level)], None
+                    )
             pooled_reduce = functools.partial(
                 _pooled_rule_arm, arms=tuple(arms), levels=tuple(levels)
             )

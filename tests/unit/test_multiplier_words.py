@@ -177,3 +177,14 @@ def test_the_critical_value_is_bitwise_unchanged(
         curves, se, n=n, n_replicates=n_replicates, random_state=17, cluster=cluster
     )
     assert repr(got) == repr(expected)
+
+
+def test_swapped_half_words_are_caught() -> None:
+    """Mutation control: high-then-low halves draw different multipliers than ``integers``."""
+    frozen, mutated = np.random.default_rng(11), np.random.default_rng(11)
+    expected = np.empty((8, 101))
+    _frozen_fill(frozen, expected)
+    words = mutated.bit_generator.random_raw(8 * 101 // 2).view(np.uint32).reshape(-1, 2)
+    swapped = words[:, ::-1].reshape(8, 101) < _MAMMEN_THRESHOLD
+    got = np.where(swapped, _MAMMEN_LOW, _MAMMEN_HIGH)
+    assert got.tobytes() != expected.tobytes()
