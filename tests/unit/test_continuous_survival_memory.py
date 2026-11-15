@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 
 from cleverly import CausalStudy, RegimeContrast, TimeToEvent
-from cleverly.exceptions import MethodConfigurationError
+from cleverly.exceptions import DataError, MethodConfigurationError
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, _memory, engine
 from cleverly.survival.data import ContinuousSurvivalData
 from cleverly.survival.diagnostics import continuous_truncation_curve
@@ -181,15 +181,35 @@ def test_each_phase_stays_below_its_own_prediction(monkeypatch: pytest.MonkeyPat
     wrap(multiplier, "simultaneous_bands", "band")
     original_walk = engine.walk
 
-    def walk(problem: Any, jumps: Any, **kwargs: Any) -> Any:
+    def walk(
+        problem: Any,
+        jumps: Any,
+        *,
+        cutoff: float,
+        norm: Any,
+        step: float,
+        max_steps: int,
+        tilt: Any,
+    ) -> Any:
         # Forward the jumps without a name here, so the wrapper does not hold what the
-        # engine releases at the first accepted step.
+        # engine releases at the first accepted step.  The call names each keyword rather
+        # than unpacking **kwargs: on Python 3.11 an unpacking call keeps its positional
+        # arguments in a tuple on the caller's stack for the whole call, which would hold
+        # the jumps the walk releases.
         box = [jumps]
         del jumps
         fold()
         open_windows.append("walk")
         try:
-            return original_walk(problem, box.pop(), **kwargs)
+            return original_walk(
+                problem,
+                box.pop(),
+                cutoff=cutoff,
+                norm=norm,
+                step=step,
+                max_steps=max_steps,
+                tilt=tilt,
+            )
         finally:
             fold()
             open_windows.remove("walk")
@@ -271,7 +291,7 @@ def test_the_default_budget_reads_the_available_memory(monkeypatch: pytest.Monke
 
 @pytest.mark.parametrize("value", [0, -1, 1.5, True, "1"])
 def test_the_budget_is_a_positive_integer(value: Any) -> None:
-    with pytest.raises(ValueError, match="max_memory_bytes"):
+    with pytest.raises(DataError, match="max_memory_bytes"):
         _estimator(max_memory_bytes=value)
 
 

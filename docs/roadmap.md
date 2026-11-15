@@ -604,7 +604,7 @@ own registered study.
 | (b) targeting curves | half samples generated and reduced in draw blocks, with the same draws; a memory guard | equivalent, guard |
 | (c) continuous-time survival | a memory guard over the engine's arrays; then an exact factored or subject-blocked representation of the hazards and targeting, if one exists | guard, equivalent |
 | (d) density and dose response | sparse or matrix-free binned-density designs; quadrature tiled over nodes; a guard over the buffers that coexist | equivalent, guard |
-| (e) adaptive TMLE | working-model selection that reuses held-fold slices, factors and cross-products across the lambda path | equivalent |
+| (e) adaptive TMLE | delivered: working-model selection slices each inner fold's held rows once, copies the penalized columns once and computes one Karush-Kuhn-Tucker residual instead of one per penalty, with bitwise-equal results and fits about 5 times faster at 100,000 to 1,000,000 subjects. A compiled lasso solver was profiled at under a tenth of the fit after that change and not pursued | equivalent |
 | (f) plots | `max_points=` on `influence`, `max_rug_points=` on the effect `curve`, `max_intervals=` on `zipper`; one prepared nuisance report shared by `calibration` and `learners` | display, equivalent |
 | (g) refutation and sensitivity | replayable subset and placebo draws instead of retained arrays; a preview of planned refits; checkpoints for the long generated-outcome and bootstrap tests; profiles of `tipping_gamma()` and the continuous marginal sensitivity | equivalent |
 | (h) sampled refutation | `sample_limit=` on the refuters, with a paired baseline on the same sample | sampled analysis |
