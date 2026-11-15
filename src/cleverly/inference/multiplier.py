@@ -187,7 +187,6 @@ not a free one.
 from __future__ import annotations
 
 import math
-import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
@@ -476,37 +475,6 @@ _MAMMEN_HIGH = (_ROOT5 + 1.0) / 2.0
 #: The integer threshold a uint32 draw falls below with probability :data:`_MAMMEN_PROB`, to
 #: within ``2**-32``.
 _MAMMEN_THRESHOLD = np.uint32(round(_MAMMEN_PROB * 2**32))
-#: ``low - high``: the step from the high point to the low one, exact in the sense that
-#: ``high + step`` rounds back to ``low``.
-_MAMMEN_STEP = _MAMMEN_LOW - _MAMMEN_HIGH
-assert _MAMMEN_HIGH + _MAMMEN_STEP == _MAMMEN_LOW
-
-
-def _uint32_words(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarray:
-    """``rng.integers(0, 2**32, shape, dtype=np.uint32)``, read straight from the generator.
-
-    For the full ``uint32`` range ``Generator.integers`` returns the bit generator's 32-bit
-    draws one by one, and :class:`numpy.random.PCG64` makes those by splitting each 64-bit
-    output into its low then its high half.  That is the little-endian ``uint32`` view of
-    ``random_raw``, which skips the per-element bounded-integer path: the same words, and
-    the generator left where ``integers`` leaves it, in about 60% of the time.  (The state's
-    ``uinteger`` slot may then hold a different stale value; with ``has_uint32`` clear it is
-    never read.)  It holds only when no half word is buffered from an earlier odd-length
-    draw and this draw has even length (so none is left buffered for the next), on a
-    little-endian machine.  Anything else takes ``integers`` itself.
-    ``tests/unit/test_multiplier_words.py`` pins the equality on the NumPy that CI resolves.
-    """
-    size = int(np.prod(shape))
-    generator = rng.bit_generator
-    if (
-        type(generator) is np.random.PCG64
-        and size % 2 == 0
-        and sys.byteorder == "little"
-        and not generator.state["has_uint32"]
-    ):
-        words = generator.random_raw(size // 2).view(np.uint32)
-        return words.reshape(shape)
-    return rng.integers(0, 2**32, size=shape, dtype=np.uint32)
 
 
 def _fill_multipliers(rng: np.random.Generator, out: FloatArray, kind: MultiplierKind) -> None:
@@ -539,14 +507,9 @@ def _fill_multipliers(rng: np.random.Generator, out: FloatArray, kind: Multiplie
         # half the bytes drawn, and the comparison writes a bool array the size of the
         # buffer instead of a second float64 one.  The threshold moves the low point's
         # probability by less than 2**-32 (the exact moments are pinned in the tests).
-        # Then ``high + flag * (low - high)``, written in place, rather than a fill and a
-        # masked copy (a masked ``copyto`` is several times slower).  It is exact: a cleared
-        # flag gives ``high + -0.0 == high`` and a set one ``high + (low - high)``, which
-        # rounds to ``low`` (asserted at import below), so the buffer holds the same two
-        # values as before.
-        flags = _uint32_words(rng, out.shape) < _MAMMEN_THRESHOLD
-        np.multiply(flags, _MAMMEN_STEP, out=out)
-        out += _MAMMEN_HIGH
+        flags = rng.integers(0, 2**32, size=out.shape, dtype=np.uint32) < _MAMMEN_THRESHOLD
+        np.copyto(out, _MAMMEN_HIGH)
+        np.copyto(out, _MAMMEN_LOW, where=flags)
         return
     raise ValueError(f"kind must be 'rademacher', 'mammen' or 'normal'; got {kind!r}")
 
