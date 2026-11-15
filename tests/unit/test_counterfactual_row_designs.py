@@ -396,7 +396,24 @@ def _dose_response_single_fold_fit() -> Any:
     ).fit(frame, outcome="Y", treatment="A", covariates=["W0"])
 
 
+def _learned_rule_intermediate_fit() -> Any:
+    """Rule companions at every ``(arm, level)`` of a binary intermediate."""
+    frame = _frame()
+    rng = np.random.default_rng(15)
+    frame["Z"] = rng.binomial(1, expit(-0.2 + 0.6 * frame["A"] + 0.3 * frame["W0"])).astype(float)
+    return TMLE(
+        learned_rule=LearnedRule(),
+        outcome_learner=LOGIT,
+        treatment_learner=LOGIT,
+        intermediate_learner=LOGIT,
+        n_folds=3,
+        random_state=4,
+        simultaneous=False,
+    ).fit(frame, outcome="Y", treatment="A", covariates=_covariates(frame), intermediate="Z")
+
+
 FITS: dict[str, Callable[[], Any]] = {
+    "learned rule, intermediate": _learned_rule_intermediate_fit,
     "tuned cap, probe doses": _tuned_cap_fit,
     "dose response, single fold": _dose_response_single_fold_fit,
     "learned rule, plug-in": _learned_rule_fit,
@@ -415,7 +432,18 @@ FITS: dict[str, Callable[[], Any]] = {
 
 @pytest.mark.parametrize("name", list(FITS))
 def test_fits_are_bitwise_the_materialized_fits(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    lazy = _fingerprint(FITS[name]())
+    built: list[int] = []
+    rows = RowDesign.rows
+
+    def counting(self: RowDesign, index: Any = None) -> Any:
+        built.append(1)
+        return rows(self, index)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(RowDesign, "rows", counting)
+        lazy = _fingerprint(FITS[name]())
+    # The row route was taken (a process pool builds its rows in the workers, out of sight).
+    assert built or name == "process pool"
     with monkeypatch.context() as patch:
         _materialized(patch)
         full = _fingerprint(FITS[name]())

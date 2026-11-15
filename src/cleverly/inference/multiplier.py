@@ -494,7 +494,7 @@ def _uint32_words(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarra
     never read.)  It holds only when no half word is buffered from an earlier odd-length
     draw and this draw has even length (so none is left buffered for the next), on a
     little-endian machine.  Anything else takes ``integers`` itself.
-    ``tests/unit/test_inference.py`` pins the equality on the NumPy that CI resolves.
+    ``tests/unit/test_multiplier_words.py`` pins the equality on the NumPy that CI resolves.
     """
     size = int(np.prod(shape))
     generator = rng.bit_generator

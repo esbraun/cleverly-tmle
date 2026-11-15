@@ -283,7 +283,9 @@ class RowDesign:
         Returns
         -------
         ndarray
-            ``(len(index), width)`` float matrix, a new C-ordered array.
+            ``(len(index), width)`` float matrix, a new array in the memory order of
+            ``counterfactual_design(...)[index]`` (C order for an index; for ``None`` the
+            order of the full design, which follows the covariates').
         """
         if index is None:
             blocks = [self.treatment, self.covariates]
