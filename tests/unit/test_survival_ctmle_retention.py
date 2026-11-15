@@ -343,3 +343,100 @@ def test_fit_refits_reproduce_the_counts(instrument: LongitudinalData) -> None:
     for key, record in first.selection.items():
         assert record.target_solves == second.selection[key].target_solves
         assert record.candidate_pairs == second.selection[key].candidate_pairs
+
+
+# ------------------------------------------------- the mechanisms equal the cached predictions
+
+
+def _reference_treatment(m: module._Mechanisms, branch: str, train: Any, terms: Any) -> Any:
+    """``_Mechanisms.treatment`` as it was when it cached row predictions."""
+    data = m.data
+    target = (m.observed == 1).astype(float)
+    columns = [m.covariates.index(name) for name in terms]
+    design = np.asarray(data.baseline[:, columns], dtype=float).reshape(data.n, len(columns))
+    p = np.empty(data.n)
+    converged, dropped = True, 0
+    for _, fit_rows, predict in m._splits(branch, train):
+        w = data.weights[fit_rows]
+        if not terms:
+            p[predict] = float(np.sum(w * target[fit_rows]) / np.sum(w))
+            continue
+        fit = module._logistic(design[fit_rows], target[fit_rows], w)
+        converged = converged and fit.converged
+        dropped = max(dropped, int(np.count_nonzero(~fit.active[1:])))
+        p[predict] = module._predict(fit, design[predict])
+    return np.column_stack([1.0 - p, p]), converged, dropped
+
+
+def _reference_retention(m: module._Mechanisms, branch: str, train: Any, terms: Any) -> Any:
+    """``_Mechanisms.retention`` as it was when it cached row predictions."""
+    data = m.data
+    retention = np.ones((data.n, data.n_times, m.n_levels))
+    converged, dropped = True, 0
+    held: list[tuple[int, int, str]] = []
+    for fold, fit_rows, predict in m._splits(branch, train):
+        fitted: list[int] = []
+        for k in range(data.n_times):
+            rows = m.eligible[:, k] & fit_rows
+            if not rows.any() or not m.censored[rows, k].any():
+                held.append((fold, k + 1, module.NO_CENSORING))
+            elif bool(np.all(m.censored[rows, k])):
+                held.append((fold, k + 1, module.ALL_CENSORED))
+                retention[predict, k, :] = module._HELD_RETENTION
+            else:
+                fitted.append(k)
+        if not fitted:
+            continue
+        design_rows, target, weights = [], [], []
+        for k in fitted:
+            members = np.flatnonzero(m.eligible[:, k] & fit_rows)
+            design_rows.append(m._g2_design(members, k, fitted, terms, None))
+            target.append(m.censored[members, k].astype(float))
+            weights.append(data.weights[members])
+        fit = module._logistic(
+            np.vstack(design_rows), np.concatenate(target), np.concatenate(weights)
+        )
+        converged = converged and fit.converged
+        dropped = max(dropped, int(np.count_nonzero(~fit.active[len(fitted) :])))
+        index = np.flatnonzero(predict)
+        for k in fitted:
+            for level in range(m.n_levels):
+                at = None if m.evaluate_at_observed else level
+                hazard = module._predict(fit, m._g2_design(index, k, fitted, terms, at))
+                retention[index, k, level] = 1.0 - hazard
+    return retention, converged, dropped, tuple(held)
+
+
+def _heavy() -> LongitudinalData:
+    from tests.unit.test_survival_ctmle import _heavy_censoring
+
+    return _heavy_censoring()
+
+
+def test_the_mechanisms_rebuilt_from_cached_fits_equal_the_cached_predictions() -> None:
+    """Every branch, including a training mask whose rows at risk at the last node are all
+    censored there, so that node is held at the all-censored retention."""
+    data = _heavy()
+    selector = _selector(data, Pick((0, 1, 3, 4), 5))
+    m = selector.mechanisms
+    last = data.n_times - 1
+    eligible = m.eligible[:, last]
+    all_censored = ~eligible | m.censored[:, last]
+    trains: list[tuple[str, Any]] = [("full", None), ("cv1", _fold_train(selector, 1))]
+    trains.append(("crafted", all_censored))
+    seen_all_censored = False
+    for branch, train in trains:
+        for g1 in ((), ("W1",), ("W1", "W3")):
+            got = m.treatment(branch, train, g1)
+            want = _reference_treatment(m, branch, train, g1)
+            assert got.probabilities.tobytes() == want[0].tobytes()
+            assert (got.converged, got.dropped) == want[1:]
+            # A second call rebuilds from the cached fits and is the same.
+            assert m.treatment(branch, train, g1).probabilities.tobytes() == want[0].tobytes()
+        for g2 in ((), ("A",), ("A", "W3"), ("W1", "W2", "W3")):
+            got = m.retention(branch, train, g2)
+            want = _reference_retention(m, branch, train, g2)
+            assert got.retention.tobytes() == want[0].tobytes()
+            assert (got.converged, got.dropped, got.held) == want[1:]
+            seen_all_censored |= any(kind == module.ALL_CENSORED for _, _, kind in got.held)
+    assert seen_all_censored, "the crafted mask must hold a node at the all-censored retention"
