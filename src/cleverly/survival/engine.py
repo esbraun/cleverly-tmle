@@ -34,6 +34,7 @@ from ..exceptions import CapabilityError, ConvergenceWarning, DataError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
 from ..utils.memory import check_max_memory_bytes
+from ..utils.random import note_fresh_entropy
 from ._memory import check_memory, largest_fold, peak_bytes
 from ._targeting import (
     Norm,
@@ -612,6 +613,7 @@ class ContinuousSurvivalTMLE:
         """The seed every random draw of a fit reads: the declared one, or one drawn now."""
         if self.random_state is not None:
             return int(self.random_state)
+        note_fresh_entropy()
         return int(np.random.SeedSequence().generate_state(1)[0])
 
     def _floor(self, n: int) -> float:

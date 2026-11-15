@@ -13,6 +13,7 @@ from typing import Any, TypeVar
 from joblib import Parallel, delayed
 
 from .._warnings import merge, run_recorded
+from .random import note_parallel
 
 __all__ = ["map_parallel", "resolve_n_jobs"]
 
@@ -45,6 +46,8 @@ def map_parallel(
     in task order, and the serial path takes the same route, so a fit records the same
     warnings at any ``n_jobs`` (:mod:`cleverly._warnings`).
     """
+    # Serial calls too: whether a call runs in parallel is a setting, not a property of the work.
+    note_parallel()
     items = list(payloads)
     jobs = resolve_n_jobs(n_jobs)
     if jobs == 1 or len(items) <= 1:

@@ -71,6 +71,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, 
 import numpy as np
 from sklearn.base import clone
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     BOUNDARY_NODE_OUT_OF_REACH,
@@ -202,6 +203,7 @@ from ..inference.results import (
 )
 from ..inference.sparse import influence_report, warn_sparse_influence
 from ..interventions import RiskRatioTilt
+from ..utils.random import note_fresh_entropy
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
@@ -1815,7 +1817,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     Attributes
     ----------
-    assessment_cache : dict
+    assessment_cache : AssessmentCache
         Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
         constructed result owns its own cache. Persistence restores the mapping without
         the constructor.
@@ -1895,7 +1897,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: .assessment_cache` gives: the key names the operation and its arguments and not
     #: the result, so a mapping handed to the constructor by ``dataclasses.replace``
     #: would answer for a fit that never produced it.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+    assessment_cache: AssessmentCache = field(default_factory=AssessmentCache, init=False)
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
@@ -9884,6 +9886,8 @@ class ParametricGFormula(_Baseline):
         """
         # A sequence of its own, so the seed shares nothing with the bootstrap's spawned children
         # or with any other consumer of ``random_state``.
+        if self.random_state is None:
+            note_fresh_entropy()
         entropy = np.random.SeedSequence(self.random_state).entropy
         assert isinstance(entropy, int)
         child = np.random.SeedSequence([entropy, _SIMULATION_SEED_TAG])

@@ -54,6 +54,7 @@ from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
 from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
+from ..utils.random import note_fresh_entropy
 from ._failures import failure_call, recordable
 from ._seeds import sample_seed_streams, validate_sample_seeds
 
@@ -964,6 +965,8 @@ class CoverageStudy:
             Per-replication records, per-estimand summaries, and the failures.
         """
         if self.sample_seeds is None:
+            if self.seed is None:
+                note_fresh_entropy()
             root = (
                 self.seed if self.seed is not None else cast(int, np.random.SeedSequence().entropy)
             )

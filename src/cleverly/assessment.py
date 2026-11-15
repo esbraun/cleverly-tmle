@@ -33,10 +33,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     )
 
 from ._assessment_cache import (
+    _EVICTION_RULE,
     _RETAIN_PACKED,
+    AssessmentCache,
+    CacheEntry,
     _cache_key,
     _cached,
+    _file,
     _frame_payload,
+    _is_evictable,
     _normalize,
     _pack_cached,
     _result_backend,
@@ -117,10 +122,12 @@ __all__ = [
     "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
+    "AssessmentCache",
     "AssessmentCapability",
     "AssessmentItem",
     "AssessmentReport",
     "AssessmentStatus",
+    "CacheEntry",
     "DiagnosticReport",
     "DiagnosticsFacade",
     "LongitudinalDiagnostics",
@@ -2859,12 +2866,20 @@ class _CapabilityFacade:
             def compute() -> Any:
                 return _evalue_from_selection(self._result, selection)
 
-        report = _cached(self._result, f"{self._attribute}.{operation}", (), effective, compute)
+        name = f"{self._attribute}.{operation}"
+        report = _cached(self._result, name, (), effective, compute)
         resolved = _bound_arguments(bound, report)
         if _normalize(resolved) != _normalize(effective):
-            self._result.assessment_cache[
-                _cache_key(f"{self._attribute}.{operation}", (), resolved)
-            ] = _pack_cached(report, _result_backend(self._result))
+            # The alias is pinned when the answer it repeats is kept and pinned. An answer the
+            # budget did not keep leaves an evictable alias, which the budget drops as well.
+            cache = self._result.assessment_cache
+            primary = _cache_key(name, (), effective)
+            _file(
+                cache,
+                _cache_key(name, (), resolved),
+                _pack_cached(report, _result_backend(self._result)),
+                evictable=primary not in cache or _is_evictable(cache, primary),
+            )
         return report
 
 
@@ -6040,3 +6055,40 @@ class SensitivityFacade(_CapabilityFacade):
             supplied=self._validated_arguments(arguments, random_state),
             random_state=random_state,
         )
+
+
+# ------------------------------------------------------------------------- cache eviction
+
+#: Operations whose answer is computed again bit for bit from stored artifacts and stored
+#: answers alone. A combined report reads its rows back from their own entries.
+_EVICTABLE_OPERATIONS: frozenset[str] = frozenset(
+    {"validate", "diagnostics.influence", "diagnostics.run_all", "sensitivity.run_all"}
+)
+
+
+def _cache_eviction_rule(
+    result: Any, operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]
+) -> bool:
+    """Whether an answer to this request may be dropped from a budgeted cache.
+
+    Only a request that resolves to a ``summarize`` or ``retarget`` row declared
+    deterministic from saved artifacts qualifies. Every refit is kept, whatever its seed: a
+    seed fixes only the randomness the package routes through it, and a learner's nested
+    splitter or a user callback can read global state. A bound under an assumed consistent
+    mechanism refits the treatment learner on a selecting C-TMLE fit, so it is kept too.
+    """
+    if operation in _EVICTABLE_OPERATIONS:
+        return True
+    surface, _, name = operation.partition(".")
+    if surface not in ("diagnostics", "sensitivity"):
+        return False
+    if kwargs.get("assume_consistent_mechanism"):
+        return False
+    facade = getattr(result, surface)
+    if name not in {row.operation for row in facade.capabilities}:
+        return False
+    row = facade._capability_for_arguments(name, dict(kwargs))
+    return row.execution in ("summarize", "retarget") and bool(row.deterministic_from_saved)
+
+
+_EVICTION_RULE[:] = [_cache_eviction_rule]

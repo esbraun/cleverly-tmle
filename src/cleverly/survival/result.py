@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
+from .._assessment_cache import AssessmentCache
 from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._refusal import RefusalReason
 from .._support import Support, combine_support
@@ -682,7 +683,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False
+    )
 
     #: The assessment family: one declaration per assessment operation in
     #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`.
