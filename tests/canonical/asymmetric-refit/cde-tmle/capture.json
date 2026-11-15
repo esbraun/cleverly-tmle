@@ -10,23 +10,23 @@
     "replay_absent": 0,
     "replay_mismatch": 0,
     "rows": 360,
-    "seconds_capture": 0.81,
-    "seconds_fit": 5.67,
+    "seconds_capture": 0.98,
+    "seconds_fit": 3.35,
     "stage": "refits",
     "study": "cde-tmle"
   },
   "scope": {
     "failed_keys": 0,
     "jobs": 16,
-    "keys_fitted": 13,
+    "keys_fitted": 14,
     "primary_captured": true,
     "property_calls": [
       "properties"
     ],
     "replay_absent": 0,
     "replay_mismatch": 0,
-    "rows": 18,
-    "seconds_capture": 0.77,
+    "rows": 28,
+    "seconds_capture": 0.97,
     "seconds_fit": 3.57,
     "stage": "scope",
     "study": "cde-tmle"

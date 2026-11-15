@@ -32,5 +32,25 @@
     "seconds_fit": 15.59,
     "stage": "scope",
     "study": "canonical-ltmle-survival-crossfit"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/static_t2__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 9600,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 28800,
+    "seconds_capture": 1.12,
+    "seconds_fit": 6796.93,
+    "stage": "settle",
+    "study": "canonical-ltmle-survival-crossfit"
   }
 }

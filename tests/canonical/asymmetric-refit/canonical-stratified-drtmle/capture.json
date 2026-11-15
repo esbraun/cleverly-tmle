@@ -30,5 +30,24 @@
     "seconds_fit": 14.98,
     "stage": "scope",
     "study": "canonical-stratified-drtmle"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/v1_ate__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 2000,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 4,
+    "rows": 8000,
+    "seconds_capture": 0.27,
+    "seconds_fit": 4334.1,
+    "stage": "settle",
+    "study": "canonical-stratified-drtmle"
   }
 }
