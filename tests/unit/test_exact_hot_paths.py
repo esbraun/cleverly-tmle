@@ -367,6 +367,17 @@ def _view(name: str) -> tuple[np.ndarray, np.ndarray]:
     return base, target
 
 
+@pytest.mark.parametrize("shape", SHAPES)
+def test_mammen_fill_is_bitwise_the_reference(shape: tuple[int, int]) -> None:
+    rng, twin = np.random.default_rng(31), np.random.default_rng(31)
+    out, expected = np.full(shape, np.nan), np.full(shape, np.nan)
+    _fill_multipliers(rng, out, "mammen")
+    _reference_fill(twin, expected)
+    assert out.tobytes() == expected.tobytes()
+    # The generator is left where the reference leaves it, so the next block is unchanged.
+    assert rng.bit_generator.state == twin.bit_generator.state
+
+
 @pytest.mark.parametrize("name", VIEWS)
 def test_mammen_fill_writes_every_element_of_a_view(name: str) -> None:
     (base, target), (twin_base, twin_target) = _view(name), _view(name)
