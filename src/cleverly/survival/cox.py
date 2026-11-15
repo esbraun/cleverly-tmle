@@ -93,21 +93,34 @@ def _tail(values: FloatArray, start: IntArray) -> FloatArray:
     return cum[start]
 
 
+def _loglik_terms(
+    beta: FloatArray, Z: FloatArray, sets: _RiskSets
+) -> tuple[float, FloatArray, FloatArray]:
+    """The log partial likelihood, the risks in time order, and their sums ``s0``."""
+    eta = Z @ beta
+    shift = float(np.max(eta)) if eta.size else 0.0
+    risk = np.exp(eta - shift)
+    rs = risk[sets.order]
+    s0 = _tail(rs, sets.start)
+    loglik = float(np.sum(eta[sets.event_sum_rows]) - np.sum(sets.deaths * (np.log(s0) + shift)))
+    return loglik, rs, s0
+
+
+def _loglik(beta: FloatArray, Z: FloatArray, sets: _RiskSets) -> float:
+    """Breslow log partial likelihood alone, which is all a step-halving trial reads."""
+    return _loglik_terms(beta, Z, sets)[0]
+
+
 def _loglik_parts(
     beta: FloatArray, Z: FloatArray, sets: _RiskSets
 ) -> tuple[float, FloatArray, FloatArray]:
     """Breslow log partial likelihood, its gradient and its negative Hessian."""
-    eta = Z @ beta
-    shift = float(np.max(eta)) if eta.size else 0.0
-    risk = np.exp(eta - shift)
+    loglik, rs, s0 = _loglik_terms(beta, Z, sets)
     zs = Z[sets.order]
-    rs = risk[sets.order]
-    s0 = _tail(rs, sets.start)
     s1 = _tail(rs[:, None] * zs, sets.start)
-    s2 = _tail(rs[:, None, None] * zs[:, :, None] * zs[:, None, :], sets.start)
     zbar = s1 / s0[:, None]
-    loglik = float(np.sum(eta[sets.event_sum_rows]) - np.sum(sets.deaths * (np.log(s0) + shift)))
     grad = Z[sets.event_sum_rows].sum(axis=0) - (sets.deaths[:, None] * zbar).sum(axis=0)
+    s2 = _tail(rs[:, None, None] * zs[:, :, None] * zs[:, None, :], sets.start)
     info = (
         sets.deaths[:, None, None] * (s2 / s0[:, None, None] - zbar[:, :, None] * zbar[:, None, :])
     ).sum(axis=0)
@@ -209,7 +222,7 @@ class CoxHazard:
             accepted = False
             for _halving in range(30):
                 trial = beta + step
-                value = _loglik_parts(trial, Zs, sets)[0] - 0.5 * self.penalty * trial @ trial
+                value = _loglik(trial, Zs, sets) - 0.5 * self.penalty * trial @ trial
                 if value >= target - 1e-12:  # False for a non-finite value
                     accepted = True
                     break
@@ -295,7 +308,7 @@ def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> f
     sets = _risk_sets(np.asarray(time, dtype=float), np.asarray(event, dtype=float))
     if sets.times.size == 0:
         return 0.0
-    return _loglik_parts(model._zs_beta, Zs, sets)[0]
+    return _loglik(model._zs_beta, Zs, sets)
 
 
 class StratifiedNelsonAalen:

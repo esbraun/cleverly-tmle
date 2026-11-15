@@ -422,13 +422,13 @@ def test_a_newton_step_that_fails_every_halving_is_not_taken(
     from cleverly.survival import cox
 
     X, time, event = _cox_sample()
-    original = cox._loglik_parts
+    original = cox._loglik
 
-    def overflowing(beta: np.ndarray, *args: Any) -> tuple[float, np.ndarray, np.ndarray]:
-        loglik, grad, info = original(beta, *args)
-        return (loglik if not np.any(beta) else float("nan")), grad, info
+    # A halving trial reads the log likelihood alone.
+    def overflowing(beta: np.ndarray, *args: Any) -> float:
+        return original(beta, *args) if not np.any(beta) else float("nan")
 
-    monkeypatch.setattr(cox, "_loglik_parts", overflowing)
+    monkeypatch.setattr(cox, "_loglik", overflowing)
     with pytest.warns(ConvergenceWarning, match="monotone-likelihood boundary"):
         model = CoxHazard("main").fit(X, time, event)
     assert not model.converged_
