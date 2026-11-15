@@ -69,7 +69,7 @@ tier is the one the legend lists.
 | --- | --- |
 | scale | the scaling and efficiency work of [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths). The owner put it ahead of every fix and feature not already in progress on 2026-11-14 |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
-| 2 | survival targets, in this order: X91, X70, X6, X101. Most trial endpoints are times to an event |
+| 2 | survival targets, in this order: X91, X6, X101. Most trial endpoints are times to an event |
 | 3 | gaps in shipped functionality, in this order: X54 parts (a) to (c) and (h), X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
@@ -83,7 +83,6 @@ The readiness labels are defined under
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
-| [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) Hazard targeting beyond a held baseline treatment | 2 | published support; pending source read; parts (d), (c), (a) and (b1) shipped | the shipped hazard targeting on a held baseline treatment |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
 | [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the diagnostics, the descriptive refutation and the truncation curve shipped | the shipped `ContinuousSurvivalTMLE`, its record and its stored estimator and data |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
@@ -897,55 +896,6 @@ name no method today, must exclude continuous-time configurations until a study 
 | (a) negative-control outcome | a declaration of a control time-to-event pair, with its own censoring and target times, and a refit on it | the point and longitudinal negative-control readings |
 | (b) generated event-time outcomes | `dummy_outcome`, `simulated_outcome` and `plasmode` with an event-time process in continuous time; the shipped survival processes draw per-node indicators on a time grid | the generated-outcome readings of the survival panels |
 | (c) resampling refits | `bootstrap_stability` and `bootstrap_measurement_error`. A unit drawn twice must share a cross-fitting fold, and the engine draws its folds from the data | the fold rule of [X6](#x6-continuous-time-survival-and-competing-risks) part (d), which the full-refit bootstrap needs too |
-
-### X70. Hazard targeting beyond a held baseline treatment
-
-`LTMLE` with `survival_model="hazard"` supports one baseline treatment held over every node: a
-categorical treatment under any regimen, and a modified treatment policy on a categorical, continuous
-or mixed treatment. With `targeting="one_step"` such a design may also declare covariates measured
-after baseline. It also supports a categorical treatment at several nodes under static arms, known
-rules and known policies, on a design with baseline covariates only. The
-[hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
-list each design it refuses. H2 names `survival_model="iterated_mean"` with
-`isotonic=True` as the working alternative.
-
-Parts (d), (c), (a) and (b1) are delivered. The subsection "A working model over the hazard curve" of
-[hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
-states part (d), and the [hazard working-model study](technical-reference/method-evidence/hazard-msm.md)
-validates it, with support rows `G60`.
-[A modified treatment policy on the hazard path](technical-reference/longitudinal-tmle.md#a-modified-treatment-policy-on-the-hazard-path)
-states part (c), and the
-[hazard modified-treatment-policy study](technical-reference/method-evidence/hazard-mtp.md)
-validates it, with support rows `G61`.
-
-[A treatment at several nodes on the hazard path](technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
-states part (a), and the
-[hazard multi-node study](technical-reference/method-evidence/hazard-multinode.md)
-validates it with `targeting="iterative"`, with support rows `G62`.
-[Covariates after baseline on the hazard path](technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)
-states part (b1), a held baseline treatment with covariates after baseline, and the
-[hazard covariates-after-baseline study](technical-reference/method-evidence/hazard-time-varying.md)
-validates it, with support rows `G63.held`. Each study reports the agreement of the hazard fit
-and the iterated-mean fit, as the acceptance below asks. Part (b2) remains.
-
-The shipped one-step hazard walk is correct but slow when an enumerated policy shares its paths
-with other regimens. On one three-node draw of n = 2,000, the regimens {always, never} took 0.6 s,
-{policy, stay} took 33.5 s, and {always, never, policy} took 96 s over 10,776 steps. The same fits
-take about 1.4 s with `targeting="iterative"`. The multi-node study reports the one-step walk on
-200 draws and gates the iterative fit only.
-
-| part | what to add | published source |
-| --- | --- | --- |
-| (b2) covariates after baseline on a design with a treatment at several nodes | a fluctuation of the hazards and of a regression that integrates each later covariate out, at each decision node | Rytgaard, Gerds and van der Laan (2022), *The Annals of Statistics* 50(5) |
-| (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the loss weight | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
-| (d) a working model over the hazard curve | MSM coefficients over regimen and horizon cells from the targeted hazards | Rosenblum and van der Laan (2010), *The International Journal of Biostatistics* 6(2) |
-
-Acceptance:
-
-- exact-law witnesses for each new clever covariate, with a mutation control that drops it;
-- a registered study for each part. Each study also reports how far the hazard fit and the
-  iterated-mean fit differ on its laws. Both fits are efficient, so with correct nuisance fits they
-  differ by an amount that shrinks faster than $1/\sqrt{n}$, and the study reports that agreement rather than requiring a gap.
 
 ### X7. Two-phase and outcome-dependent sampling
 
