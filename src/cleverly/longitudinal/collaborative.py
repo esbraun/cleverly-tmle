@@ -53,7 +53,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 
 import numpy as np
 from scipy.special import expit, xlogy
@@ -1212,7 +1212,12 @@ class _HazardSelector:
         return tuple(name for _, name in self.pools[mechanism] if name in terms)
 
     def path(
-        self, plan: Plan, horizon: int, branch: str, train: BoolArray | None
+        self,
+        plan: Plan,
+        horizon: int,
+        branch: str,
+        train: BoolArray | None,
+        visit: Callable[[int, _Position], None] | None = None,
     ) -> list[_Position]:
         """The greedy sequence of ``plan`` at ``horizon`` on one branch's training rows.
 
@@ -1221,25 +1226,38 @@ class _HazardSelector:
         the current pass, and records its risk.  A restart count the rule has not used yet
         starts from the targeted fit of the candidate it has accepted so far.
 
-        Every scored risk is kept, but a position's row arrays only while the path can still
-        read them: the first position, each accepted one, and the best of the pass in
-        progress, the first minimum in try order as the rule takes it.  Any other position
-        the rule asks for is targeted again from the same start, which reproduces it
-        exactly.  The solve and candidate counts land in :attr:`counts`.
+        Every scored risk is kept, but a position's row arrays only while the search can still
+        read them: the latest accepted position (the first position before any move), and the
+        best of the pass in progress, the first minimum in try order, as the rule's
+        ``np.argmin`` takes it.  Each path position is handed to ``visit(index, position)`` in
+        order as soon as the rule has accepted it, and is then released unless ``visit`` keeps
+        it.  Without ``visit``, every path position is kept and returned.  A position the rule
+        accepts after its arrays went is targeted again from the same start, which reproduces
+        it exactly.  The solve and candidate counts land in :attr:`counts`.
         """
+        out: list[_Position] = []
+        if visit is None:
+
+            def keep_all(index: int, position: _Position) -> None:
+                out.append(position)
+
+            visit = keep_all
         weights = self.data.weights * (1.0 if train is None else train.astype(float))
         origin: _Key = ((), None, 0)
         risks: dict[_Key, float] = {}
         kept: dict[_Key, _Position] = {}
-        protected: set[_Key] = {origin}
         best: dict[tuple[tuple[_Move, ...], int], _Key] = {}
-        accepted_at: dict[tuple[_Move, ...], _Position] = {}
-        starts: dict[int, HazardState] = {0: self.start}
+        visited: list[_Key] = []
+        latest: list[_Key] = []
+        # The restart count and start state of the pass in progress.
+        steps, start = [0], [self.start]
         built: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
         tally = {"solves": 0, "rebuilt": 0}
 
         def build(key: _Key) -> _Position:
             accepted, move, n_steps = key
+            # Every position is built in the pass that scores it, from that pass's start.
+            assert n_steps == steps[0], key
             chosen: tuple[set[str], set[str]] = (set(), set())
             for mechanism, name in (*accepted, *(() if move is None else (move,))):
                 chosen[0 if mechanism == "g1" else 1].add(name)
@@ -1247,60 +1265,63 @@ class _HazardSelector:
             built.add(terms)
             tally["solves"] += 1
             return self.position(
-                plan, branch, train, terms, move, starts[n_steps], horizon, weights, n_steps
+                plan, branch, train, terms, move, start[0], horizon, weights, n_steps
             )
 
-        def retained(key: _Key) -> _Position:
-            # Only a position the rule has scored can be asked for again.
+        def accept(key: _Key) -> None:
+            """Hand the accepted ``key`` to ``visit`` and make it the latest accepted."""
+            # Only a position the rule has scored can be accepted.
             assert key in risks, key
             position = kept.get(key)
             if position is None:
                 tally["rebuilt"] += 1
                 position = build(key)
-            return position
-
-        def keep(key: _Key) -> _Position:
-            position = retained(key)
+            visit(len(visited), position)
+            visited.append(key)
+            for previous in latest:
+                kept.pop(previous, None)
+            latest[:] = [key]
             kept[key] = position
-            protected.add(key)
-            return position
 
         def score(accepted: tuple[_Move, ...], move: _Move | None, n_steps: int) -> float:
-            if accepted and accepted not in accepted_at:
+            if accepted and len(accepted) == len(visited):
                 # The rule accepted its last move in the pass that scored it.
-                accepted_at[accepted] = keep((accepted[:-1], accepted[-1], n_steps))
-            if n_steps not in starts:
+                accept((accepted[:-1], accepted[-1], n_steps))
+            if n_steps != steps[0]:
                 # No move lowered the risk: the current targeted fit becomes the initial
                 # fit, and the search runs again from it.
-                current = accepted_at[accepted] if accepted else keep(origin)
-                starts[n_steps] = current.state
+                steps[0], start[0] = n_steps, kept[latest[0]].state
             key = (accepted, move, n_steps)
             if key not in risks:
                 position = build(key)
                 risks[key] = position.risk
                 if key == origin:
                     kept[key] = position
+                    accept(key)
                 else:
                     turn = (accepted, n_steps)
                     incumbent = best.get(turn)
                     if incumbent is None or _finite(position.risk) < _finite(risks[incumbent]):
-                        if incumbent is not None and incumbent not in protected:
+                        if incumbent is not None and incumbent not in latest:
                             del kept[incumbent]
                         best[turn] = key
                         kept[key] = position
                     for other in [other for other in best if other != turn]:
-                        # A finished pass: its best is accepted (kept) or passed over.
-                        if best[other] not in protected:
+                        # A finished pass: its best is the latest accepted or passed over.
+                        if best[other] not in latest:
                             kept.pop(best[other], None)
                         del best[other]
             return risks[key]
 
         rule = greedy_rule(self.pools, score)
         moves = [move for move, _ in rule[1:] if move is not None]
-        out = [retained(origin)] + [
-            retained((tuple(moves[:index]), move, n_steps))
-            for index, (move, n_steps) in enumerate(rule[1:])
+        keys = [origin] + [
+            (tuple(moves[:index]), move, n_steps) for index, (move, n_steps) in enumerate(rule[1:])
         ]
+        if len(visited) < len(keys):
+            accept(keys[-1])
+        # The positions visited are the rule's path, in its order.
+        assert visited == keys, (visited, keys)
         self.counts[(plan.label, int(horizon), branch)] = _PathCounts(
             tally["solves"], len(built), tally["rebuilt"]
         )
@@ -1309,7 +1330,11 @@ class _HazardSelector:
     def cross_validate(
         self, plan: Plan, horizon: int
     ) -> tuple[FloatArray, tuple[tuple[int, int, str], ...]]:
-        """The cross-validated penalized risk of every move count, summed over the folds."""
+        """The cross-validated penalized risk of every move count, summed over the folds.
+
+        Each fold's path positions are scored on the fold's test rows as the search accepts
+        them, so no fold keeps a path.
+        """
         n_positions = sum(len(pool) for pool in self.pools) + 1
         risk = np.zeros(n_positions)
         held: list[tuple[int, int, str]] = []
@@ -1317,16 +1342,19 @@ class _HazardSelector:
             train = np.zeros(self.data.n, dtype=bool)
             train[fit_rows] = True
             branch = f"cv{fold}"
-            path = self.path(plan, horizon, branch, train)
             weights = self.data.weights * (~train).astype(float)
-            for index, position in enumerate(path):
+
+            def scored(
+                index: int, position: _Position, fold: int = fold, weights: FloatArray = weights
+            ) -> None:
                 loss, penalty, _ = self.score(
                     plan, position.candidate, position.state, horizon, weights
                 )
                 risk[index] += loss + penalty
-            held.extend((fold, node, kind) for _, node, kind in path[0].candidate.held)
-            # Released before the next fold's search, which would otherwise run beside it.
-            del path, position
+                if index == 0:
+                    held.extend((fold, node, kind) for _, node, kind in position.candidate.held)
+
+            self.path(plan, horizon, branch, train, scored)
         return risk, tuple(sorted(set(held)))
 
 
@@ -2078,21 +2106,19 @@ def run_selection(
         for t in horizons:
             key = (arm, int(t))
             if key not in by_arm:
-                # The folds first, so the full-data path is the only one alive when its
-                # chosen position is kept.  Every solve is a pure function of its inputs, so
-                # the order moves no number.  Only the record and the chosen position outlive
-                # the search.
+                # The folds first, so the full-data path knows which position to keep as it
+                # runs.  Every solve is a pure function of its inputs, so the order moves no
+                # number.  Only the record's scalars and the chosen position outlive the search.
                 cv_risk, held = selector.cross_validate(plan, t)
-                path = selector.path(plan, t, "full", None)
                 chosen = _finite_argmin(cv_risk)
                 by_arm[key] = None
                 if chosen >= 0:
+                    rows, position = _full_path(selector, plan, int(t), chosen)
                     record = _selection_record(
-                        selector, plan, int(t), path, (cv_risk, held, chosen), diagnostic
+                        selector, plan, int(t), rows, (cv_risk, held, chosen), diagnostic
                     )
-                    unfitted = sum(not p.candidate.converged for p in path)
-                    by_arm[key] = (record, unfitted, path[chosen])
-                del path
+                    unfitted = sum(not row.candidate_converged for row in rows)
+                    by_arm[key] = (record, unfitted, position)
             searched = by_arm[key]
             if searched is None:
                 raise LongitudinalError(
@@ -2128,11 +2154,60 @@ def run_selection(
     return fits, records, positions
 
 
+def _full_path(
+    selector: _HazardSelector, plan: Plan, horizon: int, chosen: int
+) -> tuple[list[_PathRow], _Position]:
+    """The scalars of every full-data path position, and the chosen position itself."""
+    rows: list[_PathRow] = []
+    kept: list[_Position] = []
+
+    def summarize(index: int, position: _Position) -> None:
+        rows.append(_PathRow.of(position))
+        if index == chosen:
+            kept.append(position)
+
+    selector.path(plan, horizon, "full", None, summarize)
+    return rows, kept[0]
+
+
+class _PathRow(NamedTuple):
+    """The scalars a :class:`SurvivalSelection` reads from one full-data path position."""
+
+    move: tuple[str, str] | None
+    g1_terms: tuple[str, ...]
+    g2_terms: tuple[str, ...]
+    n_steps: int
+    loss: float
+    penalty: float
+    risk: float
+    converged: bool
+    clipped: int
+    dropped: int
+    candidate_converged: bool
+
+    @classmethod
+    def of(cls, position: _Position) -> _PathRow:
+        candidate = position.candidate
+        return cls(
+            position.move,
+            candidate.g1_terms,
+            candidate.g2_terms,
+            position.n_steps,
+            position.loss,
+            position.penalty,
+            position.risk,
+            bool(position.record.converged),
+            position.clipped,
+            candidate.dropped,
+            candidate.converged,
+        )
+
+
 def _selection_record(
     selector: _HazardSelector,
     plan: Plan,
     horizon: int,
-    path: Sequence[_Position],
+    path: Sequence[_PathRow],
     folds: tuple[FloatArray, tuple[tuple[int, int, str], ...], int],
     diagnostic: int,
 ) -> SurvivalSelection:
@@ -2147,16 +2222,16 @@ def _selection_record(
         arm=plan.label,
         horizon=horizon,
         moves=tuple(p.move for p in path),
-        g1_terms=tuple(p.candidate.g1_terms for p in path),
-        g2_terms=tuple(p.candidate.g2_terms for p in path),
+        g1_terms=tuple(p.g1_terms for p in path),
+        g2_terms=tuple(p.g2_terms for p in path),
         n_steps=tuple(p.n_steps for p in path),
         train_loss=np.array([p.loss for p in path]),
         train_penalty=np.array([p.penalty for p in path]),
         train_risk=np.array([p.risk for p in path]),
         cv_risk=np.asarray(cv_risk, dtype=float),
-        converged=tuple(bool(p.record.converged) for p in path),
+        converged=tuple(p.converged for p in path),
         clipped=tuple(p.clipped for p in path),
-        dropped_terms=tuple(p.candidate.dropped for p in path),
+        dropped_terms=tuple(p.dropped for p in path),
         selected=chosen,
         penalized=selector.penalty,
         folds=selector.selection,

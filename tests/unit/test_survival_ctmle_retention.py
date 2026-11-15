@@ -218,13 +218,13 @@ def _live_positions(selector: module._HazardSelector, monkeypatch: pytest.Monkey
 def test_a_fit_keeps_at_most_the_positions_its_path_can_read(
     instrument: LongitudinalData, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The bound: the first position, at most 2p + 1 accepted, the pass best, the one being
-    built, and one chosen position per finished (arm, horizon).  The reference path, which
-    keeps every scored position, exceeds it on the same fit."""
+    """The bound does not grow with the covariates: the latest accepted position (the first
+    one before any move), the pass best, the one being built, the full path's chosen position,
+    and one chosen position per finished (arm, horizon).  The reference path, which keeps every
+    scored position, exceeds it on the same fit."""
     horizons = [1, 2]
-    p = len(instrument.baseline_names)
     keys = 2 * len(horizons)
-    bound = 1 + (2 * p + 1) + 1 + 1 + (keys - 1)
+    bound = 1 + 1 + 1 + 1 + (keys - 1)
     selector = _selector(instrument, Pick((4,), 5))
     counts = _live_positions(selector, monkeypatch)
     with warnings.catch_warnings():
@@ -235,9 +235,12 @@ def test_a_fit_keeps_at_most_the_positions_its_path_can_read(
     # The reference keeps every position of a path.
     reference = _selector(instrument, Pick((4,), 5))
 
-    def keep_all(plan: Any, horizon: int, branch: str, train: Any) -> Any:
+    def keep_all(plan: Any, horizon: int, branch: str, train: Any, visit: Any = None) -> Any:
         out = _reference_path(reference, plan, horizon, branch, train)
         reference.counts[(plan.label, int(horizon), branch)] = module._PathCounts(0, 0, 0)
+        for index, position in enumerate(out):
+            if visit is not None:
+                visit(index, position)
         return out
 
     monkeypatch.setattr(reference, "path", keep_all)
