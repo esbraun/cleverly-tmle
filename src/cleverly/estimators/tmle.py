@@ -566,6 +566,26 @@ def _independent_units(data: CausalData) -> tuple[IntArray, str]:
     return np.asarray(data.cluster).reshape(-1), "cluster"
 
 
+def _units_up_to_two(unit_of: IntArray, rows: BoolArray, clustered: bool) -> int:
+    """The number of distinct units among ``rows``, exact below two and at least two above.
+
+    The training-support refusals ask only whether a count reaches two, and print it when it
+    does not. A row is its own unit when no cluster is declared, so the count is the number of
+    rows; otherwise two units are found as soon as one label differs from the first, and only
+    a count below two is counted exactly. Integer cluster codes, which every library path
+    writes, then need no pass over ``n`` labels beyond one comparison.
+    """
+    if not clustered:  # unit_of is np.arange(n): one unit per row
+        return int(np.count_nonzero(rows))
+    labels = unit_of[rows]
+    if not np.issubdtype(labels.dtype, np.integer):
+        # Equality would split labels np.unique merges, such as NaN.
+        return int(np.unique(labels).size)
+    if labels.size and np.any(labels != labels[0]):
+        return 2
+    return int(np.unique(labels).size)
+
+
 #: Why a package classification Super Learner needs two rows of every class in a training
 #: complement. Written once because three refusals state it: the arm-indexed contract's
 #: sample and complement checks, and the generic cross-fitting preflight.
@@ -3937,8 +3957,9 @@ class TMLE:
         arm_way_out = remedy if arm_remedy is None else arm_remedy
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
+        clustered = data.cluster is not None
         for arm in arms:
-            count = int(np.unique(unit_of[treatment == arm]).size)
+            count = _units_up_to_two(unit_of, treatment == arm, clustered)
             if count < 2:
                 raise DataError(
                     f"{subject} needs each {what} in at least two independent "
@@ -3956,7 +3977,7 @@ class TMLE:
             # splits the same rows again and its inner split needs two of each class too.
             outcome_values = np.asarray(data.outcome, dtype=float)
             for value in (0.0, 1.0):
-                count = int(np.unique(unit_of[observed & (outcome_values == value)]).size)
+                count = _units_up_to_two(unit_of, observed & (outcome_values == value), clustered)
                 if count == 0 and constant_outcome:
                     raise DataError(
                         f"{subject} needs both outcome classes among the observed outcomes, "
