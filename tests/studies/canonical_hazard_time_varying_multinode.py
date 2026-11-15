@@ -34,9 +34,9 @@ only, which ``canonical-ltmle-survival`` already ties to the in-package fit, so 
 transitive evidence only.  The record names no reference.
 
 Publication policy is ``gated``.  The red-cell readings are declared in
-``tests/canonical/hazard_time_varying_multinode/regenerate.py`` before any run.  The record is
-not registered until its declared run passes; its support rows ``G63.multinode.*`` land with the
-registration.
+``tests/canonical/hazard_time_varying_multinode/regenerate.py`` before any run.  The declared run
+at ``10d19ab9`` passed, and the record is registered with the support rows ``G63.multinode.*``
+(:func:`support_rows`).
 """
 
 from __future__ import annotations
@@ -274,7 +274,7 @@ STUDY = StudyRecord(
     slug="hazard-time-varying-multinode",
     artifacts=ROOT / "tests" / "canonical" / "hazard_time_varying_multinode",
     document="docs/technical-reference/method-evidence/hazard-time-varying-multinode.md",
-    anchor="a-treatment-at-several-nodes-with-covariates-after-baseline",
+    anchor="a-treatment-at-several-nodes-with-covariates-after-baseline-on-the-hazard-path",
     scenarios=ESTIMANDS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -327,18 +327,36 @@ CONFIGURATION = {
     },
 }
 
-#: The support rows the registration adds (plan X70 section 5), each with the cells that
-#: license it.  They are not in :data:`cleverly._support_rows.LONGITUDINAL_ROWS` until the
-#: declared run passes, so a (b2) fit reads ``experimental`` until then.
+#: The support rows this study licenses (plan X70 section 5), each with the fit label whose fit
+#: its key is read from.  They live in :data:`cleverly._support_rows.LONGITUDINAL_ROWS` and carry
+#: the key option ``later_covariates`` on the unheld treatment axis, so no row of the baseline
+#: multi-node hazard engine (``G62``) or of the held design (``G63.held``) covers these fits.
+G63_MULTINODE_FITS = {
+    "G63.multinode.in_sample": "multinode",
+    "G63.multinode.cross_fitted": "crossfit",
+}
+#: Row id -> the cells that license it.
 G63_MULTINODE_CELLS: dict[str, tuple[str, ...]] = {
     "G63.multinode.in_sample": (
         "multinode_contrast",
-        "multinode_risk",
+        "multinode_rule",
         "multinode_policy",
+        "multinode_risk",
         "multinode_curve",
     ),
     "G63.multinode.cross_fitted": ("crossfit_contrast", "crossfit_policy"),
 }
+#: The rows whose fit labels carry a gated ``simultaneous_coverage`` band.
+G63_MULTINODE_BANDED = ("G63.multinode.in_sample",)
+
+
+def support_rows() -> tuple[Any, ...]:
+    """The registered ``G63.multinode.*`` rows, in :data:`G63_MULTINODE_FITS` order."""
+    from cleverly._support_rows import LONGITUDINAL_ROWS
+
+    rows = {row.id: row for row in LONGITUDINAL_ROWS}
+    return tuple(rows[row_id] for row_id in G63_MULTINODE_FITS)
+
 
 #: Every nuisance configuration: ``(hazard correct, continuation correct, mechanism correct)``.
 #: The wrong mechanism drops ``L_k`` from the treatment and the retention models.

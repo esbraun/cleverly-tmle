@@ -422,7 +422,7 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| one baseline decision | a treatment at several visits beside $L_k$ fits since part (b2) of plan X70; its study is [declared and not yet run](hazard-time-varying-multinode.md) |
+| one baseline decision | a treatment at several visits beside $L_k$ is covered by [its own study](hazard-time-varying-multinode.md) |
 | one scalar binary $L_k$ on Markov laws and finite $W$ | the evidence covers correct or misspecified logistic and cell-mean learners. A flexible learner, or a continuous, multivariate or non-Markov $L_k$, is outside it; the unit tests cover a continuous $L_k$ |
 | `targeting="one_step"` only | the per-horizon algorithm is refused on this design (H28) |
 | static regimens and one modified treatment policy at visit 1 | plan X70 puts a rule and a known policy on a held design in scope; they rest on `tests/unit/test_hazard_time_varying.py` |

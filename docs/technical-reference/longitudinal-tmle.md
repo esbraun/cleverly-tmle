@@ -1609,9 +1609,16 @@ each node at the observed history and builds no treatment path, so the path enum
 `refuse_hazard_design` checks H3, then H28, H29 and H30, then H22, then H27 per regimen and node, a
 modified treatment policy before a tilt at each node, all before any learner.
 
-The registered-study status of this design is on
-[treatment at several nodes with covariates after baseline](method-evidence/hazard-time-varying-multinode.md).
-Until its study passes, every such fit matches no support row and is labelled `experimental`.
+The [hazard multi-node covariates-after-baseline study](method-evidence/hazard-time-varying-multinode.md)
+covers one-step fits on one law with a binary treatment at each of three nodes and one binary
+Markov covariate before the treatment at nodes 2 and 3, under always, never, a known rule and a
+known policy, with correctly specified or misspecified low-dimensional learners, in sample and on
+five folds. Support rows `G63.multinode` license their point estimates and Wald intervals, and the
+simultaneous band on the in-sample fit. The key's `later_covariates` option on the unheld
+treatment axis keeps these fits off the rows of the path engine (`G62`) and of the held design
+(`G63.held`). Another composition, such as competing causes, more than two levels at a node,
+observation weights, clusters, `node_bounds=`, declared factors or a Markov order, matches no
+row and is labelled `experimental`.
 
 ### A treatment at several nodes on the hazard path
 

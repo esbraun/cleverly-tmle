@@ -539,9 +539,11 @@ A treatment with categories at each time point fits beside such covariates too. 
 treatment at each time point, follow a known rule that reads the latest covariate, or draw the
 treatment with known probabilities that may read the covariate and the earlier treatment. At each
 time point the fit predicts the event for every treatment level at each person's own history, so it
-never builds the treatment sequences a plan could follow. Its validation study is designed but has
-not run, so the fit is labelled `experimental`
-([its evidence page](../technical-reference/method-evidence/hazard-time-varying-multinode.md)).
+never builds the treatment sequences a plan could follow. A
+[validation study](../technical-reference/method-evidence/hazard-time-varying-multinode.md)
+measures this fit with a yes-or-no treatment at three time points and one yes-or-no covariate
+measured before the treatment at each later time point, with one event type, in sample and with
+cross-fitting.
 
 A covariate declared at the first time point only is measured before the treatment, so it is an
 ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in

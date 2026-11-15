@@ -1028,7 +1028,8 @@ def longitudinal_key(
             ("tuned_cap", tuned_cap),
             *_stopping_options(estimator).items(),
             # A hazard fit with a covariate block at a node after the first runs the backward
-            # pass (X70 part (b1)), a different estimator from the baseline hazard engine.
+            # pass (X70 parts (b1) and (b2)), a different estimator from the baseline hazard
+            # engine.
             (
                 "later_covariates",
                 estimator.survival_model == "hazard"

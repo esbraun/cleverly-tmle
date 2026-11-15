@@ -1269,15 +1269,9 @@ class TestTheCells:
         assert written | rate == declared
         assert filled | rate == declared
 
-    def test_the_study_waits_for_its_run(self) -> None:
-        """The record registers with its passing declared run, and its rows land with it."""
-        assert study.STUDY not in registered()
+    def test_the_study_is_registered(self) -> None:
+        assert study.STUDY in registered()
         assert study.STUDY.publication_policy == "gated"
-        rows = {row.id for row in LONGITUDINAL_ROWS}
-        assert "G63.held.in_sample" in rows
-        assert not rows & set(study.G63_MULTINODE_CELLS)
-        licensed = {label for labels in study.G63_MULTINODE_CELLS.values() for label in labels}
-        assert licensed <= {*study.CALIBRATION_LABELS, *study.JOINT_LABELS}
 
     def test_the_seeds_are_distinct(self) -> None:
         from tests.studies import canonical_hazard_multinode, canonical_hazard_time_varying
@@ -1333,6 +1327,83 @@ def _ic_gaps(fit_label: str) -> dict[str, tuple[list[float], float]]:
         assert small.size == properties.IC_GAP_DRAWS and large.size == 1, (fit_label, label)
         out[label] = (list(small), float(large[0]))
     return out
+
+
+def _fit_key(fit_label: str, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The support key of one fit label's fit, read where the estimator classifies it."""
+    from cleverly import _support
+    from cleverly.longitudinal import estimator as estimator_module
+
+    keys: list[Any] = []
+    original = estimator_module.classify_longitudinal_fit
+
+    def spy(estimator: Any, data: Any, **settings: Any) -> Any:
+        names = (
+            "outcome_kind",
+            "cross_fitted",
+            "known_factors",
+            "has_msm",
+            "regimen_kinds",
+            "tuned_cap",
+            "separable_first",
+        )
+        key, _ = _support.longitudinal_key(
+            estimator, data, **{name: settings[name] for name in names if name in settings}
+        )
+        keys.append(key)
+        return original(estimator, data, **settings)
+
+    monkeypatch.setattr(estimator_module, "classify_longitudinal_fit", spy)
+    result = _quiet(study.fit, fit_label, law.LAW.draw(600, 1))
+    return keys[-1], result
+
+
+class TestTheSupportRows:
+    @pytest.mark.parametrize("row", study.support_rows(), ids=lambda row: row.id)
+    def test_each_row_covers_its_fit_and_licenses_it(
+        self, row: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        key, result = _fit_key(study.G63_MULTINODE_FITS[row.id], monkeypatch)
+        assert key.is_covered_by(row.key), key.differing_axes(row.key)
+        assert dict(row.key.options)["later_covariates"] is True
+        assert row.evidence == (study.STUDY.slug,)
+        assert row.cells == study.G63_MULTINODE_CELLS[row.id]
+        assert set(row.cells) <= {*study.CALIBRATION_LABELS, *study.JOINT_LABELS}
+        supports = {(e.support.label, e.support.row) for e in result.estimates.values()}
+        assert supports == {("supported", row.id)}
+
+    def test_no_other_row_covers_these_fits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The ``later_covariates`` option keeps every fit off the baseline multi-node rows.
+
+        Without it the fits differ from ``G62.three_node`` in the targeting algorithm alone (the
+        ``G62`` regimen rows name ``targeting="iterative"``), and from ``G63.held`` in the
+        treatment axis, so no other row covers either fit, marked or not.
+        """
+        from dataclasses import replace
+
+        for row_id, fit_label in study.G63_MULTINODE_FITS.items():
+            key, _ = _fit_key(fit_label, monkeypatch)
+            covering = {row.id for row in LONGITUDINAL_ROWS if key.is_covered_by(row.key)}
+            assert covering == {row_id}
+            options = tuple(
+                (name, False if name == "later_covariates" else value)
+                for name, value in key.options
+            )
+            unmarked = replace(key, options=options)
+            assert not any(unmarked.is_covered_by(row.key) for row in study.support_rows())
+
+    def test_the_rows_say_what_the_key_cannot(self) -> None:
+        """The banded row licenses the gated band, and every row limits its covariate law."""
+        from cleverly._support_rows import _LONG_BAND, _LONG_WALD, BAND_CELLS
+
+        for row in study.support_rows():
+            kinds = _LONG_BAND if row.id in study.G63_MULTINODE_BANDED else _LONG_WALD
+            assert frozenset(row.kinds) == kinds, row.id
+            assert (row.id in BAND_CELLS) == (row.id in study.G63_MULTINODE_BANDED), row.id
+            text = " ".join(row.limits)
+            assert "binary" in text and "Markov" in text and "Regimens:" in text, row.id
+        banded = {study.G63_MULTINODE_FITS[row_id] for row_id in study.G63_MULTINODE_BANDED}
+        assert {label.removesuffix("_curve") for label in study.JOINT_LABELS} == banded
 
 
 class TestTheInfluenceCurveGap:
