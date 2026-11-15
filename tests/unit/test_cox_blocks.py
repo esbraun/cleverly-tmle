@@ -89,8 +89,8 @@ def _fit(
 
 def _separated() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     # Failure order is a monotone function of one covariate: its coefficient runs to a
-    # monotone-likelihood boundary, step halving cannot keep the likelihood finite, and the
-    # fit warns.
+    # monotone-likelihood boundary. A step to a +inf likelihood is accepted, the next Newton
+    # step is not finite, and the fit stops unconverged and warns.
     rng = np.random.default_rng(0)
     n = 200
     W = rng.normal(size=n)
@@ -155,11 +155,16 @@ def test_the_fit_is_byte_identical_to_the_one_array_construction(
 
     assert own(fitted_warnings) == own(reference_warnings)
     assert set(fitted_warnings) <= set(reference_warnings)
+    if case == "boundary":
+        # The witness for the subset: here the reference divides zero by zero in trials the
+        # candidate no longer builds, so the count must drop, not merely stay within.
+        assert len(fitted_warnings) < len(reference_warnings)
 
 
 def test_the_hard_cases_reach_the_paths_they_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The boundary fixture must exhaust the halving loop, and the singular one must reach the
-    # least-squares step; otherwise their witnesses above would not cover those paths.
+    # The boundary fixture must stop unconverged at the monotone-likelihood boundary, the
+    # singular one must reach the least-squares step, and the halving one must reject a trial;
+    # otherwise their witnesses above would not cover those paths.
     model, (X, time, event) = CASES["boundary"]()
     _, caught = _fit(model, X, time, event, monkeypatch)
     assert not model.converged_
@@ -205,6 +210,8 @@ def test_no_block_size_changes_a_byte(block_bytes: int, monkeypatch: pytest.Monk
     beta = np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1])
     n, q = Z.shape
     monkeypatch.setattr(cox, "_BLOCK_BYTES", block_bytes * 8 * n * q)
+    # The candidate runs before the reference, so a skipped row cannot inherit the reference's
+    # values from a reused allocation; the production code also fills with NaN (pinned below).
     got = cox._loglik_parts(beta, Z, sets)
     want = _reference_parts(beta, Z, sets)
     assert np.float64(got[0]).tobytes() == np.float64(want[0]).tobytes()
@@ -245,6 +252,29 @@ def test_a_block_that_skips_a_row_is_caught() -> None:
     want = _reference_parts(beta, Z, sets)[2].tobytes()
     assert _blocked_parts(beta, Z, sets, 3, skip=False)[2].tobytes() == want
     assert _blocked_parts(beta, Z, sets, 3, skip=True)[2].tobytes() != want
+
+
+def test_an_unset_information_row_is_nan() -> None:
+    # Deliberate mutation of a copy of the production function: its block loop stops one block
+    # early. The information starts as NaN, so the unset rows are NaN whatever ran before, and
+    # the byte comparison cannot pass on memory that happens to hold the right values.
+    import inspect
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(cox._loglik_parts))
+    loop = "for first in range(0, q, block):"
+    assert loop in source
+    namespace = dict(vars(cox))
+    exec(source.replace(loop, "for first in range(0, q - block, block):"), namespace)
+    mutated = namespace["_loglik_parts"]
+    X, time, event = _sample(p=6)
+    Z = cox._design(X, "interaction")
+    sets = _risk_sets(time, event)
+    beta = np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1])
+    want = _reference_parts(beta, Z, sets)[2]
+    got = mutated(beta, Z, sets)[2]
+    assert np.isnan(got[-1]).all()
+    assert got.tobytes() != want.tobytes()
 
 
 def test_a_wrong_trial_likelihood_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -331,6 +361,26 @@ def test_a_continuous_survival_fit_is_unchanged(monkeypatch: pytest.MonkeyPatch)
             (name, np.float64(e.psi).tobytes(), np.float64(e.std_error).tobytes())
             for name, e in fit.items()
         )
+
+    got = run()
+    with monkeypatch.context() as patch:
+        patch.setattr(cox, "_loglik_parts", _reference_parts)
+        patch.setattr(cox, "_loglik", lambda beta, Z, sets: _reference_parts(beta, Z, sets)[0])
+        want = run()
+    assert got == want
+
+
+def test_the_hazard_selection_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The selection's losses and choice, not only the estimates downstream of them.
+    X, time, event = _sample(n=400, p=4, seed=13)
+    library = [CoxHazard("treatment"), CoxHazard("main"), CoxHazard("interaction")]
+    folds = np.arange(X.shape[0]) % 3
+
+    def run() -> tuple[bytes, int, str]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            chosen = cox.select_hazard(library, X, time, event, folds)
+        return np.asarray(chosen.losses).tobytes(), chosen.chosen, chosen.chosen_name
 
     got = run()
     with monkeypatch.context() as patch:
