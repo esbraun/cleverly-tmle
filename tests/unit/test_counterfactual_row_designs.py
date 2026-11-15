@@ -28,6 +28,7 @@ from cleverly.data.causal_data import RowDesign
 from cleverly.dose_response import DoseResponse
 from cleverly.estimators import DRTMLE, TMLE, AdaptiveIPTW, DoseResponseTMLE, _nuisance
 from cleverly.interventions import LearnedRule, Shift
+from cleverly.interventions.tuning import DoseQuantile
 
 LOGIT = LogisticRegression(max_iter=1000)
 
@@ -361,7 +362,43 @@ def _adaptive_iptw_fit() -> Any:
     ).fit(frame, outcome="Y", treatment="A", covariates=_covariates(frame), delta="R")
 
 
+def _tuned_cap_fit() -> Any:
+    """A data-tuned cap reads the outcome regression at probe doses."""
+    frame = _frame()
+    rng = np.random.default_rng(13)
+    frame["A"] = rng.normal(1.0 + 0.3 * frame["W0"], 0.7)
+    return TMLE(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LinearRegression(),
+        policies=[Shift(0.5, cap=DoseQuantile(0.5), target="population", name="tuned")],
+        ratio="classifier",
+        n_folds=3,
+        random_state=4,
+    ).fit(frame, outcome="Y", treatment="A", covariates=_covariates(frame))
+
+
+def _dose_response_single_fold_fit() -> Any:
+    """The stacked path at ``rows=None``: every quadrature design built whole once."""
+    rng = np.random.default_rng(14)
+    a = rng.uniform(0.0, 4.0, 600)
+    frame = pd.DataFrame({"A": a, "W0": rng.normal(size=a.size)})
+    frame["Y"] = 0.5 * a + 0.3 * frame["W0"] + rng.normal(scale=0.3, size=a.size)
+    curve = DoseResponse(doses=(1.5,), bandwidths=(0.6,), support=(0.5, 3.5))
+    return DoseResponseTMLE(
+        curve,
+        outcome_learner=LinearRegression(),
+        treatment_learner=DummyClassifier(strategy="prior"),
+        cross_fit=False,
+        fluctuation="linear",
+        q_bounds=(-5, 5),
+        n_replicates=100,
+        random_state=7,
+    ).fit(frame, outcome="Y", treatment="A", covariates=["W0"])
+
+
 FITS: dict[str, Callable[[], Any]] = {
+    "tuned cap, probe doses": _tuned_cap_fit,
+    "dose response, single fold": _dose_response_single_fold_fit,
     "learned rule, plug-in": _learned_rule_fit,
     "adaptive IPTW, missing outcomes": _adaptive_iptw_fit,
     "dose response, stacked": _dose_response_fit,
