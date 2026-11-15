@@ -154,6 +154,7 @@ class PlannedFits:
     total_fits : int
     total_candidate_fits : int
     exact : bool
+    min_fits : int
 
     See Also
     --------
@@ -1204,7 +1205,8 @@ def refit_plan(result: Any) -> PlannedFits:
     ------
     CapabilityError
         If the refit refuses the result, with the record the refit raises, or if the result
-        keeps no estimator to refit.
+        keeps no estimator to refit, with the reason code and wording of
+        :func:`~cleverly.validation.refute`.
     """
     from ._trial_family import AUGMENTED_TRIAL_FAMILY
     from .exceptions import CapabilityError, RefusalReason
@@ -1218,22 +1220,19 @@ def refit_plan(result: Any) -> PlannedFits:
             result.identified_effect, result.method.with_overrides(random_state=seed)
         )
     estimator = getattr(result, "estimator", None)
-    planned_refit = getattr(estimator, "_planned_refit", None)
-    if estimator is None or planned_refit is None:
+    if estimator is None:
+        # ``refit()`` is a method of the estimator, so it has no refusal of its own here;
+        # the refutation that refits refuses the same result with this code and wording
+        # (``validation.refute._refuse_missing_estimator``).  A permanent property of the
+        # result, not missing work.
         raise CapabilityError(
-            f"refit_plan does not count a refit of {type(result).__name__}: "
-            + (
-                "the result keeps no estimator configuration to refit."
-                if estimator is None
-                else f"{type(estimator).__name__} has no planned-fit preview."
-            ),
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=(
-                "Count the fits of the original call with CausalStudy.planned_fits, which a "
-                "refit on the same data repeats."
-            ),
-            roadmap="X106",
+            "refit_plan needs the fitted estimator that produced the result",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
+    # Every engine that keeps itself on its result defines a refit preview beside its refit
+    # (tests/unit/test_planned_fits_refit.py, test_every_engine_defines_a_preview_beside_its_fit).
+    planned_refit = getattr(estimator, "_planned_refit", None)
+    assert planned_refit is not None, f"{type(estimator).__name__} has no refit preview"
     data = result.data
     if family == "continuous_survival":
         return cast("PlannedFits", planned_refit(data, random_state=estimator.random_state))

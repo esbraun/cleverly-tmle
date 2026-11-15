@@ -18,6 +18,7 @@ import inspect
 import warnings
 from collections import Counter
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ from cleverly.longitudinal import (
 )
 from cleverly.longitudinal.estimator import _SequentialEstimator
 from cleverly.survival.engine import ContinuousSurvivalTMLE
+from tests.unit import _planned_fits_support as support
 from tests.unit._capability_sweep_support import KINDS, fit_continuous_survival
 
 SOURCE = Path(cleverly.__file__).parent
@@ -179,11 +181,26 @@ def test_an_unseeded_fit_refits_its_recorded_draws() -> None:
     assert sum(counts.values()) == plan.total_candidate_fits == 2 * 4 * 2
 
 
-def test_refit_plan_refuses_a_result_with_no_estimator() -> None:
-    from cleverly.exceptions import CapabilityError
+def test_refit_plan_refuses_a_result_with_no_estimator_as_refute_does() -> None:
+    from cleverly.exceptions import CapabilityError, RefusalReason
+    from cleverly.validation import refute
 
-    with pytest.raises(CapabilityError, match="keeps no estimator configuration"):
-        refit_plan(type("Bare", (), {"estimator": None, "data": None})())
+    result = TMLE(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=False,
+        random_state=0,
+        estimands=["ate"],
+    ).fit(make_linear_ate(n=120, seed=1)[0], **_COLUMNS)
+    bare = replace(result.single(), estimator=None)
+    with pytest.raises(CapabilityError) as planned:
+        refit_plan(bare)
+    with pytest.raises(CapabilityError) as refused:
+        refute(bare, estimand="ate", tests=("random_common_cause",))
+    assert planned.value.refusal.reason == RefusalReason.INVALID_DECLARATION
+    assert planned.value.refusal.roadmap is None
+    assert "the fitted estimator that produced the result" in str(refused.value)
+    assert str(planned.value).replace("refit_plan", "refute") == str(refused.value)
 
 
 # ------------------------------------------------------------------ coverage
@@ -214,13 +231,6 @@ DISPATCHED: frozenset[type] = frozenset(
 UNPRICED: frozenset[type] = frozenset()
 
 
-def _subclasses(base: type) -> set[type]:
-    out = {base}
-    for child in base.__subclasses__():
-        out |= _subclasses(child)
-    return out
-
-
 def _priced(cls: type) -> bool:
     """Whether the class that defines ``cls.fit`` defines ``_planned_fits`` beside it, with
     ``fit``'s parameters, and the class that defines ``refit`` defines ``_planned_refit``."""
@@ -237,8 +247,7 @@ def _priced(cls: type) -> bool:
 
 
 def _engines() -> set[type]:
-    found = _subclasses(TMLE) | _subclasses(_SequentialEstimator)
-    return found | {EPEstimator, ContinuousSurvivalTMLE}
+    return support.engine_classes()
 
 
 def test_every_engine_defines_a_preview_beside_its_fit() -> None:
@@ -369,7 +378,11 @@ BASELINE: dict[str, tuple[Callable[[], Any], list[tuple[Any, str]], dict[str, in
     ),
     "iptw": (
         lambda: AdaptiveIPTW(
-            treatment_learner=LogisticRegression(), n_folds=3, random_state=0, estimands=["ate"]
+            treatment_learner=LogisticRegression(),
+            reduced_outcome_learner=LinearRegression(),
+            n_folds=3,
+            random_state=0,
+            estimands=["ate"],
         ).fit(make_linear_ate(n=200, seed=1)[0], **_COLUMNS),
         _POINT,
         {"_preflight_fit_configuration": 1, "_repeat_draws": 1},

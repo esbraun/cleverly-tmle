@@ -402,7 +402,7 @@ def test_the_frequency_weighted_bootstrap_refits_the_regressions_only(estimator:
     support.check(
         found,
         plain={"outcome_learner": None, "pseudo_learner": None},
-        outside=("tuner", "outcome_learner", "pseudo_learner"),
+        outside=("tuner",),
     )
 
 
@@ -548,7 +548,13 @@ def test_the_continuous_time_preview_counts_every_selection(
     # The default propensity is four logistic models in pipelines, which the class-wide
     # guard sees: 4 * V + 1 per fold.  A user learner is one fit per fold.
     treatment = (
-        found.counts["treatment_learner"] if user_learner else sum(found.class_wide.values())
+        found.counts["treatment_learner"]
+        if user_learner
+        else found.class_wide["LogisticRegression"]
+    )
+    # The class-wide guard sees every Cox fit, and each one is labelled.
+    assert found.class_wide["CoxHazard"] == sum(
+        found.counts[f"{role}:CoxHazard"] for role in ("hazard_library", "censoring_library")
     )
     assert planned("treatment_learner") == {"LogisticRegression": treatment}
     assert treatment == folds * (1 if user_learner else 4 * 3 + 1)

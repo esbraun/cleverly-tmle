@@ -1135,17 +1135,26 @@ def _inner_on_outer_rows(patch: pytest.MonkeyPatch) -> None:
     patch.setattr(CausalData, "subset", lambda self, rows: self)
 
 
-STUDY_MUTATIONS: dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None]]] = {
-    "the EP final-learner term": ("ep_cv", _no_final_learner),
-    "the inner counts on the fold's own rows": ("ep_cv_inner_cap", _inner_on_outer_rows),
+#: label -> (fixture, mutation, the failure message that names the mutated term)
+STUDY_MUTATIONS: dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None], str]] = {
+    "the EP final-learner term": (
+        "ep_cv",
+        _no_final_learner,
+        r"observed fits of \['final_learner'\], which the preview omits",
+    ),
+    "the inner counts on the fold's own rows": (
+        "ep_cv_inner_cap",
+        _inner_on_outer_rows,
+        r"^treatment_learner: preview \{",
+    ),
 }
 
 
 @pytest.mark.parametrize("label", sorted(STUDY_MUTATIONS))
 def test_each_study_mutation_fails_its_fixture(label: str) -> None:
-    name, mutate = STUDY_MUTATIONS[label]
+    name, mutate, match = STUDY_MUTATIONS[label]
     found = _study_route(name, mutate)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match=match):
         support.check(found, plain=STUDY_PLAIN)
 
 
@@ -1286,25 +1295,54 @@ def _classes_times_first(patch: pytest.MonkeyPatch) -> None:
     patch.setattr(planned_module, "_count_super_learner", mutated)
 
 
-MUTATIONS: dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None]]] = {
-    "the (1 + B) factor": ("bootstrap_no_binding_cap", _no_bootstrap),
-    "the repeat factor": ("ate_repeats", _skip_after_first("_plan_draw")),
-    "the per-class sum of one-vs-rest": ("rare_arm_caps_a_member", _classes_times_first),
-    "the shrunken inner folds": ("rare_class_caps_inner_folds", _uncapped_folds),
-    "the constant-fold skip": ("constant_binary_arm", _no_constant_skip),
-    "the per-level CDE bootstrap": ("cde_bootstrap", _skip_after_first("_plan_bootstrap")),
-    "the tuner row": ("tuned_cap_learner", _no_tuner),
+#: label -> (fixture, mutation, the failure message that names the mutated term)
+MUTATIONS: dict[str, tuple[str, Callable[[pytest.MonkeyPatch], None], str]] = {
+    "the (1 + B) factor": (
+        "bootstrap_no_binding_cap",
+        _no_bootstrap,
+        r"^treatment_learner: preview \d+, fit \d+",
+    ),
+    "the repeat factor": (
+        "ate_repeats",
+        _skip_after_first("_plan_draw"),
+        r"^treatment_learner: preview \d+, fit \d+",
+    ),
+    "the per-class sum of one-vs-rest": (
+        "rare_arm_caps_a_member",
+        _classes_times_first,
+        r"^treatment_learner: preview \{",
+    ),
+    "the shrunken inner folds": (
+        "rare_class_caps_inner_folds",
+        _uncapped_folds,
+        r"^treatment_learner: preview \{",
+    ),
+    "the constant-fold skip": (
+        "constant_binary_arm",
+        _no_constant_skip,
+        r"^outcome_learner: preview \d+, fit \d+",
+    ),
+    "the per-level CDE bootstrap": (
+        "cde_bootstrap",
+        _skip_after_first("_plan_bootstrap"),
+        r"^treatment_learner: \d+ <= \d+ <= \d+ fails",
+    ),
+    "the tuner row": (
+        "tuned_cap_learner",
+        _no_tuner,
+        r"observed fits of \['tuner'\], which the preview omits",
+    ),
 }
 
 
 @pytest.mark.parametrize("label", sorted(MUTATIONS))
 def test_each_mutation_fails_its_fixture(label: str) -> None:
-    name, mutate = MUTATIONS[label]
+    name, mutate, match = MUTATIONS[label]
     found = _route(name, mutate)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match=match):
         support.check(found, plain=PLAIN)
 
 
 def test_the_unmutated_mutation_fixtures_pass() -> None:
-    for name in {name for name, _ in MUTATIONS.values()}:
+    for name in {name for name, _, _ in MUTATIONS.values()}:
         support.check(_route(name), plain=PLAIN)

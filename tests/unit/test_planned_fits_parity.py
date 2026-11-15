@@ -33,7 +33,16 @@ from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 
 import cleverly
 import cleverly.exceptions as exceptions
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+from cleverly import (
+    AdaptiveTMLEMethod,
+    CausalStudy,
+    CrossFitting,
+    LongitudinalTreatment,
+    ModelSpec,
+    RegimeMean,
+    TrialATE,
+    TrialWithExternalData,
+)
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
@@ -184,6 +193,142 @@ def test_mutation_a_preview_that_skips_the_fold_checks_fails_the_replay(
         assert_refused_before_any_call(
             _drtmle_fold_refusal, None, "", "no trainable rows", error=ValueError
         )
+
+
+# ------------------------------------------------------------------ the trial route
+
+
+def _trial_request(g_bounds: Any) -> tuple[Any, Any]:
+    """A trial effect and an adaptive TMLE method with the given ``g_bounds``."""
+    rng = np.random.default_rng(0)
+    n = 120
+    s = rng.binomial(1, 0.5, n)
+    w = rng.normal(size=n)
+    a = rng.integers(0, 2, n)
+    frame = pd.DataFrame({"Y": a + w + rng.normal(size=n), "A": a, "W": w, "S": s})
+    design = TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S")
+    effect = CausalStudy(frame, design=design).identify(TrialATE("trial"))
+    learners = never_fit_learners()
+    method = AdaptiveTMLEMethod(
+        models=ModelSpec(
+            outcome_learner=learners["outcome_learner"],
+            treatment_learner=learners["treatment_learner"],
+        ),
+        source_learner=NeverFit(),
+        cross_fitting=CrossFitting(n_folds=3, learner_folds=3),
+    ).with_overrides(random_state=0, g_bounds=g_bounds)
+    return effect, method
+
+
+def _trial_estimate(g_bounds: Any) -> Any:
+    """Adaptive TMLE of a trial with external rows, refused for its ``g_bounds``."""
+    effect, method = _trial_request(g_bounds)
+    return effect.estimate(method)
+
+
+@pytest.mark.parametrize(
+    ("g_bounds", "fragment"),
+    [
+        ((0.9, 0.1), "g_bounds pair must satisfy 0 < lower < upper < 1"),
+        (0.6, "scalar g_bounds must lie in (0, 0.5)"),
+        ("nope", "g_bounds must be 'auto', a float, or a pair"),
+    ],
+)
+def test_the_trial_preview_refuses_bad_g_bounds_as_the_fit_does(
+    g_bounds: Any, fragment: str
+) -> None:
+    """The trial route's preview runs the fit's own pre-learner prefix (X106 review B1)."""
+    reached: list[str] = []
+    raised = assert_refused_before_any_call(
+        lambda: _trial_estimate(g_bounds), None, "", fragment, error=ValueError
+    )
+    with support.previews_in_place_of_fits(reached), pytest.raises(ValueError):
+        _trial_estimate(g_bounds)
+    assert reached == ["IdentifiedEffect.estimate"], reached
+    assert "resolve_g_bounds" in support.raised_in(raised)
+
+
+# ------------------------------------------------------------------ the replay's entries
+
+
+def test_the_replay_patches_every_fit_entry_both_ways() -> None:
+    """The patched entries are derived, and equal the engines' fit entries and the study's.
+
+    Every engine class that defines ``fit`` in its own body has an entry, and every entry's
+    owner is such a class.  Every fit entry an engine resolves through its MRO has an entry
+    at the class that defines it.  Every ``_estimate_*`` route of ``IdentifiedEffect``
+    calls an engine entry or a study fit function, and each study fit function has a
+    ``plan_`` sibling.
+    """
+    owners = support.engine_entry_owners()
+    engines = support.engine_classes()
+    assert {cls for cls, name in owners if name == "fit"} == {
+        cls for cls in engines if "fit" in vars(cls)
+    }
+    assert {cls for cls, _ in owners} <= engines, {cls for cls, _ in owners} - engines
+    for cls in engines:
+        for name in support.ENGINE_ENTRIES:
+            owner = next((base for base in cls.__mro__ if name in vars(base)), None)
+            if owner is not None:
+                assert (owner, name) in owners, (cls, owner, name)
+    functions = support.study_fit_functions()
+    assert {(module.__name__, name) for module, name, _ in functions} == {
+        ("cleverly.estimators.atmle_result", "fit_trial_effect")
+    }
+    for module, _, plan in functions:
+        assert callable(getattr(module, plan))
+    from cleverly.study import IdentifiedEffect
+
+    called_names = {*support.ENGINE_ENTRIES, *(name for _, name, _ in functions)}
+    tree = ast.parse(Path(cleverly.study.__file__).read_text(encoding="utf-8"))
+    (cls_node,) = (
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == IdentifiedEffect.__name__
+    )
+    routes = [
+        node
+        for node in cls_node.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("_estimate_")
+    ]
+    assert len(routes) == 5, [node.name for node in routes]
+    for route in routes:
+        calls = {
+            node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+            for node in ast.walk(route)
+            if isinstance(node, ast.Call) and isinstance(node.func, (ast.Attribute, ast.Name))
+        }
+        assert calls & called_names, (route.name, sorted(calls))
+    labels = [support.entry_label(owner, name) for owner, name, _ in support.preview_entries()]
+    assert len(labels) == len(set(labels)), labels
+
+
+def _trial_direct() -> Any:
+    """The trial route's fit function, called directly, refused for its ``g_bounds``."""
+    from cleverly.estimators.atmle_result import fit_trial_effect
+
+    effect, method = _trial_request((0.9, 0.1))
+    return fit_trial_effect(effect, effect._trial_method(method))
+
+
+@pytest.mark.parametrize(
+    ("drop", "build", "fragment"),
+    [
+        (frozenset({"fit_trial_effect"}), _trial_direct, "g_bounds pair"),
+        (
+            frozenset({"TMLE.fit", "TMLE._fit_single"}),
+            _drtmle_fold_refusal,
+            "no trainable rows",
+        ),
+    ],
+    ids=["trial function", "point engine"],
+)
+def test_mutation_an_entry_dropped_from_the_derived_list_fails_the_replay(
+    drop: frozenset[str], build: Callable[[], Any], fragment: str
+) -> None:
+    raised = assert_refused_before_any_call(build, None, "", fragment, error=ValueError)
+    with pytest.raises(AssertionError, match="an entry the replay does not patch"):
+        support.assert_preview_parity(build, raised, drop)
 
 
 # ------------------------------------------------------------------ the tuner's weight refusal
@@ -488,6 +633,39 @@ def test_the_deferred_checks_are_found_listed_and_pinned(name: str) -> None:
     assert found == PINNED[name]
     previewed = {code.co_qualname for code in _called(preview)}
     assert not previewed & PINNED[name]
+
+
+def test_a_design_refusal_the_tuned_preview_skips_is_listed() -> None:
+    """Each longitudinal engine lists its ``_refuse_design`` exactly when it can refuse.
+
+    The preview of a learner-backed tuned cap resolves no plans, so it skips
+    ``_refuse_design``.  No study request reaches a tuned g-computation, IPW or parametric
+    g-formula fit past its earlier refusals, so no profiler fixture covers them.  The check
+    here uses the profiler's own test of a function that can refuse (:func:`_refuses`): the
+    engine lists the method it resolves when that method's code can refuse, and not when it
+    is the base class's empty check.
+    """
+    import inspect
+
+    from cleverly.longitudinal.estimator import _SequentialEstimator
+
+    listed: set[str] = set()
+    for cls in support._subclasses(_SequentialEstimator):
+        if inspect.isabstract(cls):
+            continue
+        engine = object.__new__(cls)
+        engine.survival_model = None
+        engine.hazard_pooling = None
+        names = set(cls._unpreviewed_checks(engine, None))
+        method = cls._refuse_design
+        expected = {method.__qualname__} if _refuses(method.__code__) else set()
+        assert {name for name in names if name.endswith("._refuse_design")} == expected, cls
+        listed |= expected
+    assert listed == {
+        "SequentialGComputation._refuse_design",
+        "SequentialIPW._refuse_design",
+        "ParametricGFormula._refuse_design",
+    }
 
 
 def _dummy_post_stop_check(*args: Any, **kwargs: Any) -> None:

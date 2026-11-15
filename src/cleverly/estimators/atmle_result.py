@@ -42,9 +42,9 @@ from ..utils.bounds import resolve_g_bounds
 from .atmle import (
     SOURCE_FLOOR,
     AdaptiveTMLEFit,
+    CheckedInputs,
     WorkingModel,
-    _check_inputs,
-    check_split,
+    check_adaptive_inputs,
     fit_adaptive_tmle,
     stratified_partition,
 )
@@ -817,6 +817,78 @@ def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int, observed: Any) ->
     )
 
 
+@dataclass(frozen=True)
+class _TrialPrefix:
+    """What the shared prefix of the trial fit and its preview checks and builds."""
+
+    data: CausalData
+    estimand: Any
+    kwargs: dict[str, Any]
+    seed: int
+    family: Literal["gaussian", "binomial"]
+    learners: dict[str, Any]
+    g_bounds: tuple[float, float]
+    checked: CheckedInputs
+
+
+def _check_and_build(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> _TrialPrefix:
+    """Run every step of :func:`fit_trial_effect` before its first learner.
+
+    :func:`fit_trial_effect` and :func:`plan_trial_effect` both start here, so the preview
+    refuses what the fit refuses before it trains a model: the learner specifications, the
+    propensity bounds, the outer split, and every input check of
+    :func:`~cleverly.estimators.atmle.fit_adaptive_tmle`.
+    """
+    from ..data.causal_data import CausalData
+    from ..study import TrialATE
+
+    study = effect._study
+    assert study is not None
+    data = study.data
+    estimand = effect.estimand
+    assert isinstance(data, CausalData) and data.source is not None
+    assert isinstance(estimand, TrialATE)
+    kwargs = method.estimator_kwargs()
+    seed = kwargs["random_state"]
+    seed = _fresh_seed() if seed is None else int(seed)
+    family: Literal["gaussian", "binomial"] = (
+        "binomial" if data.family == "binomial" else "gaussian"
+    )
+    outcome_task = "classification" if family == "binomial" else "regression"
+    inner = kwargs["inner_folds"]
+
+    def resolved(spec: Any, task: Any) -> Any:
+        return resolve_learner(spec, task=task, n_folds=inner, random_state=seed)
+
+    learners: dict[str, Any] = {
+        "outcome": resolved(kwargs["outcome_learner"], outcome_task),
+        "treatment": resolved(kwargs["treatment_learner"], "classification"),
+        "trial membership": resolved(kwargs["source_learner"], "classification"),
+    }
+    missing = effect.functional.missingness is not None
+    if missing:
+        learners["missingness"] = resolved(kwargs["missingness_learner"], "classification")
+    g_bounds = resolve_g_bounds(kwargs["g_bounds"], data.n)
+    split = _outer_folds(data, kwargs, seed, data.observed if missing else None)
+    checked = check_adaptive_inputs(
+        data.outcome,
+        data.treatment,
+        data.source.astype(float),
+        data.covariates,
+        observed=data.observed if missing else None,
+        missingness_learner=learners.get("missingness"),
+        form=kwargs["form"],
+        population=estimand.population,
+        force_arm=kwargs["force_arm"],
+        folds=split,
+        n_folds=split.n_folds,
+        random_state=seed,
+        outcome_family=family,
+        covariate_names=data.covariate_names,
+    )
+    return _TrialPrefix(data, estimand, kwargs, seed, family, learners, g_bounds, checked)
+
+
 def plan_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> PlannedFits:
     """The learner fits :func:`fit_trial_effect` would make, counted without fitting.
 
@@ -840,18 +912,10 @@ def plan_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> P
     """
     from .._planned_fits import FitCounter, PlanBuilder
     from .._summary._learners import learner_name
-    from ..data.causal_data import CausalData
-    from ..study import TrialATE
 
-    study = effect._study
-    assert study is not None
-    data = study.data
-    estimand = effect.estimand
-    assert isinstance(data, CausalData) and data.source is not None
-    assert isinstance(estimand, TrialATE)
-    kwargs = method.estimator_kwargs()
+    prefix = _check_and_build(effect, method)
+    kwargs = prefix.kwargs
     declared = kwargs["random_state"]
-    seed = _fresh_seed() if declared is None else int(declared)
     state: Literal["realized", "outer realized", "one draw"] = (
         "realized"
         if declared is not None
@@ -859,31 +923,13 @@ def plan_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> P
         if kwargs["split_plan"] is not None
         else "one draw"
     )
-    family: Literal["gaussian", "binomial"] = (
-        "binomial" if data.family == "binomial" else "gaussian"
-    )
-    outcome_task: Task = "classification" if family == "binomial" else "regression"
-    inner = kwargs["inner_folds"]
-
-    def resolved(spec: Any, task: Task) -> Any:
-        return resolve_learner(spec, task=task, n_folds=inner, random_state=seed)
-
-    missing = effect.functional.missingness is not None
-    outcome = resolved(kwargs["outcome_learner"], outcome_task)
-    treatment = resolved(kwargs["treatment_learner"], "classification")
-    source = resolved(kwargs["source_learner"], "classification")
-    observing = resolved(kwargs["missingness_learner"], "classification") if missing else None
-    split = _outer_folds(data, kwargs, seed, data.observed if missing else None)
-    y, a, s, _, seen = _check_inputs(
-        data.outcome,
-        data.treatment,
-        data.source.astype(float),
-        data.covariates,
-        data.observed if missing else None,
-    )
-    if kwargs["form"] not in ("cv", "pooled"):
-        raise ValueError(f"form must be 'cv' or 'pooled'; got {kwargs['form']!r}")
-    check_split(split, y.size, kwargs["form"])
+    outcome_task: Task = "classification" if prefix.family == "binomial" else "regression"
+    outcome = prefix.learners["outcome"]
+    treatment = prefix.learners["treatment"]
+    source = prefix.learners["trial membership"]
+    observing = prefix.learners.get("missingness")
+    split = prefix.checked.split
+    y, a, s, seen = prefix.checked.y, prefix.checked.a, prefix.checked.s, prefix.checked.seen
     counter = FitCounter(weights=np.ones(y.size), groups=None, seed_fixed=state == "realized")
     controls_only = not bool(np.any((s == 0.0) & (a == 1.0)))
     assignment = np.asarray(split.assignment)
@@ -979,53 +1025,29 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
     AdaptiveTMLEResult
         The fitted result.
     """
-    from ..data.causal_data import CausalData
-    from ..study import ParameterKey, TrialATE
+    from ..study import ParameterKey
 
-    study = effect._study
-    assert study is not None
-    data = study.data
-    estimand = effect.estimand
-    assert isinstance(data, CausalData) and data.source is not None
-    assert isinstance(estimand, TrialATE)
-    kwargs = method.estimator_kwargs()
-    seed = kwargs["random_state"]
-    seed = _fresh_seed() if seed is None else int(seed)
-    family: Literal["gaussian", "binomial"] = (
-        "binomial" if data.family == "binomial" else "gaussian"
-    )
-    outcome_task = "classification" if family == "binomial" else "regression"
+    prefix = _check_and_build(effect, method)
+    data, estimand, kwargs = prefix.data, prefix.estimand, prefix.kwargs
+    seed, family, learners, g_bounds = prefix.seed, prefix.family, prefix.learners, prefix.g_bounds
+    checked = prefix.checked
     inner = kwargs["inner_folds"]
-
-    def resolved(spec: Any, task: Any) -> Any:
-        return resolve_learner(spec, task=task, n_folds=inner, random_state=seed)
-
-    learners: dict[str, Any] = {
-        "outcome": resolved(kwargs["outcome_learner"], outcome_task),
-        "treatment": resolved(kwargs["treatment_learner"], "classification"),
-        "trial membership": resolved(kwargs["source_learner"], "classification"),
-    }
-    missing = effect.functional.missingness is not None
-    if missing:
-        learners["missingness"] = resolved(kwargs["missingness_learner"], "classification")
-    g_bounds = resolve_g_bounds(kwargs["g_bounds"], data.n)
-    split = _outer_folds(data, kwargs, seed, data.observed if missing else None)
     fit = fit_adaptive_tmle(
-        data.outcome,
-        data.treatment,
-        data.source.astype(float),
-        data.covariates,
+        checked.y,
+        checked.a,
+        checked.s,
+        checked.w,
         outcome_learner=learners["outcome"],
         treatment_learner=learners["treatment"],
         source_learner=learners["trial membership"],
         g_bounds=g_bounds,
-        observed=data.observed if missing else None,
+        observed=checked.seen,
         missingness_learner=learners.get("missingness"),
         basis=kwargs["basis"],
         form=kwargs["form"],
         population=estimand.population,
         force_arm=kwargs["force_arm"],
-        folds=split,
+        folds=checked.split,
         inner_folds=inner,
         random_state=seed,
         outcome_family=family,

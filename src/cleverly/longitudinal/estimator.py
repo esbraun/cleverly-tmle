@@ -6516,10 +6516,10 @@ class _SequentialEstimator:
         :meth:`_preflight` with ``preview=True`` stops before the tuner's fit.  The fit then
         runs, before its first nuisance learner, the tuner fits and every check that can
         refuse the tuned plans: the policies built from the tuned values, the fold-average
-        compositions, the tilts, the declared factors against the bounds, the policy scale,
-        and the followers of each draw.  The list is the one the profiler witness of
-        ``tests/unit/test_planned_fits_parity.py`` finds, with the hazard paths and the
-        pooled designs added where the fit reaches them.
+        compositions, the tilts, a subclass's design refusal, the declared factors against
+        the bounds, the policy scale, and the followers of each draw.  The list is the one
+        the profiler witness of ``tests/unit/test_planned_fits_parity.py`` finds, with the
+        hazard paths and the pooled designs added where the fit reaches them.
 
         Parameters
         ----------
@@ -6562,6 +6562,10 @@ class _SequentialEstimator:
             _check_policy_arm_support,
             _require_regimen_followers,
         ]
+        if cls._refuse_design is not _SequentialEstimator._refuse_design:
+            # A subclass's design refusal reads the resolved plans, which the preview does
+            # not resolve under a learner-backed cap; the base check refuses nothing.
+            checks.append(cls._refuse_design)
         if self.survival_model == "hazard" and is_multinode(prepared):
             checks.append(path_slots)
         if self.survival_model == "hazard" and self.hazard_pooling == "pooled":

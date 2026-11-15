@@ -19,11 +19,15 @@ class's name, so the preview names a candidate as it names the base class.
 
 from __future__ import annotations
 
+import ast
 import contextlib
+import functools
+import types
 import warnings
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -31,7 +35,9 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import SuperLearner
 from cleverly._planned_fits import PlannedFits
+from cleverly.learners import GLM
 from cleverly.learners import library as library_module
+from cleverly.survival import CoxHazard
 
 #: Fits per label, across every clone.  Reset by :func:`reset`.
 COUNTS: Counter[str] = Counter()
@@ -40,9 +46,11 @@ CLASS_WIDE: Counter[str] = Counter()
 
 _CLASSES: dict[tuple[type, str], type] = {}
 
-#: The base classes whose ``fit`` the class-wide guard patches.  Never a pipeline or a
-#: transformer, whose fit calls a final step that is counted already.
-BASES: tuple[Any, ...] = (LinearRegression, LogisticRegression)
+#: The base classes whose ``fit`` the class-wide guard patches: the final estimators the
+#: fixtures fit.  Never a pipeline or a transformer, whose fit calls a final step that is
+#: counted already.  The guard counts the outermost patched ``fit`` only, so a final
+#: estimator that fits another one inside counts once.
+BASES: tuple[Any, ...] = (LinearRegression, LogisticRegression, GLM, CoxHazard)
 
 
 def reset() -> None:
@@ -141,11 +149,17 @@ def ensemble(
 def class_wide() -> Iterator[None]:
     """Count every ``fit`` of the base classes, labelled or not, in ``CLASS_WIDE``."""
     originals: dict[Any, Callable[..., Any]] = {base: base.fit for base in BASES}
+    depth = [0]
 
     def wrap(base: type, original: Callable[..., Any]) -> Callable[..., Any]:
         def fit(self: Any, *args: Any, **kwargs: Any) -> Any:
-            CLASS_WIDE[base.__name__] += 1
-            return original(self, *args, **kwargs)
+            if depth[0] == 0:
+                CLASS_WIDE[base.__name__] += 1
+            depth[0] += 1
+            try:
+                return original(self, *args, **kwargs)
+            finally:
+                depth[0] -= 1
 
         return fit
 
@@ -411,64 +425,176 @@ class PreviewReturned(BaseException):
         self.plan = plan
 
 
-def preview_entries() -> tuple[tuple[type, str, Callable[..., Any]], ...]:
-    """Each fit entry of the package, with the preview that stands in for it.
+#: The fit entries an engine class can define, each with the stand-in that calls the preview
+#: beside it.  ``fit`` takes the ``_planned_fits`` its owner defines, which has ``fit``'s
+#: parameters (``test_every_engine_defines_a_preview_beside_its_fit``).  The inner entries are
+#: :meth:`TMLE._fit_single`, which ``refit`` calls, and the container entries of the
+#: continuous-time engine.
+def _engine_previews() -> dict[str, Callable[[type], Callable[..., Any]]]:
+    def single(owner: type) -> Callable[..., Any]:
+        del owner
 
-    ``(owner, name, preview)``: calling ``owner.name(self, *args, **kwargs)`` under the
-    replay calls ``preview(self, *args, **kwargs)`` instead.  Every engine class whose own
-    ``fit`` the study dispatches to is listed with its ``_planned_fits``, which has the same
-    signature.  The inner entries are listed too: :meth:`TMLE._fit_single`, which
-    ``refit`` calls, and the container entries of the continuous-time engine.  ``refit``
-    itself is not listed, so a refit refusal raises as it does and its inner entry previews.
-    :meth:`cleverly.IdentifiedEffect.estimate` is listed with
-    :meth:`~cleverly.IdentifiedEffect.planned_fits`.
-    """
+        def run(self: Any, data: Any, *, intermediate_value: Any = None, shared: Any = None) -> Any:
+            del shared
+            return self._planned_fit_single(data, intermediate_value=intermediate_value)
+
+        return run
+
+    def container(owner: type) -> Callable[..., Any]:
+        del owner
+
+        def run(self: Any, data: Any, *, folds: Any = None, retained: bool = False) -> Any:
+            del retained
+            return self._planned_fit_data(data, folds=folds)
+
+        return run
+
+    return {
+        "fit": lambda owner: vars(owner)["_planned_fits"],
+        "_fit_single": single,
+        "fit_data": lambda owner: lambda self, data: self._planned_fit_data(data),
+        "_fit_data": container,
+    }
+
+
+#: Names of the fit entries an engine class can define.
+ENGINE_ENTRIES: tuple[str, ...] = ("fit", "_fit_single", "fit_data", "_fit_data")
+
+
+def _subclasses(base: type) -> set[type]:
+    out = {base}
+    for child in base.__subclasses__():
+        out |= _subclasses(child)
+    return out
+
+
+def engine_classes() -> set[type]:
+    """The engines the study dispatches to, and every subclass of one loaded."""
     from cleverly.estimators.ep import EPEstimator
     from cleverly.estimators.tmle import TMLE
-    from cleverly.longitudinal.estimator import IPSI, _SequentialEstimator
-    from cleverly.study import IdentifiedEffect
+    from cleverly.longitudinal.estimator import _SequentialEstimator
     from cleverly.survival.engine import ContinuousSurvivalTMLE
 
-    def single(self: Any, data: Any, *, intermediate_value: Any = None, shared: Any = None) -> Any:
-        del shared
-        return self._planned_fit_single(data, intermediate_value=intermediate_value)
+    package_classes()  # every module imported, so every subclass is loaded
+    found = _subclasses(TMLE) | _subclasses(_SequentialEstimator)
+    return found | {EPEstimator, ContinuousSurvivalTMLE}
 
-    def container(self: Any, data: Any, *, folds: Any = None, retained: bool = False) -> Any:
-        del retained
-        return self._planned_fit_data(data, folds=folds)
 
-    return (
-        (TMLE, "fit", TMLE._planned_fits),
-        (TMLE, "_fit_single", single),
-        (EPEstimator, "fit", EPEstimator._planned_fits),
-        (_SequentialEstimator, "fit", _SequentialEstimator._planned_fits),
-        (IPSI, "fit", IPSI._planned_fits),
-        (ContinuousSurvivalTMLE, "fit", ContinuousSurvivalTMLE._planned_fits),
-        (ContinuousSurvivalTMLE, "fit_data", lambda self, data: self._planned_fit_data(data)),
-        (ContinuousSurvivalTMLE, "_fit_data", container),
-        (IdentifiedEffect, "estimate", IdentifiedEffect.planned_fits),
+@functools.cache
+def package_classes() -> tuple[type, ...]:
+    """Every class the ``cleverly`` package defines, from every module, in a fixed order."""
+    import importlib
+    import inspect
+    import pkgutil
+
+    import cleverly
+
+    found: dict[str, type] = {}
+    for info in pkgutil.walk_packages(cleverly.__path__, "cleverly."):
+        module = importlib.import_module(info.name)
+        for value in vars(module).values():
+            if inspect.isclass(value) and value.__module__ == module.__name__:
+                found.setdefault(f"{value.__module__}.{value.__qualname__}", value)
+    return tuple(found[name] for name in sorted(found))
+
+
+def engine_entry_owners() -> tuple[tuple[type, str], ...]:
+    """Each ``(class, name)`` where a package engine defines a fit entry in its own body.
+
+    An engine is a class with a planned-fit preview (``_planned_fits``) on its MRO; a
+    learner, a result or a law that defines ``fit`` has none.
+    """
+    return tuple(
+        (cls, name)
+        for cls in package_classes()
+        if any("_planned_fits" in vars(base) for base in cls.__mro__)
+        for name in ENGINE_ENTRIES
+        if name in vars(cls)
     )
 
 
+def study_fit_functions() -> tuple[tuple[Any, str, str], ...]:
+    """Each module-level fit function :mod:`cleverly.study` imports, with its preview.
+
+    ``(module, "fit_x", "plan_x")``: :meth:`cleverly.IdentifiedEffect.estimate` calls
+    ``fit_x`` for a route with no engine class, and :meth:`~cleverly.IdentifiedEffect.planned_fits`
+    calls ``plan_x`` from the same module.
+    """
+    import importlib
+
+    import cleverly.study as study
+
+    tree = ast.parse(Path(study.__file__).read_text(encoding="utf-8"))
+    out: list[tuple[Any, str, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        for alias in node.names:
+            if not alias.name.startswith("fit_"):
+                continue
+            module = importlib.import_module("." + node.module, "cleverly" if node.level else None)
+            out.append((module, alias.name, "plan_" + alias.name[len("fit_") :]))
+    return tuple(sorted(set(out), key=lambda item: (item[0].__name__, item[1])))
+
+
+def preview_entries(
+    drop: frozenset[str] = frozenset(),
+) -> tuple[tuple[Any, str, Callable[..., Any]], ...]:
+    """Each fit entry of the package, with the preview that stands in for it, derived.
+
+    ``(owner, name, preview)``: calling ``owner.name(...)`` under the replay calls
+    ``preview(...)`` instead.  The entries are every fit entry an engine class defines in its
+    own body (:func:`engine_entry_owners`), every fit function the study layer imports with
+    its ``plan_`` sibling (:func:`study_fit_functions`), and
+    :meth:`cleverly.IdentifiedEffect.estimate` with
+    :meth:`~cleverly.IdentifiedEffect.planned_fits`.  ``refit`` is not an entry: a refit
+    refusal raises as it does and its inner entry previews.
+
+    Parameters
+    ----------
+    drop : frozenset of str
+        Labels (:func:`entry_label`) to leave out: the mutation control's handle.
+    """
+    from cleverly.study import IdentifiedEffect
+
+    previews = _engine_previews()
+    entries: list[tuple[Any, str, Callable[..., Any]]] = [
+        (cls, name, previews[name](cls)) for cls, name in engine_entry_owners()
+    ]
+    for module, name, plan in study_fit_functions():
+        entries.append((module, name, getattr(module, plan)))
+    entries.append((IdentifiedEffect, "estimate", IdentifiedEffect.planned_fits))
+    return tuple(entry for entry in entries if entry_label(entry[0], entry[1]) not in drop)
+
+
+def entry_label(owner: Any, name: str) -> str:
+    """``"TMLE.fit"`` for a class entry, ``"fit_trial_effect"`` for a module function."""
+    return name if isinstance(owner, types.ModuleType) else f"{owner.__qualname__}.{name}"
+
+
 @contextlib.contextmanager
-def previews_in_place_of_fits(reached: list[str]) -> Iterator[None]:
+def previews_in_place_of_fits(
+    reached: list[str], drop: frozenset[str] = frozenset()
+) -> Iterator[None]:
     """Patch every entry of :func:`preview_entries`; each one reached is appended to ``reached``.
 
     A patched entry runs its preview and raises :class:`PreviewReturned` with the record, so
-    the caller's ``build()`` stops there whatever it would do with a fitted result.
+    the caller's ``build()`` stops there whatever it would do with a fitted result.  ``drop``
+    leaves entries unpatched, for the mutation control.
     """
 
     def stand_in(label: str, preview: Callable[..., Any]) -> Callable[..., Any]:
-        def entry(self: Any, *args: Any, **kwargs: Any) -> Any:
+        def entry(*args: Any, **kwargs: Any) -> Any:
             reached.append(label)
-            raise PreviewReturned(preview(self, *args, **kwargs))
+            raise PreviewReturned(preview(*args, **kwargs))
 
         return entry
 
-    saved = [(owner, name, owner.__dict__[name]) for owner, name, _ in preview_entries()]
+    entries = preview_entries(drop)
+    saved = [(owner, name, vars(owner)[name]) for owner, name, _ in entries]
     try:
-        for owner, name, preview in preview_entries():
-            setattr(owner, name, stand_in(f"{owner.__name__}.{name}", preview))
+        for owner, name, preview in entries:
+            setattr(owner, name, stand_in(entry_label(owner, name), preview))
         yield
     finally:
         for owner, name, original in saved:
@@ -497,14 +623,48 @@ def raised_in(error: BaseException) -> set[str]:
     return names
 
 
-def assert_preview_parity(build: Callable[[], Any], original: BaseException) -> list[str]:
+#: Names of the package functions on a fit path: the engine entries, any ``fit_`` function,
+#: and :meth:`cleverly.IdentifiedEffect.estimate` (by qualified name: the
+#: ``CausalStudy.estimate`` shortcut runs ``identify`` first).  A refusal raised under one
+#: of them, by a replay that reached no patched entry, went through an entry the replay does
+#: not patch.
+_FIT_PATH = frozenset(ENGINE_ENTRIES)
+_FIT_PATH_QUALIFIED = frozenset({"IdentifiedEffect.estimate"})
+
+
+def fit_path_frames(error: BaseException) -> list[str]:
+    """The package frames on ``error``'s traceback, or its causes', that lie on a fit path."""
+    import traceback
+
+    import cleverly
+
+    source = str(Path(cleverly.__file__).parent)
+    out: list[str] = []
+    seen: BaseException | None = error
+    while seen is not None:
+        for frame, _ in traceback.walk_tb(seen.__traceback__):
+            code = frame.f_code
+            if code.co_filename.startswith(source) and (
+                code.co_name in _FIT_PATH
+                or code.co_name.startswith("fit_")
+                or code.co_qualname in _FIT_PATH_QUALIFIED
+            ):
+                out.append(code.co_qualname)
+        seen = seen.__cause__ or seen.__context__
+    return out
+
+
+def assert_preview_parity(
+    build: Callable[[], Any], original: BaseException, drop: frozenset[str] = frozenset()
+) -> list[str]:
     """Replay ``build()`` with every fit entry previewed, and compare with ``original``.
 
     The replay either reaches a patched entry, and the preview raises ``original``'s class,
-    reason code and message, or refuses upstream of every entry (in ``identify`` or a
-    constructor) with the same record.  One exception: when ``original`` was raised inside a
-    check the preview defers (a name in the record's ``unpreviewed``), the preview raises
-    nothing.  Anything else raises ``AssertionError``.
+    reason code and message, or refuses upstream of every entry (in ``identify``, a
+    constructor or the method's normalization) with the same record, and then ``original``'s
+    traceback holds no package frame on a fit path (:func:`fit_path_frames`).  One exception:
+    when ``original`` was raised inside a check the preview defers (a name in the record's
+    ``unpreviewed``), the preview raises nothing.  Anything else raises ``AssertionError``.
 
     Parameters
     ----------
@@ -512,6 +672,8 @@ def assert_preview_parity(build: Callable[[], Any], original: BaseException) -> 
         The refused request.
     original : BaseException
         What ``build()`` raised.
+    drop : frozenset of str
+        Entries left unpatched, for the mutation control.
 
     Returns
     -------
@@ -519,7 +681,7 @@ def assert_preview_parity(build: Callable[[], Any], original: BaseException) -> 
         The entries the replay reached, empty for an upstream refusal.
     """
     reached: list[str] = []
-    with previews_in_place_of_fits(reached):
+    with previews_in_place_of_fits(reached, drop):
         try:
             build()
         except PreviewReturned as returned:
@@ -536,5 +698,11 @@ def assert_preview_parity(build: Callable[[], Any], original: BaseException) -> 
             assert _record(replayed) == _record(original), (
                 f"{where} raised {_record(replayed)}; the fit raised {_record(original)}"
             )
+            if not reached:
+                on_path = fit_path_frames(original)
+                assert not on_path, (
+                    f"the replay reached no patched entry, and the fit raised {original!r} "
+                    f"inside the fit path {on_path}: an entry the replay does not patch"
+                )
             return reached
     raise AssertionError(f"the replay raised nothing; the fit raised {original!r}")

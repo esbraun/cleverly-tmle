@@ -67,6 +67,7 @@ __all__ = [
     "VARIANCE_ROWS_PER_COLUMN",
     "AdaptiveTMLEDiagnostics",
     "AdaptiveTMLEFit",
+    "CheckedInputs",
     "InfluenceParts",
     "LassoSolution",
     "Nuisances",
@@ -77,6 +78,7 @@ __all__ = [
     "WorkingUnit",
     "arm_hierarchy",
     "bias_term",
+    "check_adaptive_inputs",
     "check_split",
     "evaluate",
     "fit_adaptive_tmle",
@@ -1781,6 +1783,116 @@ def check_split(split: Folds, n: int, form: Form) -> None:
         )
 
 
+@dataclass(frozen=True)
+class CheckedInputs:
+    """The arrays, outer split and column names :func:`fit_adaptive_tmle` fits on.
+
+    Parameters
+    ----------
+    y : ndarray of float
+        The outcome.
+    a : ndarray of float
+        The treatment, coded 0 or 1.
+    s : ndarray of float
+        The source, 1 on trial rows.
+    w : ndarray of float
+        The covariates, two-dimensional.
+    seen : ndarray of bool or None
+        The observation indicator, or ``None`` with every outcome recorded.
+    split : Folds
+        The outer split.
+    names : tuple of str or None
+        The covariate names.
+    """
+
+    y: FloatArray
+    a: FloatArray
+    s: FloatArray
+    w: FloatArray
+    seen: BoolArray | None
+    split: Folds
+    names: tuple[str, ...] | None
+
+
+def check_adaptive_inputs(
+    outcome: Any,
+    treatment: Any,
+    source: Any,
+    covariates: Any,
+    *,
+    observed: Any,
+    missingness_learner: Learner | None,
+    form: Any,
+    population: Any,
+    force_arm: Any,
+    folds: Folds | None,
+    n_folds: int,
+    random_state: int,
+    outcome_family: Literal["gaussian", "binomial"],
+    covariate_names: Sequence[str] | None,
+) -> CheckedInputs:
+    """Run every check :func:`fit_adaptive_tmle` makes before its first learner.
+
+    The fit and the planned-fit preview of the trial route both call this, so the preview
+    refuses exactly what the fit refuses before training a model.
+
+    Parameters
+    ----------
+    outcome : array-like of float
+        ``Y``.
+    treatment : array-like of float
+        ``A``.
+    source : array-like of float
+        ``S``.
+    covariates : array-like of float
+        ``W``.
+    observed : array-like of bool or None
+        ``Delta``.
+    missingness_learner : Learner or None
+        Required with ``observed``.
+    form : object
+        The declared form, checked here.
+    population : object
+        The declared population, checked here.
+    force_arm : object
+        The declared flag, checked here.
+    folds : Folds or None
+        The outer split, or ``None`` to draw one.
+    n_folds : int
+        The outer folds drawn when ``folds`` is ``None``.
+    random_state : int
+        The seed of a drawn split.
+    outcome_family : {"gaussian", "binomial"}
+        The outcome family, which stratifies a drawn split.
+    covariate_names : sequence of str or None
+        The names of the covariate columns.
+
+    Returns
+    -------
+    CheckedInputs
+        The checked arrays, the split and the names.
+    """
+    y, a, s, w, seen = _check_inputs(outcome, treatment, source, covariates, observed)
+    if form not in ("cv", "pooled"):
+        raise ValueError(f"form must be 'cv' or 'pooled'; got {form!r}")
+    if population not in ("pooled", "trial"):
+        raise ValueError(f"population must be 'pooled' or 'trial'; got {population!r}")
+    if seen is not None and missingness_learner is None:
+        raise ValueError("observed= needs a missingness_learner")
+    if not isinstance(force_arm, (bool, np.bool_)):
+        raise ValueError(f"force_arm must be a bool; got {force_arm!r}")
+    split = (
+        folds
+        if folds is not None
+        else stratified_partition(s, y, seen, outcome_family, n_folds, random_state)
+    )
+    check_split(split, y.size, form)
+    names = None if covariate_names is None else tuple(str(name) for name in covariate_names)
+    if names is not None and len(names) != w.shape[1]:
+        raise ValueError(f"covariate_names has {len(names)} names for {w.shape[1]} columns")
+    return CheckedInputs(y, a, s, w, seen, split, names)
+
+
 def fit_adaptive_tmle(
     outcome: Any,
     treatment: Any,
@@ -1873,26 +1985,26 @@ def fit_adaptive_tmle(
     CapabilityError
         When a refit's selected columns are collinear on the rows it reads.
     """
-    y, a, s, w, seen = _check_inputs(outcome, treatment, source, covariates, observed)
-    if form not in ("cv", "pooled"):
-        raise ValueError(f"form must be 'cv' or 'pooled'; got {form!r}")
-    if population not in ("pooled", "trial"):
-        raise ValueError(f"population must be 'pooled' or 'trial'; got {population!r}")
-    if seen is not None and missingness_learner is None:
-        raise ValueError("observed= needs a missingness_learner")
-    n = y.size
-    if not isinstance(force_arm, (bool, np.bool_)):
-        raise ValueError(f"force_arm must be a bool; got {force_arm!r}")
-    split = (
-        folds
-        if folds is not None
-        else stratified_partition(s, y, seen, outcome_family, n_folds, random_state)
+    checked = check_adaptive_inputs(
+        outcome,
+        treatment,
+        source,
+        covariates,
+        observed=observed,
+        missingness_learner=missingness_learner,
+        form=form,
+        population=population,
+        force_arm=force_arm,
+        folds=folds,
+        n_folds=n_folds,
+        random_state=random_state,
+        outcome_family=outcome_family,
+        covariate_names=covariate_names,
     )
-    check_split(split, n, form)
-    names = None if covariate_names is None else tuple(str(name) for name in covariate_names)
-    if names is not None and len(names) != w.shape[1]:
-        raise ValueError(f"covariate_names has {len(names)} names for {w.shape[1]} columns")
-    data = _Data(y, a, s, w, seen, outcome_family, names)
+    y, a, s, w = checked.y, checked.a, checked.s, checked.w
+    seen, split = checked.seen, checked.split
+    n = y.size
+    data = _Data(y, a, s, w, seen, outcome_family, checked.names)
     learners = _Learners(outcome_learner, treatment_learner, source_learner, missingness_learner)
     external = s == 0.0
     n_external_treated = int(np.sum(external & (a == 1.0)))
