@@ -435,6 +435,211 @@ def test_a_lost_fit_reads_against_the_default_library() -> None:
     assert properties.lost_counts(glm, positive, 10) == {"trials": 10, "gained": 0, "lost": 0}
 
 
+# ------------------------------------------------------------------------- the red reading
+
+DRAWS = 4_000
+GLM_OF_POSITIVE = properties.glm_cell(POSITIVE)
+GLM_OF_NONLINEAR = properties.glm_cell(NONLINEAR)
+
+
+def _arm_rows(cell: str, covered: np.ndarray) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "property": study.FAMILY,
+            "cell": cell,
+            "replicate": np.arange(covered.size),
+            "covered": covered.astype(int),
+            "withheld": 0,
+        }
+    )
+
+
+def _pairs(gained: int, lost: int, both_miss: int = 300) -> tuple[np.ndarray, np.ndarray]:
+    """Paired cover indicators: ``gained`` draws the default arm covers alone, ``lost`` the GLM
+    arm alone, ``both_miss`` neither."""
+    mine = np.ones(DRAWS, dtype=bool)
+    theirs = np.ones(DRAWS, dtype=bool)
+    mine[:both_miss] = theirs[:both_miss] = False
+    theirs[both_miss : both_miss + gained] = False
+    mine[both_miss + gained : both_miss + gained + lost] = False
+    return mine, theirs
+
+
+def _reading_case(
+    cell: str,
+    glm: str,
+    gained: int,
+    lost: int,
+    mine: dict[str, object],
+    theirs: dict[str, object],
+    glm_kept: int = DRAWS,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """A summary of one red positive row and its GLM arm, and their paired rows."""
+    passing = {
+        "coverage_ci_lower": 0.93,
+        "bias_equivalent": True,
+        "variance_ratio_ci_lower": 0.95,
+        "shown_ci_lower": 0.93,
+        "noninferiority_lower": -0.005,
+        "requested_replicates": DRAWS,
+    }
+    summary = pd.DataFrame(
+        [
+            {"property": study.FAMILY, "cell": cell, "role": "positive", "passed": False}
+            | passing
+            | mine,
+            {"property": study.FAMILY, "cell": glm, "role": "diagnostic", "passed": True}
+            | passing
+            | theirs,
+        ]
+    )
+    covered, glm_covered = _pairs(gained, lost)
+    rows = pd.concat(
+        [_arm_rows(cell, covered), _arm_rows(glm, glm_covered).iloc[:glm_kept]],
+        ignore_index=True,
+    )
+    return summary, rows
+
+
+def test_both_arms_under_the_shown_floor_read_shared() -> None:
+    summary, rows = _reading_case(
+        NONLINEAR,
+        GLM_OF_NONLINEAR,
+        gained=50,
+        lost=55,
+        mine={"shown_ci_lower": 0.915},
+        theirs={"shown_ci_lower": 0.912},
+    )
+    assert properties.red_reading(summary, rows, NONLINEAR) == study.SHARED_READING
+
+
+def test_a_paired_deficit_past_the_margin_reads_library() -> None:
+    summary, rows = _reading_case(
+        NONLINEAR,
+        GLM_OF_NONLINEAR,
+        gained=20,
+        lost=120,
+        mine={"shown_ci_lower": 0.905},
+        theirs={"shown_ci_lower": 0.912},
+    )
+    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
+
+
+def _counterexample() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Design confirmation B1: the default row is red on shown coverage (0.917) while its GLM
+    arm passes (0.928), and the paired difference (-0.010) clears the margin."""
+    return _reading_case(
+        NONLINEAR,
+        GLM_OF_NONLINEAR,
+        gained=50,
+        lost=90,
+        mine={"shown_ci_lower": 0.917},
+        theirs={"shown_ci_lower": 0.928},
+    )
+
+
+def test_a_red_the_glm_arm_does_not_share_reads_library() -> None:
+    summary, rows = _counterexample()
+    counts = properties.lost_counts(
+        rows.loc[rows["cell"] == NONLINEAR], rows.loc[rows["cell"] == GLM_OF_NONLINEAR], DRAWS
+    )
+    paired = properties.mcnemar_lower(counts["gained"], counts["lost"], counts["trials"])
+    assert paired > properties.NONINFERIORITY_MARGIN
+    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
+
+
+def test_mutation_without_the_clause_match_the_counterexample_reads_shared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dropping the clause-matched conjunct turns the counterexample's reading."""
+    every = frozenset({"g1", "g2", "variance_ratio", "shown_coverage"})
+    monkeypatch.setattr(properties, "_glm_failed_at_worst_fill", lambda *_: every)
+    summary, rows = _counterexample()
+    assert properties.red_reading(summary, rows, NONLINEAR) == study.SHARED_READING
+
+
+def test_a_variance_ratio_red_the_glm_arm_passes_reads_library() -> None:
+    summary, rows = _reading_case(
+        NONLINEAR,
+        GLM_OF_NONLINEAR,
+        gained=50,
+        lost=55,
+        mine={"variance_ratio_ci_lower": 0.84},
+        theirs={"shown_ci_lower": 0.912},
+    )
+    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
+
+
+def test_a_shared_floor_red_is_a_finding_against_the_parametric_row() -> None:
+    """Design confirmation B5: both arms under the G1 floor read against the parametric row."""
+    summary, rows = _reading_case(
+        POSITIVE,
+        GLM_OF_POSITIVE,
+        gained=50,
+        lost=55,
+        mine={"coverage_ci_lower": 0.895, "shown_ci_lower": 0.895},
+        theirs={"coverage_ci_lower": 0.893, "shown_ci_lower": 0.893},
+    )
+    assert properties.red_reading(summary, rows, POSITIVE) == study.PARAMETRIC_READING
+    assert study.READING_OWNERS[study.PARAMETRIC_READING] == study.PARAMETRIC_OWNER
+
+
+def test_a_passing_row_has_no_reading() -> None:
+    summary, rows = _reading_case(POSITIVE, GLM_OF_POSITIVE, gained=50, lost=55, mine={}, theirs={})
+    summary.loc[summary["cell"] == POSITIVE, "passed"] = True
+    assert properties.red_reading(summary, rows, POSITIVE) is None
+
+
+def test_lost_glm_fits_read_as_covers_so_a_shared_red_turns_library() -> None:
+    """Design confirmation m4: the worst fill lets a lost GLM fit only lift the GLM arm.
+
+    The GLM arm fails the shown floor on the fits it kept; with its 400 lost fits read as covers
+    its lower end clears 0.92, so it no longer shares the default row's red."""
+    mine, theirs = _pairs(50, 55, both_miss=220)
+    lost = 400
+    kept = DRAWS - lost
+    hits = int(theirs[:kept].sum())
+    assert properties.clopper_pearson(hits, kept, confidence_level=0.99).low < 0.92
+    assert properties.clopper_pearson(hits + lost, DRAWS, confidence_level=0.99).low >= 0.92
+    summary = pd.DataFrame(
+        [
+            {
+                "property": study.FAMILY,
+                "cell": NONLINEAR,
+                "role": "positive",
+                "passed": False,
+                "coverage_ci_lower": 0.93,
+                "bias_equivalent": True,
+                "variance_ratio_ci_lower": 0.95,
+                "shown_ci_lower": 0.915,
+                "noninferiority_lower": 0.0,
+                "requested_replicates": DRAWS,
+            },
+            {
+                "property": study.FAMILY,
+                "cell": GLM_OF_NONLINEAR,
+                "role": "diagnostic",
+                "passed": True,
+                "coverage_ci_lower": 0.93,
+                "bias_equivalent": True,
+                "variance_ratio_ci_lower": 0.95,
+                "shown_ci_lower": 0.915,
+                "noninferiority_lower": 0.0,
+                "requested_replicates": DRAWS,
+            },
+        ]
+    )
+    rows = pd.concat(
+        [_arm_rows(NONLINEAR, mine), _arm_rows(GLM_OF_NONLINEAR, theirs).iloc[:kept]],
+        ignore_index=True,
+    )
+    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
+    full = pd.concat(
+        [_arm_rows(NONLINEAR, mine), _arm_rows(GLM_OF_NONLINEAR, theirs)], ignore_index=True
+    )
+    assert properties.red_reading(summary, full, NONLINEAR) == study.SHARED_READING
+
+
 def test_shown_coverage_sees_a_variance_ratio_carried_by_outliers() -> None:
     """Witness of plan N3: a few huge SEs lift the ratio over its floor while coverage fails."""
     rng = np.random.default_rng(4)
@@ -536,11 +741,35 @@ def test_the_predicted_reds_and_their_owner(pilot_rows: pd.DataFrame) -> None:
     predictive = {c for c in positives if study.PREDICTED_PASS[c] < study.PREDICTED_RED_BELOW}
     plug_in = {c for c in positives if pilot.plug_in_pass(pilot_rows, c) < 0.90}
     assert predictive == plug_in == set(study.PREDICTED_REDS)
-    assert study.RED_OWNER in owner_ids()
-    assert dict.fromkeys(study.PREDICTED_REDS, study.RED_OWNER) == study.PREDICTED_RED_OWNERS
+    ids = owner_ids()
+    assert study.RED_OWNER in ids and study.PARAMETRIC_OWNER in ids
+    assert set(study.READING_OWNERS.values()) <= set(ids)
+    # The ledger keys, with the IID control each red positive takes by its group's joint clause.
+    groups = {cell: group for group in properties.PROPERTY_GROUPS[study.FAMILY] for cell in group}
+    expected = set()
+    for cell in study.PREDICTED_REDS:
+        judged = {c for c in groups[cell] if _roles()[c] != "diagnostic"}
+        assert judged == {cell, properties.iid_cell(cell)}
+        expected |= {study.red_key(c) for c in judged}
+    assert set(study.PREDICTED_RED_OWNERS) == expected
+    assert set(study.PREDICTED_RED_OWNERS.values()) == {study.RED_OWNER}
+    assert all(key.slug == study.STUDY.slug for key in expected)
     # Every control is predicted to do its job.
     controls = [c for c, r in _roles().items() if r == "control"]
     assert min(study.PREDICTED_PASS[c] for c in controls) >= 0.98
+
+
+def test_every_registered_red_row_has_its_declared_owner() -> None:
+    """The forward link the ledger's ``CLAIMS`` entry cannot be before registration."""
+    if study.STUDY.slug not in {record.slug for record in registered()}:
+        pytest.skip("few-cluster-adaptive-learners is not registered yet")
+    from tests.studies.evidence import red_cells
+
+    rows = red_cells.red_rows(study.STUDY, red_cells.frames(study.STUDY))
+    red = {row.key for row in rows}
+    assert red
+    for key in red:
+        assert red_cells.OWNERS[key] in set(study.READING_OWNERS.values()), key
 
 
 def _roles() -> dict[str, str]:

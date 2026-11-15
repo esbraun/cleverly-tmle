@@ -92,6 +92,7 @@ from tests.studies.clustered_crossfit_ltmle import ID as LTMLE_ID
 from tests.studies.clustered_crossfit_ltmle import NODES as LTMLE_NODES
 from tests.studies.clustered_crossfit_ltmle import subject as ltmle_subject
 from tests.studies.evidence import replication
+from tests.studies.evidence.red_cells import RedKey
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.few_cluster_crossfit_ltmle import TARGET as LTMLE_TARGET
@@ -233,6 +234,8 @@ STUDY = StudyRecord(
         "tests/studies/canonical_ltmle.py",
         "tests/studies/canonical_ltmle_crossfit.py",
         "tests/studies/canonical_clustered_tmle.py",
+        "tests/studies/canonical_tmle.py",
+        "tests/conftest.py",
         "tests/studies/fractional_glm.py",
         "tests/studies/point_study_helpers.py",
         "tests/studies/evidence/inference.py",
@@ -511,11 +514,13 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int | None = None) -> repli
 #: read from the committed 400-draw pilot
 #: (:func:`tests.studies.few_cluster_adaptive_pilot.pilot_readings`) before the declaration: a
 #: positive row's clauses as a product, an IID control's two clauses, and a must-fail control's
-#: power to fail. Each figure carries the pilot's own error (Jeffreys beta-binomial for a rate,
-#: normal for the log variance ratio, the bias and the paired difference).
+#: power to fail. G1 and the shown-coverage clause enter as their joint probability on one
+#: predictive hit law, since the pilot withheld no interval. Each figure carries the pilot's own
+#: error (Jeffreys beta-binomial for a rate, normal for the log variance ratio, the bias and the
+#: paired difference).
 PREDICTED_PASS: Final[dict[str, float]] = {
     "ltmle_crossfit__equal40__j20__iid_t_control": 1.000,
-    "ltmle_crossfit__equal40__j20__t_reference": 0.924,
+    "ltmle_crossfit__equal40__j20__t_reference": 0.927,
     "stacked_control__equal10__j10__stacked_control": 0.999,
     "stacked_control__equal10__j20__stacked_control": 1.000,
     "stacked_control__equal10__j40__stacked_control": 1.000,
@@ -523,17 +528,17 @@ PREDICTED_PASS: Final[dict[str, float]] = {
     "stacked_control__nonlinear10__j20__stacked_control": 0.989,
     "stacked_control__nonlinear10__j40__stacked_control": 1.000,
     "tmle_stacked__equal10__j10__iid_t_control": 1.000,
-    "tmle_stacked__equal10__j10__t_reference": 0.171,
+    "tmle_stacked__equal10__j10__t_reference": 0.226,
     "tmle_stacked__equal10__j20__iid_t_control": 1.000,
-    "tmle_stacked__equal10__j20__t_reference": 0.756,
+    "tmle_stacked__equal10__j20__t_reference": 0.760,
     "tmle_stacked__equal10__j40__iid_t_control": 1.000,
-    "tmle_stacked__equal10__j40__t_reference": 0.870,
+    "tmle_stacked__equal10__j40__t_reference": 0.875,
     "tmle_stacked__nonlinear10__j10__iid_t_control": 1.000,
-    "tmle_stacked__nonlinear10__j10__t_reference": 0.123,
+    "tmle_stacked__nonlinear10__j10__t_reference": 0.177,
     "tmle_stacked__nonlinear10__j20__iid_t_control": 1.000,
-    "tmle_stacked__nonlinear10__j20__t_reference": 0.974,
+    "tmle_stacked__nonlinear10__j20__t_reference": 0.975,
     "tmle_stacked__nonlinear10__j40__iid_t_control": 1.000,
-    "tmle_stacked__nonlinear10__j40__t_reference": 0.239,
+    "tmle_stacked__nonlinear10__j40__t_reference": 0.269,
 }
 #: A gated row is a predicted red when its predictive pass probability is below this: red is
 #: more likely than not. The plug-in rule (pilot readings taken as true, figure below 0.90)
@@ -552,14 +557,46 @@ PREDICTED_REDS: Final[tuple[str, ...]] = (
 #: The red-cell owner of a red positive row that its declared route reads as no code defect
 #: (the roadmap's Red-cell owners table).
 RED_OWNER: Final[str] = "X54-adaptive-learners"
-#: The owner of each predicted red, declared before the run.
-PREDICTED_RED_OWNERS: Final[dict[str, str]] = dict.fromkeys(PREDICTED_REDS, RED_OWNER)
-#: The two no-defect readings of a red positive row, decided by the paired all-draw coverage
-#: difference to its GLM arm on the same draws (exact 99% lower end, the margin of the
-#: non-inferiority clause). Above the margin the deficit is one the parametric baseline shares;
-#: at or below it the default library is worse than the baseline.
+#: The red-cell owner of a positive row read :data:`PARAMETRIC_READING`: a defect suspect for
+#: the parametric row, which the GLM arm on the same draws fails too.
+PARAMETRIC_OWNER: Final[str] = "X54-parametric-few-cluster"
+#: The IID control each predicted red positive takes red with it: the ledger reads a control red
+#: when its group's joint clause fails (``property_passed``), and each positive shares a group
+#: with its ``iid_t_control``.
+PREDICTED_RED_CONTROLS: Final[tuple[str, ...]] = tuple(
+    cell.removesuffix("__t_reference") + "__iid_t_control" for cell in PREDICTED_REDS
+)
+
+
+def red_key(cell: str) -> RedKey:
+    """The red-cell ledger's key of one published property cell of this study."""
+    return RedKey(STUDY.slug, "property", f"{FAMILY}/{cell}")
+
+
+#: The owner of each predicted red row, keyed as the ledger keys it, declared before the run:
+#: the three positives and the three IID controls their joint clause takes red. The ledger's
+#: ``CLAIMS`` entry lands at registration (before it, a claimed row of an unregistered study
+#: reads "has an owner but is not red"); the design test then checks it against these keys.
+PREDICTED_RED_OWNERS: Final[dict[RedKey, str]] = {
+    red_key(cell): RED_OWNER for cell in (*PREDICTED_REDS, *PREDICTED_RED_CONTROLS)
+}
+#: The three no-defect readings of a red positive row
+#: (:func:`tests.studies.few_cluster_adaptive_properties.red_reading`). The row reads shared
+#: when both hold: the exact 99% lower end of its paired all-draw coverage difference to its
+#: GLM arm on the same draws, at the worst fill, is above the non-inferiority margin of -0.02;
+#: and the GLM arm fails every clause the row fails, under the same interval rule. A shared red
+#: that fails G1 or G2 is a finding against the parametric row. Every other red reads as the
+#: default library's limit. On L2 the GLM arm is a misspecified main-terms GLM, so there
+#: "parametric baseline" means that fit.
 SHARED_READING: Final[str] = "few-cluster or law deficit shared with the parametric baseline"
+PARAMETRIC_READING: Final[str] = "shared, the parametric row fails G1 or G2"
 LIBRARY_READING: Final[str] = "default-library limit"
+#: The owner of each reading.
+READING_OWNERS: Final[dict[str, str]] = {
+    SHARED_READING: RED_OWNER,
+    LIBRARY_READING: RED_OWNER,
+    PARAMETRIC_READING: PARAMETRIC_OWNER,
+}
 #: No interim stop (design review m3): every cell runs its declared draws.
 INTERIM_DRAWS: Final[int | None] = None
 

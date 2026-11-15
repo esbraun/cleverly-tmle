@@ -312,7 +312,20 @@ def pilot_readings(
             single = group["sl_single"].to_numpy(dtype=float)
             single = single[np.isfinite(single)]
             record["sl_single_share"] = float(single.mean()) if single.size else float("nan")
-            passes = ["p_g1", "p_shown", "p_g2", "p_variance_ratio"]
+            # G1 and the shown-coverage clause read one hit count when nothing is withheld, and
+            # a shown lower end of 0.92 then implies an all-draw one of 0.90: their joint
+            # probability is the shown clause's, on the one predictive hit law. With intervals
+            # withheld the two counts differ, and the product is kept as a lower bound.
+            if len(shown) == n:
+                record["p_coverage"] = lower_end_pass(
+                    covered,
+                    n,
+                    study_draws,
+                    max(study.STUDY.margins.coverage_floor, properties.SHOWN_COVERAGE_FLOOR),
+                )
+            else:
+                record["p_coverage"] = record["p_g1"] * record["p_shown"]
+            passes = ["p_coverage", "p_g2", "p_variance_ratio"]
             glm = groups.get(properties.glm_cell(str(cell)))
             if glm is not None:
                 # The paired difference is published on every default-library row (L1, L2, L3);

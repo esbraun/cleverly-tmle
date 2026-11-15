@@ -2517,17 +2517,32 @@ class AdaptiveNuisanceShortfall:
 
     Parameters
     ----------
-    below : int
+    below : int or None
         The smallest cluster count at which the configuration passed; the limit holds below it.
+        ``None`` when no measured count passed: the limit holds at every count.
     counts : str
         The measured counts that failed, as the sentence names them, such as ``"10"``.
     splitting : str
         The configuration in words, such as ``"in-sample TMLE"``.
+    shared : bool, default False
+        The declared reading of the red: ``True`` when a GLM fit with an estimated propensity on
+        the same draws fails the same clauses and the paired coverage difference is inside the
+        non-inferiority margin, so the sentence says the deficit is shared rather than that the
+        learners fail. A shared red adds no limit at every count, so ``shared`` needs a
+        ``below``.
     """
 
-    below: int
+    below: int | None
     counts: str
     splitting: str
+    shared: bool = False
+
+    def __post_init__(self) -> None:
+        if self.shared and self.below is None:
+            raise ValueError(
+                "a shared red adds no limit at every count: AdaptiveNuisanceShortfall(shared=True) "
+                "needs below"
+            )
 
     def sentence(self, row_id: str) -> str:
         """The reason the estimate carries, naming the row, the counts and the study.
@@ -2549,10 +2564,18 @@ class AdaptiveNuisanceShortfall:
                 f"{self.counts} clusters for {self.splitting}, and no study measures a larger "
                 "count (few-cluster-adaptive-learners)."
             )
+        if self.shared:
+            return (
+                f"Row {row_id} has no passing measurement with the default learner library "
+                f"below {self.below} clusters: the default learner library covers below the "
+                f"floor at {self.counts} clusters for {self.splitting}, as does a GLM fit with "
+                f"an estimated propensity on the same draws; it passes from {self.below} "
+                "clusters (few-cluster-adaptive-learners)."
+            )
         return (
-            f"Row {row_id} is measured with parametric nuisance learners only below 40 "
-            "clusters: the registered few-cluster evidence with the default learner library "
-            f"fails at {self.counts} clusters for {self.splitting} "
+            f"Row {row_id} is measured with parametric nuisance learners only below "
+            f"{self.below} clusters: the registered few-cluster evidence with the default "
+            f"learner library fails at {self.counts} clusters for {self.splitting} "
             "(few-cluster-adaptive-learners)."
         )
 

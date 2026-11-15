@@ -782,8 +782,97 @@ PROPERTY_RULES = (
 )
 
 
-def caveat_outcomes(summary: pd.DataFrame) -> dict[str, dict[str, Any]]:
-    """Each positive configuration's clause readings and caveat, keyed by its cell.
+def failed_clauses(row: pd.Series, *, gated_noninferiority: bool = False) -> frozenset[str]:
+    """The caveat clauses a summary row fails, under the declared interval rules.
+
+    ``g1``: the exact 99% coverage lower end below 0.90; ``g2``: the bias not equivalent;
+    ``variance_ratio``: the 99% lower end below 0.8649; ``shown_coverage``: the exact 99% shown
+    lower end below 0.92; ``noninferiority``, on a row that carries it: the paired lower end at
+    or below -0.02.
+    """
+    floor = STUDY.margins.coverage_floor
+    out = set()
+    if not float(row["coverage_ci_lower"]) >= floor:
+        out.add("g1")
+    if not bool(row["bias_equivalent"]):
+        out.add("g2")
+    if not float(row["variance_ratio_ci_lower"]) >= VARIANCE_RATIO_FLOOR:
+        out.add("variance_ratio")
+    if not float(row["shown_ci_lower"]) >= SHOWN_COVERAGE_FLOOR:
+        out.add("shown_coverage")
+    if gated_noninferiority and not float(row["noninferiority_lower"]) > NONINFERIORITY_MARGIN:
+        out.add("noninferiority")
+    return frozenset(out)
+
+
+def _glm_failed_at_worst_fill(
+    glm: pd.Series, glm_rows: pd.DataFrame, requested: int
+) -> frozenset[str]:
+    """The clauses the GLM arm fails with each lost GLM fit read as a cover.
+
+    The fill that favours the GLM arm passing, so a lost GLM fit can only move a red toward
+    :data:`~tests.studies.few_cluster_adaptive_learners.LIBRARY_READING`. The variance ratio and
+    the bias have no such fill and are read on the fits the arm kept.
+    """
+    failed = set(failed_clauses(glm))
+    level = STUDY.margins.confidence_level
+    lost = max(requested - len(glm_rows), 0)
+    if lost:
+        hits = int((glm_rows["covered"] > 0).sum())
+        shown = _shown(glm_rows)
+        shown_hits = int((shown["covered"] > 0).sum())
+        all_low = clopper_pearson(hits + lost, requested, confidence_level=level).low
+        shown_low = clopper_pearson(
+            shown_hits + lost, len(shown) + lost, confidence_level=level
+        ).low
+        failed.discard("g1")
+        failed.discard("shown_coverage")
+        if all_low < STUDY.margins.coverage_floor:
+            failed.add("g1")
+        if shown_low < SHOWN_COVERAGE_FLOOR:
+            failed.add("shown_coverage")
+    return frozenset(failed)
+
+
+def red_reading(summary: pd.DataFrame, rows: pd.DataFrame, cell: str) -> str | None:
+    """The declared no-defect reading of a positive row, or ``None`` when it passes.
+
+    The row reads :data:`~tests.studies.few_cluster_adaptive_learners.SHARED_READING` when both
+    hold: the exact 99% lower end of its paired all-draw coverage difference to its GLM arm on
+    the same draws is above the non-inferiority margin, at the worst fill (a lost default fit a
+    miss, a lost GLM fit a cover; :func:`lost_counts`); and the GLM arm fails every clause the
+    row fails (:func:`failed_clauses`, the GLM's lost fits read as covers). A shared red that
+    fails G1 or G2 reads
+    :data:`~tests.studies.few_cluster_adaptive_learners.PARAMETRIC_READING`: the parametric row
+    fails the floor reading too. Every other red reads
+    :data:`~tests.studies.few_cluster_adaptive_learners.LIBRARY_READING`. A code defect is
+    diagnosed before any reading; this function reads what is left when none is found.
+    """
+    family = summary.loc[summary["property"] == FAMILY].set_index("cell")
+    row = family.loc[cell]
+    if str(row["role"]) != "positive":
+        raise ValueError(f"{cell} is not a positive row")
+    if bool(row["passed"]):
+        return None
+    mine = failed_clauses(row, gated_noninferiority=noninferiority_gated(cell))
+    requested = int(row["requested_replicates"])
+    positive_rows = _cell_rows(rows, cell)
+    glm_rows = _cell_rows(rows, glm_cell(cell))
+    counts = lost_counts(positive_rows, glm_rows, requested)
+    paired = mcnemar_lower(
+        counts["gained"], counts["lost"], counts["trials"], STUDY.margins.confidence_level
+    )
+    theirs = _glm_failed_at_worst_fill(family.loc[glm_cell(cell)], glm_rows, requested)
+    shared = paired > NONINFERIORITY_MARGIN and (mine - {"noninferiority"}) <= theirs
+    if not shared:
+        return study.LIBRARY_READING
+    if mine & {"g1", "g2"}:
+        return study.PARAMETRIC_READING
+    return study.SHARED_READING
+
+
+def caveat_outcomes(summary: pd.DataFrame, rows: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """Each positive configuration's clause readings, caveat and red reading, keyed by its cell.
 
     The input of the declared consequences of plan section 5.8 at registration.
     """
@@ -799,13 +888,16 @@ def caveat_outcomes(summary: pd.DataFrame) -> dict[str, dict[str, Any]]:
             if noninferiority_gated(str(row["cell"]))
             else None,
             "caveat_removed": bool(row["caveat_removed"]),
+            "reading": red_reading(summary, rows, str(row["cell"])),
         }
     return out
 
 
 __all__: Sequence[str] = (
     "PROPERTY_RULES",
+    "caveat_outcomes",
     "declared_cells",
     "generate_property_rows",
+    "red_reading",
     "summarize_properties",
 )

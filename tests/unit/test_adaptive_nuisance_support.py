@@ -290,6 +290,37 @@ def test_a_shortfall_holds_below_its_count_only(monkeypatch: pytest.MonkeyPatch)
     assert _clustered(_tree(), clusters=12, stacked=True)["ate"].support.label == "experimental"
 
 
+def test_the_shortfall_sentences_name_the_reading_and_the_count() -> None:
+    """The limit sentence reads ``below``, and a shared red says the GLM arm reads the same."""
+    library = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE")
+    shared = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE", shared=True)
+    assert library.sentence("T11.stacked") == (
+        "Row T11.stacked is measured with parametric nuisance learners only below 20 clusters: "
+        "the registered few-cluster evidence with the default learner library fails at 10 "
+        "clusters for stacked TMLE (few-cluster-adaptive-learners)."
+    )
+    assert shared.sentence("T11.stacked") == (
+        "Row T11.stacked has no passing measurement with the default learner library below 20 "
+        "clusters: the default learner library covers below the floor at 10 clusters for "
+        "stacked TMLE, as does a GLM fit with an estimated propensity on the same draws; it "
+        "passes from 20 clusters (few-cluster-adaptive-learners)."
+    )
+    assert "fails" not in shared.sentence("T11.stacked")
+    assert "below 40" not in library.sentence("T11.stacked")
+    with pytest.raises(ValueError, match="needs below"):
+        AdaptiveNuisanceShortfall(below=None, counts="40", splitting="stacked TMLE", shared=True)
+
+
+def test_a_shared_shortfall_labels_the_stacked_fit_with_its_sentence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE", shared=True)
+    _shortfalls(monkeypatch, {"T11.stacked": shared})
+    estimate = _clustered(_tree(), clusters=12, stacked=True)["ate"]
+    assert estimate.support.label == "experimental"
+    assert shared.sentence("T11.stacked") in estimate.support.reason
+
+
 def test_mutation_a_detector_that_never_fires_leaves_the_stacked_fit_supported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
