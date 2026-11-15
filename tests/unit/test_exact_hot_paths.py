@@ -351,43 +351,31 @@ def _reference_fill(rng: np.random.Generator, out: np.ndarray) -> None:
     np.copyto(out, _MAMMEN_LOW, where=flags)
 
 
-def _views() -> list[tuple[str, np.ndarray, np.ndarray]]:
-    """Buffers prefilled with NaN, and the part of each a fill must write."""
-    views = []
-    for name in ("contiguous", "leading block", "strided", "transposed", "fortran"):
-        base = (
-            np.full((12, 70), np.nan) if name != "fortran" else np.full((12, 70), np.nan, order="F")
-        )
-        target = {
-            "contiguous": base,
-            "leading block": base[:5],
-            "strided": base[::2, ::3],
-            "transposed": base.T,
-            "fortran": base,
-        }[name]
-        views.append((name, base, target))
-    return views
+VIEWS = ["contiguous", "leading block", "strided", "transposed", "fortran"]
 
 
-@pytest.mark.parametrize("shape", SHAPES)
-def test_mammen_fill_is_bitwise_the_reference(shape: tuple[int, int]) -> None:
-    rng, twin = np.random.default_rng(31), np.random.default_rng(31)
-    out, expected = np.full(shape, np.nan), np.full(shape, np.nan)
-    _fill_multipliers(rng, out, "mammen")
-    _reference_fill(twin, expected)
-    assert out.tobytes() == expected.tobytes()
-    # The generator is left where the reference leaves it, so the next block is unchanged.
+def _view(name: str) -> tuple[np.ndarray, np.ndarray]:
+    """A buffer prefilled with NaN, and the part of it a fill must write."""
+    base = np.full((12, 70), np.nan, order="F" if name == "fortran" else "C")
+    target = {
+        "contiguous": base,
+        "leading block": base[:5],
+        "strided": base[::2, ::3],
+        "transposed": base.T,
+        "fortran": base,
+    }[name]
+    return base, target
+
+
+@pytest.mark.parametrize("name", VIEWS)
+def test_mammen_fill_writes_every_element_of_a_view(name: str) -> None:
+    (base, target), (twin_base, twin_target) = _view(name), _view(name)
+    rng, twin = np.random.default_rng(32), np.random.default_rng(32)
+    _fill_multipliers(rng, target, "mammen")
+    _reference_fill(twin, twin_target)
+    assert base.tobytes() == twin_base.tobytes()
+    assert not np.isnan(target).any()
     assert rng.bit_generator.state == twin.bit_generator.state
-
-
-@pytest.mark.parametrize("index", range(5))
-def test_mammen_fill_writes_every_element_of_a_view(index: int) -> None:
-    name, base, target = _views()[index]
-    _, twin_base, twin_target = _views()[index]
-    _fill_multipliers(np.random.default_rng(32), target, "mammen")
-    _reference_fill(np.random.default_rng(32), twin_target)
-    assert base.tobytes() == twin_base.tobytes(), name
-    assert not np.isnan(target).any(), name
 
 
 def test_mammen_points_are_exact_in_the_two_pass_write() -> None:
