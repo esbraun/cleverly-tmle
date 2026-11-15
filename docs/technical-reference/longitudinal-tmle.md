@@ -772,6 +772,14 @@ holds at least $\min(20, m)$ of the $m$ observations of its stretch. Core edges 
 so a fit has at least `density_bins` bins. `DensityDiagnostics.core_bins` reports the core count
 and `n_bins` the refined count.
 
+A cut that would leave fewer than 20 observations beyond the run, a thin stretch, needs a run
+longer than 3 local spans (`THIN_STRETCH_FACTOR`) in place of one. At 1, an ordinary top spacing
+of an exponential tail is cut in about 9% of samples and leaves the extreme alone in a bin whose
+reading carries the tail; at 3 that falls to about 0.2%. The observations beyond are counted up to
+the nearest run in the same core bin that is longer than $2h$ and its own local span, cut or not,
+or to the sample's end. A far cluster beyond a second such run therefore does not lift the count
+of the stretch between the two runs to 20.
+
 A binned density at a fixed bin count is not consistent: a
 growing count is necessary, and the hazard learner must also be consistent. So the default
 `density_bins=None` grows the core count with the sample, `max(20, ceil(2 n^(1/3)))`. Scott (1979) derives that rate for a fixed-width histogram

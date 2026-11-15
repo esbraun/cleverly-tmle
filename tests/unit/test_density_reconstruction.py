@@ -12,7 +12,8 @@ between the fit and the truth.
 - W3a to W3g: segment masses, exponential exactness, no new extremum, segment breaks, one
   representation across readers, the mixed law's partial-bin mass, and the pass cap.
 - W4a to W4g: the grid's core, floor, robust width cap, gap bins, explicit edges, the
-  preflight, the thin-stretch factor at each end, and its row count stopping at the next gap.
+  preflight, the thin-stretch factor at each end, and its row count stopping at the nearest
+  run long enough to be a gap.
 - W5: the collapse of a vector's last dose onto an atom integrates a multi-bin segment.
 - W6: the remainder with a wrong outcome regression.
 - W7, W10: the longitudinal fits read the point fit's density; occupancy travels with the
@@ -848,22 +849,25 @@ def test_w4f_a_thin_stretch_never_cut_hides_a_far_dose(monkeypatch: pytest.Monke
     assert sum("the far dose shares a bin" in item for item in found) == 4, found
 
 
-#: Rows in the far cluster of :func:`_extreme_before_cluster`, more than :data:`TAIL_ROWS`.
-W4G_CLUSTER = 30
+#: Rows in each of the two far clusters of :func:`_extreme_before_cluster`, more than
+#: :data:`TAIL_ROWS`.
+W4G_CLUSTER = 25
 
 
 def _extreme_before_cluster(r: float, *, lower: bool) -> tuple[np.ndarray, float]:
-    """:func:`_moved_extreme` with a far cluster six units past the moved dose.
+    """:func:`_moved_extreme` with two far clusters, six and twelve units past the moved dose.
 
-    The cluster's :data:`W4G_CLUSTER` rows sit beyond a gap of their own, so the moved dose is
-    a thin stretch between two empty runs.  Returns the sample and the moved dose.
+    Each cluster's :data:`W4G_CLUSTER` rows sit beyond a gap of their own, so the moved dose is
+    a thin stretch between two empty runs, and the nearest of the two gaps bounds its count.
+    Returns the sample and the moved dose.
     """
     n = 20_000
-    base = stats.norm.ppf((np.arange(1, n - W4G_CLUSTER + 1) - 0.5) / (n - W4G_CLUSTER))
+    far = 2 * W4G_CLUSTER
+    base = stats.norm.ppf((np.arange(1, n - far + 1) - 0.5) / (n - far))
     local = base[-2] - base[-2 - TAIL_ROWS]
     base[-1] = base[-2] + r * local
-    cluster = base[-1] + 6.0 + np.linspace(0.0, 0.3, W4G_CLUSTER)
-    a = np.concatenate([base, cluster])
+    spread = np.linspace(0.0, 0.3, W4G_CLUSTER)
+    a = np.concatenate([base, base[-1] + 6.0 + spread, base[-1] + 12.0 + spread])
     return (-a, -base[-1]) if lower else (a, base[-1])
 
 
@@ -875,16 +879,50 @@ def _cluster_problems() -> list[str]:
             edges = bin_edges(a, default_density_bins(a.size))
             counts = np.histogram(a, edges)[0]
             at = int(np.searchsorted(edges, moved, side="right") - 1)
-            far = int(np.searchsorted(edges, a[-1], side="right") - 1)
-            between = counts[min(at, far) + 1 : max(at, far)]
-            if not np.any(between == 0) or counts[far] != W4G_CLUSTER:
-                found.append(f"r = {r}, lower = {lower}: the far cluster lost its gap")
+            near, far = (
+                int(np.searchsorted(edges, a[k], side="right") - 1)
+                for k in (-2 * W4G_CLUSTER, -W4G_CLUSTER)
+            )
+            for first, last in ((at, near), (near, far)):
+                between = counts[min(first, last) + 1 : max(first, last)]
+                if not np.any(between == 0) or counts[last] != W4G_CLUSTER:
+                    found.append(f"r = {r}, lower = {lower}: a far cluster lost its gap")
             if r < 3.0 and counts[at] < TAIL_ROWS:
                 found.append(
                     f"r = {r}, lower = {lower}: an ordinary spacing left {counts[at]} rows"
                 )
             if r > 3.0 and counts[at] != 1:
                 found.append(f"r = {r}, lower = {lower}: the far dose shares a bin of {counts[at]}")
+    return found
+
+
+def _split_group(gap: float, *, lower: bool) -> tuple[np.ndarray, float]:
+    """20,000 Gaussian quantiles, then two local spans further a group of 25 rows split by an
+    empty stretch of ``gap``, shorter than the group's local span.  Returns the sample and the
+    group's innermost dose."""
+    n = 20_000
+    base = stats.norm.ppf((np.arange(1, n - 25 + 1) - 0.5) / (n - 25))
+    start = base[-1] + 2.0 * (base[-1] - base[-1 - TAIL_ROWS])
+    first = start + np.linspace(0.0, 0.05, 12)
+    a = np.concatenate([base, first, first[-1] + gap + np.linspace(0.0, 0.05, 13)])
+    return (-a, -start) if lower else (a, start)
+
+
+def _split_group_problems() -> list[str]:
+    """The group's 25 rows lie beyond the run, so it is cut at factor 1; its inner empty
+    stretch is ordinary spacing, so it neither stops the count nor becomes a gap."""
+    found = []
+    for lower in (False, True):
+        for gap in (0.3, 0.6):
+            a, start = _split_group(gap, lower=lower)
+            edges = bin_edges(a, default_density_bins(a.size))
+            counts = np.histogram(a, edges)[0]
+            at = int(np.searchsorted(edges, start, side="right") - 1)
+            inner = at + 1 if lower else at - 1
+            if counts[inner] != 0:
+                found.append(f"gap = {gap}, lower = {lower}: the run before the group is not cut")
+            if counts[at] != 25:
+                found.append(f"gap = {gap}, lower = {lower}: the group's bin holds {counts[at]}")
     return found
 
 
@@ -907,6 +945,10 @@ def test_w4g_a_far_cluster_does_not_lift_the_thin_stretch_factor() -> None:
     assert _cluster_problems() == []
 
 
+def test_w4g_an_ordinary_empty_stretch_does_not_stop_the_count() -> None:
+    assert _split_group_problems() == []
+
+
 def test_w4g_the_pilot_draw_reads_within_the_bound() -> None:
     assert _cluster_draw() <= 0.08
 
@@ -924,6 +966,48 @@ def test_w4g_counting_to_the_sample_end_isolates_the_extreme(
     found = _cluster_problems()
     assert sum("an ordinary spacing left 1 rows" in item for item in found) == 4, found
     assert _cluster_draw() > 0.2
+
+
+def test_w4g_counting_to_the_farthest_gap_isolates_the_extreme(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: count up to the farthest wide run, past the nearer cluster."""
+    shipped = density_module._rows_beyond
+
+    def farthest(ordered: Any, x0: float, x1: float, upper: bool, wide: Any) -> int:
+        if upper:
+            ends = [lo for lo, _ in wide if lo >= x1]
+            return (
+                density_module._count(ordered, x1, max(ends))
+                if ends
+                else shipped(ordered, x0, x1, upper, wide)
+            )
+        ends = [hi for _, hi in wide if hi <= x0]
+        return (
+            density_module._count(ordered, min(ends), x0)
+            if ends
+            else shipped(ordered, x0, x1, upper, wide)
+        )
+
+    monkeypatch.setattr(density_module, "_rows_beyond", farthest)
+    found = _cluster_problems()
+    assert sum("an ordinary spacing left 1 rows" in item for item in found) == 4, found
+
+
+@pytest.mark.parametrize("kind", ["every run", "2h only"])
+def test_w4g_a_wide_run_needs_its_local_span(kind: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutations: every empty run stops the count, or a run is wide past ``2 h`` alone."""
+
+    def wide(ordered: Any, cuts: Any, runs: Any, upper: bool, h: float) -> list[Any]:
+        return [
+            (float(cuts[p]), float(cuts[q]))
+            for p, q in runs
+            if kind == "every run" or cuts[q] - cuts[p] > 2.0 * h
+        ]
+
+    monkeypatch.setattr(density_module, "_wide_runs", wide)
+    found = _split_group_problems()
+    assert sum("is not cut" in item for item in found) == 4, found
 
 
 # ------------------------------------------------------------------ W5

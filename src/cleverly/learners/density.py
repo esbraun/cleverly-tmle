@@ -122,8 +122,9 @@ _FLAT_WARNING = 0.5
 TAIL_ROWS = 20
 
 #: How much longer than its local span an empty run must be to become a gap when fewer than
-#: :data:`TAIL_ROWS` observations lie beyond it, up to the next gap or the sample's end.  Such a
-#: run would close a stretch thinner than the floor between two empty bins, or at the end, where
+#: :data:`TAIL_ROWS` observations lie beyond it, counted up to the next run longer than its own
+#: local span and ``2 h`` (cut or not) in the same core bin, or the sample's end.  Such a run
+#: would close a stretch thinner than the floor between two empty bins, or at the end, where
 #: the outermost bin carries the mass beyond the sample's extreme: at factor 1 an ordinary top
 #: spacing of an exponential tail is cut off in about 9% of samples, and the extreme then sits
 #: alone in its bin.  At 3 that falls to about 0.2%.  Other runs keep factor 1.
@@ -379,9 +380,11 @@ def _rows_beyond(
 ) -> int:
     """The observations an empty run ``[x0, x1]`` would leave on its outer side.
 
-    They are counted up to the nearest ``wide`` run (one long enough to be a gap at factor 1)
-    on that side, or to the sample's end, so a far cluster beyond a second gap does not make a
-    thin stretch between the two read as full.
+    They are counted up to the nearest ``wide`` run on that side (:func:`_wide_runs`), or to
+    the sample's end, so a far cluster beyond a second gap does not make a thin stretch
+    between the two read as full.  Only the run's own core bin is searched: a wide run in a
+    later core bin does not stop the count, which matters only when a cluster beyond it holds
+    nearly a core bin of rows.
     """
     if upper:
         ends = [lo for lo, _ in wide if lo >= x1]
@@ -392,6 +395,21 @@ def _rows_beyond(
     if ends:
         return _count(ordered, max(ends), x0)
     return int(np.searchsorted(ordered, x0, side="right"))
+
+
+def _wide_runs(
+    ordered: FloatArray, cuts: FloatArray, runs: list[tuple[int, int]], upper: bool, h: float
+) -> list[tuple[float, float]]:
+    """The empty runs of one core bin long enough to be a gap at factor 1, cut or not.
+
+    A run is wide when it is longer than ``2 h`` and than its own local span.  The nearest
+    one on a run's outer side bounds the stretch a cut would leave (:func:`_rows_beyond`).
+    """
+    return [
+        (float(cuts[p]), float(cuts[q]))
+        for p, q in runs
+        if cuts[q] - cuts[p] > max(2.0 * h, _local_span(ordered, cuts[p], cuts[q], upper))
+    ]
 
 
 def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
@@ -431,12 +449,7 @@ def _refine(a: FloatArray, core: FloatArray) -> FloatArray:
             runs.append((j, stop))
             j = stop
 
-        # The runs long enough to be a gap at factor 1 bound the stretch a cut would leave.
-        wide = [
-            (float(cuts[p]), float(cuts[q]))
-            for p, q in runs
-            if cuts[q] - cuts[p] > max(2.0 * h, _local_span(ordered, cuts[p], cuts[q], upper))
-        ]
+        wide = _wide_runs(ordered, cuts, runs, upper, h)
         stretches: list[tuple[str, int, int]] = []
         start = 0
         for j, stop in runs:
@@ -475,8 +488,8 @@ def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> Fl
     - a run of pieces holding no observation becomes one empty *gap* bin when it is longer
       than ``2 h`` and longer than the span of the :data:`TAIL_ROWS` observations next to it
       on its inner side, or than :data:`THIN_STRETCH_FACTOR` times that span when fewer than
-      :data:`TAIL_ROWS` observations lie beyond it, up to the next run long enough to be a gap
-      at that span or the sample's end;
+      :data:`TAIL_ROWS` observations lie beyond it, counted up to the next run in the same
+      core bin longer than its own local span and ``2 h`` (cut or not), or the sample's end;
     - the other pieces are merged from the outer end inward until each bin holds at least
       ``min(TAIL_ROWS, m)`` of the ``m`` observations of its stretch.
 
