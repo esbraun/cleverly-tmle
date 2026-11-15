@@ -1512,12 +1512,8 @@ class SurvivalSelection:
             ("Censoring model", ", ".join(chosen_g2) or "nodes only"),
         )
         if self.target_solves:
-            header += (
-                (
-                    "Target solves",
-                    f"{sum(self.target_solves)} ({self.target_solves[0]} on the full data)",
-                ),
-            )
+            solves = f"{sum(self.target_solves)}, {self.target_solves[0]} on full data"
+            header += (("Solves", solves),)
         return Summary.build(
             title="Collaborative survival selection", header=header, tables=(table,)
         )
