@@ -1,20 +1,27 @@
-"""Faster forms of three internal computations return exactly what the plain forms return.
+"""Faster forms of internal computations return exactly what the plain forms return.
 
 Each test keeps the plain form as a reference and compares bitwise on inputs chosen to reach
 the cases where a shortcut could differ: tie blocks and NaNs for the weighted AUC, ties and
 NaN event times for the Breslow counts, pattern counts on either side of the term count for
-the constant-cell check.
+the constant-cell check, odd widths and non-contiguous views for the band's Mammen multiplier fill.
 """
 
 from __future__ import annotations
 
 import importlib
+from fractions import Fraction
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from cleverly.estimators.tmle import _coefficients_on_constant_cells
+from cleverly.inference.multiplier import (
+    _MAMMEN_HIGH,
+    _MAMMEN_LOW,
+    _MAMMEN_THRESHOLD,
+    _fill_multipliers,
+)
 from cleverly.survival.cox import _risk_sets
 from cleverly.validation.nuisance import _weighted_auc
 
@@ -330,3 +337,80 @@ def test_a_saturated_working_model_reports_its_constant_cell() -> None:
     found = _coefficients_on_constant_cells(outcome, treatment, ones, ones, msm=msm, contrast=None)
     assert found
     assert found == _cells_reference(outcome, treatment, ones, ones, msm=msm, contrast=None)
+
+
+# Mammen multiplier fill: the band's draws, written into the buffer in fewer passes.
+
+SHAPES = [(1, 1), (1, 7), (1, 9), (3, 1), (5, 8), (4, 1001), (257, 33)]
+
+
+def _reference_fill(rng: np.random.Generator, out: np.ndarray) -> None:
+    """The Mammen branch as it was written before the change, verbatim."""
+    flags = rng.integers(0, 2**32, size=out.shape, dtype=np.uint32) < _MAMMEN_THRESHOLD
+    np.copyto(out, _MAMMEN_HIGH)
+    np.copyto(out, _MAMMEN_LOW, where=flags)
+
+
+def _views() -> list[tuple[str, np.ndarray, np.ndarray]]:
+    """Buffers prefilled with NaN, and the part of each a fill must write."""
+    views = []
+    for name in ("contiguous", "leading block", "strided", "transposed", "fortran"):
+        base = (
+            np.full((12, 70), np.nan) if name != "fortran" else np.full((12, 70), np.nan, order="F")
+        )
+        target = {
+            "contiguous": base,
+            "leading block": base[:5],
+            "strided": base[::2, ::3],
+            "transposed": base.T,
+            "fortran": base,
+        }[name]
+        views.append((name, base, target))
+    return views
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_mammen_fill_is_bitwise_the_reference(shape: tuple[int, int]) -> None:
+    rng, twin = np.random.default_rng(31), np.random.default_rng(31)
+    out, expected = np.full(shape, np.nan), np.full(shape, np.nan)
+    _fill_multipliers(rng, out, "mammen")
+    _reference_fill(twin, expected)
+    assert out.tobytes() == expected.tobytes()
+    # The generator is left where the reference leaves it, so the next block is unchanged.
+    assert rng.bit_generator.state == twin.bit_generator.state
+
+
+@pytest.mark.parametrize("index", range(5))
+def test_mammen_fill_writes_every_element_of_a_view(index: int) -> None:
+    name, base, target = _views()[index]
+    _, twin_base, twin_target = _views()[index]
+    _fill_multipliers(np.random.default_rng(32), target, "mammen")
+    _reference_fill(np.random.default_rng(32), twin_target)
+    assert base.tobytes() == twin_base.tobytes(), name
+    assert not np.isnan(target).any(), name
+
+
+def test_mammen_points_are_exact_in_the_two_pass_write() -> None:
+    # Both steps are exact, not rounded: LOW - HIGH and (LOW - HIGH) + HIGH are doubles.
+    low, high = Fraction(float(_MAMMEN_LOW)), Fraction(float(_MAMMEN_HIGH))
+    step = _MAMMEN_LOW - _MAMMEN_HIGH
+    assert Fraction(float(step)) == low - high
+    assert Fraction(float(step + _MAMMEN_HIGH)) == low
+    assert -0.0 + _MAMMEN_HIGH == _MAMMEN_HIGH
+    out = np.empty((7, 500))
+    _fill_multipliers(np.random.default_rng(33), out, "mammen")
+    bits = set(np.unique(out.view(np.uint64)).tolist())
+    assert bits == set(np.array([_MAMMEN_LOW, _MAMMEN_HIGH]).view(np.uint64).tolist())
+
+
+def test_mammen_reference_catches_swapped_points() -> None:
+    # Mutation control: a fill with the two points swapped, or with HIGH - LOW as the step,
+    # differs from the reference, so the byte test above can see either mistake.
+    rng, twin = np.random.default_rng(34), np.random.default_rng(34)
+    expected = np.empty((3, 50))
+    _reference_fill(twin, expected)
+    flags = rng.integers(0, 2**32, size=(3, 50), dtype=np.uint32) < _MAMMEN_THRESHOLD
+    swapped = flags * (_MAMMEN_HIGH - _MAMMEN_LOW) + _MAMMEN_LOW
+    wrong_step = flags * (_MAMMEN_HIGH - _MAMMEN_LOW) + _MAMMEN_HIGH
+    assert swapped.tobytes() != expected.tobytes()
+    assert wrong_step.tobytes() != expected.tobytes()
