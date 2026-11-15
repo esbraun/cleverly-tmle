@@ -574,6 +574,21 @@ def _units_up_to_two(unit_of: IntArray, rows: BoolArray, clustered: bool) -> int
     rows; otherwise two units are found as soon as one label differs from the first, and only
     a count below two is counted exactly. Integer cluster codes, which every library path
     writes, then need no pass over ``n`` labels beyond one comparison.
+
+    Parameters
+    ----------
+    unit_of : ndarray
+        The unit label of each row, from ``_independent_units``.
+    rows : ndarray
+        Boolean selection of the rows to count.
+    clustered : bool
+        Whether the labels are declared clusters; ``False`` means ``unit_of`` is
+        ``np.arange(n)``.
+
+    Returns
+    -------
+    int
+        The exact count when it is below two, otherwise 2.
     """
     if not clustered:  # unit_of is np.arange(n): one unit per row
         return int(np.count_nonzero(rows))
@@ -3957,7 +3972,7 @@ class TMLE:
         arm_way_out = remedy if arm_remedy is None else arm_remedy
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
-        clustered = data.cluster is not None
+        clustered = unit == "cluster"
         for arm in arms:
             count = _units_up_to_two(unit_of, treatment == arm, clustered)
             if count < 2:
