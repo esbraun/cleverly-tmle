@@ -775,15 +775,28 @@ def test_each_policy_has_its_own_walk(monkeypatch: pytest.MonkeyPatch) -> None:
 # ------------------------------------------------------------------ held cells
 
 
+@contextmanager
+def captured_targets() -> Iterator[list[Any]]:
+    """Record the ``(state, record)`` of every targeting walk while the block runs.
+
+    ``_target`` keeps only each walk's levels and influence curves, so its final states are
+    read where the walks return them: the one-step walk and each per-horizon solve.
+    """
+    with captured("walk_curve") as walks, captured("solve_per_horizon") as solves:
+        calls: list[Any] = []
+        yield calls
+    calls.extend(walks + solves)
+
+
 def _final_states(result_calls: list[Any]) -> list[Any]:
-    return [state for reports in result_calls for state, _ in reports.values()]
+    return [state for state, _ in result_calls]
 
 
 @pytest.mark.parametrize("targeting", ["one_step", "iterative"])
 def test_a_held_level_cell_holds_every_unit_at_that_level(targeting: str) -> None:
     """A level with no death at node 1: every unit's hazard there stays exactly zero."""
     law = GridLaw(causes=2, empty=lambda node, w, f, a: node == 1 and a == 2)
-    with captured("_target") as calls, captured("mtp_inputs") as inputs:
+    with captured_targets() as calls, captured("mtp_inputs") as inputs:
         result = fit(law, {"up": policy("categorical", "up")}, "categorical", targeting=targeting)
     assert inputs[0].empty[0, 2, 1] and not inputs[0].empty[0, 1, 1]
     for state in _final_states(calls):
@@ -803,7 +816,7 @@ def test_a_held_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> N
     held walk converges in under 200 steps.
     """
     law = GridLaw(causes=2, empty=lambda node, w, f, a: node == 1)
-    with captured("_target") as calls:
+    with captured_targets() as calls:
         result = fit(law, {"up": policy("continuous", "up")}, "continuous")
     for state in _final_states(calls):
         assert np.all(state.hazards[:, 0, :, 1] == 0.0)
@@ -836,7 +849,7 @@ def test_a_held_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> N
 def test_a_held_mixed_cell_holds_the_slots_of_its_categorical_values() -> None:
     """No death at node 1 with ``F = 1``: those slots are held, the ``F = 0`` slots are not."""
     law = GridLaw(flag=True, n_times=1, causes=2, empty=lambda node, w, f, a: f == 1)
-    with captured("_target") as calls:
+    with captured_targets() as calls:
         result = fit(law, {"up": policy("mixed", "up")}, "mixed")
     flagged = law.frame()["F"].to_numpy() == 1.0
     for state in _final_states(calls):
@@ -855,7 +868,7 @@ def test_a_full_dose_cell_holds_every_slot(monkeypatch: pytest.MonkeyPatch) -> N
     where the held walk converges in under 200 steps.
     """
     law = GridLaw(causes=2, full=lambda node, w, f, a: node == 2)
-    with captured("_target") as calls, captured("mtp_inputs") as inputs:
+    with captured_targets() as calls, captured("mtp_inputs") as inputs:
         result = fit(law, {"up": policy("continuous", "up")}, "continuous")
     np.testing.assert_array_equal(inputs[0].full, [[False], [True]])
     for state in _final_states(calls):

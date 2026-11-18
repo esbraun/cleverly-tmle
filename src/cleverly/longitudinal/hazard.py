@@ -88,7 +88,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 from scipy.special import expit, xlogy
@@ -1756,7 +1756,7 @@ def _path_inputs(
     node, of positive weight, whose observed prefix is that value, and its hold applies to
     every slot copy with that prefix (plan 2.4.5).
     """
-    slots = path_slots(data, plans)
+    slots = path_slots(data, plans, capped=False)
     if inverse.shape[2] != slots.n_slots:  # pragma: no cover - caller contract
         raise AssertionError("one cumulative mechanism per path slot is expected")
     weights = np.asarray(data.weights, dtype=float)
@@ -2083,6 +2083,7 @@ def hazard_path_cap_refusal(
     n_causes: int,
     n_columns: int,
     peak: float,
+    max_memory_bytes: int | None = None,
 ) -> Refusal:
     """The refusal of a multi-node hazard fit whose enumerated paths exceed the cap (H17).
 
@@ -2106,6 +2107,8 @@ def hazard_path_cap_refusal(
         Columns of the widest node's hazard design.
     peak : float
         The predicted traced peak in bytes, :func:`path_peak`.
+    max_memory_bytes : int or None
+        The fit's ``max_memory_bytes=``, or ``None`` for :data:`PATH_PEAK_LIMIT`.
 
     Returns
     -------
@@ -2113,15 +2116,20 @@ def hazard_path_cap_refusal(
         An ``api_redirection``.
     """
     at = "1 node" if nodes == 1 else f"{nodes} nodes"
+    limit = (
+        f"the limit of {PATH_PEAK_LIMIT / 1024.0**3:.0f} GiB"
+        if max_memory_bytes is None
+        else f"max_memory_bytes={max_memory_bytes} ({max_memory_bytes / 1024.0**3:.1f} GiB)"
+    )
     return Refusal(
         RefusalReason.API_REDIRECTION,
         f"regimen {label!r} draws its treatment from a known policy at {at}, which "
         f"gives {paths} treatment paths with positive probability. The hazard fit holds the "
         f"hazards of every path for every unit and cause, and {n} units, {n_times} nodes, "
         f"{n_slots} paths, {n_causes} causes and {n_columns} design columns give a predicted "
-        f"traced peak of {peak / 1024.0**3:.1f} GiB, above the limit of "
-        f"{PATH_PEAK_LIMIT / 1024.0**3:.0f} GiB.",
-        "Use survival_model='iterated_mean', which needs no path enumeration.",
+        f"traced peak of {peak / 1024.0**3:.1f} GiB, above {limit}.",
+        "Use survival_model='iterated_mean', which needs no path enumeration, or pass "
+        "LTMLE(max_memory_bytes=...) a limit the machine can hold.",
     )
 
 
@@ -2207,7 +2215,13 @@ def _hazard_columns(data: LongitudinalData) -> int:
     return int(data.history_design(data.n_times, include_current=True).shape[1])
 
 
-def path_slots(data: LongitudinalData, plans: Sequence[Plan]) -> PathSlots:
+def path_slots(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    max_memory_bytes: int | None = None,
+    *,
+    capped: bool = True,
+) -> PathSlots:
     """The slots of every regimen on a design with a treatment decision at several nodes.
 
     A static arm broadcasts its labels and a known rule is evaluated on ``[W]`` for every
@@ -2226,6 +2240,13 @@ def path_slots(data: LongitudinalData, plans: Sequence[Plan]) -> PathSlots:
         The prepared panel of a multi-node design with categorical treatment nodes.
     plans : sequence of Plan
         The regimens' plans, in report order.
+    max_memory_bytes : int or None
+        The limit of the predicted traced peak, or ``None`` for :data:`PATH_PEAK_LIMIT`.
+    capped : bool
+        Whether to check the cap.  The targeting and its replays rebuild the slots of a fit
+        whose cap was checked before its learners, on the same panel and plans, and pass
+        ``False``, so a fit admitted under a ``max_memory_bytes=`` above the fixed limit
+        replays under it.
 
     Returns
     -------
@@ -2235,14 +2256,26 @@ def path_slots(data: LongitudinalData, plans: Sequence[Plan]) -> PathSlots:
     Raises
     ------
     CapabilityError
-        When the predicted traced peak exceeds :data:`PATH_PEAK_LIMIT` (H17).
+        When the predicted traced peak exceeds the limit (H17).
     """
-    paths, masses, owners, draws = _enumerate_paths(data, plans)
+    if not capped:
+        limit = float("inf")
+    elif max_memory_bytes is None:
+        limit = PATH_PEAK_LIMIT
+    else:
+        limit = float(max_memory_bytes)
+    paths, masses, owners, draws = _enumerate_paths(
+        data, plans, limit=limit, max_memory_bytes=max_memory_bytes
+    )
     return _path_structure(data, len(plans), paths, masses, owners, draws)
 
 
 def _enumerate_paths(
-    data: LongitudinalData, plans: Sequence[Plan]
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    *,
+    limit: float,
+    max_memory_bytes: int | None,
 ) -> tuple[list[FloatArray], list[FloatArray], list[int], tuple[int, ...]]:
     """Every regimen's ``(n, T)`` treatment paths, their ``(n,)`` masses and owners.
 
@@ -2267,7 +2300,7 @@ def _enumerate_paths(
 
     def check(label: str, drawn: int, own: int, total: int) -> None:
         peak = path_peak(n, n_times, total, n_causes, n_columns)
-        if peak > PATH_PEAK_LIMIT:
+        if peak > limit:
             raise CapabilityError.from_refusal(
                 hazard_path_cap_refusal(
                     label,
@@ -2279,6 +2312,7 @@ def _enumerate_paths(
                     n_causes=n_causes,
                     n_columns=n_columns,
                     peak=peak,
+                    max_memory_bytes=max_memory_bytes,
                 )
             )
 
@@ -3129,9 +3163,14 @@ def solve_per_horizon(
 
     while not met() and iterations < max_iter:
         size = inputs.n_regimens * inputs.n_causes
-        basis = [
-            direction(state, inputs, horizons, np.eye(size)[m].reshape(shape)) for m in range(size)
-        ]
+        # One stacked ``(size, n, T, L, J)`` array, filled once per outer step: every probe,
+        # halving and fallback reads it, and no list of the same directions sits beside it.
+        leading = direction(state, inputs, horizons, np.eye(size)[0].reshape(shape))
+        basis = np.empty((size, *leading.shape))
+        basis[0] = leading
+        del leading
+        for m in range(1, size):
+            basis[m] = direction(state, inputs, horizons, np.eye(size)[m].reshape(shape))
         if step_bound is not None:
             moved = _bounded_hazard_step(state, inputs, basis, score, step_bound, step_search)
             if moved is None:
@@ -3144,7 +3183,7 @@ def solve_per_horizon(
             epsilon = _newton(state, inputs, _clever_observed(state, inputs, horizon), inner_tol)
             if not np.all(np.isfinite(epsilon)):
                 break
-            moved = state.moved(np.tensordot(epsilon, np.asarray(basis), axes=1), bounds)
+            moved = state.moved(np.tensordot(epsilon, basis, axes=1), bounds)
         state = moved
         iterations += 1
         score, scale = scores(state, inputs, horizons)
@@ -3202,7 +3241,7 @@ def _secant_step(
     state: HazardState,
     inputs: HazardInputs,
     horizons: tuple[int, ...],
-    basis: Sequence[FloatArray],
+    basis: FloatArray,
     score: FloatArray,
     scale: FloatArray,
 ) -> HazardState | None:
@@ -3231,7 +3270,7 @@ def _secant_step(
         return None
     length = 1.0
     while length > _MIN_STEP:
-        candidate = state.moved(np.tensordot(length * step, np.asarray(basis), axes=1), bounds)
+        candidate = state.moved(np.tensordot(length * step, basis, axes=1), bounds)
         moved, _ = scores(candidate, inputs, horizons)
         if float(np.linalg.norm((moved / scale).reshape(-1))) < norm:
             return candidate
@@ -3368,7 +3407,7 @@ def _rule_state(
 def _bounded_hazard_step(
     state: HazardState,
     inputs: HazardInputs,
-    basis: Sequence[FloatArray],
+    basis: FloatArray,
     score: FloatArray,
     step_bound: float,
     step_search: bool,
@@ -3395,7 +3434,7 @@ def _bounded_hazard_step(
     norm = float(np.linalg.norm(current))
     if norm == 0.0:
         return None
-    move = np.tensordot(current / norm, np.asarray(basis), axes=1)
+    move = np.tensordot(current / norm, basis, axes=1)
     bounds = inputs.bounds
     length = float(step_bound)
     if step_search:
@@ -3863,11 +3902,11 @@ def clipped_shares(hazards: FloatArray, inputs: HazardInputs) -> tuple[tuple[int
 
 
 def _bounded_records(
-    reports: dict[int, tuple[HazardState, HazardFit]],
+    reports: dict[int, tuple[_Report, HazardFit]],
     hazards: FloatArray,
     inputs: HazardInputs,
     data: LongitudinalData,
-) -> dict[int, tuple[HazardState, HazardFit]]:
+) -> dict[int, tuple[_Report, HazardFit]]:
     """Stamp the clipped shares and the excluded cells on every record, and warn once."""
     shares = clipped_shares(hazards, inputs)
     excluded: tuple[tuple[int, int, int], ...] = ()
@@ -3885,13 +3924,13 @@ def _bounded_records(
             stacklevel=3,
         )
     stamped: dict[int, HazardFit] = {}
-    out: dict[int, tuple[HazardState, HazardFit]] = {}
-    for t, (state, record) in reports.items():
+    out: dict[int, tuple[_Report, HazardFit]] = {}
+    for t, (report, record) in reports.items():
         if id(record) not in stamped:
             stamped[id(record)] = replace(
                 record, bound_excludes_data=excluded, share_clipped=shares
             )
-        out[t] = (state, stamped[id(record)])
+        out[t] = (report, stamped[id(record)])
     return out
 
 
@@ -4013,13 +4052,19 @@ def _target(
     step_bound: float | None,
     step_search: bool,
     iterate: str,
-) -> dict[int, tuple[HazardState, HazardFit]]:
-    """One walk over every horizon, or one per-horizon fit per horizon, by horizon."""
+) -> dict[int, tuple[_Report, HazardFit]]:
+    """One walk over every horizon, or one per-horizon fit per horizon, by horizon.
+
+    Each report holds the targeted state's levels and influence curves, from
+    :func:`influence` over every horizon, and not the state: a per-horizon fit keeps only its
+    own horizon's slice, so the targeted states of earlier horizons are released as the loop
+    moves on rather than held until every horizon is solved.
+    """
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
-    reports: dict[int, tuple[HazardState, HazardFit]] = {}
+    reports: dict[int, tuple[_Report, HazardFit]] = {}
     if algorithm == "one_step":
         targets = tuple((label, cause, t) for label in labels for cause in causes for t in horizons)
-        shared = walk_curve(
+        state, record = walk_curve(
             start,
             inputs,
             horizons,
@@ -4030,10 +4075,13 @@ def _target(
             stop=stop,
             iterate=iterate,
         )
+        levels, curves = influence(state, inputs, horizons)
+        del state
+        shared = (_Report(levels, curves, {t: h for h, t in enumerate(horizons)}), record)
         return dict.fromkeys(horizons, shared)
     for t in horizons:
         targets = tuple((label, cause, t) for label in labels for cause in causes)
-        reports[t] = solve_per_horizon(
+        state, record = solve_per_horizon(
             start,
             inputs,
             t,
@@ -4046,7 +4094,26 @@ def _target(
             step_search=step_search,
             iterate=iterate,
         )
+        levels, curves = influence(state, inputs, horizons)
+        del state
+        h = horizons.index(t)
+        own = _Report(levels[:, :, h : h + 1].copy(), curves[:, :, h : h + 1].copy(), {t: 0})
+        del levels, curves
+        reports[t] = (own, record)
     return reports
+
+
+class _Report(NamedTuple):
+    """The levels and influence curves of one targeted state, by reported horizon.
+
+    ``levels`` is ``(R, J, K)`` and ``curves`` ``(R, J, K, n)``, and ``column`` maps a horizon to
+    its index ``k`` along the third axis: every horizon of a one-step walk, whose one state
+    serves them all, or the one horizon a per-horizon fit solved.
+    """
+
+    levels: FloatArray
+    curves: FloatArray
+    column: dict[int, int]
 
 
 def target_mtp(
@@ -4158,7 +4225,7 @@ def _cell_fits(
     data: LongitudinalData,
     plans: Sequence[Plan],
     inputs: HazardInputs,
-    reports: dict[int, tuple[HazardState, HazardFit]],
+    reports: dict[int, tuple[_Report, HazardFit]],
     horizons: tuple[int, ...],
     observed_cumulative: tuple[FloatArray, FloatArray],
     *,
@@ -4179,15 +4246,12 @@ def _cell_fits(
         inverse = inputs.inverse_observed()
         q = inputs.q_observed()
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
-    computed: dict[int, tuple[FloatArray, FloatArray]] = {}
     for r, plan in enumerate(plans):
         for j, cause in enumerate(causes):
             for t in horizons:
-                state, record = reports[t]
-                if id(state) not in computed:
-                    computed[id(state)] = influence(state, inputs, horizons)
-                levels, curves = computed[id(state)]
-                h = horizons.index(t)
+                report, record = reports[t]
+                levels, curves = report.levels, report.curves
+                h = report.column[t]
                 if inputs.multinode:
                     clever = np.array(carried[r], dtype=float)
                 else:
@@ -4313,8 +4377,10 @@ def target_hazard_msm(
         iterate=iterate,
         combination=combination,
     )
-    reports = dict.fromkeys(horizons, shared)
     state, record = shared
+    levels, curves = influence(state, inputs, horizons)
+    report = _Report(levels, curves, {t: h for h, t in enumerate(horizons)})
+    reports = dict.fromkeys(horizons, (report, record))
     fits = _cell_fits(data, plans, inputs, reports, horizons, observed_cumulative)
     terms, _ = _score_terms(state, inputs, horizons)
     weights = np.asarray(inputs.weights, dtype=float)
