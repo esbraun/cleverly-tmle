@@ -947,6 +947,31 @@ def test_the_restricted_overflow_bound_reads_every_run_of_dropped_times(where: s
     assert (at >= trailing).all() if where == "trailing run" else (at < trailing).all()
 
 
+def test_the_restricted_overflow_bound_takes_a_run_s_largest_w_when_w_rises() -> None:
+    """N4-1: with mixed signs W rises within a run, so its value at a run's start under-bounds.
+
+    Two causes and two restricted means at 1.0 and 2.95.  Cause 1 carries -10 on the first and
+    -1 on the second, so its W, -10 (1 - u)+ - (2.95 - u)+, rises through every run before
+    2.95; cause 2 carries -20 on the second, whose negative conditional risk makes cause 1's
+    direction positive.  The direction then peaks at a run's last dropped time, which the bound
+    must read (with nonnegative ``v`` W falls, and a run's first time is its peak).
+    """
+    c, G = 400, 20
+    size = 3 * G + 2
+    kept = np.arange(1, 3 * G, 3)
+    grid = np.linspace(0.1, 3.0, size)
+    weights = np.stack([T.restricted_weights(grid, 1.0), T.restricted_weights(grid, 2.95)])
+    jumps = np.random.default_rng(1).uniform(0.01, 0.08, size=(2, 2, c, G))
+    v = np.tile([-10.0, -1.0, 0.0, -20.0], 2)
+    bound, largest, (_, _, _, dense) = _reach_case(weights, kept, size, jumps, restricted=True, v=v)
+    assert np.array_equal(bound, largest)
+    assert (largest > 0).all()
+    # Each inner run holds two dropped times; most pairs peak at the second.
+    dropped = np.setdiff1d(np.arange(size), kept)
+    at = dropped[dense.max(axis=1).argmax(axis=-1)]
+    assert np.isin(at, kept + 2).mean() > 0.5
+
+
 def test_a_nan_initial_jump_is_kept_and_walked_as_the_dense_walk_walks_it() -> None:
     at = _event_free_time("two causes")
     extra = {"hazard_library": [Wrapped("nan", at)], "censoring_library": [Wrapped()]}
