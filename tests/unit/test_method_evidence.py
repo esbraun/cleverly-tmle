@@ -88,6 +88,12 @@ GATED_OFF_GRID: dict[str, str] = {
         "property cell, and the R atmle pairing record is declared and not run, so "
         "AdaptiveTMLEMethod has no grid row"
     ),
+    "continuous-survival-variance": (
+        "its 48 median and upper-quartile rows of four cells gated the declared run of 0cb80a56, "
+        "and its ship rule, controls and floors are computed from the primary rows "
+        "(ship-rule.csv, floors.csv), not from a property family. It declares no property cell "
+        "and no comparator, so the switched variance has no grid row of its own"
+    ),
     "adaptive-tmle-selective": (
         "its primary coverage tests gated the declared run of c6f9e51c (artifacts at 8f2a91a5), "
         "and its one red row, the s6_cv bias leg, is accepted by the named exception in "
@@ -942,7 +948,7 @@ class TestPublishedVerdicts:
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
     ) -> None:
-        published = pd.read_csv(study.artifact("properties.csv"))
+        published = property_verdicts.read_property_table(study.artifact("properties.csv"))
         pd.testing.assert_frame_equal(
             published,
             _property_summary(study.slug),
@@ -995,7 +1001,7 @@ class TestPublishedVerdicts:
         Every row's ``passed`` must therefore follow from that row's own endpoints, and the
         clause that really is about the pair lives in ``property_passed``.
         """
-        published = pd.read_csv(study.artifact("properties.csv"))
+        published = property_verdicts.read_property_table(study.artifact("properties.csv"))
         control = published["role"] == "control"
 
         def verdicts(mask: pd.Series, column: str) -> list[bool]:

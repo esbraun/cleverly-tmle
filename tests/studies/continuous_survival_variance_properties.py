@@ -24,6 +24,7 @@ def generate_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """No property verdicts."""
-    del rows
-    return pd.DataFrame(columns=["property", "cell", "passed"])
+    """No property cell, so no verdict: an empty table with the columns the evidence reads."""
+    if not rows.empty:
+        raise ValueError("continuous-survival-variance declares no property cell, and got rows")
+    return property_verdicts.empty_property_table()

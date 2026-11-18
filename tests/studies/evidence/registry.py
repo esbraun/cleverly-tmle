@@ -761,6 +761,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.continuous_survival_functionals import (
         STUDY as CONTINUOUS_SURVIVAL_FUNCTIONALS,
     )
+    from tests.studies.continuous_survival_variance import STUDY as CONTINUOUS_SURVIVAL_VARIANCE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -887,6 +888,7 @@ def registered() -> tuple[StudyRecord, ...]:
         HAZARD_TIME_VARYING_MULTINODE,
         CONTINUOUS_SURVIVAL,
         CONTINUOUS_SURVIVAL_FUNCTIONALS,
+        CONTINUOUS_SURVIVAL_VARIANCE,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,

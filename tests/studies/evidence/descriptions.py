@@ -10546,6 +10546,58 @@ STUDY_ARM_CELLS[(_FUNCTIONALS_SLUG, "interval_calibration", "rmst_rd", "correctl
     "SE ratio and coverage intervals both inside their calibration bands",
 )
 
+#: ``continuous-survival-variance`` (X6 part (a)): the continuous-time TMLE with its default
+#: switched standard error, on five laws that each change one feature of the base law.  The
+#: names are those of ``tests/studies/continuous_survival_variance.py`` and its law module.
+_VARIANCE_SLUG = "continuous-survival-variance"
+IMPLEMENTATIONS["cleverly-continuous-survival-switched"] = (
+    "`cleverly` ContinuousSurvivalTMLE with variance='switched': the one-step TMLE's "
+    "influence-curve standard error, raised to the predictable variation where the relative SD "
+    "of the variance estimate exceeds 0.125 (Rytgaard and van der Laan 2024)"
+)
+_VARIANCE_FIT = "the default Cox libraries and treatment learner"
+STUDY_SCENARIOS.update(
+    {
+        (_VARIANCE_SLUG, "v1_rare_cause2"): (
+            "the base continuous-time competing-risks law with a rarer second cause (cause-2 "
+            f"log-hazard intercept -2.6); {_VARIANCE_FIT}, ten outer folds, n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v2_heavy_weights"): (
+            "reported cell, passing by declaration (three rows at t = 1.12 fall short of the "
+            "primary rule): the base continuous-time competing-risks law with heavier control "
+            "weights "
+            f"(treatment model coefficients 2, -1, 1.5); {_VARIANCE_FIT}, ten outer folds, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v3_half_n"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, ten outer folds, "
+            "n = 500"
+        ),
+        (_VARIANCE_SLUG, "v4_in_sample"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, fitted in sample, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v7_quadratic"): (
+            "the base continuous-time competing-risks law with 0.3 (X3^2 - 1) added to the "
+            f"cause-1 log hazard, which no default Cox model holds; {_VARIANCE_FIT}, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+for _time in ("1.12", "2.32", "1.29", "2.69"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        for _cause in (1, 2):
+            STUDY_ESTIMANDS[(_VARIANCE_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} by t = {_time} under {_words}"
+            )
+    for _cause in (1, 2):
+        STUDY_ESTIMANDS[
+            (_VARIANCE_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment"
+        )
+
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
 #: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this
 #: module cannot import.
