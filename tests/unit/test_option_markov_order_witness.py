@@ -161,11 +161,11 @@ class TestTheWindowWitness:
         check_double_robustness_witness()
         late = mutated(
             LongitudinalData,
-            "history_design",
+            "_history_design",
             "first = self.window_arm_start(time)",
             "first = self.window_start(time)",
         )
-        monkeypatch.setattr(LongitudinalData, "history_design", late)
+        monkeypatch.setattr(LongitudinalData, "_history_design", late)
         with pytest.raises(AssertionError):
             check_double_robustness_witness()
 
