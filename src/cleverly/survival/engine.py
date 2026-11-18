@@ -619,13 +619,21 @@ class ContinuousSurvivalTMLE:
                 f"a frozen fold plan holds {plan.outer.size} rows; the data hold {len(data.time)}"
             )
         prior = self._plan_override
-        if folds is None and plan is None and prior is not None:
-            if prior.outer.size == len(data.time):
-                plan = prior
+        if (
+            folds is None
+            and plan is None
+            and prior is not None
+            and prior.outer.size == len(data.time)
+        ):
+            plan = prior
         override = self._fold_override
-        if folds is None and plan is None and override is not None:
-            if override.size == len(data.time):
-                folds = override
+        if (
+            folds is None
+            and plan is None
+            and override is not None
+            and override.size == len(data.time)
+        ):
+            folds = override
         estimator = self._copy(random_state)
         return estimator._fit_data(data, folds=folds, plan=plan)
 
@@ -832,7 +840,9 @@ class ContinuousSurvivalTMLE:
             else:
                 inner = plan.inner[position].copy()
                 if inner.shape != (int(train.sum()),):
-                    raise ValueError("a frozen fold plan's inner labels do not fit its outer labels")
+                    raise ValueError(
+                        "a frozen fold plan's inner labels do not fit its outer labels"
+                    )
             inner_labels.append(inner.copy())
             for j, code in enumerate(codes):
                 selection = select_hazard(

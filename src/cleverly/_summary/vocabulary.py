@@ -4209,6 +4209,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The outcome flips for a share of units, those highest on the simulated cause, "
             "set by the outcome strength."
         ),
+        "law_outcome_panel_hazard": (
+            "Each unit's per-node event log-odds shifts by the outcome strength times its "
+            "value of the simulated cause, and censoring is redrawn where the treatment "
+            "changed."
+        ),
+        "law_outcome_continuous_hazard": (
+            "Each unit's cause-specific log-hazards ({causes}) shift by the outcome strength "
+            "times its value of the simulated cause; event and censoring times are redrawn "
+            "from the replay's Cox fits, and censoring is redrawn where the treatment changed."
+        ),
         "law_outcome_logit": (
             "The outcome moves on the log-odds scale of its declared bounds, so it stays "
             "inside them, and the outcome strength is not in standard-deviation units: "

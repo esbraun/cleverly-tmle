@@ -20,7 +20,7 @@ from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from .._continuous_survival_family import refuse_continuous_survival
+from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._summary import short_repr
 from .._trial_family import refuse_augmented_trial
 from ..data.causal_data import arm_share
@@ -137,19 +137,23 @@ class ObservedConfounderCalibration:
         Numeric adjustment covariate used for the comparison.
     role : {"treatment", "outcome"}
         Perturbed variable whose source-style scale is reported.
-    family : {"binomial", "gaussian"}
-        Variable family that determines the calibration rule.
+    family : {"binomial", "gaussian", "hazard"}
+        Variable family that determines the calibration rule.  ``"hazard"`` marks an outcome
+        row of a continuous-time survival surface: a log-hazard ratio per standard deviation
+        in the replay's Cox model of one cause.
     strength : float
-        Prediction-change fraction or signed standardized marginal coefficient.
+        Prediction-change fraction, signed standardized marginal coefficient, or signed
+        log-hazard ratio per standard deviation.
     method : str
         Finite-sample rule used to calculate ``strength``.
     component : str or None
-        The component of a vector treatment that a treatment row calibrates, or ``None``.
+        The component of a vector treatment that a treatment row calibrates, the cause an
+        outcome row of a competing-risk continuous-time surface calibrates, or ``None``.
     """
 
     covariate: str
     role: Literal["treatment", "outcome"]
-    family: Literal["binomial", "gaussian"]
+    family: Literal["binomial", "gaussian", "hazard"]
     strength: float
     method: str
     component: str | None = None
@@ -203,16 +207,21 @@ class SimulatedConfoundingCell:
         laws read the outcome strength on their own scale, so this is the quantity to
         compare across fits.
     censoring_redrawn_share : float or None
-        On a survival or competing-risk fit with censoring, the weighted share of this
+        On a survival or competing-risk panel with censoring, the weighted share of this
         cell's replayed person-nodes whose observed censoring was redrawn from the fitted
-        censoring model because the treatment changed.  ``None`` elsewhere.
+        censoring model because the treatment changed.  On a continuous-time survival fit
+        with censoring, the share of all units whose treatment changed, whose censoring time
+        was drawn at the new treatment.  ``None`` elsewhere.
     extended_share : float or None
-        On a survival or competing-risk fit, the weighted share of replayed person-nodes
-        past the unit's observed follow-up, drawn from the fitted models.  ``None`` elsewhere.
+        On a survival or competing-risk panel, the weighted share of replayed person-nodes
+        past the unit's observed follow-up, drawn from the fitted models.  On a
+        continuous-time survival fit, the share of all units whose replayed time exceeds
+        their observed time.  ``None`` elsewhere.
     new_event_share : float or None
-        On a survival or competing-risk fit, the weighted share of replayed events at a node
-        where the unit had no observed event.  ``None`` elsewhere, and when the cell has no
-        event.
+        On a survival or competing-risk panel, the weighted share of replayed events at a
+        node where the unit had no observed event.  On a continuous-time survival fit, the
+        share of replayed events whose time or cause differs from the unit's observed event,
+        including units that had none.  ``None`` elsewhere, and when the cell has no event.
     """
 
     treatment_strength: float | tuple[float, ...]
@@ -293,7 +302,8 @@ class SimulatedConfoundingResult:
     treatment_family : str
         Treatment family covered by the perturbation law.
     outcome_family : str
-        Original outcome family.
+        Original outcome family: ``"gaussian"`` or ``"binomial"``, or ``"survival"`` or
+        ``"competing_risks"`` for a time to event, on a panel or in continuous time.
     treatment_law : str
         Human-readable treatment perturbation rule.
     outcome_law : str
@@ -374,17 +384,21 @@ class SimulatedConfoundingResult:
     refit_folds : {"original", "redrawn", "none"} or None
         On a longitudinal fit, whether every refit reuses the original draws' split and
         learner seeds, redraws them under an explicit seed other than the fit's own, or
-        the fit has no split.  Redrawn folds put fold noise into the movement of every
-        cell near the anchor.  ``None`` on a point-treatment fit.
+        the fit has no split.  On a continuous-time survival fit, ``"original"`` when every
+        refit reuses the fit's whole fold plan (outer and inner selection labels and the
+        generator state), in sample too, and ``"redrawn"`` under another seed.  Redrawn folds
+        put fold noise into the movement of every cell near the anchor.  ``None`` on a
+        point-treatment fit.
     replay_models : tuple of str
         On a survival or competing-risk fit, one line per fitted model of the follow-up
         replay: what it fits, its settings, and whether it converged.  ``()`` elsewhere.
     coupling_seed : int or None
         On a survival or competing-risk fit, the tagged child seed of the uniforms that
-        couple each replayed indicator to the observed one.  ``None`` elsewhere.
+        couple each replayed indicator or time to the observed one.  ``None`` elsewhere.
     outcome_cause : str or None
         On a competing-risk fit, the cause whose hazard the latent shifts, or ``None`` when
-        it shifts the all-cause event.
+        it shifts the all-cause event (a panel) or every cause-specific hazard (a
+        continuous-time fit).
 
     Attributes
     ----------
@@ -623,6 +637,20 @@ class SimulatedConfoundingResult:
                     else ()
                 )
                 if self.treatment_family == "longitudinal"
+                else ()
+            )
+            + (
+                (
+                    "replay: event and censoring times redrawn from the replay's Cox fits; "
+                    "refit folds "
+                    + (
+                        "frozen to the fit's whole fold plan"
+                        if self.refit_folds == "original"
+                        else "redrawn under a seed other than the fit's own, so the movement "
+                        "of each cell includes fold noise; the anchor is the original fit"
+                    ),
+                )
+                if self.treatment_family != "longitudinal" and self.replay_models
                 else ()
             )
         )
@@ -1888,9 +1916,27 @@ def simulated_confounding(
     PAR and PAF retain counterfactual treatment dependence through their reference intervention.
     """
     refuse_augmented_trial(result, "simulated_confounding", "bound")
-    refuse_continuous_survival(result, "simulated_confounding")
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
+    if getattr(result, "assessment_family", None) == CONTINUOUS_SURVIVAL_FAMILY:
+        from ._simulated_confounding_continuous import (
+            continuous_surface,
+            validate_continuous_request,
+        )
+
+        continuous = validate_continuous_request(
+            result,
+            estimand,
+            grid,
+            benchmark_covariates,
+            arm_pair=arm_pair,
+            latent_level=latent_level,
+            latent_rho=latent_rho,
+            observation_reads=observation_reads,
+            bounded_outcome_law=bounded_outcome_law,
+            outcome_cause=outcome_cause,
+        )
+        return continuous_surface(result, estimand, grid, continuous, random_state)
     if getattr(result, "assessment_family", None) == "longitudinal":
         from ._simulated_confounding_longitudinal import (
             longitudinal_surface,
