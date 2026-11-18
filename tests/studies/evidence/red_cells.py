@@ -438,7 +438,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "weighted-ltmle",
         "property",
         "interval_calibration/static__correctly_specified",
-        "type_i_error/static__sharp_null",
         "targeting_necessity/dynamic__targeted",
         "targeting_necessity/dynamic__untargeted",
         "targeting_necessity/static__targeted",
@@ -617,7 +616,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # The point study's sanity phase is the same design at n = 2,000 (X82 SP). At 200
     # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
     # binary row cannot resolve its SE-ratio screen. The band-rank study's PJ1 sanity row
-    # (X82 SJ) covers 190 of 200, a 99% lower limit of 0.896 below the floor.
+    # (X82 SJ) covers 191 of 200, a 99% lower limit of 0.903 above the floor, and its bias
+    # interval crosses the margin.
     "X82-short-study-sanity": (
         *_keys(
             "refuter-calibration-longitudinal",

@@ -76,6 +76,9 @@ under the 0.90 floor. R `ctmle` reads the same estimates under its identity inte
 742, which passes. One fit at the boundary of both intervals decides the cell, at an SE ratio of
 0.93, so this is chance on one draw set at an SE ratio below one, not a defect of MOVER.
 
+The support row `C10.in_sample`, which covers this fit, stays supported for Wald intervals and
+prints the row's bias, coverage and SE ratio as a stated limit.
+
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->

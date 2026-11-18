@@ -106,10 +106,12 @@ Comparator-backed: a paired comparison with `ltmle-weighted` on the same samples
 <!-- /generated -->
 
 The ordinary estimator and R reference agree to numerical-solver precision. All primary truth
-tests pass after the replication budget increase. Three property cells remain red at their
-original budgets. The static calibration, static untargeted control, and type-I endpoints each
-miss their declared boundary by the amount shown above. These marginal results do not establish
-sub-floor coverage or an inactive control.
+tests pass after the replication budget increase. The static calibration and static untargeted
+control cells remain red at their original budgets, each missing its declared boundary by the
+amount shown above. The other three `targeting_necessity` cells fail
+through their family's joint clause. These marginal results do not establish sub-floor coverage
+or an inactive control. The type-I cell passes in the regenerated run, with its rejection
+upper bound of 0.0994 just under the 0.10 ceiling.
 
 RM18 design OW re-read these rows on fresh draws, under a declaration written before its run. No
 reading moves a verdict of this study, and none names a defect in `cleverly`.
@@ -154,7 +156,7 @@ from the committed artifacts and checked at the precision printed.
 | `properties[weight_necessity/static__weighted]:weight_displacement` | 0.5414 | target-weight positive control displacement |
 | `properties[learner_weight_necessity/static__weighted_learners]:learner_weight_displacement` | 0.6648 | learner-weight positive control displacement |
 | `properties[interval_calibration/static__correctly_specified]:coverage_ci_lower` | 0.9241 | failed static calibration endpoint |
-| `properties[type_i_error/static__sharp_null]:rejection_ci_upper` | 0.0994 | failed type-I endpoint |
+| `properties[type_i_error/static__sharp_null]:rejection_ci_upper` | 0.0994 | type-I endpoint, just under its ceiling |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
@@ -186,6 +188,10 @@ from the committed artifacts and checked at the precision printed.
 | `margin:targeting_displacement` | 0.2500 | least targeting must move the estimate |
 | `margin:weight_displacement` | 0.2500 | least target weighting must move the estimate |
 | `margin:learner_weight_displacement` | 0.2500 | least learner weighting must move the estimate |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 32 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `ltmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 32 | the same bound, in primary replications |
 
 ## Limitations
 

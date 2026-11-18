@@ -76,7 +76,7 @@ The cell name gives the configuration, then the reading.
 
 ## Result
 
-All four property cells pass. The size cells reject in 10 (PJ1) and 12 (LJ1) of 200 trials, below
+All four property cells pass. The size cells reject in 10 (PJ1) and 11 (LJ1) of 200 trials, below
 the limit of 20. The power cells detect the defect in 50 (PJ1) and 49 (LJ1) of 50 trials, above the
 floor of 38. The registry `VERDICT_EVIDENCE` therefore holds one placebo row for each cell. Each
 row's scope is the configuration that its cells recorded in `cells.csv`.
@@ -84,9 +84,10 @@ row's scope is the configuration that its cells recorded in `cells.csv`.
 `tests/unit/test_refuter_calibration_band_registry.py` checks each scope against the passing cells
 of the committed run.
 
-The primary truth row is red. The primary phase has 200 replications, which cannot resolve its
-coverage floor or bias margin. The coverage limit is 0.8960, below the floor of 0.90. The bias
-interval, -0.0024 to 0.0078 in outcome units, crosses the margin of 0.0070 in the same units. The SE-ratio interval contains 1. The [red-cell ledger](red-cells.md)
+The primary truth row is red on its bias leg. The primary phase has 200 replications, which
+cannot resolve its bias margin. The bias interval, -0.0024 to 0.0078 in outcome units, contains 0
+and crosses the margin of 0.0070 in the same units. The coverage limit is 0.9027, above the floor
+of 0.90, and the SE-ratio interval contains 1. The [red-cell ledger](red-cells.md)
 names the owner.
 
 ## Measured values
@@ -146,7 +147,7 @@ from the committed results and checked at the precision printed.
 | The study learners only | Both rows name the fingerprint of `QuadraticLogistic`, a learner class of the study module in `tests/studies`. A user fit gets a verdict only through a learner with that exact fingerprint. In practice a banded user fit stays descriptive |
 | The classifier ratio only | `ratio="density"` ran in no cell, so that reading stays descriptive |
 | The stale-row power is approximate | The probe sizes the population shift of the placebo. The shift of one trial varies about it. LJ1's stale-row cell detected 49 of 50 |
-| The primary phase is under-resolved | 200 replications cannot put the 99% coverage limit above 0.90. The truth row is red with an owner, and no rule row reads it |
+| The primary phase is under-resolved | 200 replications cannot put the 99% bias interval inside its margin. The truth row is red with an owner, and no rule row reads it |
 
 ## Reproduction
 

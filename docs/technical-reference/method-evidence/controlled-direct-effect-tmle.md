@@ -166,6 +166,10 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
 | `margin:efficiency_ratio_upper` | 1.1000 | efficiency-ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:targeting_displacement` | 0.2500 | minimum targeting displacement |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 32 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `tmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 32 | the same bound, in primary replications |
 | `bound:z0_standard_error` | 0.0524 | exact level-zero ATE efficiency bound at n = 2,000 |
 | `bound:z1_standard_error` | 0.0457 | exact level-one ATE efficiency bound at n = 2,000 |
 
@@ -176,10 +180,11 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
   treatment and the intermediate.
 - Exact finite-support nuisances isolate targeting and inference. The study does not validate
   flexible learner wrappers or cross-fitting.
-- The level-zero untreated mean has 0.9216 primary coverage at `n = 2,000`. This matches R
-  and is about six Monte Carlo standard errors below 0.95. The observed
-  `(A=0, Z=0, W=0, Delta=1)` stratum has expected count 31.25 and clever-covariate weight 32.
-  The shared 0.90 coverage floor treats this finite-sample undercoverage as acceptable.
+- The level-zero untreated mean has 0.9353 primary coverage at `n = 2,000` under the shipped
+  logit interval of a bounded mean, about three Monte Carlo standard errors below 0.95. R's
+  identity interval on the same estimates and standard errors covers 0.9216, about six below.
+  The observed `(A=0, Z=0, W=0, Delta=1)` stratum has expected count 31.25 and clever-covariate
+  weight 32. The shared 0.90 coverage floor treats this finite-sample undercoverage as acceptable.
 - The comparator requires level recoding because of the frozen native second-result defect in R
   `tmle` 2.1.1. The registered probe recreates the defect during standard regeneration. The study
   does not claim that the native result is valid with exact `Q.Z1` inputs.
