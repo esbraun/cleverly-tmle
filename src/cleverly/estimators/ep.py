@@ -855,6 +855,31 @@ class SieveDesigns:
         return self._design.take(positions, axis=1)
 
 
+def read_only_pieces(pieces: _Pieces) -> _Pieces:
+    """``pieces`` with every array replaced by a read-only view, for inputs that several
+    sizes share: a size step that wrote into one would change every later size.  A view, so
+    the nuisance fit's own arrays keep their flags."""
+    views: dict[str, Any] = {}
+    for name in _PIECE_ARRAYS:
+        view = np.asarray(getattr(pieces, name)).view()
+        view.flags.writeable = False
+        views[name] = view
+    return replace(pieces, **views)
+
+
+#: The array fields of :class:`_Pieces`.
+_PIECE_ARRAYS = (
+    "y",
+    "treatment",
+    "observed",
+    "initial_observed",
+    "initial_t",
+    "initial_r",
+    "weight",
+    "rows",
+)
+
+
 class _FitState:
     """What every sieve size reads off one nuisance fit: its rows, designs and pieces.
 
@@ -873,7 +898,7 @@ class _FitState:
     def pieces(self) -> _Pieces:
         """The debiasing inputs of the nuisance fit (:func:`_pieces`), computed once."""
         if self._pieces is None:
-            self._pieces = _pieces(self.nuisance_fit)
+            self._pieces = read_only_pieces(_pieces(self.nuisance_fit))
         return self._pieces
 
 

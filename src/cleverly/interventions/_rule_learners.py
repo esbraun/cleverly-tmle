@@ -527,6 +527,7 @@ def ep_fold_curve(
         cross_validated_risks,
         curve_from_pieces,
         nuisance_pieces,
+        read_only_pieces,
         refit_seed,
         sieve_member,
         size_refusal,
@@ -555,8 +556,8 @@ def ep_fold_curve(
         values = cached["values"]
         design = cached["designs"].at(basis)
         if "pieces" not in cached:
-            cached["pieces"] = nuisance_pieces(
-                rows, fitted, pair=pair, g_bounds=g_bounds, alpha=alpha
+            cached["pieces"] = read_only_pieces(
+                nuisance_pieces(rows, fitted, pair=pair, g_bounds=g_bounds, alpha=alpha)
             )
         pieces = cached["pieces"]
         try:

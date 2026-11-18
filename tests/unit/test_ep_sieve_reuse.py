@@ -37,7 +37,7 @@ from cleverly.bases import (
     resolve,
 )
 from cleverly.estimators import TMLE, ep
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import LearnedRule
 
 DOMAINS = {"W1": (-1.0, 1.0), "W2": (-1.0, 1.0)}
@@ -493,7 +493,12 @@ def test_a_subclass_of_a_nested_basis_is_not_nested(monkeypatch: Any) -> None:
     assert wrong.tobytes() != own.tobytes()
 
 
-def test_a_family_that_raises_leaves_each_member_to_itself(monkeypatch: Any) -> None:
+@pytest.mark.parametrize(
+    "error",
+    [DataError, lambda text: CapabilityError(text, reason=RefusalReason.INVALID_DECLARATION)],
+    ids=["data-error", "capability-error"],
+)
+def test_a_family_that_raises_leaves_each_member_to_itself(monkeypatch: Any, error: Any) -> None:
     """If the family alone raises, a member still gets its own design (mutation control for
     the fallback: without it the family's error escapes)."""
     family = resolve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), MODIFIERS)
@@ -504,13 +509,16 @@ def test_a_family_that_raises_leaves_each_member_to_itself(monkeypatch: Any) -> 
 
     def failing(self: Any, *args: Any, **kwargs: Any) -> Any:
         if len(self.terms) == family.n_terms:
-            raise DataError("the family alone fails")
+            raise error("the family alone fails")
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(Additive, "evaluate", failing)
     designs = ep.SieveDesigns(family, MODIFIERS, values)
     assert designs.at(member).tobytes() == own.tobytes()
     assert designs._unusable
+    smaller = resolve(family.truncate(1), MODIFIERS)
+    expected = np.asarray(smaller.evaluate(values, MODIFIERS)).tobytes()
+    assert designs.at(smaller).tobytes() == expected
 
 
 def test_the_shared_family_design_is_read_only() -> None:
@@ -547,3 +555,25 @@ def test_no_fold_state_outlives_its_fold(monkeypatch: Any) -> None:
     assert seen == [0] * len(seen)
     gc.collect()
     assert alive and all(ref() is None for ref in alive)
+
+
+def test_a_size_step_that_writes_into_a_shared_input_raises(monkeypatch: Any) -> None:
+    """Mutation control for the shared inputs: a debiasing step that wrote into the weights
+    or the design in place would change every later size; the read-only views refuse it."""
+    original = ep.debias
+
+    def writing_weight(**kwargs: Any) -> Any:
+        kwargs["weight"][:1] = 1.0
+        return original(**kwargs)
+
+    monkeypatch.setattr(ep, "debias", writing_weight)
+    with pytest.raises(ValueError, match="read-only"):
+        ep_fit(frame())
+
+    def writing_design(**kwargs: Any) -> Any:
+        kwargs["design"][:1] = 1.0
+        return original(**kwargs)
+
+    monkeypatch.setattr(ep, "debias", writing_design)
+    with pytest.raises(ValueError, match="read-only"):
+        ep_fit(frame(), sieve=Sieve(Additive(Cosine(["W1"], 2), Cosine(["W2"], 2))))
