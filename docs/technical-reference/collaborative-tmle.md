@@ -541,7 +541,8 @@ paper truncated nothing.
 
 Each selection record also counts the search's work. `target_solves` holds the hazard targeting
 solves of the full-data path and of each selection fold's path, and `candidate_pairs` the distinct
-mechanism pairs each path targeted.
+mechanism pairs each path targeted. Regimens on one arm share that arm's search, so their
+records report the same counts, and a sum over regimens counts that search once per regimen.
 
 **Contrasts.** Each arm has its own selection, so a contrast combines two selected curves by the
 delta method. `ate_regimen[...]` is the risk difference, and `ratio(..., view="survival")` is the

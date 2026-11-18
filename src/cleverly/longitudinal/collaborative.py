@@ -1458,7 +1458,8 @@ class SurvivalSelection:
         selection fold's path.  One per scored candidate position, so it counts the work the
         greedy search did, restarts included.
     candidate_pairs : tuple of int
-        The distinct candidate pairs of mechanisms each of those paths targeted.
+        The distinct candidate pairs of mechanisms each of those paths targeted.  Regimens on
+        one arm share its search and report the same counts.
     """
 
     arm: str
