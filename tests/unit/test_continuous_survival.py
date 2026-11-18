@@ -537,13 +537,13 @@ def test_a_newton_step_that_fails_every_halving_is_not_taken(
     from cleverly.survival import cox
 
     X, time, event = _cox_sample()
-    original = cox._loglik_parts
+    original = cox._loglik
 
-    def overflowing(beta: np.ndarray, *args: Any) -> tuple[float, np.ndarray, np.ndarray]:
-        loglik, grad, info = original(beta, *args)
-        return (loglik if not np.any(beta) else float("nan")), grad, info
+    # A halving trial reads the log likelihood alone.
+    def overflowing(beta: np.ndarray, *args: Any) -> float:
+        return original(beta, *args) if not np.any(beta) else float("nan")
 
-    monkeypatch.setattr(cox, "_loglik_parts", overflowing)
+    monkeypatch.setattr(cox, "_loglik", overflowing)
     with pytest.warns(ConvergenceWarning, match="last fit whose likelihood was resolved"):
         model = CoxHazard("main").fit(X, time, event)
     assert not model.converged_
@@ -559,13 +559,12 @@ def test_a_trial_whose_likelihood_reads_plus_infinity_is_not_taken(
     from cleverly.survival import cox
 
     X, time, event = _cox_sample()
-    original = cox._loglik_parts
+    original = cox._loglik
 
-    def underflowing(beta: np.ndarray, *args: Any) -> tuple[float, np.ndarray, np.ndarray]:
-        loglik, grad, info = original(beta, *args)
-        return (loglik if not np.any(beta) else float("inf")), grad, info
+    def underflowing(beta: np.ndarray, *args: Any) -> float:
+        return original(beta, *args) if not np.any(beta) else float("inf")
 
-    monkeypatch.setattr(cox, "_loglik_parts", underflowing)
+    monkeypatch.setattr(cox, "_loglik", underflowing)
     with pytest.warns(ConvergenceWarning, match="last fit whose likelihood was resolved"):
         model = CoxHazard("main").fit(X, time, event)
     np.testing.assert_array_equal(model.coef_, 0.0)
@@ -593,27 +592,26 @@ def test_a_newton_step_past_the_resolved_range_on_regular_data_is_halved(
 
     X, time, event = _heavy_tailed_sample(n, seed)
     reached: list[float] = []
-    original = cox._loglik_parts
+    original = cox._loglik
 
     def recording(beta: np.ndarray, Z: np.ndarray, sets: Any) -> Any:
         reached.append(float(np.ptp(Z @ beta)))
         return original(beta, Z, sets)
 
-    monkeypatch.setattr(cox, "_loglik_parts", recording)
+    # Halving trials read the log likelihood alone.
+    monkeypatch.setattr(cox, "_loglik", recording)
     with warnings.catch_warnings():
         warnings.simplefilter("error", ConvergenceWarning)
         model = CoxHazard("main").fit(X, time, event)
     assert model.converged_ and not model.monotone_likelihood_
     assert np.ptp(model.linear_predictor(X)) < 0.5 * cox._SPREAD_MAX
-    _, grad, _ = original(
+    _, grad, _ = cox._loglik_parts(
         model._zs_beta, model._standardize(_design(X, "main")), _risk_sets(time, event)
     )
     assert np.max(np.abs(grad)) < 1e-9
     # The witness is live: the bound turned a trial away before it was evaluated.
-    monkeypatch.setattr(cox, "_loglik_parts", original)
     monkeypatch.setattr(cox, "_SPREAD_MAX", np.inf)
     reached.clear()
-    monkeypatch.setattr(cox, "_loglik_parts", recording)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         CoxHazard("main").fit(X, time, event)
@@ -930,9 +928,9 @@ def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
 ) -> None:
     # Both checks read the fitted hazards of one draw, so they raise DataError, which a study
     # records as a failed replicate; a CapabilityError would stop the whole run.
-    from cleverly.survival import engine
+    from cleverly.survival import _chunked
 
-    monkeypatch.setattr(engine, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
+    monkeypatch.setattr(_chunked, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
     with pytest.raises(DataError, match=match):
         ContinuousSurvivalTMLE([2.0], cross_fit=False).fit(
             _sample(), time="time", event="event", treatment="Z", baseline=["X3"]

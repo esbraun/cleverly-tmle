@@ -124,13 +124,17 @@ categorized API tables.
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
    cleverly.AssessmentStatus
+   cleverly.assessment.AssessmentCache
+   cleverly.assessment.CacheEntry
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
    cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
+   cleverly.ImportanceFacts
    cleverly.variable_importance
+   cleverly.variable_importance_plan
    cleverly.load
    cleverly.SuperLearner
    cleverly.CleverlyError

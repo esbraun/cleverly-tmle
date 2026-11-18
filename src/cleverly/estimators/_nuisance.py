@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
-from ..data.causal_data import CausalData
+from ..data.causal_data import CausalData, RowDesign
 from ..data.known_mechanism import divides_by_declaration
 from ..data.weighting import effective_sample_size
 from ..exceptions import CapabilityError, DataError, RefusalReason
@@ -62,6 +62,7 @@ from ._mechanism_fit import MechanismFit, describe_mechanism
 from .direct_effect import check_level
 
 if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
+    from ..inference.influence import ParameterEstimate
     from .reduced import MissingOutcomeReducedSet, ReducedSet
 
 __all__ = [
@@ -90,6 +91,10 @@ __all__ = [
 #: predicts at, or one matrix per outer fold.  The second form is what a reduced regression
 #: needs, since fold ``k``'s companion design is fold ``k``'s own primary prediction --
 #: see :func:`~cleverly.estimators.reduced.fit_reduced`.
+#: A design matrix to predict at: an array, or a counterfactual design that builds the rows
+#: asked for (:class:`~cleverly.data.causal_data.RowDesign`).
+Design: TypeAlias = "FloatArray | RowDesign"
+
 CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 
 #: A reduction of one fold's companion predictions, applied inside the fold worker: it takes
@@ -979,6 +984,12 @@ class RepeatFit:
         median.  The per-arm outcome-adaptive :class:`~cleverly.CTMLE` with the stacked
         curve also keeps the draw's curve and its shipped standard error.  Empty only on a
         draw built by hand.
+    projection : mapping of str to ParameterEstimate or None, default=None
+        On a conditional contrast's projection fit, this draw's own estimate of every
+        coefficient name, marginal and stratum, with its influence curve.  The repeated
+        fit's joint quantities read them: :meth:`~cleverly.estimators.base.TMLEResult.covariance`
+        by the matrix rule, the heterogeneity test, and the curve and band computed per draw
+        (P1 plan 2.3).  ``None`` on every other fit.
     """
 
     nuisance: NuisanceEstimates
@@ -986,6 +997,7 @@ class RepeatFit:
     psi: Mapping[str, float] = field(default_factory=dict)
     seed: int | None = None
     inference: Mapping[str, DrawInference] = field(default_factory=dict)
+    projection: Mapping[str, ParameterEstimate] | None = None
 
     @property
     def folds(self) -> Folds:
@@ -1001,7 +1013,7 @@ def cross_fit_predictions(
     folds: Folds,
     *,
     task: Task,
-    predict_designs: dict[str, FloatArray],
+    predict_designs: Mapping[str, Design],
     fit_mask: BoolArray | None = None,
     groups: IntArray | None = None,
     clip: tuple[float, float] | None = None,
@@ -1096,7 +1108,7 @@ def cross_fit_companion(
     folds: Folds,
     *,
     task: Task,
-    predict_designs: dict[str, FloatArray],
+    predict_designs: Mapping[str, Design],
     companion_designs: Mapping[str, CompanionDesign],
     fit_mask: BoolArray | None = None,
     groups: IntArray | None = None,
@@ -1200,7 +1212,7 @@ def cross_fit_companion(
     def predict_all(model: Learner, rows: IntArray | None) -> dict[str, FloatArray]:
         if not stack_predictions:
             return {
-                name: predict(model, matrix if rows is None else matrix[rows])
+                name: predict(model, _design_rows(matrix, rows))
                 for name, matrix in predict_designs.items()
             }
         # Many designs of one shape (a dose-response curve's quadrature doses): one call per
@@ -1212,12 +1224,7 @@ def cross_fit_companion(
         out: dict[str, FloatArray] = {}
         for start in range(0, len(names), per_chunk):
             chunk = names[start : start + per_chunk]
-            stacked = np.vstack(
-                [
-                    predict_designs[name] if rows is None else predict_designs[name][rows]
-                    for name in chunk
-                ]
-            )
+            stacked = np.vstack([_design_rows(predict_designs[name], rows) for name in chunk])
             values = predict(model, stacked)
             for k, name in enumerate(chunk):
                 out[name] = values[k * size : (k + 1) * size]
@@ -1329,6 +1336,17 @@ def _companion_matrix(design: CompanionDesign, fold: int) -> FloatArray:
     if isinstance(design, np.ndarray):
         return design
     return np.asarray(design[fold], dtype=float)
+
+
+def _design_rows(design: Design, rows: IntArray | None) -> FloatArray:
+    """``design[rows]`` of a matrix or of a :class:`~cleverly.data.causal_data.RowDesign`.
+
+    A ``RowDesign`` builds only those rows, which is the point of it: the counterfactual
+    designs of a fit are never all held at full size.  ``None`` means every row.
+    """
+    if isinstance(design, RowDesign):
+        return design.rows(rows)
+    return design if rows is None else design[rows]
 
 
 def tilt_missingness(nuisance: NuisanceEstimates, lower: float) -> FloatArray | None:
@@ -1985,7 +2003,7 @@ _OBSERVED_KEY = "observed"
 
 def _mechanism_designs(
     data: CausalData, arms: tuple[float, ...], policy_set: PolicySet | None, design: FloatArray
-) -> dict[str, FloatArray]:
+) -> dict[str, Design]:
     r"""Where a per-treatment mechanism -- :math:`\pi` or :math:`q_z` -- must be evaluated.
 
     Both mechanisms divide the clever covariate, and the fluctuation updates
@@ -2002,10 +2020,14 @@ def _mechanism_designs(
     one -- the same trick the outcome regression already uses for its ``"observed"`` key.
     """
     if policy_set is None:
-        return {_arm_key(arm): data.counterfactual_design(arm) for arm in arms}
-    designs = {_OBSERVED_KEY: design}
+        return {_arm_key(arm): data.counterfactual_rows(arm) for arm in arms}
+    designs: dict[str, Design] = {_OBSERVED_KEY: design}
     for index, code in enumerate(policy_set.component_keys):
-        designs[_arm_key(code)] = data.counterfactual_design(policy_set.shifted[:, index])
+        if data.treatment_kind == "vector":
+            # A vector treatment keeps its full designs (``CausalData.counterfactual_rows``).
+            designs[_arm_key(code)] = data.counterfactual_design(policy_set.shifted[:, index])
+        else:
+            designs[_arm_key(code)] = data.counterfactual_rows(policy_set.shifted[:, index])
     return designs
 
 
@@ -2721,18 +2743,18 @@ def fit_nuisances(
                 for index, code in enumerate(policy_set.component_keys)
             }
 
-        designs: dict[str, FloatArray] = {"observed": outcome_design}
+        designs: dict[str, Design] = {"observed": outcome_design}
         for key, doses in probes.items():
-            designs[f"probe:{key}"] = data.counterfactual_design(
+            designs[f"probe:{key}"] = data.counterfactual_rows(
                 np.asarray(doses, dtype=float), intermediate_value=levels[0]
             )
         for level in levels:
             for code, value in counterfactual.items():
-                designs[_design_key(code, level)] = data.counterfactual_design(
+                designs[_design_key(code, level)] = data.counterfactual_rows(
                     value, intermediate_value=level
                 )
 
-        companion_designs: dict[str, FloatArray] = {}
+        companion_designs: dict[str, CompanionDesign] = {}
         if companion is not None:
             companion_designs = {"observed": companion.treatment_design()}
             for arm in arms:
@@ -2748,7 +2770,11 @@ def fit_nuisances(
             # With an intermediate, at every level z, from the model at (a, z) (X11 (j)).
             for level in levels:
                 for arm in arms:
-                    companion_designs[_rule_key(arm, level)] = designs[_design_key(arm, level)]
+                    # Built whole once here: every fold reads every row of it, so a
+                    # per-fold build would repeat the copy K times for no saving.
+                    companion_designs[_rule_key(arm, level)] = _design_rows(
+                        designs[_design_key(arm, level)], None
+                    )
             pooled_reduce = functools.partial(
                 _pooled_rule_arm, arms=tuple(arms), levels=tuple(levels)
             )
@@ -3454,9 +3480,9 @@ def fit_inner_designs(
         )
     arms = nuisance.arms
     outcome_design = data.treatment_design()
-    designs: dict[str, FloatArray] = {"observed": outcome_design}
+    designs: dict[str, Design] = {"observed": outcome_design}
     for arm in arms:
-        designs[f"arm{arm}"] = data.counterfactual_design(arm)
+        designs[f"arm{arm}"] = data.counterfactual_rows(arm)
     scaled = nuisance.scaler.scale(data.outcome)
     assignment = np.asarray(folds.assignment)
     observed = np.asarray(data.observed, dtype=bool)
@@ -3539,7 +3565,9 @@ def fit_inner_designs(
                 folds,
                 task=nuisance.outcome_task,
                 predict_designs=designs,
-                companion_designs={name: matrix[own] for name, matrix in designs.items()},
+                companion_designs={
+                    name: _design_rows(matrix, own) for name, matrix in designs.items()
+                },
                 fit_mask=observed & without,
                 groups=data.cluster,
                 clip=(0.0, 1.0),

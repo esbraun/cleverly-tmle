@@ -52,7 +52,6 @@ SENSITIVITY_REFUSALS = {
     "marginal_bounds": "F16",
     "missingness": "F16",
     "tipping_gamma": "F16",
-    "simulated_confounding": "X101",
 }
 
 
@@ -75,6 +74,8 @@ def test_assess_runs_every_row_or_names_its_refusal(result: Any) -> None:
     assert statuses["refute"] is AssessmentStatus.DEFERRED
     # The E-value reads the ratio of two named risks, so a bare report defers on the pair.
     assert statuses["evalue"] is AssessmentStatus.DEFERRED
+    # The simulated common cause runs (X101 part (b)) once a grid and an estimand are named.
+    assert statuses["simulated_confounding"] is AssessmentStatus.DEFERRED
     for name in SENSITIVITY_REFUSALS:
         assert statuses[name] is AssessmentStatus.UNAVAILABLE, name
     for item in report.sensitivity.items:
@@ -92,6 +93,7 @@ def test_the_capability_sweep_finds_no_disagreement(result: Any) -> None:
         "score_equations",
         "refute",
         "truncation_curve",
+        "simulated_confounding",
     } <= answered
 
 
@@ -237,6 +239,9 @@ def test_a_result_without_its_estimator_or_data_refits_nothing(result: Any, miss
     for operation in ("refute", "truncation_curve"):
         row = bare.diagnostics.capability(operation)
         assert not row.available, operation
+    row = bare.sensitivity.capability("simulated_confounding")
+    assert not row.available
+    assert row.refusal is not None and "needs the fitted estimator" in row.refusal.condition
 
 
 # ----------------------------------------------------------------- witnesses
@@ -244,10 +249,8 @@ def test_a_result_without_its_estimator_or_data_refits_nothing(result: Any, miss
 
 def _free_calls() -> dict[str, tuple[Any, dict[str, Any], str]]:
     from cleverly import sensitivity, validation
-    from tests.unit._simulated_confounding_support import _GRID
 
     return {
-        "simulated_confounding": (sensitivity.simulated_confounding, {"grid": _GRID}, "X101"),
         "omitted_variable_bounds": (sensitivity.omitted_variable_bounds, {}, "F16"),
         "robustness_value": (sensitivity.robustness_value, {}, "F16"),
         "sensitivity_elements": (sensitivity.sensitivity_elements, {}, "F16"),

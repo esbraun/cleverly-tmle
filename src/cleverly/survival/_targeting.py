@@ -78,7 +78,16 @@ class Problem:
     target_weights : ndarray
         ``(Q, M)`` the grid weights :math:`\\omega_{q,m}` of each target of one arm and cause.
         A risk at :math:`t_k` is the unit vector of the last :math:`m` with
-        :math:`u_m \\le t_k` (:func:`point_weights`).
+        :math:`u_m \\le t_k` (:func:`point_weights`).  With ``expand`` set, the weights are
+        on the full grid of ``expand.size`` times.
+    expand : ndarray or None
+        On a grid reduced to some of the full grid's times, ``(M_full,)`` the position on the
+        reduced grid of the last kept time at or before each full-grid time, ``-1`` before the
+        first.  The curves are constant between kept times, so a reduced curve read through
+        ``expand`` is the full-grid curve.  ``None`` when ``target_weights`` is on the arrays'
+        own grid.
+    kept : ndarray or None
+        ``(M,)`` the full-grid position of each reduced time, set with ``expand``.
     """
 
     arm: IntArray
@@ -86,6 +95,8 @@ class Problem:
     events: np.ndarray
     weight: FloatArray
     target_weights: FloatArray
+    expand: IntArray | None = None
+    kept: IntArray | None = None
 
     @property
     def n(self) -> int:
@@ -106,6 +117,9 @@ class Problem:
     def n_targets(self) -> int:
         """The number of targets, two arms by every cause and weight row."""
         return 2 * self.n_causes * self.n_rows
+
+
+_EMPTY = np.zeros(0)
 
 
 def point_weights(index: IntArray, size: int) -> FloatArray:
@@ -236,8 +250,20 @@ class Evaluation:
         return np.sqrt(np.mean(self.influence**2, axis=0))
 
 
-def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
-    """Evaluate the plug-in and the efficient influence curves (design section 4.1).
+def _filled(values: FloatArray, expand: IntArray) -> FloatArray:
+    """``values`` on a reduced grid read at every full-grid time, zero before the first kept."""
+    padded = np.concatenate([np.zeros((*values.shape[:-1], 1)), values], axis=-1)
+    # np.take keeps the result C-ordered; an index on the last axis would not, and a matrix
+    # product on another memory order sums in another order.
+    return np.take(padded, expand + 1, axis=-1)
+
+
+def evaluate_rows(
+    problem: Problem, dlam: FloatArray, survival: FloatArray, incidence: FloatArray
+) -> tuple[FloatArray, FloatArray]:
+    """Each unit's score parts and plug-ins of every target, at hazards with these curves.
+
+    Every operation is per unit, so the rows of a subset of units are those of the whole.
 
     Parameters
     ----------
@@ -245,16 +271,22 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
         The fixed inputs.
     dlam : ndarray
         ``(2, J, n, M)`` hazard jumps.
+    survival : ndarray
+        ``(2, n, M)`` their survival, from :func:`curves`.
+    incidence : ndarray
+        ``(2, J, n, M)`` their cause incidences, from :func:`curves`.
 
     Returns
     -------
-    Evaluation
-        The plug-in, score and influence curves.
+    parts : ndarray
+        ``(n, P)`` each unit's score part of each target's efficient influence function.
+    plugins : ndarray
+        ``(n, P)`` each unit's plug-in of each target.
     """
-    survival, incidence = curves(dlam)
     J, Q = problem.n_causes, problem.n_rows
     n = problem.n
     rows = problem.target_weights.T  # (M, Q)
+    expand = problem.expand
     parts = np.zeros((n, 2 * J * Q))
     plugins = np.zeros((n, 2 * J * Q))
     for a in (0, 1):
@@ -279,13 +311,70 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
             np.subtract(weighted[j], increment, out=increment)
             cum_own = np.cumsum(increment, axis=1)
             block = slice((a * J + j) * Q, (a * J + j + 1) * Q)
-            parts[:, block] = cum_own @ rows
-            plugins[:, block] = incidence[a, j] @ rows
+            if expand is None:
+                parts[:, block] = cum_own @ rows
+                plugins[:, block] = incidence[a, j] @ rows
+            else:
+                parts[:, block] = _filled(cum_own, expand) @ rows
+                plugins[:, block] = _filled(incidence[a, j], expand) @ rows
         # Freed before the next arm allocates its own, so two arms' temporaries never coexist.
         del weighted, ratio, ratio_before, before, increment, cum_own
+    return parts, plugins
+
+
+def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
+    """Evaluate the plug-in and the efficient influence curves (design section 4.1).
+
+    Parameters
+    ----------
+    problem : Problem
+        The fixed inputs.
+    dlam : ndarray
+        ``(2, J, n, M)`` hazard jumps.
+
+    Returns
+    -------
+    Evaluation
+        The plug-in, score and influence curves.
+    """
+    survival, incidence = curves(dlam)
+    parts, plugins = evaluate_rows(problem, dlam, survival, incidence)
+    return summarize(parts, plugins, survival, incidence)
+
+
+def summarize(
+    parts: FloatArray,
+    plugins: FloatArray,
+    survival: FloatArray | None = None,
+    incidence: FloatArray | None = None,
+) -> Evaluation:
+    """The evaluation of every unit's score parts and plug-ins: the means over units.
+
+    Parameters
+    ----------
+    parts : ndarray
+        ``(n, P)`` score parts, from :func:`evaluate_rows`.
+    plugins : ndarray
+        ``(n, P)`` plug-ins.
+    survival : ndarray or None
+        The curves to carry; ``None`` carries an empty array.
+    incidence : ndarray or None
+        The curves to carry; ``None`` carries an empty array.
+
+    Returns
+    -------
+    Evaluation
+        The plug-in, score and influence curves.
+    """
     psi = plugins.mean(axis=0)
     influence = parts + plugins - psi
-    return Evaluation(psi, parts.mean(axis=0), influence, survival, incidence)
+    return Evaluation(
+        psi,
+        parts.mean(axis=0),
+        influence,
+        _EMPTY if survival is None else survival,
+        _EMPTY if incidence is None else incidence,
+    )
 
 
 def _direction(
@@ -298,15 +387,22 @@ def _direction(
     :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  The quotient is
     :func:`conditional_risk` of the combined weights, a reverse cumulative sum over time, so a
     step costs :math:`O(JnM)` for any weights.  ``dlam`` holds the hazard jumps ``evaluation``
-    was computed at.
+    was computed at, on the arrays' own grid.  On a reduced grid (``problem.expand`` set)
+    :math:`W` runs over the full grid and is read at the kept times; the quotient sums only
+    increments :math:`S(u_{s-1})\, d\Lambda_j(u_s)`, which are zero at every dropped time, so
+    its sum over the kept times is the full grid's term for term.
     """
     J, Q = problem.n_causes, problem.n_rows
     n, M = problem.at_risk.shape
+    expand, kept = problem.expand, problem.kept
     out = np.zeros((2, J, n, M))
     for a in (0, 1):
         # The weight each grid point carries for cause j: sum_q v_(a,j,q) w_(q,m).
         own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
         own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W(u)
+        if expand is not None:
+            assert kept is not None
+            own = np.take(own, kept, axis=-1)
         survival = evaluation.survival[a]
         shared = np.zeros((n, M))
         for j in range(J):
@@ -425,9 +521,6 @@ def standardized(evaluation: Evaluation) -> float:
     return float(np.max(np.abs(evaluation.score) / sigma))
 
 
-_EMPTY = np.zeros(0)
-
-
 def walk(
     problem: Problem,
     dlam: FloatArray,
@@ -468,94 +561,19 @@ def walk(
     WalkResult
         The targeted hazards and the walk's record.
     """
-    halving_cap = 2 * max_steps if max_halvings is None else max_halvings
-    initial_step = step
-    # Never written in place: each accepted step replaces it, so no copy is held.
-    current = np.asarray(dlam, dtype=float)
+    from ._chunked import DensePlan, run_walk
+
+    plan = DensePlan(problem, dlam)
     del dlam
-    initial = evaluate(problem, current)
-    metric = _metric(
-        np.cov(initial.influence, rowvar=False, bias=True).reshape(
-            problem.n_targets, problem.n_targets
-        ),
-        norm,
-    )
-    # A trial is rejected below the floor, or below the initial fit's own smallest survival
-    # when that is lower, so an accepted initial fit is never rejected as a starting point.
-    survival_floor = min(WALK_SURVIVAL_FLOOR, float(np.min(initial.survival[..., -1])))
-    light = Evaluation(initial.psi, initial.score, initial.influence, _EMPTY, _EMPTY)
-    evaluation = initial
-    del initial
-    # Pairs held on the step being tried, and pairs held on any step, for the record.
-    frozen = np.zeros((2, problem.n), dtype=bool)
-    ever = np.zeros((2, problem.n), dtype=bool)
-    steps = halvings = 0
-    history = [standardized(evaluation)]
-    converged = history[-1] <= cutoff
-    if tilt == "factual":
-        factual = np.stack([(problem.arm == a).astype(float) for a in (0, 1)])[:, None, :, None]
-    while not converged and steps < max_steps and halvings < halving_cap and step >= MIN_STEP:
-        x = evaluation.score
-        weighted = metric @ x
-        length = float(np.sqrt(x @ weighted))
-        if length == 0.0:
-            converged = True
-            break
-        direction = _direction(problem, evaluation, weighted / length, current)
-        if tilt == "factual":
-            direction = direction * factual
-        if frozen.any():
-            direction *= ~frozen[:, None, :, None]
-        direction *= step
-        candidate = tilt_jumps(current, direction)
-        del direction
-        # A trial step can take a survival to zero, where the score divides 0 by 0; the check
-        # below rejects such a trial, so its warning carries nothing.
-        with np.errstate(divide="ignore", invalid="ignore"):
-            trial = evaluate(problem, candidate)
-        low = trial.survival[..., -1] < survival_floor
-        if low.any():
-            del candidate, trial
-            new = low & ~frozen
-            if new.any():
-                # Pairs the step takes below the floor are held for this step and the same step
-                # is tried again; they move again on the next step, whose direction is
-                # recomputed.
-                frozen |= new
-                ever |= new
-                continue
-            # Only held pairs read below the floor (a tilt of zero can round a held pair's
-            # survival down by an ulp), so holding more cannot help: halve as for a rejection.
-            step /= 2
-            halvings += 1
-            frozen[:] = False
-            continue
-        trial_length = float(np.sqrt(trial.score @ metric @ trial.score))
-        if not np.isfinite(trial_length) or trial_length >= length:
-            # Freed now rather than on the next trial, which would hold two of each.
-            del candidate, trial
-            step /= 2
-            halvings += 1
-            frozen[:] = False
-            continue
-        current, evaluation = candidate, trial
-        frozen[:] = False
-        step = min(2.0 * step, initial_step)
-        steps += 1
-        history.append(standardized(evaluation))
-        converged = history[-1] <= cutoff
-    return WalkResult(
-        current,
-        evaluation,
-        light,
-        steps,
-        halvings,
-        converged,
-        cutoff,
-        step,
-        float(ever.mean()),
-        history,
-    )
+    return run_walk(
+        plan,
+        cutoff=cutoff,
+        norm=norm,
+        step=step,
+        max_steps=max_steps,
+        max_halvings=max_halvings,
+        tilt=tilt,
+    ).result
 
 
 def default_cutoff(n: int) -> float:

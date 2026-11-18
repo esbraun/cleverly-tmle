@@ -1468,6 +1468,15 @@ policy-point-mtp,targeting_necessity,bias equivalent,bias
 policy-point-mtp,targeting_necessity,least displacement over labels,positive_diffuse
 policy-point-mtp,type_i_error,coverage floor,coverage/0.5
 policy-point-mtp,type_i_error,rejection ceiling,rejection/0.1
+projection-compositions,bias,bias discriminated,control_diffuse
+projection-compositions,bias,bias equivalent,bias
+projection-compositions,interval_calibration,coverage in calibration band,affine
+projection-compositions,interval_calibration,independent splits se ratio below band,pair_collapse
+projection-compositions,interval_calibration,se ratio below band,se_high
+projection-compositions,interval_calibration,se ratio in calibration band,affine
+projection-compositions,power,rejection floor,rejection/0.01
+projection-compositions,type_i_error,coverage floor,coverage/0.5
+projection-compositions,type_i_error,rejection ceiling,rejection/0.1
 refuter-calibration-band,refuter_power,detections at least 38 of 50,rejection/0.1
 refuter-calibration-band,refuter_size,rejections at most 20 of 200,se_low
 repeated-crossfit-tmle,double_robustness,bias discriminated,pair_collapse
@@ -1698,6 +1707,8 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.refuter_calibration_continuous_survival_properties,refuter_power,detections at least 38 of 50,rejection/0.01
+tests.studies.refuter_calibration_continuous_survival_properties,refuter_size,rejections at most 17 of 200,none
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias
 parametric-gformula,ice_necessity,least displacement over labels,control_concentrated

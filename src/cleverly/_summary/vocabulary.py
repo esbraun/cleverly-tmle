@@ -164,6 +164,8 @@ def interval_label(level: float) -> str:
 SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "std_err": "std. error",
+        # A repeated projection fit's standard error without the spread between splits.
+        "se_without_displacement": "std. error without split spread",
         "plugin_std_err": "plug-in SE (diagnostic)",
         "ci_lower": "CI lower",
         "ci_upper": "CI upper",
@@ -1150,6 +1152,7 @@ EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
         "mtp": "shifted-treatment mean",
         "effect_modification": "conditional-contrast projection",
         "effect_modification_ratio": "log-ratio conditional-contrast projection",
+        "effect_modification_ratio_strata": "log-ratio conditional-contrast projection by stratum",
     }
 )
 
@@ -3791,6 +3794,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "learners_failed": "warning",
         "ensemble_risk": "note",
         "fit_cautions": "warning",
+        "fit_cautions_listed": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
         "guard_scope": "note",
@@ -3894,6 +3898,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "fit_cautions": (
             "The fits of {names} carry warnings that change how to read their rows; print "
             "each with result.fits[name].summary()."
+        ),
+        "fit_cautions_listed": (
+            "The fits of {names} carry warnings that change how to read their rows. This run "
+            "kept no fits (keep_fits=False), so they are listed here: {listing}"
         ),
         "stacked_interval": (
             "Each interval is pointwise and comes from one stacked estimating equation of "
@@ -4208,6 +4216,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "law_outcome_binomial": (
             "The outcome flips for a share of units, those highest on the simulated cause, "
             "set by the outcome strength."
+        ),
+        "law_outcome_panel_hazard": (
+            "Each unit's per-node event log-odds shifts by the outcome strength times its "
+            "value of the simulated cause, and censoring is redrawn where the treatment "
+            "changed."
+        ),
+        "law_outcome_continuous_hazard": (
+            "Each unit's cause-specific log-hazards ({causes}) shift by the outcome strength "
+            "times its value of the simulated cause; event and censoring times are redrawn "
+            "from the replay's Cox fits, and censoring is redrawn where the treatment changed."
         ),
         "law_outcome_logit": (
             "The outcome moves on the log-odds scale of its declared bounds, so it stays "

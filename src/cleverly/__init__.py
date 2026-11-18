@@ -122,9 +122,11 @@ from .study import (
     TrialWithExternalData,
 )
 from .variable_importance import (
+    ImportanceFacts,
     VariableImportanceEntry,
     VariableImportanceResult,
     variable_importance,
+    variable_importance_plan,
 )
 
 __all__ = [
@@ -160,6 +162,7 @@ __all__ = [
     "IPWMethod",
     "IdentificationProvider",
     "IdentifiedEffect",
+    "ImportanceFacts",
     "InSampleLearnerWarning",
     "IncrementalEffect",
     "IncrementalMean",
@@ -214,4 +217,5 @@ __all__ = [
     "__version__",
     "load",
     "variable_importance",
+    "variable_importance_plan",
 ]

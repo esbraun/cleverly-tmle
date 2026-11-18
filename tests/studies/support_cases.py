@@ -2976,6 +2976,38 @@ def _projection_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _projection_composition_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-compositions`` (P1 part (a)): the ``T49`` and ``T50`` variants.
+
+    Each runs the study's own fit of one calibration group, on a draw of its law at the
+    group's size, up to the classifier.
+    """
+    module, slug = "projection_compositions", "projection-compositions"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:684",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: study._fit(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.in_sample", "insample_2k"),
+        case("T49.in_sample.missing_treatment", "mtreat_4k"),
+        case("T49.in_sample.missing_both", "mtreat_both_4k"),
+        case("T49.strata", "strata_4k"),
+        case("T49.repeats", "rep3_obs_4k"),
+        case("T50.in_sample", "insample_crr_2k"),
+        case("T50.in_sample.missing_treatment", "mtreat_crr_4k"),
+        case("T50.strata", "strata_crr_4k"),
+        case("T50.repeats", "rep3_crr_4k"),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -3576,6 +3608,7 @@ CASES: tuple[RowCase, ...] = (
     *_hazard_time_varying_cases(),
     *_hazard_time_varying_multinode_cases(),
     *_projection_cases(),
+    *_projection_composition_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
