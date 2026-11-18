@@ -949,10 +949,12 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     TypeError
         If a verdict column is missing or not boolean, as :func:`check_verdict_columns` says.
     """
-    tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
-    tables["properties"] = property_verdicts.read_property_table(
-        record.artifact(FRAMES["properties"])
-    )
+    tables = {
+        name: pd.read_csv(record.artifact(filename))
+        for name, filename in FRAMES.items()
+        if name != "properties"
+    }
+    tables["properties"] = property_verdicts.read_property_table(record)
     if record.paired_role == "descriptive":
         # A descriptive paired row states no verdict, so the ledger reads none of them and
         # counts none of them.  The study page publishes the rows themselves.

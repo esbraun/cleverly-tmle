@@ -250,6 +250,17 @@ def _sparse_pair(ratio: float) -> tuple[dict[str, Any], dict[str, Any]]:
     return switched, plain
 
 
+@pytest.mark.parametrize("extra", ["node", "node_gradient", "policy", "gradient"])
+def test_the_switched_rule_refuses_a_node_or_policy_term(extra: str) -> None:
+    """N1: the switched branch takes precedence, so it refuses what it would otherwise drop."""
+    curve = np.random.default_rng(0).normal(size=50)
+    kwargs: dict[str, Any] = {"covariance_rule": "switched", "predictable_variance": 1.0}
+    make_estimate("a", 0.1, curve, n=50, rule_widened=False, **kwargs)
+    kwargs[extra] = np.ones(2) if extra.endswith("gradient") else object()
+    with pytest.raises(ValueError, match=f"the switched variance takes no {extra}:"):
+        make_estimate("a", 0.1, curve, n=50, rule_widened=False, **kwargs)
+
+
 def test_the_band_reads_the_curves_correlation_and_the_reported_widths() -> None:
     """T-a7: a band of switched estimates is the influence-curve band widened by the SE ratio."""
     switched, plain = _sparse_pair(1.2)

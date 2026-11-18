@@ -36,24 +36,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from typing import Final
 
 import numpy as np
 
 from .._typing import FloatArray
 from ..exceptions import Refusal, RefusalReason
+from .policy import VarianceSource
 
 __all__ = [
     "SWITCHED_FLOOR",
     "SWITCHED_REFUSAL",
     "PredictableCovariance",
     "SwitchedVariance",
-    "VarianceSource",
     "switched_record",
 ]
-
-#: Which variance an estimate under ``variance="switched"`` reports.
-VarianceSource = Literal["influence_curve", "predictable_variation"]
 
 #: A predictable variation at or below this multiple of the influence-curve variance is treated
 #: as degenerate, and the estimate keeps the influence-curve variance.

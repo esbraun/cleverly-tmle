@@ -1830,30 +1830,26 @@ def empty_property_table() -> pd.DataFrame:
     )
 
 
-def read_property_table(path: Any) -> pd.DataFrame:
-    """Read a committed ``properties.csv``, giving an empty one every verdict column.
+def read_property_table(record: StudyRecord) -> pd.DataFrame:
+    """Read a record's committed ``properties.csv``.
 
-    A record that declares no property cell publishes no row.  The record of
-    ``continuous-survival-variance`` at 0cb80a56 wrote that empty table with the header
-    ``property,cell,passed``; its manifest hashes those bytes, so the reader completes the header
-    instead of the record being rewritten.  A table with rows is returned as read, so a missing
-    verdict column there still fails every reader.
+    A record that declares no property cell publishes no property row, so its table is
+    :func:`empty_property_table` and its file is not read: what a reader sees then follows from
+    the declaration, not from the bytes one run wrote.
 
     Parameters
     ----------
-    path : path-like
-        The committed table.
+    record : StudyRecord
+        The study whose table is read.
 
     Returns
     -------
     pandas.DataFrame
-        The table, with :data:`PROPERTY_TABLE_COLUMNS` first when it has no row.
+        The committed table, or :func:`empty_property_table` for a record without property cells.
     """
-    frame = pd.read_csv(path)
-    if not frame.empty:
-        return frame
-    others = [name for name in frame.columns if name not in PROPERTY_TABLE_COLUMNS]
-    return pd.concat([empty_property_table(), frame.loc[:, others]], axis=1)
+    if not record.property_cells:
+        return empty_property_table()
+    return pd.read_csv(record.artifact("properties.csv"))
 
 
 def fold_policy_seed(record: StudyRecord) -> int:

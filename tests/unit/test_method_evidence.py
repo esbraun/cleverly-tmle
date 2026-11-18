@@ -948,7 +948,9 @@ class TestPublishedVerdicts:
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
     ) -> None:
-        published = property_verdicts.read_property_table(study.artifact("properties.csv"))
+        if not study.property_cells:
+            pytest.skip("study declares no property cell")
+        published = property_verdicts.read_property_table(study)
         pd.testing.assert_frame_equal(
             published,
             _property_summary(study.slug),
@@ -1001,7 +1003,9 @@ class TestPublishedVerdicts:
         Every row's ``passed`` must therefore follow from that row's own endpoints, and the
         clause that really is about the pair lives in ``property_passed``.
         """
-        published = property_verdicts.read_property_table(study.artifact("properties.csv"))
+        if not study.property_cells:
+            pytest.skip("study declares no property cell")
+        published = property_verdicts.read_property_table(study)
         control = published["role"] == "control"
 
         def verdicts(mask: pd.Series, column: str) -> list[bool]:

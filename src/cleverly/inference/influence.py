@@ -95,7 +95,7 @@ from .delta import (
     wald_statistic,
 )
 from .node_variance import NodeLoadings, NodeVariance
-from .policy import PolicyCovariance, PolicyVariance
+from .policy import PolicyCovariance, PolicyVariance, VarianceSource
 from .switched import SWITCHED_REFUSAL, SwitchedVariance, switched_record
 
 __all__ = [
@@ -156,14 +156,6 @@ OutcomeFamily = Literal["binomial", "gaussian"]
 #: reports the curve's centred variance raised to its predictable variation where the curve is
 #: sparse (:mod:`cleverly.inference.switched`); its joint covariance is the fit's, not the curves'.
 CovarianceRule = Literal["centered", "second_moment", "policy_weighted", "switched"]
-
-#: Which variance an estimate reports: its influence curve's, the policy-weighted one
-#: (:mod:`cleverly.inference.policy`), the predictable variation
-#: (:mod:`cleverly.inference.switched`), or the curve's plus the boundary-node supplement
-#: (:mod:`cleverly.inference.node_variance`).
-VarianceSource = Literal[
-    "influence_curve", "policy_weighted", "predictable_variation", "boundary_node"
-]
 
 #: What kind of bounded functional a target is: a mean of the outcome, or a difference of two
 #: such means.  :func:`parameter_bounds` turns it into the range on a binary outcome.
@@ -2114,7 +2106,8 @@ def make_estimate(
         position in them (:attr:`ParameterEstimate.range_interval`).
     predictable_variance : float or None, default=None
         The estimate's predictable variation on its inference scale, under the
-        ``"switched"`` rule only.
+        ``"switched"`` rule only, which refuses ``policy``, ``gradient``, ``node`` and
+        ``node_gradient`` beside it.
     policy : PolicyCovariance or None, default=None
         The fit's policy-weighted covariance of its levels, under the ``"policy_weighted"``
         rule only.
@@ -2151,6 +2144,18 @@ def make_estimate(
             )
         if cluster is not None:
             raise ValueError("the switched variance is defined for independent rows only")
+        others = {
+            "node": node,
+            "node_gradient": node_gradient,
+            "policy": policy,
+            "gradient": gradient,
+        }
+        passed = [key for key, value in others.items() if value is not None]
+        if passed:
+            raise ValueError(
+                f"the switched variance takes no {', '.join(passed)}: it is the centred curve "
+                "variance raised to the predictable variation, with no node or policy term"
+            )
         switched = switched_record(ic, influence_variance(ic, None), predictable_variance)
         variance = switched.variance
     elif node is not None or node_gradient is not None:
