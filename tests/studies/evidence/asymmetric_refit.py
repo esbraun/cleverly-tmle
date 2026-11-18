@@ -108,8 +108,17 @@ NEW_SCALES = frozenset({"mover", "skew_t"})
 REPLAY_TOLERANCE = band_rerun.REPLAY_TOLERANCE
 #: The matching tolerance of a row to a logged estimate, relative.
 MATCH_TOLERANCE = 1e-10
-#: The two-sided alpha of the row interval a sensitivity bound's read is matched to.
+#: The two-sided alpha of the row interval a sensitivity bound's read is matched to, unless
+#: the study's ``margins.alpha`` says otherwise (:func:`logging`).
 ROW_ALPHA = 0.05
+#: The recorder's version, written into each stage's ``capture.json`` entry.  2: the recorder
+#: logs every :func:`~cleverly.sensitivity._limits.bound_limits` read (0ad3cef7).  A stage entry
+#: with no version was written by version 1.
+RECORDER_VERSION = 2
+#: The first recorder version that sees a sensitivity bound's reads; the screen reads the
+#: records of a bound-end study only from this version on
+#: (:data:`~asymmetric_audit.BOUND_END_STUDIES`).
+BOUND_RECORDER = 2
 #: The modules whose bounds form their limits through ``bound_limits``, each binding the name
 #: at import, so each is wrapped where it reads it.
 BOUND_MODULES = ("cleverly.sensitivity.omitted_variable", "cleverly.sensitivity.marginal")
@@ -143,6 +152,8 @@ RECORD_COLUMNS = (
 # ---------------------------------------------------------------------------- the recorder
 
 _LOG: list[dict[str, Any]] = []
+#: The row alpha a bound read is re-read at in this process, set by :func:`logging`.
+_ROW = [ROW_ALPHA]
 _GUARD = [False]
 _INSTALLED = [False]
 
@@ -286,13 +297,15 @@ def install() -> None:
 
     def logged_bound(estimate: Any, **options: Any) -> Any:
         read = bound(estimate, **options)
-        if _GUARD[0] or estimate.scale == "ratio":  # a ratio's spread is not on the row's scale
+        # A ratio's spread is not on the row's scale, so its rows read ``own``.  That is harmless
+        # only while ``log`` is not one of NEW_SCALES.
+        if _GUARD[0] or estimate.scale == "ratio":
             return read
         _GUARD[0] = True
         try:
             _LOG.append(_bound_entry(read))
-            if abs(_read_alpha(read) - ROW_ALPHA) > 1e-12:
-                again = bound(estimate, **{**options, "sided": "two", "level": 1.0 - ROW_ALPHA})
+            if abs(_read_alpha(read) - _ROW[0]) > 1e-12:
+                again = bound(estimate, **{**options, "sided": "two", "level": 1.0 - _ROW[0]})
                 _LOG.append(_bound_entry(again))
         except Exception:  # the recorder never changes a fit
             pass
@@ -310,14 +323,17 @@ def install() -> None:
 
 
 @contextlib.contextmanager
-def logging() -> Iterator[list[dict[str, Any]]]:
-    """The entries logged inside the block (the recorder installed first)."""
+def logging(alpha: float = ROW_ALPHA) -> Iterator[list[dict[str, Any]]]:
+    """The entries logged inside the block (the recorder installed first), each bound read
+    also re-read at the row ``alpha``."""
     install()
     start = len(_LOG)
     held: list[dict[str, Any]] = []
+    before, _ROW[0] = _ROW[0], float(alpha)
     try:
         yield held
     finally:
+        _ROW[0] = before
         held.extend(_LOG[start:])
         del _LOG[start:]
 
@@ -332,13 +348,16 @@ class Logged:
         The study's ``fit_one(key, drawn)``.
     rows_at : int or None
         The position of the rows in the worker's value, as the study declares it.
+    alpha : float, default=ROW_ALPHA
+        The study's row alpha, at which each bound read is also re-read.
     """
 
     fit_one: Callable[[Any, Any], Any]
     rows_at: int | None
+    alpha: float = ROW_ALPHA
 
     def __call__(self, key: Any, drawn: Any) -> dict[str, Any]:
-        with logging() as log:
+        with logging(self.alpha) as log:
             try:
                 value = self.fit_one(key, drawn)
             except Exception as error:  # every failure is reported, none stops the audit
@@ -664,9 +683,30 @@ def targets() -> list[str]:
     return sorted(chosen["study"])
 
 
-def settle_groups(slug: str, screen: pd.DataFrame | None = None) -> set[str]:
+def stale_stages(slug_or_dir: str | Path, version: int) -> list[str]:
+    """The stages whose committed records a recorder older than ``version`` wrote: each stage
+    with a record file whose ``capture.json`` entry records an older version, or none."""
+    directory = AUDIT_DIR / slug_or_dir if isinstance(slug_or_dir, str) else slug_or_dir
+    path = directory / CAPTURE_FILE
+    captured = json.loads(path.read_text()) if path.exists() else {}
+    return [
+        stage
+        for stage, name in STAGE_FILES.items()
+        if (directory / name).exists() and int(captured.get(stage, {}).get("recorder", 1)) < version
+    ]
+
+
+def settle_groups(
+    slug: str, screen: pd.DataFrame | None = None, *, remaining: set[str] | None = None
+) -> set[str]:
     """The groups the settle stage refits: each group the study's screen row names in
-    ``bound_flips``, with its ``@corner`` (or ``@unbounded``, ``@settled``) stripped."""
+    ``bound_flips``, with its ``@corner`` (or ``@unbounded``, ``@settled``) stripped, and every
+    remaining group of each flagged property family.
+
+    A property verdict can move because another cell of its family moves (the study's own
+    rule compares cells), so settling the flagged cell alone could leave the cell that moves it
+    on its bound.  ``remaining`` defaults to :func:`remaining_groups`.
+    """
     from tests.studies.evidence import asymmetric_audit
 
     screen = asymmetric_audit.read_screen() if screen is None else screen
@@ -674,7 +714,27 @@ def settle_groups(slug: str, screen: pd.DataFrame | None = None) -> set[str]:
     if row.empty:
         return set()
     flips = str(row.iloc[0]["bound_flips"])
-    return {flip.rsplit("@", 1)[0] for flip in flips.split(";") if flip}
+    flagged = {flip.rsplit("@", 1)[0] for flip in flips.split(";") if flip}
+    if not flagged:
+        return flagged
+    cells = _property_cells(slug)
+    families = {name.split("/", 1)[0] for name in flagged if name in cells}
+    if not families:
+        return flagged
+    remaining = remaining_groups(slug) if remaining is None else remaining
+    return flagged | {
+        name for name in remaining if name in cells and name.split("/", 1)[0] in families
+    }
+
+
+def _property_cells(slug: str) -> set[str]:
+    """The study's committed positive property cells, ``property/cell``."""
+    path = band_rerun.record_for(slug).artifacts / "property-replicates.parquet"
+    if not path.exists():
+        return set()
+    rows = read_rows(path)
+    rows = rows.loc[rows["role"] == "positive"]
+    return {f"{p}/{c}" for p, c in zip(rows["property"], rows["cell"], strict=True)}
 
 
 def settle_targets(screen: pd.DataFrame | None = None) -> list[str]:
@@ -710,7 +770,7 @@ def stage_selection(
 def _fit(record: StudyRecord, job: Job, *, jobs: int, cache: Path | None, stage: str) -> list[Any]:
     outcomes = replication.fit_replicates(
         [job.keys[i] for i in job.selected],
-        Logged(job.fit_one, job.rows_at),
+        Logged(job.fit_one, job.rows_at, record.margins.alpha),
         n_jobs=jobs,
         label=f"{stage}-{job.phase}-{job.label}",
         implementation=record.implementation,
@@ -796,6 +856,7 @@ def run_study(
         "jobs": jobs,
         "seconds_capture": round(captured, 2),
         "seconds_fit": round(time.perf_counter() - started - captured, 2),
+        "recorder": RECORDER_VERSION,
     }
     if errors:
         (output / slug).mkdir(parents=True, exist_ok=True)

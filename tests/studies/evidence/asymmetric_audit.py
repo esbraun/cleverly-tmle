@@ -36,7 +36,9 @@ normal interval on every sample (``max(t, t - aK) >= t >= z`` on each side), so 
 rise and rejections only fall, and it lies inside the symmetric interval of half-width
 ``z f se`` once ``f >= (t + |a| K) / z``.  The screen reads every group that is not a paired difference and whose
 committed ``covered`` is the plain normal interval (a superset: it cannot tell a continuous
-outcome from a binary one) at each factor of :data:`FACTORS`, and names each verdict that moves
+outcome from a binary one), and every power cell whose ``covered`` is the coverage of the null 0
+(``1 - rejected``, read on its rejections, which a widening lowers, so power can fall below a
+declared floor), at each factor of :data:`FACTORS`, and names each verdict that moves
 with the smallest factor that moves it.  A verdict that moves at no factor is neutral for any
 skew-widened interval inside the largest one.  A verdict that moves needs the refits of plan 9.8
 (the smallest df and the 99% quantile of ``|a| K`` over ``R_a`` refits) to say whether its study
@@ -171,6 +173,28 @@ CURRENT: dict[str, str] = {
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row
 #: records a MOVER flip.
 SCREEN_REASONS: dict[str, str] = {}
+
+#: The studies whose rows are ends of a sensitivity bound, read through
+#: :func:`~cleverly.sensitivity._limits.bound_limits`.  Refit records of these studies count
+#: only when a recorder at :data:`~asymmetric_refit.BOUND_RECORDER` or later wrote them, as an
+#: older recorder never saw those reads and matched every row ``own``.
+#: ``tests/unit/test_asymmetric_audit.py`` ties this set to the studies that call the bounds.
+BOUND_END_STUDIES = frozenset(
+    {
+        "ovb-limit-coverage",
+        "omitted-variable-bound-se",
+        "omitted-variable-bound-plugin-se",
+        "marginal-bound-limit-coverage",
+    }
+)
+
+#: Studies that read :mod:`cleverly.sensitivity` without a bound end in their rows, and why.
+SENSITIVITY_NOT_BOUND_ENDS: dict[str, str] = {
+    "evalue-limit-coverage": "cleverly.sensitivity.evalue maps the ratio interval itself and "
+    "forms no bound_limits read",
+    "missingness-tilt-inference": "the tilt's interval is the targeted fit's own estimate "
+    "(cleverly.sensitivity._tilt_targeting), which the estimate recorder logs",
+}
 
 #: The moved studies approved for a full regeneration under the shipped intervals, and why.
 #: The settle stage leaves them out (:func:`~asymmetric_refit.settle_targets`): their committed
@@ -641,6 +665,8 @@ def bound_flips(
             rejected = None
             if group.kind == "property" and _null_zero_consistent(group, z):
                 rejected = ((low > 0.0) | (high < 0.0)).astype(float)
+            if rejected is not None and _null_coverage(group, z):
+                covered = (1.0 - rejected).astype(int)  # a power cell's covered reads 0
             if _moved(group, covered, rejected):
                 moved[key] = (covered, rejected)
         label = f"{corner[0]}-{corner[1]}"
@@ -657,7 +683,14 @@ def settled_verdicts(
     Each committed replicate needs one record.  A record that replays its committed row gives
     its shipped limits as fitted; an accepted mismatch (:func:`replay_shifts`, applied by the
     caller) has its limits moved to the committed estimate and scaled by the ratio of the
-    committed to the refitted standard error.  A record whose scale is ``own``, or a committed
+    committed to the refitted standard error.  A MOVER record is not trusted to transport: its
+    per-side multiples depend on where its arms sit, which the refit does not share with the
+    committed fit.  A mismatched MOVER record counts only when its verdict is the same under
+    its limits as fitted and as transported, and every point the verdict reads (the truth, and
+    0 where ``rejected`` is read) sits clear of all four limits by the shift: the change in the
+    estimate plus the change in the standard error times the record's widest side multiple.
+    Otherwise the group stays on its bound (``None``).  A replicate with two records whose limits differ is ``None`` too, never one of them
+    silently.  A record whose scale is ``own``, or a committed
     row with no finite estimate, keeps its committed ``covered`` and ``rejected``.  ``None``
     when a replicate has no record or no finite shipped interval, or when the refit's normal
     interval, placed the same way, does not reproduce the committed ``covered`` (to round-off):
@@ -686,7 +719,11 @@ def settled_verdicts(
         ``covered`` and ``rejected`` (``None`` where not recomputed), aligned with
         ``group.rows``.
     """
-    by_replicate = records.drop_duplicates("replicate", keep="last").set_index("replicate")
+    limits = ["replicate", "scale", "shipped_lower", "shipped_upper", "normal_lower"]
+    distinct = records.drop_duplicates(subset=[*limits, "normal_upper"])
+    if distinct["replicate"].duplicated().any():
+        return None
+    by_replicate = distinct.set_index("replicate")
     replicates = group.rows.index
     if not replicates.isin(by_replicate.index).all():
         return None
@@ -699,6 +736,8 @@ def settled_verdicts(
     psi = rows["estimate"].to_numpy(float)
     refit_se = rows["std_error"].to_numpy(float)
     shifted = (rows["replay"].astype(str) == "mismatch").to_numpy()
+    mover = np.array(["mover" in str(scale).split("+") for scale in rows["scale"]], dtype=bool)
+    guarded = shifted & mover & ~keep
     with np.errstate(invalid="ignore", divide="ignore"):
         scale = np.where(shifted, se / refit_se, 1.0)
         centre = np.where(shifted, estimate, psi)
@@ -726,9 +765,38 @@ def settled_verdicts(
             return None
         covered = np.where(keep, committed, ((low <= truth) & (truth <= high)).astype(int))
         rejected = None
-        if group.kind == "property" and _null_zero_consistent(group, z):
+        reads_zero = group.kind == "property" and _null_zero_consistent(group, z)
+        if reads_zero:
             old = group.rows["rejected"].to_numpy(dtype=float)
             rejected = np.where(keep, old, ((low > 0.0) | (high < 0.0)).astype(float))
+        if guarded.any():
+            fitted_low = rows["shipped_lower"].to_numpy(float)
+            fitted_high = rows["shipped_upper"].to_numpy(float)
+            multiple = np.maximum(psi - fitted_low, fitted_high - psi) / refit_se
+            shift = np.abs(psi - estimate) + np.abs(refit_se - se) * multiple
+            points = [truth, np.zeros_like(truth)] if reads_zero else [truth]
+            for point in points:
+                for limit in (low, high, fitted_low, fitted_high):
+                    if not (np.abs(point - limit) > shift)[guarded].all():
+                        return None
+    return covered, rejected
+
+
+def widened_verdicts(group: Group, z: float, factor: float) -> tuple[np.ndarray, np.ndarray | None]:
+    """A group's ``covered`` and ``rejected`` under the symmetric interval of half-width
+    ``z factor se``.
+
+    ``rejected`` is recomputed against the null 0 where the committed ``rejected`` reads it.  A
+    power cell (:func:`_null_coverage`) reads ``covered = 1 - rejected``, so it is screened on
+    its rejections, which a widening can only lower.
+    """
+    estimate, se, truth = (_values(group, c) for c in ("estimate", "std_error", "truth"))
+    covered = (np.abs(estimate - truth) <= z * factor * se).astype(int)
+    rejected = None
+    if group.kind == "property" and _null_zero_consistent(group, z):
+        rejected = (np.abs(estimate) > z * factor * se).astype(float)
+        if _null_coverage(group, z):
+            covered = (1.0 - rejected).astype(int)
     return covered, rejected
 
 
@@ -805,6 +873,10 @@ def _refit_reading(
     scope = refit.read_records(slug, refit.SCOPE_FILE)
     if scope is None:
         return RefitReading("absent", [], [])
+    if slug in BOUND_END_STUDIES:
+        stale = refit.stale_stages(slug, refit.BOUND_RECORDER)
+        if stale:  # a recorder that could not see bound_limits wrote these records
+            return RefitReading(f"recorder:{'+'.join(stale)}", [], [])
     shifted, unresolved = replay_shifts(scope, groups)
     if unresolved:
         return RefitReading(f"mismatch:{len(unresolved)}", [], [], shifted)
@@ -840,7 +912,8 @@ def _refit_reading(
         if unresolved:
             return RefitReading(f"mismatch:{len(unresolved)}", remaining, [], shifted)
         for key in remaining:
-            rows = settle.loc[settle["group"] == key]
+            phase = "primary" if groups[key].kind == "truth" else "property"
+            rows = settle.loc[(settle["group"] == key) & (settle["phase"] == phase)]
             verdicts = None if rows.empty else settled_verdicts(rows, groups[key], z)
             if verdicts is not None:
                 full[key] = verdicts
@@ -850,7 +923,7 @@ def _refit_reading(
     for key in remaining:
         if key in full:
             continue
-        if not _identity_consistent(groups[key], z):
+        if not (_identity_consistent(groups[key], z) or _null_coverage(groups[key], z)):
             unbounded.append(f"{key}@unbounded")
             continue
         rows = None if records is None else records.loc[records["group"] == key]
@@ -1004,21 +1077,17 @@ def screen_row(record: StudyRecord) -> dict[str, Any]:
         and group.key not in unpaired
         and np.isfinite(_values(group, "estimate")).all()
         and (np.isfinite(_values(group, "std_error")) & (_values(group, "std_error") > 0)).all()
-        and np.isfinite(_values(group, "truth")).all()
-        and _identity_consistent(group, z)
+        and (
+            (np.isfinite(_values(group, "truth")).all() and _identity_consistent(group, z))
+            or _null_coverage(group, z)
+        )
     ]
     smallest: dict[str, float] = {}
     for factor in FACTORS:
         moved: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
         for group in widened:
-            estimate, se, truth = (_values(group, c) for c in ("estimate", "std_error", "truth"))
-            covered = (np.abs(estimate - truth) <= z * factor * se).astype(int)
-            rejected = None
-            if group.kind == "property" and _null_zero_consistent(group, z):
-                rejected = (np.abs(estimate) > z * factor * se).astype(float)
-            if (covered != group.rows["covered"].to_numpy(dtype=int)).any() or (
-                rejected is not None and (rejected != group.rows["rejected"].to_numpy(float)).any()
-            ):
+            covered, rejected = widened_verdicts(group, z, factor)
+            if _moved(group, covered, rejected):
                 moved[group.key] = (covered, rejected)
         for key in _judge(study, moved, by_key):
             smallest.setdefault(key, factor)
