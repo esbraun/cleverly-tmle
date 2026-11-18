@@ -152,6 +152,7 @@ def _measure(
         tilt: Any,
         resident: int | None,
         final: Any,
+        n_jobs: int,
     ) -> Any:
         kept = resident if forced is None else round(forced * len(plan.bounds))
         rows = sum(hi - lo for lo, hi in plan.bounds[:kept])
@@ -161,10 +162,10 @@ def _measure(
             **plan.shape, resident_rows=rows, resident_blocks=kept
         ).phases
 
-        def traced_final(k: int, lo: int, hi: int, state: Any) -> None:
+        def traced_final(k: int, lo: int, hi: int, state: Any) -> Any:
             if "walk" in windows:
                 switch("walk", "final")
-            final(k, lo, hi, state)
+            return final(k, lo, hi, state)
 
         switch(None, "walk")
         try:
@@ -177,6 +178,7 @@ def _measure(
                 tilt=tilt,
                 resident=kept,
                 final=traced_final if final is not None else None,
+                n_jobs=n_jobs,
             )
         finally:
             switch("walk", None)
@@ -278,6 +280,27 @@ def test_each_phase_stays_below_its_prediction_and_the_walk_within_ten_percent(
     assert measured.predicted["walk"] - terms["walk"] < measured.peaks["walk"]
     assert measured.predicted["off_grid"] - terms["final"] < measured.peaks["final"]
     assert measured.predicted["initial"] - terms["initial"] < measured.peaks["initial"]
+
+
+@pytest.mark.parametrize("resident", [0.0, 1.0])
+def test_each_phase_stays_below_its_prediction_on_threads(resident: float) -> None:
+    """C2c: each thread holds a block's working arrays, and finished off-grid rows wait."""
+    data = _data(N, 2)
+    measured = _measure(_estimator(n_jobs=4), data, resident=resident)
+    assert measured.shape["n_jobs"] == 4
+    assert measured.blocks >= 8
+    for window, phase in WINDOWS.items():
+        assert measured.peaks[window] <= measured.predicted[phase], window
+    # The threads' arrays are counted: one thread's prediction is smaller.
+    single = _memory.peak_bytes(
+        **{**measured.shape, "n_jobs": 1},
+        resident_rows=min(measured.resident * measured.block, N),
+        resident_blocks=measured.resident,
+    ).phases
+    for phase in ("walk", "off_grid"):
+        assert single[phase] < measured.predicted[phase], phase
+    # The initial check runs on one thread.
+    assert single["initial"] == measured.predicted["initial"]
 
 
 def test_the_nuisance_phase_bounds_wide_cox_fits() -> None:

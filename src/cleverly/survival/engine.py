@@ -19,7 +19,8 @@ Two departures are stated in the design (X91 part G, rev 2):
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping, Sequence
+import threading
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -34,6 +35,7 @@ from ..exceptions import CapabilityError, ConvergenceWarning, DataError, MethodC
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
 from ..utils.memory import check_max_memory_bytes
+from ..utils.parallel import available_cpus
 from ..utils.random import note_fresh_entropy
 from . import _chunked
 from ._chunked import HazardSource, InitialHazards, blocks, chunk_size
@@ -366,6 +368,11 @@ class ContinuousSurvivalTMLE:
         three quarters of it, and checks nothing (keeping every block) on a platform that does
         not report it.  A value overrides the reading either way.  Every refit of a result, and
         so every refutation and truncation curve, uses the value of the fit.
+    n_jobs : int or None
+        The threads the targeting walk runs its blocks of units on.  ``-1`` takes the CPUs the
+        process may use (its affinity, capped by a control group quota) and ``None`` one.  The
+        result is bit for bit the same at any value; each thread holds one block's working
+        arrays, which the memory budget counts.
     """
 
     def __init__(
@@ -395,8 +402,17 @@ class ContinuousSurvivalTMLE:
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
         max_memory_bytes: int | None = None,
+        n_jobs: int | None = 1,
     ) -> None:
         budget = check_max_memory_bytes(max_memory_bytes)
+        if n_jobs is None:
+            n_jobs = 1
+        if (
+            isinstance(n_jobs, bool)
+            or not isinstance(n_jobs, (int, np.integer))
+            or not (n_jobs >= 1 or n_jobs == -1)
+        ):
+            raise ValueError(f"n_jobs is a positive integer, -1 or None; got {n_jobs!r}")
         times = tuple(float(t) for t in horizons)
         if not times or any(not np.isfinite(t) or t <= 0 for t in times):
             raise ValueError("horizons are positive finite target times, at least one")
@@ -446,6 +462,7 @@ class ContinuousSurvivalTMLE:
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
         self.max_memory_bytes = budget
+        self.n_jobs = int(n_jobs)
         #: The outer cross-fitting label of each row, recorded on the estimator a result
         #: stores; a subset refit reads them so its refits keep the fit's split.
         self._outer_folds: IntArray | None = None
@@ -726,6 +743,10 @@ class ContinuousSurvivalTMLE:
         note_fresh_entropy()
         return int(np.random.SeedSequence().generate_state(1)[0])
 
+    def _threads(self) -> int:
+        """The walk's threads: ``n_jobs``, with ``-1`` read as the CPUs available now."""
+        return available_cpus() if self.n_jobs == -1 else self.n_jobs
+
     def _floor(self, n: int) -> float:
         """The floor on :math:`\\pi(a \\mid L) S_c(u^- \\mid a, L)` that ``g_bounds`` sets."""
         if self.g_bounds == "auto":
@@ -812,6 +833,7 @@ class ContinuousSurvivalTMLE:
                 for member in (*self.hazard_library, *self.censoring_library)
             ),
             "restricted": not _point_rows(weights),
+            "n_jobs": self._threads(),
         }
 
     def _planned_fit_data(
@@ -1264,6 +1286,7 @@ class ContinuousSurvivalTMLE:
             tilt=self.tilt,
             resident=resident_blocks(plan, self.max_memory_bytes),
             final=off_grid.add if off_grid.active else None,
+            n_jobs=plan.shape["n_jobs"],
         )
         result = run.result
         if not result.converged:
@@ -1433,6 +1456,9 @@ class _FitPlan:
         self._largest_dropped = np.zeros((2, initial.n))
         self._counted = np.zeros(len(self.bounds), dtype=bool)
         self._bounded = self._relevant = self._last = 0
+        # Blocks may be built on several threads; the counts are sums of integers, so only
+        # their updates need the lock.
+        self._count = threading.Lock()
 
     def _weight(self, k: int) -> FloatArray:
         """``(2, c, M)`` the bounded inverse weight of block ``k`` on the full grid."""
@@ -1444,10 +1470,16 @@ class _FitPlan:
             factual = initial.A[None, lo:hi, None] == np.arange(2)[:, None, None]
             reach = initial.T[None, lo:hi, None] >= initial.grid[None, None, :]
             relevant = factual & reach
-            self._relevant += int(np.count_nonzero(relevant))
-            self._bounded += int(np.count_nonzero(product[relevant] < self.floor))
-            self._last += int(np.count_nonzero(product[..., -1] < self.floor))
+            counts = (
+                int(np.count_nonzero(relevant)),
+                int(np.count_nonzero(product[relevant] < self.floor)),
+                int(np.count_nonzero(product[..., -1] < self.floor)),
+            )
             del factual, reach, relevant
+            with self._count:
+                self._relevant += counts[0]
+                self._bounded += counts[1]
+                self._last += counts[2]
         return self._inverse(lo, hi, product)
 
     def _inverse(self, lo: int, hi: int, product: FloatArray) -> FloatArray:
@@ -1705,9 +1737,13 @@ class _OffGrid:
         self.spread: FloatArray | None = None
         self.parts: FloatArray | None = None
         self.plugins: FloatArray | None = None
+        self._allocate = threading.Lock()
 
-    def add(self, k: int, lo: int, hi: int, state: Any) -> None:
-        """Add block ``k``'s rows at its targeted hazards.
+    def add(self, k: int, lo: int, hi: int, state: Any) -> Callable[[], None]:
+        """Compute block ``k``'s rows at its targeted hazards; return what adds them.
+
+        The block's influence rows are written in place; its sums are carried into the means
+        by the returned callable, which the walk calls in block order.
 
         Parameters
         ----------
@@ -1719,14 +1755,24 @@ class _OffGrid:
             One past its last unit.
         state : _State
             Its targeted hazards and curves.
+
+        Returns
+        -------
+        callable
+            Adds the block's parts and plug-ins to the sums carried over blocks.
         """
         shifted = replace(state.problem, target_weights=self.weights, expand=None, kept=None)
         parts, plugins = evaluate_rows(shifted, state.jumps, state.survival, state.incidence)
-        if self.spread is None:
-            self.spread = np.empty((self.n, self.width))
+        with self._allocate:
+            if self.spread is None:
+                self.spread = np.empty((self.n, self.width))
         np.add(parts, plugins, out=self.spread[lo:hi])
-        self.parts = _carried(self.parts, parts)
-        self.plugins = _carried(self.plugins, plugins)
+
+        def carry() -> None:
+            self.parts = _carried(self.parts, parts)
+            self.plugins = _carried(self.plugins, plugins)
+
+        return carry
 
     def share(self, cutoff: float) -> float:
         """The share of informative random times whose score is within the cutoff.

@@ -238,6 +238,7 @@ def peak_bytes(
     rungs: int | None = None,
     block: int | None = None,
     folds: int = 1,
+    n_jobs: int = 1,
 ) -> PeakEstimate:
     """Predict the bytes a continuous-time fit holds at once, by phase.
 
@@ -284,6 +285,10 @@ def peak_bytes(
     folds : int
         The prediction folds: a stratified learner keeps each fold's cell tables, at most a
         block's units each.
+    n_jobs : int
+        The walk's threads.  Each holds one block's working arrays at once in the walk and the
+        final pass (the initial phase's check runs on one thread), and the off-grid
+        rows of up to ``2 n_jobs - 1`` finished blocks wait to be added in row order.
 
     Returns
     -------
@@ -296,6 +301,8 @@ def peak_bytes(
     G = M if kept is None else int(kept)
     c = chunk_size(n, J, M) if block is None else int(block)
     K = -(-n // c)
+    # Threads beyond the blocks have nothing to work on; one block runs on the calling thread.
+    W = max(1, min(int(n_jobs), K)) if K > 1 else 1
     R = int(resident_blocks)
     all_kept = R >= K
     E = (1 if all_kept else LADDER) if rungs is None else int(rungs)
@@ -346,15 +353,18 @@ def peak_bytes(
     held = influence * (4 + 4 * E) + 2 * n * (E + 1)
     final_rows = slot + _final(c, J, G, width)
     if all_kept:
-        # Every block's state is in ``resident``: the first pass builds the last block beside
-        # the others, and a later pass works on a kept block in place.
+        # Every block's state is in ``resident``: the first pass builds the last blocks beside
+        # the others, and a later pass works on kept blocks in place.
         last = slot_bytes(n - (K - 1) * c, J, G)
-        walk = held + max(resident - last + rebuild, resident - slot + max(trial, replay))
-        final = resident - slot + max(replay, final_rows)
+        walk = held + max(resident - last + W * rebuild, resident + W * (max(trial, replay) - slot))
+        final = resident + W * (max(replay, final_rows) - slot)
     else:
-        walk = held + resident + max(rebuild, replay, trial)
-        final = resident + max(rebuild, replay, final_rows)
-    final += 2 * influence + F8 * n * width
+        walk = held + resident + W * max(rebuild, replay, trial)
+        final = resident + W * max(rebuild, replay, final_rows)
+    # The off-grid parts and plug-ins of the finished blocks waiting for their turn: up to
+    # ``2 W - 1`` behind a block still running (:func:`~._chunked.for_blocks`).
+    waiting = (2 * W - 1) if W > 1 else 0
+    final += 2 * influence + F8 * n * width + waiting * 2 * F8 * c * width
     band = (BAND_BUFFER + F8 * int(n_multiplier) * P * 3) if simultaneous else 0
     phases = {
         "nuisance": nuisance,
