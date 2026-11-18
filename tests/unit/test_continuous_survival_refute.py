@@ -645,10 +645,25 @@ def _initial(result: Any) -> Any:
     return estimator._initial(result.data, estimator.random_state)
 
 
+def _block_product(plan: Any, k: int) -> np.ndarray:
+    """``(2, c, M)`` pi S_c(u-) of the walk's block ``k``, as the engine builds its weight."""
+    lo, hi = plan.bounds[k]
+    jumps = plan.fit.hazards.censoring_jumps(lo, hi)
+    retention = np.cumprod(1.0 - np.clip(jumps, 0.0, 1.0), axis=-1)
+    before = np.concatenate([np.ones((2, hi - lo, 1)), retention[..., :-1]], axis=-1)
+    return plan.pi[:, lo:hi, None] * before
+
+
+def _product(initial: Any) -> np.ndarray:
+    """``(2, n, M)`` pi S_c(u-) of every unit."""
+    plan = engine._FitPlan(initial, 0.5)
+    return np.concatenate([_block_product(plan, k) for k in range(len(plan.bounds))], axis=1)
+
+
 def _cells(result: Any) -> tuple[float, float]:
     """The global minimum of pi S_c(u-) and the minimum over received-arm followed cells."""
     initial = _initial(result)
-    product = initial.product
+    product = _product(initial)
     factual = initial.A[None, :, None] == np.arange(2)[:, None, None]
     reach = initial.T[None, :, None] >= initial.grid[None, None, :]
     return float(product.min()), float(product[factual & reach].min())
@@ -671,7 +686,7 @@ def test_t11_the_shares_rise_with_the_floor() -> None:
     assert len(rows) == 5
     # truncated_fraction is the unit share: a unit counts once if any of its cells, in
     # either arm, falls below the floor.
-    product = _initial(result).product
+    product = _product(_initial(result))
     for bound, share in zip(rows["bound"], rows["truncated_fraction"], strict=True):
         assert share == float(np.mean(product.min(axis=(0, 2)) < bound))
     # Mutation control: the cell share is another number at some floor of the grid.
@@ -709,25 +724,17 @@ def test_t11_a_curve_that_floors_received_cells_only_stays_flat(
     result = _fresh(_in_sample())
     below, between = _counterfactual_floor(result)
     fitted = result.record.weight_floor
-    original = ContinuousSurvivalTMLE._target
-    problem = engine.Problem
+    original = engine._FitPlan._weight
 
-    def received_only(self: Any, initial: Any, floor: float, **kwargs: Any) -> Any:
-        if floor == fitted:
-            return original(self, initial, floor, **kwargs)
-        unfloored = 1.0 / initial.product
-        factual = initial.A[None, :, None] == np.arange(2)[:, None, None]
+    def received_only(self: Any, k: int) -> Any:
+        floored = original(self, k)
+        if self.floor == fitted:
+            return floored
+        lo, hi = self.bounds[k]
+        factual = self.fit.A[None, lo:hi, None] == np.arange(2)[:, None, None]
+        return np.where(factual, floored, 1.0 / _block_product(self, k))
 
-        def build(arm: Any, at_risk: Any, events: Any, weight: Any, index: Any) -> Any:
-            return problem(arm, at_risk, events, np.where(factual, weight, unfloored), index)
-
-        monkeypatch.setattr(engine, "Problem", build)
-        try:
-            return original(self, initial, floor, **kwargs)
-        finally:
-            monkeypatch.setattr(engine, "Problem", problem)
-
-    monkeypatch.setattr(ContinuousSurvivalTMLE, "_target", received_only)
+    monkeypatch.setattr(engine._FitPlan, "_weight", received_only)
     curve = result.diagnostics.truncation_curve([below, between])
     assert all(_rows(curve, name)["psi"].diff().iloc[1] == 0 for name in result)
 
@@ -777,27 +784,20 @@ def test_t11_flooring_the_propensity_alone_fails_the_exact_check(
     result = _fresh(_binding())
     assert result.record.bounded_share > 0
     fitted = result.record.weight_floor
-    original = ContinuousSurvivalTMLE._target
-    problem = engine.Problem
+    original = engine._FitPlan._weight
 
-    def propensity_only(self: Any, initial: Any, floor: float, **kwargs: Any) -> Any:
-        if floor == fitted:
-            return original(self, initial, floor, **kwargs)
-        pi = np.stack([1.0 - initial.p1, initial.p1])[:, :, None]
-        retention = initial.product / pi
+    def propensity_only(self: Any, k: int) -> Any:
+        floored = original(self, k)
+        if self.floor == fitted:
+            return floored
+        lo, hi = self.bounds[k]
+        pi = self.pi[:, lo:hi, None]
+        retention = _block_product(self, k) / pi
+        return 1.0 / (np.maximum(pi, self.floor) * retention)
 
-        def build(arm: Any, at_risk: Any, events: Any, weight: Any, index: Any) -> Any:
-            return problem(arm, at_risk, events, 1.0 / (np.maximum(pi, floor) * retention), index)
-
-        monkeypatch.setattr(engine, "Problem", build)
-        try:
-            return original(self, initial, floor, **kwargs)
-        finally:
-            monkeypatch.setattr(engine, "Problem", problem)
-
-    monkeypatch.setattr(ContinuousSurvivalTMLE, "_target", propensity_only)
+    monkeypatch.setattr(engine._FitPlan, "_weight", propensity_only)
     curve = result.diagnostics.truncation_curve()
-    monkeypatch.setattr(ContinuousSurvivalTMLE, "_target", original)
+    monkeypatch.setattr(engine._FitPlan, "_weight", original)
     assert not _matches_refits(result, curve)
 
 

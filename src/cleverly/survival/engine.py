@@ -30,20 +30,29 @@ from .._refusal import NO_ALTERNATIVE, RefusalReason
 from .._support import Support
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import CapabilityError, ConvergenceWarning, DataError
+from ..exceptions import CapabilityError, ConvergenceWarning, DataError, MethodConfigurationError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
 from ..utils.memory import check_max_memory_bytes
 from ..utils.random import note_fresh_entropy
-from ._memory import check_memory, largest_fold, peak_bytes
+from . import _chunked
+from ._chunked import HazardSource, InitialHazards, blocks, chunk_size
+from ._memory import (
+    check_memory,
+    design_width,
+    overflow_rows,
+    peak_bytes,
+    resident_count,
+    train_size,
+)
 from ._targeting import (
     Norm,
     Problem,
-    WalkResult,
+    _filled,
     default_cutoff,
+    evaluate_rows,
     point_weights,
     restricted_weights,
-    walk,
 )
 from .cox import HazardSelection, StratifiedNelsonAalen, default_library, select_hazard
 from .result import (
@@ -281,10 +290,6 @@ def _stratified_folds(event: IntArray, n_folds: int, rng: np.random.Generator) -
     return folds
 
 
-def _jumps(cumulative: FloatArray) -> FloatArray:
-    return np.diff(np.concatenate([np.zeros((cumulative.shape[0], 1)), cumulative], axis=1), axis=1)
-
-
 class ContinuousSurvivalTMLE:
     r"""One-step TMLE of cause-specific absolute risks in continuous time.
 
@@ -351,14 +356,16 @@ class ContinuousSurvivalTMLE:
     band_scale : {"logit", "identity"}
         The scale of the band of a bounded estimate.
     max_memory_bytes : int or None
-        The memory budget of a fit, in bytes.  Before fitting any nuisance, the fit predicts the
-        largest number of bytes its arrays hold at once, which grows as ``n`` times the number of
-        distinct observed times up to the last target time or restricted horizon, and refuses
-        with :class:`~cleverly.exceptions.MethodConfigurationError` when the prediction exceeds
-        the budget.  ``None`` reads the memory available at that moment and checks nothing on
-        a platform that does not report it.  A value overrides the reading either way.  Every
-        refit of a result, and so every refutation and truncation curve, uses the value of
-        the fit.
+        The memory budget of a fit, in bytes.  The walk works through blocks of units; before
+        fitting any nuisance, the fit predicts the largest number of bytes it holds at once with
+        no block kept between passes, which grows with ``n`` times the number of targets, and
+        refuses with :class:`~cleverly.exceptions.MethodConfigurationError` when the prediction
+        exceeds the budget.  The walk then keeps as many blocks as the budget allows and
+        rebuilds the others on each pass, so the budget sets how long a fit runs and never what
+        it returns.  ``None`` reads the memory available at that moment, keeps blocks up to
+        three quarters of it, and checks nothing (keeping every block) on a platform that does
+        not report it.  A value overrides the reading either way.  Every refit of a result, and
+        so every refutation and truncation curve, uses the value of the fit.
     """
 
     def __init__(
@@ -731,9 +738,7 @@ class ContinuousSurvivalTMLE:
         seed = self._resolved_seed()
         initial = self._initial(data, seed, folds=folds, plan=plan)
         settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
-        estimates, record = self._target(
-            initial, self._floor(initial.n), settings=settings, consume=True
-        )
+        estimates, record = self._target(initial, self._floor(initial.n), settings=settings)
         bands = None
         if self.simultaneous:
             from ..inference.multiplier import simultaneous_bands
@@ -776,6 +781,38 @@ class ContinuousSurvivalTMLE:
                 baseline=np.array(data.baseline, copy=True),
             ),
         )
+
+    def _memory_shape(
+        self,
+        n: int,
+        causes: int,
+        times: int,
+        target_weights: FloatArray,
+        covariates: int,
+        folds: IntArray,
+    ) -> dict[str, Any]:
+        """The keyword arguments of :func:`._memory.peak_bytes` for a fit of these sizes."""
+        weights = np.asarray(target_weights)
+        return {
+            "n": n,
+            "causes": causes,
+            "times": times,
+            "rows": int(weights.shape[0]),
+            "covariates": covariates,
+            "train_size": train_size(folds, n, self.cross_fit),
+            "folds": int(np.unique(np.asarray(folds)).size),
+            "design_width": design_width(
+                (*self.hazard_library, *self.censoring_library), covariates
+            ),
+            "simultaneous": self.simultaneous,
+            "n_multiplier": self.n_multiplier,
+            "factual_tilt": self.tilt == "factual",
+            "stratified_learner": any(
+                isinstance(member, StratifiedNelsonAalen)
+                for member in (*self.hazard_library, *self.censoring_library)
+            ),
+            "restricted": not _point_rows(weights),
+        }
 
     def _planned_fit_data(
         self, data: Any, *, folds: Any = None, plan: FoldPlan | None = None
@@ -881,7 +918,6 @@ class ContinuousSurvivalTMLE:
         seed: int,
         *,
         folds: Any = None,
-        retained: bool = False,
         plan: FoldPlan | None = None,
     ) -> tuple[Any, ...]:
         """Every check :meth:`_initial` runs before its first fit, and what they resolve.
@@ -896,8 +932,6 @@ class ContinuousSurvivalTMLE:
         seed : int
             The fit's resolved seed.
         folds : array-like or None
-            As :meth:`_initial`.
-        retained : bool
             As :meth:`_initial`.
         plan : FoldPlan or None
             As :meth:`_initial`; its outer labels replace the split.
@@ -981,25 +1015,8 @@ class ContinuousSurvivalTMLE:
             folds = np.zeros(n, dtype=int)
             n_folds = 1
         # Before any nuisance fit, so a refused request costs no learner time.
-        check_memory(
-            peak_bytes(
-                n,
-                J,
-                grid.size,
-                target_weights.shape[0],
-                covariates=L.shape[1],
-                fold_size=largest_fold(folds, n),
-                simultaneous=self.simultaneous,
-                n_multiplier=self.n_multiplier,
-                retained=retained,
-                factual_tilt=self.tilt == "factual",
-                stratified_learner=any(
-                    isinstance(member, StratifiedNelsonAalen)
-                    for member in (*self.hazard_library, *self.censoring_library)
-                ),
-            ),
-            self.max_memory_bytes,
-        )
+        shape = self._memory_shape(n, J, grid.size, target_weights, L.shape[1], folds)
+        check_memory(peak_bytes(**shape), self.max_memory_bytes)
         return (
             arm_labels,
             A,
@@ -1025,16 +1042,13 @@ class ContinuousSurvivalTMLE:
         seed: int,
         *,
         folds: Any = None,
-        retained: bool = False,
         plan: FoldPlan | None = None,
     ) -> _Initial:
         """Fit every nuisance and build what each walk reads, at the seed ``seed``.
 
         ``folds`` replaces the outer cross-fitting draw with one label per row.  ``plan``
         replaces every fold draw, outer and inner, and the generator state after them, with a
-        recorded :class:`FoldPlan`.  ``retained``
-        tells the memory check that the caller keeps the initial jumps and weight product
-        through every walk, as a truncation curve does.  The
+        recorded :class:`FoldPlan`.  The
         generator state after the nuisance phase is kept, so each walk's off-grid draws
         start from the same state.
         """
@@ -1055,15 +1069,17 @@ class ContinuousSurvivalTMLE:
             rng,
             folds,
             n_folds,
-        ) = self._initial_inputs(data, seed, folds=folds, retained=retained, plan=plan)
+        ) = self._initial_inputs(data, seed, folds=folds, plan=plan)
+        shape = self._memory_shape(n, J, grid.size, target_weights, L.shape[1], folds)
         gap = np.diff(np.unique(T))
         shift = 0.5 * float(gap.min()) if gap.size else 0.5
         censor_time = np.where(D > 0, T - shift, T)
         hazard_library = tuple(seed_unset(member, seed) for member in self.hazard_library)
         censoring_library = tuple(seed_unset(member, seed) for member in self.censoring_library)
 
-        dlam = np.zeros((2, J, n, grid.size))
-        dgam = np.zeros((2, n, grid.size))
+        block = chunk_size(n, J, grid.size)
+        sources = tuple(HazardSource(X, folds, grid, block) for _ in codes)
+        censoring_source = HazardSource(X, folds, grid, block)
         p1 = np.zeros(n)
         hazard_records: list[HazardSelection] = []
         censoring_record: HazardSelection | None = None
@@ -1085,10 +1101,7 @@ class ContinuousSurvivalTMLE:
                 selection = select_hazard(
                     hazard_library, X[train], T[train], (D[train] == code).astype(float), inner
                 )
-                for a in (0, 1):
-                    Xa = X[predict].copy()
-                    Xa[:, 0] = a
-                    dlam[a, j][predict] = _jumps(selection.model.cumulative_hazard(Xa, grid))
+                sources[j].add(fold, predict, selection.model)
                 if fold == folds.min():
                     hazard_records.append(selection)
             selection = select_hazard(
@@ -1098,10 +1111,7 @@ class ContinuousSurvivalTMLE:
                 (D[train] == 0).astype(float),
                 inner,
             )
-            for a in (0, 1):
-                Xa = X[predict].copy()
-                Xa[:, 0] = a
-                dgam[a][predict] = _jumps(selection.model.cumulative_hazard(Xa, grid))
+            censoring_source.add(fold, predict, selection.model)
             if fold == folds.min():
                 censoring_record = selection
             p1[predict], chosen = _fit_propensity(
@@ -1110,45 +1120,80 @@ class ContinuousSurvivalTMLE:
             if fold == folds.min():
                 propensity_record = chosen
         assert censoring_record is not None
+        hazards = InitialHazards(sources, censoring_source)
 
-        # Both checks read the fitted hazards on these data, so a draw that trips one is a
-        # data failure (recorded by a study), not an unsupported composition.
-        if np.any(dlam.sum(axis=1) >= 1.0):
+        # One pass over the blocks: the checks on the initial fit, the times where some hazard
+        # jumps, and the censoring readers the record stores.  No estimate reads the latter.
+        pi = np.stack([1.0 - p1, p1])
+        # S_c(t_k-) multiplies over the observed times strictly before t_k.
+        before = np.searchsorted(grid, self.horizons, side="left") - 1
+        # S_c just before each row's own time (strictly before, as the targets read), at the
+        # arm it received; a time past the grid's end reads the grid's last time.
+        own = np.minimum(np.searchsorted(grid, T, side="left"), grid.size - 1)
+        retention_at_targets = np.empty((2, n, len(self.horizons)))
+        retention_at_time = np.empty(n)
+        lowest = np.empty(n)
+        jumping = np.zeros(grid.size, dtype=bool)
+        combined = low_survival = False
+        for k, (lo, hi) in enumerate(blocks(n, block)):
+            dlam = hazards.jumps(lo, hi)
+            if (
+                k == 0
+                and hazards.calls_model
+                and not (
+                    np.array_equal(dlam, hazards.jumps(lo, hi), equal_nan=True)
+                    and np.array_equal(
+                        hazards.censoring_jumps(lo, hi),
+                        hazards.censoring_jumps(lo, hi),
+                        equal_nan=True,
+                    )
+                )
+            ):
+                raise MethodConfigurationError(
+                    "A hazard learner whose predictions change between calls cannot be "
+                    "replayed: the continuous-time engine rebuilds each block of units' initial "
+                    "hazards from the fitted model whenever the walk needs them, so "
+                    "cumulative_hazard must return the same values for the same rows on every "
+                    "call, each row predicted from that row alone."
+                )
+            total = dlam.sum(axis=1)
+            # Both checks read the fitted hazards on these data, so a draw that trips one is a
+            # data failure (recorded by a study), not an unsupported composition.
+            combined = combined or bool(np.any(total >= 1.0))
+            survival = np.cumprod(1.0 - total, axis=-1)
+            low_survival = low_survival or bool(np.any(survival[..., -1] <= SURVIVAL_FLOOR))
+            # A NaN jump is not zero, so its time stays on the walk's grid.
+            jumping |= (dlam != 0).any(axis=(0, 1, 2))
+            del dlam, total, survival
+            retention = np.cumprod(
+                1.0 - np.clip(hazards.censoring_jumps(lo, hi), 0.0, 1.0), axis=-1
+            )
+            retention_before = np.concatenate(
+                [np.ones((2, hi - lo, 1)), retention[..., :-1]], axis=-1
+            )
+            product = pi[:, lo:hi, None] * retention_before
+            lowest[lo:hi] = product.min(axis=(0, 2))
+            at_targets = retention[..., np.maximum(before, 0)]
+            at_targets[..., before < 0] = 1.0
+            retention_at_targets[:, lo:hi] = at_targets
+            retention_at_time[lo:hi] = retention_before[A[lo:hi], np.arange(hi - lo), own[lo:hi]]
+            del retention, retention_before, product, at_targets
+        if combined:
             raise DataError(
                 "An initial hazard fit puts a combined jump of one or more at some time, so the "
                 "product-limit survival is not a probability there. A Breslow jump can exceed "
                 "one where few units are at risk; choose earlier target times or restricted "
                 "horizons, or a smaller library."
             )
-        survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
-        if np.any(survival[..., -1] <= SURVIVAL_FLOOR):
+        if low_survival:
             raise DataError(
                 "The initial survival reaches zero before the last time a target reads (the "
                 "last target time or restricted horizon) for some unit and arm, so the clever "
                 "covariate divides by zero. The estimator needs the survival bounded away from "
                 "zero there; choose an earlier last target time or restricted horizon."
             )
-        retention = np.cumprod(1.0 - np.clip(dgam, 0.0, 1.0), axis=-1)
-        retention_before = np.concatenate([np.ones((2, n, 1)), retention[..., :-1]], axis=-1)
-        pi = np.stack([1.0 - p1, p1])
-        product = pi[:, :, None] * retention_before
-        # Stored for the overlap readers; read before the arrays below are released, and no
-        # estimate reads them.
-        # S_c(t_k-) multiplies over the observed times strictly before t_k.
-        before = np.searchsorted(grid, self.horizons, side="left") - 1
-        retention_at_targets = retention[..., np.maximum(before, 0)]
-        retention_at_targets[..., before < 0] = 1.0
-        # S_c just before each row's own time (strictly before, as the targets read), at the
-        # arm it received; a time past the grid's end reads the grid's last time.
-        own = np.minimum(np.searchsorted(grid, T, side="left"), grid.size - 1)
-        retention_at_time = retention_before[A, np.arange(n), own]
-        # Each of these is (2, n, M); at n = 4,000 one is ~200 MB, so none outlives its use.
-        del survival, retention, retention_before, dgam
-
-        # Indicators stay boolean: arithmetic with the float hazards promotes them on use.
-        at_risk = T[:, None] >= grid[None, :]
-        events = np.stack([(T[:, None] == grid[None, :]) & (D[:, None] == code) for code in codes])
         observed = T[D > 0]
+        kept = walk_grid(grid, jumping, observed, target_index)
         initial = _Initial(
             n=n,
             T=T,
@@ -1166,8 +1211,12 @@ class ContinuousSurvivalTMLE:
             hazard_records=tuple(hazard_records),
             censoring_record=censoring_record,
             propensity_record=propensity_record,
-            at_risk=at_risk,
-            events=events,
+            D=D,
+            memory=shape,
+            hazards=hazards,
+            kept=kept,
+            block=block,
+            lowest=lowest,
             # Risks first, then restricted means, in the order of the weight rows.
             shares=tuple(
                 float(np.mean(observed <= time))
@@ -1183,12 +1232,7 @@ class ContinuousSurvivalTMLE:
                     else copy.deepcopy(plan.rng_state)
                 ),
             ),
-            product=product,
-            jumps=[dlam],
         )
-        # Handed over through the container's list so no name here keeps the initial jumps
-        # alive once a consuming walk has replaced them (~400 MB at n = 4,000).
-        del dlam, product
         return initial
 
     def _target(
@@ -1197,43 +1241,31 @@ class ContinuousSurvivalTMLE:
         floor: float,
         *,
         settings: Mapping[str, Any],
-        consume: bool,
     ) -> tuple[dict[str, ParameterEstimate], ContinuousSurvivalRecord]:
         """Run the walk from ``initial`` with the weights bounded below by ``floor``.
 
         ``settings`` holds the values of the keys of :data:`MEASURED_DEFAULTS` the support of
-        each estimate reads.  ``consume`` releases the initial jumps and the bounded product
-        into the walk, as a fit does; a truncation curve keeps both for its next floor.
+        each estimate reads.  The walk runs over blocks of units (:mod:`._chunked`); the
+        blocks it keeps between passes follow the memory budget, which changes how long the
+        walk runs and never what it returns.
         """
-        n, A, T, grid = initial.n, initial.A, initial.T, initial.grid
-        if consume:
-            assert initial.product is not None
-            product = initial.product
-            initial.product = None
-        else:
-            assert initial.product is not None
-            product = initial.product
-        weight = 1.0 / np.maximum(product, floor)
-        factual = A[None, :, None] == np.arange(2)[:, None, None]
-        reach = T[None, :, None] >= grid[None, None, :]
-        relevant = factual & reach
-        bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
-        last_time_floor_share = float(np.mean(product[..., -1] < floor))
-        del product, factual, reach, relevant
-
-        problem = Problem(A, initial.at_risk, initial.events, weight, initial.target_weights)
+        n, A, grid = initial.n, initial.A, initial.grid
+        plan = _FitPlan(initial, floor)
         cutoff = default_cutoff(n) if self.tol is None else float(self.tol)
-        # A consuming walk takes the initial jumps with no name here keeping them, so they are
-        # freed at its first accepted step rather than held beside every later trial.
-        result = walk(
-            problem,
-            initial.jumps.pop() if consume else initial.jumps[0],
+        rng = np.random.default_rng()
+        rng.bit_generator.state = initial.rng_state
+        off_grid = _OffGrid(plan, rng)
+        run = _chunked.run_walk(
+            plan,
             cutoff=cutoff,
             norm=self.norm,
             step=self.step_size,
             max_steps=self.max_iter,
             tilt=self.tilt,
+            resident=resident_blocks(plan, self.max_memory_bytes),
+            final=off_grid.add if off_grid.active else None,
         )
+        result = run.result
         if not result.converged:
             worst = np.argsort(-result.standardized_score)[:3]
             _warn(
@@ -1243,9 +1275,6 @@ class ContinuousSurvivalTMLE:
                 + " the cutoff. The estimate is kept and the record lists every target.",
                 ConvergenceWarning,
             )
-        rng = np.random.default_rng()
-        rng.bit_generator.state = initial.rng_state
-        off_grid = _off_grid_share(problem, result, grid, rng, cutoff)
         record = ContinuousSurvivalRecord(
             hazards=initial.hazard_records,
             censoring=initial.censoring_record,
@@ -1256,10 +1285,10 @@ class ContinuousSurvivalTMLE:
             cutoff=cutoff,
             standardized_score=tuple(float(v) for v in result.standardized_score),
             initial_psi=tuple(float(v) for v in result.initial.psi),
-            bounded_share=bounded_share,
-            last_time_floor_share=last_time_floor_share,
+            bounded_share=plan.bounded_share,
+            last_time_floor_share=plan.last_time_floor_share,
             frozen_share=result.frozen_share,
-            off_grid_share=off_grid,
+            off_grid_share=off_grid.share(cutoff),
             cross_fitted=self.cross_fit,
             n_folds=initial.n_folds,
             grid_size=int(grid.size),
@@ -1321,18 +1350,20 @@ class FoldPlan:
 
 @dataclass
 class _Initial:
-    """What every walk of one fit reads: the nuisance fits and the fixed arrays.
+    """What every walk of one fit reads: the nuisance fits and the fixed per-unit arrays.
 
-    ``product`` is :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` on the grid, shape
-    ``(2, n, M)``, and ``jumps`` holds the initial hazard jumps ``(2, J, n, M)`` in a
-    one-element list, so a consuming walk can take them without a second name keeping them
-    alive.  ``rng_state`` is the generator state after the nuisance phase, from which every
-    walk's off-grid draws start.
+    ``hazards`` rebuilds the initial hazard jumps of any block of units from the fitted
+    models.  ``kept`` holds the grid positions the walk runs on (the event-support grid), and
+    ``block`` the units per block.  ``lowest`` is each unit's smallest
+    :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` over both arms and the grid, which a
+    truncation curve reads.  ``rng_state`` is the generator state after the nuisance phase,
+    from which every walk's off-grid draws start.
     """
 
     n: int
     T: FloatArray
     A: IntArray
+    D: IntArray
     arm_labels: tuple[str, str]
     causes: dict[int, str]
     grid: FloatArray
@@ -1346,41 +1377,391 @@ class _Initial:
     hazard_records: tuple[HazardSelection, ...]
     censoring_record: HazardSelection
     propensity_record: PropensitySelection | None
-    at_risk: Any
-    events: Any
+    memory: dict[str, Any]
+    hazards: InitialHazards
+    kept: IntArray
+    block: int
+    lowest: FloatArray
     shares: tuple[float, ...]
     rng_state: Mapping[str, Any]
     plan: FoldPlan
-    product: FloatArray | None
-    jumps: list[FloatArray]
 
 
-def _off_grid_share(
-    problem: Problem,
-    result: WalkResult,
-    grid: FloatArray,
-    rng: np.random.Generator,
-    cutoff: float,
-) -> float:
-    """Item 10 Table 4: the share of random times at which the score equation holds."""
-    from ._targeting import evaluate
+class _FitPlan:
+    """The blocks of one walk of a fit: each block's inputs on the walk's grid at one floor."""
 
-    draws = np.sort(rng.uniform(0.0, float(grid[-1]), OFF_GRID_TIMES))
-    index = np.searchsorted(grid, draws, side="right") - 1
-    keep = index >= 0
-    if not keep.any():
-        return 1.0
-    shifted = Problem(
-        problem.arm,
-        problem.at_risk,
-        problem.events,
-        problem.weight,
-        point_weights(index[keep], grid.size),
-    )
-    evaluation = evaluate(shifted, result.dlam)
-    sigma = evaluation.sigma
-    informative = sigma > 0
-    if not informative.any():
-        return 1.0
-    ok = np.abs(evaluation.score[informative]) <= cutoff * sigma[informative]
-    return float(np.mean(ok))
+    def __init__(self, initial: _Initial, floor: float) -> None:
+        self.fit = initial
+        self.floor = float(floor)
+        self.n = initial.n
+        J = len(initial.causes)
+        Q = initial.target_weights.shape[0]
+        self.n_targets = 2 * J * Q
+        self.bounds = blocks(initial.n, initial.block)
+        grid, kept = initial.grid, initial.kept
+        self.reduced = kept.size < grid.size
+        self.times = grid[kept]
+        self.dropped = np.ones(grid.size, dtype=bool)
+        self.dropped[kept] = False
+        # A kept time preceded by a dropped one; a trailing run of dropped times carries no
+        # target weight after it, so its direction is zero.
+        previous = np.concatenate([[-1], kept[:-1]])
+        self._gap_ends = np.flatnonzero(kept - previous > 1)
+        weights = initial.target_weights
+        points = _point_rows(weights)
+        self.expand: IntArray | None = None
+        self.kept: IntArray | None = None
+        if not self.reduced:
+            self.weights = weights
+        elif points:
+            # A risk's weight row is one at a kept time, so the reduced row picks it exactly.
+            self.weights = np.take(weights, kept, axis=-1)
+        else:
+            # A restricted mean's weights sit on dropped times too: its sums run on the full
+            # grid, reading the reduced curves through ``expand``.
+            self.weights = weights
+            self.expand = np.searchsorted(kept, np.arange(grid.size), side="right") - 1
+            self.kept = kept
+        self.pi = np.stack([1.0 - initial.p1, initial.p1])
+        #: The memory model's arguments for this walk: its grid, blocks and target weights.
+        self.shape = {
+            **initial.memory,
+            "kept": int(kept.size),
+            "block": int(initial.block),
+            "restricted": self.expand is not None,
+        }
+        self._largest_dropped = np.zeros((2, initial.n))
+        self._counted = np.zeros(len(self.bounds), dtype=bool)
+        self._bounded = self._relevant = self._last = 0
+
+    def _weight(self, k: int) -> FloatArray:
+        """``(2, c, M)`` the bounded inverse weight of block ``k`` on the full grid."""
+        lo, hi = self.bounds[k]
+        product = self._product(lo, hi)
+        if not self._counted[k]:
+            initial = self.fit
+            self._counted[k] = True
+            factual = initial.A[None, lo:hi, None] == np.arange(2)[:, None, None]
+            reach = initial.T[None, lo:hi, None] >= initial.grid[None, None, :]
+            relevant = factual & reach
+            self._relevant += int(np.count_nonzero(relevant))
+            self._bounded += int(np.count_nonzero(product[relevant] < self.floor))
+            self._last += int(np.count_nonzero(product[..., -1] < self.floor))
+            del factual, reach, relevant
+        return self._inverse(lo, hi, product)
+
+    def _inverse(self, lo: int, hi: int, product: FloatArray) -> FloatArray:
+        """``(2, hi - lo, M)`` the inverse weights of units ``lo:hi`` from their product."""
+        return 1.0 / np.maximum(product, self.floor)
+
+    def _product(self, lo: int, hi: int) -> FloatArray:
+        """``(2, hi - lo, M)`` the propensity times the censoring retention just before."""
+        retention = np.cumprod(
+            1.0 - np.clip(self.fit.hazards.censoring_jumps(lo, hi), 0.0, 1.0), axis=-1
+        )
+        retention_before = np.concatenate([np.ones((2, hi - lo, 1)), retention[..., :-1]], axis=-1)
+        del retention
+        return self.pi[:, lo:hi, None] * retention_before
+
+    @property
+    def bounded_share(self) -> float:
+        """Received-arm cells while followed whose product the floor raised, over all blocks."""
+        assert self._counted.all()
+        return self._bounded / self._relevant if self._relevant else 0.0
+
+    @property
+    def last_time_floor_share(self) -> float:
+        """Pairs whose product at the grid's end is below the floor, over all blocks."""
+        assert self._counted.all()
+        return self._last / (2 * self.n)
+
+    def problem(self, k: int) -> Problem:
+        """The fixed inputs of block ``k`` on the walk's grid.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+
+        Returns
+        -------
+        Problem
+            The block's inputs.
+        """
+        lo, hi = self.bounds[k]
+        initial = self.fit
+        weight = self._weight(k)
+        if self.reduced:
+            self._largest_dropped[:, lo:hi] = weight[..., self.dropped].max(axis=-1)
+            weight = np.take(weight, initial.kept, axis=-1)
+        T, D = initial.T[lo:hi], initial.D[lo:hi]
+        at_risk = T[:, None] >= self.times[None, :]
+        events = np.stack(
+            [(T[:, None] == self.times[None, :]) & (D[:, None] == code) for code in initial.causes]
+        )
+        return Problem(
+            initial.A[lo:hi], at_risk, events, weight, self.weights, self.expand, self.kept
+        )
+
+    def initial(self, k: int) -> FloatArray:
+        """``(2, J, c, M)`` the initial jumps of block ``k`` on the walk's grid.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+
+        Returns
+        -------
+        ndarray
+            The jumps.
+        """
+        lo, hi = self.bounds[k]
+        jumps = self.fit.hazards.jumps(lo, hi)
+        # np.take keeps the block C-ordered, as the dense arrays are.
+        return np.take(jumps, self.fit.kept, axis=-1) if self.reduced else jumps
+
+    def dropped_weight(self, k: int) -> FloatArray | None:
+        """``(2, c)`` each pair's largest weight at a dropped time, ``None`` with none dropped.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+
+        Returns
+        -------
+        ndarray or None
+            The largest weights.
+        """
+        if not self.reduced:
+            return None
+        lo, hi = self.bounds[k]
+        return self._largest_dropped[:, lo:hi]
+
+    def gap_ends(self) -> IntArray:
+        """The walk-grid times that a run of dropped times precedes.
+
+        Returns
+        -------
+        ndarray
+            Positions on the walk's grid.
+        """
+        return self._gap_ends
+
+    def overflow(
+        self, k: int, units: IntArray, state: Any, v: FloatArray, step: float
+    ) -> np.ndarray | None:
+        """``(2, len(units))`` the pairs whose dense increment overflows at a dropped time.
+
+        The direction of the units is computed on the full grid with the dense operations,
+        from the block's curves read at every full-grid time.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+        units : ndarray
+            Positions within the block.
+        state : _State
+            The block's current hazards and curves.
+        v : ndarray
+            ``(P,)`` the direction in target space.
+        step : float
+            The step size.
+
+        Returns
+        -------
+        ndarray or None
+            The overflowing pairs.
+        """
+        lo, hi = self.bounds[k]
+        initial = self.fit
+        expand = np.searchsorted(initial.kept, np.arange(initial.grid.size), side="right") - 1
+        weights = state.problem.target_weights
+        if state.problem.expand is None:
+            # The walk's own weight rows, read on the full grid (zero at the dropped times).
+            weights = np.zeros((weights.shape[0], initial.grid.size))
+            weights[:, initial.kept] = state.problem.target_weights
+        out = np.zeros((2, units.size), dtype=bool)
+        # The units run in runs of rows short enough that the full-grid arrays of one run stay
+        # within a block's arrays on the walk's grid (memory model, ``overflow_rows``).
+        rows = overflow_rows(hi - lo, initial.kept.size, initial.grid.size)
+        for start in range(0, hi - lo, rows):
+            inside = (units >= start) & (units < start + rows)
+            if not inside.any():
+                continue
+            chosen = units[inside]
+            survival = state.survival[:, chosen]
+            padded = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival], axis=-1)
+            survival = np.take(padded, expand + 1, axis=-1)
+            del padded
+            incidence = _filled(state.incidence[:, :, chosen], expand)
+            first, last = int(chosen.min()), int(chosen.max())
+            span = (lo + first, lo + last + 1)
+            weight = self._inverse(*span, self._product(*span))[:, chosen - first]
+            at = lo + chosen
+            at_risk = initial.T[at, None] >= initial.grid[None, :]
+            events = np.zeros((len(initial.causes), *at_risk.shape), dtype=bool)
+            full = Problem(initial.A[at], at_risk, events, weight, weights)
+            direction = _chunked.T._direction(full, _chunked._light(survival, incidence), v)
+            del survival, incidence, weight, at_risk, events, full
+            with np.errstate(over="ignore"):
+                grows = np.isinf(np.exp(direction[..., self.dropped] * step))
+            out[:, np.flatnonzero(inside)] = grows.any(axis=(1, 3))
+            del direction, grows
+        return out
+
+
+def walk_grid(
+    grid: FloatArray, jumping: np.ndarray, observed: FloatArray, target_index: IntArray
+) -> IntArray:
+    """The positions on the full grid that the walk keeps: the event-support grid.
+
+    Every time where some initial hazard jumps (a NaN jump counts), some event is observed or
+    a risk's target sits.  Elsewhere every jump is zero and stays zero along the walk, so the
+    curves there repeat the last kept time's.
+
+    Parameters
+    ----------
+    grid : ndarray
+        ``(M,)`` the full grid.
+    jumping : ndarray
+        ``(M,)`` whether some initial hazard jump is not zero there.
+    observed : ndarray
+        The observed event times.
+    target_index : ndarray
+        The risks' positions on the grid.
+
+    Returns
+    -------
+    ndarray
+        The kept positions, increasing; every position with the grid reduction off.
+    """
+    if not _chunked.REDUCE_GRID:
+        return np.arange(grid.size)
+    support = jumping | np.isin(grid, observed)
+    support[target_index] = True
+    return np.flatnonzero(support)
+
+
+def _point_rows(weights: FloatArray) -> bool:
+    """Whether every weight row is a unit vector, a risk's."""
+    return bool(np.all((weights == 0) | (weights == 1)) and np.all(weights.sum(axis=1) == 1))
+
+
+def resident_blocks(plan: _FitPlan, max_memory_bytes: int | None) -> int:
+    """The blocks a walk keeps between passes, the first ones in row order.
+
+    Every block when the budget is unknown; otherwise as many as the memory model lets the
+    budget hold beside the walk's fixed and working arrays.  It never refuses, and it changes
+    only how often a pass rebuilds a block, never a result.
+
+    Parameters
+    ----------
+    plan : _FitPlan
+        The walk's blocks.
+    max_memory_bytes : int or None
+        The fit's budget.
+
+    Returns
+    -------
+    int
+        The kept blocks.
+    """
+    return resident_count(plan.shape, plan.bounds, max_memory_bytes)
+
+
+class _OffGrid:
+    """Item 10 Table 4: the share of random times at which the score equation holds.
+
+    The random times are drawn before the walk from the generator state after the nuisance
+    phase, and each block's rows are added in the final pass.  The means over units are carried
+    across blocks in row order, the order of NumPy's mean over the first axis, and the
+    influence curves are kept in one ``(n, 2J x times)`` array for their spread.
+    """
+
+    def __init__(self, plan: _FitPlan, rng: np.random.Generator) -> None:
+        initial = plan.fit
+        grid = initial.grid
+        draws = np.sort(rng.uniform(0.0, float(grid[-1]), OFF_GRID_TIMES))
+        index = np.searchsorted(grid, draws, side="right") - 1
+        keep = index >= 0
+        self.active = bool(keep.any())
+        if not self.active:
+            return
+        if plan.reduced:
+            # Each time reads the last kept grid time at or before it; a time before the first
+            # kept one scores zero, as on the full grid.
+            position = np.searchsorted(initial.kept, index[keep], side="right") - 1
+            self.weights = np.zeros((position.size, initial.kept.size))
+            inside = position >= 0
+            self.weights[np.flatnonzero(inside), position[inside]] = 1.0
+        else:
+            self.weights = point_weights(index[keep], grid.size)
+        self.n = initial.n
+        self.width = 2 * len(initial.causes) * self.weights.shape[0]
+        # Allocated in the final pass, so the walk does not hold it.
+        self.spread: FloatArray | None = None
+        self.parts: FloatArray | None = None
+        self.plugins: FloatArray | None = None
+
+    def add(self, k: int, lo: int, hi: int, state: Any) -> None:
+        """Add block ``k``'s rows at its targeted hazards.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+        lo : int
+            Its first unit.
+        hi : int
+            One past its last unit.
+        state : _State
+            Its targeted hazards and curves.
+        """
+        shifted = replace(state.problem, target_weights=self.weights, expand=None, kept=None)
+        parts, plugins = evaluate_rows(shifted, state.jumps, state.survival, state.incidence)
+        if self.spread is None:
+            self.spread = np.empty((self.n, self.width))
+        np.add(parts, plugins, out=self.spread[lo:hi])
+        self.parts = _carried(self.parts, parts)
+        self.plugins = _carried(self.plugins, plugins)
+
+    def share(self, cutoff: float) -> float:
+        """The share of informative random times whose score is within the cutoff.
+
+        Parameters
+        ----------
+        cutoff : float
+            The walk's cutoff.
+
+        Returns
+        -------
+        float
+            The share, ``1.0`` when no time is informative.
+        """
+        if not self.active:
+            return 1.0
+        assert self.parts is not None and self.plugins is not None and self.spread is not None
+        score = self.parts / self.n
+        psi = self.plugins / self.n
+        influence = self.spread
+        influence -= psi
+        np.square(influence, out=influence)
+        sigma = np.sqrt(np.mean(influence, axis=0))
+        self.spread = None
+        #: The vectors the share read, kept for the tests that compare them to the dense walk's.
+        self.vectors = (score, psi, sigma)
+        informative = sigma > 0
+        if not informative.any():
+            return 1.0
+        ok = np.abs(score[informative]) <= cutoff * sigma[informative]
+        return float(np.mean(ok))
+
+
+def _carried(total: FloatArray | None, rows: FloatArray) -> FloatArray:
+    """The sum over the first axis of every row so far, added in row order."""
+    if total is None:
+        return rows.sum(axis=0)
+    return np.concatenate([total[None, :], rows]).sum(axis=0)

@@ -386,10 +386,35 @@ class CoxHazard:
         ndarray
             ``(n, m)`` cumulative hazards.
         """
+        scale, base = self.hazard_factors(X, times)
+        return scale[:, None] * base[None, :]
+
+    def hazard_factors(self, X: Any, times: Any) -> tuple[FloatArray, FloatArray]:
+        """The two factors of :meth:`cumulative_hazard`: one scale per row, one baseline per time.
+
+        ``cumulative_hazard(X, times)`` is ``scale[:, None] * base[None, :]`` bit for bit.  The
+        scale :math:`e^{x^\\top\\beta}` of a row depends on the rows it is computed with in its
+        last bits (a matrix-vector product), so a caller that rebuilds the hazards of some rows
+        later keeps the scales of one call rather than recomputing them on a subset.
+
+        Parameters
+        ----------
+        X : array-like
+            ``(n, p)`` with the treatment in the first column.
+        times : array-like
+            ``(m,)`` times.
+
+        Returns
+        -------
+        scale : ndarray
+            ``(n,)`` :math:`e^{x_i^\\top\\beta}`.
+        base : ndarray
+            ``(m,)`` the Breslow cumulative baseline hazard at each time, right-continuous.
+        """
         times = np.asarray(times, dtype=float)
         cum = np.concatenate([[0.0], np.cumsum(self.baseline_jumps_)])
         base = cum[np.searchsorted(self.baseline_times_, times, side="right")]
-        return np.exp(self.linear_predictor(X))[:, None] * base[None, :]
+        return np.exp(self.linear_predictor(X)), base
 
 
 def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> float:
@@ -493,12 +518,37 @@ class StratifiedNelsonAalen:
         ndarray
             ``(n, m)`` cumulative hazards.
         """
+        index, curves = self.hazard_cells(X, times)
+        return curves[index]
+
+    def hazard_cells(self, X: Any, times: Any) -> tuple[IntArray, FloatArray]:
+        """The cell of each row and each cell's cumulative hazard.
+
+        These are the parts of :meth:`cumulative_hazard`: ``cumulative_hazard(X, times)`` is
+        ``curves[index]`` bit for bit.
+
+        Parameters
+        ----------
+        X : array-like
+            ``(n, p)``.
+        times : array-like
+            ``(m,)`` times.
+
+        Returns
+        -------
+        index : ndarray
+            ``(n,)`` the row of ``curves`` that holds each row's cell.
+        curves : ndarray
+            ``(cells, m)`` the cumulative hazard of each cell the rows fall in, in order of
+            first appearance.
+        """
         times = np.asarray(times, dtype=float)
         keys = self._keys(X)
-        out = np.empty((len(keys), times.size))
-        cache: dict[tuple[float, ...], FloatArray] = {}
+        index = np.empty(len(keys), dtype=int)
+        position: dict[tuple[float, ...], int] = {}
+        rows: list[FloatArray] = []
         for i, key in enumerate(keys):
-            if key not in cache:
+            if key not in position:
                 if key not in self.cells_:
                     raise _gap(
                         f"{self!r} has no fitted cell {key}; a saturated hazard predicts only "
@@ -506,9 +556,11 @@ class StratifiedNelsonAalen:
                     )
                 jump_times, jumps = self.cells_[key]
                 cum = np.concatenate([[0.0], np.cumsum(jumps)])
-                cache[key] = cum[np.searchsorted(jump_times, times, side="right")]
-            out[i] = cache[key]
-        return out
+                position[key] = len(rows)
+                rows.append(cum[np.searchsorted(jump_times, times, side="right")])
+            index[i] = position[key]
+        curves = np.vstack(rows) if rows else np.empty((0, times.size))
+        return index, curves
 
 
 @dataclass(frozen=True)

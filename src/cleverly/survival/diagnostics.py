@@ -443,11 +443,9 @@ def continuous_truncation_curve(
 
     Notes
     -----
-    The curve keeps the initial hazard jumps alive through every walk, one extra
-    ``(2, J, n, M)`` array over the fit's peak memory, and also keeps the ``(2, n, M)``
-    weight product that the fit frees before its walk: about 600 MB at n = 4,000 with two
-    causes.  The memory check counts both, against the fit's ``max_memory_bytes``, or the
-    memory available when that is ``None``.
+    Each floor's walk rebuilds the initial hazards from the fitted models, as the fit's walk
+    does, so the curve holds no more memory than its fit, and its check reads the fit's
+    ``max_memory_bytes``, or the memory available when that is ``None``.
     """
     from ..utils.frames import emit_frame
     from .result import MEASURED_DEFAULTS
@@ -472,26 +470,20 @@ def continuous_truncation_curve(
     seed = estimator.random_state
     assert seed is not None  # a stored estimator carries its resolved seed
     initial = estimator._initial(
-        data,
-        int(seed),
-        folds=estimator._fold_override,
-        retained=True,
-        plan=estimator._plan_override,
+        data, int(seed), folds=estimator._fold_override, plan=estimator._plan_override
     )
     settings = {key: getattr(estimator, key) for key in MEASURED_DEFAULTS}
-    replayed, record = estimator._target(initial, fitted, settings=settings, consume=False)
+    replayed, record = estimator._target(initial, fitted, settings=settings)
     if not _reproduces(result, replayed, record):
         raise CapabilityError.from_refusal(REPLAY_REFUSAL)
-    product = initial.product
-    assert product is not None
-    lowest = product.min(axis=(0, 2))
+    lowest = initial.lowest
     rows: list[dict[str, Any]] = []
     for floor in grid:
         if floor == fitted:
             estimates, at = replayed, record
         else:
             estimates, at = estimator._target(
-                initial, floor, settings={**settings, "g_bounds": floor}, consume=False
+                initial, floor, settings={**settings, "g_bounds": floor}
             )
         truncated = float(np.mean(lowest < floor))
         for name in names:
@@ -524,7 +516,7 @@ def continuous_truncation_curve(
                     ),
                 }
             )
-    del initial, product
+    del initial
     keys = list(dict.fromkeys(key for row in rows for key in row))
     return emit_frame({key: [row.get(key) for row in rows] for key in keys}, backend=result.backend)
 

@@ -813,9 +813,9 @@ def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
 ) -> None:
     # Both checks read the fitted hazards of one draw, so they raise DataError, which a study
     # records as a failed replicate; a CapabilityError would stop the whole run.
-    from cleverly.survival import engine
+    from cleverly.survival import _chunked
 
-    monkeypatch.setattr(engine, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
+    monkeypatch.setattr(_chunked, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
     with pytest.raises(DataError, match=match):
         ContinuousSurvivalTMLE([2.0], cross_fit=False).fit(
             _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
