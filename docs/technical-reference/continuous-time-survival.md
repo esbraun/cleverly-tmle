@@ -174,7 +174,7 @@ The support, score, nuisance and influence diagnostics read the record and the i
 and refit nothing. The result also stores a copy of its estimator, with the seed resolved and the
 outer fold labels recorded, and its data, so `result.estimator.refit(result.data,
 random_state=result.estimator.random_state)` reproduces the fit bit for bit in one process. The
-refutation and the truncation curve refit that copy.
+refutation, the truncation curve and the simulated common cause refit that copy.
 
 | operation | status | what it reads, or why it refuses |
 | --- | --- | --- |
@@ -185,7 +185,7 @@ refutation and the truncation curve refit that copy.
 | `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
 | `diagnostics.refute()` | runs, descriptive (`passed=None`) | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
 | `diagnostics.truncation_curve()` | runs, descriptive | the walk rerun at each floor on $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ from refitted initial hazards, after an exact replay of the fit at its own floor; [truncation stability](validation-methods.md#truncation-stability) states the grid and columns |
-| `sensitivity.simulated_confounding()` | refused, [X101](../roadmap.md#x101-assessment-of-continuous-time-survival-fits) | the replay redraws event and censoring times under a latent shift of the hazards, and the shipped survival replay reads a time grid |
+| `sensitivity.simulated_confounding(estimand=..., grid=...)` | runs, descriptive; deferred without a grid and an estimand | refits the stored estimator once per cell on event and censoring times redrawn from the replay's own Cox fits, with each cause-specific log-hazard shifted by $\gamma U$ and censoring redrawn where the flip changed the treatment; the fit's fold plan is reused under its own seed. A cell that drives the initial survival to zero is a recorded failure. [Continuous-time survival replay](validation-methods.md#continuous-time-survival-replay) states the law and its checks |
 | `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
 | `sensitivity.marginal_bounds()` | refused, F16 | the point-treatment bound tilts the outcome regression of an arm mean, and no tilt of the cause-specific hazards is derived |
 | `sensitivity.missingness()`, `tipping_gamma()` | refused, F16 | the tilt perturbs a missing-at-random outcome, and no tilt of independent censoring in continuous time is derived |
@@ -198,10 +198,12 @@ point-treatment attribute, and `cleverly.validation.refute` and
 `tests/unit/test_continuous_survival_assessment.py` checks every row and every refusal, and that
 `influence()` reads each estimate's influence curve. The capability sweep
 (`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
-agrees, and requires `refute` and `truncation_curve` to answer.
+agrees, and requires `refute`, `truncation_curve` and `simulated_confounding` to answer.
+`tests/unit/test_simulated_confounding_continuous.py` checks the replay.
 
 A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk), and the curve one refit
-of the nuisances plus one walk per floor. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
+of the nuisances plus one walk per floor. A simulated common-cause surface costs one refit per cell
+other than the anchor, so a 3 by 3 grid costs 8 refits. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
 (`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
 jumps and the weight product, about 600 MB, while it runs. No registered study calibrates the refutation readings on this
 fit, so each prints its numbers without a verdict.

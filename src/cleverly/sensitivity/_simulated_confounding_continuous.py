@@ -394,13 +394,15 @@ def _on_jump(
 
     Computed additively in hazard units, :math:`\Lambda_0(t^-) + \delta / e^\eta`, so the sum
     never falls below its first term; one ``nextafter`` pulls a level that rounding put on
-    :math:`\Lambda_0(t)` back inside, at an atom only.  Off an atom the level is
-    :math:`\Lambda_0(t)` exactly.
+    :math:`\Lambda_0(t)` back inside, at an atom only.  On a continuous baseline the level is
+    :math:`\Lambda_0(t)` exactly.  A grouped baseline with no atom at ``t`` cannot have
+    produced the time there, so the time is past ``t`` (administrative censoring at the end of
+    follow-up) and the level is drawn past :math:`\Lambda_0(t)`, as :func:`_after` draws it.
     """
-    left = model.left(t)
-    jump = model.jump(t)
     if not model.atomic:
         return np.asarray(model.cumulative(t), dtype=float)
+    left = model.left(t)
+    jump = model.jump(t)
     scale = np.exp(eta)
     h = scale * jump
     delta = -np.log1p(raw * np.expm1(-h))
@@ -408,6 +410,9 @@ def _on_jump(
     top = model.cumulative(t)
     over = (jump > 0.0) & (level >= top)
     level[over] = np.nextafter(top[over], -np.inf)
+    off = jump <= 0.0
+    if off.any():
+        level[off] = _after(model, t[off], eta[off], raw[off])
     return np.asarray(level, dtype=float)
 
 
@@ -439,6 +444,57 @@ def _tie_choice(
     target = position * cumulative[-1]
     index = (cumulative <= target[None, :]).sum(axis=0)
     return np.minimum(index, weights.shape[0] - 1)
+
+
+def _tied_sets(
+    h: np.ndarray[Any, Any], k: int, position: np.ndarray[Any, Any]
+) -> np.ndarray[Any, Any]:
+    r"""Draw which other causes also jumped at an event unit's own atom.
+
+    Given that cause ``k`` jumped at the unit's time ``u`` and was the cause recorded, the
+    set :math:`S` of other causes that jumped at ``u`` has posterior probability
+    proportional to :math:`\prod_{i \in S} p_i \prod_{i \notin S} (1 - p_i) \,
+    h_k / (h_k + \sum_{i \in S} h_i)`, with :math:`p_i = 1 - e^{-h_i}`: the prior that
+    ``i`` jumps times the tie rule's chance of picking ``k``.  A cause with no atom at
+    ``u`` has :math:`h_i = 0` and is never in the set.
+
+    Parameters
+    ----------
+    h : ndarray
+        ``(J, m)`` each cause's unit-level jump :math:`e^{\eta_i} \Delta\Lambda_{0i}(u)`.
+    k : int
+        The observed cause.
+    position : ndarray
+        ``(m,)`` the set-draw uniforms.
+
+    Returns
+    -------
+    ndarray
+        ``(J, m)`` boolean, true for ``k`` and for each cause drawn into the set.
+    """
+    J, m = h.shape
+    others = [i for i in range(J) if i != k]
+    p = {i: -np.expm1(-h[i]) for i in others}
+    masks = range(1 << len(others))
+    weights = np.zeros((len(masks), m))
+    for mask in masks:
+        members = [others[b] for b in range(len(others)) if mask >> b & 1]
+        weight = np.ones(m)
+        for i in others:
+            weight = weight * (p[i] if i in members else 1.0 - p[i])
+        total = h[k] + sum((h[i] for i in members), np.zeros(m))
+        # Off an atom every jump is zero and the set is {k}: its share is one.
+        share = np.divide(h[k], total, out=np.ones(m), where=total > 0.0)
+        weights[mask] = weight * share
+    cumulative = np.cumsum(weights, axis=0)
+    chosen = np.minimum(
+        (cumulative <= (position * cumulative[-1])[None, :]).sum(axis=0), len(masks) - 1
+    )
+    tied = np.zeros((J, m), dtype=bool)
+    for b, i in enumerate(others):
+        tied[i] = (chosen >> b & 1).astype(bool)
+    tied[k] = True
+    return tied
 
 
 def observed_levels(
@@ -482,34 +538,18 @@ def observed_levels(
             else np.zeros((0, n))
         )
     # Censored units: every cause after C.
+    censored = ~event
     for k in range(J):
-        rows = ~event
-        levels[k, rows] = _after(models.causes[k], time[rows], eta[k, rows], r_cause[k, rows])
+        levels[k, censored] = _after(
+            models.causes[k], time[censored], eta[k, censored], r_cause[k, censored]
+        )
     # Event units: the tied set, then the levels, then the tie uniform.
     tied = np.zeros((J, n), dtype=bool)
     for k in range(J):
         rows = np.flatnonzero(cause_index == k)
         if rows.size == 0:
             continue
-        others = [i for i in range(J) if i != k]
-        hk = h[k, rows]
-        p = {i: -np.expm1(-h[i, rows]) for i in others}
-        masks = range(1 << len(others))
-        weights = np.zeros((len(masks), rows.size))
-        for mask in masks:
-            members = [others[b] for b in range(len(others)) if mask >> b & 1]
-            weight = np.ones(rows.size)
-            for i in others:
-                weight = weight * (p[i] if i in members else 1.0 - p[i])
-            total = hk + sum((h[i, rows] for i in members), np.zeros(rows.size))
-            weights[mask] = weight * hk / total
-        cumulative = np.cumsum(weights, axis=0)
-        chosen = np.minimum(
-            (cumulative <= (r_set[rows] * cumulative[-1])[None, :]).sum(axis=0), len(masks) - 1
-        )
-        for b, i in enumerate(others):
-            tied[i, rows] = (chosen >> b & 1).astype(bool)
-        tied[k, rows] = True
+        tied[:, rows] = _tied_sets(h[:, rows], k, r_set[rows])
         for i in range(J):
             model = models.causes[i]
             t = time[rows]
@@ -583,6 +623,61 @@ class Replay:
     new_event_share: float | None
 
 
+def latent_draws(
+    models: ReplayModels,
+    levels: Levels,
+    treatment: np.ndarray[Any, Any],
+    perturbed: np.ndarray[Any, Any],
+    latent: np.ndarray[Any, Any],
+    shifts: np.ndarray[Any, Any],
+) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
+    r"""Invert the stored levels into one cell's latent cause and censoring times.
+
+    Cause ``k``'s level is scaled by :math:`e^{-\gamma_k U}` and inverted on its baseline, so
+    its hazard is multiplied by :math:`e^{\gamma_k U}` at the observed treatment.  The
+    censoring level is scaled by :math:`e^{\eta_c(A) - \eta_c(A')}` where the cell's
+    treatment differs from the observed one, and is left untouched elsewhere.
+
+    Parameters
+    ----------
+    models : ReplayModels
+        The replay's models.
+    levels : Levels
+        The observed levels.
+    treatment : ndarray
+        ``(n,)`` observed treatment, coded 0/1.
+    perturbed : ndarray
+        ``(n,)`` the cell's treatment, coded 0/1.
+    latent : ndarray
+        ``(n,)`` the latent.
+    shifts : ndarray
+        ``(J,)`` each cause's log-hazard shift per unit of latent.
+
+    Returns
+    -------
+    latent_times : ndarray
+        ``(J, n)`` each cause's latent event time, ``inf`` past its last atom.
+    censored_at : ndarray
+        ``(n,)`` the censoring time, ``inf`` without a censoring model.
+    """
+    J = len(models.causes)
+    n = latent.size
+    latent_times = np.full((J, n), np.inf)
+    for k in range(J):
+        factor = np.exp(-shifts[k] * latent)
+        latent_times[k] = models.causes[k].inverse(levels.cause[k] * factor)
+    changed = perturbed != treatment
+    if models.censoring is not None and levels.censoring is not None:
+        level = levels.censoring.copy()
+        if changed.any() and levels.eta_censoring is not None:
+            moved = models.censoring.eta(_design_at(models, perturbed[changed], changed))
+            level[changed] = level[changed] * np.exp(levels.eta_censoring[changed] - moved)
+        censored_at = np.asarray(models.censoring.inverse(level), dtype=float)
+    else:
+        censored_at = np.full(n, np.inf)
+    return latent_times, censored_at
+
+
 def replay_cell(
     models: ReplayModels,
     levels: Levels,
@@ -592,6 +687,8 @@ def replay_cell(
     perturbed: np.ndarray[Any, Any],
     latent: np.ndarray[Any, Any],
     shifts: np.ndarray[Any, Any],
+    *,
+    tau: float | None = None,
 ) -> Replay:
     r"""Replay one cell from the stored levels.
 
@@ -614,6 +711,8 @@ def replay_cell(
     shifts : ndarray
         ``(J,)`` the log-hazard shift per unit of latent of each cause: the outcome strength
         for a shifted cause, zero otherwise.
+    tau : float or None, default None
+        The administrative censoring time; the largest observed time when None.
 
     Returns
     -------
@@ -622,13 +721,8 @@ def replay_cell(
     """
     J = len(models.causes)
     n = time.size
-    tau = float(np.max(time))
-    latent_times = np.full((J, n), np.inf)
-    factors = np.ones((J, n))
-    for k in range(J):
-        factor = np.exp(-shifts[k] * latent)
-        factors[k] = factor
-        latent_times[k] = models.causes[k].inverse(levels.cause[k] * factor)
+    end_of_study = float(np.max(time)) if tau is None else float(tau)
+    latent_times, censored_at = latent_draws(models, levels, treatment, perturbed, latent, shifts)
     first = latent_times.min(axis=0) if J else np.full(n, np.inf)
     # The cause: the first latent time, or the tie rule among those on the first atom.
     finite = np.isfinite(first)
@@ -641,8 +735,7 @@ def replay_cell(
                 [
                     np.where(
                         on_first[k, many],
-                        np.exp(levels.eta[k, many])
-                        / factors[k, many]
+                        np.exp(levels.eta[k, many] + shifts[k] * latent[many])
                         * models.causes[k].jump(first[many]),
                         0.0,
                     )
@@ -651,15 +744,7 @@ def replay_cell(
             )
         winner[many] = _tie_choice(weights, levels.tie[many])
     changed = perturbed != treatment
-    if models.censoring is not None and levels.censoring is not None:
-        level = levels.censoring.copy()
-        if changed.any():
-            moved = models.censoring.eta(_design_at(models, perturbed[changed], changed))
-            level[changed] = level[changed] * np.exp(levels.eta_censoring[changed] - moved)
-        censored_at = models.censoring.inverse(level)
-    else:
-        censored_at = np.full(n, np.inf)
-    end = np.minimum(censored_at, tau)
+    end = np.minimum(censored_at, end_of_study)
     event = first <= end
     replayed_time = np.where(event, first, end)
     replayed_cause = np.where(event, winner, -1)

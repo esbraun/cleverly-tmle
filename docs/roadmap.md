@@ -84,7 +84,7 @@ The readiness labels are defined under
 | --- | --- | --- | --- |
 | [X91](#x91-survival-targets-across-the-estimators) Survival targets across the estimators | 2 | published support for parts (b) and (g); natural extension for parts (c) and (d); audited source for part (f); all five shipped; part (e) refused; the R `lmtp` comparator runs of the eliminated-competing-events study are pending | the shipped survival and competing-risk paths of `LTMLE` |
 | [X6](#x6-continuous-time-survival-and-competing-risks) Continuous-time survival and competing risks | 2 | published support; the one-step TMLE of a baseline treatment shipped as X91 part (g); the early-time standard error is open | the shipped `ContinuousSurvivalTMLE` |
-| [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the diagnostics, the descriptive refutation and the truncation curve shipped | the shipped `ContinuousSurvivalTMLE`, its record and its stored estimator and data |
+| [X101](#x101-assessment-of-continuous-time-survival-fits) Assessment of continuous-time survival fits | 2 | no new theory for the refits; the diagnostics, the descriptive refutation, the truncation curve and the simulated common cause shipped | the shipped `ContinuousSurvivalTMLE`, its record and its stored estimator and data |
 | [X80](#x80-ratio-trimming-on-the-hazard-path) Ratio trimming on the hazard path | 3 | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` |
 | [X105](#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) Negative controls, generated outcomes and resampling for continuous-time fits | 6 | no new theory for the controls and generated outcomes; the resampling part needs the fold rule of X6 (d) | the shipped continuous-time refutation; X6 (d) for resampling |
 
@@ -869,14 +869,15 @@ holds the operations that refit or retarget the fit. The omitted-variable, margi
 wait for theory in [F16](#f16-longitudinal-sensitivity-bound-estimation). The E-value of a risk
 ratio of the fit runs.
 
-Parts (a) and (c) are delivered ([delivered items](roadmap-delivered.md)). The result stores its
+Parts (a) to (c) are delivered ([delivered items](roadmap-delivered.md)). The result stores its
 estimator and data; `refute` runs the placebo on a contrast, the random common cause and the
 subset, descriptively, and the truncation curve reruns the walk at other floors
 ([refutation operations](technical-reference/validation-methods.md#refutation-operations)).
+`simulated_confounding` replays event and censoring times under a simulated common cause
+([continuous-time survival replay](technical-reference/validation-methods.md#continuous-time-survival-replay)).
 
 | part | what to add | base |
 | --- | --- | --- |
-| (b) simulated common cause | a replay that perturbs the event and censoring times of a continuous-time fit | the survival replay of X91 part (c), which reads a time grid |
 | (d) refutation verdicts | a registered calibration study of the placebo `t` and the subset `rho` on a risk difference, which licenses `L2` verdicts inside its measured event-share range, two causes and n >= 1,000 | the shipped descriptive refutation |
 
 Acceptance: each part that ships turns its capability row available, with a test that the row and

@@ -1771,7 +1771,9 @@ def simulated_confounding(
         modified-policy fit. Ordinary binary TMLE also supports fixed regime means,
         regime contrasts, and incremental means and contrasts. Ordinary TMLE also supports
         binary and continuous MSM coefficients under any registered link.
-        Baseline strata require estimator support for their targeting.
+        Baseline strata require estimator support for their targeting. A
+        ``ContinuousSurvivalResult`` that holds its estimator and data is replayed in
+        continuous time.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
         or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
@@ -1782,6 +1784,8 @@ def simulated_confounding(
         An MSM uses ``msm[term]``. Incremental targets use ``ey_ipsi[...]`` or
         ``ate_ipsi[...]``; a multiplier-one mean is refused.
         A conditional target requires its complete reported stratum alias.
+        A continuous-time survival fit takes any alias it reports, such as
+        ``ate_regimen[1 vs 0, 1 @ t=1]``.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
@@ -1813,9 +1817,11 @@ def simulated_confounding(
         outcome either law moves lands inside the bounds.
         Any other fit takes ``None`` only.
     outcome_cause : str or None
-        On a competing-risk longitudinal fit, the cause whose hazard the latent shifts,
-        holding every other cause-specific hazard fixed.  ``None`` shifts the all-cause
-        event and keeps the cause shares.  Any other fit takes ``None`` only.
+        On a competing-risk longitudinal or continuous-time survival fit, the cause whose
+        hazard the latent shifts, holding every other cause-specific hazard fixed.
+        ``None`` shifts the all-cause event of a panel, or every cause-specific
+        log-hazard of a continuous-time fit, and keeps the cause shares.  Any other fit
+        takes ``None`` only.
 
     Returns
     -------
@@ -1853,6 +1859,14 @@ def simulated_confounding(
     risk-ratio tilt are refused before calibration, a draw, or a refit, and so are the grid
     stops of ``observation_reads`` and the intermediate axis.
     Execution and the assessment capability share the same ordered reasons.
+
+    A continuous-time survival fit flips its binary treatment in the latent tail and shifts
+    each cause-specific log-hazard by the outcome strength times the latent. Event and
+    censoring times are redrawn from the replay's own Cox fits, read as grouped
+    proportional-hazards laws, through latent levels drawn given the observed outcome, so a
+    zero strength returns the data; the event hazards are read at the observed treatment
+    and censoring is redrawn at the perturbed treatment where it changed. Each refit reuses
+    the fit's fold plan when the root seed is the fit's own (``refit_folds="original"``).
 
     All strata share the same full-row latent draw and complete estimator refit. Baseline
     stratum membership stays fixed. ATT and ATC instead recompute their observed-treatment
