@@ -252,6 +252,7 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
+from ._fit_cache import in_fit_cache
 from .baselines import (
     IPW_NORMALIZATIONS,
     fit_gcomp_cell,
@@ -7184,6 +7185,7 @@ class _SequentialEstimator:
             mechanism,
         )
 
+    @in_fit_cache
     def _fit_draw(
         self,
         prepared: LongitudinalData,
