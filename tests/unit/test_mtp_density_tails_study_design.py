@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
@@ -689,7 +690,7 @@ class TestTheCells:
 def pilot_rows() -> pd.DataFrame:
     if not pilot.OUTPUT.exists():
         pytest.skip("the pilots have not run; the declaration commit runs them first")
-    return pd.read_csv(pilot.OUTPUT)
+    return pilot.load()
 
 
 def calibration_plug_in(se_ratio: float, coverage: float, replicates: int) -> float:
@@ -912,8 +913,29 @@ def test_the_committed_readings_match_their_recomputation() -> None:
     """``readings.json`` is :func:`reported_readings` of the committed pilot and properties."""
     if not (pilot.READINGS.exists() and pilot.OUTPUT.exists() and pilot.PROPERTIES.exists()):
         pytest.skip("the readings are written after the declared run")
-    recomputed = pilot.reported_readings(pd.read_csv(pilot.OUTPUT), pd.read_csv(pilot.PROPERTIES))
+    recomputed = pilot.reported_readings(pilot.load(), pd.read_csv(pilot.PROPERTIES))
     assert json.loads(json.dumps(recomputed)) == json.loads(pilot.READINGS.read_text())
+
+
+def test_a_later_pilot_set_supersedes_a_draw(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A draw a later set repeats keeps its earlier rows, marked, and reads only the new ones."""
+    first, later = tmp_path / "pilot-checkpoints", tmp_path / "pilot-checkpoints-c"
+    for directory, estimates in ((first, (1.0, 2.0)), (later, (3.0,))):
+        directory.mkdir()
+        rows = [
+            dict.fromkeys(pilot.COLUMNS)
+            | {"label": "x", "replicate": r, "reading": "a", "estimate": e}
+            for r, e in enumerate(estimates)
+        ]
+        (directory / "x.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    monkeypatch.setattr(pilot, "ARTIFACTS", tmp_path)
+    monkeypatch.setattr(pilot, "CHECKPOINTS", first)
+    folded = pilot.collect(first, tmp_path / "pilot.csv.gz")
+    assert folded["superseded"].tolist() == [True, False, False]
+    current = pilot.load(tmp_path / "pilot.csv.gz")
+    assert current.sort_values("replicate")["estimate"].tolist() == [3.0, 2.0]
 
 
 def _synthetic_pilot() -> pd.DataFrame:

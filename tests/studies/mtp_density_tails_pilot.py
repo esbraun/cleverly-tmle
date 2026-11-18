@@ -4,7 +4,8 @@ No label draws a declared sample: every draw takes ``stream_seed(STUDY, "pilot",
 stream no declared cell reads.  Each finished draw appends its rows to
 ``tests/canonical/mtp_density_tails/pilot-checkpoints/<label>.jsonl`` at once, so a stopped run
 loses at most the draws in flight, and a restart skips every replicate already there.
-``--collect`` folds every checkpoint into ``pilot.csv.gz``.
+``--collect`` folds every checkpoint into ``pilot.csv.gz``; a later pilot set's draw supersedes
+an earlier one's, which stays marked (:data:`PILOT_SETS`).
 
 Run one label, or one replicate range of it on a cloud part, as::
 
@@ -81,6 +82,12 @@ OUTPUT = ARTIFACTS / "pilot.csv.gz"
 READINGS = ARTIFACTS / "readings.json"
 PROPERTIES = ARTIFACTS / "properties.csv"
 CHECKPOINTS = ARTIFACTS / "pilot-checkpoints"
+#: The committed pilot sets, in the order they ran.  A later set's draw of a label supersedes
+#: every row of the same label and replicate in an earlier set: those rows stay in
+#: ``pilot.csv.gz`` with ``superseded`` set, and the readings read only the current rows
+#: (:func:`load`).  Set C re-pilots the labels that the thin-stretch count's bound and the
+#: one-sided observed bound of the classifier steps move.
+PILOT_SETS: tuple[str, ...] = ("pilot-checkpoints", "pilot-checkpoints-c")
 CALIBRATION_DRAWS = 400
 #: An extension adds this many draws to a calibration pilot, at most this many times.
 EXTENSION_DRAWS = 400
@@ -402,14 +409,37 @@ def run(
 
 
 def collect(checkpoints: Path = CHECKPOINTS, output: Path = OUTPUT) -> pd.DataFrame:
-    """Fold every checkpoint into one frame, sorted, and write it to ``output``."""
-    frames = [pd.read_json(path, lines=True) for path in sorted(checkpoints.glob("*.jsonl"))]
-    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=COLUMNS)
-    frame = frame.reindex(columns=list(COLUMNS)).sort_values(
-        ["label", "replicate", "reading"], ignore_index=True
-    )
+    """Fold every checkpoint into one frame, sorted, and write it to ``output``.
+
+    The committed checkpoints read every set of :data:`PILOT_SETS` that exists, in order;
+    another directory is one set.  ``pilot_set`` is a row's position in that order, and
+    ``superseded`` marks a row whose label and replicate a later set drew again.
+    """
+    sets = [checkpoints]
+    if checkpoints == CHECKPOINTS:
+        sets += [ARTIFACTS / name for name in PILOT_SETS[1:]]
+    frames = []
+    for rank, directory in enumerate(sets):
+        for path in sorted(directory.glob("*.jsonl")):
+            part = pd.read_json(path, lines=True)
+            part["pilot_set"] = rank
+            frames.append(part)
+    columns = [*COLUMNS, "pilot_set"]
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
+    frame = frame.reindex(columns=columns)
+    latest = frame.groupby(["label", "replicate"])["pilot_set"].transform("max")
+    frame["superseded"] = frame["pilot_set"] < latest
+    frame = frame.sort_values(["label", "replicate", "pilot_set", "reading"], ignore_index=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output, index=False)
+    return frame
+
+
+def load(path: Path = OUTPUT) -> pd.DataFrame:
+    """The current rows of a folded pilot: every row :func:`collect` marked superseded is out."""
+    frame = pd.read_csv(path, low_memory=False)
+    if "superseded" in frame:
+        frame = frame.loc[~frame["superseded"].astype(bool)].reset_index(drop=True)
     return frame
 
 
@@ -663,7 +693,7 @@ def write_readings(
     pilot_path: Path = OUTPUT, properties_path: Path = PROPERTIES, output: Path = READINGS
 ) -> dict[str, Any]:
     """Recompute :func:`reported_readings` from the committed artifacts and write it."""
-    readings = reported_readings(pd.read_csv(pilot_path), pd.read_csv(properties_path))
+    readings = reported_readings(load(pilot_path), pd.read_csv(properties_path))
     output.write_text(json.dumps(readings, indent=2, sort_keys=True) + "\n")
     return readings
 
