@@ -55,6 +55,13 @@ COX_FIT: Final = 3 * F8
 TREATMENT_FIT: Final = 6 * F8
 
 
+#: The resident set over the array bytes the model counts, which the kept blocks are sized to
+#: leave room for.  The C library's allocator keeps freed block-sized arrays in its heap once
+#: its mmap threshold has risen, so the resident set of a walk read 7 to 9% above its predicted
+#: arrays at 8,000 to 32,000 units (and under them with the threshold held fixed).
+ALLOCATOR_MARGIN: Final = 1.15
+
+
 class ContinuousSurvivalMemoryError(MethodConfigurationError):  # numpydoc ignore=PR01
     """A continuous-time fit predicted to need more memory than its budget.
 
@@ -407,10 +414,11 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
 def resident_count(shape: dict[str, Any], bounds: Any, max_memory_bytes: int | None) -> int:
     """The blocks a walk keeps between passes: as many as the rest of the budget holds.
 
-    Under an explicit budget the kept blocks may take all of it beside the walk's other arrays;
-    under the default budget, :data:`~cleverly.survival._chunked.RESIDENT_SHARE` of the memory
-    available now.  Every block is kept where the platform reports no memory.  The count
-    changes only how often a pass rebuilds a block, never a result.
+    The budget is the explicit one, or under the default
+    :data:`~cleverly.survival._chunked.RESIDENT_SHARE` of the memory available now; the kept
+    blocks are as many as leave the walk's prediction times :data:`ALLOCATOR_MARGIN` within it.
+    Every block is kept where the platform reports no memory.  The count changes only how often
+    a pass rebuilds a block, never a result.
 
     Parameters
     ----------
@@ -435,6 +443,7 @@ def resident_count(shape: dict[str, Any], bounds: Any, max_memory_bytes: int | N
         budget = RESIDENT_SHARE * available
     else:
         budget = float(max_memory_bytes)
+    budget /= ALLOCATOR_MARGIN
     estimate = peak_bytes(**shape)
     free = budget - max(estimate.phases["walk"], estimate.phases["off_grid"])
     J, G = int(shape["causes"]), int(shape["kept"])

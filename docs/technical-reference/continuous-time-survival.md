@@ -271,7 +271,9 @@ available at that moment (`cleverly.utils.memory.available_memory`, which reads 
 group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it in
 either direction. Where the platform reports no available memory, as on macOS, nothing is checked
 and every block is kept unless `max_memory_bytes=` is passed. After the initial pass the walk
-keeps blocks up to the budget, or up to three quarters of the memory available under the default.
+keeps blocks up to the budget, or up to three quarters of the memory available under the default,
+less a 15% margin for memory the C library's allocator keeps after freeing block arrays (the
+resident set read 7% to 9% above the predicted arrays at 8,000 to 32,000 units).
 The budget sets how many blocks are kept, so how long the walk runs, and never what it returns.
 Every refit of a result, and so every refutation, assessment replay and truncation curve, uses the
 fit's `max_memory_bytes`, and a truncation curve holds no more than its fit.
