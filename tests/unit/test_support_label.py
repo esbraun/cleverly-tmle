@@ -43,7 +43,7 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference import results as results_module
 from cleverly.inference.delta import skew_widened_ci, wald_ci
-from cleverly.longitudinal import LTMLE, SDR, SequentialGComputation
+from cleverly.longitudinal import SDR, SequentialGComputation
 from cleverly.longitudinal import estimator as longitudinal_estimator
 from cleverly.longitudinal.data import LongitudinalData
 from tests.conftest import linear_in_sample

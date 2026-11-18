@@ -1190,6 +1190,7 @@ def _shipped_limit(
     *,
     ratio: bool,
     df: int | None = None,
+    clustered: bool = False,
 ) -> float:
     """One limit of the set interval, under the interval rule the bounded estimate ships.
 
@@ -1201,13 +1202,14 @@ def _shipped_limit(
     skew-widened t of a continuous outcome (reading ``curve`` on one draw), and the MOVER
     multiples of a bounded difference (:func:`~cleverly.sensitivity._limits.bound_limits`).
     A target the fit reports no estimate of takes the normal reference on the bound's scale,
-    the log scale for a ``ratio``.  ``df`` is the few-cluster t reference over the target's
-    rows (:func:`_reference_df`): a clustered estimate keeps its own symmetric reference under
-    every shipped rule, so the limit is then the t limit on the bound's scale, on the bound's
-    own degrees of freedom, which can differ from the estimate's (a fold-evaluated CV-TMLE
-    pools the cluster variance on ``J - 2``).
+    the log scale for a ``ratio``.  On a ``clustered`` fit, ``df`` is the few-cluster t
+    reference over the target's rows (:func:`_reference_df`, ``None`` for the normal one): a
+    clustered estimate keeps its own symmetric reference under every shipped rule, so the
+    limit is the normal or t limit on the bound's scale, on the bound's own degrees of
+    freedom, which can differ from the estimate's (a fold-evaluated CV-TMLE pools the cluster
+    variance on ``J - 2``).
     """
-    if estimate is None or df is not None:
+    if estimate is None or clustered:
         # No rule is shipped for an unreported target, and a clustered one keeps its
         # symmetric reference: the normal or t quantile on the bound's scale.
         z = reference_quantile(1.0 - level, df)
@@ -1416,6 +1418,7 @@ def marginal_sensitivity_bounds(
             -1.0,
             ratio=target.ratio,
             df=df,
+            clustered=cluster is not None,
         )
         upper_limit = _shipped_limit(
             reported,
@@ -1426,6 +1429,7 @@ def marginal_sensitivity_bounds(
             1.0,
             ratio=target.ratio,
             df=df,
+            clustered=cluster is not None,
         )
         rows.append(
             MarginalSensitivityRow(
