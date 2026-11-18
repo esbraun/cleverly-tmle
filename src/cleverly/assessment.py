@@ -686,7 +686,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
     ),
     # The continuous-time survival TMLE (X6, X101). Its diagnostics read the engine's own
-    # record; the refutation and the truncation curve refit the stored estimator.
+    # record; the refutation and the truncation curve refit the stored estimator, and so does
+    # the simulated common cause among the sensitivity rows.
     _capability(
         "support",
         CONTINUOUS_SURVIVAL_FAMILY,
@@ -5104,11 +5105,13 @@ _AUGMENTED_TRIAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _augmented_tria
 
 
 def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
-    """Every sensitivity row of a continuous-time survival fit but the E-value, each refused.
+    """Every refused sensitivity row of a continuous-time survival fit.
 
-    The omitted-variable, marginal and tilt rows name F16 and the simulated common cause X101
+    The omitted-variable, marginal and tilt rows name F16
     (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).  The E-value
-    reads the fit's risk ratio, so :meth:`SensitivityFacade._evalue_row` builds its row.
+    reads the fit's risk ratio and the simulated common cause refits the stored estimator
+    (X101 part (b)), so :meth:`SensitivityFacade._evalue_row` and
+    :meth:`SensitivityFacade._continuous_simulated_row` build their rows.
     """
     return tuple(
         _capability(
@@ -5121,11 +5124,11 @@ def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             refusal=continuous_survival_refusal(row.operation),
         )
         for row in _STRUCTURAL_SENSITIVITY
-        if row.operation != "evalue"
+        if row.operation not in ("evalue", "simulated_confounding")
     )
 
 
-#: The refused sensitivity declarations of a continuous-time survival fit (X101).
+#: The refused sensitivity declarations of a continuous-time survival fit.
 _CONTINUOUS_SURVIVAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
     _continuous_survival_sensitivity_rows()
 )
@@ -5203,7 +5206,16 @@ class SensitivityFacade(_CapabilityFacade):
         if family == AUGMENTED_TRIAL_FAMILY:
             return _AUGMENTED_TRIAL_SENSITIVITY
         if family == CONTINUOUS_SURVIVAL_FAMILY:
-            return (*_CONTINUOUS_SURVIVAL_SENSITIVITY, self._evalue_row())
+            refused = {row.operation: row for row in _CONTINUOUS_SURVIVAL_SENSITIVITY}
+            refused["simulated_confounding"] = self._continuous_simulated_row()
+            return (
+                *(
+                    refused[row.operation]
+                    for row in _STRUCTURAL_SENSITIVITY
+                    if row.operation in refused
+                ),
+                self._evalue_row(),
+            )
         if family == "point" and _is_projection(self._result):
             # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
             # axis it has no entry for.
@@ -5426,6 +5438,35 @@ class SensitivityFacade(_CapabilityFacade):
                 roadmap=cached.roadmap,
             )
         return selected
+
+    def _continuous_simulated_row(self) -> AssessmentCapability:
+        """The ``simulated_confounding`` row of a continuous-time survival fit (X101 part (b)).
+
+        The surface replays event and censoring times under a latent shift of the
+        cause-specific hazards and refits the stored estimator in every cell.  It is refused
+        only on a result that holds no estimator or data.
+        """
+        from .sensitivity._simulated_confounding_continuous import (
+            continuous_survival_simulated_refusal,
+        )
+
+        refusal = continuous_survival_simulated_refusal(self._result)
+        return _capability(
+            "simulated_confounding",
+            CONTINUOUS_SURVIVAL_FAMILY,
+            artifacts=("fitted estimator configuration", "analysis data"),
+            execution="refit",
+            deterministic=False,
+            cost="expensive",
+            interpretation="estimate movement under a simulated common cause",
+            available=refusal is None,
+            status=AssessmentStatus.PASSED if refusal is None else AssessmentStatus.UNAVAILABLE,
+            refusal=refusal,
+            # A continuous-time fit reports no bare ``ate``, so the call names its estimand.
+            requires_arguments=("grid", "estimand"),
+            accepts_random_state=True,
+            requires_replay="refit_nuisances",
+        )
 
     def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
         from .sensitivity.evalue import _DERIVED_RR, _EValueRefusal
@@ -5675,6 +5716,11 @@ class SensitivityFacade(_CapabilityFacade):
         function, _ = self._routed_callable(operation)
         if not _defaults_to_ambiguous_estimand(function):
             return ()
+        if operation == "simulated_confounding" and _family(self._result) == (
+            CONTINUOUS_SURVIVAL_FAMILY
+        ):
+            # Every reported continuous-time estimate runs, so each one is a candidate.
+            return tuple(self._result.estimates)
         if operation == "simulated_confounding":
             from .sensitivity._simulated_confounding_request import (
                 _eligible_binary_parameter_names,

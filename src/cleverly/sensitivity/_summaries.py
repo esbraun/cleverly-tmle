@@ -1338,7 +1338,17 @@ def _surface_laws(result: SimulatedConfoundingResult) -> tuple[str, str]:
     else:
         moved = "the treatment"
         treatment = TEXTS["law_continuous"]
-    if result.bounded_outcome_law == "logit":
+    if result.outcome_family in ("survival", "competing_risks"):
+        if result.treatment_family == "longitudinal":
+            outcome = TEXTS["law_outcome_panel_hazard"]
+        else:
+            causes = (
+                "every cause"
+                if result.outcome_cause is None
+                else f"cause {result.outcome_cause!r} only"
+            )
+            outcome = TEXTS["law_outcome_continuous_hazard"].format(causes=causes)
+    elif result.bounded_outcome_law == "logit":
         outcome = TEXTS["law_outcome_logit"]
     elif result.bounded_outcome_law == "normal_score":
         outcome = TEXTS["law_outcome_normal_score"]

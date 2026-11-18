@@ -1649,7 +1649,9 @@ weighted-standardized baseline block, the treatment, and node indicators. A node
 observed rows show one class is held at that class rather than fitted, clipped to
 $[10^{-6}, 1 - 10^{-6}]$ on a binary model. A node with no observed rows reads the pooled fit
 with a zero node coefficient, or the nearest held node when no node was fitted.
-`replay_models` records each fit.
+`replay_models` records each fit. The surface reports `outcome_family="survival"` or
+`"competing_risks"`, and its plot and summary name the outcome strength as a shift of the
+per-node event log-odds.
 
 | item | law | witness |
 | --- | --- | --- |
@@ -2319,6 +2321,103 @@ omitted-variable `benchmark()` scale.
 The maintained source is pinned at revision `2116d5c`. The implementation does not copy its
 cumulative cell mutations, schedule-dependent random draws, non-exact zero refit, automatic
 ranges, categorical encoded-column deletion, or unstructured failure behavior.
+
+#### Continuous-time survival replay
+
+X101 part (b) covers a `ContinuousSurvivalTMLE` fit: a binary treatment fixed at baseline, one
+cause or several, censored or not. The treatment moves by the binary tail flip. The outcome
+strength $\gamma$ shifts each cause-specific log-hazard by $\gamma U$. Under `outcome_cause="j"`
+only cause $j$ is shifted, and every other cause-specific hazard is unchanged. Outcome strengths
+are any finite real number, and treatment strengths are flip shares in $[0, 0.5]$.
+
+**Replay models.** The surface fits its own Cox models once: one per cause and one for censoring,
+each with Breslow ties and the Breslow baseline, on the design $[A, \tilde L]$, where $\tilde L$ is
+the baseline block standardized to unit standard deviation. The censoring fit moves each event
+unit's time back by half the smallest gap between distinct times, so an event unit is at risk of
+censoring up to $T^-$.
+
+Each fit is read as a grouped proportional-hazards law (Prentice & Gloeckler 1978): at an atom
+$u$ of the baseline, the event probability given survival to $u^-$ is $1 - \exp\{-h(u)\}$, with
+$h(u) = e^{\eta}\Delta\Lambda_0(u)$. On a continuous baseline this is the continuous
+proportional-hazards law. The engine's own product limit reads the same fit as $h(u)$, and the two
+agree at the zero cell, which keeps the data. Wherever the replay draws from the fitted law,
+including the follow-up of flipped units in a treatment-only cell, they differ by
+$h^2/2 + O(h^3)$ per atom: small where many units are at risk, and large at late atoms with few.
+The difference lowers late risk relative to the engine, and the surface reports it as movement.
+
+**Latent times.** Each cause $k$ has its own latent level $E_k$ on its baseline
+cumulative-hazard scale, and its latent time is the first atom where $\Lambda_{0k}$ exceeds
+$E_k e^{-\gamma_k U}$ (Bender, Augustin & Blettner 2005). The first latent time is the event, and
+the cause-specific hazards then determine the joint law of time and cause (Prentice et al. 1978).
+Censoring has its own level $E_c$. Every level is drawn once per surface from its posterior given
+the observed outcome, so a zero strength returns the data:
+
+| observed | own cause $k$ | other causes | censoring |
+| --- | --- | --- | --- |
+| event of cause $k$ at $u$ | on its jump at $u$: $E_k \in [\Lambda_{0k}(u^-), \Lambda_{0k}(u))$ | a tied set $S$ drawn from its exact posterior, $P(S) \propto \prod_{i \in S} p_i \prod_{i \notin S}(1 - p_i)\, h_k / (h_k + \sum_{i \in S} h_i)$ with $p_i = 1 - e^{-h_i}$ at $u$; members on their jump at $u$, the rest past $u$ | past $\Lambda_{0c}(u^-)$, so $C \ge u$ |
+| censored at $c$ | past $\Lambda_{0k}(c)$ | past $\Lambda_{0k}(c)$ | on its jump at $c$ |
+
+A level on a jump is drawn additively in hazard units, with one `nextafter` that keeps a rounded
+level inside the jump. On a continuous baseline the level is $\Lambda_0(t)$ exactly. A unit
+censored at the last observed time where a grouped baseline has no atom was censored by the end
+of follow-up, so its level is drawn past that time. Off an atom before the last time no level
+reproduces the data, and the draw fails every non-anchor cell.
+
+**One cell.** Cause $k$'s level is scaled by $e^{-\gamma_k U}$ and inverted at the observed
+treatment, so the event model is read at $A$. The censoring level is scaled by
+$e^{\eta_c(A) - \eta_c(A')}$ where $A' \ne A$ and is left exact elsewhere, so censoring is redrawn
+at $A'$ only for flipped units.
+
+When several causes land on one atom, a tie uniform $R_X$ picks
+one in proportion to their shifted jumps. That is a convention of the replay, and $R_X$ is
+conditioned so that the observed cause wins at zero strength. An event is recorded before
+censoring at the same time. A unit followed past $\tau$, the largest observed time, is censored
+at $\tau$. The coupling streams are the $J + 3$ rows of one uniform draw from `coupling_seed`: one
+per cause, censoring, the tied set, and $R_X$.
+
+**Reading.** At zero strength the replayed data equal the observed data for any models that pass
+the replay's numerical check, and the anchor cell is the original estimate. Suppose the
+cause-specific and censoring hazards given $(A, L)$ are the replay's models and censoring is
+independent of the event given $(A, L)$. Then the posterior draws return the levels' prior law,
+and given $(L, A, A', U)$ the replayed event has cause-specific jumps
+$e^{\gamma_k U} h_k(\cdot \mid A, L)$ with the tie convention. The replayed censoring has the law
+at $(L, A')$ and $C' \perp (T^{e\prime}, D', U, A) \mid (L, A')$, so censoring stays at random
+given the replayed past, for every unit. When the models are wrong, censoring-model error enters
+where $A' \ne A$ and where follow-up extends, and event-model error enters every unit in
+proportion to $\gamma$ and wherever follow-up extends. Nothing here bounds that error, and the
+surface claims no bound.
+
+| item | law | witness |
+| --- | --- | --- |
+| identity | the general path at zero strength returns `time`, `event` and `treatment`, and a preflight checks it before any cell; a mismatch is a package defect that every non-anchor cell records | `test_simulated_confounding_continuous.py`: array equality on the sweep fit, its restricted-mean kind, a one-cause fit, an uncensored fit, a named cause, and a fit with times rounded to 0.1 (event-event and event-censoring ties). On the step law below, every unit observed at the shared atom keeps its cause, tied sets of two causes included, and the raw tie uniform reassigns some. A broken level makes every non-anchor cell record the package defect. A plain level for a censored unit's cause and a plain $E_c$ for an event unit each break it. In a treatment-only cell every unflipped unit is bit-identical, and a redraw of every unit's censoring breaks that |
+| known hazards | with constant proportional cause hazards supplied through the model seam, $T' = \min(T e^{-\gamma U}, \tau)$ and $D' = D$ below $\tau$; a named cause moves only its own latent time | equal to relative $10^{-12}$. The sign flip of $\gamma$, and a named cause that shifts every cause, each fail |
+| exact discrete law | on a step law with two causes sharing an atom and censoring sharing an atom with a cause, the replayed $(T', D')$ is the grouped law above and $(T^{e\prime}, D^{e\prime})$ is independent of $C'$, whose law is the censoring law at $A'$ | the coded replay integrated over its uniforms on exact breakpoint cells equals the declared law to $10^{-12}$ in every stratum of $(L, A, A')$ and at four $(U, \gamma)$. Rev 1's conditioning of the other causes past a shared atom, the event model read at $A'$, $E_c$ kept at the observed arm, and $E_c$ conditioned past $\Lambda_{0c}(T)$ instead of $\Lambda_{0c}(T^-)$ each fail it |
+| correct-model control | at n = 2,000, treatment strength 0.3 and $\gamma = 0.5$ with the true models, each cause's Cox fit on $(L, U)$ within each observed arm reads $\gamma$, and censoring's within each perturbed arm reads 0 | each $\lvert t \rvert$ below 4. Reading the event at $A'$, and keeping the observed censoring, each push one past 8 |
+| sign | at treatment strength 0, the correlation of $U$ with an event by the last target time has the sign of $\gamma$ | on the sweep fit at $\gamma = \pm 0.5$ |
+| calibration | the outcome row is the benchmark's coefficient in the replay's Cox model of each cause, a log-hazard ratio per standard deviation, the scale of $\gamma$ (`family="hazard"`, the cause in `component` on a competing fit). A Cox fit that did not converge, or models that cannot be read, give `nan` with their own method text | equal to an in-test Newton fit of the Breslow partial likelihood to $10^{-8}$, on a covariate with standard deviation near 5; reading the raw covariate fails. A covariate outside the hazards reads within 3 standard errors of 0 |
+| folds | when the root seed is the fit's own, each refit reuses the fit's fold plan (outer labels, each fold's inner labels and the generator state) and reports `refit_folds="original"`; an explicit other seed skips the plan, draws every split afresh, and reports `"redrawn"`, so each cell's movement then includes fold noise | a refit of the observed data under the plan equals the fit bit for bit, in sample and cross-fitted; a plan with another generator state changes `off_grid_share` |
+
+Each non-anchor cell reports three shares per unit, where a survival panel reports them per
+person-node:
+
+- `censoring_redrawn_share`: units whose treatment changed, so their censoring time was drawn at
+  $A'$, over all units; `None` without a censoring model;
+- `extended_share`: units whose replayed time exceeds the observed time, over all units;
+- `new_event_share`: replayed events whose time or cause differs from the observed event, over
+  replayed events; `None` when the cell has no event.
+
+The anchor cell reuses the fit and reports no shares. Each refit runs the engine's own guards. A
+cell with $\gamma > 0$ adds events and lowers late survival, so the engine's "initial survival
+reaches zero" error grows with $\gamma$. Such a cell is a recorded failure; the work planned
+under [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks) part (a) removes that
+error.
+
+A replay model with a non-finite linear predictor, or a zero or non-finite
+jump at an observed unit's own time, fails every non-anchor cell with that reason, and
+`replay_models` records each fit. The replay is $J + 1$ Cox fits per surface and one refit per
+non-anchor cell. An error while drawing the levels, like a failed preflight, is recorded as every
+non-anchor cell's failure. The reading is descriptive: no verdict, and no sign or monotonicity claim for
+the estimate.
 
 ### E-value
 

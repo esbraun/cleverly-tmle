@@ -665,8 +665,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     ratio of the fit. ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of
     :attr:`data` (the placebo on a contrast, the random common cause and the subset tests, all
     descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting walk at other
-    floors from refitted initial hazards. The simulated common cause and every other
-    sensitivity analysis refuse with their reason and roadmap item.
+    floors from refitted initial hazards. ``sensitivity.simulated_confounding()`` refits
+    :attr:`estimator` once per cell on event and censoring times redrawn from the replay's own
+    Cox fits under a simulated common cause, reusing the fit's fold plan under its own seed
+    (descriptive). Every other sensitivity analysis refuses with its reason and roadmap item.
     """
 
     estimates: dict[str, ParameterEstimate]

@@ -4,13 +4,15 @@
 ``"continuous_survival"``. Its diagnostics read the engine's own record: the hazard,
 censoring and treatment selections, the standardized scores of the targeting walk, the
 influence curves, and the treatment and censoring probabilities. The E-value reads the
-fit's risk ratio. The refutation and the truncation curve refit the estimator the result
-stores on its stored data (:mod:`cleverly.validation._continuous_survival_refute`,
-:func:`cleverly.survival.diagnostics.continuous_truncation_curve`). The simulated common cause
-and every other sensitivity analysis of :mod:`cleverly.sensitivity` read a point-treatment
-result's nuisance fits or targeting state, or derive a bound for a mean of one outcome
-regression. None of them is implemented or derived for a continuous-time risk, so each refuses
-with the record :func:`continuous_survival_refusal` returns. The capability rows declare the
+fit's risk ratio. The refutation, the truncation curve and the simulated common cause refit
+the estimator the result stores on its stored data
+(:mod:`cleverly.validation._continuous_survival_refute`,
+:func:`cleverly.survival.diagnostics.continuous_truncation_curve`,
+:mod:`cleverly.sensitivity._simulated_confounding_continuous`). Every other sensitivity
+analysis of :mod:`cleverly.sensitivity` reads a point-treatment result's nuisance fits or
+targeting state, or derives a bound for a mean of one outcome regression. None of them is
+derived for a continuous-time risk, so each refuses with the record
+:func:`continuous_survival_refusal` returns. The capability rows declare the
 same records, so a combined report names each refusal and never raises it.
 
 A leaf module: it imports :mod:`cleverly._refusal` only, and :mod:`cleverly.exceptions`
@@ -33,16 +35,6 @@ __all__ = [
 
 #: The assessment family of a continuous-time survival fit.
 CONTINUOUS_SURVIVAL_FAMILY: Final = "continuous_survival"
-
-#: The simulated common cause redraws event and censoring times under a latent shift.
-_SIMULATED: Final = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "no simulated-confounding replay is implemented for a continuous-time survival fit: the "
-    "replay redraws event and censoring times under a latent shift of the cause-specific "
-    "hazards, and the shipped survival replay reads a time grid.",
-    alternative="The placebo, random_common_cause and subset tests run on this fit.",
-    roadmap="X101",
-)
 
 #: The omitted-variable bounds read the Riesz representer of a point-treatment functional.
 _OMITTED: Final = Refusal(
@@ -103,7 +95,6 @@ _REPORT: Final = Refusal(
 
 #: The refusal of each refused operation, by the name its capability row declares.
 _BY_OPERATION: Final[dict[str, Refusal]] = {
-    "simulated_confounding": _SIMULATED,
     "omitted_confounding": _OMITTED,
     "robustness_value": _OMITTED,
     "elements": _OMITTED,
@@ -134,23 +125,23 @@ def continuous_survival_refusal(operation: str) -> Refusal:
     ----------
     operation : str
         A capability row's operation, or the free function that implements it, such as
-        ``"simulated_confounding"``, ``"omitted_confounding"`` or
+        ``"omitted_confounding"``, ``"marginal_bounds"`` or
         ``"omitted_variable_bounds"``. A name that no refused row covers is a point-treatment
         report.
 
     Returns
     -------
     Refusal
-        An ``implementation_gap`` record naming ``X101`` for the simulated common cause and
-        ``F16`` for the omitted-variable, marginal and tilt bounds; an ``invalid_declaration``
+        An ``implementation_gap`` record naming ``F16`` for the omitted-variable, marginal
+        and tilt bounds; an ``invalid_declaration``
         record for the correction identities, which the fit does not use; an
         ``api_redirection`` record for a point-treatment report.
 
     Examples
     --------
     >>> from cleverly._continuous_survival_family import continuous_survival_refusal
-    >>> continuous_survival_refusal("simulated_confounding").roadmap
-    'X101'
+    >>> continuous_survival_refusal("marginal_bounds").roadmap
+    'F16'
     >>> continuous_survival_refusal("omitted_variable_bounds").roadmap
     'F16'
     """

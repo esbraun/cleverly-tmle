@@ -823,7 +823,12 @@ def longitudinal_surface(
         n_repeats=max(len(repeats), 1),
         repeat_aggregation="coordinatewise_median",
         treatment_family="longitudinal",
-        outcome_family=data.family,
+        # A time to event is not a binary outcome, whatever family the panel resolves to.
+        outcome_family=(
+            ("competing_risks" if data.is_competing else "survival")
+            if request.survival
+            else data.family
+        ),
         treatment_law=(
             "Each binary node is flipped in the declared upper latent-normal tail, and each "
             "dose adds signed strength times the latent value. One latent value per unit is "
