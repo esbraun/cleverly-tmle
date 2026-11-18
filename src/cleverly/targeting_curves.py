@@ -51,6 +51,7 @@ from .exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from .inference.delta import reference_quantile, two_sided_pvalue
 from .utils.frames import frame_from_dict
 from .utils.memory import available_memory, check_max_memory_bytes, check_memory_budget
+from .utils.random import note_fresh_entropy
 
 __all__ = [
     "BLOCK_BYTES",
@@ -716,6 +717,8 @@ def half_sample_draws(
     budget_arg = check_max_memory_bytes(max_memory_bytes)
     gamma = evaluation.targeted if scores == "targeted" else evaluation.one_step
     mass = evaluation.mass
+    if random_state is None:
+        note_fresh_entropy()
     rng = np.random.default_rng(random_state)
     labels, inverse = np.unique(evaluation.units, return_inverse=True)
     inverse = inverse.astype(np.int64)

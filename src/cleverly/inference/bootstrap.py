@@ -53,6 +53,7 @@ from .._typing import FloatArray, IntArray
 from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
 from ..utils.parallel import map_parallel
+from ..utils.random import note_fresh_entropy
 from .delta import normal_cdf, normal_quantile
 from .influence import BootstrapInterval, BootstrapSummary
 
@@ -716,6 +717,8 @@ def _bootstrap_design(
     if use_clusters and data.cluster is None:
         raise ValueError("resampling='cluster' requires the data to carry cluster ids")
 
+    if random_state is None:
+        note_fresh_entropy()
     sequences = np.random.SeedSequence(random_state).spawn(n_replicates)
     codes = data.cluster if use_clusters else None
     members = None if codes is None else cluster_members(codes)

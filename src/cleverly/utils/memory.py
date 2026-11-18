@@ -194,14 +194,19 @@ def available_memory() -> int | None:
         return None
 
 
-def check_max_memory_bytes(value: Any) -> int | None:
-    """A ``max_memory_bytes=`` argument as a positive number of bytes, or ``None``.
+def check_max_memory_bytes(value: Any, *, name: str = "max_memory_bytes") -> int | None:
+    """A byte-budget argument as a positive number of bytes, or ``None``.
+
+    The caller decides what ``None`` means: a memory guard reads it as the memory available
+    now, and the assessment cache's ``max_bytes`` as no budget.
 
     Parameters
     ----------
     value : int or None
-        The argument: ``None`` for the memory available now, or a positive integer (a NumPy
-        integer too, but not a ``bool``).
+        The argument: ``None``, or a positive integer (a NumPy integer too, but not a
+        ``bool``).
+    name : str, default="max_memory_bytes"
+        The argument's name, as the error states it.
 
     Returns
     -------
@@ -217,16 +222,15 @@ def check_max_memory_bytes(value: Any) -> int | None:
 
     if value is None:
         return None
+    message = f"{name} must be a positive integer or None; got {value!r}"
     if isinstance(value, bool):
-        raise DataError(f"max_memory_bytes must be a positive integer or None; got {value!r}")
+        raise DataError(message)
     try:
         budget = operator.index(value)
     except TypeError:
-        raise DataError(
-            f"max_memory_bytes must be a positive integer or None; got {value!r}"
-        ) from None
+        raise DataError(message) from None
     if budget <= 0:
-        raise DataError(f"max_memory_bytes must be a positive integer or None; got {value!r}")
+        raise DataError(message)
     return int(budget)
 
 
