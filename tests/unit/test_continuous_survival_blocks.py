@@ -55,6 +55,7 @@ class Fit:
     run: Any
     vectors: tuple[np.ndarray, ...] | None
     overflowed: int
+    predictable: np.ndarray | None = None
 
 
 @contextmanager
@@ -98,6 +99,13 @@ def _patched(
                 seen["overflowed"] += int(out.sum())
             return out
 
+        dense_predictable = engine.dense_predictable
+
+        def capture_predictable(plan: Any, dlam: Any) -> Any:
+            seen["predictable"] = dense_predictable(plan, dlam)
+            return seen["predictable"]
+
+        patch.setattr(engine, "dense_predictable", capture_predictable)
         patch.setattr(engine.ContinuousSurvivalTMLE, "_target", capture_target)
         patch.setattr(_chunked, "run_walk", capture_run)
         patch.setattr(engine._OffGrid, "share", capture_share)
@@ -132,6 +140,7 @@ def _fit(
         seen["run"],
         seen.get("vectors"),
         seen["overflowed"],
+        seen.get("predictable"),
     )
 
 
@@ -285,6 +294,10 @@ def test_the_block_walk_equals_the_dense_walk_bit_for_bit(name: str, regime: str
     assert record.bounded_share == reference.bounded_share
     assert record.last_time_floor_share == reference.last_time_floor_share
     assert record.off_grid_share == reference.off_grid.share
+    # The switched variance's predictable variation, from the targeted jumps the final pass
+    # collects on the full grid.
+    assert fit.predictable is not None and reference.predictable is not None
+    assert np.array_equal(fit.predictable, reference.predictable)
     # R1: the off-grid score, plug-in and spread vectors, not only the share they give.
     assert fit.vectors is not None
     for ours, theirs in zip(
@@ -418,7 +431,7 @@ def test_a_restricted_direction_on_the_kept_grid_equals_the_dense_one() -> None:
     jumps = plan.initial(0)
     survival, incidence = T.curves(jumps)
     v = np.random.default_rng(0).normal(size=plan.n_targets)
-    ours = T._direction(problem, _chunked._light(survival, incidence), v)
+    ours = T._direction(problem, _chunked._light(survival, incidence), v, jumps)
 
     lo, hi = plan.bounds[0]
     full_jumps = initial.hazards.jumps(lo, hi)
@@ -429,7 +442,7 @@ def test_a_restricted_direction_on_the_kept_grid_equals_the_dense_one() -> None:
         plan._weight(0),
         initial.target_weights,
     )
-    theirs = dense._direction(full, dense.evaluate(full, full_jumps), v)
+    theirs = dense._direction(full, dense.evaluate(full, full_jumps), v, full_jumps)
     assert np.array_equal(ours, np.take(theirs, initial.kept, axis=-1))
 
 
@@ -463,12 +476,15 @@ def test_no_schedule_changes_a_bit(name: str) -> None:
 def test_the_memory_budget_changes_no_bit() -> None:
     name = "two causes"
     data = law(*FIXTURES[name][:2])
+    # The switched variance's predictable pass is dense in n M, so its smallest budget leaves
+    # room for every block; the influence-curve variance's is the walk's with none kept.
+    plain = {"variance": "influence_curve"}
     with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
-        estimator(name, max_memory_bytes=1).fit_data(data)
+        estimator(name, max_memory_bytes=1, **plain).fit_data(data)
     smallest = caught.value.predicted
     assert smallest is not None
-    tight = _fit(name, max_memory_bytes=smallest)
-    loose = _fit(name, max_memory_bytes=2**62)
+    tight = _fit(name, max_memory_bytes=smallest, **plain)
+    loose = _fit(name, max_memory_bytes=2**62, **plain)
     assert tight.run.replayed > 0 or len(engine.blocks(tight.initial.n, tight.initial.block)) == 1
     assert _bitwise(_record_fields(tight), _record_fields(loose)) == []
     assert tight.result.to_frame().equals(loose.result.to_frame())
@@ -785,6 +801,140 @@ def test_an_overflow_at_a_dropped_time_is_the_dense_walk_s(
     reference = _reference(fit, name, adjust_weight=heavy)
     assert _bitwise(_walk_fields(fit.run.result), _walk_fields(reference.result)) == []
     assert fit.result.record.off_grid_share == reference.off_grid.share
+
+
+class _Dropped:
+    """A plan stub for :meth:`_chunked._Walker.reach`: unit weights at every dropped time."""
+
+    def __init__(self, c: int, gaps: np.ndarray) -> None:
+        self.c, self.gaps = c, gaps
+        self.bounds = [(0, c)]
+
+    def dropped_weight(self, k: int) -> np.ndarray:
+        return np.ones((2, self.c))
+
+    def gap_ends(self) -> np.ndarray:
+        return self.gaps
+
+
+def _reach_case(
+    weights: np.ndarray, kept: np.ndarray, size: int, jumps: np.ndarray, restricted: bool
+) -> tuple[np.ndarray, np.ndarray, Any]:
+    """The walker's bound and the dense direction's largest positive value at dropped times."""
+    c = jumps.shape[2]
+    arm = np.arange(c) % 2
+    survival, incidence = T.curves(jumps)
+    G = kept.size
+    if restricted:
+        expand = np.searchsorted(kept, np.arange(size), side="right") - 1
+        walk_weights, extra = weights, (expand, kept)
+    else:
+        walk_weights, extra = weights[:, kept], ()
+    problem = T.Problem(
+        arm,
+        np.ones((c, G), bool),
+        np.zeros((1, c, G), bool),
+        np.ones((2, c, G)),
+        walk_weights,
+        *extra,
+    )
+    state = _chunked._State(jumps, survival, incidence, 0, problem)
+    gaps = np.flatnonzero(kept - np.concatenate([[-1], kept[:-1]]) > 1)
+    walker = _chunked._Walker(_Dropped(c, gaps), resident=0, tilt="all")  # type: ignore[arg-type]
+    v = np.ones(2 * weights.shape[0])
+    bound = walker.reach(0, state, v)
+    full = np.zeros((*jumps.shape[:3], size))
+    full[..., kept] = jumps
+    curves = T.curves(full)
+    dense_problem = T.Problem(
+        arm, np.ones((c, size), bool), np.zeros((1, c, size), bool), np.ones((2, c, size)), weights
+    )
+    direction = T._direction(dense_problem, _chunked._light(*curves), v, full)
+    dropped = np.ones(size, dtype=bool)
+    dropped[kept] = False
+    largest = np.maximum(direction[..., dropped].max(axis=(1, 3)), 0.0)
+    return bound, largest, (state, v, gaps, direction[..., dropped])
+
+
+def _difference_bound(state: Any, v: np.ndarray, gaps: np.ndarray) -> np.ndarray:
+    """The bound before the conditional risk, as main computed it: (R - F W) / S at each run."""
+    problem = state.problem
+    J, Q, c = problem.n_causes, problem.n_rows, problem.n
+    largest = np.zeros((2, c))
+    for a in (0, 1):
+        own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
+        revs = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]
+        W, before = revs[:, gaps], gaps - 1
+        first = before < 0
+        shared = np.zeros((c, gaps.size))
+        for j in range(J):
+            weighted = state.incidence[a, j] * own[j][None, :]
+            rev = np.cumsum(weighted[:, ::-1], axis=1)[:, ::-1][:, gaps]
+            F = np.where(first[None, :], 0.0, state.incidence[a, j][:, before])
+            shared += rev - F * W[j][None, :]
+        shared /= np.where(first[None, :], 1.0, state.survival[a][:, before])
+        largest[a] = np.maximum((W.max(axis=0)[None, :] - shared).max(axis=1), 0.0)
+    return largest
+
+
+def _steep_jumps(c: int, G: int, last: float) -> np.ndarray:
+    """One cause whose survival falls to about 1e-16 before a jump of 0.3 to 0.7."""
+    rng = np.random.default_rng(0)
+    jumps = np.zeros((2, 1, c, G))
+    jumps[..., : G - 4] = 0.9
+    jumps[..., G - 4 : G - 2] = rng.uniform(0.0, 0.8, size=(2, 1, c, 2))
+    jumps[..., G - 2] = rng.uniform(0.3, 0.7, size=(2, 1, c))
+    jumps[..., G - 1] = last
+    return jumps
+
+
+def test_the_overflow_bound_is_the_dense_direction_where_the_survival_is_tiny() -> None:
+    """The bound at dropped times is the conditional-risk direction's own value, bit for bit.
+
+    One cause and unit weights make the bound exact.  Where the survival before a run of
+    dropped times is near 1e-16, the difference form of the quotient loses every digit, and
+    the bound read from it falls below the direction by more than the margin between
+    ``OVERFLOW_BOUND`` and ``exp``'s overflow (witness of the rederived bound).
+    """
+    c, G = 400, 20
+    weights = np.zeros((1, G + 1))
+    kept = np.delete(np.arange(G + 1), G - 2)  # one dropped time, before the steep jump
+    weights[0, kept[-1]] = 1.0
+    bound, largest, (state, v, gaps, _) = _reach_case(
+        weights, kept, G + 1, _steep_jumps(c, G, 5e-4), restricted=False
+    )
+    assert np.array_equal(bound, largest)
+    assert state.survival[..., G - 3].max() < 1e-15
+    old = _difference_bound(state, v, gaps)
+    margin = 709.78 / _chunked.OVERFLOW_BOUND
+    assert (old * margin < largest).sum() >= 3
+
+
+@pytest.mark.parametrize("where", ["inner runs", "trailing run"])
+def test_the_restricted_overflow_bound_reads_every_run_of_dropped_times(where: str) -> None:
+    """A restricted mean's weights move within a run; the bound takes each run's largest W.
+
+    Dropped times lead, follow every kept time and trail the last one.  Weights on the whole
+    grid put the largest direction inside runs before the last kept time, where W at a dropped
+    time exceeds W at the run's end; weights only from the last kept time on put it in the
+    trailing run, where nothing follows and the quotient is zero.
+    """
+    c, G = 400, 20
+    size = 3 * G + 2
+    kept = np.arange(1, 3 * G, 3)
+    grid = np.linspace(0.1, 3.0, size)
+    if where == "inner runs":
+        weights = T.restricted_weights(grid, 2.95)[None, :]
+        jumps = _steep_jumps(c, G, 5e-4)
+    else:
+        weights = np.zeros((1, size))
+        weights[0, kept[-1] :] = 0.1
+        jumps = _steep_jumps(c, G, 0.5)
+    bound, largest, (_, _, _, dense) = _reach_case(weights, kept, size, jumps, restricted=True)
+    assert np.array_equal(bound, largest)
+    trailing = dense.shape[-1] - (size - 1 - kept[-1])
+    at = dense.argmax(axis=-1)
+    assert (at >= trailing).all() if where == "trailing run" else (at < trailing).all()
 
 
 def test_a_nan_initial_jump_is_kept_and_walked_as_the_dense_walk_walks_it() -> None:
