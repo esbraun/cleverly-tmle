@@ -99,13 +99,13 @@ def _patched(
                 seen["overflowed"] += int(out.sum())
             return out
 
-        dense_predictable = engine.dense_predictable
+        matrix = engine._Predictable.matrix
 
-        def capture_predictable(plan: Any, dlam: Any) -> Any:
-            seen["predictable"] = dense_predictable(plan, dlam)
+        def capture_predictable(self: Any) -> Any:
+            seen["predictable"] = matrix(self)
             return seen["predictable"]
 
-        patch.setattr(engine, "dense_predictable", capture_predictable)
+        patch.setattr(engine._Predictable, "matrix", capture_predictable)
         patch.setattr(engine.ContinuousSurvivalTMLE, "_target", capture_target)
         patch.setattr(_chunked, "run_walk", capture_run)
         patch.setattr(engine._OffGrid, "share", capture_share)
@@ -476,16 +476,18 @@ def test_no_schedule_changes_a_bit(name: str) -> None:
 def test_the_memory_budget_changes_no_bit() -> None:
     name = "two causes"
     data = law(*FIXTURES[name][:2])
-    # The switched variance's predictable pass is dense in n M, so its smallest budget leaves
-    # room for every block; the influence-curve variance's is the walk's with none kept.
-    plain = {"variance": "influence_curve"}
+    # The default switched variance: its smallest budget keeps no block, so the walk replays
+    # and the predictable variation is added from replayed blocks.
     with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
-        estimator(name, max_memory_bytes=1, **plain).fit_data(data)
+        estimator(name, max_memory_bytes=1).fit_data(data)
     smallest = caught.value.predicted
     assert smallest is not None
-    tight = _fit(name, max_memory_bytes=smallest, **plain)
-    loose = _fit(name, max_memory_bytes=2**62, **plain)
-    assert tight.run.replayed > 0 or len(engine.blocks(tight.initial.n, tight.initial.block)) == 1
+    tight = _fit(name, max_memory_bytes=smallest)
+    loose = _fit(name, max_memory_bytes=2**62)
+    assert len(engine.blocks(tight.initial.n, tight.initial.block)) > 1
+    assert tight.run.replayed > 0
+    assert tight.predictable is not None and loose.predictable is not None
+    assert np.array_equal(tight.predictable, loose.predictable)
     assert _bitwise(_record_fields(tight), _record_fields(loose)) == []
     assert tight.result.to_frame().equals(loose.result.to_frame())
 
@@ -818,10 +820,18 @@ class _Dropped:
 
 
 def _reach_case(
-    weights: np.ndarray, kept: np.ndarray, size: int, jumps: np.ndarray, restricted: bool
+    weights: np.ndarray,
+    kept: np.ndarray,
+    size: int,
+    jumps: np.ndarray,
+    restricted: bool,
+    v: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, Any]:
-    """The walker's bound and the dense direction's largest positive value at dropped times."""
-    c = jumps.shape[2]
+    """The walker's bound and the dense direction's largest positive value at dropped times.
+
+    ``v`` is the direction in target space, one everywhere by default.
+    """
+    J, c = jumps.shape[1:3]
     arm = np.arange(c) % 2
     survival, incidence = T.curves(jumps)
     G = kept.size
@@ -833,7 +843,7 @@ def _reach_case(
     problem = T.Problem(
         arm,
         np.ones((c, G), bool),
-        np.zeros((1, c, G), bool),
+        np.zeros((J, c, G), bool),
         np.ones((2, c, G)),
         walk_weights,
         *extra,
@@ -841,13 +851,13 @@ def _reach_case(
     state = _chunked._State(jumps, survival, incidence, 0, problem)
     gaps = np.flatnonzero(kept - np.concatenate([[-1], kept[:-1]]) > 1)
     walker = _chunked._Walker(_Dropped(c, gaps), resident=0, tilt="all")  # type: ignore[arg-type]
-    v = np.ones(2 * weights.shape[0])
+    v = np.ones(2 * J * weights.shape[0]) if v is None else v
     bound = walker.reach(0, state, v)
     full = np.zeros((*jumps.shape[:3], size))
     full[..., kept] = jumps
     curves = T.curves(full)
     dense_problem = T.Problem(
-        arm, np.ones((c, size), bool), np.zeros((1, c, size), bool), np.ones((2, c, size)), weights
+        arm, np.ones((c, size), bool), np.zeros((J, c, size), bool), np.ones((2, c, size)), weights
     )
     direction = T._direction(dense_problem, _chunked._light(*curves), v, full)
     dropped = np.ones(size, dtype=bool)

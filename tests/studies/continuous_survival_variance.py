@@ -287,25 +287,35 @@ def _no_square(clever: np.ndarray, dlam: np.ndarray, rho: np.ndarray) -> np.ndar
 def recording_no_square(holder: list[np.ndarray]) -> Iterator[None]:
     """While open, every fit also appends its PV matrix without the multinomial square.
 
-    The fit itself reads the shipped matrix; the mutated one is a reported reading only.
+    The fit itself reads the shipped matrix; the mutated one is a reported reading only, summed
+    over the same blocks of units beside it.
     """
-    original = engine_module.predictable_covariance
+    original = engine_module.PredictableVariation
 
-    def wrapped(problem: Any, evaluation: Any, dlam: Any, reach: Any = None) -> np.ndarray:
-        out = original(problem, evaluation, dlam, reach)
-        shipped = _targeting._multinomial_moment
-        _targeting._multinomial_moment = _no_square
-        try:
-            holder.append(original(problem, evaluation, dlam, reach))
-        finally:
-            _targeting._multinomial_moment = shipped
-        return out
+    class Recording(original):  # type: ignore[misc, valid-type]
+        def __init__(self, n: int, causes: int, rows: int) -> None:
+            super().__init__(n, causes, rows)
+            self.no_square = original(n, causes, rows)
 
-    engine_module.predictable_covariance = wrapped
+        def add(self, problem: Any, evaluation: Any, dlam: Any, reach: Any = None) -> None:
+            super().add(problem, evaluation, dlam, reach)
+            shipped = _targeting._multinomial_moment
+            _targeting._multinomial_moment = _no_square
+            try:
+                self.no_square.add(problem, evaluation, dlam, reach)
+            finally:
+                _targeting._multinomial_moment = shipped
+
+        def matrix(self) -> np.ndarray:
+            out = super().matrix()
+            holder.append(self.no_square.matrix())
+            return out
+
+    engine_module.PredictableVariation = Recording
     try:
         yield
     finally:
-        engine_module.predictable_covariance = original
+        engine_module.PredictableVariation = original
 
 
 def fit(frame: pd.DataFrame, scenario: str) -> tuple[Any, np.ndarray]:

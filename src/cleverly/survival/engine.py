@@ -49,12 +49,13 @@ from ._targeting import (
     _EMPTY,
     Evaluation,
     Norm,
+    PredictableVariation,
     Problem,
     curves,
     default_cutoff,
     evaluate_rows,
     point_weights,
-    predictable_covariance,
+    predictable_rows,
     restricted_weights,
 )
 from .cox import HazardSelection, StratifiedNelsonAalen, default_library, select_hazard
@@ -1283,12 +1284,12 @@ class ContinuousSurvivalTMLE:
         rng = np.random.default_rng()
         rng.bit_generator.state = initial.rng_state
         off_grid = _OffGrid(plan, rng)
-        # The switched variance reads the targeted jumps of every unit on the full grid,
-        # collected in the final pass.
-        targeted = _TargetedJumps(plan) if self.variance == "switched" else None
+        # The switched variance's predictable variation reads the targeted jumps on the full
+        # grid, a buffer of units at a time, in the final pass.
+        variation = _Predictable(plan) if self.variance == "switched" else None
         readers = [off_grid.add] if off_grid.active else []
-        if targeted is not None:
-            readers.append(targeted.add)
+        if variation is not None:
+            readers.append(variation.add)
 
         def final(k: int, lo: int, hi: int, state: Any) -> None:
             for reader in readers:
@@ -1306,15 +1307,12 @@ class ContinuousSurvivalTMLE:
         )
         result = run.result
         # Only the means and influence curves are read from here on; a walk that kept its one
-        # block returns its curves on the walk's grid, released before the dense pass below.
+        # block returns its curves on the walk's grid.
         result.dlam = _EMPTY
         result.evaluation = replace(result.evaluation, survival=_EMPTY, incidence=_EMPTY)
-        # Read now, so the diagnostic's (n, 2J x 100) spread is freed before the dense pass.
         off_grid_share = off_grid.share(cutoff)
-        predictable = None
-        if targeted is not None:
-            predictable = dense_predictable(plan, targeted.take())
-        del targeted
+        predictable = None if variation is None else variation.matrix()
+        del variation
         if not result.converged:
             worst = np.argsort(-result.standardized_score)[:3]
             _warn(
@@ -1667,19 +1665,33 @@ class _FitPlan:
         return out
 
 
-class _TargetedJumps:
-    """Every unit's targeted hazard jumps on the full grid, filled block by block.
+class _Predictable:
+    r"""The switched variance's predictable variation, accumulated in the final pass.
 
-    The final pass hands each block's targeted jumps on the walk's grid; the full grid's
-    dropped times keep their zero jumps, which no step moves.
+    The final pass hands each block of the walk its targeted jumps on the walk's grid, in row
+    order.  They are copied onto the full grid (zero at the dropped times, which no step moves)
+    into a buffer of :func:`~cleverly.survival._targeting.predictable_rows` units, cut where
+    :func:`~cleverly.survival._targeting.predictable_covariance` cuts its blocks.  When the
+    buffer is full its units' curves, bounded weight and floored ratio
+    :math:`\min(1, \hat\pi \hat S_c / g_{\min})` are built and added to a
+    :class:`~cleverly.survival._targeting.PredictableVariation`, so the pass holds one buffer
+    and every unit's plug-ins, whatever the walk's blocks, and its martingale term is the
+    dense matrix's bit for bit.
     """
 
     def __init__(self, plan: _FitPlan) -> None:
+        initial = plan.fit
         self.plan = plan
-        self.jumps: FloatArray | None = None
+        self.J = len(initial.causes)
+        self.M = initial.grid.size
+        Q = initial.target_weights.shape[0]
+        self.size = predictable_rows(self.J, Q, self.M)
+        self.variation = PredictableVariation(initial.n, self.J, Q)
+        self.start = 0
+        self.buffer: FloatArray | None = None
 
     def add(self, k: int, lo: int, hi: int, state: Any) -> None:
-        """Copy block ``k``'s targeted jumps into the full array.
+        """Copy block ``k``'s targeted jumps into the buffer, adding each buffer as it fills.
 
         Parameters
         ----------
@@ -1693,66 +1705,61 @@ class _TargetedJumps:
             Its targeted hazards.
         """
         initial = self.plan.fit
-        if self.jumps is None:
-            shape = (2, len(initial.causes), initial.n, initial.grid.size)
-            self.jumps = np.zeros(shape)
-        if self.plan.reduced:
-            self.jumps[:, :, lo:hi][..., initial.kept] = state.jumps
-        else:
-            self.jumps[:, :, lo:hi] = state.jumps
+        at = lo
+        while at < hi:
+            stop = min(self.start + self.size, initial.n)
+            if self.buffer is None:
+                self.buffer = np.zeros((2, self.J, stop - self.start, self.M))
+            end = min(hi, stop)
+            rows = slice(at - self.start, end - self.start)
+            source = state.jumps[:, :, at - lo : end - lo]
+            if self.plan.reduced:
+                self.buffer[:, :, rows][..., initial.kept] = source
+            else:
+                self.buffer[:, :, rows] = source
+            at = end
+            if end == stop:
+                self._flush(stop)
 
-    def take(self) -> FloatArray:
-        """The full array, which this collector then no longer holds.
+    def _flush(self, stop: int) -> None:
+        """Add the buffer's units ``self.start:stop`` and release it."""
+        plan, initial = self.plan, self.plan.fit
+        start, dlam = self.start, self.buffer
+        assert dlam is not None
+        self.buffer = None
+        b = stop - start
+        product = plan._product(start, stop)
+        weight = plan._inverse(start, stop, product)
+        # pi S_c w^2 = w min(1, pi S_c / floor): the predictable variation reads the floored
+        # weight squared, as P_n D^2 does.
+        floored = product / plan.floor
+        np.minimum(floored, 1.0, out=floored)
+        del product
+        # PredictableVariation reads the indicators' shapes only.
+        problem = Problem(
+            initial.A[start:stop],
+            np.broadcast_to(np.zeros(1, dtype=bool), (b, self.M)),
+            np.broadcast_to(np.zeros(1, dtype=bool), (self.J, b, self.M)),
+            weight,
+            initial.target_weights,
+        )
+        # The curves are passed without a name here, so the incidences are released once the
+        # plug-ins are read.
+        self.variation.add(
+            problem, Evaluation(_EMPTY, _EMPTY, _EMPTY, *curves(dlam)), dlam, floored
+        )
+        self.start = stop
+
+    def matrix(self) -> FloatArray:
+        """``(P, P)`` the second moments, once every unit has been added.
 
         Returns
         -------
         ndarray
-            ``(2, J, n, M)`` the targeted jumps.
+            The matrix of :func:`~cleverly.survival._targeting.predictable_covariance` at the
+            targeted jumps on the full grid.
         """
-        assert self.jumps is not None
-        jumps, self.jumps = self.jumps, None
-        return jumps
-
-
-def dense_predictable(plan: _FitPlan, dlam: FloatArray) -> FloatArray:
-    r"""The predictable-variation second moments at the targeted jumps, on the full grid.
-
-    The bounded product, its floored ratio :math:`\min(1, \hat\pi \hat S_c / g_{\min})` and
-    the curves are rebuilt for every unit at once, as the dense engine held them, and passed to
-    :func:`~cleverly.survival._targeting.predictable_covariance`.
-
-    Parameters
-    ----------
-    plan : _FitPlan
-        The walk's blocks, its floor and its fit.
-    dlam : ndarray
-        ``(2, J, n, M)`` the targeted jumps; this function releases them.
-
-    Returns
-    -------
-    ndarray
-        ``(P, P)`` the second moments.
-    """
-    initial = plan.fit
-    n, M = initial.n, initial.grid.size
-    product = plan._product(0, n)
-    weight = plan._inverse(0, n, product)
-    # pi S_c w^2 = w min(1, pi S_c / floor): the predictable variation reads the floored weight
-    # squared, as P_n D^2 does.
-    floored = product / plan.floor
-    np.minimum(floored, 1.0, out=floored)
-    del product
-    survival, incidence = curves(dlam)
-    # predictable_covariance reads the indicators' shapes only.
-    problem = Problem(
-        initial.A,
-        np.broadcast_to(np.zeros(1, dtype=bool), (n, M)),
-        np.broadcast_to(np.zeros(1, dtype=bool), (len(initial.causes), n, M)),
-        weight,
-        initial.target_weights,
-    )
-    evaluation = Evaluation(_EMPTY, _EMPTY, _EMPTY, survival, incidence)
-    return predictable_covariance(problem, evaluation, dlam, floored)
+        return self.variation.matrix()
 
 
 def walk_grid(

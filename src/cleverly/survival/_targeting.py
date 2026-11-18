@@ -632,6 +632,27 @@ def _multinomial_moment(clever: FloatArray, dlam: FloatArray, rho: FloatArray) -
     return out
 
 
+def predictable_rows(causes: int, rows: int, times: int) -> int:
+    """Units per block of the predictable-variation pass, at least one.
+
+    Parameters
+    ----------
+    causes : int
+        Causes ``J``.
+    rows : int
+        Weight rows ``Q``.
+    times : int
+        Grid size ``M``.
+
+    Returns
+    -------
+    int
+        Units whose ``(J, J Q, units, M)`` clever covariates hold about ``_PV_BLOCK_CELLS``
+        cells.
+    """
+    return max(1, _PV_BLOCK_CELLS // max(1, causes * causes * rows * times))
+
+
 def _martingale_block(
     problem: Problem,
     evaluation: Evaluation,
@@ -650,7 +671,7 @@ def _martingale_block(
     # W_q(u_m) = sum over m' >= m of the row's weights, the same for every unit.
     tail = np.cumsum(problem.target_weights[:, ::-1], axis=1)[:, ::-1]  # (Q, M)
     out = np.zeros((J * Q, J * Q))
-    block = max(1, _PV_BLOCK_CELLS // max(1, J * J * Q * M))
+    block = predictable_rows(J, Q, M)
     for start in range(0, n, block):
         rows = slice(start, min(n, start + block))
         weight = problem.weight[a][rows]
@@ -667,8 +688,93 @@ def _martingale_block(
                 clever[l, cols] = -shared
                 if l == j:
                     clever[l, cols] += tail[:, None, :]
+            # Released before the moment, which then holds only the covariates.
+            del shared
         out += _multinomial_moment(clever, dlam[a][:, rows], rho)
+        del clever, rho
     return out
+
+
+class PredictableVariation:
+    r"""The predictable-variation second moments, summed over consecutive blocks of units.
+
+    :meth:`add` takes the units of one block, in row order, and :meth:`matrix` returns
+    :func:`predictable_covariance` of every unit added: each unit's plug-ins are kept, so the
+    plug-in covariance is centred once at the end, and the martingale term of each arm is
+    carried as a running sum.  A block of at most :func:`predictable_rows` units adds its term
+    as one block of :func:`predictable_covariance` does, so blocks of that size, cut where it
+    cuts them, give its matrix bit for bit.
+
+    Parameters
+    ----------
+    n : int
+        The units that will be added.
+    causes : int
+        Causes ``J``.
+    rows : int
+        Weight rows ``Q``.
+    """
+
+    def __init__(self, n: int, causes: int, rows: int) -> None:
+        self.n = int(n)
+        self.causes, self.rows = int(causes), int(rows)
+        self.plugins = np.zeros((self.n, 2 * self.causes * self.rows))
+        self.moments = np.zeros((2, self.causes * self.rows, self.causes * self.rows))
+        self.added = 0
+
+    def add(
+        self,
+        problem: Problem,
+        evaluation: Evaluation,
+        dlam: FloatArray,
+        reach: FloatArray | None = None,
+    ) -> None:
+        r"""Add the next units in row order.
+
+        Parameters
+        ----------
+        problem : Problem
+            Their fixed inputs; the weight and the target weights are read, and the
+            indicators' shapes only.
+        evaluation : Evaluation
+            Their survival and incidences at ``dlam``.
+        dlam : ndarray
+            ``(2, J, b, M)`` their hazard jumps.
+        reach : ndarray or None
+            ``(2, b, M)`` :math:`\min(1, \hat\pi \hat S_c(u^-) / g_{\min})`, or ``None`` to
+            read one everywhere.
+        """
+        J, Q = self.causes, self.rows
+        start, stop = self.added, self.added + problem.n
+        rows = problem.target_weights.T
+        for a in (0, 1):
+            for j in range(J):
+                cols = slice((a * J + j) * Q, (a * J + j + 1) * Q)
+                self.plugins[start:stop, cols] = evaluation.incidence[a, j] @ rows
+        # The martingale term reads the survival only; a caller that passes the evaluation
+        # without keeping it lets its incidences go here.
+        survival = Evaluation(_EMPTY, _EMPTY, _EMPTY, evaluation.survival, _EMPTY)
+        del evaluation
+        for a in (0, 1):
+            self.moments[a] += _martingale_block(problem, survival, dlam, reach, a)
+        self.added = stop
+
+    def matrix(self) -> FloatArray:
+        """``(P, P)`` the second moments of every unit added, divided by :math:`n`.
+
+        Returns
+        -------
+        ndarray
+            The matrix of :func:`predictable_covariance`.
+        """
+        assert self.added == self.n, "every unit is added before the matrix is read"
+        n, JQ = self.n, self.causes * self.rows
+        centred = self.plugins - self.plugins.mean(axis=0)
+        out = centred.T @ centred / n
+        for a in (0, 1):
+            block = slice(a * JQ, (a + 1) * JQ)
+            out[block, block] += self.moments[a] / n
+        return out
 
 
 def predictable_covariance(
@@ -695,7 +801,8 @@ def predictable_covariance(
     At the true nuisances on a sample that is its own law, the matrix equals the population
     covariance of the influence curves: the conditional covariance of the martingale part
     integrates to its second moment, and its cross term with :math:`\hat F` is zero (X6 plan,
-    2.1.3, a derivation).  Its diagonal is the predictable variance of each target.
+    2.1.3, a derivation).  Its diagonal is the predictable variance of each target.  The
+    engine adds its units block by block through :class:`PredictableVariation`.
 
     Parameters
     ----------
@@ -715,16 +822,6 @@ def predictable_covariance(
         Population second moments (divided by :math:`n`), in the order of ``evaluation``'s
         influence columns.
     """
-    J, Q = problem.n_causes, problem.n_rows
-    n = problem.n
-    rows = problem.target_weights.T
-    plugins = np.zeros((n, 2 * J * Q))
-    for a in (0, 1):
-        for j in range(J):
-            plugins[:, (a * J + j) * Q : (a * J + j + 1) * Q] = evaluation.incidence[a, j] @ rows
-    centred = plugins - plugins.mean(axis=0)
-    out = centred.T @ centred / n
-    for a in (0, 1):
-        block = slice(a * J * Q, (a + 1) * J * Q)
-        out[block, block] += _martingale_block(problem, evaluation, dlam, reach, a) / n
-    return out
+    variation = PredictableVariation(problem.n, problem.n_causes, problem.n_rows)
+    variation.add(problem, evaluation, dlam, reach)
+    return variation.matrix()

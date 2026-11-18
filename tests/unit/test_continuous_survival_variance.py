@@ -545,15 +545,30 @@ def test_the_stored_variances_read_the_walks_matrix_in_time_units_over_n_minus_o
     """
     from cleverly.survival import engine as engine_module
 
-    calls: list[tuple[Any, np.ndarray]] = []
-    original = engine_module.predictable_covariance
+    calls: list[tuple[Any, np.ndarray, np.ndarray]] = []
+    original = engine_module.PredictableVariation
 
-    def spy(problem: Any, evaluation: Any, dlam: Any, reach: Any = None) -> np.ndarray:
-        out = original(problem, evaluation, dlam, reach)
-        calls.append((reach, out, original(problem, evaluation, dlam, None)))
-        return out
+    class Spy(original):  # type: ignore[misc, valid-type]
+        """Every block's floored factor, and the matrix again with none."""
 
-    monkeypatch.setattr(engine_module, "predictable_covariance", spy)
+        def __init__(self, n: int, causes: int, rows: int) -> None:
+            super().__init__(n, causes, rows)
+            self.unfloored = original(n, causes, rows)
+            self.reaches: list[np.ndarray] = []
+
+        def add(self, problem: Any, evaluation: Any, dlam: Any, reach: Any = None) -> None:
+            super().add(problem, evaluation, dlam, reach)
+            self.unfloored.add(problem, evaluation, dlam, None)
+            self.reaches.append(reach)
+
+        def matrix(self) -> np.ndarray:
+            out = super().matrix()
+            missing = any(reach is None for reach in self.reaches)
+            reach = None if missing else np.concatenate(self.reaches, axis=1)
+            calls.append((reach, out, self.unfloored.matrix()))
+            return out
+
+    monkeypatch.setattr(engine_module, "PredictableVariation", Spy)
     tau = 1.5
     subject = ContinuousSurvivalTMLE(
         [0.5, 1.0],

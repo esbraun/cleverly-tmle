@@ -21,15 +21,13 @@ units of a block, ``P = 2 J Q`` targets and ``E`` the trial steps a pass evaluat
   censoring weights, as the pass that checks the initial fit builds them.
 * ``walk``: the kept blocks, a rebuilt block or a block's trial step (its direction, candidate,
   curves and score temporaries), and the full ``(n, P)`` arrays of each trial.
-* ``off_grid``: the walk's state beside one ``(n, 2J x 100)`` array of the off-grid diagnostic,
-  and under ``variance="switched"`` the ``(2, J, n, M)`` targeted jumps on the full grid that the
-  final pass collects.
-* ``predictable``: under ``variance="switched"`` only, the dense pass of
-  :func:`~cleverly.survival.engine.dense_predictable`: the targeted jumps, their curves, the
-  bounded inverse weight and the floored ratio :math:`\min(1, \hat\pi \hat S_c / g_{\min})`
-  on the full grid, beside one block of
-  :func:`~cleverly.survival._targeting.predictable_covariance`'s temporaries, whose units per
-  block keep them near ``_PV_BLOCK_CELLS`` cells.  It grows as ``n M``, not with the blocks.
+* ``off_grid``: the final pass: the walk's state beside one ``(n, 2J x 100)`` array of the
+  off-grid diagnostic, and under ``variance="switched"`` the predictable variation
+  (``engine._Predictable``): every unit's ``(n, P)`` plug-ins and one
+  buffer of targeted jumps on the full grid, ``(2, J, b, M)`` for the ``b`` units of
+  :func:`~cleverly.survival._targeting.predictable_rows`, with that buffer's weights, curves
+  and moment temporaries, which hold about ``_PV_BLOCK_CELLS`` cells.  It grows with ``n``
+  only through the plug-ins.
 * ``band``: the multiplier buffer of :func:`~cleverly.inference.simultaneous_bands`.
 
 The prediction does not cover a user learner's own allocations.
@@ -43,7 +41,7 @@ from typing import Any, Final
 from ..exceptions import MethodConfigurationError
 from ..inference.multiplier import _BLOCK_BYTES
 from ..utils.memory import available_memory
-from ._targeting import _PV_BLOCK_CELLS
+from ._targeting import predictable_rows
 
 #: Bytes of one float64.
 F8: Final = 8
@@ -221,20 +219,30 @@ def _replay(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) 
     )
 
 
-def _predictable(n: int, J: int, M: int, Q: int) -> int:
-    """The dense pass of the switched variance after the walk, at its peak."""
-    A = n * M
-    # The targeted jumps beside the bounded product, its floored ratio and inverse weight; then
-    # beside the ratio, the weight and the curves being formed (survival, the survival before
-    # each time and the incidences).
-    prepare = 16 * J * A + max(48 * A, 32 * A + 32 * A + 16 * J * A)
-    # predictable_covariance: per block of b units, b M cells, the clever covariates
-    # (J, J Q, b, M) beside the first moment, the scaled covariates and one product (J Q, b, M
-    # each) and the block's weights; and the (n, P) plug-ins, centred.
-    b = min(n, max(1, _PV_BLOCK_CELLS // max(1, J * J * Q * M)))
-    blocked = F8 * b * M * (J * J * Q + 3 * J * Q + 4) + 2 * F8 * n * 2 * J * Q
-    held = 32 * J * A + 48 * A
-    return max(prepare, held + blocked)
+def _variation(n: int, J: int, M: int, Q: int) -> tuple[int, int]:
+    """The switched variance's predictable pass in the final pass: what it keeps and adds.
+
+    Returns the bytes it keeps through the final pass and the most its buffer's moment adds
+    beside them, both bounded by one buffer of ``predictable_rows`` units, not by ``n M``.
+    """
+    b = min(n, predictable_rows(J, Q, M))
+    bM = b * M
+    # Every unit's plug-ins (n, P) and the buffer of targeted jumps on the full grid (2, J, b, M).
+    kept = F8 * n * 2 * J * Q + 16 * J * bM
+    working = max(
+        # The buffer's censoring weight: the censoring jumps, their product limit, the product
+        # with the propensity and its bounded inverse, then the floored ratio.
+        64 * bM,
+        # The bounded weight and the floored ratio beside the curves being formed (survival,
+        # the survival just before each time, its combined jump and the incidences).
+        32 * bM + 48 * bM + 16 * J * bM,
+        # The weight, the ratio and the survival beside one arm's moment: the clever
+        # covariates (J, J Q, b, M) with the first moment, the scaled covariates and one
+        # product (J Q, b, M each), and the arm's weights and their square roots.  Forming the
+        # covariates, one cause's conditional risks and their reverse sums (3 Q) hold less.
+        48 * bM + F8 * bM * (J * J * Q + 3 * J * Q + 2),
+    )
+    return kept, working
 
 
 def _final(c: int, J: int, G: int, width: int) -> int:
@@ -265,7 +273,7 @@ def peak_bytes(
     rungs: int | None = None,
     block: int | None = None,
     folds: int = 1,
-    switched: bool = False,
+    switched: bool,
 ) -> PeakEstimate:
     """Predict the bytes a continuous-time fit holds at once, by phase.
 
@@ -314,7 +322,8 @@ def peak_bytes(
         block's units each.
     switched : bool
         Whether the fit reports the switched variance (``variance="switched"``), whose final
-        pass collects the targeted jumps on the full grid for the dense predictable pass.
+        pass adds the targeted jumps on the full grid to the predictable variation, one buffer
+        of units at a time.
 
     Returns
     -------
@@ -375,29 +384,35 @@ def peak_bytes(
     # The (n, P) arrays: the initial and current influence curves, each trial's parts and
     # plug-ins and its retry's, a summary being formed, and the low masks.
     held = influence * (4 + 4 * E) + 2 * n * (E + 1)
-    final_rows = slot + _final(c, J, G, width)
+
+    def final_phase(rows: int, kept: int) -> int:
+        """The final pass, whose largest working arrays beside a block's state are ``rows``."""
+        if all_kept:
+            # Every block's state is in ``resident``; the pass works on each in place.
+            out = resident - slot + max(replay, rows)
+        else:
+            out = resident + max(rebuild, replay, rows)
+        return out + 2 * influence + F8 * n * width + kept
+
     if all_kept:
         # Every block's state is in ``resident``: the first pass builds the last block beside
         # the others, and a later pass works on a kept block in place.
         last = slot_bytes(n - (K - 1) * c, J, G)
         walk = held + max(resident - last + rebuild, resident - slot + max(trial, replay))
-        final = resident - slot + max(replay, final_rows)
     else:
         walk = held + resident + max(rebuild, replay, trial)
-        final = resident + max(rebuild, replay, final_rows)
-    final += 2 * influence + F8 * n * width
-    # The targeted jumps on the full grid, filled by the final pass under "switched".
-    final += 16 * J * n * M if switched else 0
+    final_rows = slot + _final(c, J, G, width)
+    # Under "switched" the final pass also adds each buffer of targeted jumps on the full grid
+    # to the predictable variation, beside the block's state.
+    variation, adding = _variation(n, J, M, Q) if switched else (0, 0)
     band = (BAND_BUFFER + F8 * int(n_multiplier) * P * 3) if simultaneous else 0
     phases = {
         "nuisance": nuisance,
         "initial": initial,
         "walk": walk,
-        "off_grid": final,
+        "off_grid": final_phase(max(final_rows, slot + adding), variation),
         "band": 5 * influence + band,
     }
-    if switched:
-        phases["predictable"] = 2 * influence + _predictable(n, J, M, Q)
     return PeakEstimate({name: value + fixed for name, value in phases.items()}, n, J, M, Q)
 
 
