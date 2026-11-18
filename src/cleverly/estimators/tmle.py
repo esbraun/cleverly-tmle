@@ -5427,7 +5427,10 @@ class TMLE:
                 stratified, codes = self._stratum_estimates(
                     data,
                     targeted,
-                    REPORTED_GROUP.get(group, group),
+                    # The stratified log-ratio group reads its strata as the log-ratio
+                    # group would; the natural-course group keeps its own name, because its
+                    # stratum means need the natural-course fluctuation's construction.
+                    (REPORTED_GROUP[group] if group == STRATIFIED_RATIO_GROUP else group),
                     submodel,
                     targeting_submodel,
                     fluctuation,
