@@ -7,8 +7,10 @@ alone, so the route appends those indicators to the dose (``_policy_steps``).
 
 - W11a: on five laws the steps lower the ratio error where the policy makes a jump, and
   leave it where it makes none; each kind of column has a mutation that fails.
-- W11b: fold-tuned caps use each fold's map; without a declared support the support term is
-  always true, so a held-out sample maximum keeps its ratio.
+- W11b: fold-tuned caps use each fold's map; without a declared support a side of the fold's
+  observed training range is read only where a training image passes it (at risk at a
+  longitudinal node), so a held-out sample maximum keeps its ratio and an undeclared bounded
+  dose keeps its edge step.
 - W11c: the column order ``[A, atoms, steps, H]``, and the ``policy_steps = "omit"`` opt-out.
 - W11d: the longitudinal node's columns are its lowered maps' indicators.
 - W11e: a constant column, or one equal to an atom indicator, is dropped per fold.
@@ -155,7 +157,9 @@ def _mutated_steps(kind: str) -> Any:
     support term of ``s_k``, and ``rev3`` types the steps on the dose alone (the region below
     the smallest dose plus one, and the held region above the pooled knee)."""
 
-    def build(branches_by_fold: Any, frame: Any, n: int, bounds: Any, observed: Any) -> Any:
+    def build(
+        branches_by_fold: Any, frame: Any, n: int, bounds: Any, observed: Any, atoms: Any
+    ) -> Any:
         natural = np.asarray(observed, dtype=float)
         maps = [branch.lowered(frame, n) for branch in branches_by_fold[0]]
         if kind == "rev3":
@@ -169,8 +173,23 @@ def _mutated_steps(kind: str) -> Any:
 
             return dose_only
 
+        def observed_bound(train: Any) -> tuple[float, float]:
+            """The shipped one-sided observed bound, so each mutation removes one kind."""
+            seen = natural[train]
+            low, high = -np.inf, np.inf
+            for lowered in maps:
+                for piece in lowered.smooth:
+                    with np.errstate(all="ignore"):
+                        source = np.asarray(piece.inverse(natural), dtype=float)[train]
+                    ok = np.isfinite(source)
+                    safe = np.where(ok, source, seen)
+                    reached = safe[ok & np.asarray(piece.inside(safe), dtype=bool)]
+                    low = seen.min() if np.any(reached < seen.min()) else low
+                    high = seen.max() if np.any(reached > seen.max()) else high
+            return low, high
+
         def steps(dose: Any, rows: Any, fold: int, train: Any) -> np.ndarray:
-            low, high = (natural[train].min(), natural[train].max()) if bounds is None else bounds
+            low, high = observed_bound(train) if bounds is None else bounds
             x = natural.copy()
             x[rows] = dose
             columns = []
@@ -200,6 +219,8 @@ def test_w11a_the_steps_lower_the_error_where_the_policy_jumps() -> None:
     for case in ("T", "Gcap", "Bp2"):
         steps, plain = _median(case, Logit()), _median(case, OmitLogit())
         assert steps <= 0.75 * plain, (case, steps, plain)
+    # Gneg keeps a column: its images a + 1 pass the fold's largest training dose, so the
+    # observed top is read (W11b) and the comparison is not true by construction.
     steps, plain = _median("Gneg", Logit()), _median("Gneg", OmitLogit())
     assert abs(steps / plain - 1.0) <= 0.10, (steps, plain)
     assert max(abs(_top_bias(d, Logit())) for d in range(5)) <= 0.05
@@ -244,39 +265,73 @@ def _record_steps(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, ...]]:
     return calls
 
 
-def _gneg_support_term_is_true(monkeypatch: pytest.MonkeyPatch) -> bool:
+def _gneg_bounds_hold(monkeypatch: pytest.MonkeyPatch) -> bool:
+    """``Shift(-1)`` on law G with no declared support: its images ``a + 1`` pass the fold's
+    largest training dose and never its smallest, so the column is ``1{x + 1 <= max}``."""
     calls = _record_steps(monkeypatch)
-    data, _ = _data("Gneg", 400, 0)
+    data, frame = _data("Gneg", 400, 0)
+    a = frame["A"].to_numpy()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         PolicySet.evaluate_by_classifier(
             (Shift(-1.0, cap=None),), data, Logit(), make_folds(400, 5, random_state=0)
         )
-    return len(calls) == 10 and all(np.all(columns == 1.0) for *_, columns in calls)
+    held = []
+    for _, train, dose, columns in calls:
+        expected = dose + 1.0 <= a[train].max()
+        held.append(np.array_equal(columns[:, 0], expected.astype(float)))
+    return len(calls) == 10 and all(held)
 
 
-def test_w11b_without_a_declared_support_the_support_term_is_true(
+def test_w11b_a_side_some_training_image_passes_reads_the_fold_training_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An observed range is not a support: the uncapped shift's column is constant."""
-    assert _gneg_support_term_is_true(monkeypatch)
+    assert _gneg_bounds_hold(monkeypatch)
+
+
+def _whole_sample_bounds(monkeypatch: pytest.MonkeyPatch, rows: Any) -> None:
+    """The mutation: the observed bound read from ``rows`` instead of the fold's own."""
+    real = policy_module._policy_steps
+
+    def build(*args: Any) -> Any:
+        steps = real(*args)
+        return lambda dose, at, fold, train: steps(dose, at, fold, rows)
+
+    monkeypatch.setattr(policy_module, "_policy_steps", build)
+
+
+def test_w11b_bounds_over_the_whole_sample_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    _whole_sample_bounds(monkeypatch, np.arange(400))
+    assert not _gneg_bounds_hold(monkeypatch)
 
 
 def _observed_range_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The mutation: an undeclared support read as the fold's observed training range."""
+    """The mutation: both sides of the fold's observed training range, reached or not."""
     real = policy_module._policy_steps
 
-    def build(branches: Any, frame: Any, n: int, bounds: Any, observed: Any) -> Any:
+    def build(branches: Any, frame: Any, n: int, bounds: Any, observed: Any, atoms: Any) -> Any:
         if bounds is not None:
-            return real(branches, frame, n, bounds, observed)
+            return real(branches, frame, n, bounds, observed, atoms)
         natural = np.asarray(observed, dtype=float)
 
         def steps(dose: Any, rows: Any, fold: int, train: Any) -> np.ndarray:
             seen = natural[train]
             empirical = (np.full(n, seen.min()), np.full(n, seen.max()))
-            return real(branches, frame, n, empirical, observed)(dose, rows, fold, train)
+            return real(branches, frame, n, empirical, observed, atoms)(dose, rows, fold, train)
 
         return steps
+
+    monkeypatch.setattr(policy_module, "_policy_steps", build)
+
+
+def _infinite_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: no support term at all without a declaration (both sides infinite)."""
+    real = policy_module._policy_steps
+
+    def build(branches: Any, frame: Any, n: int, bounds: Any, observed: Any, atoms: Any) -> Any:
+        if bounds is None:
+            bounds = (np.full(n, -np.inf), np.full(n, np.inf))
+        return real(branches, frame, n, bounds, observed, atoms)
 
     monkeypatch.setattr(policy_module, "_policy_steps", build)
 
@@ -284,7 +339,7 @@ def _observed_range_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
 def _held_out_maximum(draw: int) -> tuple[float, float]:
     """Law G with its largest dose moved 1.5 past the next: ``(r_n, r0)`` there under
     ``Shift(1)`` with no declared support.  The row's fold trains on doses all below its
-    dose minus one."""
+    dose minus one, and no training image ``a - 1`` passes the training maximum."""
     frame = law.draw("G", 400, 9400 * 400 + draw)
     top = int(np.argmax(frame["A"].to_numpy()))
     frame.loc[frame.index[top], "A"] = np.sort(frame["A"].to_numpy())[-2] + 1.5
@@ -311,11 +366,47 @@ def test_w11b_observed_range_bounds_zero_the_held_out_maximum(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _observed_range_bounds(monkeypatch)
-    assert not _gneg_support_term_is_true(monkeypatch)
     zeroed = [
         draw for draw in range(5) if _held_out_maximum(draw)[0] < 0.1 * _held_out_maximum(draw)[1]
     ]
     assert len(zeroed) >= 2, zeroed
+
+
+def _exponential_dose(draw: int) -> tuple[float, float]:
+    """``A | W ~ Exp(1 + W / 2)`` on ``[0, inf)``, undeclared, under ``Shift(0.5)``: the ratio
+    error, and the mean ratio on ``a < 0.5``, where the true ratio is 0 because ``a - 0.5``
+    lies below the dose's edge (the step a bounded dose keeps)."""
+    rng = np.random.default_rng(9500 + draw)
+    w = rng.uniform(0.0, 1.0, 1000)
+    rate = 1.0 + 0.5 * w
+    a = rng.exponential(1.0 / rate)
+    frame = pd.DataFrame({"W": w, "A": a, "Y": rng.normal(a + w)})
+    r0 = np.where(a >= 0.5, np.exp(0.5 * rate), 0.0)
+    data = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=["W"], treatment_kind="continuous"
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        evaluated = PolicySet.evaluate_by_classifier(
+            (Shift(0.5, cap=None),), data, Logit(), make_folds(1000, 5, random_state=0)
+        )
+    rn = np.asarray(evaluated.ratio[:, 0], dtype=float)
+    return float(np.sqrt(np.mean((rn - r0) ** 2))), float(np.mean(rn[a < 0.5]))
+
+
+def test_w11b_an_undeclared_bounded_dose_keeps_its_edge_step() -> None:
+    for draw in range(2):
+        error, bottom = _exponential_dose(draw)
+        assert error <= 0.25 and bottom <= 0.05, (draw, error, bottom)
+
+
+def test_w11b_without_the_observed_bound_the_edge_step_is_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _infinite_bounds(monkeypatch)
+    for draw in range(2):
+        error, bottom = _exponential_dose(draw)
+        assert error >= 1.0 and bottom >= 0.3, (draw, error, bottom)
 
 
 def test_w11b_each_fold_lowers_its_own_tuned_cap(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -334,6 +425,91 @@ def test_w11b_each_fold_lowers_its_own_tuned_cap(monkeypatch: pytest.MonkeyPatch
     assert {fold for fold, *_ in calls} == {0, 1, 2}
     for fold, _, dose, columns in calls:
         np.testing.assert_array_equal(columns[:, 1], (dose > caps[fold] - 1.0).astype(float))
+
+
+def _censored_panel(n: int = 600, seed: int = 0) -> pd.DataFrame:
+    """Two continuous doses on ``[4, 10]`` with monotone censoring after each node."""
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+    a1 = rng.uniform(4.0, 10.0, n)
+    c1 = rng.binomial(1, 1.0 / (1.0 + np.exp(-(1.5 + 0.3 * w)))).astype(float)
+    l2 = rng.normal(0.1 * a1, 1.0)
+    a2 = np.clip(rng.uniform(4.0, 10.0, n) + 0.1 * l2, 4.0, 10.0)
+    c2 = rng.binomial(1, 0.9, n).astype(float)
+    y = rng.normal(0.1 * a1 + 0.1 * a2 + w, 1.0)
+    alive1, alive2 = c1 == 1.0, (c1 == 1.0) & (c2 == 1.0)
+    return pd.DataFrame(
+        {
+            "W": w,
+            "A1": a1,
+            "C1": c1,
+            "L2": np.where(alive1, l2, np.nan),
+            "A2": np.where(alive1, a2, np.nan),
+            "C2": np.where(alive1, c2, np.nan),
+            "Y": np.where(alive2, y, np.nan),
+        }
+    )
+
+
+def _node_two_bounds_hold(monkeypatch: pytest.MonkeyPatch) -> bool:
+    from sklearn.linear_model import LinearRegression
+
+    from cleverly.longitudinal import LTMLE, DynamicRegimen
+
+    calls = _record_steps(monkeypatch)
+    frame = _censored_panel()
+    up = Shift(1.0, cap=None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        LTMLE(
+            {"up": DynamicRegimen("up", (up, up))},
+            ratio="classifier",
+            outcome_learner=LinearRegression(),
+            treatment_learner=Logit(),
+            censoring_learner=LogisticRegression(),
+            q_bounds=(-20.0, 20.0),
+            n_folds=3,
+            random_state=0,
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+            continuous_treatment=["A1", "A2"],
+        )
+    a2 = frame["A2"].to_numpy()
+    node_two = [c for c in calls if np.array_equal(c[2], np.nan_to_num(a2, nan=0.0)[c[1]])]
+    held = []
+    for _, train, dose, columns in node_two:
+        assert np.all(np.isfinite(a2[train]))
+        # Shift(1) reaches below the minimum only; its top side reads as infinite.
+        expected = dose - 1.0 >= a2[train].min()
+        held.append(np.array_equal(columns[:, 0], expected.astype(float)))
+    return len(node_two) == 3 and all(held)
+
+
+def test_w11b_a_node_reads_its_bounds_from_the_rows_at_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _node_two_bounds_hold(monkeypatch)
+
+
+def test_w11b_bounds_that_read_the_filler_dose_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control: a bound over every training row reads node 2's filler 0 of the censored
+    rows, so the bottom step leaves the data."""
+    real = policy_module._policy_steps
+
+    def build(branches: Any, frame: Any, n: int, bounds: Any, observed: Any, atoms: Any) -> Any:
+        steps = real(branches, frame, n, bounds, observed, atoms)
+        filler = np.flatnonzero(np.asarray(observed) == 0.0)
+        return lambda dose, at, fold, train: steps(dose, at, fold, np.union1d(train, filler))
+
+    import cleverly.longitudinal.sequential as sequential
+
+    monkeypatch.setattr(sequential, "_policy_steps", build)
+    assert not _node_two_bounds_hold(monkeypatch)
 
 
 # ------------------------------------------------------------------ W11c
@@ -529,7 +705,8 @@ def _node_columns_hold(monkeypatch: pytest.MonkeyPatch, law_name: str, seed: int
         held.append(len(mine) == 2)
         for _, train, x, columns in mine:
             if law_name == "continuous":
-                expected = _expected_up(x, -np.inf, np.inf)
+                # The shift reaches below the training minimum only.
+                expected = _expected_up(x, dose[train].min(), np.inf)
             else:
                 expected = _expected_price_up(x, frame[f"L{node}"].to_numpy()[train])
             held.append(np.array_equal(columns[:, :2], expected))

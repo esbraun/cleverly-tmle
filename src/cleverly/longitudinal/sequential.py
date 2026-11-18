@@ -2354,18 +2354,20 @@ def _node_steps(
     frame: Any,
     support: tuple[FloatArray, FloatArray] | None,
     dose: FloatArray,
+    atoms: tuple[float, ...] = (),
 ) -> Any:
     """A node's step columns for a plan's classifier (``classifier_ratio(steps=)``).
 
     Every branch of the plan's policy at the node lowers on the node's policy frame.  A plan
     with fold plans on several folds lowers each fold's own map.  The bounds are the node's
-    declared support; a node without one adds no support term.
+    declared support, or else the one-sided observed bound of the fold's fitted training
+    rows, which are at risk, off the node's declared atoms.
     """
     if frame is None:
         return None
     sources = plan.fold_plans if plan.fold_plans and not folds.is_single else (plan,)
     branch_sets = [[branch for _, branch in _node_branches(source, time)] for source in sources]
-    return _policy_steps(branch_sets, frame, dose.size, support, dose)
+    return _policy_steps(branch_sets, frame, dose.size, support, dose, atoms)
 
 
 def _classifier_numerator(
@@ -2411,7 +2413,7 @@ def _classifier_numerator(
             (probability, target)
             for (probability, _), target in zip(branches, targets, strict=True)
         )
-    steps = _node_steps(plan, time, folds, frame, support, dose)
+    steps = _node_steps(plan, time, folds, frame, support, dose, tuple(atoms))
     (numerator,) = classifier_ratio(
         treatment_learner,
         history,
@@ -2476,7 +2478,7 @@ def _classifier_numerators(
             (probability, target)
             for (probability, _), target in zip(branches, targets, strict=True)
         )
-    steps = _node_steps(plan, time, folds, frame, support, dose)
+    steps = _node_steps(plan, time, folds, frame, support, dose, tuple(atoms))
     return classifier_ratio(
         treatment_learner,
         history,

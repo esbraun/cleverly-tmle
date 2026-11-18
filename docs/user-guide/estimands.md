@@ -474,11 +474,12 @@ the dose the row received: a ratio of two densities of the dose given the covari
 the fit learns that ratio directly. It stacks each observed row with its policy copy, the
 treatment learner learns to tell the two apart, and the ratio comes from its predicted odds.
 
-The learner also sees, for each row, whether the policy moved its dose and, when you declare the
-dose's range, whether the moved dose stays inside it. A cap or a piecewise policy is then learned
-where it holds the dose. Without a declared range the learner gets no edge to work from, because
-the smallest and largest doses in a sample are not limits of the dose. Declare the range with
-`treatment_support=` (below) when it is known.
+The learner also sees, for each row, whether the policy moved its dose, so a cap or a piecewise
+policy is learned where it holds the dose. When you declare the dose's range, the learner also
+sees whether the dose the policy moves from lies inside it. Without a declared range the fit uses
+an end of the doses it trains on only where the policy reaches past it, as a shift up does past
+the smallest dose. Near a hard limit, such as a dose that cannot fall below zero, that is a guess
+of where the doses stop, so declare the range with `treatment_support=` (below) when it is known.
 
 This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
 recorded on many rows, such as zero. The result's summary prints the route it used and why
@@ -520,8 +521,8 @@ of the covariates. Pass it as `treatment_support=` to `PointTreatment` or to `TM
 
 On the density route it lets the fit tell a hard limit from doses that are merely rare. Without it the fit
 spreads density past the limit, which distorts the ratio near it. On the default route the declared
-range tells the learner where a moved dose leaves the support. Without it the fit uses the range of
-the doses it trains on.
+range tells the learner where the dose a policy moves from leaves the possible doses. Without it
+the fit uses the smallest or largest dose it trains on, only on the side the policy reaches past.
 [Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
 states both routes.
 

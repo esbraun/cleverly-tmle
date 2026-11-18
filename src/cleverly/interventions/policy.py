@@ -1564,6 +1564,7 @@ def _policy_steps(
     n: int,
     bounds: tuple[FloatArray, FloatArray] | None,
     observed: FloatArray,
+    atoms: Sequence[float] = (),
 ) -> Callable[[FloatArray, IntArray, int, IntArray], FloatArray]:
     """The classifier route's step columns of one or more branches (``steps=``).
 
@@ -1584,11 +1585,18 @@ def _policy_steps(
     n : int
         Rows of the frame.
     bounds : tuple of ndarray or None
-        The declared support ``(lower, upper)`` on every row.  ``None`` declares none: the
-        support term of ``s_k`` is then always true, since an observed range is not a
-        support and the true ratio makes no jump at a sample's extreme.
+        The declared support ``(lower, upper)`` on every row, which always wins.  ``None``
+        declares none.  Each side of the fold's observed training range then stands in for
+        the support only where some training row's image ``b_k(a)`` falls beyond it, so the
+        stack can learn the step there; a side no training row reaches reads as infinite.
+        An observed range is not a support, so a held-out row beyond a side no training row
+        reaches keeps its ratio, while a bounded dose shifted towards its edge keeps its
+        step one shift inside the edge.
     observed : ndarray
         ``(n,)`` observed dose.  It fills the rows the callable is not asked about.
+    atoms : sequence of float
+        The declared atoms.  Rows at an atom are left out of the observed range and its
+        images.
 
     Returns
     -------
@@ -1598,7 +1606,7 @@ def _policy_steps(
     """
     natural = np.asarray(observed, dtype=float).reshape(-1)
     maps: dict[int, list[LoweredMap]] = {}
-    declared = (np.full(n, -np.inf), np.full(n, np.inf))
+    declared = None
     if bounds is not None:
         lower = np.asarray(bounds[0], dtype=float).reshape(-1)
         upper = np.asarray(bounds[1], dtype=float).reshape(-1)
@@ -1606,6 +1614,8 @@ def _policy_steps(
             np.where(np.isnan(lower), -np.inf, lower),
             np.where(np.isnan(upper), np.inf, upper),
         )
+    off_atom = ~np.isin(natural, np.asarray(tuple(atoms), dtype=float))
+    observed_by_fold: dict[tuple[int, int, int], tuple[FloatArray, FloatArray]] = {}
 
     def lowered(fold: int) -> list[LoweredMap]:
         key = fold if len(branches_by_fold) > 1 else 0
@@ -1615,8 +1625,38 @@ def _policy_steps(
             ]
         return maps[key]
 
+    def images(fold: int, x: FloatArray) -> list[tuple[FloatArray, BoolArray]]:
+        out = []
+        for lowered_map in lowered(fold):
+            for piece in lowered_map.smooth:
+                with np.errstate(all="ignore"):
+                    source = np.asarray(piece.inverse(x), dtype=float).reshape(-1)
+                usable = np.isfinite(source)
+                safe = np.where(usable, source, x)
+                out.append((safe, usable & np.asarray(piece.inside(safe), dtype=bool)))
+        return out
+
+    def observed_bounds(fold: int, train: IntArray) -> tuple[FloatArray, FloatArray]:
+        """The one-sided observed bound of a fold's fitted training rows (``bounds=None``)."""
+        rows = np.asarray(train, dtype=np.int64).reshape(-1)
+        key = (fold, rows.size, hash(rows.tobytes()))
+        if key not in observed_by_fold:
+            low, high = -np.inf, np.inf
+            seen = rows[off_atom[rows]]
+            if seen.size:
+                x = natural.copy()
+                smallest, largest = float(natural[seen].min()), float(natural[seen].max())
+                for source, inside in images(fold, x):
+                    reached = inside[seen]
+                    if np.any(source[seen][reached] < smallest):
+                        low = smallest
+                    if np.any(source[seen][reached] > largest):
+                        high = largest
+            observed_by_fold[key] = (np.full(n, low), np.full(n, high))
+        return observed_by_fold[key]
+
     def steps(dose: FloatArray, rows: IntArray, fold: int, train: IntArray) -> FloatArray:
-        low, high = declared
+        low, high = declared if declared is not None else observed_bounds(fold, train)
         x = natural.copy()
         x[rows] = np.asarray(dose, dtype=float).reshape(-1)
         columns: list[BoolArray] = []
@@ -4549,7 +4589,12 @@ class PolicySet:
                 ),
                 steps=(
                     _policy_steps(
-                        [[branches[c]] for branches in branch_sets], frame, data.n, bounds, a
+                        [[branches[c]] for branches in branch_sets],
+                        frame,
+                        data.n,
+                        bounds,
+                        a,
+                        atoms,
                     )
                     if branch_sets
                     else None

@@ -2406,6 +2406,22 @@ and the estimators that read the density only resolve to the binned density inst
 the result keeps, and the warning of an isolated dose cluster on the classifier route. This route fits no density, so the support report gives
 `min_density` and `unsupported` as `None` and says that they are not measured.
 
+On a dose of one column the stacked design is $[a$, the declared atoms' indicators, the step
+columns, $h]$. By Equation (3) the true ratio jumps in $a$ only where an indicator jumps: per
+smooth piece $k$ of a branch's lowered map, $s_k(a) = 1\{b_k(a)$ finite, $b_k(a) \in I_k,
+L \le b_k(a) \le U\}$, and per identity piece $j$, $t_j(a) = 1\{a \in J_j\}$. A smooth
+classifier cannot place those jumps from $a$ alone, so they are appended as columns (a learner
+with `policy_steps = "omit"` gets none).
+
+$[L, U]$ is the declared support. Without one, each fold
+reads a side of its fitted training rows' observed range, off the declared atoms and at risk at a
+longitudinal node, only when some training row's image $b_k(a)$ passes it, and reads the other
+side as infinite. The heuristic keeps the step one shift inside a bounded dose's edge, which the
+sample's extreme approaches, and leaves a held-out row beyond a side no training row reaches
+without a spurious zero; the columns are features, so the estimand does not change. A column
+constant on a fold's training rows, or equal there to an atom indicator, is dropped. A vector
+dose takes no step columns. Witnesses W11a to W11e are in `tests/unit/test_classifier_policy_steps.py`.
+
 The study that will gate this default, `mtp-density-tails`, is declared and has not run yet. It
 gates the classifier route's interval calibration on two laws: G, a Gaussian dose with an
 unbounded ratio, and T, the same dose truncated with a capped shift. S is a dose with Student-t
