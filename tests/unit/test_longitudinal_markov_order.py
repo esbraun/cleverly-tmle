@@ -706,10 +706,10 @@ class TestTheHeldTreatment:
         """A mutation control: the mechanisms' arm range of a non-held design, on the held one."""
         monkeypatch.setattr(
             LongitudinalData,
-            "history_design",
+            "_history_design",
             mutated(
                 LongitudinalData,
-                "history_design",
+                "_history_design",
                 "first = self.window_arm_start(time)",
                 "first = 1 if self.markov_order is None else max(1, self.window_start(time) - 1)",
             ),

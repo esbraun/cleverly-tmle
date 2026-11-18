@@ -337,6 +337,7 @@ from .regimen import (
     resolve_tuned_plans,
     tilt_mix_refusal,
 )
+from ._fit_cache import fit_cache
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .separable import (
     SeparablePlan,
@@ -7177,7 +7178,12 @@ class _SequentialEstimator:
             mechanism,
         )
 
-    def _fit_draw(
+    def _fit_draw(self, *args: Any, **kwargs: Any) -> _DrawOutcome:
+        """:meth:`_fit_draw_shared` inside one draw's :func:`~._fit_cache.fit_cache`."""
+        with fit_cache():
+            return self._fit_draw_shared(*args, **kwargs)
+
+    def _fit_draw_shared(
         self,
         prepared: LongitudinalData,
         plans: tuple[Plan, ...],

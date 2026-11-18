@@ -114,7 +114,7 @@ def test_m5_a_history_without_the_earlier_flag_is_caught(
         "columns.append(self.component_design(t))",
         "columns.append(self.component_design(t)[:, 1:] if t < time else self.component_design(t))",
     )
-    mutate(monkeypatch, data_module, LongitudinalData, "history_design", [edit])
+    mutate(monkeypatch, data_module, LongitudinalData, "_history_design", [edit])
     _caught()
 
 
@@ -172,7 +172,7 @@ def test_m8_a_censoring_design_without_the_dose_is_caught(
         "columns.append(self.component_design(t)[:, :1] if t == time else "
         "self.component_design(t))",
     )
-    mutate(monkeypatch, data_module, LongitudinalData, "history_design", [edit])
+    mutate(monkeypatch, data_module, LongitudinalData, "_history_design", [edit])
     _caught("censored")
 
 

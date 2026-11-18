@@ -205,6 +205,7 @@ from ..utils.phases import (
     phase,
     profiling,
 )
+from ._fit_cache import cached
 from .data import LongitudinalData, RegimenMasks
 from .pooled_hazards import PooledCensoring, fit_pooled_censoring
 from .ratio_trim import RatioTrim
@@ -480,6 +481,20 @@ class Mechanism:
         mechanism the trimmed ratio implies, :meth:`RatioTrim.implied_cumulative`, and the
         bound applies to it.  On a row whose ratios were never trimmed it is the raw prefix.
         """
+        return cached(
+            "cumulative",
+            (self, data, plan),
+            tuple(bounds),
+            lambda: self._trimmed_cumulative(data, plan, bounds),
+        )
+
+    def _trimmed_cumulative(
+        self,
+        data: LongitudinalData,
+        plan: Plan,
+        bounds: tuple[float, float],
+    ) -> tuple[FloatArray, FloatArray]:
+        """:meth:`cumulative_with_unbounded`, computed."""
         raw, bounded = self._cumulative_with_unbounded(data, plan, bounds)
         trim = self.ratio_trims.get(plan.label)
         if trim is None:
@@ -3920,6 +3935,29 @@ def _clever_covariate(
         and zero elsewhere, and ``clever``, which is that weight on ``trained_on`` and zero
         elsewhere.  Only the denominator is bounded.
     """
+    if numerator is None:
+        sources: tuple[Any, ...] = (at_risk, trained_on, cumulative)
+        extra: tuple[Any, ...] = (time, None)
+    else:
+        base = numerator if numerator.base is None else numerator.base
+        sources = (at_risk, trained_on, cumulative, base)
+        extra = (time, numerator.__array_interface__["data"][0], numerator.strides)
+    return cached(
+        "clever",
+        sources,
+        extra,
+        lambda: _compute_clever(at_risk, trained_on, cumulative, time, numerator),
+    )
+
+
+def _compute_clever(
+    at_risk: BoolArray,
+    trained_on: BoolArray,
+    cumulative: FloatArray,
+    time: int,
+    numerator: FloatArray | None,
+) -> tuple[FloatArray, FloatArray]:
+    """:func:`_clever_covariate`, computed."""
     denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
     if numerator is None:
         counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)

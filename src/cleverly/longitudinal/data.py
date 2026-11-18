@@ -123,6 +123,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
+from ._fit_cache import cached
 from .panel import PanelLayout
 
 __all__ = [
@@ -3219,6 +3220,10 @@ class LongitudinalData:
         """
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
+        return cached("history", (self,), time, lambda: self._covariate_history(time))
+
+    def _covariate_history(self, time: int) -> FloatArray:
+        """:meth:`covariate_history`, computed."""
         blocks = [self.baseline, *self.time_varying[:time]]
         matrix = np.hstack([block for block in blocks if block.shape[1]])
         return np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
@@ -3285,6 +3290,10 @@ class LongitudinalData:
             return self.covariate_history(time)
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
+        return cached("window", (self,), time, lambda: self._window_covariates(time))
+
+    def _window_covariates(self, time: int) -> FloatArray:
+        """:meth:`window_covariates` under a Markov order, computed."""
         start = self.window_start(time)
         blocks = [self.baseline, *self.time_varying[start - 1 : time]]
         present = [block for block in blocks if block.shape[1]]
@@ -3531,6 +3540,19 @@ class LongitudinalData:
         design those arms are all the node-1 decision, whose block every design with a
         non-empty arm range keeps (:meth:`window_arm_start`).
         """
+        if treatment is None:
+            return cached(
+                "history_design",
+                (self,),
+                (time, include_current),
+                lambda: self._history_design(time, None, include_current),
+            )
+        return self._history_design(time, treatment, include_current)
+
+    def _history_design(
+        self, time: int, treatment: Assignment | None, include_current: bool
+    ) -> FloatArray:
+        """:meth:`history_design`, computed."""
         columns = [self.window_covariates(time)]
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
@@ -3985,8 +4007,13 @@ class RegimenMasks:
     def at_risk(self, time: int) -> BoolArray:
         """:math:`H_t` observed, regimen-consistent and event-free: reads ``time - 1``."""
         index = max(0, time - 1)
-        return np.asarray(
-            self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+        return cached(
+            "at_risk",
+            (self,),
+            index,
+            lambda: np.asarray(
+                self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+            ),
         )
 
     def following(self, time: int) -> BoolArray:
@@ -3999,8 +4026,15 @@ class RegimenMasks:
         generalises rather than breaks.  Tidying the asymmetry away is the single easiest
         mistake to make here.
         """
-        return np.asarray(
-            self.uncensored[:, time] & self.followed[:, time] & self.event_free[:, max(0, time - 1)]
+        return cached(
+            "following",
+            (self,),
+            time,
+            lambda: np.asarray(
+                self.uncensored[:, time]
+                & self.followed[:, time]
+                & self.event_free[:, max(0, time - 1)]
+            ),
         )
 
 
