@@ -2,16 +2,17 @@
   "refits": {
     "failed_keys": 0,
     "jobs": 16,
-    "keys_fitted": 0,
+    "keys_fitted": 160,
     "primary_captured": true,
     "property_calls": [
       "properties"
     ],
+    "recorder": 2,
     "replay_absent": 0,
     "replay_mismatch": 0,
-    "rows": 0,
-    "seconds_capture": 1.3,
-    "seconds_fit": 0.4,
+    "rows": 720,
+    "seconds_capture": 1.26,
+    "seconds_fit": 3.7,
     "stage": "refits",
     "study": "ovb-limit-coverage"
   },
@@ -23,12 +24,42 @@
     "property_calls": [
       "properties"
     ],
+    "recorder": 2,
     "replay_absent": 0,
     "replay_mismatch": 0,
     "rows": 44,
-    "seconds_capture": 1.24,
-    "seconds_fit": 0.5,
+    "seconds_capture": 1.4,
+    "seconds_fit": 3.19,
     "stage": "scope",
+    "study": "ovb-limit-coverage"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/O1_ate_lower__correctly_specified",
+      "interval_calibration/O1_ate_upper__correctly_specified",
+      "interval_calibration/O2_cde_z0_lower__correctly_specified",
+      "interval_calibration/O2_cde_z0_upper__correctly_specified",
+      "interval_calibration/O2_cde_z1_lower__correctly_specified",
+      "interval_calibration/O2_cde_z1_upper__correctly_specified",
+      "interval_calibration/O3_coin_vs_always_lower__correctly_specified",
+      "interval_calibration/O3_coin_vs_always_upper__correctly_specified",
+      "interval_calibration/O5_plus1_vs_natural_lower__correctly_specified",
+      "interval_calibration/O5_plus1_vs_natural_upper__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 16000,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "recorder": 2,
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 80000,
+    "seconds_capture": 1.31,
+    "seconds_fit": 100.93,
+    "stage": "settle",
     "study": "ovb-limit-coverage"
   }
 }

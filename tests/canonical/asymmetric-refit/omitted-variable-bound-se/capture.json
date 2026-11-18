@@ -2,16 +2,17 @@
   "refits": {
     "failed_keys": 0,
     "jobs": 16,
-    "keys_fitted": 0,
+    "keys_fitted": 40,
     "primary_captured": true,
     "property_calls": [
       "properties"
     ],
+    "recorder": 2,
     "replay_absent": 0,
     "replay_mismatch": 0,
-    "rows": 0,
+    "rows": 240,
     "seconds_capture": 0.45,
-    "seconds_fit": 0.33,
+    "seconds_fit": 0.81,
     "stage": "refits",
     "study": "omitted-variable-bound-se"
   },
@@ -23,11 +24,12 @@
     "property_calls": [
       "properties"
     ],
+    "recorder": 2,
     "replay_absent": 0,
     "replay_mismatch": 0,
     "rows": 12,
-    "seconds_capture": 0.43,
-    "seconds_fit": 0.35,
+    "seconds_capture": 0.54,
+    "seconds_fit": 2.29,
     "stage": "scope",
     "study": "omitted-variable-bound-se"
   }
