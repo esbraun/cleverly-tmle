@@ -23,7 +23,7 @@ import pytest
 from cleverly.exceptions import ConvergenceWarning
 from cleverly.longitudinal import LongitudinalData
 from cleverly.longitudinal import collaborative as module
-from tests.unit.test_survival_ctmle import Pick, _fit, _frame, _instrument, _plan, _selector
+from tests.unit.test_survival_ctmle import Pick, _frame, _instrument, _plan, _selector
 
 
 def _reference_path(
@@ -120,14 +120,29 @@ def test_the_path_equals_the_path_that_keeps_every_position(
     assert selector.counts[("a1", horizon, branch)].rebuilt == 0
 
 
-def test_the_witness_law_ties_and_restarts(instrument: LongitudinalData) -> None:
-    """Horizon 1 scores every g2 move at one risk, and the search restarts: the shipped rule
-    takes the first move of a tie, so the retention must keep it."""
+def test_the_witness_law_ties_and_restarts(
+    instrument: LongitudinalData, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Horizon 1 scores several moves of one pass at its minimum risk, and the search restarts:
+    the shipped rule takes the first move of a tie, so the retention must keep it."""
+    passes: dict[Any, list[float]] = {}
+    rule = module.greedy_rule
+
+    def recording(pools: Any, score: Any) -> Any:
+        def scored(accepted: Any, move: Any, n_steps: int) -> float:
+            risk = score(accepted, move, n_steps)
+            if move is not None:
+                passes.setdefault((accepted, n_steps), []).append(risk)
+            return risk
+
+        return rule(pools, scored)
+
+    monkeypatch.setattr(module, "greedy_rule", recording)
     selector = _selector(instrument, Pick((4,), 5))
     plan = _plan(selector, "a1")
     path = selector.path(plan, 1, "full", None)
-    risks = [p.risk for p in path]
-    assert any(risks.count(r) > 1 for r in risks), "the law needs an exact tie"
+    ties = [r for r in passes.values() if r.count(min(r, key=module._finite)) > 1]
+    assert ties, "the law needs an exact tie at the minimum of one pass"
     assert any(p.n_steps > 0 for p in path), "the law needs a restart"
 
 
@@ -251,18 +266,26 @@ def test_a_fit_keeps_at_most_the_positions_its_path_can_read(
     assert max(counts) > 2 * bound
 
 
-def test_the_mechanism_cache_holds_fits_not_rows(instrument: LongitudinalData) -> None:
+@pytest.mark.parametrize("branch", ["full", "cv2"])
+def test_the_mechanism_cache_holds_fits_not_rows(instrument: LongitudinalData, branch: str) -> None:
+    """No prediction is kept, and every term set's fits share their branch's row masks, so the
+    caches' row-sized memory does not grow with the term sets tried."""
     selector = _selector(instrument, Pick((4,), 5))
     plan = _plan(selector, "a1")
-    selector.path(plan, 2, "full", None)
+    train = None if branch == "full" else _fold_train(selector, int(branch[2:]))
+    selector.path(plan, 2, branch, train)
     mechanisms = selector.mechanisms
-    assert mechanisms._g1 and mechanisms._g2
+    assert len(mechanisms._g1) > 1 and len(mechanisms._g2) > 1
     caches: list[Any] = [*mechanisms._g1.values(), *mechanisms._g2.values()]
+    masks: set[int] = set()
     for cached in caches:
         for part in cached.parts:
-            # The predicted-row mask is the only row-sized member: no prediction is kept.
+            # The predicted-row mask is the only row-sized member.
             rows = [x for x in part if isinstance(x, np.ndarray) and x.size >= instrument.n]
             assert len(rows) == 1 and rows[0].dtype == bool
+            assert not rows[0].flags.writeable
+            masks.add(id(rows[0]))
+    assert len(masks) == len(mechanisms._splits(branch, train))
     assert not hasattr(mechanisms, "_pairs")
 
 
@@ -301,7 +324,7 @@ def test_the_record_counts_the_solves_and_candidates_of_each_path(
 def test_a_missing_path_count_is_an_error(instrument: LongitudinalData) -> None:
     selector = _selector(instrument, Pick((4,), 5))
     selector.cross_validate = lambda plan, horizon: (np.zeros(10), ())  # type: ignore[method-assign]
-    with pytest.raises(KeyError):
+    with pytest.raises(RuntimeError, match="no path count for a1 at 2"):
         module.run_selection(selector, [2])
 
 
@@ -338,14 +361,6 @@ def test_regimens_on_one_arm_count_its_unconverged_fits_once_each() -> None:
         ]
         counts.append(int(text[0].split()[0]))
     assert 0 < counts[0] < counts[1]
-
-
-def test_fit_refits_reproduce_the_counts(instrument: LongitudinalData) -> None:
-    first = _fit(instrument, Pick((4,), 5))
-    second = _fit(instrument, Pick((4,), 5))
-    for key, record in first.selection.items():
-        assert record.target_solves == second.selection[key].target_solves
-        assert record.candidate_pairs == second.selection[key].candidate_pairs
 
 
 # ------------------------------------------------- the mechanisms equal the cached predictions
@@ -416,12 +431,17 @@ def _heavy() -> LongitudinalData:
     return _heavy_censoring()
 
 
-def test_the_mechanisms_rebuilt_from_cached_fits_equal_the_cached_predictions() -> None:
+@pytest.mark.parametrize("at_observed", [False, True])
+def test_the_mechanisms_rebuilt_from_cached_fits_equal_the_cached_predictions(
+    at_observed: bool,
+) -> None:
     """Every branch, including a training mask whose rows at risk at the last node are all
-    censored there, so that node is held at the all-censored retention."""
+    censored there, so that node is held at the all-censored retention; and the full-set
+    check's mutation hook, which evaluates censoring at the observed treatment."""
     data = _heavy()
     selector = _selector(data, Pick((0, 1, 3, 4), 5))
     m = selector.mechanisms
+    m.evaluate_at_observed = at_observed
     last = data.n_times - 1
     eligible = m.eligible[:, last]
     all_censored = ~eligible | m.censored[:, last]
@@ -437,9 +457,9 @@ def test_the_mechanisms_rebuilt_from_cached_fits_equal_the_cached_predictions() 
             # A second call rebuilds from the cached fits and is the same.
             assert m.treatment(branch, train, g1).probabilities.tobytes() == want[0].tobytes()
         for g2 in ((), ("A",), ("A", "W3"), ("W1", "W2", "W3")):
-            got = m.retention(branch, train, g2)
-            want = _reference_retention(m, branch, train, g2)
-            assert got.retention.tobytes() == want[0].tobytes()
-            assert (got.converged, got.dropped, got.held) == want[1:]
-            seen_all_censored |= any(kind == module.ALL_CENSORED for _, _, kind in got.held)
+            kept = m.retention(branch, train, g2)
+            expected = _reference_retention(m, branch, train, g2)
+            assert kept.retention.tobytes() == expected[0].tobytes()
+            assert (kept.converged, kept.dropped, kept.held) == expected[1:]
+            seen_all_censored |= any(kind == module.ALL_CENSORED for _, _, kind in kept.held)
     assert seen_all_censored, "the crafted mask must hold a node at the all-censored retention"

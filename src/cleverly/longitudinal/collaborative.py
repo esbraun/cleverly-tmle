@@ -777,6 +777,9 @@ class _Mechanisms:
         self.evaluate_at_observed = evaluate_at_observed
         self._g1: dict[tuple[str, tuple[str, ...]], _TreatmentFits] = {}
         self._g2: dict[tuple[str, tuple[str, ...]], _RetentionFits] = {}
+        self._split_memo: dict[
+            str, tuple[BoolArray | None, list[tuple[int, BoolArray, BoolArray]]]
+        ] = {}
 
     # -- branches
 
@@ -786,8 +789,26 @@ class _Mechanisms:
         """``(fold, fit rows, predicted rows)`` of a branch.
 
         The full branch fits on every row in sample, or out of fold on the outer split.  A
-        selection-fold branch fits on its training rows and predicts every row.
+        selection-fold branch fits on its training rows and predicts every row.  The masks are
+        made once per branch and shared, read-only, by every cached fit of that branch, so the
+        caches hold no per-term-set copy of them.
         """
+        memo = self._split_memo.get(branch)
+        if memo is not None:
+            seen, splits = memo
+            same = (
+                seen is None if train is None else seen is not None and np.array_equal(seen, train)
+            )
+            if same:
+                return splits
+        splits = self._make_splits(train)
+        for _, fit_rows, predict in splits:
+            fit_rows.flags.writeable = False
+            predict.flags.writeable = False
+        self._split_memo[branch] = (None if train is None else train.copy(), splits)
+        return splits
+
+    def _make_splits(self, train: BoolArray | None) -> list[tuple[int, BoolArray, BoolArray]]:
         n = self.data.n
         everyone = np.ones(n, dtype=bool)
         if train is not None:
@@ -1234,6 +1255,24 @@ class _HazardSelector:
         it.  Without ``visit``, every path position is kept and returned.  A position the rule
         accepts after its arrays went is targeted again from the same start, which reproduces
         it exactly.  The solve and candidate counts land in :attr:`counts`.
+
+        Parameters
+        ----------
+        plan : Plan
+            The arm's regimen plan.
+        horizon : int
+            The horizon the risks are scored at.
+        branch : str
+            ``"full"`` or a selection-fold branch; it names the counts and the cached fits.
+        train : BoolArray or None
+            The branch's training rows, or ``None`` for every row.
+        visit : callable or None
+            Called as ``visit(index, position)`` with each path position in order.
+
+        Returns
+        -------
+        list of _Position
+            Every path position when ``visit`` is ``None``, otherwise an empty list.
         """
         out: list[_Position] = []
         if visit is None:
@@ -1256,8 +1295,9 @@ class _HazardSelector:
 
         def build(key: _Key) -> _Position:
             accepted, move, n_steps = key
-            # Every position is built in the pass that scores it, from that pass's start.
-            assert n_steps == steps[0], key
+            if n_steps != steps[0]:
+                # Every position is built in the pass that scores it, from that pass's start.
+                raise RuntimeError(f"position {key} built outside the pass that scores it")
             chosen: tuple[set[str], set[str]] = (set(), set())
             for mechanism, name in (*accepted, *(() if move is None else (move,))):
                 chosen[0 if mechanism == "g1" else 1].add(name)
@@ -1270,8 +1310,8 @@ class _HazardSelector:
 
         def accept(key: _Key) -> None:
             """Hand the accepted ``key`` to ``visit`` and make it the latest accepted."""
-            # Only a position the rule has scored can be accepted.
-            assert key in risks, key
+            if key not in risks:
+                raise RuntimeError(f"the rule accepted {key} without scoring it")
             position = kept.get(key)
             if position is None:
                 tally["rebuilt"] += 1
@@ -1320,8 +1360,9 @@ class _HazardSelector:
         ]
         if len(visited) < len(keys):
             accept(keys[-1])
-        # The positions visited are the rule's path, in its order.
-        assert visited == keys, (visited, keys)
+        if visited != keys:
+            # The positions visited must be the rule's path, in its order.
+            raise RuntimeError(f"visited {visited}, but the rule's path is {keys}")
         self.counts[(plan.label, int(horizon), branch)] = _PathCounts(
             tally["solves"], len(built), tally["rebuilt"]
         )
@@ -2217,6 +2258,9 @@ def _selection_record(
     """
     cv_risk, held, chosen = folds
     branches = ["full", *(f"cv{fold}" for fold in range(1, selector.selection.n_folds + 1))]
+    missing = [b for b in branches if (plan.label, horizon, b) not in selector.counts]
+    if missing:
+        raise RuntimeError(f"no path count for {plan.label} at {horizon} on {missing}")
     runs = [selector.counts[(plan.label, horizon, branch)] for branch in branches]
     return SurvivalSelection(
         arm=plan.label,
