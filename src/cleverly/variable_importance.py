@@ -8,6 +8,7 @@ its own intervention and adjustment set, and no shared-nuisance shortcut is impl
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
@@ -655,6 +656,10 @@ def variable_importance(
     )
 
 
+def _candidate_scope(name: str, scope: str) -> str:
+    return f"{scope}, candidate {name!r}"
+
+
 def variable_importance_plan(
     data: Any,
     *,
@@ -770,7 +775,7 @@ def variable_importance_plan(
         # same prepared data and fits nothing.
         plan = checked.engine._planned_fits(checked.data)
         name = checked.name
-        builder.absorb(plan, lambda scope, name=name: f"{scope}, candidate {name!r}")
+        builder.absorb(plan, functools.partial(_candidate_scope, name))
         plans[name] = plan
         del checked
     first = next(iter(plans.values()))
