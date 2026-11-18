@@ -476,10 +476,12 @@ treatment learner learns to tell the two apart, and the ratio comes from its pre
 
 The learner also sees, for each row, whether the policy moved its dose, so a cap or a piecewise
 policy is learned where it holds the dose. When you declare the dose's range, the learner also
-sees whether the dose the policy moves from lies inside it. Without a declared range the fit uses
-an end of the doses it trains on only where the policy reaches past it, as a shift up does past
-the smallest dose. Near a hard limit, such as a dose that cannot fall below zero, that is a guess
-of where the doses stop, so declare the range with `treatment_support=` (below) when it is known.
+sees whether the dose the policy moves from lies inside it. Without a declared range the fit
+treats the smallest or largest dose it trains on as an edge, but only on the side where some moved
+dose would have come from beyond it, as with a shift up and the smallest dose. That edge is a guess
+of where the doses stop. Declare the range with `treatment_support=` (below) when you know it, such
+as a dose that cannot fall below zero. A declaration always wins, so a dose with no limit can pass
+`Support(-np.inf, np.inf)` to turn the edge off.
 
 This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
 recorded on many rows, such as zero. The result's summary prints the route it used and why
