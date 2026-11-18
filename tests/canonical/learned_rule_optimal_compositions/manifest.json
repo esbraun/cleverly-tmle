@@ -1,0 +1,166 @@
+{
+  "schema_version": 2,
+  "study": "Compositions of the value of the optimal rule",
+  "slug": "learned-rule-optimal-compositions",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-optimal-compositions",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "68f8ff4c672a31f6cd17f38cbcce809904d0964b",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "declared_stack": {
+      "versions": {
+        "python": "3.13.7",
+        "numpy": "2.4.6",
+        "scipy": "1.18.0",
+        "pandas": "3.0.5",
+        "scikit_learn": "1.9.0",
+        "joblib": "1.5.3"
+      },
+      "differences": {
+        "python": {
+          "declared": "3.13.7",
+          "ran": "3.13.16"
+        },
+        "numpy": {
+          "declared": "2.4.6",
+          "ran": "2.5.4"
+        },
+        "scipy": {
+          "declared": "1.18.0",
+          "ran": "1.18.1"
+        },
+        "pandas": {
+          "declared": "3.0.5",
+          "ran": "3.1.1"
+        },
+        "scikit_learn": {
+          "declared": "1.9.0",
+          "ran": "1.9.1"
+        },
+        "joblib": {
+          "declared": "1.5.3",
+          "ran": "1.6.0"
+        }
+      }
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 4400,
+    "n": 2000,
+    "seed": 20277921,
+    "resampling_seed": 20283472,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-learned-rule-optimal-compositions": 0.01
+    },
+    "scenarios": {
+      "weighted": [
+        "ey_optimal_rule[learned rule]"
+      ],
+      "strata": [
+        "ey_optimal_rule[learned rule]",
+        "ey_optimal_rule[learned rule][W2=0.0]",
+        "ey_optimal_rule[learned rule][W2=1.0]"
+      ],
+      "known_regimes": [
+        "ate_optimal_rule[learned rule vs always 1]",
+        "ate_optimal_rule[learned rule vs always 0]"
+      ],
+      "in_sample": [
+        "ey_optimal_rule[learned rule]"
+      ],
+      "intermediate": [
+        "ey_optimal_rule[learned rule][Z=0]",
+        "ey_optimal_rule[learned rule][Z=1]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), estimands=['ey_optimal_rule'], n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>); every other setting the constructor's default; repeats=1",
+    "known_g": "fit(..., treatment_probabilities=[1 - g(1 | W), g(1 | W)]) in every cell: RM30's logit g0(1 | W) = 0.3 W1 - 0.2 W2, except the weighted cell, which passes the weighted population's g_w(1 | W) = g0(1 | W)(1 + Qbar0(1, W)) / (1 + g0(1 | W) Qbar0(1, W))",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2), marked parametric in sample; on the intermediate law the same on (A, W1, W2, Z)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2), unused (known g)",
+    "settings": {
+      "weighted": "RM30 non_exceptional, weights='w' with w = 1 + A Y",
+      "strata": "RM30 non_exceptional, strata=['W2']",
+      "known_regimes": "RM30 non_exceptional, interventions=[Static(1), Static(0)]",
+      "in_sample": "RM30 non_exceptional, cross_fit=False, cv_evaluation=False",
+      "intermediate": "the learned-rule-intermediate law, intermediate='Z', both levels; intermediate learner LogisticRegression(C=1e6, max_iter=1000) on (A, W1, W2)"
+    },
+    "truth": "each label's parameter at its optimal rule (d0^w weighted, d0^z at a level, d0 otherwise) by scipy.integrate.quad over W1 for each W2, split at the rule's threshold; one number per label",
+    "regret": "per replication: refit each fold's outcome learner on the fit's training rows with the package's fit_on_rows, require the fit's rule on every validation row (rule L4), integrate each label's value at each fold rule by the trapezoid rule on 4001 points of W1 for each W2, and publish rule_value (the fold mean) and regret = truth - rule_value; descriptive",
+    "rule_disagreement": "the record's share of rows on which the ten fold rules disagree",
+    "initial_estimate": "the fold average of the initial plug-ins Qbar_v(d_i, W_i) at the fit's own rule: weighted by the observation weights for the weighted value, within each W2 level for a stratum, and the rule's plug-in minus the regime's for a contrast",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_optimal_compositions.py": "2849966f9e96c30fd5ae21ec7925d94f7ac465a722a216f8af09d2e594f0c3b1",
+    "tests/studies/learned_rule_optimal_compositions_properties.py": "d626ef1e349dcec3f451aa8f0b72bc654a7586411c2ac68d458f537a8b1773a8",
+    "tests/studies/_learned_rule_optimal_compositions_law.py": "2a5ba0ab167fee9ef39d874a7b6b2701da34faee8bf88ff3c7cb93cfadc439a2",
+    "tests/studies/_learned_rule_optimal_law.py": "c3f19cd0f97834cf3a04ae69c5f3b7aa1e5679b98d6fc5759fefc82fcf2cb711",
+    "tests/studies/_learned_rule_intermediate_law.py": "8a49ab41a3a533108042668cd6cd06c09629ad4ac18fe92015692de2448dea9e",
+    "tests/studies/_learned_rule_in_sample_law.py": "b2998600710014186b29498fd6da9ce01666ed02d58467166b2ea5172a7557fa",
+    "tests/studies/_learned_rule_contrast_law.py": "f019c7425d77c1c2061f02ef74b5966eef9e16ce4339f918746f123cdd312cdf",
+    "tests/studies/_learned_rule_law.py": "e2db2a8cf5db1850c1d484f41fe2fd081a2ccf83c464abfcad0f093da840d7ab",
+    "tests/studies/_fold_evaluated_strata_law.py": "44dafa5f8ccee4c2e19ae397fc62b9713afec03e56590a92a886561860974234",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "src/cleverly/estimators/tmle.py": "4386b228d5af7ef3a385cc8d0ae6e0cfff3e15da38e8e49618f718b84b31925e",
+    "src/cleverly/estimators/_nuisance.py": "ec5a9f35c449602c5fe612ad8bd9948f701f4a1c53550123a0c57d2b0e706fe4",
+    "src/cleverly/estimators/_strata.py": "49a8c4952c53c674215af99662ac38ca4d558c070279208304100ec6cada17da",
+    "src/cleverly/interventions/learned.py": "445abfb1a4c0fc4deb0b90f65d1ed863c57a66424a3b02d1cd2ff4d5ad842af1",
+    "src/cleverly/interventions/base.py": "9655e2bf2519f313fc13ae1085d080888e480d32e4a799344c95f7af987c7d9d",
+    "src/cleverly/targets/builtin.py": "1439e92a26797108a6abb1bcb513c06246f4c5b1346e3bfb894ca670f086590d",
+    "src/cleverly/learners/crossfit.py": "5adc6d48078dfb36ac328b02ddeeef0845af11d9d7b4a51ca1a15293137e8eb3",
+    "src/cleverly/learners/_fitting.py": "2bc4b3f201240f7a729d110184205a1061ca7eb825a5551d6fa38f05df2ca80d",
+    "src/cleverly/_support.py": "6145829afce4f97b6b26070de54885254127904c220af4359158c6ca7cf8b89d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "bfb0e4a818d05e6dce8872ac9fb5b2c3517c78995b1fa63a76f8b0cb10a76c47",
+    "summary.csv": "b77f4298e84ad3be02329f85dd57f31c6d9b0b97467418ce7225cef07c2db3cc",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "66fc56482e97d4a24959ec2a156ce97eb47554486d5377e288695eeee0fc777e",
+    "property-replicates.parquet": "7b28cc58b2147945d12f6886006414c50d704ac5ebdd14fae2de063e8a85ac05",
+    "properties.csv": "1e75876993d300f90fe3ee32bed9c590472c4a0dba1d3bb9ecc3399e1fc9cce4",
+    "harness.csv.gz": "1bb91612370b40f35128a9f463f65e275f00d1ee5083b305dc555fcc3ec6dbf9"
+  }
+}

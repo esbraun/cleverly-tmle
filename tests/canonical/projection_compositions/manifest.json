@@ -1,0 +1,105 @@
+{
+  "schema_version": 2,
+  "study": "Projection compositions",
+  "slug": "projection-compositions",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-projection-tmle",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "07943c57d7cdefeb5cb8c67309ac1ed8e389f5f0",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 4000,
+    "seed": 20261401,
+    "resampling_seed": 20261402,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-projection-tmle": 0.01
+    },
+    "scenarios": {
+      "mtreat_4k": [
+        "cate_projection[(intercept)]",
+        "cate_projection[W1]"
+      ]
+    },
+    "insample_2k": "observational law, n=2000, R=20400, learner spline, in_sample, n_bootstrap=200, scale difference",
+    "insample_crr_2k": "observational law, n=2000, R=20400, learner spline, in_sample, n_bootstrap=200, scale log_ratio",
+    "boot_stacked_2k": "observational law, n=2000, R=1000, learner spline, stacked, n_bootstrap=200, scale difference",
+    "mtreat_4k": "mtreat law, n=4000, R=20400, learner spline, in_sample, scale difference",
+    "mtreat_both_4k": "mtreat_both law, n=4000, R=20400, learner spline, in_sample, scale difference",
+    "mtreat_crr_4k": "mtreat law, n=4000, R=20400, learner spline, in_sample, scale log_ratio",
+    "mtreat_dr_4k": "mtreat_dr law, n=4000, R=1000, learner declared_missing, in_sample, scale difference",
+    "strata_4k": "strata law, n=4000, R=20400, learner strata_spline, stacked, scale difference",
+    "strata_crr_4k": "strata law, n=4000, R=20400, learner strata_spline, stacked, scale log_ratio",
+    "rep3_obs_4k": "observational law, n=4000, R=20400, learner spline, stacked, repeats=3, scale difference",
+    "rep3_crr_4k": "observational law, n=4000, R=20400, learner spline, stacked, repeats=3, scale log_ratio",
+    "rep3_null_2k": "hetero_trial law, n=2000, R=2400, learner risk_glm, stacked, repeats=3, scale difference",
+    "rep3_power_4k": "hetero_trial law, n=4000, R=1000, learner risk_glm, stacked, repeats=3, scale difference",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/projection_compositions.py": "8951159189982fa85a52408795db2166955e691470fb801135677382dcb06e95",
+    "tests/studies/projection_compositions_properties.py": "93d839dabf460da78bcc8955bdbb4cfbf8a96e17c9f986df046e577d2c59d4d1",
+    "tests/studies/conditional_projection.py": "1a144ff826cc69afb1b8ab92979a7de0ee6c06fb98df7baf0709f4d99688364f",
+    "src/cleverly/effect_modification.py": "20384de10afa130773bf2cc803c4b420c99ad3b13001a9778b24430682faca92",
+    "src/cleverly/effect_curves.py": "c87d39495d45ac859a975977048bbf548c5826c35811c2c103c660d5e09ccd05",
+    "src/cleverly/estimators/tmle.py": "b5124aa0fcd019b958255798c5d1781f7a28b5559ffe331c8f22ad8f1cb9cadc",
+    "src/cleverly/estimators/targeting.py": "7c9a985fd37a1595ffbe170374ca89173446ee6f1db3a5c955ae68891d41d25e",
+    "src/cleverly/estimators/composite.py": "17da0c973bddc8d32f9429cb4a3a97561e6f3addc86cb5f0a1704598ac055531",
+    "src/cleverly/estimators/_strata.py": "d1d8d2a104b2f5c4a3dc8c58d8c361b932288b12be20c3a772aa730413955bec",
+    "src/cleverly/estimators/base.py": "6b17433b291903e2ed626eb27fae47177a83f499fc730f69b5d0c1ea9947aa87",
+    "src/cleverly/inference/bootstrap.py": "2b56a657d368e23a298e3c5c8f503a90f05a0bfb0a5c4435e56c7f3f6ab6455e",
+    "src/cleverly/inference/influence.py": "c091c7d065be2c7c252f3e9df938a28088aa869ed3d80ef884c762a0397ccad2",
+    "src/cleverly/inference/results.py": "634c3cead7de8e360e127c080c8749441853ac6c49b7ce246ea5174493b10fca",
+    "src/cleverly/inference/multiplier.py": "5979715c0f91374dc7a59d68fbce5a53d9e7d9c35f5e8cb6c25630f92eb0606f",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "e6087ad951d451ab1b12bb45c15574255930f34024e27fce71e769bcf66349b5",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "30166d3ab1490f7435e311cac415c17db2dc39ee2d95d120999710261df397e1",
+    "summary.csv": "73b01d309360947d4c9684aa78d4d9c59607b22ba14343790e02ca2b1ba29f7a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "1725f416c8cabf63bb77b7ceb3828f3a2eadf5430af369737ed998264c26b120",
+    "property-replicates.parquet": "472422b444cbcdbb31c7deb35b9154bfcc9a261e3b0f63d3a76e1443cac1d718",
+    "properties.csv": "c709fc7e0376715f3e820037a51be3e51f5d75747a8e2890da123fcf2ba34d55"
+  }
+}

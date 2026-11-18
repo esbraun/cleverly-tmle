@@ -3405,7 +3405,7 @@ def composed_perturbations() -> tuple[str, ...]:
         The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
         followed by a coverage share, then ``se_role/<role>/<f>`` at :data:`ROUNDING_SE_FACTOR` for each role,
         then the ``bias`` kind followed by each role's coverage share, then each role's ``shrink_role`` at
-        :data:`CONTRACT_POWER`.
+        :data:`CONTRACT_POWER`, then the ``affine`` map twice followed by an SE scale.
     """
     return _composed()
 
@@ -3438,6 +3438,11 @@ def _composed() -> tuple[str, ...]:
         # A control whose rate clause requires that its bias not contract decides alone only
         # when that role's errors contract and the positives' do not move.
         *(f"shrink_role/{role}/{CONTRACT_POWER:g}" for role in roles),
+        # A one-sided tail clause on a skewed cell fails with its light-side misses only once
+        # the cell's errors contract and move toward that side, which a uniform shift or SE
+        # scale cannot do without failing a coverage leg first: each cell's seeded affine map
+        # twice, then a slightly narrower SE (asymmetric-wald's owner tail clause, above).
+        *(f"affine+affine+se/{f:g}" for f in (0.95, 0.9)),
     )
 
 

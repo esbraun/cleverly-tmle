@@ -39,6 +39,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.interventions.joint_density as joint_module
 import cleverly.learners.density as density_module
+import cleverly.longitudinal.estimator as estimator_module
 from cleverly.dose_response import DoseResponse
 from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_mixed_density
@@ -1144,6 +1145,55 @@ def test_w7_a_one_node_longitudinal_fit_reads_the_point_density(
             time_varying=[[]],
             continuous_treatment={"A": _support("U")},
         )
+    assert len(point) == len(records) == 1
+    assert point[0][4] is not None
+    assert _same(point[0], records[0])
+
+
+def test_w7_a_one_node_hazard_walk_reads_the_point_density(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hazard walk's loss weight reads the policy ratio of the same density as the point fit."""
+    records = _recorded(monkeypatch)
+    frame = law.draw("U", 600, 3)
+    _fit("U", frame)
+    point = list(records)
+    records.clear()
+    bins = default_density_bins(len(frame))
+    edges = tuple(bin_edges(frame["A"].to_numpy(), bins))
+    event = frame.assign(Y=(frame["Y"] > frame["Y"].median()).astype(float))
+    walks: list[Any] = []
+    original = estimator_module.mtp_inputs
+
+    def walk(data: Any, plan: Any, slots: Any, *args: Any, **kwargs: Any) -> Any:
+        walks.append(slots)
+        return original(data, plan, slots, *args, **kwargs)
+
+    monkeypatch.setattr(estimator_module, "mtp_inputs", walk)
+    regimens = {
+        "natural": DynamicRegimen("natural", (Shift(0.0, cap=None),)),
+        "p2": DynamicRegimen("p2", (_policy("U"),)),
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        LTMLE(
+            regimens,
+            reference="natural",
+            n_folds=1,
+            survival_model="hazard",
+            targeting="one_step",
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=law.OracleHazard(edges, "U"),
+            density_bins=bins,
+        ).fit(
+            event,
+            outcome=["Y"],
+            treatment=["A"],
+            baseline=["W1", "W2"],
+            time_varying=[[]],
+            continuous_treatment={"A": _support("U")},
+        )
+    assert walks and all(slots is not None and slots.kind == "continuous" for slots in walks)
     assert len(point) == len(records) == 1
     assert point[0][4] is not None
     assert _same(point[0], records[0])

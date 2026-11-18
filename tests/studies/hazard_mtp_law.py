@@ -789,26 +789,6 @@ class RatioLogistic(_Logistic):
     """
 
 
-class DoseOnlyRatio(_Logistic):
-    """The wrong classifier of the ratio route: logistic on the dose alone, no ``W``.
-
-    The classifier route stacks the treatment first: ``[A, atoms, steps, H]`` on a one-column
-    dose and ``[F, A, H]`` on ``vector``'s arm and dose.  The history, read last, is the same
-    in both halves of the stack, so a classifier on it returns a ratio of exactly 1.
-
-    Parameters
-    ----------
-    column : int
-        The dose's position in the stacked design: 0 on a one-column dose, 1 on ``vector``.
-    """
-
-    def __init__(self, column: int = 0) -> None:
-        self.column = column
-
-    def _features(self, X: Any) -> np.ndarray:
-        return np.asarray(X, dtype=float)[:, self.column : self.column + 1]
-
-
 class GaussianDoseHazard(BaseEstimator):
     """A Gaussian location density of the dose, fitted, read through the binned hazards.
 

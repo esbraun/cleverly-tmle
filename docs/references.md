@@ -248,7 +248,9 @@ previous reader had is not a citation; a page number is.
   Corollary 3.3, on p. C30, gives the fixed-repeat interval under the paper's DML assumptions.
   It does not establish that a targeted MAR plug-in satisfies those assumptions. The package
   applies the scalar rule per name and the matrix rule in `covariance()` to repeated longitudinal
-  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)).
+  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)) and
+  to the projection coefficients of a repeated point-treatment `ConditionalContrast` fit
+  ([repeated splits](technical-reference/conditional-effects.md#repeated-splits)).
   There the licence is the per-draw expansion of each single-draw estimator, and Corollary 3.3 is
   the DML analogue.
 
@@ -858,7 +860,10 @@ reads these sources. Each was read first-hand in the copy named.
 | source | copy read | locator and content |
 | --- | --- | --- |
 | Moore & van der Laan (2009), *Covariate adjustment in randomized trials with binary outcomes: targeted maximum likelihood estimation*, *Statistics in Medicine* 28(1):39–64, DOI 10.1002/sim.3445 | the PubMed Central author manuscript, [PMC2857590](https://pmc.ncbi.nlm.nih.gov/articles/PMC2857590/). The publisher's version was not accessible, so its section numbers are not checked | Section 2: with a known mechanism the TMLE "is always consistent whatever the estimator for Q". Section 5: with the true mechanism, inference "is not conservative", and with an estimated one it is conservative. Section 4.2 states that estimating the mechanism increases efficiency when the outcome model is wrong. Section 7.3, Table IV, measures it with a parametric logistic mechanism: relative efficiency about 1.45 and coverage 0.98. The manuscript's own cross-references disagree with its numbering in two places |
-| Hahn (1998), *On the role of the propensity score in efficient semiparametric estimation of average treatment effects*, *Econometrica* 66(2):315–331 | the published abstract only. The full text was not accessible | the abstract states that the propensity score is ancillary for the ATE and not for the ATT. The numbering "Theorem 1, unknown score; Theorem 2, known score" comes from Liu & Qin (arXiv 2205.13200), Section 2.2, and is not checked first-hand |
+| Chen, Hong & Tarozzi (2008), *Semiparametric efficiency in GMM models with auxiliary data*, *Annals of Statistics* 36(2):808–843, DOI 10.1214/009053607000000947 | the published version (Project Euclid) | Section 2, Theorem 1 (page 811, unknown $p(X)$) and Theorem 2 (page 812, known $p(X)$): for a parameter defined by a moment condition given $D=1$, the known-score bound has $p(X)^2/p^2$ where the unknown-score bound has $p(X)/p^2$ on the term in $E[m\mid X]$. Page 813 states the consequence for the ATT, crediting Hahn (1998) |
+| Imbens (2004), *Nonparametric estimation of average treatment effects under exogeneity: a review*, *Review of Economics and Statistics* 86(1):4–29 | NBER Technical Working Paper 294, the pre-publication version. The journal pages are not checked | Section 2.5, working-paper pages [10]–[11]: the ATT bounds with and without a known score, the gap $E[(\tau(X)-\tau_T)^2e(X)(1-e(X))]/E[e(X)]^2$, and the ATE bound unchanged by a known score. Page [17]: with the score known, the treated-mean imputation estimator of the ATT is generally not efficient |
+| Frölich (2002), *What is the value of knowing the propensity score for estimating average treatment effects?*, IZA Discussion Paper 548 | the discussion paper | page 7, displays (8) to (10): the ATE bound, and the ATT bound with an unknown and a known score, whose last terms carry $p(X)$ and $p(X)^2$ |
+| Hahn (1998), *On the role of the propensity score in efficient semiparametric estimation of average treatment effects*, *Econometrica* 66(2):315–332 | not obtained (closed access) | cited only through the three restatements above, which agree with each other. Its theorem numbering is not checked |
 | van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of multiple time point interventions*, *The International Journal of Biostatistics* 8(1) | the publisher's PDF | Section 2.3, page 12: the canonical gradient is the same in the model with $g_0$ known. Theorem 2, page 13: $P_0D^*(\bar Q, g, \Psi(\bar Q_0)) = 0$ if $\bar Q = \bar Q_0$ or $g = g_0$. Section 4, page 19: with $g_n = g_0$ the TMLE is asymptotically linear with curve $D^*(\bar Q^*, g_0, \psi_0)$ at the possibly misspecified limit. The paper does not write the remainder as a sum of terms in $(g - g_0)$; that form is a derivation |
 | Petersen, Schwab, Gruber, Blaser, Schomaker & van der Laan (2014), *J. Causal Inference* 2(2):147–185 | the publisher's PDF | Section 2.1, page 152: the model may assume a known intervention mechanism. Appendix B, Corollary 1, page 180: $-P_0D^*(Q, g_0) = \Psi(Q) - \psi_0$. Section 3.7, page 162: a maximum-likelihood mechanism in a correctly specified model gives the projected curve and a conservative interval |
 | Kennedy (2019), *JASA* 114(526):645–656 | [arXiv v3](https://arxiv.org/abs/1704.00211). The journal numbering is not checked | Theorem 2 and Corollary 2, Section 3.3: the incremental curve and its mechanism term. After Corollary 2: "If the propensity scores were known, the efficient influence function would just be the first weighted average term." Lemma 2, Section 8.2, gives the curve of a known stochastic intervention |
@@ -1624,6 +1629,14 @@ sizes only the cluster sum is the delta-method variance of the row mean
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
   form of `SequentialIPW` rests on `CalcIPTW` in R `ltmle` 1.3-0 and the delta method.
+- Jackson (2016), [*Diagnostics for confounding of time-varying and other joint
+  exposures*](https://doi.org/10.1097/EDE.0000000000000547), *Epidemiology* 27(6):859–869. Read in
+  the author's accepted manuscript (PMC5308856), not the typeset version; the eAppendix is not
+  read. Table 1 defines Diagnostic 1 (prior covariates across the current exposure, within
+  exposure history), Diagnostic 2a (a later covariate across an earlier exposure, weighted by that
+  exposure's weight) and Diagnostic 3 (Diagnostic 1 under the cumulative weights), with censoring
+  treated as another exposure. `covariate_balance` cites it for a fit over time, standardizes each
+  difference, and averages the strata by their size.
 - Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician*
   56(1):29–38. Read in the 2001 preprint (NCSU Mimeo 2528). Section 2 gives the stacked sandwich
   variance of a system of estimating equations. The published page and equation numbers are not
@@ -2293,6 +2306,24 @@ sizes only the cluster sum is the delta-method variance of the row mean
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
   and a mixed latent cause for this surface. The clustered point law of the simulated common-cause surface
   cites it as a negative finding.
+- Prentice & Gloeckler (1978), [*Regression analysis of grouped survival data with application to
+  breast cancer data*](https://doi.org/10.2307/2529588), *Biometrics* 34(1):57–67. Not read here.
+  It is cited for the grouped-time form of the proportional-hazards model, in which the event
+  probability at an atom $u$ of the baseline is $1 - \exp\{-e^{\eta}\Delta\Lambda_0(u)\}$. The
+  continuous-time replay of the simulated common-cause surface reads each fitted Cox model that
+  way, and the exact discrete-law check in `tests/unit/test_simulated_confounding_continuous.py`
+  states the law it checks in the test itself.
+- Prentice, Kalbfleisch, Peterson, Flournoy, Farewell & Breslow (1978), [*The analysis of failure
+  times in the presence of competing risks*](https://doi.org/10.2307/2530374), *Biometrics*
+  34(4):541–554. Not read here. It is cited for the standard result that the cause-specific
+  hazards determine the joint law of the first event time and its cause, which the continuous-time
+  replay uses to draw one latent time per cause.
+- Bender, Augustin & Blettner (2005), [*Generating survival times to simulate Cox proportional
+  hazards models*](https://doi.org/10.1002/sim.2059), *Statistics in Medicine* 24(11):1713–1723.
+  Not read here. It is cited for the inversion of a proportional-hazards cumulative hazard at an
+  exponential level, the step the continuous-time replay applies on each fitted baseline. The
+  known-hazard checks in `tests/unit/test_simulated_confounding_continuous.py` verify the
+  inversion exactly.
 
 ## Negative controls
 
@@ -2342,6 +2373,27 @@ sizes only the cluster sum is the delta-method variance of the row mean
   `band_scale="logit"` ([the band scale](technical-reference/inference.md#the-band-scale)) and
   for the logit interval of a mean of a yes/no outcome
   ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
+- Agresti & Caffo (2000), [*Simple and Effective Confidence Intervals for Proportions and
+  Differences of Proportions Result from Adding Two Successes and Two
+  Failures*](https://doi.org/10.1080/00031305.2000.10474560), DOI 10.1080/00031305.2000.10474560.
+  Coverage tables of intervals for a difference of independent proportions, the comparison
+  class of the MOVER interval of a bounded difference.
+
+## Asymmetric intervals
+
+- Tang (2021), [arXiv:2110.12636](https://arxiv.org/abs/2110.12636), section 2.1, display (1).
+  The MOVER interval of a difference of independent groups from each group's own interval,
+  restated from Howe (1974). The package adds the correlation of the two estimates of one fit,
+  read from the three variances, for a bounded difference
+  ([small-sample scale](technical-reference/inference.md#small-sample-scale)).
+- DiCiccio & Efron (1996), [*Bootstrap Confidence
+  Intervals*](https://doi.org/10.1214/ss/1032280214), DOI 10.1214/ss/1032280214. Display (6.6)
+  gives the nonparametric acceleration from the empirical influence values, which
+  `curve_acceleration()` computes from the influence curve and the skew-widened t reads.
+- Kauermann & Carroll (2000), *A Note on the Efficiency of Sandwich Covariance Matrix
+  Estimation*, SFB 386 Discussion Paper 189 (the JASA version was not read). Theorem 2 gives the
+  coverage loss of the normal interval from the noise of the sandwich variance, which the moment
+  degrees of freedom of the skew-widened t address.
 
 ## Multiple testing
 
@@ -2357,7 +2409,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
   band.
 - Fay & Graubard (2001), [*Small-Sample Adjustments for Wald-Type Tests Using Sandwich
   Estimators*](https://doi.org/10.1111/j.0006-341X.2001.01198.x), DOI
-  10.1111/j.0006-341X.2001.01198.x. Appendix B's realised-term degrees of freedom is the Kish
+  10.1111/j.0006-341X.2001.01198.x. Appendix A's moment degrees of freedom is the
+  `small_sample_df` that the skew-widened t of a continuous outcome reads
+  ([small-sample scale](technical-reference/inference.md#small-sample-scale)), and Appendix B's
+  realised-term degrees of freedom is the Kish
   count of `band_reference="t"` ([the t reference](technical-reference/inference.md#the-t-reference)).
   No source derives it for an influence-curve estimator; the
   [`band-t-reference` study](technical-reference/method-evidence/band-t-reference.md) is the
@@ -2757,7 +2812,10 @@ support a shipped claim. Each item states the remaining source work.
   paper. Cited by roadmap item X5.
 - Rytgaard, Gerds & van der Laan (2022), [*Continuous-time targeted minimum loss-based estimation
   of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
-  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item X6.
+  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. The hazard fit with a treatment at several
+  nodes is the discrete-time case of its Theorem 1, display (19), with remainder display (13) and
+  Theorem 2. The hazard fit with covariates after baseline follows its form. Cited by roadmap
+  item X6.
 - Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
   continuously distributed time-to-event outcomes by targeted maximum likelihood
   estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI

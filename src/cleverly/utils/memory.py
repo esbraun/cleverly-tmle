@@ -19,10 +19,12 @@ pages), which the kernel reclaims before it kills a process.
 
 from __future__ import annotations
 
+import operator
 import os
 import sys
+from typing import Any
 
-__all__ = ["available_memory"]
+__all__ = ["available_memory", "check_max_memory_bytes", "check_memory_budget"]
 
 #: The Linux file that :func:`available_memory` reads ``MemAvailable`` from.
 MEMINFO = "/proc/meminfo"
@@ -190,3 +192,96 @@ def available_memory() -> int | None:
         return int(os.sysconf("SC_AVPHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
     except (AttributeError, OSError, ValueError):
         return None
+
+
+def check_max_memory_bytes(value: Any, *, name: str = "max_memory_bytes") -> int | None:
+    """A byte-budget argument as a positive number of bytes, or ``None``.
+
+    The caller decides what ``None`` means: a memory guard reads it as the memory available
+    now, and the assessment cache's ``max_bytes`` as no budget.
+
+    Parameters
+    ----------
+    value : int or None
+        The argument: ``None``, or a positive integer (a NumPy integer too, but not a
+        ``bool``).
+    name : str, default="max_memory_bytes"
+        The argument's name, as the error states it.
+
+    Returns
+    -------
+    int or None
+        The budget in bytes, or ``None``.
+
+    Raises
+    ------
+    DataError
+        For any other value.
+    """
+    from ..exceptions import DataError
+
+    if value is None:
+        return None
+    message = f"{name} must be a positive integer or None; got {value!r}"
+    if isinstance(value, bool):
+        raise DataError(message)
+    try:
+        budget = operator.index(value)
+    except TypeError:
+        raise DataError(message) from None
+    if budget <= 0:
+        raise DataError(message)
+    return int(budget)
+
+
+def check_memory_budget(
+    predicted: int, *, max_memory_bytes: int | None, what: str, factor: float
+) -> int | None:
+    """Refuse an allocation predicted to exceed the memory budget, before it is made.
+
+    The budget is ``max_memory_bytes`` when given, in either direction, and otherwise the
+    memory available now; where the platform reports none, nothing is checked.  The
+    prediction counts what the guarded stage adds above the arrays already held, so the
+    budget is not a cap on the process.
+
+    Parameters
+    ----------
+    predicted : int
+        The predicted peak bytes of the guarded stage.
+    max_memory_bytes : int or None
+        A budget already checked by :func:`check_max_memory_bytes`, or ``None``.
+    what : str
+        The stage, as the refusal names it.
+    factor : float
+        How far the prediction may exceed the true peak, which the refusal states.
+
+    Returns
+    -------
+    int or None
+        The budget the check used, or ``None`` when none applies.
+
+    Raises
+    ------
+    MethodConfigurationError
+        When the prediction exceeds the budget.
+    """
+    from ..exceptions import MethodConfigurationError, RefusalReason
+
+    budget = available_memory() if max_memory_bytes is None else max_memory_bytes
+    if budget is None or predicted <= budget:
+        return budget
+
+    def size(count: int) -> str:
+        return f"{count / 1024.0**2:,.1f} MiB" if count >= 1024**2 else f"{count:,} bytes"
+
+    source = (
+        "is available now" if max_memory_bytes is None else "is the budget max_memory_bytes sets"
+    )
+    raise MethodConfigurationError(
+        f"{what} would need about {size(predicted)} above the arrays already held, and "
+        f"{size(budget)} {source}. The prediction may exceed the true peak by up to "
+        f"a factor of {factor:g}, and the available memory is read once, before the stage "
+        "starts, so a request that would just fit can be refused.",
+        reason=RefusalReason.INVALID_DECLARATION,
+        alternative="Pass max_memory_bytes= (in bytes) to set the budget yourself.",
+    )

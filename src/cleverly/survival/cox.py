@@ -51,6 +51,36 @@ _SCORE_TOL: Final = 1e-10
 _MAX_NEWTON: Final = 100
 #: A Newton step below this share of the coefficients' size is below rounding: converged.
 _STEP_TOL: Final = 1e-12
+#: The widest spread (largest minus smallest) the standardized linear predictor may reach on
+#: the fitting rows.  Within it every shifted risk in a risk set is at least
+#: ``exp(-_SPREAD_MAX)``, a normal double, so the Breslow sums keep full relative precision.  The
+#: design is centred, so the predictor spans zero and the unshifted risks of the baseline stay
+#: within ``exp(+-_SPREAD_MAX)``, and a fitting row's cumulative hazard stays finite.  Fits
+#: running to a monotone-likelihood boundary end at it; a regular maximum reaches it only with
+#: hazard ratios of about ``exp(568)`` between two fitting rows.
+_SPREAD_MAX: Final = 0.8 * float(np.log(np.finfo(float).max))
+#: The infinite-coefficient test of ``survival::coxph.fit`` (Therneau): coefficient ``j`` runs
+#: to infinity when the Newton step at the final fit exceeds ``_INF_EPS`` and
+#: ``sqrt(_INF_EPS) * |beta_j|``.
+_INF_EPS: Final = 1e-9
+
+
+def _newton_step(info: FloatArray, grad: FloatArray) -> FloatArray:
+    """The Newton step ``info^{-1} grad``, by least squares where ``info`` is singular."""
+    try:
+        return np.asarray(cho_solve(cho_factor(info), grad))
+    except np.linalg.LinAlgError:
+        return np.asarray(np.linalg.lstsq(info, grad, rcond=None)[0])
+
+
+def _column_names(terms: CoxTerms, p: int) -> list[str]:
+    """The design columns in words: the treatment, covariates by their ``X`` column."""
+    names = ["the treatment"]
+    if terms != "treatment":
+        names += [f"covariate {k}" for k in range(1, p)]
+    if terms == "interaction":
+        names += [f"treatment x covariate {k}" for k in range(1, p)]
+    return names
 
 
 def _design(X: FloatArray, terms: CoxTerms) -> FloatArray:
@@ -79,9 +109,11 @@ def _risk_sets(time: FloatArray, event: FloatArray) -> _RiskSets:
     order = np.argsort(time, kind="stable")
     sorted_time = time[order]
     events = event > 0
-    times = np.unique(time[events])
+    times, counts = np.unique(time[events], return_counts=True)
     start = np.searchsorted(sorted_time, times, side="left")
-    deaths = np.array([np.count_nonzero(events & (time == t)) for t in times], dtype=float)
+    # Breslow tie counts, one grouped count instead of a scan of every row per event time.
+    # A NaN time counts no deaths, as an equality test would find none.
+    deaths = np.where(np.isnan(times), 0, counts).astype(float)
     return _RiskSets(times, start, deaths, order, np.flatnonzero(events))
 
 
@@ -91,24 +123,54 @@ def _tail(values: FloatArray, start: IntArray) -> FloatArray:
     return cum[start]
 
 
-def _loglik_parts(
+#: Bytes one block of the risk second moments may take: the ``(n, b, q)`` products, their
+#: reversed running sums and the ``(M, b, q)`` sums at the event times are each about this size.
+#: A block holds at least one row, so when ``8 n q`` exceeds this budget a block is ``8 n q``.
+_BLOCK_BYTES: Final = 32 * 2**20
+
+
+def _loglik_terms(
     beta: FloatArray, Z: FloatArray, sets: _RiskSets
 ) -> tuple[float, FloatArray, FloatArray]:
-    """Breslow log partial likelihood, its gradient and its negative Hessian."""
+    """The log partial likelihood, the risks in time order, and their sums ``s0``."""
     eta = Z @ beta
     shift = float(np.max(eta)) if eta.size else 0.0
     risk = np.exp(eta - shift)
-    zs = Z[sets.order]
     rs = risk[sets.order]
     s0 = _tail(rs, sets.start)
-    s1 = _tail(rs[:, None] * zs, sets.start)
-    s2 = _tail(rs[:, None, None] * zs[:, :, None] * zs[:, None, :], sets.start)
-    zbar = s1 / s0[:, None]
     loglik = float(np.sum(eta[sets.event_sum_rows]) - np.sum(sets.deaths * (np.log(s0) + shift)))
+    return loglik, rs, s0
+
+
+def _loglik(beta: FloatArray, Z: FloatArray, sets: _RiskSets) -> float:
+    """Breslow log partial likelihood alone, which is all a step-halving trial reads."""
+    return _loglik_terms(beta, Z, sets)[0]
+
+
+def _loglik_parts(
+    beta: FloatArray, Z: FloatArray, sets: _RiskSets
+) -> tuple[float, FloatArray, FloatArray]:
+    """Breslow log partial likelihood, its gradient and its negative Hessian.
+
+    The risk second moments are built a block of Hessian rows at a time, so no ``(n, q, q)``
+    array exists. Each entry is the same product, running sum and sum over event times that
+    one full array would hold, so the result does not depend on the block size.
+    """
+    loglik, rs, s0 = _loglik_terms(beta, Z, sets)
+    zs = Z[sets.order]
+    s1 = _tail(rs[:, None] * zs, sets.start)
+    zbar = s1 / s0[:, None]
     grad = Z[sets.event_sum_rows].sum(axis=0) - (sets.deaths[:, None] * zbar).sum(axis=0)
-    info = (
-        sets.deaths[:, None, None] * (s2 / s0[:, None, None] - zbar[:, :, None] * zbar[:, None, :])
-    ).sum(axis=0)
+    q = zs.shape[1]
+    info = np.full((q, q), np.nan)  # a row no block writes stays visible
+    block = max(1, _BLOCK_BYTES // (8 * max(1, zs.shape[0] * q)))
+    for first in range(0, q, block):
+        rows = slice(first, min(q, first + block))
+        s2 = _tail(rs[:, None, None] * zs[:, rows, None] * zs[:, None, :], sets.start)
+        info[rows] = (
+            sets.deaths[:, None, None]
+            * (s2 / s0[:, None, None] - zbar[:, rows, None] * zbar[:, None, :])
+        ).sum(axis=0)
     return loglik, grad, info
 
 
@@ -129,6 +191,22 @@ class CoxHazard:
     Ties use the Breslow partial likelihood, and the baseline is the Breslow estimate
     :math:`d\Lambda_0(u) = d(u) / \sum_{i:\, T_i \ge u} e^{x_i^\top\beta}`, so
     ``CoxHazard("treatment")`` at :math:`\beta = 0` is the Nelson-Aalen estimator.
+
+    Newton steps are halved until the likelihood does not fall and the standardized linear
+    predictor's spread over the fitting rows stays within :math:`0.8 \log(\text{max double})`,
+    about 568, where the Breslow sums keep full precision. A regular fit ends inside that range.
+    On separated data (a cause with no events in one arm, or a covariate that orders the event
+    times) the partial likelihood keeps rising along one direction toward a limit it never
+    reaches, so no maximum exists. The fit then either ends pinned at the range's edge, or meets
+    the score tolerance with the coefficients still running, which the infinite-coefficient test
+    of R's ``survival::coxph`` usually detects (a heuristic: a small separated sample can pass
+    it). A detected case sets ``monotone_likelihood_`` and warns with a
+    :class:`~cleverly.exceptions.ConvergenceWarning` naming the coefficients that may be
+    infinite. That fit is not a maximum-likelihood estimate: it is the point its Newton path
+    reached, where the hazards the separating direction sends toward zero or infinity are
+    effectively at their limit. A positive ``penalty`` gives the likelihood a finite maximum.
+    ``converged_`` says whether the score met its tolerance. A regular maximum with hazard ratios
+    of about :math:`e^{568}` between two fitting rows is beyond the range and is not reached.
     """
 
     def __init__(self, terms: CoxTerms = "main", penalty: float = 0.0) -> None:
@@ -180,6 +258,10 @@ class CoxHazard:
         sets = _risk_sets(time, event)
         beta = np.zeros(Zs.shape[1])
         converged = sets.times.size == 0
+        # The last full Newton step left the resolved range (or read a non-finite value).
+        unresolved_step = False
+        info = np.zeros((beta.size, beta.size))
+        grad = np.zeros(beta.size)
         for _ in range(_MAX_NEWTON):
             if converged:
                 break
@@ -187,42 +269,82 @@ class CoxHazard:
             grad = grad - self.penalty * beta
             info = info + self.penalty * np.eye(beta.size)
             if not (np.all(np.isfinite(grad)) and np.all(np.isfinite(info))):
-                # A risk set's weights underflowed: the same monotone-likelihood boundary.
+                # Inside the resolved range only a non-finite input reaches this.
                 break
             if np.max(np.abs(grad)) < _SCORE_TOL:
                 converged = True
                 break
-            try:
-                step = cho_solve(cho_factor(info), grad)
-            except np.linalg.LinAlgError:
-                step = np.linalg.lstsq(info, grad, rcond=None)[0]
+            step = _newton_step(info, grad)
             # At n in the thousands the summed score can stall just above its tolerance while
             # the Newton step is already below rounding; that is convergence, not a boundary,
             # where the step grows instead.
             if np.max(np.abs(step)) <= _STEP_TOL * (1.0 + np.max(np.abs(beta))):
                 converged = True
                 break
-            # Halve until the penalized likelihood does not fall.
+            # Halve until the penalized likelihood is resolved and does not fall.  A trial whose
+            # linear predictor leaves the resolved range is halved without being evaluated: its
+            # Breslow sums would lose precision or underflow, and an underflowed risk set reads
+            # as +inf.  A regular fit's Newton step can leave the range too (one heavy-tailed
+            # covariate), so leaving it is halved like a fall, never taken as a boundary.
             target = loglik - 0.5 * self.penalty * beta @ beta
             accepted = False
-            for _halving in range(30):
+            for halving in range(30):
                 trial = beta + step
-                value = _loglik_parts(trial, Zs, sets)[0] - 0.5 * self.penalty * trial @ trial
-                if value >= target - 1e-12:  # False for a non-finite value
+                resolved = bool(np.ptp(Zs @ trial) <= _SPREAD_MAX)
+                value = (
+                    _loglik(trial, Zs, sets) - 0.5 * self.penalty * trial @ trial
+                    if resolved
+                    else np.nan
+                )
+                if halving == 0:
+                    unresolved_step = not np.isfinite(value)
+                if np.isfinite(value) and value >= target - 1e-12:
                     accepted = True
                     break
                 step = step / 2
             if not accepted:
-                # No step keeps the likelihood finite and not lower: the coefficients run to a
-                # monotone-likelihood boundary, so they stay at the last finite fit.
+                # No step keeps the likelihood resolved and not lower: the fit stays here.
                 break
             beta = beta + step
-        if not converged:
+        reach = float(np.ptp(Zs @ beta)) if beta.size else 0.0
+        if converged and beta.size:
+            # coxph's infinite-coefficient test, on the standardized scale where its relative
+            # criterion is scale-free: at a finite maximum the Newton step is at rounding; along
+            # a separating direction the score and the information decay together and the step
+            # stays near the inverse of the separation's gap.
+            final_step = np.abs(np.linalg.pinv(info) @ grad)
+            runaway = (final_step > _INF_EPS) & (final_step > np.sqrt(_INF_EPS) * np.abs(beta))
+            # Columns coupled to the run through the inverse information can pass the test with a
+            # step orders of magnitude below the run's own; they are not named.
+            runaway &= final_step >= 0.1 * np.max(final_step)
+            boundary = bool(np.any(runaway))
+        else:
+            # Pinned at the edge of the resolved range by steps that keep leaving it.
+            boundary = unresolved_step and reach > 0.5 * _SPREAD_MAX and not self.penalty
+            runaway = (
+                np.abs(beta) >= 0.5 * np.max(np.abs(beta))
+                if boundary
+                else np.zeros(beta.size, bool)
+            )
+        if boundary:
+            names = _column_names(self.terms, np.asarray(X).shape[1])
+            diverging = ", ".join(n for n, r in zip(names, runaway, strict=True) if r)
             _warn(
-                f"{self!r} did not reach a score below {_SCORE_TOL:g} in {_MAX_NEWTON} Newton "
-                "steps; the coefficients may sit on a monotone-likelihood boundary.",
+                f"{self!r} has a monotone partial likelihood: the coefficients of {diverging} may "
+                "be infinite. The fit stops along its Newton path where the likelihood is still "
+                "resolved in double precision, so the hazards it sends toward zero or infinity "
+                "are effectively at their limit; it is not a maximum-likelihood estimate. A ridge "
+                "penalty, such as CoxHazard(..., penalty=1.0), has a finite maximum; a "
+                "StratifiedNelsonAalen on a separating discrete column fits the limit exactly.",
                 ConvergenceWarning,
             )
+        elif not converged:
+            _warn(
+                f"{self!r} did not reach a score below {_SCORE_TOL:g} in {_MAX_NEWTON} Newton "
+                "steps; the coefficients are the last fit whose likelihood was resolved.",
+                ConvergenceWarning,
+            )
+        self.monotone_likelihood_ = boundary
         self.converged_ = converged
         self.coef_ = beta / self.scale_
         self.intercept_shift_ = float(self.center_ / self.scale_ @ beta)
@@ -264,10 +386,35 @@ class CoxHazard:
         ndarray
             ``(n, m)`` cumulative hazards.
         """
+        scale, base = self.hazard_factors(X, times)
+        return scale[:, None] * base[None, :]
+
+    def hazard_factors(self, X: Any, times: Any) -> tuple[FloatArray, FloatArray]:
+        """The two factors of :meth:`cumulative_hazard`: one scale per row, one baseline per time.
+
+        ``cumulative_hazard(X, times)`` is ``scale[:, None] * base[None, :]`` bit for bit.  The
+        scale :math:`e^{x^\\top\\beta}` of a row depends on the rows it is computed with in its
+        last bits (a matrix-vector product), so a caller that rebuilds the hazards of some rows
+        later keeps the scales of one call rather than recomputing them on a subset.
+
+        Parameters
+        ----------
+        X : array-like
+            ``(n, p)`` with the treatment in the first column.
+        times : array-like
+            ``(m,)`` times.
+
+        Returns
+        -------
+        scale : ndarray
+            ``(n,)`` :math:`e^{x_i^\\top\\beta}`.
+        base : ndarray
+            ``(m,)`` the Breslow cumulative baseline hazard at each time, right-continuous.
+        """
         times = np.asarray(times, dtype=float)
         cum = np.concatenate([[0.0], np.cumsum(self.baseline_jumps_)])
         base = cum[np.searchsorted(self.baseline_times_, times, side="right")]
-        return np.exp(self.linear_predictor(X))[:, None] * base[None, :]
+        return np.exp(self.linear_predictor(X)), base
 
 
 def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> float:
@@ -293,7 +440,7 @@ def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> f
     sets = _risk_sets(np.asarray(time, dtype=float), np.asarray(event, dtype=float))
     if sets.times.size == 0:
         return 0.0
-    return _loglik_parts(model._zs_beta, Zs, sets)[0]
+    return _loglik(model._zs_beta, Zs, sets)
 
 
 class StratifiedNelsonAalen:
@@ -371,12 +518,37 @@ class StratifiedNelsonAalen:
         ndarray
             ``(n, m)`` cumulative hazards.
         """
+        index, curves = self.hazard_cells(X, times)
+        return curves[index]
+
+    def hazard_cells(self, X: Any, times: Any) -> tuple[IntArray, FloatArray]:
+        """The cell of each row and each cell's cumulative hazard.
+
+        These are the parts of :meth:`cumulative_hazard`: ``cumulative_hazard(X, times)`` is
+        ``curves[index]`` bit for bit.
+
+        Parameters
+        ----------
+        X : array-like
+            ``(n, p)``.
+        times : array-like
+            ``(m,)`` times.
+
+        Returns
+        -------
+        index : ndarray
+            ``(n,)`` the row of ``curves`` that holds each row's cell.
+        curves : ndarray
+            ``(cells, m)`` the cumulative hazard of each cell the rows fall in, in order of
+            first appearance.
+        """
         times = np.asarray(times, dtype=float)
         keys = self._keys(X)
-        out = np.empty((len(keys), times.size))
-        cache: dict[tuple[float, ...], FloatArray] = {}
+        index = np.empty(len(keys), dtype=int)
+        position: dict[tuple[float, ...], int] = {}
+        rows: list[FloatArray] = []
         for i, key in enumerate(keys):
-            if key not in cache:
+            if key not in position:
                 if key not in self.cells_:
                     raise _gap(
                         f"{self!r} has no fitted cell {key}; a saturated hazard predicts only "
@@ -384,9 +556,11 @@ class StratifiedNelsonAalen:
                     )
                 jump_times, jumps = self.cells_[key]
                 cum = np.concatenate([[0.0], np.cumsum(jumps)])
-                cache[key] = cum[np.searchsorted(jump_times, times, side="right")]
-            out[i] = cache[key]
-        return out
+                position[key] = len(rows)
+                rows.append(cum[np.searchsorted(jump_times, times, side="right")])
+            index[i] = position[key]
+        curves = np.vstack(rows) if rows else np.empty((0, times.size))
+        return index, curves
 
 
 @dataclass(frozen=True)

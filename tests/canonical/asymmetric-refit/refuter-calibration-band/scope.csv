@@ -1,0 +1,4 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,point/ate,0,0.4013624568892149,0.027618074289486122,0.40136245688937139,0.027618074289465701,ok,skew_t,132.79428213292533,0.003128780997376551,0.050000000000000003,0.34673419881865924,0.45674101374006931,0.34723202595947045,0.45549288781895936,,,,,
+scope,property,refuter_size/LJ1__placebo,0,-0.85398828363252288,1,-0.85247749968196174,1,mismatch,own,,,,,,,,,,,,
+scope,property,refuter_size/PJ1__placebo,0,-0.093164733039518111,1,-0.093164733040753053,1,ok,own,,,,,,,,,,,,

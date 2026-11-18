@@ -20,9 +20,11 @@ from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
+from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._summary import short_repr
 from .._trial_family import refuse_augmented_trial
 from ..data.causal_data import arm_share
+from ..data.known_mechanism import divides_by_declaration
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..validation.simulation import ReplicationFailure
@@ -135,19 +137,23 @@ class ObservedConfounderCalibration:
         Numeric adjustment covariate used for the comparison.
     role : {"treatment", "outcome"}
         Perturbed variable whose source-style scale is reported.
-    family : {"binomial", "gaussian"}
-        Variable family that determines the calibration rule.
+    family : {"binomial", "gaussian", "hazard"}
+        Variable family that determines the calibration rule.  ``"hazard"`` marks an outcome
+        row of a continuous-time survival surface: a log-hazard ratio per standard deviation
+        in the replay's Cox model of one cause.
     strength : float
-        Prediction-change fraction or signed standardized marginal coefficient.
+        Prediction-change fraction, signed standardized marginal coefficient, or signed
+        log-hazard ratio per standard deviation.
     method : str
         Finite-sample rule used to calculate ``strength``.
     component : str or None
-        The component of a vector treatment that a treatment row calibrates, or ``None``.
+        The component of a vector treatment that a treatment row calibrates, the cause an
+        outcome row of a competing-risk continuous-time surface calibrates, or ``None``.
     """
 
     covariate: str
     role: Literal["treatment", "outcome"]
-    family: Literal["binomial", "gaussian"]
+    family: Literal["binomial", "gaussian", "hazard"]
     strength: float
     method: str
     component: str | None = None
@@ -201,16 +207,21 @@ class SimulatedConfoundingCell:
         laws read the outcome strength on their own scale, so this is the quantity to
         compare across fits.
     censoring_redrawn_share : float or None
-        On a survival or competing-risk fit with censoring, the weighted share of this
+        On a survival or competing-risk panel with censoring, the weighted share of this
         cell's replayed person-nodes whose observed censoring was redrawn from the fitted
-        censoring model because the treatment changed.  ``None`` elsewhere.
+        censoring model because the treatment changed.  On a continuous-time survival fit
+        with censoring, the share of all units whose treatment changed, whose censoring time
+        was drawn at the new treatment.  ``None`` elsewhere.
     extended_share : float or None
-        On a survival or competing-risk fit, the weighted share of replayed person-nodes
-        past the unit's observed follow-up, drawn from the fitted models.  ``None`` elsewhere.
+        On a survival or competing-risk panel, the weighted share of replayed person-nodes
+        past the unit's observed follow-up, drawn from the fitted models.  On a
+        continuous-time survival fit, the share of all units whose replayed time exceeds
+        their observed time.  ``None`` elsewhere.
     new_event_share : float or None
-        On a survival or competing-risk fit, the weighted share of replayed events at a node
-        where the unit had no observed event.  ``None`` elsewhere, and when the cell has no
-        event.
+        On a survival or competing-risk panel, the weighted share of replayed events at a
+        node where the unit had no observed event.  On a continuous-time survival fit, the
+        share of replayed events whose time or cause differs from the unit's observed event,
+        including units that had none.  ``None`` elsewhere, and when the cell has no event.
     """
 
     treatment_strength: float | tuple[float, ...]
@@ -291,7 +302,8 @@ class SimulatedConfoundingResult:
     treatment_family : str
         Treatment family covered by the perturbation law.
     outcome_family : str
-        Original outcome family.
+        Original outcome family: ``"gaussian"`` or ``"binomial"``, or ``"survival"`` or
+        ``"competing_risks"`` for a time to event, on a panel or in continuous time.
     treatment_law : str
         Human-readable treatment perturbation rule.
     outcome_law : str
@@ -362,23 +374,31 @@ class SimulatedConfoundingResult:
         :math:`g_s(a \mid W) = (1 - s)\, g_0(a \mid W) + s\, g_0(1 - a \mid W)`.  Every
         cell that moves the treatment declares :math:`g_s`, and its refit divides by it.
         On a longitudinal fit the declaration covers the first node only.
+    tilt_estimated : bool
+        Whether the carried declaration is read in the sample beside weights
+        (``mechanism_law="sample"``), so each refit re-estimates the weight tilt of the
+        flipped declaration with the treatment learner instead of dividing by it.
     held_decision : bool
         Whether a longitudinal fit holds its baseline decision at every node.  Each cell
         then moves the first node, and the identity nodes repeat it.
     refit_folds : {"original", "redrawn", "none"} or None
         On a longitudinal fit, whether every refit reuses the original draws' split and
         learner seeds, redraws them under an explicit seed other than the fit's own, or
-        the fit has no split.  Redrawn folds put fold noise into the movement of every
-        cell near the anchor.  ``None`` on a point-treatment fit.
+        the fit has no split.  On a continuous-time survival fit, ``"original"`` when every
+        refit reuses the fit's whole fold plan (outer and inner selection labels and the
+        generator state), in sample too, and ``"redrawn"`` under another seed.  Redrawn folds
+        put fold noise into the movement of every cell near the anchor.  ``None`` on a
+        point-treatment fit.
     replay_models : tuple of str
         On a survival or competing-risk fit, one line per fitted model of the follow-up
         replay: what it fits, its settings, and whether it converged.  ``()`` elsewhere.
     coupling_seed : int or None
         On a survival or competing-risk fit, the tagged child seed of the uniforms that
-        couple each replayed indicator to the observed one.  ``None`` elsewhere.
+        couple each replayed indicator or time to the observed one.  ``None`` elsewhere.
     outcome_cause : str or None
         On a competing-risk fit, the cause whose hazard the latent shifts, or ``None`` when
-        it shifts the all-cause event.
+        it shifts the all-cause event (a panel) or every cause-specific hazard (a
+        continuous-time fit).
 
     Attributes
     ----------
@@ -415,6 +435,7 @@ class SimulatedConfoundingResult:
     population: Literal["baseline", "perturbed_treatment_group"] = "baseline"
     conditioning_arm: Any = None
     known_mechanism_carried: bool = False
+    tilt_estimated: bool = False
     treatment_components: tuple[str, ...] = ()
     component_kinds: tuple[str, ...] = ()
     arm_pair: tuple[Any, Any] | None = None
@@ -510,6 +531,15 @@ class SimulatedConfoundingResult:
             )
             + (
                 (
+                    "optimal-rule reading: every cell relearns the rule on the fit's folds and "
+                    "seed, so a cell reads confounding of the value of the optimal rule, and "
+                    "the rule moves with the confounding",
+                )
+                if self.estimand.startswith("ey_optimal_rule[")
+                else ()
+            )
+            + (
+                (
                     "treatment mechanism: known on the data; each cell that flips the treatment "
                     "declares the flipped mechanism (1 - s) g0 + s (1 - g0)"
                     if self.arm_pair is None
@@ -518,6 +548,14 @@ class SimulatedConfoundingResult:
                     "and the other arms unchanged",
                 )
                 if self.known_mechanism_carried
+                else ()
+            )
+            + (
+                (
+                    'treatment mechanism: declared in the sample (mechanism_law="sample"); '
+                    "each refit re-estimates the weight tilt of the declared mechanism",
+                )
+                if self.tilt_estimated
                 else ()
             )
             + (
@@ -599,6 +637,20 @@ class SimulatedConfoundingResult:
                     else ()
                 )
                 if self.treatment_family == "longitudinal"
+                else ()
+            )
+            + (
+                (
+                    "replay: event and censoring times redrawn from the replay's Cox fits; "
+                    "refit folds "
+                    + (
+                        "frozen to the fit's whole fold plan"
+                        if self.refit_folds == "original"
+                        else "redrawn under a seed other than the fit's own, so the movement "
+                        "of each cell includes fold noise; the anchor is the original fit"
+                    ),
+                )
+                if self.treatment_family != "longitudinal" and self.replay_models
                 else ()
             )
         )
@@ -1183,6 +1235,21 @@ def _linear_treatment(
     return values + strength * latent
 
 
+def _fit_repeat_seeds(result: Any, root_seed: int) -> list[int] | None:
+    """The fit's repeat seeds, when the replay runs under the fit's own seed.
+
+    An unseeded fit records the seeds its repeats drew, so its replay reuses them.  An
+    explicit seed other than the fit's own redraws them, and so does a fit that recorded none.
+    """
+    seeds = [repeat.seed for repeat in result.repeats]
+    if not seeds or any(seed is None for seed in seeds):
+        return None
+    own = result.estimator.random_state
+    if own is not None and int(own) != root_seed:
+        return None
+    return [int(seed) for seed in seeds]
+
+
 def flipped_mechanism(values: np.ndarray[Any, Any], strength: float) -> np.ndarray[Any, Any]:
     r"""The known mechanism of a binary treatment flipped with probability ``strength``.
 
@@ -1704,7 +1771,9 @@ def simulated_confounding(
         modified-policy fit. Ordinary binary TMLE also supports fixed regime means,
         regime contrasts, and incremental means and contrasts. Ordinary TMLE also supports
         binary and continuous MSM coefficients under any registered link.
-        Baseline strata require estimator support for their targeting.
+        Baseline strata require estimator support for their targeting. A
+        ``ContinuousSurvivalResult`` that holds its estimator and data is replayed in
+        continuous time.
     estimand : str
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
         or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
@@ -1715,6 +1784,8 @@ def simulated_confounding(
         An MSM uses ``msm[term]``. Incremental targets use ``ey_ipsi[...]`` or
         ``ate_ipsi[...]``; a multiplier-one mean is refused.
         A conditional target requires its complete reported stratum alias.
+        A continuous-time survival fit takes any alias it reports, such as
+        ``ate_regimen[1 vs 0, 1 @ t=1]``.
     grid : ConfounderStrengthGrid
         Explicit treatment and outcome perturbation strengths.
     benchmark_covariates : tuple of str
@@ -1746,9 +1817,11 @@ def simulated_confounding(
         outcome either law moves lands inside the bounds.
         Any other fit takes ``None`` only.
     outcome_cause : str or None
-        On a competing-risk longitudinal fit, the cause whose hazard the latent shifts,
-        holding every other cause-specific hazard fixed.  ``None`` shifts the all-cause
-        event and keeps the cause shares.  Any other fit takes ``None`` only.
+        On a competing-risk longitudinal or continuous-time survival fit, the cause whose
+        hazard the latent shifts, holding every other cause-specific hazard fixed.
+        ``None`` shifts the all-cause event of a panel, or every cause-specific
+        log-hazard of a continuous-time fit, and keeps the cause shares.  Any other fit
+        takes ``None`` only.
 
     Returns
     -------
@@ -1780,9 +1853,20 @@ def simulated_confounding(
     this empirical law on the selected baseline stratum. Numeric calibration uses the full
     original population, or the recorded rows of each target when observations are
     missing. A learned-rule fit keeps the fit's folds and each row's realized rule in every
-    cell. A longitudinal fit and a risk-ratio tilt are refused before calibration, a draw, or
-    a refit, and so are the grid stops of ``observation_reads`` and the intermediate axis.
+    cell. A fit of the value of the optimal rule keeps the fit's folds and repeat seeds and
+    relearns the rule in every cell, with one relearning refit per stored split; it refuses known
+    regimes beside the rule, baseline strata and an intermediate. A longitudinal fit and a
+    risk-ratio tilt are refused before calibration, a draw, or a refit, and so are the grid
+    stops of ``observation_reads`` and the intermediate axis.
     Execution and the assessment capability share the same ordered reasons.
+
+    A continuous-time survival fit flips its binary treatment in the latent tail and shifts
+    each cause-specific log-hazard by the outcome strength times the latent. Event and
+    censoring times are redrawn from the replay's own Cox fits, read as grouped
+    proportional-hazards laws, through latent levels drawn given the observed outcome, so a
+    zero strength returns the data; the event hazards are read at the observed treatment
+    and censoring is redrawn at the perturbed treatment where it changed. Each refit reuses
+    the fit's fold plan when the root seed is the fit's own (``refit_folds="original"``).
 
     All strata share the same full-row latent draw and complete estimator refit. Baseline
     stratum membership stays fixed. ATT and ATC instead recompute their observed-treatment
@@ -1848,6 +1932,25 @@ def simulated_confounding(
     refuse_augmented_trial(result, "simulated_confounding", "bound")
     if type(grid) is not ConfounderStrengthGrid:
         raise TypeError("grid must be an exact ConfounderStrengthGrid declaration")
+    if getattr(result, "assessment_family", None) == CONTINUOUS_SURVIVAL_FAMILY:
+        from ._simulated_confounding_continuous import (
+            continuous_surface,
+            validate_continuous_request,
+        )
+
+        continuous = validate_continuous_request(
+            result,
+            estimand,
+            grid,
+            benchmark_covariates,
+            arm_pair=arm_pair,
+            latent_level=latent_level,
+            latent_rho=latent_rho,
+            observation_reads=observation_reads,
+            bounded_outcome_law=bounded_outcome_law,
+            outcome_cause=outcome_cause,
+        )
+        return continuous_surface(result, estimand, grid, continuous, random_state)
     if getattr(result, "assessment_family", None) == "longitudinal":
         from ._simulated_confounding_longitudinal import (
             longitudinal_surface,
@@ -1894,6 +1997,15 @@ def simulated_confounding(
     # a stratification variable moves the folds as well. The latent draw keeps its own tagged
     # child seed, so it stays independent of the splits.
     refit_seed = root_seed
+    # The relearning replay of the value of the optimal rule (X11 (f3)) also keeps the fit's
+    # own repeat seeds, so a stochastic learner draws the original learner seeds and a cell
+    # moves only through its perturbed table and the rules that table teaches.  An explicit
+    # random_state other than the fit's own seed redraws them, as on a longitudinal fit.
+    frozen_seeds = (
+        _fit_repeat_seeds(result, root_seed)
+        if request.key is not None and request.key.estimand == "ey_optimal_rule"
+        else None
+    )
     latent_seed = _latent_child_seed(root_seed)
     latent = _draw_latent(
         result.data.n,
@@ -1991,6 +2103,9 @@ def simulated_confounding(
                 and not isinstance(treatment_strength, tuple)
             ):
                 # A zero-strength axis keeps the treatment, and with it the declaration.
+                # The latent value is independent of the weights given (A, W), so the
+                # flip of the tilted mechanism is the tilt of the flipped one, and the
+                # declaration keeps its reading.
                 declared = result.data.known_treatment.values
                 replacement = replacement.with_known_mechanism(
                     flipped_mechanism(declared, treatment_strength)
@@ -1999,7 +2114,8 @@ def simulated_confounding(
                         declared,
                         treatment_strength,
                         (int(request.arm_codes[0]), int(request.arm_codes[1])),
-                    )
+                    ),
+                    mechanism_law=result.data.known_treatment.law,
                 )
             if request.bounded_outcome_law == "logit":
                 assert request.outcome_bounds is not None
@@ -2037,6 +2153,7 @@ def simulated_confounding(
                     if request.frozen_folds is None
                     else {"frozen_folds": list(request.frozen_folds)}
                 ),
+                **({} if frozen_seeds is None else {"frozen_seeds": frozen_seeds}),
             )
             # ``inference.influence.median_estimates`` drops a name that is absent from any
             # draw, so ``refitted[estimand]`` would raise "was not requested" for an estimand
@@ -2110,6 +2227,9 @@ def simulated_confounding(
         outcome_law=_outcome_law_text(request.bounded_outcome_law, result.data.family),
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
+        tilt_estimated=(
+            result.data.known_treatment is not None and not divides_by_declaration(result.data)
+        ),
         treatment_components=columns,
         component_kinds=tuple(
             "binary" if data.component_levels[data.component_names.index(name)] else "dose"

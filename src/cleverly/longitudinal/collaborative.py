@@ -53,7 +53,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 
 import numpy as np
 from scipy.special import expit, xlogy
@@ -82,6 +82,7 @@ from .estimator import (
     _HazardBlock,
     _HazardReplay,
     _LongitudinalReplayRecipe,
+    _Preflight,
     _Reported,
 )
 from .hazard import (
@@ -93,6 +94,7 @@ from .hazard import (
     hazard_inputs,
     influence,
     level_label,
+    plan_hazards,
     solve_per_horizon,
     walk_loss,
 )
@@ -678,6 +680,33 @@ class _Retention:
 
 
 @dataclass(frozen=True)
+class _TreatmentFits:
+    """The fits behind :math:`\\hat g_1` of one branch and term set, without row predictions.
+
+    ``parts`` holds ``(predicted rows, fit, share)`` per split; ``fit`` is ``None`` at
+    :math:`M_0`, whose prediction is the weighted share.
+    """
+
+    parts: tuple[tuple[BoolArray, _Logistic | None, float], ...]
+    converged: bool
+    dropped: int
+
+
+@dataclass(frozen=True)
+class _RetentionFits:
+    """The fits behind :math:`\\hat c_k` of one branch and term set, without row predictions.
+
+    ``parts`` holds ``(predicted rows, all-censored nodes, fit, fitted nodes)`` per split, with
+    nodes counted from zero; ``fit`` is ``None`` when the split fits no node.
+    """
+
+    parts: tuple[tuple[BoolArray, tuple[int, ...], _Logistic | None, tuple[int, ...]], ...]
+    converged: bool
+    dropped: int
+    held: tuple[tuple[int, int, str], ...]
+
+
+@dataclass(frozen=True)
 class Candidate:
     """One candidate pair of mechanisms, evaluated at every treatment level.
 
@@ -721,7 +750,13 @@ class Candidate:
 
 
 class _Mechanisms:
-    """The candidate mechanisms of one fit, cached by branch, mechanism and term set."""
+    """The candidate mechanisms of one fit.
+
+    The two fitted models are cached by branch, mechanism and term set, since every arm and
+    horizon reads them.  A candidate pair's cumulative products are not: they cost one pass
+    over ``(n, T, L)`` to rebuild, and a cache of every pair the searches reach held most of
+    a fit's memory.
+    """
 
     def __init__(
         self,
@@ -742,9 +777,11 @@ class _Mechanisms:
         #: A mutation hook for the full-set check: evaluate the censoring model at each unit's
         #: observed treatment rather than at every level.  Never set by a fit.
         self.evaluate_at_observed = evaluate_at_observed
-        self._g1: dict[tuple[str, tuple[str, ...]], _Treatment] = {}
-        self._g2: dict[tuple[str, tuple[str, ...]], _Retention] = {}
-        self._pairs: dict[tuple[str, tuple[str, ...], tuple[str, ...]], Candidate] = {}
+        self._g1: dict[tuple[str, tuple[str, ...]], _TreatmentFits] = {}
+        self._g2: dict[tuple[str, tuple[str, ...]], _RetentionFits] = {}
+        self._split_memo: dict[
+            str, tuple[BoolArray | None, list[tuple[int, BoolArray, BoolArray]]]
+        ] = {}
 
     # -- branches
 
@@ -754,8 +791,26 @@ class _Mechanisms:
         """``(fold, fit rows, predicted rows)`` of a branch.
 
         The full branch fits on every row in sample, or out of fold on the outer split.  A
-        selection-fold branch fits on its training rows and predicts every row.
+        selection-fold branch fits on its training rows and predicts every row.  The masks are
+        made once per branch and shared, read-only, by every cached fit of that branch, so the
+        caches hold no per-term-set copy of them.
         """
+        memo = self._split_memo.get(branch)
+        if memo is not None:
+            seen, splits = memo
+            same = (
+                seen is None if train is None else seen is not None and np.array_equal(seen, train)
+            )
+            if same:
+                return splits
+        splits = self._make_splits(train)
+        for _, fit_rows, predict in splits:
+            fit_rows.flags.writeable = False
+            predict.flags.writeable = False
+        self._split_memo[branch] = (None if train is None else train.copy(), splits)
+        return splits
+
+    def _make_splits(self, train: BoolArray | None) -> list[tuple[int, BoolArray, BoolArray]]:
         n = self.data.n
         everyone = np.ones(n, dtype=bool)
         if train is not None:
@@ -774,56 +829,91 @@ class _Mechanisms:
     # -- g1
 
     def treatment(self, branch: str, train: BoolArray | None, terms: tuple[str, ...]) -> _Treatment:
+        """:math:`\\hat g_1` of a branch and term set, predicted from its cached fits."""
         key = (branch, terms)
         cached = self._g1.get(key)
-        if cached is not None:
-            return cached
+        if cached is None:
+            cached = self._fit_treatment(branch, train, terms)
+            self._g1[key] = cached
+        data = self.data
+        columns = [self.covariates.index(name) for name in terms]
+        design = np.asarray(data.baseline[:, columns], dtype=float).reshape(data.n, len(columns))
+        p = np.empty(data.n)
+        for predict, fit, share in cached.parts:
+            if fit is None:
+                p[predict] = share
+            else:
+                p[predict] = _predict(fit, design[predict])
+        return _Treatment(np.column_stack([1.0 - p, p]), cached.converged, cached.dropped)
+
+    def _fit_treatment(
+        self, branch: str, train: BoolArray | None, terms: tuple[str, ...]
+    ) -> _TreatmentFits:
         data = self.data
         target = (self.observed == 1).astype(float)
         columns = [self.covariates.index(name) for name in terms]
         design = np.asarray(data.baseline[:, columns], dtype=float).reshape(data.n, len(columns))
-        p = np.empty(data.n)
+        parts: list[tuple[BoolArray, _Logistic | None, float]] = []
         converged, dropped = True, 0
         for _, fit_rows, predict in self._splits(branch, train):
             w = data.weights[fit_rows]
             if not terms:
                 # M0: the weighted share treated, by hand, as point _intercept_propensity does.
-                p[predict] = float(np.sum(w * target[fit_rows]) / np.sum(w))
+                parts.append((predict, None, float(np.sum(w * target[fit_rows]) / np.sum(w))))
                 continue
             fit = _logistic(design[fit_rows], target[fit_rows], w)
             converged = converged and fit.converged
             dropped = max(dropped, int(np.count_nonzero(~fit.active[1:])))
-            p[predict] = _predict(fit, design[predict])
-        probabilities = np.column_stack([1.0 - p, p])
-        out = _Treatment(probabilities, converged, dropped)
-        self._g1[key] = out
-        return out
+            parts.append((predict, fit, 0.0))
+        return _TreatmentFits(tuple(parts), converged, dropped)
 
     # -- g2
 
     def retention(self, branch: str, train: BoolArray | None, terms: tuple[str, ...]) -> _Retention:
+        """:math:`\\hat c_k(l, W)` of a branch and term set, predicted from its cached fits."""
         key = (branch, terms)
         cached = self._g2.get(key)
-        if cached is not None:
-            return cached
+        if cached is None:
+            cached = self._fit_retention(branch, train, terms)
+            self._g2[key] = cached
         data = self.data
-        n, n_times, n_levels = data.n, data.n_times, self.n_levels
-        retention = np.ones((n, n_times, n_levels))
+        retention = np.ones((data.n, data.n_times, self.n_levels))
+        for predict, all_censored, fit, fitted in cached.parts:
+            for k in all_censored:
+                retention[predict, k, :] = _HELD_RETENTION
+            if fit is None:
+                continue
+            index = np.flatnonzero(predict)
+            for k in fitted:
+                for level in range(self.n_levels):
+                    at = None if self.evaluate_at_observed else level
+                    hazard = _predict(fit, self._g2_design(index, k, fitted, terms, at))
+                    retention[index, k, level] = 1.0 - hazard
+        return _Retention(retention, cached.converged, cached.dropped, cached.held)
+
+    def _fit_retention(
+        self, branch: str, train: BoolArray | None, terms: tuple[str, ...]
+    ) -> _RetentionFits:
+        data = self.data
+        n_times = data.n_times
+        parts: list[tuple[BoolArray, tuple[int, ...], _Logistic | None, tuple[int, ...]]] = []
         converged, dropped = True, 0
         held: list[tuple[int, int, str]] = []
         if data.censoring_names:
             for fold, fit_rows, predict in self._splits(branch, train):
                 fitted: list[int] = []
+                all_censored: list[int] = []
                 for k in range(n_times):
                     rows = self.eligible[:, k] & fit_rows
                     if not rows.any() or not self.censored[rows, k].any():
                         held.append((fold, k + 1, NO_CENSORING))
                     elif bool(np.all(self.censored[rows, k])):
                         held.append((fold, k + 1, ALL_CENSORED))
-                        retention[predict, k, :] = _HELD_RETENTION
+                        all_censored.append(k)
                     else:
                         fitted.append(k)
                 if not fitted:
+                    parts.append((predict, tuple(all_censored), None, ()))
                     continue
                 design_rows, target, weights = [], [], []
                 for k in fitted:
@@ -837,15 +927,8 @@ class _Mechanisms:
                 converged = converged and fit.converged
                 indicators = len(fitted) - 1
                 dropped = max(dropped, int(np.count_nonzero(~fit.active[1 + indicators :])))
-                index = np.flatnonzero(predict)
-                for k in fitted:
-                    for level in range(n_levels):
-                        at = None if self.evaluate_at_observed else level
-                        hazard = _predict(fit, self._g2_design(index, k, fitted, terms, at))
-                        retention[index, k, level] = 1.0 - hazard
-        out = _Retention(retention, converged, dropped, tuple(held))
-        self._g2[key] = out
-        return out
+                parts.append((predict, tuple(all_censored), fit, tuple(fitted)))
+        return _RetentionFits(tuple(parts), converged, dropped, tuple(held))
 
     def _g2_design(
         self,
@@ -883,11 +966,11 @@ class _Mechanisms:
         g1_terms: tuple[str, ...],
         g2_terms: tuple[str, ...],
     ) -> Candidate:
-        """The candidate pair, with its cumulative mechanism at every level."""
-        key = (branch, g1_terms, g2_terms)
-        cached = self._pairs.get(key)
-        if cached is not None:
-            return cached
+        """The candidate pair, with its cumulative mechanism at every level.
+
+        Built afresh on each call from the cached fits, so a candidate lives only as long as
+        the position that holds it.
+        """
         g1 = self.treatment(branch, train, g1_terms)
         g2 = self.retention(branch, train, g2_terms)
         data = self.data
@@ -908,7 +991,7 @@ class _Mechanisms:
                 bounded_columns.append(bound(running, lower, upper))
             unbounded.append(np.column_stack(raw_columns))
             cumulative.append(np.column_stack(bounded_columns))
-        out = Candidate(
+        return Candidate(
             g1_terms=g1_terms,
             g2_terms=g2_terms,
             treatment=g1.probabilities,
@@ -919,11 +1002,29 @@ class _Mechanisms:
             dropped=g1.dropped + g2.dropped,
             held=g2.held,
         )
-        self._pairs[key] = out
-        return out
 
 
 # ----------------------------------------------------------------------- the selector
+
+
+@dataclass(frozen=True)
+class _PathCounts:
+    """The work of one selection path.
+
+    Parameters
+    ----------
+    solves : int
+        The targeting solves the path ran, one per scored position, rebuilt ones included.
+    candidates : int
+        The distinct candidate pairs of mechanisms it targeted.
+    rebuilt : int
+        The positions it targeted a second time because their arrays had been released.
+        Zero under :func:`greedy_rule`, whose choices the retention follows.
+    """
+
+    solves: int
+    candidates: int
+    rebuilt: int
 
 
 @dataclass(frozen=True)
@@ -946,6 +1047,8 @@ class _Position:
 
 
 _Move = tuple[str, str]
+#: ``(accepted moves, move, restarts)``: one scored position of a path.
+_Key = tuple[tuple[_Move, ...], _Move | None, int]
 
 
 def _finite(value: float) -> float:
@@ -1042,6 +1145,8 @@ class _HazardSelector:
         self.base: dict[str, HazardInputs] = {
             plan.label: hazard_inputs(data, [plan], ones, alpha=alpha) for plan in self.plans
         }
+        #: ``(label, horizon, branch)`` to the solve and candidate counts of each path run.
+        self.counts: dict[tuple[str, int, str], _PathCounts] = {}
         first = next(iter(self.base.values()))
         self.start = HazardState.from_hazards(
             initial.hazards, first.bounds, first.empty, first.full
@@ -1130,51 +1235,149 @@ class _HazardSelector:
         return tuple(name for _, name in self.pools[mechanism] if name in terms)
 
     def path(
-        self, plan: Plan, horizon: int, branch: str, train: BoolArray | None
+        self,
+        plan: Plan,
+        horizon: int,
+        branch: str,
+        train: BoolArray | None,
+        visit: Callable[[int, _Position], None] | None = None,
     ) -> list[_Position]:
         """The greedy sequence of ``plan`` at ``horizon`` on one branch's training rows.
 
         :func:`greedy_rule` decides every move; this method supplies its ``score``, which
         builds the candidate of the accepted moves plus one, targets it from the start of
-        the current pass, and caches the position.  A restart count the rule has not used
-        yet starts from the targeted fit of the candidate it has accepted so far.
+        the current pass, and records its risk.  A restart count the rule has not used yet
+        starts from the targeted fit of the candidate it has accepted so far.
+
+        Every scored risk is kept, but a position's row arrays only while the search can still
+        read them: the latest accepted position (the first position before any move), and the
+        best of the pass in progress, the first minimum in try order, as the rule's
+        ``np.argmin`` takes it.  Each path position is handed to ``visit(index, position)`` in
+        order as soon as the rule has accepted it, and is then released unless ``visit`` keeps
+        it.  Without ``visit``, every path position is kept and returned.  A position the rule
+        accepts after its arrays went is targeted again from the same start, which reproduces
+        it exactly.  The solve and candidate counts land in :attr:`counts`.
+
+        Parameters
+        ----------
+        plan : Plan
+            The arm's regimen plan.
+        horizon : int
+            The horizon the risks are scored at.
+        branch : str
+            ``"full"`` or a selection-fold branch; it names the counts and the cached fits.
+        train : BoolArray or None
+            The branch's training rows, or ``None`` for every row.
+        visit : callable or None
+            Called as ``visit(index, position)`` with each path position in order.
+
+        Returns
+        -------
+        list of _Position
+            Every path position when ``visit`` is ``None``, otherwise an empty list.
         """
+        out: list[_Position] = []
+        if visit is None:
+
+            def keep_all(index: int, position: _Position) -> None:
+                out.append(position)
+
+            visit = keep_all
         weights = self.data.weights * (1.0 if train is None else train.astype(float))
-        cache: dict[tuple[tuple[_Move, ...], _Move | None, int], _Position] = {}
-        accepted_at: dict[tuple[_Move, ...], _Position] = {}
-        starts: dict[int, HazardState] = {0: self.start}
+        origin: _Key = ((), None, 0)
+        risks: dict[_Key, float] = {}
+        kept: dict[_Key, _Position] = {}
+        best: dict[tuple[tuple[_Move, ...], int], _Key] = {}
+        visited: list[_Key] = []
+        latest: list[_Key] = []
+        # The restart count and start state of the pass in progress.
+        steps, start = [0], [self.start]
+        built: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
+        tally = {"solves": 0, "rebuilt": 0}
+
+        def build(key: _Key) -> _Position:
+            accepted, move, n_steps = key
+            if n_steps != steps[0]:
+                # Every position is built in the pass that scores it, from that pass's start.
+                raise RuntimeError(f"position {key} built outside the pass that scores it")
+            chosen: tuple[set[str], set[str]] = (set(), set())
+            for mechanism, name in (*accepted, *(() if move is None else (move,))):
+                chosen[0 if mechanism == "g1" else 1].add(name)
+            terms = (self._ordered(0, chosen[0]), self._ordered(1, chosen[1]))
+            built.add(terms)
+            tally["solves"] += 1
+            return self.position(
+                plan, branch, train, terms, move, start[0], horizon, weights, n_steps
+            )
+
+        def accept(key: _Key) -> None:
+            """Hand the accepted ``key`` to ``visit`` and make it the latest accepted."""
+            if key not in risks:
+                raise RuntimeError(f"the rule accepted {key} without scoring it")
+            position = kept.get(key)
+            if position is None:
+                tally["rebuilt"] += 1
+                position = build(key)
+            visit(len(visited), position)
+            visited.append(key)
+            for previous in latest:
+                kept.pop(previous, None)
+            latest[:] = [key]
+            kept[key] = position
 
         def score(accepted: tuple[_Move, ...], move: _Move | None, n_steps: int) -> float:
-            if accepted and accepted not in accepted_at:
+            if accepted and len(accepted) == len(visited):
                 # The rule accepted its last move in the pass that scored it.
-                accepted_at[accepted] = cache[(accepted[:-1], accepted[-1], n_steps)]
-            if n_steps not in starts:
+                accept((accepted[:-1], accepted[-1], n_steps))
+            if n_steps != steps[0]:
                 # No move lowered the risk: the current targeted fit becomes the initial
                 # fit, and the search runs again from it.
-                current = accepted_at[accepted] if accepted else cache[((), None, 0)]
-                starts[n_steps] = current.state
+                steps[0], start[0] = n_steps, kept[latest[0]].state
             key = (accepted, move, n_steps)
-            if key not in cache:
-                chosen: tuple[set[str], set[str]] = (set(), set())
-                for mechanism, name in (*accepted, *(() if move is None else (move,))):
-                    chosen[0 if mechanism == "g1" else 1].add(name)
-                terms = (self._ordered(0, chosen[0]), self._ordered(1, chosen[1]))
-                cache[key] = self.position(
-                    plan, branch, train, terms, move, starts[n_steps], horizon, weights, n_steps
-                )
-            return cache[key].risk
+            if key not in risks:
+                position = build(key)
+                risks[key] = position.risk
+                if key == origin:
+                    kept[key] = position
+                    accept(key)
+                else:
+                    turn = (accepted, n_steps)
+                    incumbent = best.get(turn)
+                    if incumbent is None or _finite(position.risk) < _finite(risks[incumbent]):
+                        if incumbent is not None and incumbent not in latest:
+                            del kept[incumbent]
+                        best[turn] = key
+                        kept[key] = position
+                    for other in [other for other in best if other != turn]:
+                        # A finished pass: its best is the latest accepted or passed over.
+                        if best[other] not in latest:
+                            kept.pop(best[other], None)
+                        del best[other]
+            return risks[key]
 
         rule = greedy_rule(self.pools, score)
         moves = [move for move, _ in rule[1:] if move is not None]
-        return [cache[((), None, 0)]] + [
-            cache[(tuple(moves[:index]), move, n_steps)]
-            for index, (move, n_steps) in enumerate(rule[1:])
+        keys = [origin] + [
+            (tuple(moves[:index]), move, n_steps) for index, (move, n_steps) in enumerate(rule[1:])
         ]
+        if len(visited) < len(keys):
+            accept(keys[-1])
+        if visited != keys:
+            # The positions visited must be the rule's path, in its order.
+            raise RuntimeError(f"visited {visited}, but the rule's path is {keys}")
+        self.counts[(plan.label, int(horizon), branch)] = _PathCounts(
+            tally["solves"], len(built), tally["rebuilt"]
+        )
+        return out
 
     def cross_validate(
         self, plan: Plan, horizon: int
     ) -> tuple[FloatArray, tuple[tuple[int, int, str], ...]]:
-        """The cross-validated penalized risk of every move count, summed over the folds."""
+        """The cross-validated penalized risk of every move count, summed over the folds.
+
+        Each fold's path positions are scored on the fold's test rows as the search accepts
+        them, so no fold keeps a path.
+        """
         n_positions = sum(len(pool) for pool in self.pools) + 1
         risk = np.zeros(n_positions)
         held: list[tuple[int, int, str]] = []
@@ -1182,14 +1385,19 @@ class _HazardSelector:
             train = np.zeros(self.data.n, dtype=bool)
             train[fit_rows] = True
             branch = f"cv{fold}"
-            path = self.path(plan, horizon, branch, train)
             weights = self.data.weights * (~train).astype(float)
-            for index, position in enumerate(path):
+
+            def scored(
+                index: int, position: _Position, fold: int = fold, weights: FloatArray = weights
+            ) -> None:
                 loss, penalty, _ = self.score(
                     plan, position.candidate, position.state, horizon, weights
                 )
                 risk[index] += loss + penalty
-            held.extend((fold, node, kind) for _, node, kind in path[0].candidate.held)
+                if index == 0:
+                    held.extend((fold, node, kind) for _, node, kind in position.candidate.held)
+
+            self.path(plan, horizon, branch, train, scored)
         return risk, tuple(sorted(set(held)))
 
 
@@ -1247,6 +1455,13 @@ class SurvivalSelection:
         The baseline covariates the search drew from, in data order.
     diagnostic_horizon : int
         The horizon whose selections ``result.mechanism`` reports.
+    target_solves : tuple of int
+        The hazard targeting solves of the search: the full-data path first, then each
+        selection fold's path.  One per scored candidate position, so it counts the work the
+        greedy search did, restarts included.
+    candidate_pairs : tuple of int
+        The distinct candidate pairs of mechanisms each of those paths targeted.  Regimens on
+        one arm share its search and report the same counts.
     """
 
     arm: str
@@ -1268,6 +1483,8 @@ class SurvivalSelection:
     covariates: tuple[str, ...]
     diagnostic_horizon: int
     fold_held_nodes: tuple[tuple[int, int, str], ...] = ()
+    target_solves: tuple[int, ...] = ()
+    candidate_pairs: tuple[int, ...] = ()
     penalty_form: str = PENALTY_FORM
     combination: str = COMBINATION
 
@@ -1357,7 +1574,7 @@ class SurvivalSelection:
             kind="other",
         )
         chosen_g1, chosen_g2 = self.selected_terms
-        header = (
+        header: tuple[tuple[str, str], ...] = (
             ("Arm", self.arm),
             ("Horizon", str(self.horizon)),
             ("Penalty", "printed (24)" if self.penalized else "none"),
@@ -1366,6 +1583,9 @@ class SurvivalSelection:
             ("Treatment model", ", ".join(chosen_g1) or "intercept"),
             ("Censoring model", ", ".join(chosen_g2) or "nodes only"),
         )
+        if self.target_solves:
+            solves = f"{sum(self.target_solves)}, {self.target_solves[0]} on full data"
+            header += (("Solves", solves),)
         return Summary.build(
             title="Collaborative survival selection", header=header, tables=(table,)
         )
@@ -1486,6 +1706,9 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("collaborative_tmle", "greedy")
     _density_only_ratio: ClassVar[str | None] = "this estimator reads static arms only"
+    #: A constant node keeps the constant-node status: the mechanism is selected along the
+    #: fit, and no study measures the boundary-node supplement with that selection.
+    _boundary_kind: ClassVar[str | None] = "collaborative"
 
     def __init__(
         self,
@@ -1822,6 +2045,53 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         )
         return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, True)
 
+    def _plan_hazard_block(
+        self,
+        state: _Preflight,
+        mechanism_plans: tuple[Any, ...],
+        plans: tuple[Any, ...],
+        levels: tuple[Plan, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: Any,
+        add: Callable[..., None],
+    ) -> None:
+        """The fits of :meth:`_hazard_block`: the initial hazards alone.
+
+        The collaborative selection fits its mechanisms by its own Newton solver, which is no
+        learner, so only :func:`~cleverly.longitudinal.hazard.fit_hazards` is counted.
+
+        Parameters
+        ----------
+        state : _Preflight
+            The resolved preflight.
+        mechanism_plans : tuple
+            The plans a mechanism fit would read; unused here.
+        plans : tuple
+            The resolved plans; unused here.
+        levels : tuple of Plan
+            The static plans of the treatment levels; unused here.
+        folds : Folds
+            The realized outer split.
+        learners : dict
+            The resolved learners; only the outcome learner is read.
+        counter : FitCounter
+            Counts each fit.
+        add : callable
+            Adds a count to the record.
+        """
+        add(
+            "outcome",
+            "initial hazard by node",
+            plan_hazards(
+                state.prepared,
+                learner=learners["outcome"],
+                folds=folds,
+                counter=counter,
+                hazard_pooling=self.hazard_pooling,
+            ),
+        )
+
     def _draw_status(
         self,
         prepared: LongitudinalData,
@@ -1922,51 +2192,38 @@ def run_selection(
     diagnostic = int(horizons[-1])
     unconverged: list[str] = []
     glm_unconverged = 0
-    by_arm: dict[
-        tuple[int, int], tuple[list[_Position], FloatArray, tuple[tuple[int, int, str], ...]]
-    ] = {}
+    by_arm: dict[tuple[int, int], tuple[SurvivalSelection, int, _Position] | None] = {}
     for plan in selector.plans:
         arm = selector.arm(plan)
         for t in horizons:
             key = (arm, int(t))
             if key not in by_arm:
-                path = selector.path(plan, t, "full", None)
+                # The folds first, so the full-data path knows which position to keep as it
+                # runs.  Every solve is a pure function of its inputs, so the order moves no
+                # number.  Only the record's scalars and the chosen position outlive the search.
                 cv_risk, held = selector.cross_validate(plan, t)
-                by_arm[key] = (path, cv_risk, held)
-            path, cv_risk, held = by_arm[key]
-            chosen = _finite_argmin(cv_risk)
-            if chosen < 0:
+                chosen = _finite_argmin(cv_risk)
+                by_arm[key] = None
+                if chosen >= 0:
+                    rows, position = _full_path(selector, plan, int(t), chosen)
+                    record = _selection_record(
+                        selector, plan, int(t), rows, (cv_risk, held, chosen), diagnostic
+                    )
+                    unfitted = sum(not row.candidate_converged for row in rows)
+                    by_arm[key] = (record, unfitted, position)
+            searched = by_arm[key]
+            if searched is None:
                 raise LongitudinalError(
                     f"every cross-validated risk of {plan.label} at horizon {t} is not finite, "
                     "so no move count can be selected. Check the overlap of the arms and of "
                     "censoring, or bind g_bounds further from zero"
                 )
-            position = path[chosen]
+            record, unfitted, position = searched
             positions[(plan.label, int(t))] = position
-            glm_unconverged += sum(not p.candidate.converged for p in path)
+            glm_unconverged += unfitted
             if not position.record.converged:
                 unconverged.append(f"{plan.label} at horizon {t}")
-            records[(plan.label, int(t))] = SurvivalSelection(
-                arm=plan.label,
-                horizon=int(t),
-                moves=tuple(p.move for p in path),
-                g1_terms=tuple(p.candidate.g1_terms for p in path),
-                g2_terms=tuple(p.candidate.g2_terms for p in path),
-                n_steps=tuple(p.n_steps for p in path),
-                train_loss=np.array([p.loss for p in path]),
-                train_penalty=np.array([p.penalty for p in path]),
-                train_risk=np.array([p.risk for p in path]),
-                cv_risk=np.asarray(cv_risk, dtype=float),
-                converged=tuple(bool(p.record.converged) for p in path),
-                clipped=tuple(p.clipped for p in path),
-                dropped_terms=tuple(p.candidate.dropped for p in path),
-                selected=chosen,
-                penalized=selector.penalty,
-                folds=selector.selection,
-                covariates=selector.mechanisms.covariates,
-                diagnostic_horizon=diagnostic,
-                fold_held_nodes=held,
-            )
+            records[(plan.label, int(t))] = replace(record, arm=plan.label)
             fits[_fit_key(plan.label, None, int(t), True)] = _regimen_fit(
                 data, plan, position, int(t)
             )
@@ -1987,6 +2244,98 @@ def run_selection(
             stacklevel=4,
         )
     return fits, records, positions
+
+
+def _full_path(
+    selector: _HazardSelector, plan: Plan, horizon: int, chosen: int
+) -> tuple[list[_PathRow], _Position]:
+    """The scalars of every full-data path position, and the chosen position itself."""
+    rows: list[_PathRow] = []
+    kept: list[_Position] = []
+
+    def summarize(index: int, position: _Position) -> None:
+        rows.append(_PathRow.of(position))
+        if index == chosen:
+            kept.append(position)
+
+    selector.path(plan, horizon, "full", None, summarize)
+    return rows, kept[0]
+
+
+class _PathRow(NamedTuple):
+    """The scalars a :class:`SurvivalSelection` reads from one full-data path position."""
+
+    move: tuple[str, str] | None
+    g1_terms: tuple[str, ...]
+    g2_terms: tuple[str, ...]
+    n_steps: int
+    loss: float
+    penalty: float
+    risk: float
+    converged: bool
+    clipped: int
+    dropped: int
+    candidate_converged: bool
+
+    @classmethod
+    def of(cls, position: _Position) -> _PathRow:
+        candidate = position.candidate
+        return cls(
+            position.move,
+            candidate.g1_terms,
+            candidate.g2_terms,
+            position.n_steps,
+            position.loss,
+            position.penalty,
+            position.risk,
+            bool(position.record.converged),
+            position.clipped,
+            candidate.dropped,
+            candidate.converged,
+        )
+
+
+def _selection_record(
+    selector: _HazardSelector,
+    plan: Plan,
+    horizon: int,
+    path: Sequence[_PathRow],
+    folds: tuple[FloatArray, tuple[tuple[int, int, str], ...], int],
+    diagnostic: int,
+) -> SurvivalSelection:
+    """The record of one arm's selection at ``horizon``, from its full-data path and folds.
+
+    ``folds`` is the cross-validated risk, the fold-held nodes and the chosen position.
+    """
+    cv_risk, held, chosen = folds
+    branches = ["full", *(f"cv{fold}" for fold in range(1, selector.selection.n_folds + 1))]
+    missing = [b for b in branches if (plan.label, horizon, b) not in selector.counts]
+    if missing:
+        raise RuntimeError(f"no path count for {plan.label} at {horizon} on {missing}")
+    runs = [selector.counts[(plan.label, horizon, branch)] for branch in branches]
+    return SurvivalSelection(
+        arm=plan.label,
+        horizon=horizon,
+        moves=tuple(p.move for p in path),
+        g1_terms=tuple(p.g1_terms for p in path),
+        g2_terms=tuple(p.g2_terms for p in path),
+        n_steps=tuple(p.n_steps for p in path),
+        train_loss=np.array([p.loss for p in path]),
+        train_penalty=np.array([p.penalty for p in path]),
+        train_risk=np.array([p.risk for p in path]),
+        cv_risk=np.asarray(cv_risk, dtype=float),
+        converged=tuple(p.converged for p in path),
+        clipped=tuple(p.clipped for p in path),
+        dropped_terms=tuple(p.dropped for p in path),
+        selected=chosen,
+        penalized=selector.penalty,
+        folds=selector.selection,
+        covariates=selector.mechanisms.covariates,
+        diagnostic_horizon=diagnostic,
+        fold_held_nodes=held,
+        target_solves=tuple(run.solves for run in runs),
+        candidate_pairs=tuple(run.candidates for run in runs),
+    )
 
 
 def _regimen_fit(

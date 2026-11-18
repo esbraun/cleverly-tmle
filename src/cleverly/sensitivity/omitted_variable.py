@@ -129,12 +129,14 @@ from typing import TYPE_CHECKING, Any, ParamSpec, cast
 import numpy as np
 from scipy import optimize
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._inference_status import InferenceStatus, is_labelled
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES, projection_sensitivity_refusal
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..estimators.composite import composite_state
 from ..estimators.ctmle import (
     CTMLEDerivativeFit,
@@ -148,19 +150,23 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference
 from ..inference.cluster import influence_variance
 from ..inference.delta import one_sided_quantile
-from ..inference.influence import spread_name
+from ..inference.influence import ParameterEstimate, spread_name
 from ..interventions.base import RegimeSet
 from ..interventions.learned import (
     LEARNED_RULE_BENCHMARK_REFUSAL,
     LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL,
     LEARNED_RULE_LIMITS,
-    OPTIMAL_RULE_SENSITIVITY_REFUSAL,
+    OPTIMAL_RULE_BENCHMARK_REFUSAL,
+    OPTIMAL_RULE_DOUBLY_ROBUST_NU2,
+    OPTIMAL_RULE_LIMITS,
+    OPTIMAL_RULE_TARGET,
     fold_rules,
     reports_optimal_rule,
 )
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
+from ._limits import bound_limits
 from ._mechanism_stack import (
     MechanismRefusal,
     configuration_refusal,
@@ -206,6 +212,7 @@ AXIS_ESTIMANDS: frozenset[str] = frozenset(
         "ate_policy",
         "msm",
         "ey_learned_rule",
+        "ey_optimal_rule",
         "ey_known_regime",
     }
 )
@@ -219,6 +226,11 @@ LEARNED_RULE_CONTRAST_STEM = "ate_learned_rule"
 #: the regime functional of the stochastic regime that averages them, so it reuses the
 #: regime fluctuation group and reads its representer from :func:`_combined_rule_regimes`.
 LEARNED_RULE_STEM = "ey_learned_rule"
+
+#: The stems whose representer is the combined representer of the fit's fold rules: the
+#: learned-rule value, and the value of the optimal rule, whose lower side is that bound
+#: (X11 (f3)).
+_RULE_VALUE_STEMS = frozenset({LEARNED_RULE_STEM, OPTIMAL_RULE_TARGET})
 
 #: The fluctuation group, and the part G feature, of each covered axis.
 _AXIS_GROUPS: dict[str, tuple[str, str]] = {
@@ -458,18 +470,40 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
     than two arms (X11 (d)) refuses as an implementation gap (X11 (n2)): the combined
     representer is :math:`g^\star(a \mid w) = V^{-1}\sum_v 1\{a = d_v(w)\}` over every arm,
     and no witness checks the bias or :math:`\nu^2` of a learned argmax rule against it.
-    A fit of the value of the optimal rule (X11 (f)) refuses first: the bound holds the
-    fold rules fixed, and that target moves with the rule
-    (:data:`~cleverly.interventions.learned.OPTIMAL_RULE_SENSITIVITY_REFUSAL`).  A fit with
-    an intermediate (X11 (j)) refuses next as an implementation gap (X11 (n2)): each level's
-    rules are learned from the outcome regression at that level, and no witness checks the
-    bias of the combined representer :math:`V^{-1}\sum_v 1\{a = d^z_v(w)\}1\{Z = z\}/(g q)`.
+    A fit with an intermediate (X11 (j)) refuses first as an implementation gap (X11 (n2)):
+    each level's rules are learned from the outcome regression at that level, and no witness
+    checks the bias of the combined representer
+    :math:`V^{-1}\sum_v 1\{a = d^z_v(w)\}1\{Z = z\}/(g q)`.
+
+    A fit of the value of the optimal rule (X11 (f3)) reads the learned-rule bound on its
+    lower side, so it refuses every setting the learned-rule bound refuses, with that reason
+    after a sentence that names the setting (:func:`_optimal_rule_gap`).  It also refuses
+    known regimes declared beside the rule, whose values and contrast the asymmetric bound
+    does not cover.
     """
-    if reports_optimal_rule(result):
-        return OPTIMAL_RULE_SENSITIVITY_REFUSAL
+    optimal = reports_optimal_rule(result)
+    if optimal:
+        regimes = result.repeats[0].nuisance.regimes
+        if regimes is not None and len(regimes.names) > 1:
+            return _OPTIMAL_RULE_KNOWN_REGIMES_GAP
+    gap = _learned_rule_gap(result)
+    if gap is None:
+        return None
+    setting, refusal = gap
+    if optimal and setting is not None:
+        return _optimal_rule_gap(setting, refusal)
+    return refusal
+
+
+def _learned_rule_gap(result: Any) -> tuple[str | None, Refusal] | None:
+    """The first learned-rule bound refusal of ``result``, with the setting it names.
+
+    The setting is the phrase :func:`_optimal_rule_gap` puts in its sentence, or ``None``
+    for a refusal that names no setting (a frozen rule).
+    """
     if declares_intermediate(result):
         level = result.intermediate_value
-        return Refusal(
+        return f"with an intermediate (intermediate=, here at Z = {level:g})", Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "the omitted-variable bound of a learned-rule value with an intermediate "
             f"(intermediate=, here at Z = {level:g}) is not built. The rules at each level "
@@ -487,7 +521,7 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
         )
     n_arms = int(getattr(result.data, "n_arms", 2))
     if n_arms > 2:
-        return Refusal(
+        return f"over {n_arms} arms", Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             f"the omitted-variable bound of a learned-rule value over {n_arms} arms is not "
             "built. The combined representer would average the fold rules' one-hot "
@@ -502,7 +536,7 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
         )
     n_splits = int(getattr(result, "n_repeats", 1))
     if n_splits > 1:
-        return Refusal(
+        return f"over {n_splits} splits (repeats={n_splits})", Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             f"the omitted-variable bound holds the fold rules of one split fixed, and this "
             f"learned-rule fit reports the mean over {n_splits} splits (repeats={n_splits}). "
@@ -516,7 +550,7 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
             roadmap="X11",
         )
     if result.data.has_strata:
-        return Refusal(
+        return "with baseline strata (strata=)", Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "the omitted-variable bound of a learned-rule value with baseline strata "
             "(strata=) is not built. The value inside a stratum needs the combined "
@@ -532,7 +566,7 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
         )
     record = getattr(result, "extra", {}).get("learned_rule")
     if getattr(record, "scheme", "fold_evaluated") == "stacked":
-        return Refusal(
+        return "under the stacked report (cv_evaluation=False)", Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "the omitted-variable bound of the stacked learned-rule report "
             "(cv_evaluation=False) is not built. Its value weights fold v's rule by the fold's "
@@ -547,7 +581,7 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
             roadmap="X11",
         )
     if getattr(result.repeats[0].nuisance.regimes, "fold_rules", None) is None:
-        return Refusal(
+        return None, Refusal(
             RefusalReason.INVALID_DECLARATION,
             "the omitted-variable bound of a learned-rule value reads every fold's rule at "
             "every row, and this fit evaluates a FrozenLearnedRule, which holds one realized "
@@ -555,6 +589,43 @@ def _refuse_learned_rule_bound(result: Any) -> Refusal | None:
             alternative="Run the bound on the learned-rule fit that the rule was frozen from.",
         )
     return None
+
+
+#: Why the bound of the value of the optimal rule refuses known regimes beside the rule.
+_OPTIMAL_RULE_KNOWN_REGIMES_GAP = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "the omitted-variable bound of the value of the optimal rule beside known regimes "
+    "(interventions=) is not built. The fit also reports each known regime's value and the "
+    "contrast of the optimal rule with it, and no witness checks the bound of a contrast whose "
+    "first term carries the asymmetric bound over every rule (X11 (n2) in docs/roadmap.md).",
+    alternative=(
+        "Bound the value of the optimal rule on a fit without interventions=, and each known "
+        "regime on a fit of TMLE(interventions=[...])."
+    ),
+    roadmap="X11",
+)
+
+
+def _optimal_rule_gap(setting: str, refusal: Refusal) -> Refusal:
+    """The refusal of the bound of the optimal value in a setting the learned-rule bound refuses.
+
+    The lower limit of the bound of the value of the optimal rule is the learned-rule bound
+    with the same setting, so the learned-rule reason follows the sentence that names it.
+    """
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"the omitted-variable bound of the value of the optimal rule {setting} is not built. "
+        "Its lower limit is the bound of the learned-rule value with the same setting, which "
+        "is not built for the reason below, and its upper limit adds the bound over every "
+        "rule (X11 (n2) in docs/roadmap.md). "
+        + refusal.condition[0].upper()
+        + refusal.condition[1:],
+        alternative=(
+            "Bound the value of the optimal rule on a fit without that setting: two arms, "
+            "repeats=1, no strata=, cv_evaluation=True, no intermediate= and no interventions=."
+        ),
+        roadmap="X11",
+    )
 
 
 def _axis_gap(what: str, why: str) -> Refusal:
@@ -654,11 +725,13 @@ def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
         regimes = result.repeats[0].nuisance.regimes
         if regimes is None:
             return {}
-        # The learned-rule value, then the value of each known regime declared beside the
-        # rule (X11 (c)), which is a regime parameter of its own column.
+        # The learned-rule value, or the value of the optimal rule (X11 (f3)), then the value
+        # of each known regime declared beside the rule (X11 (c)), which is a regime
+        # parameter of its own column.
+        rule_stem = OPTIMAL_RULE_TARGET if reports_optimal_rule(result) else LEARNED_RULE_STEM
         learned: dict[str, ArmParameter] = {}
         for code in regimes.codes:
-            stem = LEARNED_RULE_STEM if code == 0.0 else "ey_known_regime"
+            stem = rule_stem if code == 0.0 else "ey_known_regime"
             name = parameter_name(stem, arm=regimes.labels[code])
             if name in result.estimates:
                 learned[name] = ArmParameter(name, stem, "regime", code)
@@ -821,6 +894,14 @@ class SensitivityElements:
     features : tuple of str, default=()
         The X82 part G configurations the bound reads (:func:`bound_features`).  Empty
         for the shipped bound.
+    nu2_upper : float or None, default=None
+        On a fit of the value of the optimal rule (X11 (f3)), the plug-in
+        :math:`\hat\nu^2_{\sup} = E_n[\max_a 1/g(a \mid W)]`, the largest :math:`\nu^2` of
+        any regime, which the upper side of the bound reads.  ``nu2`` is then the
+        learned-rule :math:`\nu^2` of the lower side.  ``None`` on every other fit.
+    max_bias_upper : float or None, default=None
+        :math:`\sqrt{\sigma^2 \nu^2_{\sup}}`, the bias scale of the upper side, with
+        ``nu2_upper``.  ``None`` on every other fit.
     """
 
     estimand: str
@@ -836,6 +917,8 @@ class SensitivityElements:
     plugin_mechanism: str | None = None
     nu2_correction: float | None = None
     features: tuple[str, ...] = ()
+    nu2_upper: float | None = None
+    max_bias_upper: float | None = None
 
     def summary(self, *, detail: Detail = "short") -> Summary:
         """Return the printed summary.
@@ -919,6 +1002,7 @@ def sensitivity_elements(
         positive.
     """
     refuse_augmented_trial(result, "sensitivity_elements", "bound")
+    refuse_continuous_survival(result, "sensitivity_elements")
     _resolved_nu2_estimator(nu2_estimator)
     draw = _draw_index(result, repeat)
     refusal = fit_wide_bound_refusal(result)
@@ -1358,7 +1442,16 @@ def _combined_elements(draws: tuple[_Draw, ...], result: TMLEResult) -> Sensitiv
             if any(value is None for value in corrections)
             else float(np.median(cast("list[float]", corrections)))
         ),
+        nu2_upper=_median_or_none([draw.elements.nu2_upper for draw in draws]),
+        max_bias_upper=_median_or_none([draw.elements.max_bias_upper for draw in draws]),
     )
+
+
+def _median_or_none(values: list[float | None]) -> float | None:
+    """The median of the draws' values, or ``None`` when any draw has none."""
+    if any(value is None for value in values):
+        return None
+    return float(np.median(cast("list[float]", values)))
 
 
 def _resolved_nu2_estimator(nu2_estimator: str) -> str:
@@ -1411,6 +1504,8 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             ),
             roadmap="X11",
         )
+    if stem in ("att", "atc") and known_score_fit(result):
+        raise CapabilityError.from_refusal(known_score_reader_refusal("the omitted-variable bound"))
     if stem not in LINEAR_ESTIMANDS | AXIS_ESTIMANDS:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
@@ -1489,8 +1584,8 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
         "response": bool(data.has_missing_outcome),
         "missing_treatment": bool(getattr(data, "has_missing_treatment", False)),
         "intermediate": declares_intermediate(result),
-        "regime": parameter.group == "regime" and parameter.stem != LEARNED_RULE_STEM,
-        "learned_rule": parameter.stem == LEARNED_RULE_STEM,
+        "regime": parameter.group == "regime" and parameter.stem not in _RULE_VALUE_STEMS,
+        "learned_rule": parameter.stem in _RULE_VALUE_STEMS,
         "shift": parameter.group == "mtp",
         "msm": parameter.group == "msm",
         "stratum": parameter.stratum is not None,
@@ -1511,8 +1606,12 @@ def _limit_reading(
     keeps its output.  The import is local because :mod:`cleverly.validation` imports
     this package.
     """
-    if not features or ("learned_rule" in features and not _in_sample_learned_rule(result)):
-        # A cross-fitted learned-rule bound publishes no limit, so there is nothing to license.
+    if not features or (
+        "learned_rule" in features
+        and (not _in_sample_learned_rule(result) or reports_optimal_rule(result))
+    ):
+        # A cross-fitted learned-rule bound, and every bound of the value of the optimal
+        # rule, publishes no limit, so there is nothing to license.
         return None
     from ..validation._interpretation import fit_configuration, resolve
 
@@ -1587,7 +1686,12 @@ def _elements_for(
     effect that conditions on arm ``c``.
     """
     data, nuisance, bounds = _bound_inputs(result, repeat, parameter.group)
-    if parameter.stem == LEARNED_RULE_STEM:
+    optimal = parameter.stem == OPTIMAL_RULE_TARGET
+    method = _resolved_nu2_estimator(nu2_estimator)
+    if optimal and nu2_estimator == "doubly_robust":
+        # nu^2_sup reads a maximum over arms, which has no influence function at ties of g.
+        raise CapabilityError.from_refusal(OPTIMAL_RULE_DOUBLY_ROBUST_NU2)
+    if parameter.stem in _RULE_VALUE_STEMS:
         # The fold rules held fixed are one stochastic regime, so the regime representer
         # and m(O, alpha) below read its density in place of the realized one-hot rule.
         nuisance = replace(nuisance, regimes=_combined_rule_regimes(nuisance))
@@ -1640,7 +1744,6 @@ def _elements_for(
     axis = _AxisInputs.build(parameter, nuisance, weights)
     representer = _riesz_representer(parameter, submodel, axis) * _representer_rows(data)
 
-    method = _resolved_nu2_estimator(nu2_estimator)
     m_alpha: FloatArray | None = None
     if method == "doubly_robust":
         m_alpha = _m_alpha(parameter, submodel, conditioning_indicator, conditioning_share, axis)
@@ -1740,6 +1843,25 @@ def _elements_for(
         # Donsker condition C5a that its interval already needs.
         psi_nu2 = None
         limit_refusal = _LEARNED_RULE_LIMIT_REFUSAL
+    nu2_upper: float | None = None
+    max_bias_upper: float | None = None
+    if optimal:
+        # The upper side of the bound of the value of the optimal rule (X11 (f3)): the
+        # largest nu^2 over every regime, E[max_a 1/g(a | W)], read under the same bounded
+        # mechanism as the representer.  A point bound only, the in-sample fit included.
+        nu2_upper = _sup_rule_nu2(
+            data,
+            nuisance,
+            group,
+            bounds,
+            result.intermediate_value,
+            reference,
+            weights,
+            result.config.missingness_bound,
+        )
+        max_bias_upper = float(np.sqrt(sigma2 * nu2_upper))
+        psi_nu2 = None
+        limit_refusal = _OPTIMAL_RULE_LIMIT_REFUSAL
     max_bias = float(np.sqrt(sigma2 * nu2))
     # The square-root delta method requires a positive product. At sigma2=0 the
     # point bound is still defined, but its ordinary influence curve is not.
@@ -1759,7 +1881,45 @@ def _elements_for(
         plugin_mechanism=plugin_mechanism,
         nu2_correction=nu2_correction,
         features=features,
+        nu2_upper=nu2_upper,
+        max_bias_upper=max_bias_upper,
     )
+
+
+def _sup_rule_nu2(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: str,
+    bounds: tuple[float, float],
+    intermediate_value: float | None,
+    reference: Any,
+    weights: FloatArray,
+    nuisance_bound: Any,
+) -> float:
+    r"""The plug-in :math:`\hat\nu^2_{\sup} = E_n[\max_a 1/g(a \mid W)]`.
+
+    :math:`\nu^2_\pi = E\sum_a \pi(a \mid W)^2 / g(a \mid W)` is convex in the regime
+    :math:`\pi` and largest at a vertex, so its supremum over every regime measurable in
+    :math:`W`, stochastic included, is :math:`E[\max_a 1/g(a \mid W)]` (X11 (f3)).  The
+    regime submodel is rebuilt with a density of one at every arm, so its counterfactual
+    block at arm ``a`` is :math:`1/g(a \mid W)` under the bounded mechanism the fit's own
+    representer reads, and the weighted mean of the row maximum is the plug-in.
+    """
+    regimes = nuisance.regimes
+    assert regimes is not None
+    values = np.ones_like(np.asarray(regimes.values, dtype=float)[:, :, :1])
+    unit = replace(nuisance, regimes=RegimeSet(regimes.names[:1], values, regimes.reference))
+    submodel = build_submodel(
+        data,
+        unit,
+        group,
+        bounds=bounds,
+        nuisance_bound=nuisance_bound,
+        intermediate_value=intermediate_value,
+        reference=reference,
+    )
+    inverse = np.column_stack([submodel.arms[level][:, 0] for level in submodel.levels])
+    return float(np.average(inverse.max(axis=1), weights=weights))
 
 
 def _in_sample_learned_rule(result: Any) -> bool:
@@ -1773,6 +1933,16 @@ def _in_sample_learned_rule(result: Any) -> bool:
 _LEARNED_RULE_LIMIT_REFUSAL = MechanismRefusal(
     key="learned_rule",
     text=LEARNED_RULE_LIMITS,
+    alternative="Read the point bounds and the point robustness value, which stay available.",
+    reason=RefusalReason.INFERENCE_GAP,
+    roadmap="X11",
+)
+
+
+#: Why every bound of the value of the optimal rule has no confidence limit (X11 (f3)).
+_OPTIMAL_RULE_LIMIT_REFUSAL = MechanismRefusal(
+    key="optimal_rule",
+    text=OPTIMAL_RULE_LIMITS,
     alternative="Read the point bounds and the point robustness value, which stay available.",
     reason=RefusalReason.INFERENCE_GAP,
     roadmap="X11",
@@ -2236,6 +2406,14 @@ class SensitivityBounds:
     mechanism_learner : str or None, default=None
         The fingerprint of the learner declared with ``mechanism_learner=``.  ``None`` when
         none was declared.
+    max_bias_upper : float or None, default=None
+        On a bound of the value of the optimal rule (X11 (f3)), the bias scale
+        ``sqrt(sigma^2 nu^2_sup)`` of the upper side, with ``nu^2_sup = E[max_a 1/g(a | W)]``
+        the largest ``nu^2`` of any regime.  ``upper`` is then ``psi`` plus
+        ``confounding_strength * max_bias_upper``, ``lower`` reads ``max_bias``, the
+        learned-rule scale, and the strengths are read as limits that hold for every regime
+        measurable in ``W``, stochastic included.  ``None`` on every other bound, whose two
+        sides read ``max_bias``.
     """
 
     estimand: str
@@ -2265,6 +2443,7 @@ class SensitivityBounds:
     limit_reading: Resolution | None = None
     assumption: str | None = None
     mechanism_learner: str | None = None
+    max_bias_upper: float | None = None
 
     @_accepts_stored_limit_names
     def __init__(
@@ -2293,6 +2472,7 @@ class SensitivityBounds:
         limit_reading: Resolution | None = None,
         assumption: str | None = None,
         mechanism_learner: str | None = None,
+        max_bias_upper: float | None = None,
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -2320,6 +2500,7 @@ class SensitivityBounds:
             ("limit_reading", limit_reading),
             ("assumption", assumption),
             ("mechanism_learner", mechanism_learner),
+            ("max_bias_upper", max_bias_upper),
         ):
             object.__setattr__(self, name, value)
 
@@ -2425,8 +2606,12 @@ class SensitivityBounds:
 
     @property
     def bias(self) -> float:
-        """Magnitude of the bias the assumed confounder could produce."""
-        return self.confounding_strength * self.max_bias
+        """Magnitude of the bias the assumed confounder could produce.
+
+        On a bound of the value of the optimal rule, the larger bias of its upper side.
+        """
+        scale = self.max_bias if self.max_bias_upper is None else self.max_bias_upper
+        return self.confounding_strength * scale
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
@@ -2461,6 +2646,7 @@ class SensitivityBounds:
             "cf_d": self.cf_d,
             "rho": self.rho,
             "max_bias": self.max_bias,
+            **({} if self.max_bias_upper is None else {"max_bias_upper": self.max_bias_upper}),
             "bias": self.bias,
             "lower": self.lower,
             "upper": self.upper,
@@ -2530,15 +2716,15 @@ def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
     return float(abs(rho) * np.sqrt(cf_y * cf_d / (1.0 - cf_d)))
 
 
-def _one_sided_quantile(level: float, df: int | None = None) -> float:
-    """Validate the one-sided coverage level before computing its reference quantile.
+def _one_sided_quantile(level: float) -> float:
+    """Validate the one-sided coverage level and return its normal quantile.
 
-    ``df`` is the Student t degrees of freedom of the bounded estimate, or ``None`` for the
-    normal reference.
+    The limits themselves read the estimate's own interval rule through
+    :func:`~cleverly.inference.interval_reference`; this checks the level up front.
     """
     if not 0.5 <= level < 1.0:
         raise ValueError(f"level must lie in [0.5, 1); got {level}")
-    return one_sided_quantile(level, df)
+    return one_sided_quantile(level)
 
 
 def _benchmark_strengths(
@@ -2681,6 +2867,7 @@ def omitted_variable_bounds(
     fit that selects nothing, the same statement covers it.
     """
     refuse_augmented_trial(result, "omitted_variable_bounds", "bound")
+    refuse_continuous_survival(result, "omitted_variable_bounds")
     _one_sided_quantile(level)
     if benchmark is not None:
         cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
@@ -2695,14 +2882,15 @@ def omitted_variable_bounds(
     )
     elements = _combined_elements(draws, result)
     estimate = result[estimand]
-    quantile = _one_sided_quantile(level, estimate.reference_df)
     strength = _confounding_strength(cf_y, cf_d, rho)
     psis = np.array([draw.psi for draw in draws])
     scales = np.array([draw.elements.max_bias for draw in draws])
 
-    # Each draw's bound, then the median over draws. One draw is the shipped bound.
+    # Each draw's bound, then the median over draws. One draw is the shipped bound. The
+    # bound of the value of the optimal rule reads a larger scale on its upper side.
     lower, _ = _median_rule(psis - strength * scales, np.zeros(len(draws)))
-    upper, _ = _median_rule(psis + strength * scales, np.zeros(len(draws)))
+    upper_scales = np.array([_side_scale(draw.elements, 1.0) for draw in draws])
+    upper, _ = _median_rule(psis + strength * upper_scales, np.zeros(len(draws)))
 
     # One-sided limits on each end, Theorem 4 in Section 4 of Chernozhukov et al. (2026).
     # The curve adds the uncertainty of the bias term to that of the estimate. The plug-in
@@ -2711,11 +2899,11 @@ def omitted_variable_bounds(
     ci_lower: float | None = None
     ci_upper: float | None = None
     if elements.psi_max_bias is not None:
-        ci_lower = _limit(draws, result, strength, -1.0, quantile)
-        ci_upper = _limit(draws, result, strength, 1.0, quantile)
+        ci_lower = _limit(draws, result, strength, -1.0, estimate, level)
+        ci_upper = _limit(draws, result, strength, 1.0, estimate, level)
 
     rv, rva = _robustness_values(
-        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate
     )
     return SensitivityBounds(
         estimand=estimand,
@@ -2725,6 +2913,7 @@ def omitted_variable_bounds(
         rho=rho,
         confounding_strength=strength,
         max_bias=elements.max_bias,
+        max_bias_upper=elements.max_bias_upper,
         lower=lower,
         upper=upper,
         ci_lower=ci_lower,
@@ -2755,19 +2944,44 @@ def _bound_std_error(psi_estimate: FloatArray, psi_bias: FloatArray, result: TML
     return float(np.sqrt(influence_variance(combined, result.data.cluster)))
 
 
+def _side_scale(elements: SensitivityElements, side: float) -> float:
+    """The bias scale of one side: ``max_bias_upper`` on the upper side when it is set.
+
+    Only the bound of the value of the optimal rule (X11 (f3)) sets it, so every other bound
+    reads ``max_bias`` on both sides.
+    """
+    if side > 0.0 and elements.max_bias_upper is not None:
+        return elements.max_bias_upper
+    return elements.max_bias
+
+
 def _edge(draws: tuple[_Draw, ...], signed_strength: float) -> float:
-    """The median over draws of ``psi + signed_strength * max_bias``."""
-    points = np.array([draw.psi + signed_strength * draw.elements.max_bias for draw in draws])
+    """The median over draws of ``psi + signed_strength * max_bias`` of the side it moves."""
+    points = np.array(
+        [draw.psi + signed_strength * _side_scale(draw.elements, signed_strength) for draw in draws]
+    )
     return _median_rule(points, np.zeros(len(draws)))[0]
 
 
 def _limit(
-    draws: tuple[_Draw, ...], result: TMLEResult, strength: float, side: float, quantile: float
+    draws: tuple[_Draw, ...],
+    result: TMLEResult,
+    strength: float,
+    side: float,
+    estimate: ParameterEstimate,
+    level: float,
 ) -> float:
     """The one-sided limit of the bound at ``strength``, by the median rule.
 
     ``side`` names the end: ``-1`` for the lower bound, which the limit extends downward,
     and ``1`` for the upper.  It is separate from the strength, which can be zero.
+
+    The limit reads the interval rule of the bounded estimate
+    (:func:`~cleverly.inference.interval_reference`) about the bound and its standard error:
+    its t reference, the range-logit scale of a bounded mean, the skew-widened t of a
+    continuous outcome, and the MOVER multiples of a bounded difference.  At zero strength
+    on one draw the two limits are the one-sided limits of the estimate's own interval, so
+    at ``level = 1 - alpha / 2`` they are its :attr:`~cleverly.inference.ParameterEstimate.ci`.
 
     Under a declared stopping rule the limit also adds the absolute mean of the estimate's
     influence curve, the score the targeting left (the margin of
@@ -2785,7 +2999,23 @@ def _limit(
         if draw.widened:
             margins.append(abs(float(np.mean(draw.curve))))
     center, error = _median_rule(np.array(points), np.array(errors))
-    return center + side * (quantile * error + max(margins))
+    curve = None
+    if len(draws) == 1:
+        psi_bias = draws[0].elements.psi_max_bias
+        assert psi_bias is not None and draws[0].curve is not None
+        curve = np.asarray(draws[0].curve, dtype=float) + signed_strength * np.asarray(
+            psi_bias, dtype=float
+        )
+    read = bound_limits(
+        estimate,
+        level=level,
+        sided="one",
+        psi=center,
+        std_error=error,
+        influence_curve=curve,
+        margin=max(margins),
+    )
+    return read.lower if side < 0 else read.upper
 
 
 def _robustness_values(
@@ -2795,11 +3025,14 @@ def _robustness_values(
     rho: float,
     level: float,
     null_hypothesis: float,
-    df: int | None = None,
+    estimate: ParameterEstimate,
 ) -> tuple[float | None, float | None]:
     """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null.
 
-    The point value is ``None`` when no equal strength in ``[0, 1)`` reaches the null.
+    The side of the bound that faces the null is the one solved, with its own bias scale:
+    on the bound of the value of the optimal rule the lower side reads ``max_bias`` and the
+    upper side ``max_bias_upper``.  The point value is ``None`` when no equal strength in
+    ``[0, 1)`` reaches the null.
     The limit value is also ``None`` when its influence curve is unavailable; callers
     omit and refuse that accessor rather than interpreting it as an unreachable limit.
     On several draws both solve for the median bound and its median-rule limit.  The
@@ -2811,7 +3044,7 @@ def _robustness_values(
     alignment = abs(rho)
     if not 0.0 <= alignment <= 1.0:
         raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
-    quantile = _one_sided_quantile(level, df)
+    _one_sided_quantile(level)
 
     def equal_share(strength: float) -> float:
         assert alignment > 0.0
@@ -2830,15 +3063,18 @@ def _robustness_values(
         return value
 
     def limit_at(strength: float) -> float:
-        return _limit(draws, result, strength, side, quantile)
+        return _limit(draws, result, strength, side, estimate, level)
 
     distance = abs(psi - null_hypothesis)
+    # The side that moves toward the null reads its own scale, which differs only on the
+    # bound of the value of the optimal rule (X11 (f3)).
+    scale = _side_scale(elements, side)
     if distance == 0.0:
         rv = 0.0
-    elif alignment == 0.0 or elements.max_bias == 0.0:
+    elif alignment == 0.0 or scale == 0.0:
         rv = None
     elif len(draws) == 1:
-        rv = equal_share(distance / elements.max_bias)
+        rv = equal_share(distance / scale)
     else:
         rv = _median_point_root(draws, side, null_hypothesis, equal_share)
     if psi_bias is None:
@@ -3148,7 +3384,7 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
     """
     if getattr(result.config, "parameter_axis", None) == "learned_rule":
         if reports_optimal_rule(result):
-            return OPTIMAL_RULE_SENSITIVITY_REFUSAL
+            return OPTIMAL_RULE_BENCHMARK_REFUSAL
         if _in_sample_learned_rule(result):
             return LEARNED_RULE_IN_SAMPLE_BENCHMARK_REFUSAL
         return LEARNED_RULE_BENCHMARK_REFUSAL
@@ -3158,7 +3394,10 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
             "benchmark compares the treatment mechanism with and without the named "
             "covariates, and this fit's data declares the mechanism known, so dropping a "
             "covariate cannot change it. A known design mechanism leaves no omitted "
-            "confounder of the treatment to calibrate against.",
+            "confounder of the treatment to calibrate against. The same holds under "
+            'mechanism_law="sample", where the design randomized in the rows as drawn and a '
+            "refit without the covariates would still divide by the declared mechanism that "
+            "reads them.",
         )
     fitted = _benchmark_covariates(result.data)
     try:
@@ -3270,6 +3509,7 @@ def benchmark(
         checked before the refit runs.
     """
     refuse_augmented_trial(result, "benchmark", "bound")
+    refuse_continuous_survival(result, "benchmark")
     names = _benchmark_names(result, covariates)
     estimator = result.estimator
     if estimator is None:
@@ -3402,6 +3642,9 @@ def robustness_value(
         qualify. When :attr:`SensitivityBounds.features` is not empty, such as on a fit
         with a second mechanism, a stratum, a regime, a shift, or an MSM coefficient, also
         ``"limit_licensed"`` and ``"limit_sentence"``, which mark the limit descriptive.
+        On a fit of the value of the optimal rule, also ``"side"``, the side of the
+        asymmetric bound that faces the null, and ``"max_bias"`` and ``"nu2_estimator"``
+        are that side's, as ``contour_data(..., bound=side)`` reports them.
 
     Raises
     ------
@@ -3414,6 +3657,7 @@ def robustness_value(
         ``nu^2`` that is not positive.
     """
     refuse_augmented_trial(result, "robustness_value", "bound")
+    refuse_continuous_survival(result, "robustness_value")
     draws = _bound_draws(
         result,
         estimand,
@@ -3424,13 +3668,28 @@ def robustness_value(
     elements = _combined_elements(draws, result)
     estimate = result[estimand]
     rv, rva = _robustness_values(
-        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate.reference_df
+        result, draws, float(estimate.psi), rho, level, null_hypothesis, estimate
     )
     status = estimate.inference
     values: dict[str, Any] = {"inference": status} if is_labelled(status) else {}
-    if elements.nu2_estimator != "doubly_robust":
-        values["nu2_estimator"] = elements.nu2_estimator
-        values["nu2_correction"] = elements.nu2_correction
+    # On the bound of the value of the optimal rule (X11 (f3)) the value is solved on the side
+    # that faces the null, and it records that side's scale and estimator of nu^2, which are
+    # the ones contour_data(..., bound=side) reports.
+    side: str | None = None
+    scale, estimator, correction = (
+        elements.max_bias,
+        elements.nu2_estimator,
+        elements.nu2_correction,
+    )
+    if elements.max_bias_upper is not None:
+        side = "upper" if null_hypothesis > float(estimate.psi) else "lower"
+        if side == "upper":
+            scale, estimator, correction = elements.max_bias_upper, "plugin", None
+    if estimator != "doubly_robust":
+        values["nu2_estimator"] = estimator
+        values["nu2_correction"] = correction
+    if side is not None:
+        values["side"] = side
     context: dict[str, Any] = {
         "estimand": estimand,
         "psi": float(estimate.psi),
@@ -3442,7 +3701,7 @@ def robustness_value(
         refusal = elements.limit_refusal
         values |= {
             "rv": rv,
-            "max_bias": elements.max_bias,
+            "max_bias": scale,
             "limit_refusal": (
                 refusal.text if refusal is not None else _ZERO_BIAS_LIMITS_REFUSAL + "."
             ),
@@ -3515,6 +3774,7 @@ def contour_data(
         ``nu^2`` that is not positive.
     """
     refuse_augmented_trial(result, "contour_data", "bound")
+    refuse_continuous_survival(result, "contour_data")
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")
     draws = _bound_draws(
@@ -3526,6 +3786,7 @@ def contour_data(
     )
     sign = -1.0 if bound == "lower" else 1.0
     elements = _combined_elements(draws, result)
+    upper_side = bound == "upper" and elements.max_bias_upper is not None
 
     cf_d_grid = np.linspace(0.0, grid_bounds[0], grid_size)
     cf_y_grid = np.linspace(0.0, grid_bounds[1], grid_size)
@@ -3544,9 +3805,10 @@ def contour_data(
         bound=bound,
         rho=rho,
         scale=str(result[estimand].scale),
-        max_bias=elements.max_bias,
-        nu2=elements.nu2,
-        nu2_estimator=elements.nu2_estimator,
+        # The upper side of the bound of the value of the optimal rule reads its own scale.
+        max_bias=_side_scale(elements, sign),
+        nu2=elements.nu2_upper if upper_side and elements.nu2_upper is not None else elements.nu2,
+        nu2_estimator="plugin" if upper_side else elements.nu2_estimator,
         n_repeats=len(draws),
         assumption=(
             _consistent_mechanism_assumption(result, mechanism_learner)

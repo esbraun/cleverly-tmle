@@ -37,6 +37,13 @@ it is a disclosed post-reading choice and not a pre-registered one.
 
 With clusters the unit is the cluster. Every measure reads the cluster sums of the curve, the
 same unit as the cluster variance and the cluster bootstrap.
+
+The warning keeps its threshold. On an unclustered estimate of a continuous outcome the
+interval it warns about is the skew-widened t
+(:attr:`~cleverly.inference.ParameterEstimate.interval_scale` ``"skew_t"``), which already
+reads a t at ``max(satterthwaite_df, 5)`` and widens the heavy side by the curve's
+acceleration; the warning says so. A binary-outcome coefficient keeps the normal reference,
+which does not widen for the noise the warning flags.
 """
 
 from __future__ import annotations
@@ -72,6 +79,13 @@ __all__ = [
 #: The relative standard deviation of the variance estimate above which a Wald fit warns.
 SPARSE_INFLUENCE_THRESHOLD = 0.125
 
+#: What the warning says the shipped interval already does about the noise it flags.
+_INTERVAL_NOTE = (
+    "On an unclustered estimate of a continuous outcome the interval already takes a t at "
+    "the capped degrees of freedom and widens the side a skewed outcome misses on; on any "
+    "other estimate the reference does not widen for this noise."
+)
+
 
 @dataclass(frozen=True)
 class InfluenceRow:
@@ -100,7 +114,8 @@ class InfluenceRow:
     variance_source : str
         Which variance the estimate's interval reads: ``"influence_curve"``, or
         ``"policy_weighted"`` under ``variance="policy_weighted"`` when that variance is the
-        larger. The measures above always read the influence curve.
+        larger, or ``"boundary_node"`` when the estimate adds the boundary-node supplement.
+        The measures above always read the influence curve.
 
     Attributes
     ----------
@@ -167,7 +182,7 @@ class InfluenceReport:
         sources = [row.variance_source for row in self.rows]
         return {
             source: sources.count(source) / len(sources)
-            for source in ("influence_curve", "policy_weighted")
+            for source in ("influence_curve", "policy_weighted", "boundary_node")
         }
 
     def __getitem__(self, name: str) -> InfluenceRow:
@@ -511,7 +526,7 @@ def warn_sparse_influence(
     _warn(
         f"{len(flagged)} estimate(s) read their influence curve from few rows, so the "
         f"variance estimate's relative SD is above {SPARSE_INFLUENCE_THRESHOLD}: "
-        f"{listed}{more}. The Wald interval may under-cover. {advice}",
+        f"{listed}{more}. The Wald interval may under-cover. {_INTERVAL_NOTE} {advice}",
         SparseInfluenceWarning,
         stacklevel=_caller_outside_package() if stacklevel is None else stacklevel,
     )

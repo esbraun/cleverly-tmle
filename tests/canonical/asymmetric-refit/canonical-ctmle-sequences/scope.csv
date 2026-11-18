@@ -1,0 +1,10 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,binary_lasso/ate,0,0.054931218470279819,0.031821043301812291,0.054931218470279819,0.031821043301812284,ok,own,,,,,,,,,,,,
+scope,primary,binary_learners/ate,0,0.05656724233493049,0.029545784531510078,0.05656724233493049,0.029545784531510078,ok,own,,,,,,,,,,,,
+scope,property,double_robustness/lasso_outcome_correct,0,0.099362857381577685,0.0080618029974946388,0.099362857381577685,0.0080618029974946388,ok,own,,,,,,,,,,,,
+scope,property,double_robustness/lasso_treatment_correct,0,0.10486427859701741,0.0078025665167648015,0.10486427859701741,0.0078025665167648015,ok,own,,,,,,,,,,,,
+scope,property,double_robustness/learners_outcome_correct,0,0.099027617987918926,0.0080220219690076092,0.099027617987918759,0.0080220219690076092,ok,own,,,,,,,,,,,,
+scope,property,double_robustness/learners_treatment_correct,0,0.10629154821172532,0.007860812419157372,0.10629154821172532,0.007860812419157372,ok,own,,,,,,,,,,,,
+scope,property,multi_arm/lasso_treatment_correct,0,0.23663911434469442,0.027713735932515932,0.23663911434469437,0.027713735932515932,ok,own,,,,,,,,,,,,
+scope,property,selector_necessity/lasso_collaborative,0,0.076799264164047532,0.012354473659729635,0.076799264164047532,0.012354473659729635,ok,own,,,,,,,,,,,,
+scope,property,selector_necessity/learners_collaborative,0,0.079344967340165773,0.013333173459481561,0.079344967340165773,0.013333173459481561,ok,own,,,,,,,,,,,,

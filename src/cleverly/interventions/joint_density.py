@@ -1384,25 +1384,74 @@ def _image(
     return np.column_stack(columns)
 
 
-def evaluate_joint_density(
+@dataclass(frozen=True)
+class JointDensityInputs:
+    """What :func:`evaluate_joint_density` reads before its first learner.
+
+    Parameters
+    ----------
+    n : int
+        The rows.
+    doses : tuple of int
+        The dose components' column indices.
+    names : tuple of str
+        Every component's name.
+    cells : tuple of tuple of int
+        The observed cells of the categorical components.
+    rows : ndarray of bool
+        The rows at risk.
+    train : ndarray of bool
+        The rows the factors are fitted on.
+    natural_doses : ndarray
+        ``(n, n_doses)`` the observed doses.
+    natural_atoms : list of ndarray
+        Per dose, the declared atom each observed dose equals, ``-1`` for none.
+    dose_edges : list
+        Per dose, its bin edges, or ``None`` for a dose that fits no density.
+    dose_occupied : list
+        Per dose, the bins the rows at risk occupy, read with its edges, or ``None``.
+    requests : _Requests
+        The designs and values every factor is predicted at.
+    induced_terms : dict
+        The terms of each evaluation and branch.
+    observed_factors : list of tuple
+        The factors of each evaluation's observed density.
+    targets : ndarray
+        ``(n, n_evaluations)`` each evaluation's cell index.
+    fit_designs : list of ndarray
+        Per dose, its observed design.
+    """
+
+    n: int
+    doses: tuple[int, ...]
+    names: tuple[str, ...]
+    cells: tuple[tuple[int, ...], ...]
+    rows: BoolArray
+    train: BoolArray
+    natural_doses: FloatArray
+    natural_atoms: list[IntArray]
+    dose_edges: list[list[float] | None]
+    dose_occupied: list[BoolArray | None]
+    requests: _Requests
+    induced_terms: dict[tuple[int, int], list[_Term]]
+    observed_factors: list[tuple[tuple[int, Hashable, int], ...]]
+    targets: IntArray
+    fit_designs: list[FloatArray]
+
+
+def joint_density_inputs(
     layout: NodeLayout,
     branches: Sequence[JointBranch],
     evaluations: Sequence[JointEvaluation],
     *,
-    learner: Learner,
-    weights: FloatArray,
-    folds: Folds,
     n_bins: int | None = None,
-    groups: IntArray | None = None,
-    n_jobs: int = 1,
     fit_rows: BoolArray | None = None,
-) -> JointDensityParts:
-    """Fit a vector node's law by the chain rule and evaluate each branch's induced density.
+) -> JointDensityInputs:
+    """Enumerate every design and value of :func:`evaluate_joint_density`, fitting nothing.
 
-    Every design and every value is enumerated before any learner runs, because the
-    preimages are known functions of the observed values.  The categorical factor is one
-    out-of-fold multinomial over the observed cells.  Each dose's density is fitted once on
-    its observed design and predicted out of fold at every counterfactual design.
+    The preimages are known functions of the observed values, so every check of the
+    enumeration runs here, before any learner.  :func:`evaluate_joint_density` and the
+    planned-fit preview call it.
 
     Parameters
     ----------
@@ -1411,33 +1460,17 @@ def evaluate_joint_density(
     branches : sequence of JointBranch
         Every branch of every policy at the node.
     evaluations : sequence of JointEvaluation
-        The values to evaluate at, each naming the branches whose induced density it needs.
-    learner : Learner
-        The classifier of the categorical factor and of every dose's hazards.
-    weights : ndarray
-        ``(n,)`` observation weights.
-    folds : Folds
-        The outer split.
+        The values to evaluate at.
     n_bins : int or None
         The core bin count of each dose's density, before the outer refinement.
-    groups : ndarray or None
-        Cluster codes.
-    n_jobs : int
-        Parallel workers across the folds.
-    fit_rows : ndarray or None
-        ``(n,)`` the rows every learner trains on, a subset of ``layout.rows``: one outer
-        training fold of a cross-fitted recursion.  The observed cells and every dose's bin
-        edges are still read from ``layout.rows``, so at the fold's held-out rows each
-        factor is the model the out-of-fold mechanism uses there.  ``None`` trains on
-        ``layout.rows``.
+    fit_rows : ndarray of bool or None
+        As :func:`evaluate_joint_density`.
 
     Returns
     -------
-    JointDensityParts
-        The fitted factors at every value.
+    JointDensityInputs
+        What the fit reads.
     """
-    from ..estimators._nuisance import cross_fit_predictions
-
     n = layout.n
     doses = layout.doses
     names = layout.names
@@ -1514,6 +1547,95 @@ def evaluate_joint_density(
         layout.dose_design(position, layout.natural[:, layout.categorical], natural_doses)
         for position in range(len(doses))
     ]
+    return JointDensityInputs(
+        n=n,
+        doses=doses,
+        names=names,
+        cells=cells,
+        rows=rows,
+        train=train,
+        natural_doses=natural_doses,
+        natural_atoms=natural_atoms,
+        dose_edges=dose_edges,
+        dose_occupied=dose_occupied,
+        requests=requests,
+        induced_terms=induced_terms,
+        observed_factors=observed_factors,
+        targets=targets,
+        fit_designs=fit_designs,
+    )
+
+
+def evaluate_joint_density(
+    layout: NodeLayout,
+    branches: Sequence[JointBranch],
+    evaluations: Sequence[JointEvaluation],
+    *,
+    learner: Learner,
+    weights: FloatArray,
+    folds: Folds,
+    n_bins: int | None = None,
+    groups: IntArray | None = None,
+    n_jobs: int = 1,
+    fit_rows: BoolArray | None = None,
+) -> JointDensityParts:
+    """Fit a vector node's law by the chain rule and evaluate each branch's induced density.
+
+    Every design and every value is enumerated before any learner runs, because the
+    preimages are known functions of the observed values.  The categorical factor is one
+    out-of-fold multinomial over the observed cells.  Each dose's density is fitted once on
+    its observed design and predicted out of fold at every counterfactual design.
+
+    Parameters
+    ----------
+    layout : NodeLayout
+        The node.
+    branches : sequence of JointBranch
+        Every branch of every policy at the node.
+    evaluations : sequence of JointEvaluation
+        The values to evaluate at, each naming the branches whose induced density it needs.
+    learner : Learner
+        The classifier of the categorical factor and of every dose's hazards.
+    weights : ndarray
+        ``(n,)`` observation weights.
+    folds : Folds
+        The outer split.
+    n_bins : int or None
+        The bin count of each dose's density.
+    groups : ndarray or None
+        Cluster codes.
+    n_jobs : int
+        Parallel workers across the folds.
+    fit_rows : ndarray or None
+        ``(n,)`` the rows every learner trains on, a subset of ``layout.rows``: one outer
+        training fold of a cross-fitted recursion.  The observed cells and every dose's bin
+        edges are still read from ``layout.rows``, so at the fold's held-out rows each
+        factor is the model the out-of-fold mechanism uses there.  ``None`` trains on
+        ``layout.rows``.
+
+    Returns
+    -------
+    JointDensityParts
+        The fitted factors at every value.
+    """
+    from ..estimators._nuisance import cross_fit_predictions
+
+    inputs = joint_density_inputs(layout, branches, evaluations, n_bins=n_bins, fit_rows=fit_rows)
+    n = inputs.n
+    doses = inputs.doses
+    names = inputs.names
+    cells = inputs.cells
+    rows = inputs.rows
+    train = inputs.train
+    natural_doses = inputs.natural_doses
+    natural_atoms = inputs.natural_atoms
+    dose_edges = inputs.dose_edges
+    dose_occupied = inputs.dose_occupied
+    requests = inputs.requests
+    induced_terms = inputs.induced_terms
+    observed_factors = inputs.observed_factors
+    targets = inputs.targets
+    fit_designs = inputs.fit_designs
     # The counterfactual designs and their values count too, with a copy per parallel
     # worker: a node with many cells, pieces or policies holds more of them than tables.
     fitted_doses = [k for k in range(len(doses)) if dose_edges[k] is not None]
@@ -1763,3 +1885,125 @@ def warn_unsupported_values(
         PositivityWarning,
         stacklevel=3,
     )
+
+
+def plan_joint_density(
+    layout: NodeLayout,
+    inputs: JointDensityInputs,
+    *,
+    learner: Learner,
+    weights: FloatArray,
+    folds: Folds | None,
+    n_bins: int | None = None,
+    groups: IntArray | None = None,
+    seed_fixed: bool = True,
+    nominal_folds: int | None = None,
+    n_jobs: int | None = None,
+) -> list[tuple[str, Any]]:
+    """The fits :func:`evaluate_joint_density` makes, counted without fitting.
+
+    The categorical factor's classifier when the node holds more than one cell, then per
+    dose its density on the rows that hold no atom and, with declared atoms, its atom
+    classifier, each cross-fitted on ``folds``.  Given ``n_jobs``, it first runs the fit's
+    memory refusal of every dose's density (:func:`preflight_conditional_densities`).
+
+    Parameters
+    ----------
+    layout : NodeLayout
+        The node.
+    inputs : JointDensityInputs
+        The node's enumeration, from :func:`joint_density_inputs`.
+    learner : Learner
+        The resolved treatment learner.
+    weights : ndarray
+        ``(n,)`` observation weights.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    n_bins : int or None
+        The bin count of each dose.
+    groups : ndarray or None
+        Cluster codes.
+    seed_fixed : bool
+        As :func:`cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        Count this many fits of each factor at the learner's nominal counts: a bootstrap
+        replicate's.
+
+    n_jobs : int or None
+        Parallel workers across the folds, as the fit takes it, or ``None`` to skip the
+        memory refusal, for a bootstrap replicate's count.
+    Returns
+    -------
+    list of tuple
+        ``(what, Count)`` per factor.
+    """
+    from .._planned_fits import count_cross_fit, count_nominal
+    from ..learners.density import plan_conditional_density
+
+    fitted_doses = [k for k in range(len(inputs.doses)) if inputs.dose_edges[k] is not None]
+    if n_jobs is not None and nominal_folds is None and folds is not None and fitted_doses:
+        preflight_conditional_densities(
+            learner,
+            [(inputs.fit_designs[k].shape[1], inputs.natural_doses[:, k]) for k in fitted_doses],
+            folds,
+            n_bins=n_bins,
+            fit_mask=inputs.rows,
+            n_jobs=n_jobs,
+            names=[inputs.names[inputs.doses[k]] for k in fitted_doses],
+            predictions=[
+                inputs.requests.memory(k, len(inputs.dose_edges[k] or ()) - 1, folds)
+                for k in fitted_doses
+            ],
+        )
+
+    def classifier(target: FloatArray) -> Any:
+        if nominal_folds is not None:
+            return count_nominal(learner, target, nominal_folds, task="classification")
+        assert folds is not None
+        return count_cross_fit(
+            learner,
+            target,
+            folds,
+            task="classification",
+            weights=weights,
+            fit_mask=inputs.train,
+            groups=groups,
+            seed_fixed=seed_fixed,
+        )
+
+    out: list[tuple[str, Any]] = []
+    if len(inputs.cells) > 1:
+        observed = layout.cell_codes(layout.natural[:, layout.categorical], inputs.cells)
+        out.append(
+            (
+                "treatment cell classifier",
+                classifier(np.where(inputs.rows, observed, 0).astype(float)),
+            )
+        )
+    for position, index in enumerate(inputs.doses):
+        name = inputs.names[index]
+        atoms = layout.dose_atoms(position)
+        natural_atom = inputs.natural_atoms[position]
+        edges = inputs.dose_edges[position]
+        if edges is not None:
+            out.append(
+                (
+                    f"dose density of {name}",
+                    plan_conditional_density(
+                        learner,
+                        inputs.natural_doses[:, position],
+                        weights,
+                        folds,
+                        n_bins=n_bins,
+                        edges=edges,
+                        groups=groups,
+                        fit_mask=inputs.train & (natural_atom < 0) if atoms else inputs.train,
+                        seed_fixed=seed_fixed,
+                        nominal_folds=nominal_folds,
+                    ),
+                )
+            )
+        if atoms:
+            label = np.where(inputs.rows & (natural_atom >= 0), natural_atom + 1, 0)
+            out.append((f"dose atom classifier of {name}", classifier(label.astype(float))))
+    return out

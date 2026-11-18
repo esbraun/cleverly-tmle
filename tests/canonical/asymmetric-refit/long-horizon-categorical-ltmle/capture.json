@@ -1,0 +1,56 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/interval_calibration",
+      "properties/root_n_and_efficiency",
+      "properties/double_robustness",
+      "properties/targeting_necessity",
+      "properties/censoring_necessity",
+      "properties/categorical_probability_necessity",
+      "properties/rule_necessity",
+      "properties/policy_necessity",
+      "properties/simultaneous_coverage",
+      "properties/crossfit_overfitting",
+      "properties/support_loss",
+      "properties/learned_mechanism"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 12.65,
+    "seconds_fit": 4.72,
+    "stage": "refits",
+    "study": "long-horizon-categorical-ltmle"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 61,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/interval_calibration",
+      "properties/root_n_and_efficiency",
+      "properties/double_robustness",
+      "properties/targeting_necessity",
+      "properties/censoring_necessity",
+      "properties/categorical_probability_necessity",
+      "properties/rule_necessity",
+      "properties/policy_necessity",
+      "properties/simultaneous_coverage",
+      "properties/crossfit_overfitting",
+      "properties/support_loss",
+      "properties/learned_mechanism"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 1,
+    "rows": 142,
+    "seconds_capture": 11.92,
+    "seconds_fit": 100.39,
+    "stage": "scope",
+    "study": "long-horizon-categorical-ltmle"
+  }
+}

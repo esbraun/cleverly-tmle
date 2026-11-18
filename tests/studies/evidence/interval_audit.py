@@ -485,18 +485,25 @@ RERUN: dict[str, str] = {}
 #: explain rather than a moved verdict.
 SCREEN_REASONS: dict[str, str] = {
     "canonical-multi-arm-ctmle-selector": (
-        "the flagged cells read ate[medium vs high], a difference, whose interval is unchanged"
+        "the flagged cells read ate[medium vs high], a difference, which this screen does not "
+        "model; asymmetric_audit reads it under MOVER"
     ),
     "canonical-multi-arm-drtmle": (
-        "root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, whose interval is "
-        "unchanged"
+        "root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, which this screen "
+        "does not model; asymmetric_audit reads it under MOVER"
     ),
     "canonical-stratified-incremental-msm": (
         "logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
     ),
     "ctmle-oat-per-arm-strata-missing": (
-        "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, whose "
-        "interval is unchanged"
+        "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, which this "
+        "screen does not model; asymmetric_audit reads it under MOVER"
+    ),
+    "few-cluster-fold-variance": (
+        "the flagged rows are the cluster_covariate cells (ey1, a bounded mean): every fit is "
+        "clustered (id=), and a clustered mean keeps the identity interval on its t reference; "
+        "the range-logit scale applies to an unclustered mean only "
+        "(ParameterEstimate.interval_scale)"
     ),
     "option-patience": (
         "late_confounder_stop/lc3_ordered reads an exclusion share in its covered column, not an "

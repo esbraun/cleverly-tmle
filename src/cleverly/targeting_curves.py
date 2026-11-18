@@ -46,12 +46,18 @@ from scipy.special import digamma
 
 from ._pooled_targeting import TARGETING_SPAN_RTOL, solve_pooled, span_basis
 from ._typing import FloatArray, IntArray
+from .data.known_mechanism import divides_by_declaration
 from .exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from .inference.delta import reference_quantile, two_sided_pvalue
 from .utils.frames import frame_from_dict
+from .utils.memory import available_memory, check_max_memory_bytes, check_memory_budget
+from .utils.random import note_fresh_entropy
 
 __all__ = [
+    "BLOCK_BYTES",
     "DEFAULT_GRID",
+    "DRAW_BYTES_FACTOR",
+    "GENERAL_DRAW_BYTES_FACTOR",
     "TARGETING_ATOM_SHARE",
     "TARGETING_BOOTSTRAP_REFUSAL",
     "TARGETING_MEASURED",
@@ -66,8 +72,10 @@ __all__ = [
     "TargetingCurve",
     "TargetingEvaluation",
     "block_weights",
+    "check_draw_memory",
     "check_targeting_settings",
     "check_targeting_spec",
+    "draw_bytes",
     "half_sample_draws",
     "targeting_fit",
     "targeting_status",
@@ -413,16 +421,227 @@ def _row_columns(
     return np.column_stack([weights[key][layout.block_of_row] for key in keys])
 
 
+#: The working memory one block of half-sample draws aims at: keys, masks and the reductions'
+#: temporaries of every draw in the block.  Blocks never change a draw (each draw's keys,
+#: ranks and sums depend on its own row only), so this sets memory, not results.
+BLOCK_BYTES: Final = 64 * 1024**2
+
+#: How far the half-sample stage's byte prediction may exceed its measured ``tracemalloc``
+#: peak, which the unit tests check on fixtures at both ends of the block size.
+DRAW_BYTES_FACTOR: Final = 2.0
+
+#: The factor of the general route (``cut="fixed"``, ``tie_rule="at_or_above"``), which only
+#: the mutation controls reach: its per-cut arrays cost less per draw in a large block than
+#: in a block of one, and the model takes the block of one.
+GENERAL_DRAW_BYTES_FACTOR: Final = 2.5
+
+#: Bytes per evaluation row and per tie block of one draw, by route: the ``(b, n)`` row
+#: temporaries and the ``(b, K)`` block temporaries.  ``"general"`` grows with the cut count
+#: ``Q`` and the edge count ``E``: ``c_K = base + per_cut * Q + per_edge * E``.  Calibrated
+#: by ``tracemalloc`` (``tests/unit/test_targeting_curve_memory.py``).
+_ROW_BYTES: Final[Mapping[str, float]] = {"shipped": 13.0, "fixed_ranks": 13.0, "general": 13.0}
+_BLOCK_BYTES_PER_TIE: Final[Mapping[str, tuple[float, float, float]]] = {
+    "shipped": (76.0, 0.0, 0.0),
+    "fixed_ranks": (28.0, 0.0, 0.0),
+    "general": (135.0, 45.0, 18.0),
+}
+#: The tie-block arrays each score holds through every block, by route, as
+#: ``base + per_cut * Q + per_edge * E``: the full-sample rank weights of ``ranks="fixed"`` and
+#: the full-sample shares of ``cut="fixed"``.
+_HELD_ARRAYS: Final[Mapping[str, tuple[float, float, float]]] = {
+    "shipped": (0.0, 0.0, 0.0),
+    "fixed_ranks": (13.0, 4.5, 1.0),
+    "general": (2.0, 1.0, 0.0),
+}
+#: Bytes per evaluation row of the stage's setup (the unit index, each score's rank order and
+#: tie blocks, and the reordered mass and scores), and per held block array of a mutation route.
+_SETUP_BYTES_PER_ROW: Final = 26.0
+_SCORE_BYTES_PER_ROW: Final = 36.0
+_SCORE_BYTES_PER_TIE: Final = 20.0
+#: Bytes the stage holds whatever its size: array headers, the per-key outputs' objects and
+#: the per-cut index vectors of a block.
+_OVERHEAD_BYTES: Final = 36 * 1024
+_KEY_BYTES: Final = 1024
+
+
+def _route(cut: str, ranks: str, tie_rule: str) -> str:
+    """Which arithmetic the draws take: the shipped rule, fixed ranks, or the general form."""
+    if ranks == "fixed":
+        return "fixed_ranks"
+    if cut == "quantile" and tie_rule == "average":
+        return "shipped"
+    return "general"
+
+
+def draw_bytes(
+    *,
+    n: int,
+    units: int,
+    blocks: int,
+    scores: int,
+    draws: int,
+    grid: Sequence[float],
+    edges: Sequence[float],
+    route: str = "shipped",
+    unpaired: bool = False,
+) -> tuple[int, int]:
+    """The half-sample stage's predicted bytes: those held throughout, and those of one draw.
+
+    Parameters
+    ----------
+    n : int
+        Evaluation rows.
+    units : int
+        Independent units: clusters, or the rows.
+    blocks : int
+        The largest tie-block count over the scores (``n`` bounds it).
+    scores : int
+        Ranked scores.
+    draws : int
+        Half-sample draws.
+    grid : sequence of float
+        Treated fractions.
+    edges : sequence of float
+        Group-effect edges.
+    route : {"shipped", "fixed_ranks", "general"}
+        The arithmetic of the draws.
+    unpaired : bool
+        Whether a later score draws its own masks.
+
+    Returns
+    -------
+    tuple of int
+        ``(fixed, per_draw)``: a block of ``b`` draws is predicted to hold
+        ``fixed + b * per_draw`` bytes above the arrays the caller already holds.
+    """
+    cuts = len({*grid, *edges})
+    n_edges = len(edges)
+    keys = 3 + 2 * cuts + n_edges
+    held_base, held_cut, held_edge = _HELD_ARRAYS[route]
+    fixed = (
+        _OVERHEAD_BYTES
+        + _KEY_BYTES * (2.0 if route == "general" else 0.875) * keys * scores
+        + (_SETUP_BYTES_PER_ROW + (16 if route == "general" else 0)) * n
+        + scores * _SCORE_BYTES_PER_ROW * n
+        + scores
+        * (_SCORE_BYTES_PER_TIE + 8 * (held_base + held_cut * cuts + held_edge * n_edges))
+        * blocks
+        + 8 * draws * keys * scores
+    )
+    base, per_cut, per_edge = _BLOCK_BYTES_PER_TIE[route]
+    # A draw's phases do not overlap: the keys and their ranking (16 bytes a unit, beside the
+    # previous block's mask), then the row temporaries, then the tie-block temporaries.  Its
+    # peak is the largest phase plus the boolean masks held through all three.
+    per_draw = max(
+        18 * units,
+        _ROW_BYTES[route] * n,
+        (base + per_cut * cuts + per_edge * n_edges) * blocks,
+    ) + (2 * units if unpaired else units)
+    return math.ceil(fixed), math.ceil(per_draw)
+
+
+def check_draw_memory(
+    *,
+    n: int,
+    units: int,
+    blocks: int,
+    scores: int,
+    draws: int,
+    grid: Sequence[float],
+    edges: Sequence[float],
+    max_memory_bytes: int | None,
+    ties_bounded: bool = False,
+) -> None:
+    """Refuse, before any fit, half-sample draws that cannot fit one draw at a time.
+
+    The targeting-curve facades call it before their ATE fit, with the shipped rule's byte
+    model (:func:`draw_bytes`); :func:`half_sample_draws` checks again before it draws.
+
+    Parameters
+    ----------
+    n : int
+        Evaluation rows.
+    units : int
+        Independent evaluation units.
+    blocks : int
+        The largest tie-block count over the scores, or ``n`` as its bound.
+    scores : int
+        Ranked scores.
+    draws : int
+        Half-sample draws.
+    grid : sequence of float
+        Treated fractions.
+    edges : sequence of float
+        Group-effect edges.
+    max_memory_bytes : int or None
+        The budget, or ``None`` for the memory available now.
+    ties_bounded : bool
+        Whether ``blocks`` is the row count standing in for a score not yet known, which the
+        refusal then says.
+
+    Raises
+    ------
+    DataError
+        For a ``max_memory_bytes`` that is not a positive integer or ``None``.
+    MethodConfigurationError
+        When one draw at a time is predicted to exceed the budget.
+    """
+    budget = check_max_memory_bytes(max_memory_bytes)
+    fixed, per_draw = draw_bytes(
+        n=n, units=units, blocks=blocks, scores=scores, draws=draws, grid=grid, edges=edges
+    )
+    check_memory_budget(
+        fixed + per_draw,
+        max_memory_bytes=budget,
+        what=(
+            "The targeting curve's half-sample draws, one draw at a time"
+            + (
+                " and with the score's tie count bounded by the evaluation rows, since the "
+                "score is not known before the refit,"
+                if ties_bounded
+                else ","
+            )
+        ),
+        factor=DRAW_BYTES_FACTOR * (3.0 if ties_bounded else 1.0),
+    )
+
+
+def _keys(rng: np.random.Generator, shape: tuple[int, int]) -> FloatArray:
+    """The uniform keys whose smallest half picks each draw's units."""
+    return rng.random(shape)
+
+
+def _block_masks(rng: np.random.Generator, draws: int, count: int) -> np.ndarray:
+    """``draws`` half-samples of ``count`` units, as a boolean ``(draws, count)`` mask.
+
+    Successive calls on one generator reproduce one call for all the draws: the keys are the
+    generator's stream in row order, and each row's ranking reads its own keys only.
+    """
+    keys = _keys(rng, (draws, count))
+    chosen = np.argsort(keys, axis=1)[:, : count // 2]
+    del keys
+    mask = np.zeros((draws, count), dtype=bool)
+    np.put_along_axis(mask, chosen, True, axis=1)
+    return mask
+
+
 def _masks(units: IntArray, n_draws: int, rng: np.random.Generator) -> tuple[IntArray, FloatArray]:
     """``n_draws`` half-samples of the units, as a row-to-unit index and a unit mask."""
     labels, inverse = np.unique(units, return_inverse=True)
-    count = labels.size
-    half = count // 2
-    keys = rng.random((n_draws, count))
-    chosen = np.argsort(keys, axis=1)[:, :half]
-    mask = np.zeros((n_draws, count))
-    np.put_along_axis(mask, chosen, 1.0, axis=1)
-    return inverse.astype(np.int64), mask
+    return inverse.astype(np.int64), _block_masks(rng, n_draws, labels.size).astype(float)
+
+
+@dataclass(frozen=True)
+class _ScoreDraws:
+    """What one score's draws reuse across blocks: its gather index, reordered rows and rules."""
+
+    gather: IntArray
+    starts: IntArray
+    mass: FloatArray
+    gamma: FloatArray
+    fixed_shares: dict[float, FloatArray] | None
+    fixed_weights: dict[tuple[str, float], FloatArray] | None
+    stream: np.random.Generator | None
 
 
 def half_sample_draws(
@@ -437,6 +656,7 @@ def half_sample_draws(
     paired: bool = True,
     masks: FloatArray | None = None,
     chunk: int | None = None,
+    max_memory_bytes: int | None = None,
 ) -> dict[str, dict[tuple[str, float], FloatArray]]:
     """Each quantity of each score in each half-sample, ``(n_half_samples,)`` per key.
 
@@ -445,6 +665,10 @@ def half_sample_draws(
     mutations the unit tests and the study's controls read: the one-step scores, the
     full-sample cut, the full-sample rank weights, the whole tied block at the cut, and
     independent draws for every score after the first.
+
+    The draws are made and reduced in blocks, so memory stays near :data:`BLOCK_BYTES` (or one
+    draw, when one draw takes more) whatever the number of draws.  The block size never
+    changes a draw.
 
     Parameters
     ----------
@@ -467,69 +691,132 @@ def half_sample_draws(
         ``False`` draws every score after the first from its own stream.
     masks : ndarray or None
         ``(D, n_units)`` explicit unit masks in the order of ``numpy.unique(units)``, in place of
-        random draws.
+        random draws; ``D`` is then the number of draws.
     chunk : int or None
-        Draws per vectorised block; ``None`` sizes it to about four million cells.
+        Draws per block; ``None`` sizes blocks to about :data:`BLOCK_BYTES`.  A memory budget
+        caps it.
+    max_memory_bytes : int or None
+        The most memory the draws may add above the arrays already held; ``None`` uses the
+        memory available now, and no check runs where the platform reports none.  It caps the
+        block size and refuses a request whose setup, outputs and one draw would exceed it; it
+        never lowers
+        the number of draws.  Caller ``masks`` are never refused.
 
     Returns
     -------
     dict
         By score name, a mapping from ``(quantity, q)`` to the draws.
+
+    Raises
+    ------
+    DataError
+        For a ``max_memory_bytes`` that is not a positive integer or ``None``.
+    MethodConfigurationError
+        When the setup, the outputs and one draw are predicted to exceed the memory budget.
     """
+    budget_arg = check_max_memory_bytes(max_memory_bytes)
     gamma = evaluation.targeted if scores == "targeted" else evaluation.one_step
     mass = evaluation.mass
+    if random_state is None:
+        note_fresh_entropy()
     rng = np.random.default_rng(random_state)
-    inverse = np.unique(evaluation.units, return_inverse=True)[1].astype(np.int64)
-    shipped = cut == "quantile" and ranks == "recompute" and tie_rule == "average"
-    if masks is None:
-        _, unit_masks = _masks(evaluation.units, n_half_samples, rng)
-    else:
-        unit_masks = np.asarray(masks, dtype=float)
-    out: dict[str, dict[tuple[str, float], FloatArray]] = {}
-    for index, (name, _score) in enumerate(evaluation.scores.items()):
+    labels, inverse = np.unique(evaluation.units, return_inverse=True)
+    inverse = inverse.astype(np.int64)
+    count = int(labels.size)
+    route = _route(cut, ranks, tie_rule)
+    draws = int(n_half_samples) if masks is None else int(np.shape(masks)[0])
+    names = list(evaluation.scores)
+    cuts = sorted({*evaluation.grid, *evaluation.edges})
+    plans: list[_ScoreDraws] = []
+    for index, name in enumerate(names):
         layout = evaluation.layout(name)
         order = layout.order
-        draws_masks = unit_masks
-        if not paired and index > 0 and masks is None:
-            stream = np.random.default_rng([0 if random_state is None else random_state, index])
-            _, draws_masks = _masks(evaluation.units, n_half_samples, stream)
-        full_m = _block_sums(mass[order], layout.starts)
+        ordered_mass = mass[order]
+        full_m = _block_sums(ordered_mass, layout.starts)
         fixed_shares = None
         fixed_weights = None
-        if cut == "fixed":
-            b = np.cumsum(full_m)
-            fixed_shares = {
-                q: _shares(full_m, b - full_m, b[-1:], q, tie_rule)
-                for q in sorted({*evaluation.grid, *evaluation.edges})
-            }
         if ranks == "fixed":
             fixed_weights = block_weights(
                 full_m, evaluation.grid, evaluation.edges, tie_rule=tie_rule
             )
-        size = chunk or max(1, int(4_000_000 // max(1, gamma.size)))
-        pieces: dict[tuple[str, float], list[FloatArray]] = {}
-        for start in range(0, draws_masks.shape[0], size):
-            row_mask = draws_masks[start : start + size][:, inverse]
-            weighted = row_mask[:, order] * mass[order]
-            m = _block_sums(weighted, layout.starts)
-            sums = _block_sums(weighted * gamma[order], layout.starts)
-            total = m.sum(axis=1)
-            if shipped:
-                for key, values in _shipped_draws(
-                    m, sums, evaluation.grid, evaluation.edges
-                ).items():
-                    pieces.setdefault(key, []).append(values)
-                continue
-            weights = (
-                fixed_weights
-                if fixed_weights is not None
-                else block_weights(
-                    m, evaluation.grid, evaluation.edges, tie_rule=tie_rule, shares=fixed_shares
-                )
+        elif cut == "fixed":
+            b = np.cumsum(full_m)
+            fixed_shares = {q: _shares(full_m, b - full_m, b[-1:], q, tie_rule) for q in cuts}
+        stream = None
+        if not paired and index > 0 and masks is None:
+            stream = np.random.default_rng([0 if random_state is None else random_state, index])
+        plans.append(
+            _ScoreDraws(
+                gather=inverse[order],
+                starts=layout.starts,
+                mass=ordered_mass,
+                gamma=gamma[order],
+                fixed_shares=fixed_shares,
+                fixed_weights=fixed_weights,
+                stream=stream,
             )
-            for key, c in weights.items():
-                pieces.setdefault(key, []).append(np.sum(c * sums, axis=-1) / total)
-        out[name] = {key: np.concatenate(parts) for key, parts in pieces.items()}
+        )
+    fixed, per_draw = draw_bytes(
+        n=int(gamma.size),
+        units=count,
+        blocks=max(int(plan.starts.size) for plan in plans),
+        scores=len(names),
+        draws=draws,
+        grid=evaluation.grid,
+        edges=evaluation.edges,
+        route=route,
+        unpaired=any(plan.stream is not None for plan in plans),
+    )
+    size = int(chunk) if chunk else max(1, min(draws, BLOCK_BYTES // per_draw))
+    if masks is None:
+        budget = check_memory_budget(
+            fixed + per_draw,
+            max_memory_bytes=budget_arg,
+            what="The half-sample draws, one draw at a time,",
+            factor=GENERAL_DRAW_BYTES_FACTOR if route == "general" else DRAW_BYTES_FACTOR,
+        )
+    else:
+        budget = available_memory() if budget_arg is None else budget_arg
+    if budget is not None:
+        size = min(size, max(1, (budget - fixed) // per_draw))
+    out: dict[str, dict[tuple[str, float], FloatArray]] = {name: {} for name in names}
+    for start in range(0, draws, size):
+        stop = min(start + size, draws)
+        block = (
+            _block_masks(rng, stop - start, count)
+            if masks is None
+            else np.asarray(masks[start:stop], dtype=float)
+        )
+        for name, plan in zip(names, plans, strict=True):
+            unit_mask = (
+                block if plan.stream is None else _block_masks(plan.stream, stop - start, count)
+            )
+            weighted = unit_mask[:, plan.gather] * plan.mass
+            m = _block_sums(weighted, plan.starts)
+            weighted *= plan.gamma
+            sums = _block_sums(weighted, plan.starts)
+            del weighted
+            if route == "shipped":
+                values = _shipped_draws(m, sums, evaluation.grid, evaluation.edges)
+            else:
+                total = m.sum(axis=1)
+                weights = (
+                    plan.fixed_weights
+                    if plan.fixed_weights is not None
+                    else block_weights(
+                        m,
+                        evaluation.grid,
+                        evaluation.edges,
+                        tie_rule=tie_rule,
+                        shares=plan.fixed_shares,
+                    )
+                )
+                values = {key: np.sum(c * sums, axis=-1) / total for key, c in weights.items()}
+            target = out[name]
+            for key, value in values.items():
+                if key not in target:
+                    target[key] = np.empty(draws)
+                target[key][start:stop] = value
     return out
 
 
@@ -1046,6 +1333,7 @@ def targeting_fit(
     route: str = "external",
     n_train: int | None = None,
     score_curve: Any = None,
+    max_memory_bytes: int | None = None,
 ) -> TargetingCurve:
     """Fit the targeting curve of one score, or two, from an ATE fit on the evaluation rows.
 
@@ -1075,6 +1363,9 @@ def targeting_fit(
         Training rows on the split route.
     score_curve : EffectCurveResult or None
         The training refit whose predictions are the score, on the split route.
+    max_memory_bytes : int or None
+        The most memory the half-sample draws may add above the arrays already held, as
+        :func:`half_sample_draws` takes it.
 
     Returns
     -------
@@ -1086,10 +1377,14 @@ def targeting_fit(
     CapabilityError
         For ``target_weights=True`` or a declared stopping rule on the ATE fit.
     DataError
-        For a score with a non-finite value, a grid or group declaration off its rules, or a
-        targeting step that does not converge.
+        For a score with a non-finite value, a grid or group declaration off its rules, a
+        ``max_memory_bytes`` that is not a positive integer or ``None``, or a targeting step
+        that does not converge.
+    MethodConfigurationError
+        When the half-sample draws are predicted to exceed the memory budget.
     """
     check_targeting_spec(fit.config.targeting_spec)
+    check_max_memory_bytes(max_memory_bytes)
     if int(n_half_samples) < 2:
         raise DataError(f"n_half_samples must be at least 2; got {n_half_samples}")
     if not 0.0 < float(alpha) < 1.0:
@@ -1118,13 +1413,16 @@ def targeting_fit(
         edges=edges,
     )
     draws = half_sample_draws(
-        evaluation, n_half_samples=int(n_half_samples), random_state=random_state
+        evaluation,
+        n_half_samples=int(n_half_samples),
+        random_state=random_state,
+        max_memory_bytes=max_memory_bytes,
     )
     n_units = int(np.unique(units).size)
     clustered = data.cluster is not None
     few_clusters = clustered and n_units < TARGETING_MIN_CLUSTERS
     outcome = "binary" if getattr(data, "family", "") == "binomial" else "continuous"
-    known_mechanism = getattr(data, "known_treatment", None) is not None
+    known_mechanism = divides_by_declaration(data)
     config_status, config_codes = targeting_status(
         route=route,
         outcome=outcome,
@@ -1585,6 +1883,7 @@ def control_values(
     *,
     n_half_samples: int | None = None,
     random_state: int | None = None,
+    max_memory_bytes: int | None = None,
     **mutation: Any,
 ) -> dict[str, dict[tuple[str, float], tuple[float, float]]]:
     """Each quantity's point and half-sample SE under a deliberate mutation of the draws.
@@ -1602,6 +1901,8 @@ def control_values(
         Draws; the curve's own count when omitted.
     random_state : int or None
         Seed of the draws.
+    max_memory_bytes : int or None
+        As :func:`half_sample_draws`.
     **mutation : Any
         ``scores``, ``cut``, ``ranks``, ``tie_rule`` and ``paired``.
 
@@ -1609,6 +1910,14 @@ def control_values(
     -------
     dict
         By score name, ``(quantity, q)`` to ``(point, standard error)``.
+
+    Raises
+    ------
+    DataError
+        If the curve keeps no evaluation rows, or for a ``max_memory_bytes`` that is not a
+        positive integer or ``None``.
+    MethodConfigurationError
+        When the draws are predicted to exceed the memory budget.
     """
     evaluation = curve.evaluation
     if evaluation is None:
@@ -1617,6 +1926,7 @@ def control_values(
         evaluation,
         n_half_samples=n_half_samples or curve.n_half_samples,
         random_state=random_state,
+        max_memory_bytes=max_memory_bytes,
         **mutation,
     )
     tie_rule = mutation.get("tie_rule", "average")

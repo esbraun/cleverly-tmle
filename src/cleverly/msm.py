@@ -1599,7 +1599,9 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
     :math:`\varphi(a)^\top\hat\Sigma\varphi(a)`, with :math:`\hat\Sigma` the covariance of the
     coefficients from their influence curves (summed within clusters on a clustered fit,
     with the t reference of a few-cluster fit), and both limits are mapped through the
-    inverse link. Nothing is refitted.
+    inverse link. On an unclustered fit of a continuous outcome, whose coefficients read the
+    skew-widened t, the linear predictor reads it too, from its own influence curve
+    :math:`\varphi(a)^\top \mathrm{IC}`. Nothing is refitted.
 
     Parameters
     ----------
@@ -1651,8 +1653,8 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
     >>> fitted.levels, fitted.estimate.shape
     ((0.0, 1.0, 2.0), (3,))
     """
-    from .inference.delta import reference_quantile
-    from .inference.influence import minimum_reference_df
+    from .inference.delta import reference_quantile, skew_widened_ci
+    from .inference.influence import curve_acceleration, minimum_reference_df, satterthwaite_df
     from .targets import parameter_name
 
     msm = getattr(getattr(result, "nuisance", None), "msm", None)
@@ -1711,8 +1713,31 @@ def working_model_means(result: Any, *, alpha: float | None = None) -> WorkingMo
         margin = np.zeros_like(linear)
         if any(estimate.rule_widened for estimate in estimates):
             margin = np.abs(phi @ np.array([estimate.score for estimate in estimates]))
-        lower = np.asarray(link.inverse(linear - (z * link_se + margin)), dtype=float)
-        upper = np.asarray(link.inverse(linear + (z * link_se + margin)), dtype=float)
+        low_link = linear - (z * link_se + margin)
+        high_link = linear + (z * link_se + margin)
+        if all(estimate.interval_scale == "skew_t" for estimate in estimates):
+            # Coefficients of an unclustered continuous outcome read the skew-widened t, so
+            # each level's linear predictor reads it too, from its own influence curve
+            # phi' IC over its non-zero terms.
+            curves = np.column_stack(
+                [np.asarray(estimate.influence_curve, dtype=float) for estimate in estimates]
+            )
+            centered = estimates[0].covariance_rule == "centered"
+            for j in range(phi.shape[0]):
+                curve = curves @ phi[j]
+                rows = curve != 0.0
+                if not rows.any():
+                    continue
+                low_link[j], high_link[j] = skew_widened_ci(
+                    float(linear[j]),
+                    float(link_se[j]),
+                    level,
+                    df=max(satterthwaite_df(curve, rows=rows, centered=centered), 5.0),
+                    acceleration=curve_acceleration(curve, rows=rows, centered=centered),
+                    margin=float(margin[j]),
+                )
+        lower = np.asarray(link.inverse(low_link), dtype=float)
+        upper = np.asarray(link.inverse(high_link), dtype=float)
     return WorkingModelMeans(
         levels=tuple(result.data.arm_label(code) for code in msm.arms),
         terms=tuple(msm.terms),

@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..data.known_mechanism import (
+    divided_censoring_at,
+    divided_treatment_at,
+    divides_by_declaration,
+)
 from . import (
     Cell,
     Detail,
@@ -42,6 +47,7 @@ from ._data import (
 from ._estimates import without_roadmap
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._planned_fits import PlannedFits
     from ..methods import MethodAvailability
     from ..protocol import StudyProtocol
     from ..study import CausalStudy, IdentifiedEffect
@@ -229,7 +235,7 @@ def _point_header(design: Any, data: Any) -> tuple[list[tuple[str, str]], int]:
         right.append(share)
     elif arm_table(data) is None:
         left.append(share)
-    if getattr(data, "known_treatment", None) is not None:
+    if divides_by_declaration(data):
         right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
     clusters = clusters_fact(data)
     if clusters is not None:
@@ -268,13 +274,34 @@ def _longitudinal_header(design: Any, data: Any) -> tuple[list[tuple[str, str]],
         (vocabulary.TIME_POINTS, str(data.n_times)),
     ]
     right.extend(_followed_facts(data))
-    if getattr(data, "known_mechanisms", None) is not None:
+    if _divides_by_node_declaration(data):
         right.append((vocabulary.TREATMENT_MODEL, vocabulary.KNOWN_MECHANISM))
     clusters = clusters_fact(data)
     if clusters is not None:
         right.append((vocabulary.CLUSTERS, clusters))
     right.extend(weights_facts(data))
     return [*left, *right], len(left)
+
+
+def _divides_by_node_declaration(data: Any) -> bool:
+    """Whether a longitudinal fit divides by a declared treatment factor at some node.
+
+    A declaration read in the sample beside weights is the input of an estimated factor,
+    so it does not make the treatment model known.  A fit that declares only retention
+    reads as known when it divides by that declaration at some node.
+    """
+    known = getattr(data, "known_mechanisms", None)
+    if known is None:
+        return False
+    nodes = range(1, data.n_times + 1)
+    if known.declares_treatment:
+        return any(
+            not data.is_held_node(time) and divided_treatment_at(data, time) is not None
+            for time in nodes
+        )
+    return bool(data.censoring_names) and any(
+        divided_censoring_at(data, time) is not None for time in nodes
+    )
 
 
 def _named(value: Any) -> tuple[str, ...]:
@@ -1318,5 +1345,116 @@ def phases_summary(profile: PhaseProfile, detail: Detail) -> Summary:
         header=header,
         tables=tables,
         notes=notes,
+        sections=sections,
+    )
+
+
+# ----------------------------------------------------------------- planned fits
+
+
+def _bounded(value: int, exact: bool) -> str:
+    """A count, marked as a bound unless it is exact."""
+    text = count_text(value)
+    return text if exact else vocabulary.PLANNED_UPPER_MARK.format(fits=text)
+
+
+def _why_lines(plan: PlannedFits) -> tuple[str, ...]:
+    """Each distinct reason a row is not exact, once, after the roles it applies to."""
+    roles: dict[str, list[str]] = {}
+    for row in plan.rows:
+        if row.why and row.role not in roles.setdefault(row.why, []):
+            roles[row.why].append(row.role)
+    return tuple(f"{', '.join(names)}: {why}" for why, names in roles.items())
+
+
+def planned_fits_summary(plan: PlannedFits, detail: Detail) -> Summary:
+    """The summary of the learner fits an ``estimate`` call would make.
+
+    Parameters
+    ----------
+    plan : PlannedFits
+        The record.
+    detail : {"short", "full"}
+        ``"full"`` adds where the counts come from, the notes and any check left to the fit.
+
+    Returns
+    -------
+    Summary
+        The summary.
+    """
+    check_detail(detail)
+    total = plan.total_fits
+    header = [
+        (vocabulary.PLANNED_FITS_TOTAL, count_text(total)),
+        (vocabulary.PLANNED_CANDIDATE_TOTAL, count_text(plan.total_candidate_fits)),
+        (
+            vocabulary.PLANNED_BOUND,
+            vocabulary.PLANNED_BOUND_TEXT[plan.exact].format(low=count_text(plan.min_fits)),
+        ),
+        (vocabulary.PLANNED_FOLDS, vocabulary.PLANNED_FOLDS_TEXT[plan.folds]),
+    ]
+    rows = []
+    for row in plan.rows:
+        exact = row.bound == "exact"
+        rows.append(
+            (
+                Cell(row.role, row.role),
+                Cell(row.fits, _bounded(row.fits, exact)),
+                Cell(row.candidate_fits, _bounded(row.candidate_fits, exact)),
+                Cell(row.scope, row.scope),
+            )
+        )
+    learners = tuple(dict.fromkeys((row.role, row.learner) for row in plan.rows))
+    tables = [
+        SummaryTable(
+            vocabulary.PLANNED_ROW_COLUMNS, tuple(rows), title=vocabulary.PLANNED_ROWS_TITLE
+        ),
+        SummaryTable(
+            vocabulary.PLANNED_LEARNER_COLUMNS,
+            tuple((Cell(role, role), Cell(learner, learner)) for role, learner in learners),
+            title=vocabulary.PLANNED_LEARNERS_TITLE,
+        ),
+        SummaryTable(
+            vocabulary.PLANNED_CANDIDATE_COLUMNS,
+            tuple(
+                (
+                    Cell(name, name),
+                    Cell(fits, count_text(fits)),
+                    Cell.of(folds),
+                )
+                for name, fits, folds in plan.candidates
+            ),
+            title=vocabulary.PLANNED_CANDIDATES_TITLE,
+        ),
+    ]
+    sections = []
+    if detail == "full":
+        sections.append(
+            SummarySection(
+                vocabulary.SECTION_MULTIPLIERS,
+                tuple(f"{name}: {count_text(value)}" for name, value in plan.multipliers),
+            )
+        )
+        sections.append(
+            SummarySection(
+                vocabulary.SECTION_PLANNED_NOTES,
+                (
+                    *plan.notes,
+                    *_why_lines(plan),
+                    vocabulary.PLANNED_NO_NOTES,
+                ),
+            )
+        )
+        if plan.unpreviewed:
+            sections.append(
+                SummarySection(
+                    vocabulary.SECTION_UNPREVIEWED,
+                    (vocabulary.PLANNED_UNPREVIEWED_LEAD, *plan.unpreviewed),
+                )
+            )
+    return Summary.build(
+        title=vocabulary.PLANNED_FITS_TITLE,
+        header=header,
+        tables=tables,
         sections=sections,
     )

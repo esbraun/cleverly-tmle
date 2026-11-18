@@ -1186,7 +1186,7 @@ class TestTheRefusalsAndTheDefault:
         raise so that the test fails if the fit gets as far as the draw.
         """
 
-        def reached(*_: Any) -> None:
+        def reached(*_: Any, **__: Any) -> None:
             raise AssertionError("the fit drew folds before refusing n_folds=2")
 
         monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", reached)

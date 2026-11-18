@@ -85,14 +85,18 @@ from tests.studies.evidence.registry import StudyRecord, registered
 #: ``CONTROL_BOOTSTRAP`` of 2,000.
 DIFFERENTIAL_BOOTSTRAP = 200
 
-#: The property modules that run on :func:`synthetic_rows`: ``longitudinal_sdr_properties``,
+#: The property modules that run on :func:`synthetic_rows`: each module with no committed rows
+#: (``mtp_density_tails_properties`` and ``refuter_calibration_continuous_survival_properties``),
+#: and ``longitudinal_sdr_properties``,
 #: whose committed rows leave the clause
 #: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
-#: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``) and the three X39
-#: long-horizon studies bind to their committed rows, so they are subjects by slug.
+#: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
+#: long-horizon studies, ``boundary-node-ltmle`` and ``few-cluster-fold-variance`` bind to their
+#: committed rows, so they are subjects by slug.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.mtp_density_tails_properties",
+    "tests.studies.refuter_calibration_continuous_survival_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
@@ -375,7 +379,9 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
         A property module that declares ``declared_cells`` and fits through ``fit_properties``.
         It may also declare ``synthetic_scale(cell)``, the standard deviation of a cell's
         estimates when the default ``n ** -0.5`` is not its efficiency bound over ``sqrt(n)``,
-        and ``synthetic_columns(cell, rng)``, the extra row columns of a cell.
+        ``synthetic_columns(cell, rng)``, the extra row columns of a cell, and
+        ``synthetic_centre(cell, columns, centre, scale)``, a row's centre given its extra
+        columns.
 
     Returns
     -------
@@ -415,12 +421,21 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                     scale = float(spread(spec))
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
                 centre = centres.get(name, centre)
+                extras = getattr(module, "synthetic_columns", None)
+                # A module whose control reads its extra columns, such as a coverage loss on
+                # the draws a flag marks, centres each row on them, so its columns come first.
+                centred = getattr(module, "synthetic_centre", None)
+                early = None
+                if centred is not None:
+                    early = {} if extras is None else extras(spec, rng)
+                    centre = float(centred(spec, early, centre, scale))
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
-                extras = getattr(module, "synthetic_columns", None)
+                if early is None:
+                    early = {} if extras is None else extras(spec, rng)
                 rows.append(
                     {
-                        **({} if extras is None else extras(spec, rng)),
+                        **early,
                         "property": family,
                         "cell": cell,
                         "role": spec.role,

@@ -1,0 +1,34 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 0.47,
+    "seconds_fit": 0.19,
+    "stage": "refits",
+    "study": "cross-fitted-longitudinal-msm"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 16,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 21,
+    "seconds_capture": 0.55,
+    "seconds_fit": 25.25,
+    "stage": "scope",
+    "study": "cross-fitted-longitudinal-msm"
+  }
+}

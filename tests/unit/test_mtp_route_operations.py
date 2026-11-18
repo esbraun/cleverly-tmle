@@ -281,7 +281,8 @@ def test_w15_the_shipped_trim_composition_runs_flat(monkeypatch: pytest.MonkeyPa
     assert np.all(np.abs(up["delta_from_fitted"]) <= 1e-12)
 
 
-def test_w15_an_engine_that_refuses_ratio_trim_refuses_the_curve() -> None:
+def test_w15_an_engine_without_a_mechanism_refuses_the_curve() -> None:
+    """g-computation reads no treatment mechanism, so its MTP fit has no curve to sweep."""
     from cleverly.longitudinal import SequentialGComputation
 
     with warnings.catch_warnings():
@@ -294,7 +295,7 @@ def test_w15_an_engine_that_refuses_ratio_trim_refuses_the_curve() -> None:
             treatment_learner=LogisticRegression(max_iter=1000),
             n_folds=1,
         ).fit(panel_law.sample_continuous(300, 0), **_PANEL_COLUMNS)
-    with pytest.raises(CapabilityError, match="ratio_trim"):
+    with pytest.raises(CapabilityError, match="reads no treatment mechanism"):
         longitudinal_truncation_curve(result, [0.9])
 
 

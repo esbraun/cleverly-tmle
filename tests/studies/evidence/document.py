@@ -398,6 +398,25 @@ def measured(row: Any) -> str:
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
         return measured
+    if family in _TAIL_FAMILIES and pd.notna(getattr(row, "below_count", None)):
+        # ``asymmetric-wald``: the legs read the first 2,000 fits and the tail clause all of
+        # them, so the row prints the lower leg, the shown fits' upper end and both tails.
+        tails = (
+            f"tails {int(row.below_count)} below and {int(row.above_count)} above, 99% lower "
+            f"ends {render(float(row.below_ci_lower))} and {render(float(row.above_ci_lower))}"
+        )
+        if family == "witness":
+            return tails
+        measured = (
+            f"lower leg {_interval(row.lower_leg_ci_lower, row.lower_leg_ci_upper)}, shown "
+            f"upper end {render(float(row.leg_shown_ci_upper))}, {tails}"
+        )
+        if family == "owner_coverage":
+            measured += (
+                f", paired gain {int(row.gain_b)} against {int(row.gain_c)}, "
+                f"lower bound {render(float(row.gain_lower))}"
+            )
+        return measured
     if family in _TWO_LEG_FAMILIES:
         # ``small-sample-wald``: a coverage cell is judged on two legs that read different
         # denominators, the lower leg over every requested fit and the upper leg over the
@@ -412,6 +431,28 @@ def measured(row: Any) -> str:
                 f"lower bound {render(float(row.gain_lower))}"
             )
         return measured
+    if family == "boundary_node":
+        # ``boundary-node-ltmle``: a supplemented row is judged on its bias and, where gated,
+        # its firing coverage or all-draw coverage; the control on its two paired clauses on
+        # the firing draws; a reported arm prints its all-draw and firing coverage.
+        firing = (
+            f"firing coverage {_interval(row.firing_ci_lower, row.firing_ci_upper)} "
+            f"on {int(row.firing_draws)} draws"
+        )
+        if row.role == "control":
+            return (
+                f"{firing}; gained {int(row.mcnemar_gained)}, lost {int(row.mcnemar_lost)}, "
+                f"McNemar lower {render(float(row.mcnemar_lower))}; oracle gained "
+                f"{int(row.oracle_gained)}, lost {int(row.oracle_lost)}, lower "
+                f"{render(float(row.oracle_gain_lower))}"
+            )
+        coverage = f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        if row.role == "positive":
+            return (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, margin "
+                f"{render(float(row.bias_margin))}; {coverage}; {firing}"
+            )
+        return f"{coverage}; {firing}"
     if family in _POLICY_VARIANCE_FAMILIES:
         # ``mtp-policy-variance``: an option row is judged on its coverage floor and its SE-ratio
         # clause, a control on one of the two, and a reported row reads both, so every row
@@ -682,7 +723,7 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
-    if family == "known_mechanism_accuracy":
+    if family in {"known_mechanism_accuracy", "known_score_accuracy"}:
         # A positive cell answers to the bias margin, the coverage floor and the SE screen
         # together; the control to its bias alone, so the margin is printed beside it.
         return (
@@ -700,6 +741,21 @@ def measured(row: Any) -> str:
         return (
             f"{measured}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "fold_variance_calibration":
+        # ``few-cluster-fold-variance``: a positive or deflated row reads its shown coverage,
+        # all-draw coverage and variance-ratio lower end (the positive rule); the IID control
+        # its median paired IID/cluster SE ratio; a diagnostic arm the same three readings.
+        if str(row.cell).endswith("__iid_t_control"):
+            return (
+                f"median paired IID/cluster SE ratio {render(float(row.paired_median_ratio))}, "
+                f"{_interval(row.paired_median_ci_lower, row.paired_median_ci_upper)}"
+            )
+        return (
+            f"shown coverage {_interval(row.shown_ci_lower, row.shown_ci_upper)}, "
+            f"all-draw coverage {_interval(row.all_draw_ci_lower, row.all_draw_ci_upper)}, "
+            f"variance ratio {render(float(row.variance_ratio))}, "
+            f"{_interval(row.variance_ratio_ci_lower, row.variance_ratio_ci_upper)}"
         )
     if family == "bootstrap_coverage":
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
@@ -720,9 +776,10 @@ def measured(row: Any) -> str:
         return measured
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
-    if family == "repeat_stability":
+    if family in {"repeat_stability", "efficiency_gain"}:
         # The positive rows read the upper endpoint below the boundary; the control reads it at
-        # or above, so the control's text says the endpoint reaches the boundary.
+        # or above, so the control's text says the endpoint reaches the boundary.  The
+        # known-score study's ``efficiency_gain`` reads the same paired spread ratio.
         reach = ", reached by the upper endpoint" if str(row.role) == "control" else ""
         return (
             f"spread ratio {render(float(row.spread_ratio))}, "
@@ -899,10 +956,10 @@ def measured(row: Any) -> str:
             f"min arm share {render(float(row.mean_min_arm_share))}, "
             f"lost-arm share {render(float(row.lost_arm_share))}"
         )
-    if family == "optimal_target_control":
-        # X11 PR I: the control answers to a coverage ceiling on the optimal value. Its coverage
-        # of the realized rule value and its mean regret are published beside it, read by no
-        # verdict.
+    if family in {"optimal_target_control", "weighted_target_control"}:
+        # X11 PR I and X11 (f3): the control answers to a coverage ceiling on a value other than
+        # its fit's target. Its coverage of the realized rule value and its mean regret are
+        # published beside it, read by no verdict.
         return (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}, mean regret "
@@ -971,8 +1028,9 @@ def measured(row: Any) -> str:
         if str(row.role) != "diagnostic" and pd.notna(row.threshold):
             measured += f", threshold {render(float(row.threshold))}"
         return measured
-    if family == "iterated_mean_difference":
-        # hazard-msm (X70 part (d)): reported with no verdict.  A paired difference prints its
+    if family in {"iterated_mean_difference", "one_step_walk"}:
+        # hazard-msm (X70 part (d)), and hazard-multinode's one-step walk (X70 part (a)):
+        # reported with no verdict.  A paired difference prints its
         # SD over the efficiency-bound SE, a fit row its coverage and SE ratio, and the curve
         # row the share of draws whose iterated-mean risk curve decreases.
         cell = str(row.cell)
@@ -1031,6 +1089,9 @@ _TWO_LEG_FAMILIES = frozenset(
     }
 )
 _PAIRED_GAIN_CELLS = ("boundary_mean", "student_ey1")
+#: The ``asymmetric-wald`` families, whose rows carry the tail counts.  A row of these families
+#: with tail counts is that study's; mirrored from ``tests.studies.asymmetric_wald``.
+_TAIL_FAMILIES = frozenset({"heldout_coverage", "owner_coverage", "reported", "control", "witness"})
 
 #: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
 #: ``tests/unit/test_method_evidence.py`` applies; a family missing from both fails there.
@@ -1087,6 +1148,12 @@ _BIAS_GATED = frozenset(
         "patience_bias",
         "ordered_late_confounder",
         "ordered_whole_path",
+        # Fix-16: the bias positives and controls of ``known-mechanism-sample-weights``.
+        "sample_bias",
+        "target_reading_control",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "both_misspecified",
     }
 )
 

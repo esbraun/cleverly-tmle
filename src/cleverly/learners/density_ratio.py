@@ -275,6 +275,63 @@ def _retained_steps(columns: FloatArray, atoms: FloatArray) -> IntArray:
     return np.asarray(keep, dtype=np.int64)
 
 
+def plan_classifier_ratio(
+    learner: Learner,
+    n: int,
+    folds: Folds | None,
+    *,
+    fit_mask: Any = None,
+    groups: IntArray | None = None,
+    seed_fixed: bool = True,
+    nominal_folds: int | None = None,
+) -> Any:
+    """The fits one :func:`classifier_ratio` call makes, counted without fitting.
+
+    One classifier per fold, on the fold's training units stacked once per label, so each
+    label holds the fold's training units and the inner folds keep a unit's copies together.
+
+    Parameters
+    ----------
+    learner : Learner
+        The resolved classifier.
+    n : int
+        Units.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    fit_mask : ndarray or None
+        The units the classifier may train on.
+    groups : ndarray or None
+        Cluster codes.
+    seed_fixed : bool
+        As :func:`cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        Count this many fits at the learner's nominal counts in place of ``folds``.
+
+    Returns
+    -------
+    Count
+        The fits and candidate fits.
+    """
+    from .._planned_fits import Count, count_learner, count_nominal, needs_target
+    from ._fitting import accepts_groups
+
+    if nominal_folds is not None:
+        return count_nominal(learner, np.array([0.0, 1.0]), nominal_folds, task="classification")
+    assert folds is not None
+    mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
+    units = np.arange(n, dtype=np.int64) if groups is None else np.asarray(groups)
+    reads = needs_target(learner)
+    routed = accepts_groups(learner)
+    out = Count()
+    trains = [np.arange(n, dtype=np.int64)] if folds.is_single else [t for t, _ in folds]
+    for rows in trains:
+        keep = rows[mask[rows]]
+        target = np.concatenate([np.zeros(keep.size), np.ones(keep.size)]) if reads else None
+        unit = np.concatenate([units[keep], units[keep]]) if routed else None
+        out.add(count_learner(learner, target, groups=unit, seed_fixed=seed_fixed))
+    return out
+
+
 def _with_atoms(block: FloatArray, atoms: tuple[float, ...]) -> FloatArray:
     """A one-column dose block with the indicator of each declared atom appended.
 

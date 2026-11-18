@@ -408,6 +408,16 @@ fits the ATE on them only; the curve is that of the refit, not of the curve fitt
 A paired `compare=` column shares the draws, and the SE of a difference is the SD of the
 per-draw differences.
 
+**Memory.** The draws are made and reduced in blocks of about 64 MiB (`BLOCK_BYTES`), or one
+draw when a single draw takes more, so memory grows with the evaluation rows and not with
+$B \times n$. Each draw's keys, ranks and sums depend on that draw's keys alone, which come from
+the random stream in draw order, so the block size never changes a draw. `max_memory_bytes=` on
+both routes and on `control_values` caps what the draws add above the arrays already held;
+`None` uses the memory available now. It sets the block size and never lowers $B$. A request
+whose setup, outputs and one draw would exceed it raises `MethodConfigurationError` before any
+fit (before the refits on the split route, which bounds the score's ties by the rows); it does
+not bound the fits or the pooled fluctuation.
+
 **Guards.** A grid point with fewer than 50 rows in its top fraction (`TARGETING_MIN_TOP_ROWS`,
 a declared guard with no source) keeps its point and withholds its interval and the band; 50 to
 199 rows read `experimental`, because the study calibrates no interval with fewer than 200 top
@@ -459,6 +469,83 @@ follows the library's few-cluster rule: with fewer than 40 clusters the interval
 reference on $J - 2$ degrees of freedom, from 3 to 9 clusters it is labelled
 `few_cluster_plugin`, and below 3 only the point estimate is reported.
 
+## Missing treatments
+
+With `PointTreatment(treatment_missingness=...)` an in-sample projection fit reads the
+treatment through the composite indicator $C_a = \Delta_A \Delta 1\{A = a\}$, whose mechanism is
+$g_{c,a}(W) = \pi_A(W)\, g(a \mid \Delta_A = 1, W)\, \Pi(a, W)$, with $\pi_A(W) = P(\Delta_A = 1
+\mid W)$ and $\Pi = 1$ without `missingness=`. Identification needs the treatment and the outcome
+missing at random given $(A, W)$ and $g_{c,a} > 0$; the target is the full-data projection, and
+every row's $W$ enters the plug-in and the Gram matrix $M$. The clever covariate is the shipped
+one with $1\{A = a\}/(g \Pi)$ replaced by $C_a / g_{c,a}$; the composite is clipped as a product
+([DR-TMLE theorem](dr-tmle/theorem.md)). The remainder is the shipped product of the outcome error
+and the error of $g_{c,a}$. A cross-fitted fit refuses: its fold-local product of three factors is
+[X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) (c).
+`tests/unit/test_projection_compositions.py` checks the point and the curve at oracle factors on
+an exact law, the $\pi_A$ factor through a wrong outcome regression, the complete-case and
+masking mutations, and the reduction to the missing-outcome projection.
+
+## Baseline strata
+
+With `strata=` the fit reports, beside the marginal coefficients `cate_projection[term]`, each
+stratum's coefficients `cate_projection[term][S=s]`: the projection $\beta_s = M_s^{-1}
+P_0[\phi(V)\tau(W) \mid S = s]$ under the law of $V$ within the stratum. The marginal and stratum
+coefficients are related by $\beta = M^{-1} \sum_s p_s M_s \beta_s$. Each stratum's clever
+covariate is the block $1\{S = s\} H_s / P_n(S = s)$, and its influence curve is the stratum's own
+curve scaled by $n / n_s$. The nuisances are fitted once on every row; each stratum gets its own
+score block. A stratum whose working-model Gram matrix is singular (a modifier constant within it, or an `Indicators` level absent from it)
+refuses before any learner, and again inside each bootstrap replicate.
+
+On the difference scale the stratified fluctuation solves the marginal score too, since the
+marginal clever covariate is a linear combination of the blocks, so the marginal names come from
+the same fluctuation. On the log-ratio scale the clever covariate reads $\beta$, and the blocks
+at $\beta_s$ do not span the marginal covariate at $\beta$: the marginal names come from a second,
+unstratified fluctuation, the shipped log-ratio projection, run as its own target group
+(`effect_modification_ratio_strata` holds the stratum names). Each name comes from exactly one
+group; a name two groups produce raises. The covariance across a marginal and a stratum name reads
+the stored influence curves of both groups. `heterogeneity_test(stratum=)` and
+`effect_curve(stratum=)` read one stratum's coefficients.
+
+## Repeated splits
+
+With `repeats` above 1 each repeat $r$ refits the projection on its own split and stores its
+coefficients $\beta_r$, covariance $\Sigma_r$ and influence curves. The point is the coordinate-wise
+median $\tilde\beta$, and the covariance is the matrix rule of Chernozhukov et al. (2018),
+equation 3.14: among the candidates $\Sigma_r + d_r d_r'$ with $d_r = \beta_r - \tilde\beta$, the
+one of median operator norm, which `covariance()` returns over projection names. Each name's
+reported standard error is the scalar rule, the square root of the median of $\sigma_{j,r}^2 +
+d_{j,r}^2$, which a one-name `covariance()` equals; `se_without_displacement` is
+$\operatorname{median}_r \sigma_{j,r}$, the rule with $d_r = 0$, published beside it.
+
+| consumer | what it reads on a repeated fit |
+| --- | --- |
+| point, standard error, interval | the median and the scalar rule, per name |
+| `covariance(names)` | the matrix rule over projection names; other names keep the repeated point-fit refusal |
+| `heterogeneity_test()` | $\tilde\beta' \tilde\Sigma^{-1} \tilde\beta$ over the tested coefficients, with $\tilde\Sigma$ the matrix rule |
+| `effect_curve().predict(v, interval=True)` | the median over repeats of $\phi(v)'\beta_r$, with the median rule's variance |
+| the simultaneous band | the median over repeats of each repeat's critical value, around the median-rule curve and standard error (the construction of `median_bands`); it reads experimental |
+
+A repeat that withholds inference in one coefficient withholds it in the report: `covariance()`,
+`heterogeneity_test()`, the curve's standard error and its band refuse with that repeat's status,
+and the points stay available.
+
+## Bootstrap
+
+`n_bootstrap=` refits the whole estimator, nuisances included, on each resample of the units
+(clusters when declared) and publishes the percentile interval of each projection coefficient.
+A cross-fitted fit's bootstrap reads experimental with the reason of
+[F2](../roadmap.md#f2-targeted-bootstrap-inference). A replicate that raises, for example one
+whose resample leaves a stratum's Gram matrix singular, is dropped and counted.
+`heterogeneity_test()` and `effect_curve()` read the influence curves, not the replicates.
+
+With parametric nuisances, an in-sample fit with a fixed basis solves a finite set of smooth
+estimating equations: the nuisance models' score equations and the projection's targeted score. The
+coefficients and nuisance parameters together are then a finite-dimensional Z-estimator, and the
+nonparametric bootstrap of such an estimator has the Wald interval's limit. That is the package's
+own step, not a read source. With data-adaptive nuisances the in-sample bootstrap's limit is not
+shown, as for every in-sample point bootstrap (roadmap
+[X55](../roadmap.md#x55-bootstrap-extensions)).
+
 ## Assessing a curve
 
 `EffectCurveResult.diagnostics` reads the producing fit for `support()`, `nuisance_models()`
@@ -496,7 +583,12 @@ each reading against its formula.
 | `Sieve(basis)` with its size chosen by cross-validation | no reviewed result covers inference after the selection | `invalid_declaration` |
 | `scale="log_ratio"` with `q_bounds` not starting at 0 | a ratio of means is not invariant to a shift | `invalid_declaration` |
 | a modifier outside the adjustment set | the contrast given $V$ is identified only when $V \subseteq W$ | `invalid_declaration` |
-| missing treatments, an intermediate, a continuous or vector treatment, `strata=`, `repeats` above 1, the full-refit bootstrap | the projection's clever covariate, covariance or study cell for the composition is not built | `implementation_gap`, roadmap P1 |
+| an intermediate, a continuous or vector treatment | the projection's clever covariate for the composition is not built | `implementation_gap`, roadmap P1 |
+| a missing treatment with cross-fitting | the fold-local product of the three factors of $g_{c,a}$ is not built | `implementation_gap`, roadmap X53 |
+| `strata=` with a stratum whose working-model Gram matrix is singular | the stratum's coefficients are not identified | `DataError` |
+| `method="ep"` with a missing treatment | the EP learner cross-fits its nuisances, and the cross-fitted composite is not built | `implementation_gap`, roadmap X53 |
+| `method="ep"` with `strata=` | a baseline stratum is one more modifier; declare the stratum column as a modifier, with an `Indicators` basis of it in the sieve | `api_redirection` |
+| `assess_score` with a missing treatment or `strata=` | the score assessment fits one pooled fluctuation over the ATE fit's mechanism, and its composite and stratified forms are not built | `implementation_gap`, roadmap X98 |
 | a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
 | `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |
@@ -520,33 +612,50 @@ each reading against its formula.
 | a targeting curve on an ATE fit with `n_bootstrap` above 0 | the curve's intervals come from its half-sample bootstrap | `inference_gap` |
 | `compare=` on route 2 of an engine fit | the column is read from the producing study, which an engine fit does not keep | `invalid_declaration` |
 
-Each one is raised before any learner is fitted, and `tests/unit/test_conditional_contrast.py`
-pins its text, the score assessment's among them.
+Each one is raised before any learner is fitted. `tests/unit/test_conditional_contrast.py`
+pins its text, the score assessment's among them, and `tests/unit/test_projection_compositions.py`
+pins the rows of the four compositions above.
 
 ## Status and evidence
 
 The registered [conditional-projection study](method-evidence/conditional-projection.md)
-passed every one of its 64 property cells and its three primary tests. Its support rows `T49`
-(the CATE projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit
-`supported` when its key is one the study measured, with one outcome regression per arm
-(`outcome_by_arm=True`):
+passed every one of its 64 property cells and its three primary tests, and the registered
+[projection-compositions study](method-evidence/projection-compositions.md) passed every one of
+its 56 gated property cells and its two primary tests. Their support rows `T49` (the CATE
+projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit `supported` when
+its key is one a study measured, with binary outcome and treatment, iid rows and one outcome
+regression per arm (`outcome_by_arm=True`):
 
-| row | composition |
-| --- | --- |
-| `T49`, `T50` | binary outcome and treatment, iid rows, complete outcomes, stacked cross-fitting |
-| `T49.known` | the same with `treatment_probabilities=` |
-| `T49.arms3` | three arms |
-| `T49.weighted` | sampling weights |
-| `T49.clustered` | equal clusters |
-| `T49.missing`, `T50.missing` | outcomes missing at random |
+| row | composition | study |
+| --- | --- | --- |
+| `T49`, `T50` | complete outcomes, stacked cross-fitting | conditional-projection |
+| `T49.known` | the same with `treatment_probabilities=` | conditional-projection |
+| `T49.arms3` | three arms | conditional-projection |
+| `T49.weighted` | sampling weights | conditional-projection |
+| `T49.clustered` | equal clusters | conditional-projection |
+| `T49.missing`, `T50.missing` | outcomes missing at random | conditional-projection |
+| `T49.in_sample`, `T50.in_sample` | the in-sample fit, with its Wald interval and the full-refit bootstrap | projection-compositions |
+| `T49.in_sample.missing_treatment`, `T50.in_sample.missing_treatment` | a treatment missing at random, fitted in sample | projection-compositions |
+| `T49.in_sample.missing_both` | a missing treatment and missing outcomes, in sample | projection-compositions |
+| `T49.strata`, `T50.strata` | `strata=` with stacked cross-fitting | projection-compositions |
+| `T49.repeats`, `T50.repeats` | `repeats=3` with stacked cross-fitting | projection-compositions |
 
 A pooled outcome regression on this axis, a composition no group measured (weights with
-clusters, for example) and the simultaneous band read `experimental`. On this axis the
+clusters, or strata with a missing treatment, for example), the bootstrap of a cross-fitted fit and
+the simultaneous band read `experimental`. The cross-fitted bootstrap's label names
+[F2](../roadmap.md#f2-targeted-bootstrap-inference); the study published its readings on that fit,
+coverage 0.927 to 0.952, without a verdict. On this axis the
 outcome-regression option reads the other way round from the point estimands: the measured fit
 is the per-arm one, and the support key holds `outcome_by_arm`, so a pooled projection matches
 no row. The key keeps that label now that the point study `option-outcome-by-arm` is registered and the
 option's fit condition is deleted (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
 has its own measured configurations, below.
+
+The in-sample composite fit and the in-sample log ratio read SE ratios up to 2.4% below 1 at
+n = 2,000 and 4,000, inside the declared band. A diagnosis on fresh draws traced this to a
+finite-sample effect that closes as n grows and that the shipped composite ATE shares
+([projection compositions](method-evidence/projection-compositions.md#rows-that-read-just-below-1)).
+
 The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
 `tests/studies/conditional_projection_properties.py`, and its declared run is
 `python -m tests.canonical.conditional_projection.regenerate`, whose docstring holds the

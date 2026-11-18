@@ -1,0 +1,53 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 100,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 1140,
+    "seconds_capture": 11.89,
+    "seconds_fit": 24.57,
+    "stage": "refits",
+    "study": "fold-evaluated-strata"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 10,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 105,
+    "seconds_capture": 12.22,
+    "seconds_fit": 2.02,
+    "stage": "scope",
+    "study": "fold-evaluated-strata"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/weighted_ey1_s0__declared"
+    ],
+    "jobs": 16,
+    "keys_fitted": 8800,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 105600,
+    "seconds_capture": 12.83,
+    "seconds_fit": 10810.29,
+    "stage": "settle",
+    "study": "fold-evaluated-strata"
+  }
+}

@@ -42,6 +42,7 @@ import cleverly.sensitivity.omitted_variable as ov
 from cleverly.estimators import TMLE
 from cleverly.estimators._mechanism_fit import describe_mechanism
 from cleverly.estimators._nuisance import Propensity, Truncation
+from cleverly.inference import interval_reference
 from cleverly.inference.cluster import influence_variance
 from tests import discrete_law as law
 from tests import discrete_law_logistic as logistic
@@ -283,6 +284,9 @@ def exact_fit(spec: ExactFit) -> Any:
                 frame[f"p_{label}"] = multi.G_EXACT[w, j]
             fit_kwargs["treatment_probabilities"] = {label: f"p_{label}" for label in multi.LABELS}
         estimator_kwargs = {"estimands": support.MULTI_ESTIMANDS, "reference": support.REFERENCE}
+    if spec.known and spec.weighted:
+        # The weights read W only, so the declaration is the tilted law's mechanism.
+        fit_kwargs["mechanism_law"] = "target"
     if spec.design == "saturated":
         w = frame["W"].to_numpy()
         frame = frame.assign(W1=(w == 1).astype(float), W2=(w == 2).astype(float))
@@ -734,8 +738,27 @@ class TestTheKnownMechanism:
         assert np.all(term == 0.0)
 
 
+def _lower_unit_read(result: Any, name: str) -> Any:
+    """The plug-in lower limit's rule at a unit standard error, whose half-width the reported
+    limit is a multiple of (:func:`~cleverly.inference.interval_reference`)."""
+    bounds = ov.omitted_variable_bounds(
+        result, name, cf_y=CF_Y, cf_d=CF_D, rho=1.0, nu2_estimator="plugin"
+    )
+    return interval_reference(
+        result[name], level=bounds.level, sided="one", psi=bounds.lower, std_error=1.0
+    )
+
+
 class TestTheClusteredLimit:
     """W1c: the clustered standard error of the lower limit is the cluster sum of the curve."""
+
+    @pytest.mark.parametrize("name", ["ate", "att", "atc"])
+    def test_the_clustered_limit_keeps_the_normal_reference(self, name: str) -> None:
+        """A clustered estimate keeps its symmetric normal reference under the shipped rule, so
+        the limit reads back with ``z_0.95``."""
+        read = _lower_unit_read(exact_fit(ExactFit("binary", clustered=True)), name)
+        assert (read.interval_scale, read.reference) == ("identity", "normal")
+        assert read.lower_half_width == pytest.approx(stats.norm.ppf(0.95), rel=1e-15)
 
     @pytest.mark.parametrize("name", ["ate", "att", "atc"])
     def test_the_standard_error_sums_the_exact_curve(self, name: str) -> None:
@@ -753,7 +776,9 @@ class TestTheClusteredLimit:
         bounds = ov.omitted_variable_bounds(
             result, name, cf_y=CF_Y, cf_d=CF_D, rho=1.0, nu2_estimator="plugin"
         )
-        reported = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
+        reported = (bounds.lower - bounds.ci_lower) / _lower_unit_read(
+            result, name
+        ).lower_half_width
         assert reported == pytest.approx(clustered, rel=1e-10)
         row_level = float(np.sqrt(influence_variance(rows, None)))
         assert abs(clustered - row_level) > 1e-3 * row_level
@@ -779,7 +804,9 @@ class TestTheClusteredLimit:
             bounds = ov.omitted_variable_bounds(
                 result, "ate", cf_y=CF_Y, cf_d=CF_D, rho=1.0, nu2_estimator="plugin"
             )
-        reported = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
+        reported = (bounds.lower - bounds.ci_lower) / _lower_unit_read(
+            result, "ate"
+        ).lower_half_width
         assert abs(reported / clustered - 1.0) > 4e-3
 
 

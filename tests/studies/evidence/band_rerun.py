@@ -154,6 +154,19 @@ POST_FLIP = {
         "7c81ba65fb8d8d6f60f22e8eb1bedb8a9316609c",
         "X70 part (c), first registered 2026-11-14 from a run at 7c81ba6, after the flip",
     ),
+    "hazard-multinode": (
+        "5ba870d8200548344f558399a1deb53c8a466312",
+        "X70 part (a), first registered 2026-11-14 from a run at 5ba870d, after the flip",
+    ),
+    "hazard-time-varying": (
+        "5aeef0696a6e34fdba638d3f6bdef47ed71f546c",
+        "X70 part (b1), first registered 2026-11-14 from a run at 5aeef06, after the flip",
+    ),
+    "hazard-time-varying-multinode": (
+        "6fe1bac59025fe460078e82410bd2f0881b3d2da",
+        "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip; "
+        "regenerated at 6fe1bac under the shipped intervals (Fix-3 PR 3)",
+    ),
 }
 #: The text that shows a study's band options are explicit, for each excluded study.
 EXCLUSION_WITNESS = {

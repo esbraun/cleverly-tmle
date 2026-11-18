@@ -20,6 +20,7 @@ from sklearn.pipeline import Pipeline
 from .._typing import FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import MethodConfigurationError
+from ..utils.random import note_learner_fit
 from ._threads import thread_limit
 
 __all__ = [
@@ -239,6 +240,7 @@ def fit_learner(
     intact, but also a wrapped search whose own cross-validation should respect the
     same structure.  It is dropped for a learner that has no use for it.
     """
+    note_learner_fit()
     model = clone_learner(estimator) if copy else estimator
     _, step_name = _final_estimator(model)
     params: dict[str, Any] = {}

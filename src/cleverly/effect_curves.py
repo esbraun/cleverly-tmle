@@ -3,8 +3,10 @@ r"""Fitted conditional effect curves, their intervals, and the assessment of a f
 A projection TMLE of a :class:`cleverly.ConditionalContrast` reports coefficients
 :math:`\hat\beta` of a declared basis :math:`\varphi(V)`.  The curve
 :math:`v \mapsto \varphi(v)^\top\hat\beta` is linear in :math:`\hat\beta`, so its influence
-curve at a point is :math:`\varphi(v)^\top D_\beta`, its pointwise interval is Wald, and a
-band over a declared finite grid is the shipped multiplier band of those curves (see
+curve at a point is :math:`\varphi(v)^\top D_\beta`.  Its pointwise interval is the skew-widened
+t of that curve on an unclustered continuous outcome and Wald otherwise, and a band over a
+declared finite grid is the shipped multiplier band of those curves, symmetric, so it need not
+contain a skew-widened pointwise interval (see
 ``docs/technical-reference/conditional-effects.md``).  :class:`EffectCurveResult` holds that
 curve, predicts it at new rows, and saves and loads like every result.
 
@@ -27,12 +29,14 @@ from scipy.special import expit
 from scipy.stats import chi2
 from scipy.stats import f as f_distribution
 
+from ._assessment_cache import AssessmentCache
 from ._pooled_targeting import PooledFit, arm_span_basis, solve_pooled, span_basis
 from ._support import Support
 from ._typing import FloatArray, IntArray
 from .bases import Modifiers
+from .data.known_mechanism import divides_by_declaration
 from .estimators.targeting import _STALL_FACTOR, _UNSOLVED, DEFAULT_MAX_OUTER
-from .exceptions import CapabilityError, DataError, RefusalReason
+from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
 from .fluctuation._score import StopContext, rule_ratio_at
 from .inference.cluster import cluster_inference_status, cluster_reference_df
 from .inference.delta import reference_quantile
@@ -51,6 +55,7 @@ __all__ = [
     "EffectCurveResult",
     "HeterogeneityTest",
     "ProjectionCurve",
+    "ProjectionDraw",
     "ScoreAssessment",
     "heterogeneity_test",
     "score_assessment",
@@ -134,6 +139,7 @@ def heterogeneity_test(
     *,
     scale: str,
     cluster: IntArray | None = None,
+    covariance: FloatArray | None = None,
 ) -> HeterogeneityTest:
     """The Wald test of the non-constant coefficients, from their joint covariance.
 
@@ -151,6 +157,10 @@ def heterogeneity_test(
         The scale of the projected contrast.
     cluster : ndarray or None
         Cluster codes, for the cluster-level covariance.
+    covariance : ndarray or None
+        The joint covariance of the tested (non-constant) coefficients, in basis order.
+        ``None`` reads :func:`estimate_covariance` of their influence curves; a repeated fit
+        passes the matrix rule over its draws.
 
     Returns
     -------
@@ -200,7 +210,8 @@ def heterogeneity_test(
                 "each coefficient's own interval."
             ),
         )
-    covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
+    if covariance is None:
+        covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
     beta = np.array([estimates[name].psi for name in selected])
     statistic = float(beta @ np.linalg.solve(covariance, beta))
     # Under a declared stopping rule the coefficients' error is (P_n - P_0) D - s, with s the
@@ -268,6 +279,25 @@ class CurveBand:
 
 
 @dataclass(frozen=True)
+class ProjectionDraw:
+    """One cross-fitting draw's projection coefficients, their covariance and their curves.
+
+    Parameters
+    ----------
+    beta : ndarray
+        ``(p,)`` the draw's coefficients.
+    covariance : ndarray
+        ``(p, p)`` the draw's joint covariance of the coefficients.
+    influence : ndarray
+        ``(n, p)`` the draw's influence curves of the coefficients.
+    """
+
+    beta: FloatArray
+    covariance: FloatArray
+    influence: FloatArray
+
+
+@dataclass(frozen=True)
 class ProjectionCurve:
     r"""The fitted projection :math:`v \mapsto \varphi(v)^\top\hat\beta` and its curves.
 
@@ -295,6 +325,25 @@ class ProjectionCurve:
     rule_widened : bool
         Whether the coefficients come from a fit under a declared stopping rule, so each
         interval and band adds :meth:`residual_margin` to its half-width.
+    outcome_family : {"binomial", "gaussian"} or None, default=None
+        The outcome family the coefficients record. On an unclustered difference-scale curve
+        of a ``"gaussian"`` outcome with the normal reference, :meth:`interval` is the
+        skew-widened t of the curve's influence curve at each row.
+    covariance_rule : {"centered", "second_moment"}, default="centered"
+        The coefficients' covariance rule, which centres the influence curve the skew-widened
+        interval reads.
+    draws : tuple of ProjectionDraw
+        Each cross-fitting draw of a fit with ``repeats`` above 1, or ``()``.  With two or
+        more draws the curve at a point is the median rule over the draws' values
+        :math:`\varphi(v)^\top\beta_r` with variances
+        :math:`\varphi(v)^\top\Sigma_r\varphi(v)`, and the band takes the median of the
+        draws' critical values (P1 plan 2.3).  ``beta``, ``covariance`` and ``influence``
+        then hold the reported median coefficients, their matrix-rule covariance and the
+        central draw's curves.
+    inference : str
+        The inference status of the coefficients: a status that withholds inference in the
+        reported coefficients or in any draw.  :meth:`std_error` and :meth:`band` refuse
+        under a status that supplies no inference, and the curve's points stay available.
     """
 
     basis: Any
@@ -307,6 +356,104 @@ class ProjectionCurve:
     cluster: IntArray | None = None
     reference_df: int | None = None
     rule_widened: bool = False
+    outcome_family: str | None = None
+    covariance_rule: str = "centered"
+    draws: tuple[ProjectionDraw, ...] = ()
+    inference: str = "influence_curve"
+
+    def skew_widened(self) -> bool:
+        """Whether :meth:`interval` is the skew-widened t at each row."""
+        return (
+            self.outcome_family == "gaussian"
+            and self.cluster is None
+            and self.reference_df is None
+            and self.scale == "difference"
+        )
+
+    def interval(self, frame: Any, *, alpha: float = 0.05) -> tuple[FloatArray, FloatArray]:
+        """The pointwise interval of the curve at the rows of ``frame``.
+
+        On a curve that :meth:`skew_widened` names, each row's interval is
+        :func:`~cleverly.inference.skew_widened_ci` at ``max(satterthwaite_df, 5)`` and the
+        acceleration of the row's influence curve :math:`\\varphi(v)^\\top \\mathrm{IC}`,
+        over its non-zero terms, as a coefficient's own interval reads them. Otherwise it is
+        the Wald interval at the reference the coefficients read. Each half-width adds
+        :meth:`residual_margin`.
+
+        Parameters
+        ----------
+        frame : dataframe or mapping
+            Rows holding the modifier columns.
+        alpha : float, default=0.05
+            The interval holds at ``1 - alpha``.
+
+        Returns
+        -------
+        tuple of ndarray
+            The lower and upper limits, one per row.
+        """
+        from .inference.delta import skew_widened_ci
+        from .inference.influence import curve_acceleration, satterthwaite_df
+
+        estimate = self.predict(frame)
+        se = self.std_error(frame)
+        margin = self.residual_margin(frame)
+        if not self.skew_widened():
+            half = reference_quantile(alpha, self.reference_df) * se + margin
+            return estimate - half, estimate + half
+        centered = self.covariance_rule == "centered"
+        curves = self.influence @ self.design(frame).T
+        lower = np.full(estimate.shape, np.nan)
+        upper = np.full(estimate.shape, np.nan)
+        for i in range(estimate.shape[0]):
+            curve = np.asarray(curves[:, i], dtype=float)
+            rows = curve != 0.0
+            if not rows.any():
+                continue
+            df = max(satterthwaite_df(curve, rows=rows, centered=centered), 5.0)
+            acceleration = curve_acceleration(curve, rows=rows, centered=centered)
+            lower[i], upper[i] = skew_widened_ci(
+                float(estimate[i]),
+                float(se[i]),
+                alpha,
+                df=df,
+                acceleration=acceleration,
+                margin=float(margin[i]),
+            )
+        return lower, upper
+
+    @property
+    def repeated(self) -> bool:
+        """Whether the curve combines two or more cross-fitting draws."""
+        return len(self.draws) > 1
+
+    def _median_rule(self, phi: FloatArray) -> tuple[FloatArray, FloatArray]:
+        """The median point and the median-rule variance at each row of ``phi``."""
+        values = np.column_stack([phi @ draw.beta for draw in self.draws])
+        variances = np.column_stack(
+            [np.einsum("ip,pq,iq->i", phi, draw.covariance, phi) for draw in self.draws]
+        )
+        point = np.median(values, axis=1)
+        variance = np.median(variances + (values - point[:, None]) ** 2, axis=1)
+        return point, variance
+
+    def at_design(self, phi: FloatArray) -> FloatArray:
+        """The curve at the rows of an evaluated basis design.
+
+        Parameters
+        ----------
+        phi : ndarray
+            ``(m, p)`` basis design.
+
+        Returns
+        -------
+        ndarray
+            One value per row.
+        """
+        design = np.asarray(phi, dtype=float)
+        if self.repeated:
+            return self._median_rule(design)[0]
+        return np.asarray(design @ self.beta, dtype=float)
 
     def residual_margin(self, frame: Any) -> FloatArray:
         r"""What a declared stopping rule adds to the half-width at each row of ``frame``.
@@ -359,7 +506,7 @@ class ProjectionCurve:
         ndarray
             One prediction per row.
         """
-        return self.design(frame) @ self.beta
+        return self.at_design(self.design(frame))
 
     def std_error(self, frame: Any) -> FloatArray:
         """The pointwise standard error of the curve at the rows of ``frame``.
@@ -373,8 +520,16 @@ class ProjectionCurve:
         -------
         ndarray
             One standard error per row.
+
+        Raises
+        ------
+        CapabilityError
+            If :attr:`inference` supplies no inference.
         """
+        refuse_inference(self.inference, operation="the curve's standard error")
         phi = self.design(frame)
+        if self.repeated:
+            return np.sqrt(self._median_rule(phi)[1])
         return np.sqrt(np.einsum("ip,pq,iq->i", phi, self.covariance, phi))
 
     def band(
@@ -405,23 +560,50 @@ class ProjectionCurve:
         -------
         CurveBand
             The curve and its band at each grid point.
+
+        Raises
+        ------
+        CapabilityError
+            If :attr:`inference` supplies no inference.
         """
+        refuse_inference(self.inference, operation="the curve's band")
         phi = self.design(grid)
-        estimate = phi @ self.beta
-        se = np.sqrt(np.einsum("ip,pq,iq->i", phi, self.covariance, phi))
+        estimate = self.at_design(phi)
+        se = self.std_error(grid)
         if np.any(se <= 0):
             raise DataError("a grid point has a zero standard error; drop it from the grid")
-        curves = self.influence @ phi.T
-        critical = multiplier_critical_value(
-            curves,
-            se,
-            n=int(curves.shape[0]),
-            cluster=self.cluster,
-            alpha=alpha,
-            n_replicates=n_replicates,
-            kind=kind,
-            random_state=random_state,
-        )
+
+        def critical_value(influence: FloatArray, se_at: FloatArray) -> float:
+            curves = influence @ phi.T
+            return float(
+                multiplier_critical_value(
+                    curves,
+                    se_at,
+                    n=int(curves.shape[0]),
+                    cluster=self.cluster,
+                    alpha=alpha,
+                    n_replicates=n_replicates,
+                    kind=kind,
+                    random_state=random_state,
+                )
+            )
+
+        if self.repeated:
+            # Each draw's critical value from its own curves and standard errors, with the
+            # one seed, and their median around the median-rule curve (``median_bands``).
+            critical = float(
+                np.median(
+                    [
+                        critical_value(
+                            draw.influence,
+                            np.sqrt(np.einsum("ip,pq,iq->i", phi, draw.covariance, phi)),
+                        )
+                        for draw in self.draws
+                    ]
+                )
+            )
+        else:
+            critical = critical_value(self.influence, se)
         values = self.modifiers.values(grid, self.basis.columns)
         half = critical * se + self.residual_margin(grid)
         return CurveBand(
@@ -517,7 +699,9 @@ class EffectCurveResult:
     sieve: Any = None
     clipped_share: float = 0.0
     fit_warnings: tuple[Any, ...] = field(default=(), compare=False)
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False
+    )
 
     #: The assessment family whose capability rows a curve reads.
     assessment_family: ClassVar[str] = "effect_modification"
@@ -622,17 +806,17 @@ class EffectCurveResult:
         if not interval:
             return estimate
         se = self.model.std_error(data)
-        # The reference the coefficients' own intervals read: t on a few-cluster fit.
-        z = reference_quantile(alpha, self.model.reference_df)
-        # Under a declared stopping rule each interval adds the score the curve leaves there.
-        half = z * se + self.model.residual_margin(data)
+        # The interval the coefficients' own intervals read: t on a few-cluster fit, the
+        # skew-widened t on an unclustered continuous outcome, and under a declared stopping
+        # rule the score the curve leaves there added to each half-width.
+        lower, upper = self.model.interval(data, alpha=alpha)
         backend = backend_of(as_frame(data)) if is_dataframe(data) else self.backend
         return frame_from_dict(
             {
                 "estimate": estimate,
                 "std_err": se,
-                "ci_lower": estimate - half,
-                "ci_upper": estimate + half,
+                "ci_lower": lower,
+                "ci_upper": upper,
             },
             backend=backend,
         )
@@ -1616,7 +1800,7 @@ def score_assessment(
     configuration: dict[str, Any] = {
         "scale": scale,
         "outcome": "binary" if getattr(data, "family", "") == "binomial" else "continuous",
-        "known_mechanism": getattr(data, "known_treatment", None) is not None,
+        "known_mechanism": divides_by_declaration(data),
         "weighted": bool(np.any(np.abs(raw - 1.0) > 1e-12)),
         "clustered": data.cluster is not None,
         "missing": bool(not np.all(np.asarray(data.observed, dtype=bool))),

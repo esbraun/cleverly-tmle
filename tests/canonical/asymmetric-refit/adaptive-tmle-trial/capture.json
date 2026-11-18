@@ -1,0 +1,30 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 320,
+    "primary_captured": true,
+    "property_calls": [],
+    "replay_absent": 0,
+    "replay_mismatch": 17,
+    "rows": 320,
+    "seconds_capture": 0.01,
+    "seconds_fit": 346.25,
+    "stage": "refits",
+    "study": "adaptive-tmle-trial"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 17,
+    "primary_captured": true,
+    "property_calls": [],
+    "replay_absent": 0,
+    "replay_mismatch": 2,
+    "rows": 17,
+    "seconds_capture": 0.01,
+    "seconds_fit": 9.38,
+    "stage": "scope",
+    "study": "adaptive-tmle-trial"
+  }
+}

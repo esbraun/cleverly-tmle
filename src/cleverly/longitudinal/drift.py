@@ -76,9 +76,18 @@ from .estimator import (
     _HazardBlock,
     _HazardReplay,
     _LongitudinalReplayRecipe,
+    _Preflight,
     _Reported,
 )
-from .hazard import HazardFit, HazardState, InitialHazards, fit_hazards, hazard_inputs, level_label
+from .hazard import (
+    HazardFit,
+    HazardState,
+    InitialHazards,
+    fit_hazards,
+    hazard_inputs,
+    level_label,
+    plan_hazards,
+)
 from .msm import RegimenMSM
 from .regimen import DynamicRegimen, Plan, resolve_regimens
 from .separable import split_separable
@@ -380,6 +389,14 @@ class _Reductions:
                 )
         return self._cache[key]
 
+    def release(self, family: str, index: int, time: int) -> None:
+        """Drop one fitted regression that no later product reads; its record stays."""
+        self._cache.pop((family, index, time), None)
+
+    def release_all(self) -> None:
+        """Drop every fitted regression once the fixed products are formed; records stay."""
+        self._cache.clear()
+
     # -- the families of section 4.2
 
     def e_r(self, k: int) -> FloatArray:
@@ -504,18 +521,50 @@ def fit_coefficients(
             for k in range(t):
                 # [V_t(t-1)/V_t(k)] = prod_{m=k+1}^{t-1}; [U_t(t)/U_t(k)] = prod_{m=k}^{t-1}.
                 r[k][:, t - 1] = _forward(v[k:], n) * _forward(u[k:], n) * e_l[t]
+            # U_t and V_t are read at this t only.
+            for m in range(t):
+                reductions.release("u", t, m)
+            for m in range(1, t):
+                reductions.release("v", t, m)
+            del u, v
     e_r = {k: reductions.e_r(k) for k in range(tau)}
     e_a = reductions.e_a()
     q_raw = reductions.q(g_lower)
     q = np.clip(q_raw, g_lower, 1.0 - g_lower)
     hits["q"] = int(np.sum(q != q_raw))
+    # B_k(m) and D_k(m) enter only through the products over m = k+1..t-1 and m = k..t-1,
+    # which grow by one factor per horizon step.  Each product is carried forward and
+    # multiplied by its new factor, in the order _forward multiplies, so it is the same
+    # floating-point product; the factor is fitted where the full list first asked for it
+    # and released once multiplied in.
+    b_run: dict[int, tuple[int, FloatArray]] = {}
+    d_run: dict[int, tuple[int, FloatArray]] = {}
+
+    def b_product(k: int, t: int) -> FloatArray:
+        """prod_{m=k+1}^{t-1} (1 - B_k(m)), as _forward over that list."""
+        upto, value = b_run.get(k, (k + 1, np.ones(n)))
+        while upto < t:  # the factor m = upto
+            value = value * (1.0 - reductions.b(k, upto))
+            upto += 1
+        b_run[k] = (upto, value)
+        return value
+
+    def d_product(k: int, t: int) -> FloatArray:
+        """prod_{m=k}^{t-1} (1 - D_k(m)), as _forward over that list."""
+        upto, value = d_run.get(k, (k, np.ones(n)))
+        while upto < t:
+            value = value * (1.0 - reductions.d(k, upto))
+            upto += 1
+        d_run[k] = (upto, value)
+        return value
+
     for t in range(1, tau + 1):
         for k in range(t):
             if not np.any(e_r[k] != 0.0):
                 continue
             # B_k(k)/B_k(t-1) = 1/prod_{m=k+1}^{t-1}; D_k(k)/D_k(t) = 1/prod_{m=k}^{t-1}.
-            b_prod = _forward([reductions.b(k, m) for m in range(k + 1, t)], n)
-            d_prod = _forward([reductions.d(k, m) for m in range(k, t)], n)
+            b_prod = b_product(k, t)
+            d_prod = d_product(k, t)
             hits["B"] += int(np.sum(b_prod < DENOMINATOR_FLOOR))
             hits["D"] += int(np.sum(d_prod < DENOMINATOR_FLOOR))
             l_terms[t - 1][:, k] = -e_r[k] / (
@@ -523,13 +572,24 @@ def fit_coefficients(
             )
         if np.any(e_a != 0.0):
             index = _a_term_index(t)
-            d_full = _forward([reductions.d(index, m) for m in range(t)], n)
-            b_full = _forward([reductions.b(index, m) for m in range(1, t)], n)
+            if index == 0:
+                # The e_A ranges (D over m = 0..t-1, B over m = 1..t-1) are the k = 0 runs.
+                d_full = d_product(0, t)
+                b_full = b_product(0, t)
+            else:
+                # Another index (only the check-5 mutation sets one) reads the same ranges,
+                # which are not that index's carried runs.
+                d_full = _forward([reductions.d(index, m) for m in range(t)], n)
+                b_full = _forward([reductions.b(index, m) for m in range(1, t)], n)
             hits["B"] += int(np.sum(b_full < DENOMINATOR_FLOOR))
             hits["D"] += int(np.sum(d_full < DENOMINATOR_FLOOR))
             c[:, t - 1] = e_a / (
                 q * np.maximum(d_full, DENOMINATOR_FLOOR) * np.maximum(b_full, DENOMINATOR_FLOOR)
             )
+        # Every factor fitted at this t is now inside its carried product.
+        for k in range(t):
+            reductions.release("b", k, t - 1)
+            reductions.release("d", k, t - 1)
     return _Coefficients(a, tuple(r), tuple(l_terms), c, hits)
 
 
@@ -1040,6 +1100,9 @@ def target_drift(
     state = _State(view.g_a.copy(), view.g_r.copy(), view.h.copy())
     reductions = _Reductions(view, state, tau, g_bounds, regress)
     coefficients = fit_coefficients(reductions, tau, g_bounds[0], drift=drift)
+    # The fixed products hold everything the loop reads; the regressions themselves are not
+    # read again (their records are).
+    reductions.release_all()
     threshold = stop_threshold(view.n)
     path: list[FloatArray] = []
     converged = False
@@ -1548,6 +1611,9 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("drtmle", "univariate")
     _density_only_ratio: ClassVar[str | None] = "this estimator reads static arms only"
+    #: A constant node keeps the constant-node status: the curve subtracts residual-regression
+    #: terms at each node, which the boundary-node supplement does not bound.
+    _boundary_kind: ClassVar[str | None] = "drift"
 
     def __init__(
         self,
@@ -1761,6 +1827,59 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         return nodes or (data.n_times,)
 
     # -- the correction
+
+    def _plan_hazard_block(
+        self,
+        state: _Preflight,
+        mechanism_plans: tuple[Any, ...],
+        plans: tuple[Any, ...],
+        levels: tuple[Plan, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: Any,
+        add: Callable[..., None],
+    ) -> None:
+        """The fits of :meth:`_hazard_block`: the mechanism and the initial hazards.
+
+        Under ``guard=()`` the block is hazard ``LTMLE``'s own.  The drift reductions are
+        kernel smoothers, which fit no learner.
+
+        Parameters
+        ----------
+        state : _Preflight
+            The resolved preflight.
+        mechanism_plans : tuple
+            The plans and levels the mechanism is evaluated at.
+        plans : tuple
+            The resolved plans.
+        levels : tuple of Plan
+            The static plans of the treatment levels.
+        folds : Folds
+            The realized outer split.
+        learners : dict
+            The resolved learners.
+        counter : FitCounter
+            Counts each fit.
+        add : callable
+            Adds a count to the record.
+        """
+        if not self.guard:
+            super()._plan_hazard_block(
+                state, mechanism_plans, plans, levels, folds, learners, counter, add
+            )
+            return
+        self._plan_mechanism(state.prepared, mechanism_plans, 0, folds, learners, counter, add)
+        add(
+            "outcome",
+            "initial hazard by node and cause",
+            plan_hazards(
+                state.prepared,
+                learner=learners["outcome"],
+                folds=folds,
+                counter=counter,
+                hazard_pooling=self.hazard_pooling,
+            ),
+        )
 
     def _hazard_block(
         self,

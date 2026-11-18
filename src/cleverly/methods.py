@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_chec
 
 from ._ratio_route import refuse_classifier_settings
 from ._typing import (
+    ConditionalForm,
     FluctuationKind,
     FoldStrata,
     GBounds,
@@ -702,6 +703,13 @@ class Targeting:
         ``step_search=False``. On ``algorithm="one_step"`` the norm never rises, so the best
         iterate is the last. It is refused beside ``fluctuation="linear"``, which has no
         iterates.
+    conditional_form : {"arm_mean", "known_score"}, default="arm_mean"
+        How a point-treatment fit summarizes the ATT and the ATC after targeting.
+        ``"arm_mean"`` averages the targeted contrast over the units in the conditioning arm.
+        ``"known_score"`` weights every unit's targeted contrast by the declared probability
+        of the conditioning arm, and needs a declared treatment mechanism
+        (``treatment_probabilities=``); see :class:`~cleverly.TMLE`. A longitudinal fit
+        refuses it.
     isotonic : bool, default=False
         Whether a longitudinal survival fit projects each curve's levels and band limits
         onto a non-decreasing curve; see :class:`~cleverly.longitudinal.LTMLE`.  A
@@ -764,6 +772,7 @@ class Targeting:
     step_bound: float | None = None
     step_search: bool = True
     iterate: IterateChoice = "last"
+    conditional_form: ConditionalForm = "arm_mean"
     isotonic: bool = False
     ratio_trim: float | None = None
     node_bounds: Mapping[Any, Any] | None = None
@@ -992,6 +1001,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_bound": "step_bound",
         "step_search": "step_search",
         "iterate": "iterate",
+        "conditional_form": "conditional_form",
         "isotonic": "isotonic",
         "node_bounds": "node_bounds",
     },
@@ -1032,6 +1042,7 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "fluctuation", "fluctuation"),
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
+    ("targeting", "conditional_form", "conditional_form"),
 )
 
 
@@ -1349,6 +1360,7 @@ class TMLEMethod:
                 "step_bound": targeting.step_bound,
                 "step_search": targeting.step_search,
                 "iterate": targeting.iterate,
+                "conditional_form": targeting.conditional_form,
                 "n_bootstrap": inference.n_bootstrap,
                 "bootstrap_resampling": inference.bootstrap_resampling,
             }

@@ -23,6 +23,7 @@ categorized API tables.
    cleverly.IdentificationProvider
    cleverly.ExplicitAdjustmentProvider
    cleverly.IdentifiedEffect
+   cleverly.PlannedFits
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
    cleverly.estimators.DoseResponseResult
@@ -123,13 +124,17 @@ categorized API tables.
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
    cleverly.AssessmentStatus
+   cleverly.assessment.AssessmentCache
+   cleverly.assessment.CacheEntry
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
    cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
+   cleverly.ImportanceFacts
    cleverly.variable_importance
+   cleverly.variable_importance_plan
    cleverly.load
    cleverly.SuperLearner
    cleverly.CleverlyError
@@ -221,6 +226,8 @@ categorized API tables.
    cleverly.sensitivity.covariate_balance
    cleverly.sensitivity.CovariateBalance
    cleverly.sensitivity.BalanceRow
+   cleverly.sensitivity.BalanceOverTime
+   cleverly.sensitivity.TimeBalanceRow
    cleverly.longitudinal.node_weights
    cleverly.longitudinal.NodeWeights
    cleverly.sensitivity.omitted_variable_bounds

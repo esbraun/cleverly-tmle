@@ -252,7 +252,7 @@ A parameter status sits beside the fit status. `PARAMETER_STATUSES` in
 holds `constant_node_plugin`, `constant_arm_cell_plugin` and `out_of_range_plugin`. The last two
 are set by `bounded_status` in `cleverly.inference.influence` and described after the table.
 `_estimates` stamps `constant_node_plugin` through `_parameter_status`, in the fit
-and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
+and in `_refit_bound` alike, on a fit outside the reach of the node-variance supplement. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
 the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
 when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
 status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
@@ -284,10 +284,10 @@ inherit them through `inference_status`.
 | --- | --- |
 | `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `STATUS_RECORDS` |
 | `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
-| `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
+| `variable_importance` | none. Under either `keep_fits` setting, and in `variable_importance_plan`, which shares its checks, it raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
 | a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of each draw, so the replay of each draw at the fitted bound equals that draw in every field that `_fitted_replay_matches` compares |
-| a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
-| a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
+| a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty and the fit's `boundary_reach` names a kind outside the supplement's reach. Inside the reach the estimate keeps the fit status and carries `node` (`boundary_loadings`). `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
+| a longitudinal parameter, or a point-treatment projection coefficient, under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
 | a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Two status rules: a member under `constant_arm_cell_plugin` refuses the whole band (`constant_arm_members`, an `inference_gap` refusal of `simultaneous_bands()`; the fit skips its default band and `summary()` names the reason), and a member under `out_of_range_plugin` stays in the family at its plug-in standard error and keeps the band it had before the status, as `band_member` decides: the logit band refuses it and the identity band covers it. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
 
@@ -334,9 +334,10 @@ publishes a spread must take its names from `spread_columns()` or `spread_name`,
 it from `STATUS_RECORDS`. The estimator that stamps a parameter status names it through
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
-supplies the selector paths' influence curve, when a second parameter status is added, or when
-[X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) supplies an interval at a boundary
-node, which would remove the one status that reads a fitted quantity.
+supplies the selector paths' influence curve, or when a second parameter status is added. Inside the reach of the
+node-variance supplement (X54 part (i)) a boundary node no longer stamps a status: the estimate
+carries `node` and adds the supplement. `constant_node_plugin` stays for the kinds
+`BOUNDARY_NODE_OUT_OF_REACH` lists.
 
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
@@ -512,6 +513,21 @@ invariant above states that rule for every saved object.
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
 
+The cache (`AssessmentCache`) keeps every answer unless its `max_bytes` budget is set. Under a
+budget it may drop only an answer it can recompute bit for bit: a request whose resolved row is a
+`summarize` or `retarget` declared deterministic from saved artifacts, `validate`,
+`diagnostics.influence`, a derived risk ratio except on guarded DR-TMLE or AdaptiveIPTW, or a
+combined report, and only when the
+answer's own computation made no mark in `cleverly.utils.random` (fresh entropy, a `fit_learner`
+fit, a `map_parallel` section). Every refit is kept whatever its seed, because a seed fixes only
+the randomness the package routes through it. Marks go to the innermost computation, so a refit
+inside a combined report pins itself and not the report. `max_bytes` is not a memory guard: `None`
+means no budget, and it is outside any facade-level `max_memory_bytes` override.
+`tests/unit/test_assessment_cache_budget.py` holds the witnesses and their mutation controls.
+*Reconsider when* a new site draws entropy, fits a learner outside `fit_learner` from a row the rule
+allows, or starts a pool outside `map_parallel`: that test's site tables then fail until it is
+classified.
+
 Both assessment facades route through one base. Lookup, refusal, and the combined report are
 written once. A refusal therefore always carries the reason its own capability row declares, and a
 combined report reads that declaration the same way on both facades. Sensitivity
@@ -581,7 +597,7 @@ that the call refuses reads `unavailable`.
 An ambiguous default estimand is a deferral on both facades. Several operations default to
 `estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
 no bare `ate` leaves that choice to the caller. A fit that reports no eligible parameter stays
-`unavailable`, because no argument makes a missing derivation run.
+`unavailable`, because no argument makes a missing derivation run. `marginal_bounds()` defaults to `None`, which it resolves to the fit's reported parameter, and defers on the same rule. It can bound an arm parameter the fit did not report, so a fit with no eligible reported parameter defers rather than reads `unavailable`.
 
 One eligible parameter is the case each facade answers for itself. A facade that substitutes that
 name runs the row under it. A facade that substitutes nothing defers the row, because the
@@ -827,14 +843,31 @@ nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
 
-Hazard targeting (`survival_model="hazard"`) requires a held baseline decision and no covariate
-measured after baseline. A categorical treatment takes any regimen; a continuous treatment or a
-vector with a dose takes a modified treatment policy. It refuses any other design before any learner
-(H1 to H3 of
+Hazard targeting (`survival_model="hazard"`) on a held baseline decision takes any regimen on a
+categorical treatment, and a modified treatment policy on a continuous treatment or a vector with a
+dose. With a treatment decided at several nodes, every node is categorical and the regimens are
+static plans, known rules and known policies. On baseline covariates only, their treatment paths
+are enumerated as slots. It refuses any other design before any learner (H3, H15, H17, H18, H21
+to H23 and H26 to H31 of
 [the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
-The hazard model conditions on the baseline treatment and the baseline covariates only. A later
-treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard
-construction for a treatment at several nodes or for a later covariate.
+
+One hazard function sits in every slot whose treatment prefix through its node is the same, so a
+fluctuation moves every such copy by the sum over those slots and a held cell holds every copy;
+otherwise the state is not one law and the plug-in is not a substitution estimator
+(`tests/unit/test_hazard_multinode.py` mutates the sum).
+
+With covariates measured after baseline, on a held design or beside a treatment at several nodes,
+the fit runs one backward pass per regimen in `longitudinal/hazard_backward.py`: each node's
+hazards and its regression of the future are targeted once, after every later node is final, and
+nothing is refit after it is walked. That order is what solves every term of the influence-curve
+equation, so the per-horizon algorithm, which restarts from the initial fits, is refused there
+(H28). Beside a treatment at several nodes the pass alone runs, without the path slots: each node
+is evaluated at the observed history, its slots are the regimen's values of the current treatment,
+and its hazards are the learner's predictions at the observed earlier treatments with only the
+current one set. The recursion conditions on the observed history, so a slot read at the
+regimen's level path conditions on earlier treatments the unit did not receive, and `tests/unit/test_hazard_time_varying_multinode.py` mutates the predictions, the
+policy's prefix and the held slot that way and sees the estimate miss. *Reconsider when* a
+modified treatment policy or a tilt joins this route (H27).
 
 A one-step hazard fit's levels are non-decreasing in floating point for every regimen and cause.
 Every horizon's plug-in mean reduces its column in one order that does not depend on the values.

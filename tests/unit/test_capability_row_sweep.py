@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from cleverly import _assessment_cache as cache_module
 from cleverly.assessment import replayability
 from tests.unit._capability_sweep_support import (
     KINDS,
@@ -34,10 +35,34 @@ from tests.unit._capability_sweep_support import (
 
 
 @pytest.mark.parametrize("kind", list(KINDS))
-def test_every_row_a_request_resolves_available_answers_it(kind: str) -> None:
+def test_every_row_a_request_resolves_available_answers_it(
+    kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     result = KINDS[kind].build()
     arguments = sweep_arguments(result)
+    # The assessment cache's budget rules, checked on every kind at no extra fit cost
+    # (tests/unit/test_assessment_cache_budget.py): with no budget nothing is sized, and no
+    # answer the eviction rule allows made a nondeterminism mark in its own computation.
+    sized: list[Any] = []
+    marked: list[tuple[str, frozenset[str]]] = []
+    classify = cache_module._classify
+    measure = cache_module._payload_nbytes
+
+    def record(result: Any, operation: str, args: Any, kwargs: Any, **options: Any) -> bool:
+        allowed = options["evictable"]
+        if allowed is None:
+            allowed = cache_module._may_evict(result, operation, args, kwargs)
+        if allowed and options["marks"]:
+            marked.append((operation, frozenset(options["marks"])))
+        return classify(result, operation, args, kwargs, **options)
+
+    monkeypatch.setattr(cache_module, "_classify", record)
+    monkeypatch.setattr(
+        cache_module, "_payload_nbytes", lambda value: sized.append(value) or measure(value)
+    )
     assert problems(result, arguments) == []
+    assert marked == []
+    assert sized == []
     # The nonzero witness: the rows this kind must run did run.
     answered = ran(result, arguments)
     assert KINDS[kind].must_run <= answered

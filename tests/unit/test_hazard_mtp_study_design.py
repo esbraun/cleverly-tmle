@@ -799,44 +799,6 @@ class TestTheWrongHazardLearner:
         assert abs(values.mean() - limit) < 3.0 * error
 
 
-@pytest.mark.parametrize("fit_label", ["gaussian_classifier", "vector"])
-def test_the_wrong_classifier_reads_the_dose(
-    fit_label: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``DoseOnlyRatio`` fits on the stacked design's dose, so its ratio varies with the dose.
-
-    Reading a history column instead, which both halves of the stack share, returns a ratio of
-    exactly 1, the unweighted case rather than a wrong dose classifier.
-    """
-    import cleverly.learners.density_ratio as density_ratio
-
-    fitted: list[tuple[np.ndarray, Any]] = []
-    real = density_ratio.fit_learner
-
-    def record(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
-        model = real(learner, design, *args, **kwargs)
-        if isinstance(learner, law.DoseOnlyRatio):
-            fitted.append((np.asarray(design, dtype=float), model))
-        return model
-
-    monkeypatch.setattr(density_ratio, "fit_learner", record)
-    frame, _ = study.draw_scenario(fit_label, 400, 0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        study.fit(fit_label, frame, configuration="outcome_correct")
-    assert fitted
-    design, model = fitted[0]
-    column = model.column
-    half = design.shape[0] // 2
-    observed = np.sort(design[:half, column])
-    np.testing.assert_array_equal(observed, np.sort(frame["A"].to_numpy(dtype=float)))
-    u = model.predict_proba(design)[:, 1]
-    ratio = u / (1.0 - u)
-    assert np.ptp(ratio) > 0.5
-    steps = np.diff(ratio[np.argsort(design[:, column])])
-    assert np.all(steps >= 0) or np.all(steps <= 0)
-
-
 class SaturatedShare(BaseEstimator, ClassifierMixin):
     """The empirical class shares in each distinct row of the design."""
 

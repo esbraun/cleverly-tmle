@@ -27,10 +27,13 @@ from ._refusal import NO_ALTERNATIVE, RefusalReason
 
 __all__ = [
     "ADAPTIVE_BASELINE_STATUS",
+    "BOUNDARY_NODE_BAND_NOTE",
+    "BOUNDARY_NODE_OUT_OF_REACH",
     "CONSTANT_ARM_CELL_STATUS",
     "CONSTANT_NODE_STATUS",
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
+    "MINIMUM_FOLD_TRAINING_CLUSTERS",
     "MINIMUM_INTERVAL_CLUSTERS",
     "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
@@ -97,6 +100,20 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 #: ``"few_cluster_plugin"``, which shows a labelled interval on ``t(J - 2)``. X54 in
 #: ``docs/roadmap.md`` holds the evidence for 4 to 9 clusters.
 MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
+
+#: The fewest clusters with positive weight mass a training complement of a fold-evaluated
+#: ``TMLE`` (``cv_evaluation=True``) must hold for the fit to report its interval without the
+#: few-cluster label, keyed by the treatment mechanism: ``"estimated"``, or ``"known"`` when the
+#: propensity is declared through ``treatment_probabilities=``. The training complement of a
+#: validation fold is every cluster outside it, the clusters its nuisances are fitted on. The
+#: registered ``few-cluster-fold-variance`` study measures the centred fold cluster variance from
+#: 2 to 24 training clusters: with either mechanism every cell passes from 4, and at 2 the
+#: all-draw coverage or the coverage band fails. A fit whose smallest training complement holds
+#: fewer takes ``"few_cluster_plugin"``, on top of the floor of
+#: :data:`MINIMUM_INTERVAL_CLUSTERS` on the whole fit.
+MINIMUM_FOLD_TRAINING_CLUSTERS: Final[Mapping[str, int]] = MappingProxyType(
+    {"estimated": 4, "known": 4}
+)
 
 #: The fewest clusters with positive weight mass for which a Student t reference has a positive
 #: degree of freedom, ``J - 2 >= 1``. A fit that reads fewer takes ``"no_cluster_variance_plugin"``
@@ -169,6 +186,12 @@ NO_LOGIT_RANGE_BANDS: Final[str] = (
     "band_scale='identity' builds the band on the estimates' own scale."
 )
 
+
+#: The summary line of a longitudinal fit whose estimates add the boundary-node supplement.
+BOUNDARY_NODE_BAND_NOTE: Final[str] = (
+    "{names} add a boundary-node variance that neither the multiplier process nor a row "
+    "resample carries, so no simultaneous band covers them."
+)
 
 #: The line a result summary prints when a fit skips its band because an estimate of the band's
 #: family reads a treatment arm whose observed outcomes in its stratum take a single value
@@ -525,7 +548,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"({MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1} "
                 "on a longitudinal fit) the interval uses a t distribution with the degrees of "
                 "freedom in the df column, and no validation study measures intervals at so few "
-                "clusters, so cleverly marks it experimental."
+                "clusters, so cleverly marks it experimental. A fold-evaluated fit takes the "
+                "same mark when the clusters outside one validation fold, which fit that fold's "
+                "models, number fewer than "
+                f"{min(MINIMUM_FOLD_TRAINING_CLUSTERS.values())}."
             ),
             reason=(
                 "A clustered fit that reads from "
@@ -540,7 +566,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "registered study measures an interval below those counts. The estimate "
                 "carries the experimental label. X54 in docs/roadmap.md holds the registered "
                 "measurements that reopen counts from "
-                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor."
+                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor. A fold-evaluated "
+                "TMLE whose smallest training complement holds fewer positive-mass clusters "
+                "than MINIMUM_FOLD_TRAINING_CLUSTERS at its treatment mechanism ("
+                f"{MINIMUM_FOLD_TRAINING_CLUSTERS['estimated']} estimated, "
+                f"{MINIMUM_FOLD_TRAINING_CLUSTERS['known']} known) takes the same status: the "
+                "registered few-cluster-fold-variance study measures the fold-evaluated "
+                "cluster variance from those counts."
             ),
             assessment_note=(
                 "the reported interval is experimental: no registered study measures it for a "
@@ -559,8 +591,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             shown_reason=(
                 "The interval uses a Student t reference with J - 2 degrees of freedom, and no "
                 f"registered study measures a clustered interval below {MINIMUM_INTERVAL_CLUSTERS} "
-                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit). "
-                "X54 in docs/roadmap.md holds the measurements."
+                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
+                "or a fold-evaluated interval whose smallest training complement holds fewer "
+                "than MINIMUM_FOLD_TRAINING_CLUSTERS. X54 in docs/roadmap.md holds the "
+                "measurements."
             ),
         ),
         "low_dose_support_plugin": StatusRecord(
@@ -596,40 +630,48 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
         "constant_node_plugin": StatusRecord(
             plain_reason=(
                 "A regression in this estimate's recursion saw a single outcome value at some time "
-                "point (for example, no events there), so the reported spread leaves out that "
-                "point's variance and can be too small."
+                "point (for example, no events there), and this kind of fit has no rule that "
+                "adds that point's variance back, so the reported spread can be too small."
             ),
             reason=(
                 "A longitudinal parameter reports no confidence interval, no p-value and no "
-                "standard error when a node regression of its recursion read a constant "
-                "target, such as a grid node at which no follower of the regimen had the "
-                "event, or a repeated-outcome node at which every follower held one outcome "
-                "value. A hazard fit applies the same rule to each node, level and cause. "
-                "That regression is its maximum-likelihood value, 0 or 1, so the "
-                "point estimate stands. The node's term of the influence curve is then "
-                "identically zero, although the true outcome variance there can be "
-                "positive, so the plug-in standard error leaves that node's variance out. "
-                "A contrast or a restricted mean that reads such a parameter takes this status "
-                "too, and the simultaneous band leaves it out. A fit that combines repeated "
-                "fold draws gives the parameter this status when such a regression occurs in "
-                "at least one draw. The plug-in standard error remains as a "
-                "diagnostic under "
-                "plugin_std_error and plugin_interval. X54 in docs/roadmap.md reopens this "
-                "at a fixed law with a declared node-variance construction and a registered "
-                "study, and F31 holds the rare-event regime in which the node hazard "
-                "shrinks with n."
+                "standard error when a node regression of its recursion read a constant target, "
+                "such as a grid node at which no follower of the regimen had the event, and the "
+                "fit is outside the reach of the boundary-node supplement. That regression is its "
+                "maximum-likelihood value, 0 or 1, so the point estimate stands, and the node's "
+                "term of the influence curve is identically zero. On an LTMLE iterated-mean or "
+                "hazard fit whose estimate lies inside its bounds, the interval adds the node's "
+                "variance at the exact one-sided binomial bound of its hazard (X54 part (i)). The "
+                "fits outside that reach keep this status, because no construction here bounds "
+                "their node variance: SDR reads a doubly robust transform of every later node; "
+                "IPSI adds a mechanism term at each tilt node; IPW and g-formula baselines fit no "
+                "targeted node regression; a fit with repeated fold draws takes a median over "
+                "draws whose constant nodes differ; variance='policy_weighted' reports a maximum "
+                "of two variances that no rule here combines with a node bound; the "
+                "drift-corrected and separable-effects survival fits, a fold-average plan and an "
+                "isotonic projection change the node's term of the curve; a collaborative survival "
+                "fit and a learned rule choose the node's coefficient along the fit, which no "
+                "bound here covers; a hazard fit with covariates measured after baseline adds "
+                "the residual of a regression of the future at each node; and a continuous "
+                "outcome's node has no binomial bound. The fit's warning names which. A "
+                "contrast or a restricted mean that reads such a parameter takes this status "
+                "too, and the simultaneous band leaves it out. The plug-in standard error"
+                " remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. F31 in docs/roadmap.md holds these kinds and the rare-event "
+                "regime in which the node hazard shrinks with n."
             ),
             assessment_note=(
                 "the reported curve is a constant-node diagnostic: no confidence interval or "
                 "p-value is available for a parameter whose recursion read a constant node "
-                "regression, and X54 in the roadmap is the condition that reopens it"
+                "regression on a fit outside the boundary-node supplement's reach, and F31 in "
+                "the roadmap holds those fits"
             ),
             bootstrap_note=(
-                "a diagnostic; a resample can hold an event at the node that the sample "
-                "lacks, and no result validates the bootstrap coverage at a boundary node"
+                "a diagnostic; a row resample keeps the node's one value, so the bootstrap "
+                "spread leaves out the node's variance"
             ),
             diagnostic_noun="constant-node plug-in diagnostic",
-            reopened_by="X54",
+            reopened_by="F31",
             alternative=NO_ALTERNATIVE,
         ),
         "stack_failure_plugin": StatusRecord(
@@ -648,12 +690,12 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "re-shrink. The fit's warning names the failed condition. The point estimate "
                 "stands. The plug-in standard error of the shipped curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, and it omits the "
-                "generated-design term. X58 in docs/roadmap.md describes the stack."
+                "generated-design term. X58 in docs/roadmap.md holds this status."
             ),
             assessment_note=(
                 "the reported curve is a stacked-equation failure diagnostic: no confidence "
                 "interval or p-value is available for an estimate whose arm stack failed on "
-                "this sample, and X58 in the roadmap describes the stack"
+                "this sample, and X58 in the roadmap holds this status"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of the per-arm "
@@ -785,6 +827,71 @@ WORKING_MODEL_STATUS: Final = "working_model_projection"
 #: The status of a longitudinal parameter whose recursion read a node regression as a
 #: constant 0 or 1. The estimator stamps it by name, so the name lives here once.
 CONSTANT_NODE_STATUS: Final = "constant_node_plugin"
+
+#: The fits whose constant node keeps :data:`CONSTANT_NODE_STATUS` rather than taking the
+#: boundary-node supplement (X54 part (i)), by key: what the fit is, and why no construction
+#: here bounds its node variance. The fit's warning reads this table.
+BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
+    {
+        "sdr": (
+            "a sequentially doubly robust (SDR) fit",
+            "its curve reads a doubly robust transform of every later node",
+        ),
+        "ipsi": ("an IPSI fit", "its curve adds a mechanism term at each tilt node"),
+        "ipw": ("an IPW baseline", "it fits no targeted node regression"),
+        "gcomp": ("a g-computation baseline", "it fits no targeted node regression"),
+        "parametric_gformula": (
+            "a parametric g-formula baseline",
+            "it fits no targeted node regression",
+        ),
+        "repeats": (
+            "a fit with repeated fold draws",
+            "it takes a median over draws whose constant nodes differ",
+        ),
+        "policy_weighted": (
+            "a fit with variance='policy_weighted'",
+            "it reports a maximum of two variances, and no rule here combines a node bound "
+            "with that maximum",
+        ),
+        "drift": (
+            "a drift-corrected survival TMLE",
+            "its curve subtracts residual-regression terms at each node",
+        ),
+        "collaborative": (
+            "a collaborative survival TMLE",
+            "its mechanism is selected along the fit, so the node's coefficient in the curve "
+            "is chosen by data the curve does not account for, and no bound here covers that "
+            "choice",
+        ),
+        "separable": (
+            "a separable-effects fit",
+            "its curve weights each cause's residual by a different clever covariate",
+        ),
+        "learned_rule": (
+            "a learned-rule fit",
+            "its regimen is learned on the folds, so which rows follow it, and with them the "
+            "node's coefficient in the curve, are chosen by data the curve does not account for",
+        ),
+        "fold_average": (
+            "a fold-average plan",
+            "its curve averages fold-specific fluctuations, not one node residual",
+        ),
+        "isotonic": (
+            "an isotonic projection",
+            "a projected level pools the fits of several horizons, whose node loadings the "
+            "projection does not carry",
+        ),
+        "continuous": (
+            "a fit of a continuous outcome",
+            "a run of one value of a bounded continuous outcome has no binomial bound",
+        ),
+        "hazard_later_covariates": (
+            "a hazard fit with covariates measured after baseline",
+            "its curve adds at each node the residual of the regression of the future on the "
+            "node's covariates, a continuous target that no binomial bound covers",
+        ),
+    }
+)
 
 #: The statuses one parameter takes beside the status of its fit. Every other status holds
 #: for the whole fit. :data:`CONSTANT_NODE_STATUS` marks a longitudinal parameter whose

@@ -42,7 +42,9 @@ class NodeWeights:
         The nodes, from one.
     node_kinds : tuple of str
         What decided the arm at each node: ``"label"``, ``"rule"``, ``"policy"``,
-        ``"tilt"``, ``"mtp"``, or ``"held"`` at a later node of a held design.
+        ``"tilt"``, ``"mtp"``, or ``"held"``. ``"held"`` marks a later node of a held design
+        whose regimen declares a one-node rule, policy or modified treatment policy; a
+        static arm reports ``"label"`` there.
     used : ndarray of shape (n, T)
         The weight the fit used: the data's weight times the clever covariate, ``nan`` for
         a unit that is not a follower at that node.
@@ -135,6 +137,118 @@ class NodeWeights:
             "cumulative": self.cumulative.T.reshape(-1).tolist(),
         }
         return frame_from_dict(columns, backend=backend)
+
+
+@dataclass(frozen=True)
+class _NodeSummary:
+    """What :func:`cleverly.plotting.weights` reads at one node, without the ``(n, T)`` arrays.
+
+    Each field equals the one :class:`NodeWeights` gives at the node: ``used`` is
+    ``used[followed[:, i], i]``, ``share`` is ``share_beyond_bounds[i]``, ``effective_n`` is
+    ``effective_n[i]`` and ``followers`` is ``followed[:, i].sum()``, computed from the same
+    values in the same row order.
+
+    Parameters
+    ----------
+    time : int
+        The node's time.
+    used : FloatArray
+        The followers' weights, data weight times clever covariate, in row order.
+    share : float
+        The followers' share whose cumulative probability the bounds moved; NaN with no
+        followers.
+    effective_n : float
+        The Kish effective size of ``used``.
+    followers : int
+        The number of followers.
+    """
+
+    time: int
+    used: FloatArray
+    share: float
+    effective_n: float
+    followers: int
+
+
+def _node_summaries(fit: RegimenFit) -> tuple[_NodeSummary, ...]:
+    """Per-node weight summaries of one fitted regimen, one node at a time.
+
+    :func:`node_weights` builds four ``(n, T)`` arrays; this reads the same per-node values
+    straight from the fit and keeps only the followers' weights of each node, so a plot of a
+    large fit holds at most one node's columns at a time beyond its output.
+
+    Parameters
+    ----------
+    fit : RegimenFit
+        The fitted regimen, as :func:`node_weights` selects it.
+
+    Returns
+    -------
+    tuple of _NodeSummary
+        One summary per scored node, in time order.
+    """
+    out = []
+    for node in fit.scored_nodes:
+        rows = node.trained_on
+        used = (fit.obs_weights * node.clever)[rows]
+        column = node.time - 1
+        moved = fit.cumulative_unbounded[rows, column] != fit.cumulative[rows, column]
+        out.append(
+            _NodeSummary(
+                time=node.time,
+                used=used,
+                share=float(np.mean(moved)) if moved.size else float("nan"),
+                effective_n=float(effective_sample_size(used, on_degenerate=0.0)),
+                followers=int(np.count_nonzero(rows)),
+            )
+        )
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class _WeightSummary:
+    """The scalar fields of :class:`NodeWeights` and one :class:`_NodeSummary` per node.
+
+    Parameters
+    ----------
+    regimen : str
+        As :class:`NodeWeights`.
+    cause : str or None
+        As :class:`NodeWeights`.
+    horizon : int
+        As :class:`NodeWeights`.
+    repeat : int
+        As :class:`NodeWeights`.
+    n_repeats : int
+        As :class:`NodeWeights`.
+    times : tuple of int
+        As :class:`NodeWeights`.
+    node_kinds : tuple of str
+        As :class:`NodeWeights`.
+    bounds : tuple of float
+        As :class:`NodeWeights`.
+    unit_weights : bool
+        As :class:`NodeWeights`.
+    cross_fitted : bool
+        As :class:`NodeWeights`.
+    reports_curve : bool
+        As :class:`NodeWeights`.
+    nodes : tuple of _NodeSummary
+        One summary per node, in time order.
+    """
+
+    regimen: str
+    cause: str | None
+    horizon: int
+    repeat: int
+    n_repeats: int
+    times: tuple[int, ...]
+    node_kinds: tuple[str, ...]
+    bounds: tuple[float, float]
+    unit_weights: bool
+    cross_fitted: bool
+    reports_curve: bool
+    nodes: tuple[_NodeSummary, ...]
 
 
 def _select(
@@ -237,6 +351,63 @@ def node_weights(
     >>> bool(np.all(weights.used[weights.followed] > 0))
     True
     """
+    fit, meta = _resolve(result, regimen, horizon, cause, repeat)
+    nodes = fit.scored_nodes
+    n = fit.obs_weights.shape[0]
+    used = np.full((n, len(nodes)), np.nan)
+    followed = np.zeros((n, len(nodes)), dtype=bool)
+    raw = np.empty((n, len(nodes)))
+    bounded = np.empty((n, len(nodes)))
+    for index, node in enumerate(nodes):
+        weight = fit.obs_weights * node.clever
+        used[node.trained_on, index] = weight[node.trained_on]
+        followed[:, index] = node.trained_on
+        raw[:, index] = fit.cumulative_unbounded[:, node.time - 1]
+        bounded[:, index] = fit.cumulative[:, node.time - 1]
+    return NodeWeights(
+        **meta, used=used, followed=followed, cumulative_unbounded=raw, cumulative=bounded
+    )
+
+
+def _weight_summary(
+    result: Any,
+    *,
+    regimen: str | None = None,
+    horizon: int | None = None,
+    cause: str | None = None,
+    repeat: int = 1,
+) -> _WeightSummary:
+    """The per-node summaries :func:`cleverly.plotting.weights` draws, without the matrices.
+
+    It selects and refuses exactly as :func:`node_weights` does.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        A fitted inverse-weighting or targeted longitudinal result.
+    regimen : str or None, default=None
+        The regimen's label.
+    horizon : int or None, default=None
+        The horizon of a curve fit; the largest when omitted.
+    cause : str or None, default=None
+        The cause, under competing events; the first when omitted.
+    repeat : int, default=1
+        The cross-fitting repeat, counted from one.
+
+    Returns
+    -------
+    _WeightSummary
+        The fields of :class:`NodeWeights` that are not per-unit arrays, and one
+        :class:`_NodeSummary` per node.
+    """
+    fit, meta = _resolve(result, regimen, horizon, cause, repeat)
+    return _WeightSummary(**meta, nodes=_node_summaries(fit))
+
+
+def _resolve(
+    result: Any, regimen: str | None, horizon: int | None, cause: str | None, repeat: int
+) -> tuple[RegimenFit, dict[str, Any]]:
+    """Select the fitted regimen, refusing as :func:`node_weights` documents, and its fields."""
     estimator = result.config.estimator
     if estimator in ("gcomp", "parametric_gformula"):
         from .._refusal import RefusalReason
@@ -254,34 +425,20 @@ def node_weights(
     from ..validation.longitudinal import _node_kind
 
     nodes = fit.scored_nodes
-    n = fit.obs_weights.shape[0]
-    used = np.full((n, len(nodes)), np.nan)
-    followed = np.zeros((n, len(nodes)), dtype=bool)
-    raw = np.empty((n, len(nodes)))
-    bounded = np.empty((n, len(nodes)))
-    for index, node in enumerate(nodes):
-        weight = fit.obs_weights * node.clever
-        used[node.trained_on, index] = weight[node.trained_on]
-        followed[:, index] = node.trained_on
-        raw[:, index] = fit.cumulative_unbounded[:, node.time - 1]
-        bounded[:, index] = fit.cumulative[:, node.time - 1]
-    return NodeWeights(
-        regimen=fit.regimen.label,
-        cause=fit.cause,
-        horizon=fit.horizon,
-        repeat=repeat,
-        n_repeats=len(repeats),
-        times=tuple(node.time for node in nodes),
-        node_kinds=tuple(_node_kind(fit, node.time) for node in nodes),
-        used=used,
-        followed=followed,
-        cumulative_unbounded=raw,
-        cumulative=bounded,
-        bounds=(float(result.config.g_bounds[0]), float(result.config.g_bounds[1])),
-        unit_weights=bool(np.all(fit.obs_weights == 1.0)),
-        cross_fitted=int(getattr(result.config, "n_folds", 1)) > 1,
-        reports_curve=bool(result.data.reports_curve),
-    )
+    meta = {
+        "regimen": fit.regimen.label,
+        "cause": fit.cause,
+        "horizon": fit.horizon,
+        "repeat": repeat,
+        "n_repeats": len(repeats),
+        "times": tuple(node.time for node in nodes),
+        "node_kinds": tuple(_node_kind(fit, node.time) for node in nodes),
+        "bounds": (float(result.config.g_bounds[0]), float(result.config.g_bounds[1])),
+        "unit_weights": bool(np.all(fit.obs_weights == 1.0)),
+        "cross_fitted": int(getattr(result.config, "n_folds", 1)) > 1,
+        "reports_curve": bool(result.data.reports_curve),
+    }
+    return fit, meta
 
 
 __all__ = ["NodeWeights", "node_weights"]

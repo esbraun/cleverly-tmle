@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import STATUS_RECORDS, WORKING_MODEL_STATUS, InferenceStatus
 from .._summary import Detail, Summary, check_detail
 from .._support import Support
@@ -42,14 +43,18 @@ from ..utils.bounds import resolve_g_bounds
 from .atmle import (
     SOURCE_FLOOR,
     AdaptiveTMLEFit,
+    CheckedInputs,
     WorkingModel,
-    fit_adaptive_tmle,
+    _fit_checked,
+    check_adaptive_inputs,
     stratified_partition,
 )
 
 if TYPE_CHECKING:
+    from .._planned_fits import PlannedFits
     from ..data.causal_data import CausalData
     from ..inference.delta import Transform
+    from ..learners._fitting import Task
     from ..methods import AdaptiveTMLEMethod
     from ..study import IdentifiedEffect
 
@@ -337,7 +342,9 @@ class AdaptiveTMLEResult:
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False
+    )
 
     #: The assessment family: one declaration per assessment operation in
     #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`. The fit holds no point-treatment
@@ -813,26 +820,30 @@ def _outer_folds(data: Any, kwargs: dict[str, Any], seed: int, observed: Any) ->
     )
 
 
-def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> AdaptiveTMLEResult:
-    """Fit adaptive TMLE for an identified :class:`~cleverly.study.TrialATE`.
+@dataclass(frozen=True)
+class _TrialPrefix:
+    """What the shared prefix of the trial fit and its preview checks and builds."""
 
-    ``None`` learners take the package's default library for the outcome family;
-    ``g_bounds="auto"`` resolves at the number of rows.
+    data: CausalData
+    estimand: Any
+    kwargs: dict[str, Any]
+    seed: int
+    family: Literal["gaussian", "binomial"]
+    learners: dict[str, Any]
+    g_bounds: tuple[float, float]
+    checked: CheckedInputs
 
-    Parameters
-    ----------
-    effect : IdentifiedEffect
-        The identified trial effect, bound to its study.
-    method : AdaptiveTMLEMethod
-        The declared method.
 
-    Returns
-    -------
-    AdaptiveTMLEResult
-        The fitted result.
+def _check_and_build(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> _TrialPrefix:
+    """Run every step of :func:`fit_trial_effect` before its first learner.
+
+    :func:`fit_trial_effect` and :func:`plan_trial_effect` both start here, so the preview
+    refuses what the fit refuses before it trains a model: the learner specifications, the
+    propensity bounds, the outer split, and every input check of
+    :func:`~cleverly.estimators.atmle.fit_adaptive_tmle`.
     """
     from ..data.causal_data import CausalData
-    from ..study import ParameterKey, TrialATE
+    from ..study import TrialATE
 
     study = effect._study
     assert study is not None
@@ -862,26 +873,182 @@ def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> Ad
         learners["missingness"] = resolved(kwargs["missingness_learner"], "classification")
     g_bounds = resolve_g_bounds(kwargs["g_bounds"], data.n)
     split = _outer_folds(data, kwargs, seed, data.observed if missing else None)
-    fit = fit_adaptive_tmle(
+    checked = check_adaptive_inputs(
         data.outcome,
         data.treatment,
         data.source.astype(float),
         data.covariates,
+        observed=data.observed if missing else None,
+        missingness_learner=learners.get("missingness"),
+        form=kwargs["form"],
+        population=estimand.population,
+        force_arm=kwargs["force_arm"],
+        folds=split,
+        n_folds=split.n_folds,
+        random_state=seed,
+        outcome_family=family,
+        covariate_names=data.covariate_names,
+    )
+    return _TrialPrefix(data, estimand, kwargs, seed, family, learners, g_bounds, checked)
+
+
+def plan_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> PlannedFits:
+    """The learner fits :func:`fit_trial_effect` would make, counted without fitting.
+
+    Each call of the nuisance fit trains the treatment learner, the trial-membership learner
+    twice (``pi`` and ``pibar``) and the outcome learner twice, or once with the missingness
+    learner once under missing outcomes.  The pooled form makes one call per outer fold;
+    the cross-validated form adds one per pair of outer folds.  The working models are
+    selected by an in-house lasso, which fits no learner.
+
+    Parameters
+    ----------
+    effect : IdentifiedEffect
+        The identified trial effect, bound to its study.
+    method : AdaptiveTMLEMethod
+        The declared method.
+
+    Returns
+    -------
+    PlannedFits
+        The record.
+    """
+    from .._planned_fits import FitCounter, PlanBuilder
+    from .._summary._learners import learner_name
+
+    prefix = _check_and_build(effect, method)
+    kwargs = prefix.kwargs
+    declared = kwargs["random_state"]
+    state: Literal["realized", "outer realized", "one draw"] = (
+        "realized"
+        if declared is not None
+        else "outer realized"
+        if kwargs["split_plan"] is not None
+        else "one draw"
+    )
+    outcome_task: Task = "classification" if prefix.family == "binomial" else "regression"
+    outcome = prefix.learners["outcome"]
+    treatment = prefix.learners["treatment"]
+    source = prefix.learners["trial membership"]
+    observing = prefix.learners.get("missingness")
+    split = prefix.checked.split
+    y, a, s, seen = prefix.checked.y, prefix.checked.a, prefix.checked.s, prefix.checked.seen
+    counter = FitCounter(weights=np.ones(y.size), groups=None, seed_fixed=state == "realized")
+    controls_only = not bool(np.any((s == 0.0) & (a == 1.0)))
+    assignment = np.asarray(split.assignment)
+    every = np.arange(y.size)
+    trains = [
+        every if split.n_folds == 1 else np.flatnonzero(assignment != v)
+        for v in range(split.n_folds)
+    ]
+    pairs = (
+        [
+            np.flatnonzero((assignment != u) & (assignment != v))
+            for u in range(split.n_folds)
+            for v in range(u + 1, split.n_folds)
+        ]
+        if kwargs["form"] == "cv"
+        else []
+    )
+    builder = PlanBuilder()
+    for rows_list, scope in (
+        (trains, "per outer fold"),
+        (pairs, "per pair of outer folds, for the working-model selection"),
+    ):
+        for train in rows_list:
+            members = train[a[train] == 0.0] if controls_only else train
+            builder.add(
+                "treatment_learner",
+                f"treatment mechanism, {scope}",
+                learner_name(kwargs["treatment_learner"]),
+                counter.one(treatment, a, train, task="classification", route_groups=False),
+            )
+            count = counter.one(source, s, members, task="classification", route_groups=False)
+            count.add(counter.one(source, s, train, task="classification", route_groups=False))
+            builder.add(
+                "source_learner" if method.source_learner is not None else "treatment_learner",
+                f"trial membership, with and without the arm, {scope}",
+                learner_name(kwargs["source_learner"]),
+                count,
+            )
+            if seen is None:
+                fits = counter.one(outcome, y, train, task=outcome_task, route_groups=False)
+                builder.add(
+                    "outcome_learner",
+                    f"outcome regression, with and without the arm, {scope}",
+                    learner_name(kwargs["outcome_learner"]),
+                    fits.scaled(2),
+                )
+                continue
+            assert observing is not None
+            builder.add(
+                "outcome_learner",
+                f"outcome regression on the observed rows, {scope}",
+                learner_name(kwargs["outcome_learner"]),
+                counter.one(outcome, y, train[seen[train]], task=outcome_task, route_groups=False),
+            )
+            builder.add(
+                "missingness_learner",
+                f"outcome observed, {scope}",
+                learner_name(kwargs["missingness_learner"]),
+                counter.one(
+                    observing,
+                    seen.astype(float),
+                    train,
+                    task="classification",
+                    route_groups=False,
+                ),
+            )
+    builder.multiply("outer folds", split.n_folds)
+    selections = split.n_folds if kwargs["form"] == "cv" else 1
+    builder.search(
+        "ATMLE working-model penalty path (effect and bias models, per selection)",
+        2 * selections,
+        False,
+        0,
+    )
+    return builder.build(state)
+
+
+def fit_trial_effect(effect: IdentifiedEffect, method: AdaptiveTMLEMethod) -> AdaptiveTMLEResult:
+    """Fit adaptive TMLE for an identified :class:`~cleverly.study.TrialATE`.
+
+    ``None`` learners take the package's default library for the outcome family;
+    ``g_bounds="auto"`` resolves at the number of rows.
+
+    Parameters
+    ----------
+    effect : IdentifiedEffect
+        The identified trial effect, bound to its study.
+    method : AdaptiveTMLEMethod
+        The declared method.
+
+    Returns
+    -------
+    AdaptiveTMLEResult
+        The fitted result.
+    """
+    from ..study import ParameterKey
+
+    prefix = _check_and_build(effect, method)
+    data, estimand, kwargs = prefix.data, prefix.estimand, prefix.kwargs
+    seed, family, learners, g_bounds = prefix.seed, prefix.family, prefix.learners, prefix.g_bounds
+    checked = prefix.checked
+    inner = kwargs["inner_folds"]
+    fit = _fit_checked(
+        checked,
         outcome_learner=learners["outcome"],
         treatment_learner=learners["treatment"],
         source_learner=learners["trial membership"],
         g_bounds=g_bounds,
-        observed=data.observed if missing else None,
         missingness_learner=learners.get("missingness"),
         basis=kwargs["basis"],
         form=kwargs["form"],
         population=estimand.population,
         force_arm=kwargs["force_arm"],
-        folds=split,
         inner_folds=inner,
         random_state=seed,
         outcome_family=family,
-        covariate_names=data.covariate_names,
     )
     alpha = method.inference.alpha
     n = data.n

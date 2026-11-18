@@ -438,7 +438,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "weighted-ltmle",
         "property",
         "interval_calibration/static__correctly_specified",
-        "type_i_error/static__sharp_null",
         "targeting_necessity/dynamic__targeted",
         "targeting_necessity/dynamic__untargeted",
         "targeting_necessity/static__targeted",
@@ -454,14 +453,22 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "learned-rule-arms-coverage-draws": _keys(
         "learned-rule-arms", "property", "conservative_coverage/missing_quadratic__declared"
     ),
+    # The binary declared-pair ATE, red on one draw set under correlated MOVER, which the
+    # regeneration under the shipped intervals reads (Fix-3 PR 3).
+    "ctmle-derivative-coverage-draws": _keys(
+        "ctmle-derivative", "truth", "cleverly-ctmle-derivative/binary_declared_pair/ate"
+    ),
     # The in-sample band over the arm mean near 0.94 in the smallest stratum.
     "strata-boundary-mean": _keys(
         "canonical-stratified-tmle",
         "property",
         "simultaneous_coverage/strata__simultaneous_band",
     ),
-    # The committed rows of that arm mean under the identity normal interval, which the logit
-    # interval of a bounded mean replaced: a standing record of the replaced interval.
+    # Committed rows under an interval the shipped default replaced, kept as the standing
+    # record of the replaced interval: that arm mean under the identity normal interval, which
+    # the logit interval of a bounded mean replaced, and ``small-sample-wald``'s bounded
+    # difference and skewed continuous means under the normal reference and the moment-df t,
+    # which correlated MOVER and the skew-widened t replaced (``asymmetric-wald``).
     "F3-normal-reference": (
         *_keys(
             "canonical-stratified-tmle",
@@ -473,6 +480,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "canonical-stratified-tmle",
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
+        ),
+        *_keys(
+            "small-sample-wald",
+            "property",
+            "heldout_coverage/ho_sparse_treat_ate",
+            "heldout_coverage/ho_hurdle_ey1",
+            "diagnosis_continuous/lognormal06_ey1",
         ),
     ),
     # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read
@@ -506,21 +520,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "heldout_coverage/ho_logit_msm_a",
             "heldout_coverage/ho_logit_msm_w",
         ),
-    ),
-    # ``small-sample-wald``'s held-out bounded difference whose treated arm sits near 1 and
-    # carries most of its variance: the rule's normal reference refuted for differences.
-    "F3-difference-near-bound": _keys(
-        "small-sample-wald",
-        "property",
-        "heldout_coverage/ho_sparse_treat_ate",
-    ),
-    # ``small-sample-wald``'s skewed continuous means in a small stratum: the moment-df t
-    # refuted for skewed outcomes, on held-out law H2 and on a diagnosis law.
-    "F3-skewed-continuous": _keys(
-        "small-sample-wald",
-        "property",
-        "heldout_coverage/ho_hurdle_ey1",
-        "diagnosis_continuous/lognormal06_ey1",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
     # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.
@@ -582,8 +581,27 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/boot_ate_crossfit__correctly_specified",
         "interval_calibration/boot_ate_clustered__correctly_specified",
     ),
+    # The supplement's declared width cost (X54 part (i)): the SE-ratio leg of the always risk
+    # and the contrast, declared red before the run (boundary_node_ltmle.PRIMARY_RED_READINGS).
+    "X54-supplement-width": _keys(
+        "boundary-node-ltmle",
+        "truth",
+        "cleverly/interior_n200/risk_regimen[always @ t=4]",
+        "cleverly/interior_n200/ate_regimen[always vs never @ t=4]",
+    ),
     # The declared negative control of ``sequential-baselines``: law ``X`` makes every
     # main-terms ``GLM`` wrong, so the calibration rule must fail.  Nothing is owed.
+    # The training-floor limit of the centred fold cluster variance (X54 part (e)): the three
+    # positive cells at 2 training clusters, below each configuration's floor of 4, held under
+    # the declared reading ``declared_route`` returns from the committed summary
+    # (few_cluster_fold_variance_properties.declared_route; the design test recomputes it).
+    "X54-training-floor": _keys(
+        "few-cluster-fold-variance",
+        "property",
+        "fold_variance_calibration/cluster_covariate__v2_j4__t_reference",
+        "fold_variance_calibration/equal10__v2_j4__t_reference",
+        "fold_variance_calibration/equal10__v2_j4__known_propensity",
+    ),
     "X41-negative-control": _keys(
         "sequential-baselines",
         "property",
@@ -598,7 +616,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # The point study's sanity phase is the same design at n = 2,000 (X82 SP). At 200
     # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
     # binary row cannot resolve its SE-ratio screen. The band-rank study's PJ1 sanity row
-    # (X82 SJ) covers 190 of 200, a 99% lower limit of 0.896 below the floor.
+    # (X82 SJ) covers 191 of 200, a 99% lower limit of 0.903 above the floor, and its bias
+    # interval crosses the margin.
     "X82-short-study-sanity": (
         *_keys(
             "refuter-calibration-longitudinal",

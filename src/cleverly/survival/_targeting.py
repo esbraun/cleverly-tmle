@@ -5,13 +5,17 @@ estimation for targeting cause-specific absolute risks and survival curves.  *Bi
 111(1), 129-145 (read as arXiv:2107.01537v2).
 
 Every array is indexed on the sorted distinct observed times :math:`u_1 < \dots < u_M` up to the
-last target time.  Hazards are jumps there, held for both arms of every unit,
+last time a target reads.  Hazards are jumps there, held for both arms of every unit,
 ``dlam[a, l, i, m]`` :math:`= d\Lambda_l(u_m \mid a, L_i)`, so the update tilts the hazard
 *function* of each arm for every unit (design section 4.2).  The cause incidences are the
 Aalen-Johansen sums :math:`F_j(t) = \sum_{u \le t} S(u^-)\, d\Lambda_j(u)`, with :math:`S` the
 product limit, so the incidences and the survival add to one at every step.
 
-Targets are ordered arm-major, then cause, then time: ``p = (a * J + j) * K + k``.
+Each target is a weighted sum of one arm's cause-:math:`j` incidence over the grid,
+:math:`\sum_m \omega_{q,m} F_j(u_m \mid a, L)`: a risk at a target time is the unit vector of
+its grid position, and a restricted mean time lost up to :math:`\tau` has the weights
+:math:`\Delta_m(\tau) = \min(u_{m+1}, \tau) - u_m` for :math:`u_m \le \tau` (X6 part (c)).
+Targets are ordered arm-major, then cause, then weight row: ``p = (a * J + j) * Q + q``.
 """
 
 from __future__ import annotations
@@ -49,16 +53,28 @@ class Problem:
         ``(J, n, M)`` indicator of an event of each cause at :math:`u_m`.
     weight : ndarray
         ``(2, n, M)`` the bounded :math:`1 / (\\pi(a \\mid L)\\, S_c(u_m^- \\mid a, L))`.
-    target_index : ndarray
-        ``(K,)`` the grid position of each target time: the last :math:`m` with
-        :math:`u_m \\le t_k`.
+    target_weights : ndarray
+        ``(Q, M)`` the grid weights :math:`\\omega_{q,m}` of each target of one arm and cause.
+        A risk at :math:`t_k` is the unit vector of the last :math:`m` with
+        :math:`u_m \\le t_k` (:func:`point_weights`).  With ``expand`` set, the weights are
+        on the full grid of ``expand.size`` times.
+    expand : ndarray or None
+        On a grid reduced to some of the full grid's times, ``(M_full,)`` the position on the
+        reduced grid of the last kept time at or before each full-grid time, ``-1`` before the
+        first.  The curves are constant between kept times, so a reduced curve read through
+        ``expand`` is the full-grid curve.  ``None`` when ``target_weights`` is on the arrays'
+        own grid.
+    kept : ndarray or None
+        ``(M,)`` the full-grid position of each reduced time, set with ``expand``.
     """
 
     arm: IntArray
     at_risk: np.ndarray
     events: np.ndarray
     weight: FloatArray
-    target_index: IntArray
+    target_weights: FloatArray
+    expand: IntArray | None = None
+    kept: IntArray | None = None
 
     @property
     def n(self) -> int:
@@ -71,9 +87,60 @@ class Problem:
         return int(self.events.shape[0])
 
     @property
+    def n_rows(self) -> int:
+        """The number of weight rows, the targets of one arm and cause."""
+        return int(self.target_weights.shape[0])
+
+    @property
     def n_targets(self) -> int:
-        """The number of targets, two arms by every cause and time."""
-        return 2 * self.n_causes * int(self.target_index.size)
+        """The number of targets, two arms by every cause and weight row."""
+        return 2 * self.n_causes * self.n_rows
+
+
+_EMPTY = np.zeros(0)
+
+
+def point_weights(index: IntArray, size: int) -> FloatArray:
+    """``(K, M)`` the unit weight rows of risks at the grid positions ``index``.
+
+    Parameters
+    ----------
+    index : ndarray
+        ``(K,)`` grid positions, each in ``range(size)``.
+    size : int
+        The grid size :math:`M`.
+
+    Returns
+    -------
+    ndarray
+        Row ``k`` is one at ``index[k]`` and zero elsewhere.
+    """
+    out = np.zeros((len(index), size))
+    out[np.arange(len(index)), np.asarray(index, dtype=int)] = 1.0
+    return out
+
+
+def restricted_weights(grid: FloatArray, tau: float) -> FloatArray:
+    r"""``(M,)`` the grid weights of :math:`\int_0^\tau F(u)\, du` for a step function on the grid.
+
+    With :math:`F` right-continuous, zero before :math:`u_1` and constant between grid points,
+    :math:`\int_0^\tau F = \sum_{u_m \le \tau} F(u_m) \{\min(u_{m+1}, \tau) - u_m\}` exactly,
+    with :math:`u_{M+1} = \infty`.
+
+    Parameters
+    ----------
+    grid : ndarray
+        ``(M,)`` the sorted grid.
+    tau : float
+        The restriction time.
+
+    Returns
+    -------
+    ndarray
+        The weight of each grid point, zero past :math:`\tau`.
+    """
+    upper = np.minimum(np.append(grid[1:], np.inf), tau)
+    return np.where(grid <= tau, upper - grid, 0.0)
 
 
 def curves(dlam: FloatArray) -> tuple[FloatArray, FloatArray]:
@@ -128,6 +195,72 @@ class Evaluation:
         return np.sqrt(np.mean(self.influence**2, axis=0))
 
 
+def _filled(values: FloatArray, expand: IntArray) -> FloatArray:
+    """``values`` on a reduced grid read at every full-grid time, zero before the first kept."""
+    padded = np.concatenate([np.zeros((*values.shape[:-1], 1)), values], axis=-1)
+    # np.take keeps the result C-ordered; an index on the last axis would not, and a matrix
+    # product on another memory order sums in another order.
+    return np.take(padded, expand + 1, axis=-1)
+
+
+def evaluate_rows(
+    problem: Problem, dlam: FloatArray, survival: FloatArray, incidence: FloatArray
+) -> tuple[FloatArray, FloatArray]:
+    """Each unit's score parts and plug-ins of every target, at hazards with these curves.
+
+    Every operation is per unit, so the rows of a subset of units are those of the whole.
+
+    Parameters
+    ----------
+    problem : Problem
+        The fixed inputs.
+    dlam : ndarray
+        ``(2, J, n, M)`` hazard jumps.
+    survival : ndarray
+        ``(2, n, M)`` their survival, from :func:`curves`.
+    incidence : ndarray
+        ``(2, J, n, M)`` their cause incidences, from :func:`curves`.
+
+    Returns
+    -------
+    parts : ndarray
+        ``(n, P)`` each unit's score part of each target's efficient influence function.
+    plugins : ndarray
+        ``(n, P)`` each unit's plug-in of each target.
+    """
+    J, Q = problem.n_causes, problem.n_rows
+    n = problem.n
+    rows = problem.target_weights.T  # (M, Q)
+    expand = problem.expand
+    parts = np.zeros((n, 2 * J * Q))
+    plugins = np.zeros((n, 2 * J * Q))
+    for a in (0, 1):
+        mask = (problem.arm == a).astype(float)[:, None]
+        # In place, since each (J, n, M) temporary is hundreds of MB at n = 4,000.
+        weighted = problem.at_risk[None] * dlam[a]
+        np.subtract(problem.events, weighted, out=weighted)
+        weighted *= problem.weight[a][None]
+        weighted *= mask[None]  # (J, n, M)
+        total = weighted.sum(axis=0)
+        ratio = total / survival[a]
+        cum_ratio = np.cumsum(ratio, axis=1)
+        for j in range(J):
+            # Each target's score part is the weighted sum over the grid of the point
+            # targets' parts, sum_m w_m {N_j(u_m) - F_j(u_m) R(u_m) + C_j(u_m)}, with R and C
+            # the cumulated ratios; a unit row picks one grid position exactly.
+            cum_own = np.cumsum(weighted[j], axis=1)
+            cum_own -= incidence[a, j] * cum_ratio
+            cum_own += np.cumsum(incidence[a, j] * ratio, axis=1)
+            block = slice((a * J + j) * Q, (a * J + j + 1) * Q)
+            if expand is None:
+                parts[:, block] = cum_own @ rows
+                plugins[:, block] = incidence[a, j] @ rows
+            else:
+                parts[:, block] = _filled(cum_own, expand) @ rows
+                plugins[:, block] = _filled(incidence[a, j], expand) @ rows
+    return parts, plugins
+
+
 def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
     """Evaluate the plug-in and the efficient influence curves (design section 4.1).
 
@@ -144,51 +277,72 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
         The plug-in, score and influence curves.
     """
     survival, incidence = curves(dlam)
-    J, K = problem.n_causes, problem.target_index.size
-    n = problem.n
-    parts = np.zeros((n, 2 * J * K))
-    plugins = np.zeros((n, 2 * J * K))
-    for a in (0, 1):
-        mask = (problem.arm == a).astype(float)[:, None]
-        # In place, since each (J, n, M) temporary is hundreds of MB at n = 4,000.
-        weighted = problem.at_risk[None] * dlam[a]
-        np.subtract(problem.events, weighted, out=weighted)
-        weighted *= problem.weight[a][None]
-        weighted *= mask[None]  # (J, n, M)
-        total = weighted.sum(axis=0)
-        ratio = total / survival[a]
-        cum_ratio = np.cumsum(ratio, axis=1)
-        for j in range(J):
-            cum_own = np.cumsum(weighted[j], axis=1)
-            cum_f = np.cumsum(incidence[a, j] * ratio, axis=1)
-            for k, m in enumerate(problem.target_index):
-                p = (a * J + j) * K + k
-                f_k = incidence[a, j][:, m]
-                parts[:, p] = cum_own[:, m] - f_k * cum_ratio[:, m] + cum_f[:, m]
-                plugins[:, p] = f_k
+    parts, plugins = evaluate_rows(problem, dlam, survival, incidence)
+    return summarize(parts, plugins, survival, incidence)
+
+
+def summarize(
+    parts: FloatArray,
+    plugins: FloatArray,
+    survival: FloatArray | None = None,
+    incidence: FloatArray | None = None,
+) -> Evaluation:
+    """The evaluation of every unit's score parts and plug-ins: the means over units.
+
+    Parameters
+    ----------
+    parts : ndarray
+        ``(n, P)`` score parts, from :func:`evaluate_rows`.
+    plugins : ndarray
+        ``(n, P)`` plug-ins.
+    survival : ndarray or None
+        The curves to carry; ``None`` carries an empty array.
+    incidence : ndarray or None
+        The curves to carry; ``None`` carries an empty array.
+
+    Returns
+    -------
+    Evaluation
+        The plug-in, score and influence curves.
+    """
     psi = plugins.mean(axis=0)
     influence = parts + plugins - psi
-    return Evaluation(psi, parts.mean(axis=0), influence, survival, incidence)
+    return Evaluation(
+        psi,
+        parts.mean(axis=0),
+        influence,
+        _EMPTY if survival is None else survival,
+        _EMPTY if incidence is None else incidence,
+    )
 
 
 def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> FloatArray:
-    """``(2, J, n, M)`` the combined clever covariate :math:`\\sum_p v_p c_p(u, a, L_i)`.
+    r"""``(2, J, n, M)`` the combined clever covariate :math:`\sum_p v_p c_p(u, a, L_i)`.
 
-    Built from reverse cumulative sums over time, so a step costs :math:`O(JnM)`.
+    A target with grid weights :math:`\omega_m` has the clever covariate
+    :math:`1\{l = j\} W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) - W(u) F_j(u)\} / S(u)`,
+    :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  Both sums are
+    reverse cumulative sums over time, so a step costs :math:`O(JnM)` for any weights.  On a
+    reduced grid (``problem.expand`` set) both sums run over the full grid and are read at the
+    kept times.
     """
-    J, K = problem.n_causes, problem.target_index.size
+    J, Q = problem.n_causes, problem.n_rows
     n, M = problem.at_risk.shape
+    expand, kept = problem.expand, problem.kept
     out = np.zeros((2, J, n, M))
     for a in (0, 1):
-        own = np.zeros((J, M))  # sum of v over targets of cause j with t_k >= u_m
-        weighted_f = np.zeros((J, n, M))  # sum of v F_j(t_k) over the same targets
-        for j in range(J):
-            for k, m in enumerate(problem.target_index):
-                p = (a * J + j) * K + k
-                own[j, m] += v[p]
-                weighted_f[j, :, m] += v[p] * evaluation.incidence[a, j][:, m]
-        own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]
+        # The weight each grid point carries for cause j: sum_q v_(a,j,q) w_(q,m).
+        own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
+        incidence = evaluation.incidence[a]
+        if expand is not None:
+            incidence = _filled(incidence, expand)
+        weighted_f = incidence * own[:, None, :]  # (J, n, M)
+        own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W(u)
         weighted_f = np.cumsum(weighted_f[:, :, ::-1], axis=2)[:, :, ::-1]
+        if expand is not None:
+            assert kept is not None
+            own = np.take(own, kept, axis=-1)
+            weighted_f = np.take(weighted_f, kept, axis=-1)
         shared = (weighted_f - evaluation.incidence[a] * own[:, None, :]).sum(axis=0)
         shared = shared / evaluation.survival[a]
         for l in range(J):
@@ -305,9 +459,6 @@ def standardized(evaluation: Evaluation) -> float:
     return float(np.max(np.abs(evaluation.score) / sigma))
 
 
-_EMPTY = np.zeros(0)
-
-
 def walk(
     problem: Problem,
     dlam: FloatArray,
@@ -348,91 +499,19 @@ def walk(
     WalkResult
         The targeted hazards and the walk's record.
     """
-    halving_cap = 2 * max_steps if max_halvings is None else max_halvings
-    initial_step = step
-    # Never written in place: each accepted step replaces it, so no copy is held.
-    current = np.asarray(dlam, dtype=float)
+    from ._chunked import DensePlan, run_walk
+
+    plan = DensePlan(problem, dlam)
     del dlam
-    initial = evaluate(problem, current)
-    metric = _metric(
-        np.cov(initial.influence, rowvar=False, bias=True).reshape(
-            problem.n_targets, problem.n_targets
-        ),
-        norm,
-    )
-    # A trial is rejected below the floor, or below the initial fit's own smallest survival
-    # when that is lower, so an accepted initial fit is never rejected as a starting point.
-    survival_floor = min(WALK_SURVIVAL_FLOOR, float(np.min(initial.survival[..., -1])))
-    light = Evaluation(initial.psi, initial.score, initial.influence, _EMPTY, _EMPTY)
-    evaluation = initial
-    del initial
-    # Pairs held on the step being tried, and pairs held on any step, for the record.
-    frozen = np.zeros((2, problem.n), dtype=bool)
-    ever = np.zeros((2, problem.n), dtype=bool)
-    steps = halvings = 0
-    history = [standardized(evaluation)]
-    converged = history[-1] <= cutoff
-    if tilt == "factual":
-        factual = np.stack([(problem.arm == a).astype(float) for a in (0, 1)])[:, None, :, None]
-    while not converged and steps < max_steps and halvings < halving_cap and step >= MIN_STEP:
-        x = evaluation.score
-        weighted = metric @ x
-        length = float(np.sqrt(x @ weighted))
-        if length == 0.0:
-            converged = True
-            break
-        direction = _direction(problem, evaluation, weighted / length)
-        if tilt == "factual":
-            direction = direction * factual
-        if frozen.any():
-            direction *= ~frozen[:, None, :, None]
-        direction *= step
-        candidate = tilt_jumps(current, direction)
-        del direction
-        trial = evaluate(problem, candidate)
-        low = trial.survival[..., -1] < survival_floor
-        if low.any():
-            del candidate, trial
-            new = low & ~frozen
-            if new.any():
-                # Pairs the step takes below the floor are held for this step and the same step
-                # is tried again; they move again on the next step, whose direction is
-                # recomputed.
-                frozen |= new
-                ever |= new
-                continue
-            # Only held pairs read below the floor (a tilt of zero can round a held pair's
-            # survival down by an ulp), so holding more cannot help: halve as for a rejection.
-            step /= 2
-            halvings += 1
-            frozen[:] = False
-            continue
-        trial_length = float(np.sqrt(trial.score @ metric @ trial.score))
-        if not np.isfinite(trial_length) or trial_length >= length:
-            # Freed now rather than on the next trial, which would hold two of each.
-            del candidate, trial
-            step /= 2
-            halvings += 1
-            frozen[:] = False
-            continue
-        current, evaluation = candidate, trial
-        frozen[:] = False
-        step = min(2.0 * step, initial_step)
-        steps += 1
-        history.append(standardized(evaluation))
-        converged = history[-1] <= cutoff
-    return WalkResult(
-        current,
-        evaluation,
-        light,
-        steps,
-        halvings,
-        converged,
-        cutoff,
-        step,
-        float(ever.mean()),
-        history,
-    )
+    return run_walk(
+        plan,
+        cutoff=cutoff,
+        norm=norm,
+        step=step,
+        max_steps=max_steps,
+        max_halvings=max_halvings,
+        tilt=tilt,
+    ).result
 
 
 def default_cutoff(n: int) -> float:
