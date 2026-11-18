@@ -32,7 +32,6 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from functools import cached_property
 from itertools import product
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
@@ -139,9 +138,10 @@ class BreslowHazard:
         """The baseline's jumps at :attr:`atoms`."""
         return np.asarray(self.model.baseline_jumps_, dtype=float)
 
-    @cached_property
+    @property
     def _cum(self) -> np.ndarray[Any, Any]:
-        # The same cumulative sum CoxHazard.cumulative_hazard reads, computed once per model.
+        # The same cumulative sum CoxHazard.cumulative_hazard reads. Not cached: a memo would
+        # ride into every saved artifact that holds the model.
         return np.cumsum(self.jumps)
 
     def eta(self, X: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
