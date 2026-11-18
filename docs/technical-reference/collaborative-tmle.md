@@ -82,6 +82,19 @@ so no contrast is privileged by its position. `ey` contributes all `K` arm curve
 `or` contribute all `K - 1` curves against the reference. `CTMLESelection.target_names` records the
 exact vector that was optimized.
 
+**The record counts the search's work.** `CTMLESelection.candidate_fits`, `mechanism_fits` and
+`target_solves` hold one count per search branch: the analysis sample first, then each selection
+fold. A candidate fit is one fluctuation of a candidate mechanism, so a greedy step that retries
+from a further targeted fit scores its remaining covariates twice. A mechanism counts once however many
+folds it is cross-fitted over.
+
+Each penalty of a lasso path counts as one mechanism, and supplied
+`PropensityArrays` count as none. Solves are the candidates plus the logistic preorder's
+one-covariate solves. The estimator's final targeting of the chosen candidate is not counted.
+Under `patience` the counts are the work done: `lasso` and `learners` pass the stop, and the
+logistic preorder scores every covariate before the path starts. With `repeats`, the record
+describes the first draw. The summary's "Search work" line sums the counts.
+
 Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju et al. (2019); see
 [collaborative TMLE](../references.md#collaborative-tmle). Implementation:
 [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py).
