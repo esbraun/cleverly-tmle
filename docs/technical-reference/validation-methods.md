@@ -3887,6 +3887,13 @@ in the summary because `result.fits[name].summary()` is not available. Each cand
 prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
 `CapabilityError`.
 
+`variable_importance_plan` takes the same arguments without `keep_fits` and returns the
+`PlannedFits` record of the run without fitting a learner. It runs the same refusal checks in the
+same order, prices each candidate's fit with the estimator's own preview on that candidate's
+prepared data, and suffixes each row's scope with the candidate. A multiplier whose value differs
+between candidates, such as the number of arms, is left out of the record's multipliers and named
+in a note (`tests/unit/test_variable_importance_plan.py`).
+
 ## How the library certifies itself
 
 The three layers above review *your fit*. This layer reviews *the implementation*. It is the

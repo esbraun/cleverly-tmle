@@ -126,6 +126,7 @@ from .variable_importance import (
     VariableImportanceEntry,
     VariableImportanceResult,
     variable_importance,
+    variable_importance_plan,
 )
 
 __all__ = [
@@ -216,4 +217,5 @@ __all__ = [
     "__version__",
     "load",
     "variable_importance",
+    "variable_importance_plan",
 ]

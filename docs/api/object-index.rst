@@ -132,6 +132,7 @@ categorized API tables.
    cleverly.VariableImportanceResult
    cleverly.ImportanceFacts
    cleverly.variable_importance
+   cleverly.variable_importance_plan
    cleverly.load
    cleverly.SuperLearner
    cleverly.CleverlyError

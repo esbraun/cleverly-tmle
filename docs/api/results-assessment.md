@@ -35,6 +35,7 @@ rows as a dataframe.
    cleverly.VariableImportanceResult
    cleverly.ImportanceFacts
    cleverly.variable_importance
+   cleverly.variable_importance_plan
    cleverly.load
    cleverly.effect_curves.EffectCurveResult
    cleverly.effect_curves.CurveBand
