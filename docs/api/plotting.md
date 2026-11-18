@@ -60,7 +60,10 @@ The [plot results](../examples/plots.ipynb) tutorial shows the main figures on s
 The results that have one natural figure also draw it with `plot()`:
 `TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`, and
-`SensitivityContour.plot()` and `SimulatedConfoundingResult.plot()` call `confounding`.
+`SensitivityContour.plot()` and `SimulatedConfoundingResult.plot()` call `confounding`. On a
+time-to-event surface its outcome axis reads the strength as a log-odds shift of each time point's
+event chance on a survival panel, and as a log-hazard shift of each event type on a fit with exact
+times, with one benchmark mark for each event type.
 `TargetingCurve.plot()` calls `targeting`.
 `CovariateBalance.plot()` and `BalanceOverTime.plot()` call `balance`, and `StudyResult.plot()`
 calls `zipper`.

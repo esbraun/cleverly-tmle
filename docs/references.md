@@ -2290,6 +2290,24 @@ sizes only the cluster sum is the delta-method variance of the row mean
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
   and a mixed latent cause for this surface. The clustered point law of the simulated common-cause surface
   cites it as a negative finding.
+- Prentice & Gloeckler (1978), [*Regression analysis of grouped survival data with application to
+  breast cancer data*](https://doi.org/10.2307/2529588), *Biometrics* 34(1):57–67. Not read here.
+  It is cited for the grouped-time form of the proportional-hazards model, in which the event
+  probability at an atom $u$ of the baseline is $1 - \exp\{-e^{\eta}\Delta\Lambda_0(u)\}$. The
+  continuous-time replay of the simulated common-cause surface reads each fitted Cox model that
+  way, and the exact discrete-law check in `tests/unit/test_simulated_confounding_continuous.py`
+  states the law it checks in the test itself.
+- Prentice, Kalbfleisch, Peterson, Flournoy, Farewell & Breslow (1978), [*The analysis of failure
+  times in the presence of competing risks*](https://doi.org/10.2307/2530374), *Biometrics*
+  34(4):541–554. Not read here. It is cited for the standard result that the cause-specific
+  hazards determine the joint law of the first event time and its cause, which the continuous-time
+  replay uses to draw one latent time per cause.
+- Bender, Augustin & Blettner (2005), [*Generating survival times to simulate Cox proportional
+  hazards models*](https://doi.org/10.1002/sim.2059), *Statistics in Medicine* 24(11):1713–1723.
+  Not read here. It is cited for the inversion of a proportional-hazards cumulative hazard at an
+  exponential level, the step the continuous-time replay applies on each fitted baseline. The
+  known-hazard checks in `tests/unit/test_simulated_confounding_continuous.py` verify the
+  inversion exactly.
 
 ## Negative controls
 

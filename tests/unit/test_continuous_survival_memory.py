@@ -124,10 +124,10 @@ def _measure(
 
     initial = engine.ContinuousSurvivalTMLE._initial
 
-    def traced_initial(self: Any, data: Any, seed: int, *, folds: Any = None) -> Any:
+    def traced_initial(self: Any, data: Any, seed: int, **kwargs: Any) -> Any:
         switch(None, "nuisance")
         try:
-            return initial(self, data, seed, folds=folds)
+            return initial(self, data, seed, **kwargs)
         finally:
             switch("nuisance", None)
             switch("initial", None)

@@ -707,7 +707,7 @@ not record could change the answer.
 | call | what it does | where it runs |
 | --- | --- | --- |
 | `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")`. On a fit with exact times, name the two arms' risks of one event at one target time, such as `("cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]")` |
-| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not |
+| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not, and a fit with exact times |
 
 `simulated_confounding` returns a surface: one estimate for each pair of confounder strengths in
 the grid you pass. To read it, find the weakest confounder at which the estimate crosses zero, and judge
@@ -722,6 +722,15 @@ changed, and a person whose event the confounder removes stays in follow-up on f
 grid cell with both strengths at zero gives the original estimate.
 [The stress surface](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 gives the replay and its checks.
+
+On a fit with exact times, the confounder scales each person's event rate of every event type
+up or down, and new event and censoring times are drawn from models the analysis fits for this
+purpose. Censoring is again drawn afresh only where the treatment changed, and both strengths at
+zero give back the recorded times and the original estimate. Each grid cell other than that one
+refits the whole analysis, so a 3 by 3 grid costs 8 refits: seconds at a few hundred people, and
+minutes for a large cross-fitted fit. The surface prints numbers, not a pass or fail.
+[Continuous-time survival replay](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+gives the law and its checks.
 :::
 
 Both analyses, and the checks that generate new outcomes (`dummy_outcome`, `simulated_outcome`,

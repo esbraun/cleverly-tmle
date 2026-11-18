@@ -2311,10 +2311,13 @@ KINDS: dict[str, Kind] = {
     "learned_regimen": _kind(fit_learned_regimen, *_READ),
     # The stored estimator refits on the stored data (X101): refute answers through the first
     # reported estimate, an arm risk, so it runs the noise test. The E-value reads the risk
-    # ratio of the pair of risks the sweep names.
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, *_POINT, "evalue"),
+    # ratio of the pair of risks the sweep names. The simulated common cause replays event and
+    # censoring times and refits in each cell (X101 part (b)).
+    "continuous_survival": _kind(
+        fit_continuous_survival, *_READ, *_POINT, "evalue", "simulated_confounding"
+    ),
     "continuous_survival+restricted": _kind(
-        fit_continuous_survival_restricted, *_READ, *_POINT, "evalue"
+        fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
     ),
 }
 

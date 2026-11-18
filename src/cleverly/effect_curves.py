@@ -27,6 +27,7 @@ from scipy.special import expit
 from scipy.stats import chi2
 from scipy.stats import f as f_distribution
 
+from ._assessment_cache import AssessmentCache
 from ._pooled_targeting import PooledFit, arm_span_basis, solve_pooled, span_basis
 from ._support import Support
 from ._typing import FloatArray, IntArray
@@ -518,7 +519,9 @@ class EffectCurveResult:
     sieve: Any = None
     clipped_share: float = 0.0
     fit_warnings: tuple[Any, ...] = field(default=(), compare=False)
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False
+    )
 
     #: The assessment family whose capability rows a curve reads.
     assessment_family: ClassVar[str] = "effect_modification"

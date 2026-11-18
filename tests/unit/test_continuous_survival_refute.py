@@ -541,12 +541,12 @@ def test_t9_a_result_without_its_estimator_or_data_refuses() -> None:
             refute(bare, estimand=RD, tests=("subset",))
 
 
-def test_t9_simulated_confounding_keeps_an_x101_refusal() -> None:
+def test_t9_simulated_confounding_runs_on_a_continuous_fit() -> None:
+    """PR 3 lifts the X101 refusal: the row is live and asks for a grid and an estimand."""
     result = _fresh(_in_sample())
     row = result.sensitivity.capability("simulated_confounding")
-    assert not row.available and row.refusal.roadmap == "X101"
-    assert row.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert "the shipped survival replay reads a time grid" in row.refusal.condition
+    assert row.available and row.refusal is None
+    assert set(row.requires_arguments) == {"grid", "estimand"}
 
 
 # ----------------------------------------------------------------- T10 readings and scope
