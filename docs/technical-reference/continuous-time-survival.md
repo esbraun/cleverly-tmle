@@ -289,7 +289,10 @@ second call.
 For risks with the shipped learners, every estimate, standard error, influence curve, band and
 record field equals the dense walk's bit for bit, whatever the block size, the blocks kept, the
 number of trial steps per pass or the budget. With a restricted mean or a user hazard learner the
-sums run in another order, and floats agree to $10^{-12}$ relative.
+matrix products run over a block's rows rather than all $n$, so BLAS adds in another order: every
+step count, halving, convergence flag and share is unchanged, and floats agree to $10^{-8}$
+relative (the largest difference over 200 replayed study fits was $1.6 \times 10^{-9}$, and the same
+fit run as one block was bit for bit the dense walk's).
 `tests/unit/test_continuous_survival_blocks.py` checks both against a transcription of the dense
 walk run from the same nuisance fits, anchored to numbers the dense engine produced, with mutation
 controls on the event-support grid, the replay, the trial ladder and the off-grid sums.
