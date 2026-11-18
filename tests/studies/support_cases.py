@@ -2921,6 +2921,30 @@ def _hazard_time_varying_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _hazard_time_varying_multinode_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-time-varying-multinode`` (X70 part (b2)): ``G63.multinode``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_time_varying_multinode", "hazard-time-varying-multinode"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G63.multinode.{row}",
+            slug,
+            label,
+            f"{module}.py:424",
+            module,
+            lambda study: study.law.LAW.draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("in_sample", "multinode"),
+        case("cross_fitted", "crossfit"),
+    )
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -3550,6 +3574,7 @@ CASES: tuple[RowCase, ...] = (
     *_known_sample_weights_cases(),
     *_hazard_multinode_cases(),
     *_hazard_time_varying_cases(),
+    *_hazard_time_varying_multinode_cases(),
     *_projection_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),

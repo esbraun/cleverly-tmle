@@ -2170,6 +2170,13 @@ SAME_DRAW_FAMILIES = {
         frozenset({"interval_calibration", "power"}),
         frozenset({"double_robustness", "targeting_necessity"}),
     ),
+    # ``hazard-time-varying-multinode`` (X70 (b2)): the same pairs as ``hazard-time-varying``,
+    # on the ``multinode`` calibration fits and the ``multinode`` ``mechanism_correct``
+    # robustness fits.
+    "hazard-time-varying-multinode": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
     "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
     # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
     # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
