@@ -99,7 +99,13 @@ class _Spy:
 
         self.learned: list[tuple[Any, Any, LearnedRules]] = []
         self.recursed: list[LearnedRules] = []
+        self.events: list[str] = []
         learn, target = estimator.learn_fold_rules, estimator.fit_learned_regimen
+        record = estimator.learned_regimen_record
+
+        def record_spy(*args: Any, **kwargs: Any) -> Any:
+            self.events.append("record")
+            return record(*args, **kwargs)
 
         def learn_spy(data: Any, plan: Any, **kwargs: Any) -> LearnedRules:
             rules = learn(data, plan, **kwargs)
@@ -108,10 +114,12 @@ class _Spy:
 
         def target_spy(data: Any, plan: Any, mechanism: Any, rules: Any, **kwargs: Any) -> Any:
             self.recursed.append(rules)
+            self.events.append("recursion")
             return target(data, plan, mechanism, rules, **kwargs)
 
         monkeypatch.setattr(estimator, "learn_fold_rules", learn_spy)
         monkeypatch.setattr(estimator, "fit_learned_regimen", target_spy)
+        monkeypatch.setattr(estimator, "learned_regimen_record", record_spy)
 
 
 @pytest.mark.parametrize(
@@ -138,6 +146,8 @@ def test_the_fit_record_is_the_baseline_record(
     ((carried,),) = (spy.recursed,)
     assert carried.blips == () and carried.second_node_blips == ()
     assert carried.assignments is rules.assignments
+    # The record was built from the full rules before the recursion started.
+    assert spy.events == ["record", "recursion"]
 
 
 def test_the_record_reaches_censoring_and_both_arms() -> None:
@@ -171,3 +181,41 @@ def test_a_flipped_code_is_seen() -> None:
     one = learned.learned_regimen_record(data, plan, rules, seed=0)
     two = learned.learned_regimen_record(data, plan, mutated, seed=0)
     assert one.nodes[0].treated_shares != two.nodes[0].treated_shares
+
+
+def _learned(result: Any) -> tuple[Any, Any, LearnedRules]:
+    data = result.data
+    plan = learned.learned_plan(learned.LearnedRegimen(), data)
+    rules = learned.learn_fold_rules(
+        data,
+        plan,
+        folds=result.folds,
+        scaler=result.scaler,
+        outcome_learner=logistic(),
+        pseudo_learner=LinearRegression(),
+    )
+    return data, plan, rules
+
+
+@pytest.mark.parametrize("case", ["treats nobody", "nobody at risk"])
+def test_degenerate_folds_match_the_baseline(case: str) -> None:
+    """A fold whose rule treats nobody (share 0) and a fold with no held row at risk at the
+    second node (empty ``treated``, share NaN) give the baseline record."""
+    data, plan, rules = _learned(fit(panel(600, seed=4)))
+    codes = [a.copy() for a in rules.assignments]
+    (_, test) = next(iter(rules.folds))
+    if case == "treats nobody":
+        codes[0][test, :] = 0
+    else:
+        # Every held row's first code disagrees with the arm it received: nobody follows.
+        first = np.asarray(data.node_codes(1), dtype=float)
+        codes[0][test, 0] = (1.0 - first[test]).astype(np.int8)
+    rules = LearnedRules(tuple(codes), rules.blips, rules.second_node_blips, rules.folds)
+    stitched = plan.with_assignment(rules.stitched())
+    ours = learned.learned_regimen_record(data, stitched, rules, seed=0)
+    _same_record(ours, _baseline_record(data, stitched, _as_float(rules), seed=0))
+    shares = ours.nodes[0 if case == "treats nobody" else 1].treated_shares
+    if case == "treats nobody":
+        assert shares[0] == 0.0
+    else:
+        assert np.isnan(shares[0])
