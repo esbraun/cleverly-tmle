@@ -1170,7 +1170,8 @@ FINITE_SAMPLE_READING: Final[str] = "below floor (finite-sample)"
 #: (clause 2), or the cell has fewer than two shown draws.
 CONTROL_READING: Final[str] = "control power"
 #: A red at or above the anchor whose recorded diagnosis (:data:`NO_DEFECT_DIAGNOSES`) finds no
-#: defect, cited against the pilot's predictive family figure.
+#: defect and which agrees with its committed counterpart (:func:`agrees_with_committed`),
+#: cited against the pilot's predictive family figure.
 CHANCE_READING: Final[str] = "finite-sample (plug-in sizing)"
 #: A red ``few_cluster_candidate`` or pooled row: the candidate is not non-inferior to (A)
 #: there, which the part (c) decision reads (rules 4 and 5).
@@ -1803,7 +1804,10 @@ def control_pass_probability(
     at the pilot's draws, already rescaled to ``replicates``; clause 1 passes when the 99%
     upper end lies below 0.80. ``positive_high_sd`` is the positive arm's SE ratio and its
     standard error at ``replicates``; clause 2 passes when its 99% upper end is at most 1.20.
-    The clauses are treated as independent.
+    The clauses are treated as independent, which they are not: both read the positive's
+    cluster SE, and an inflated cluster SE helps clause 1 while it hurts clause 2. The pass
+    events are negatively dependent, so the product overstates the joint power. It feeds only
+    the predicted-red list and the M5 plug-in, never a gate.
     """
     z = float(stats.norm.ppf(0.995))
     clause1 = (

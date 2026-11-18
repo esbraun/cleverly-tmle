@@ -23,8 +23,10 @@ probability 1.000). No key was lost. ``pilot-timing.csv`` projects 13.3 CPU-h at
 
 **What is gated**: the registered two-clause rule of ``clustered-few-cluster-tmle``, as in
 ``few-cluster-floor-tmle``: G1 and G2 on each ``t_reference`` row, both control clauses on each
-``iid_t_control`` row, with ``shown_only`` (the SE ratios read the shown draws; a cell with fewer
-than two shown draws fails its control). Every other arm is reported, and so are the package-GLM columns of each
+``iid_t_control`` row, with ``shown_only`` (the SE ratios read the shown draws, not withheld
+with a finite positive SE: 50 ``out_of_range`` rows in the pilot keep a finite SE and are left
+out; a cell with fewer than two shown draws fails its control; the accounting reads the same
+draws). Every other arm is reported, and so are the package-GLM columns of each
 positive row (the raised share by count with its exact interval, and the study learner's shown
 coverage split by whether the package GLM raised, M2 and Q15).
 
@@ -51,7 +53,9 @@ projects 13.1 CPU-h at the declared R (a three-draw smoke 15.2 at R = 6,000). Th
 
 **Failures**: as ``few-cluster-floor-tmle``. A 24-draw smoke of every cell lost no key.
 
-**Red-cell readings**: as ``few-cluster-floor-tmle``, owner ``X54-cluster-floor``. ``unequal40`` at 6 to 10 clusters may read
+**Red-cell readings**: as ``few-cluster-floor-tmle``, owner ``X54-cluster-floor``; a red at or
+above 20 is compared with the committed ``few-cluster-cross-fitted-ltmle`` cell at the same law
+and J. ``unequal40`` at 6 to 10 clusters may read
 all-draw coverage near 0.92, where G1 passes or fails by chance (plan 2.2); the floor reports
 the count honestly either way.
 """

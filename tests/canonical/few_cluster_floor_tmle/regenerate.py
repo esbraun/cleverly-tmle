@@ -32,12 +32,35 @@ pilot changed no rule, margin, law or ladder.
   covers 0.915. A red there takes the declared route of a red at or above the anchor: the floor
   stays at the anchor, the family is a defect suspect and is diagnosed first, and the red is
   held by ``X54-cluster-floor`` under ``finite-sample (plug-in sizing)`` only once a no-defect
-  diagnosis is recorded in ``NO_DEFECT_DIAGNOSES``. No floor or threshold moves.
+  diagnosis is recorded in ``NO_DEFECT_DIAGNOSES`` and the cell agrees with its committed
+  counterpart (below). No floor or threshold moves. The four J10 reds share one set of 400
+  ``equal10`` draws (one draw serves every fit of a ``(law, J)``), where every family reads low
+  together, so they are one event, not four; the run draws new samples on the ``property``
+  stream.
+- **Fold-evaluated: declared F = 10.** Its paired IID/cluster ratio is 0.80 to 0.81 wherever
+  every validation fold holds exactly 2 clusters (J6, J8, J10), against 0.75 to 0.76 at J9 and
+  0.73 at J15, so its J10 control is a structural red and ``family_floor`` keeps the anchor:
+  the declared outcome for ``tmle_fold_evaluated`` is F = 10 (``defect suspect: 10`` until
+  diagnosed). The first item of that diagnosis is the comparison of the pilot's J10 ratio,
+  0.804 (99% interval 0.775 to 0.836), with the committed ``tmle_cv_evaluation`` cell at the
+  same J and V = 5, 0.758 (upper end 0.767).
 - **Predicted reds** (``PILOT_PREDICTED_REDS``, 65 rows, 10 of them the d5 reading's): a positive
   whose plug-in G1 and G2 figure at its R is below 0.90, and a control whose power under both
   clauses is below 0.90, which lists a control that turns red jointly with its positive
-  (``tmle_stacked_estimated`` ``unequal_informative`` J7, clause 2). Each carries the reading
-  the declared route gives it and is keyed as the ledger keys a property row.
+  (``tmle_stacked_estimated`` ``unequal_informative`` J7, clause 2: the positive's shown-only SE
+  ratio is 1.153). Each carries the reading the declared route gives it and is keyed as the
+  ledger keys a property row. The summary is computed with the shown set below (not withheld,
+  finite positive SE), rebuilt from the raw rows; four reds at J4 and J5 read availability.
+  The control figures multiply the two clauses as if independent. Both read the positive's
+  cluster SE, and an inflated cluster SE helps clause 1 while it hurts clause 2, so the pass
+  events are negatively dependent and the product overstates joint power. It feeds only the
+  predicted-red list and the M5 plug-in, never a gate.
+- **Merge of main.** The J4 to J7 loss and withheld shares were measured before ``origin/main``
+  was merged (its plain-TMLE constant-outcome rule fits some draws the pilot lost to
+  training-support refusals, and its fold-evaluated training floor labels J4 and J5). The
+  predicted reds there stay records, and ``red_cells.CLAIMS`` follows the run. Every cell at or
+  above an expected floor lost and withheld nothing, and a two-draw refit of every key at
+  J >= 10 after the merge reproduced the pilot rows exactly.
 - **(C)** (``JACKKNIFE_SHORTFALLS``): none. A (C) as good as (A) passes clause (i) in every cell
   with probability 0.993 for ``tmle_in_sample`` (discordance 4.7%), 1.000 for ``tmle_stacked``
   and for ``ltmle_in_sample``.
@@ -54,9 +77,13 @@ end of coverage over every requested draw at least 0.90 (a withheld row is a mis
 is judged by the failure accounting's worst case); G2, the bias within 0.25 empirical SD. On
 each ``iid_t_control`` row: the paired IID/cluster SE ratio's 99% upper end below 0.80, and the
 paired positive arm's SE-ratio upper end at most 1.20. The rule runs with ``shown_only``: both SE
-ratios read only the shown draws (a finite positive SE), the paired ratio the draws both arms
+ratios read only the shown draws (not withheld, with a finite positive SE; a withheld row may
+keep its computed SE), the paired ratio the draws both arms
 show, while coverage still counts every withheld draw as a miss; a cell with fewer than two
-shown draws publishes no SE ratio and its control fails. Every other arm is reported.
+shown draws publishes no SE ratio and its control fails. The failure accounting's worst cases
+read the same shown draws (``few_cluster_rule(shown_only=True)`` in the module's
+``PROPERTY_RULES``): the lost count comes from the unfiltered cell, then the withheld rows are
+dropped. Every other arm is reported.
 
 **Floors** (plan 5.8). A count passes for a family when both mechanism configurations
 (``_known`` and ``_estimated``; ``drtmle_known`` and ``ltmle_in_sample`` have one) pass G1, G2
@@ -116,7 +143,15 @@ and its SE ratio with 1 reads ``below floor (availability)``; any other red posi
 fails (including a control that turns red with its positive through clause 2, or a cell with
 fewer than two shown draws). A red at or above the
 anchor makes the family a defect suspect. It is held under ``finite-sample (plug-in sizing)``
-only after a diagnosis that finds no defect is recorded, and it is otherwise held by nobody. A
+only after a diagnosis that finds no defect is recorded **and** the cell agrees with its
+committed counterpart: the cell of ``clustered-few-cluster-tmle`` at the same family, law and J
+(an estimated configuration reads the committed oracle cell), compared by the two-sample 99%
+interval of the coverage difference (positive) or the paired-ratio difference (control), which
+must hold 0 (:func:`tests.studies.few_cluster_floor.agrees_with_committed`). Otherwise nobody
+holds it. A red that disagrees with the committed anchor, with no code defect found, means the
+shipped floor is not supported for that family by the code that ships (plan 5.8):
+``CLUSTER_INTERVAL_FLOORS[f]`` keeps its value only under a new roadmap item that owns the
+re-measurement, and no page says the family is certified from 10. A
 part (c) candidate cell that fails below its admissibility count reads ``candidate not
 non-inferior``. A replication that raises is never redrawn: it is a lost draw, a miss in G1 by
 the accounting's worst case. No cell is re-sized, re-drawn, dropped or relabelled after a

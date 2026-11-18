@@ -43,7 +43,10 @@ file                       content
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\
       python -m tests.studies.few_cluster_floor_pilot ltmle --jobs 4
 
-``--resize`` rewrites ``pilot-sizing.csv`` from the committed ``pilot-summary.csv`` alone.
+``--resize`` rewrites ``pilot-sizing.csv`` from the committed ``pilot-summary.csv`` alone, which
+is right after a change to the sizing code only. After a change to verdict or summary code the
+summary itself is stale: rebuild it from the raw rows with ``--from-raw`` (no refit), which
+also rewrites the sizing.
 """
 
 from __future__ import annotations
@@ -436,7 +439,8 @@ def resize(which: str, output: Path | None = None) -> pd.DataFrame:
     """Rewrite ``pilot-sizing.csv`` from the committed ``pilot-summary.csv``, without refitting.
 
     The sizing is a function of the summary alone, so a change to the sizing code is read off
-    the committed pilot; ``tests/unit/test_few_cluster_floor_design.py`` recomputes it.
+    the committed pilot; ``tests/unit/test_few_cluster_floor_design.py`` recomputes it. A change
+    to verdict or summary code makes the summary stale: use ``--from-raw`` instead.
     """
     module = importlib.import_module(MODULES[which])
     output = module.STUDY.artifacts if output is None else output
@@ -456,7 +460,12 @@ def main() -> None:
         "--from-raw", action="store_true", help="summarise the raw files of an earlier fit"
     )
     parser.add_argument(
-        "--resize", action="store_true", help="rewrite pilot-sizing.csv from pilot-summary.csv"
+        "--resize",
+        action="store_true",
+        help=(
+            "rewrite pilot-sizing.csv from pilot-summary.csv (after a sizing-code change only; "
+            "after a verdict or summary change use --from-raw)"
+        ),
     )
     args = parser.parse_args()
     if args.resize:
