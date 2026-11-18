@@ -249,9 +249,9 @@ arms' hazard jumps, survival and incidences on the walk's grid: every time where
 hazard jump is not zero, some event is observed or a risk's target time sits. At any other time
 every jump is zero and the tilt keeps it zero, so the curves there repeat the last kept time's. A
 restricted mean's weights also sit on the dropped times, so its sums run on the full grid and read
-the block's curves through a forward-fill map. Each pass over the blocks evaluates up to four
-trial step sizes at once and takes them in the order the dense walk would, holding and halving as
-it does.
+the block's curves through a forward-fill map. When some block is not kept, each pass over the
+blocks evaluates up to four trial step sizes at once and takes them in the order the dense walk
+would, holding and halving as it does; with every block kept, a pass tries one.
 
 Beside the blocks the walk holds $(n, P)$ arrays: the initial and current influence curves and
 each trial's score terms, with $P = 2 J Q$ targets. It keeps as many blocks between passes as the
@@ -259,8 +259,10 @@ budget allows, about $(33 J + 33)$ bytes per unit and kept time each, and rebuil
 the fitted hazard models and the record of accepted steps. With no block kept, the peak grows with
 $n P$ and the off-grid diagnostic's $(n, 200 J)$ array, not with $n M$: about 0.3 GB at
 $n = 100{,}000$ with one cause, two target times and $M = 59{,}980$, against about 1 TB to hold every
-unit's arrays at once. Keeping every block at that size would take about 400 GB, so
-a large fit rebuilds most blocks on every pass and runs longer.
+unit's arrays at once. Keeping every block at that size would take about 400 GB, so a large fit
+rebuilds most blocks on every pass. A block rebuilt in the pass after accepted step $s$ replays all
+$s$ steps, so a walk of $S$ accepted steps replays about $S (S + 1) / 2$ steps per block not kept,
+and a larger `max_iter` lengthens a long walk quadratically.
 
 Before fitting any nuisance, the fit predicts each phase's peak with no block kept and the walk on
 the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
@@ -279,7 +281,8 @@ can be set.
 
 Rebuilding a block calls the hazard learner again, so a learner's `cumulative_hazard` must return
 the same values for the same rows on every call, each row predicted from that row alone. The fit
-predicts the first block twice and refuses a user learner whose predictions differ. The shipped
+predicts the first block's cause and censoring hazards twice and refuses a user learner whose
+predictions differ; it cannot check that a learner predicts each row from that row alone. The shipped
 learners are read from their linear predictors and baseline hazards, or their strata, without a
 second call.
 

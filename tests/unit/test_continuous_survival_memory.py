@@ -293,6 +293,48 @@ def test_the_nuisance_phase_bounds_wide_cox_fits() -> None:
     assert predicted - _terms(measured)["nuisance"] < peak
 
 
+def test_the_exact_overflow_check_stays_within_the_walk_s_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Heavy censoring drops most times; huge steps send the exact check over many units."""
+    monkeypatch.setattr(_chunked, "CHUNK_CELLS", 2**15)
+    checked = [0]
+    overflow = engine._FitPlan.overflow
+
+    def counted(self: Any, k: int, units: Any, state: Any, v: Any, step: float) -> Any:
+        checked[0] += len(units)
+        return overflow(self, k, units, state, v, step)
+
+    monkeypatch.setattr(engine._FitPlan, "overflow", counted)
+    t, d, a, w = _law(N, 1)
+    censor = np.random.default_rng(7).exponential(0.4, N)
+    d = np.where(censor < t, 0, d)
+    t = np.minimum(t, censor)
+    data = ContinuousSurvivalData(t, d, a, w, ("t", "d", "a", "w0"), None, "pandas")
+    measured = _measure(_estimator(step_size=3000.0), data, resident=0.0)
+    assert measured.shape["kept"] < measured.shape["times"] / 3
+    assert checked[0] > 100, "the fixture must run the exact check"
+    assert measured.peaks["walk"] <= measured.predicted["walk"]
+
+
+def test_a_stratified_learner_s_cell_tables_are_counted() -> None:
+    """DR16: a stratum column of 40 levels, cross-fitted, at 4,000 units: each fold keeps its tables."""
+    from cleverly.survival import StratifiedNelsonAalen
+
+    t, d, a, _ = _law(4_000, 1)
+    # Levels drawn uniformly, so every training fold sees every level.
+    w = np.random.default_rng(3).integers(0, 40, size=(4_000, 1)).astype(float)
+    data = ContinuousSurvivalData(t, d, a, w, ("t", "d", "a", "w0"), None, "pandas")
+    library = [StratifiedNelsonAalen((1,))]
+    estimator = _estimator(
+        cross_fit=True, hazard_library=library, censoring_library=library, step_size=0.1
+    )
+    measured = _measure(estimator, data, resident=0.0)
+    assert len(np.unique(w)) == 40 and measured.block >= 40
+    for window, phase in WINDOWS.items():
+        assert measured.peaks[window] <= measured.predicted[phase], window
+
+
 def test_the_traced_peak_grows_with_n_not_with_n_times_the_grid() -> None:
     """DR17: with no block kept, doubling n about doubles the peak (the dense walk's is 4x)."""
     peaks = []

@@ -164,7 +164,33 @@ def _trial(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) -
         # The direction beside the increment, the tilted candidate and its denominators, then
         # the candidate's curves and their score temporaries.
         16 * J * cG + max(32 * J * cG + 32 * cG, 32 * J * cG + 16 * cG + score),
+        # The direction beside the exact overflow check of one run of units on the full grid:
+        # its weights, filled curves, indicators, direction and the exp at the dropped times.
+        16 * J * cG + ((65 + 60 * J) * overflow_rows(c, G, M) * M if G < M else 0),
     )
+
+
+def overflow_rows(block: int, kept: int, times: int) -> int:
+    """The units one run of the exact overflow check takes on the full grid.
+
+    A quarter of a block's cells on the walk's grid, spread over the full grid's times, and at
+    least one unit.
+
+    Parameters
+    ----------
+    block : int
+        The block's units.
+    kept : int
+        The walk's grid size ``G``.
+    times : int
+        The full grid size ``M``.
+
+    Returns
+    -------
+    int
+        Units per run.
+    """
+    return max(1, int(block) * int(kept) // (4 * int(times)))
 
 
 def _replay(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) -> int:
@@ -204,6 +230,7 @@ def peak_bytes(
     resident_blocks: int = 0,
     rungs: int | None = None,
     block: int | None = None,
+    folds: int = 1,
 ) -> PeakEstimate:
     """Predict the bytes a continuous-time fit holds at once, by phase.
 
@@ -247,6 +274,9 @@ def peak_bytes(
         :data:`~cleverly.survival._chunked.LADDER` otherwise.
     block : int or None
         Units per block; ``None`` takes :func:`~cleverly.survival._chunked.chunk_size`.
+    folds : int
+        The prediction folds: a stratified learner keeps each fold's cell tables, at most a
+        block's units each.
 
     Returns
     -------
@@ -278,6 +308,9 @@ def peak_bytes(
         + F8 * P * P * 4
         # The off-grid diagnostic's weight rows, drawn before the walk.
         + F8 * OFF_GRID * G
+        # A stratified learner's cell tables: both arms, every source and fold, a block's
+        # units at most.
+        + (16 * (J + 1) * int(folds) * c * M if stratified_learner else 0)
     )
     influence = F8 * n * P  # one (n, P) float array
     nuisance = (

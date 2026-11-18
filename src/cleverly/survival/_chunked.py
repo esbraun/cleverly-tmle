@@ -840,16 +840,22 @@ class HazardSource:
                 self._scale[a, rows] = scale
                 entry.base = base
         elif type(model) is StratifiedNelsonAalen:
-            tables = []
-            if self._index is None:
-                self._index = np.zeros((2, self._folds.size), dtype=int)
+            arms = []
             for a in (0, 1):
                 Xa = self._X[predict].copy()
                 Xa[:, 0] = a
-                index, curves = model.hazard_cells(Xa, self._grid)
-                self._index[a, rows] = index
-                tables.append(curves)
-            if max(table.shape[0] for table in tables) <= self._block:
+                arms.append(Xa)
+            # Each arm's table holds one row per cell its units fall in; a fold with more cells
+            # than a block's units is predicted from the model block by block instead, so no
+            # table outgrows a block's array.
+            if max(len(set(model._keys(Xa))) for Xa in arms) <= self._block:
+                if self._index is None:
+                    self._index = np.zeros((2, self._folds.size), dtype=int)
+                tables = []
+                for a, Xa in enumerate(arms):
+                    index, curves = model.hazard_cells(Xa, self._grid)
+                    self._index[a, rows] = index
+                    tables.append(curves)
                 entry = _FoldEntry("cells", model, curves=(tables[0], tables[1]))
             else:
                 entry = _FoldEntry("model", model)

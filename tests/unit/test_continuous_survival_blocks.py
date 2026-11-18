@@ -252,7 +252,9 @@ def _close(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
             scale = float(np.max(np.abs(y[np.isfinite(y)]))) if np.isfinite(y).any() else 0.0
             if name in SCORES:
                 scale = terms if SCORES[name] == 1 else terms / spread
-            if not np.allclose(x, y, rtol=RTOL, atol=FLOOR * scale, equal_nan=True):
+            if x.shape != y.shape or not np.allclose(
+                x, y, rtol=RTOL, atol=FLOOR * scale, equal_nan=True
+            ):
                 differ.append(name)
                 break
     return differ
@@ -350,6 +352,11 @@ class Wrapped(BaseEstimator):  # type: ignore[misc]
         at = times == self.at
         if self.mode == "smooth":
             out += 1e-4 * times[None, :]
+        elif self.mode == "flat":
+            # No jump at ``at``: the cumulative hazard there repeats the time before.
+            position = int(np.flatnonzero(at)[0]) if at.any() else 0
+            if position:
+                out[:, position] = out[:, position - 1]
         elif self.mode == "negative":
             out[:, at] -= 1e-3
         elif self.mode == "nan":
@@ -644,6 +651,41 @@ def test_a_negative_jump_keeps_its_event_free_time() -> None:
     assert _close(_walk_fields(fit.run.result), _walk_fields(reference.result)) == []
 
 
+def _event_time(name: str) -> float:
+    """An event time before the first target, with a time before it on the grid."""
+    n, causes, _, _ = ALL[name]
+    data = law(n, causes)
+    t, d = np.asarray(data.time), np.asarray(data.event)
+    events = np.unique(t[(d > 0) & (t < 0.9)])
+    return float(events[len(events) // 2])
+
+
+@pytest.mark.parametrize("mutated", [False, True])
+def test_an_event_time_with_no_jump_stays_on_the_grid(
+    mutated: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The grid keeps an event time even where no hazard jumps; dropping it is caught."""
+    name = "two causes"
+    at = _event_time(name)
+    if mutated:
+        original = engine.walk_grid
+
+        def without_events(grid: Any, jumping: Any, observed: Any, target_index: Any) -> Any:
+            return original(grid, jumping, observed[:0], target_index)
+
+        monkeypatch.setattr(engine, "walk_grid", without_events)
+    extra = {"hazard_library": [Wrapped("flat", at)], "censoring_library": [Wrapped()]}
+    fit = _fit(name, **extra)
+    initial = fit.initial
+    position = int(np.searchsorted(initial.grid, at))
+    assert initial.grid[position] == at
+    assert not (initial.hazards.jumps(0, initial.n)[..., position] != 0).any()
+    assert (position in initial.kept) is not mutated
+    reference = _reference(fit, name)
+    differ = _close(_walk_fields(fit.run.result), _walk_fields(reference.result))
+    assert (differ != []) is mutated
+
+
 def _without(drop: Any) -> Any:
     original = engine.walk_grid
 
@@ -706,16 +748,15 @@ def _overflowing(monkeypatch: pytest.MonkeyPatch, fit: Fit) -> tuple[int, np.nda
     dropped = np.setdiff1d(np.arange(initial.grid.size), initial.kept)
     column = int(dropped[(initial.grid[dropped] < 0.9).sum() // 2])
     units = np.flatnonzero(initial.grid[column] < initial.T)[:4]
-    weight = engine._FitPlan._weight
+    inverse = engine._FitPlan._inverse
 
-    def heavy(self: Any, k: int) -> Any:
-        out = weight(self, k).copy()
-        lo, hi = self.bounds[k]
+    def heavy(self: Any, lo: int, hi: int, product: Any) -> Any:
+        out = inverse(self, lo, hi, product).copy()
         inside = units[(units >= lo) & (units < hi)] - lo
         out[:, inside, column] = HEAVY
         return out
 
-    monkeypatch.setattr(engine._FitPlan, "_weight", heavy)
+    monkeypatch.setattr(engine._FitPlan, "_inverse", heavy)
     return column, units
 
 
@@ -786,8 +827,10 @@ def test_the_combined_jump_refusal_comes_before_the_zero_survival_one() -> None:
         _fit(name, rows=ROWS, **extra)
 
 
-def test_a_learner_that_changes_between_calls_is_refused_before_the_walk() -> None:
-    extra = {"hazard_library": [Wrapped("noise")], "censoring_library": [Wrapped()]}
+@pytest.mark.parametrize("which", ["hazard", "censoring"])
+def test_a_learner_that_changes_between_calls_is_refused_before_the_walk(which: str) -> None:
+    extra = {"hazard_library": [Wrapped()], "censoring_library": [Wrapped()]}
+    extra[f"{which}_library"] = [Wrapped("noise")]
     with pytest.raises(MethodConfigurationError, match="predictions change between calls"):
         estimator("two causes", **extra).fit_data(law(*FIXTURES["two causes"][:2]))
 

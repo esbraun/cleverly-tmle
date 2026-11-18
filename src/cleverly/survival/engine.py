@@ -36,7 +36,14 @@ from ..learners._fitting import seed_unset
 from ..utils.memory import check_max_memory_bytes
 from . import _chunked
 from ._chunked import HazardSource, InitialHazards, blocks, chunk_size
-from ._memory import check_memory, design_width, peak_bytes, resident_count, train_size
+from ._memory import (
+    check_memory,
+    design_width,
+    overflow_rows,
+    peak_bytes,
+    resident_count,
+    train_size,
+)
 from ._targeting import (
     Norm,
     Problem,
@@ -684,6 +691,7 @@ class ContinuousSurvivalTMLE:
             "rows": int(weights.shape[0]),
             "covariates": covariates,
             "train_size": train_size(folds, n, self.cross_fit),
+            "folds": int(np.unique(np.asarray(folds)).size),
             "design_width": design_width(
                 (*self.hazard_library, *self.censoring_library), covariates
             ),
@@ -829,7 +837,14 @@ class ContinuousSurvivalTMLE:
             if (
                 k == 0
                 and hazards.calls_model
-                and not np.array_equal(dlam, hazards.jumps(lo, hi), equal_nan=True)
+                and not (
+                    np.array_equal(dlam, hazards.jumps(lo, hi), equal_nan=True)
+                    and np.array_equal(
+                        hazards.censoring_jumps(lo, hi),
+                        hazards.censoring_jumps(lo, hi),
+                        equal_nan=True,
+                    )
+                )
             ):
                 raise MethodConfigurationError(
                     "A hazard learner whose predictions change between calls cannot be "
@@ -1089,15 +1104,9 @@ class _FitPlan:
     def _weight(self, k: int) -> FloatArray:
         """``(2, c, M)`` the bounded inverse weight of block ``k`` on the full grid."""
         lo, hi = self.bounds[k]
-        initial = self.fit
-        retention = np.cumprod(
-            1.0 - np.clip(initial.hazards.censoring_jumps(lo, hi), 0.0, 1.0), axis=-1
-        )
-        retention_before = np.concatenate([np.ones((2, hi - lo, 1)), retention[..., :-1]], axis=-1)
-        del retention
-        product = self.pi[:, lo:hi, None] * retention_before
-        del retention_before
+        product = self._product(lo, hi)
         if not self._counted[k]:
+            initial = self.fit
             self._counted[k] = True
             factual = initial.A[None, lo:hi, None] == np.arange(2)[:, None, None]
             reach = initial.T[None, lo:hi, None] >= initial.grid[None, None, :]
@@ -1106,7 +1115,20 @@ class _FitPlan:
             self._bounded += int(np.count_nonzero(product[relevant] < self.floor))
             self._last += int(np.count_nonzero(product[..., -1] < self.floor))
             del factual, reach, relevant
+        return self._inverse(lo, hi, product)
+
+    def _inverse(self, lo: int, hi: int, product: FloatArray) -> FloatArray:
+        """``(2, hi - lo, M)`` the inverse weights of units ``lo:hi`` from their product."""
         return 1.0 / np.maximum(product, self.floor)
+
+    def _product(self, lo: int, hi: int) -> FloatArray:
+        """``(2, hi - lo, M)`` the propensity times the censoring retention just before."""
+        retention = np.cumprod(
+            1.0 - np.clip(self.fit.hazards.censoring_jumps(lo, hi), 0.0, 1.0), axis=-1
+        )
+        retention_before = np.concatenate([np.ones((2, hi - lo, 1)), retention[..., :-1]], axis=-1)
+        del retention
+        return self.pi[:, lo:hi, None] * retention_before
 
     @property
     def bounded_share(self) -> float:
@@ -1220,28 +1242,42 @@ class _FitPlan:
         ndarray or None
             The overflowing pairs.
         """
-        lo = self.bounds[k][0]
+        lo, hi = self.bounds[k]
         initial = self.fit
         expand = np.searchsorted(initial.kept, np.arange(initial.grid.size), side="right") - 1
-        survival = state.survival[:, units]
-        padded = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival], axis=-1)
-        survival = np.take(padded, expand + 1, axis=-1)
-        incidence = _filled(state.incidence[:, :, units], expand)
-        weight = self._weight(k)[:, units]
-        rows = lo + units
-        at_risk = initial.T[rows, None] >= initial.grid[None, :]
-        events = np.zeros((len(initial.causes), *at_risk.shape), dtype=bool)
         weights = state.problem.target_weights
         if state.problem.expand is None:
             # The walk's own weight rows, read on the full grid (zero at the dropped times).
             weights = np.zeros((weights.shape[0], initial.grid.size))
             weights[:, initial.kept] = state.problem.target_weights
-        full = Problem(initial.A[rows], at_risk, events, weight, weights)
-        light = _chunked._light(survival, incidence)
-        direction = _chunked.T._direction(full, light, v)
-        with np.errstate(over="ignore"):
-            grows = np.isinf(np.exp(direction[..., self.dropped] * step))
-        return grows.any(axis=(1, 3))
+        out = np.zeros((2, units.size), dtype=bool)
+        # The units run in runs of rows short enough that the full-grid arrays of one run stay
+        # within a block's arrays on the walk's grid (memory model, ``overflow_rows``).
+        rows = overflow_rows(hi - lo, initial.kept.size, initial.grid.size)
+        for start in range(0, hi - lo, rows):
+            inside = (units >= start) & (units < start + rows)
+            if not inside.any():
+                continue
+            chosen = units[inside]
+            survival = state.survival[:, chosen]
+            padded = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival], axis=-1)
+            survival = np.take(padded, expand + 1, axis=-1)
+            del padded
+            incidence = _filled(state.incidence[:, :, chosen], expand)
+            first, last = int(chosen.min()), int(chosen.max())
+            span = (lo + first, lo + last + 1)
+            weight = self._inverse(*span, self._product(*span))[:, chosen - first]
+            at = lo + chosen
+            at_risk = initial.T[at, None] >= initial.grid[None, :]
+            events = np.zeros((len(initial.causes), *at_risk.shape), dtype=bool)
+            full = Problem(initial.A[at], at_risk, events, weight, weights)
+            direction = _chunked.T._direction(full, _chunked._light(survival, incidence), v)
+            del survival, incidence, weight, at_risk, events, full
+            with np.errstate(over="ignore"):
+                grows = np.isinf(np.exp(direction[..., self.dropped] * step))
+            out[:, np.flatnonzero(inside)] = grows.any(axis=(1, 3))
+            del direction, grows
+        return out
 
 
 def walk_grid(
