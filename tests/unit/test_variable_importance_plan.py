@@ -22,13 +22,14 @@ from cleverly import variable_importance, variable_importance_plan
 from cleverly._planned_fits import PlanBuilder, PlannedFits
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from tests.unit import _planned_fits_support as support
 from tests.unit.test_ctmle import _W4, CTMLE_KWARGS
 from tests.unit.test_planned_fits import PLAIN
 from tests.unit.test_variable_importance_retention import REFUSALS, _Counting
 
 module = importlib.import_module("cleverly.variable_importance")
+planned_fits_module = importlib.import_module("cleverly._planned_fits")
 BOUNDS = (-30.0, 30.0)
 
 
@@ -188,7 +189,7 @@ def test_the_preview_counts_every_fit_of_the_run(
     assert found.plan.exact == (case != "a DR-TMLE template")
     support.check(found, plain=PLAIN_ROLES)
     _check_candidates(found.plan, seen)
-    assert dict(found.plan.multipliers)["candidates"] == 3
+    assert dict(found.plan.multipliers)["candidate exposures"] == 3
 
 
 def test_a_multiplier_that_differs_between_candidates_is_named_not_listed(
@@ -209,12 +210,14 @@ def test_a_multiplier_that_differs_between_candidates_is_named_not_listed(
         factor
         for factor in set(per_candidate["X1"]) | set(per_candidate["X2"])
         if per_candidate["X1"].get(factor) != per_candidate["X2"].get(factor)
-    } - {"candidates"}
+    } - {"candidate exposures"}
     assert differing, "the fixture must make a multiplier differ between candidates"
     for factor in differing:
         assert factor not in dict(plan.multipliers)
         assert any(f"differ in {factor}" in note for note in plan.notes)
-    shared = set(per_candidate["X1"]) & set(per_candidate["X2"]) - differing - {"candidates"}
+    shared = set(per_candidate["X1"]) & set(per_candidate["X2"]) - differing - {
+        "candidate exposures"
+    }
     for factor in shared:
         assert dict(plan.multipliers)[factor] == per_candidate["X1"][factor]
 
@@ -256,12 +259,13 @@ def test_scopes_that_collide_across_candidates_are_caught(
 
 
 def test_multipliers_not_copied_are_caught(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Deliberate mutation: only the candidate count is recorded.
-    original = PlanBuilder.multiply
-
-    def candidates_only(self: PlanBuilder, name: str, value: int) -> None:
-        if name == "candidates":
-            original(self, name, value)
+    # Deliberate mutation of the outer record only: it keeps the candidate count and drops
+    # every multiplier the candidates' own previews report. The engines' previews keep the
+    # PlanBuilder they imported, so their multipliers are intact.
+    class CandidatesOnly(PlanBuilder):
+        def multiply(self, name: str, value: int) -> None:
+            if name == "candidate exposures":
+                super().multiply(name, value)
 
     frame, fresh = _arguments("cross-fitted")
     plan = variable_importance_plan(frame, **fresh())
@@ -269,11 +273,12 @@ def test_multipliers_not_copied_are_caught(monkeypatch: pytest.MonkeyPatch) -> N
         outcome_learner=LinearRegression(), cross_fit=True, n_folds=3, q_bounds=BOUNDS,
         simultaneous=False, random_state=0,
     )._planned_fits(frame, outcome="Y", treatment="X1", covariates=["W", "X2", "X3"])  # fmt: skip
+    assert dict(single.multipliers)
     assert set(dict(single.multipliers)) <= set(dict(plan.multipliers))
     with monkeypatch.context() as patch:
-        patch.setattr(PlanBuilder, "multiply", candidates_only)
+        patch.setattr(planned_fits_module, "PlanBuilder", CandidatesOnly)
         mutated = variable_importance_plan(frame, **fresh())
-    assert not set(dict(single.multipliers)) <= set(dict(mutated.multipliers))
+    assert not set(dict(single.multipliers)) & set(dict(mutated.multipliers))
 
 
 def _ctmle_refusal() -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -288,10 +293,35 @@ def _ctmle_refusal() -> tuple[pd.DataFrame, dict[str, Any]]:
     }
 
 
-@pytest.mark.parametrize("case", [*REFUSALS, "a collaborative inference status"])
+def _later_check_refusal() -> tuple[pd.DataFrame, dict[str, Any]]:
+    # The first candidate's fit would refuse the ratio on a continuous outcome inside its own
+    # preflight, and the second candidate has a missing value. The run checks every candidate
+    # before its first fit, so it raises the second candidate's refusal; so must the preview.
+    frame = _frame()
+    frame["X2"] = frame["X2"].astype(float).where(frame.index != 5)
+    return frame, {
+        "outcome": "Y",
+        "candidates": ["X1", "X2"],
+        "covariates": ["W"],
+        "estimand": "rr",
+        "adjust_for_other_candidates": False,
+        "estimator": TMLE(
+            outcome_learner=LinearRegression(),
+            treatment_learner=_Counting(max_iter=1000),
+            cross_fit=False,
+            simultaneous=False,
+            random_state=1,
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    "case", [*REFUSALS, "a collaborative inference status", "a later candidate's check"]
+)
 def test_the_preview_refuses_as_the_run_does_and_fits_nothing(case: str) -> None:
+    phrase = ""
     if case in REFUSALS:
-        frame, extra, kind, _ = REFUSALS[case]()
+        frame, extra, kind, phrase = REFUSALS[case]()
         settings: dict[str, Any] = {
             "outcome": "Y",
             "candidates": ("X1", "X2"),
@@ -306,6 +336,9 @@ def test_the_preview_refuses_as_the_run_does_and_fits_nothing(case: str) -> None
             **extra,
         }
         settings["estimator"].treatment_learner = _Counting(max_iter=1000)
+    elif case == "a later candidate's check":
+        frame, settings = _later_check_refusal()
+        kind, phrase = DataError, "candidate 'X2' has missing values"
     else:
         frame, settings = _ctmle_refusal()
         kind = CapabilityError
@@ -313,7 +346,7 @@ def test_the_preview_refuses_as_the_run_does_and_fits_nothing(case: str) -> None
     for call in (variable_importance_plan, variable_importance):
         _Counting.calls = 0
         support.reset()
-        with support.class_wide(), pytest.raises(kind) as raised:
+        with support.class_wide(), pytest.raises(kind, match=re.escape(phrase)) as raised:
             call(frame, **settings)
         assert _Counting.calls == 0
         assert sum(support.CLASS_WIDE.values()) == 0

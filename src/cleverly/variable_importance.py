@@ -712,7 +712,7 @@ def variable_importance_plan(
     -------
     PlannedFits
         One row per model, scope and candidate. Each scope ends with the candidate it
-        belongs to, and the multiplier ``"candidates"`` gives their number. A multiplier
+        belongs to, and the multiplier ``"candidate exposures"`` gives their number. A multiplier
         whose value differs between candidates, such as the number of arms, is left out and
         named in a note.
 
@@ -755,8 +755,11 @@ def variable_importance_plan(
     """
     from ._planned_fits import PlanBuilder
 
-    builder = PlanBuilder()
-    plans: dict[str, PlannedFits] = {}
+    # Every check runs before any candidate is priced, as every check runs before the first
+    # fit, so the preview raises the run's first refusal. A candidate's preview can itself
+    # refuse (it runs the fit's own preflights), as the run's fit of that candidate would.
+    checked_candidates: list[tuple[str, tuple[str, ...], TMLE]] = []
+    prepare: Callable[[str, tuple[str, ...]], CausalData] | None = None
     for checked in _checked_candidates(
         data,
         outcome=outcome,
@@ -771,18 +774,26 @@ def variable_importance_plan(
         weights_estimated=weights_estimated,
         id=id,
     ):
-        # The run fits ``engine.fit(prepared)``; ``_planned_fits`` mirrors ``fit`` on the
-        # same prepared data and fits nothing.
-        plan = checked.engine._planned_fits(checked.data)
-        name = checked.name
-        builder.absorb(plan, functools.partial(_candidate_scope, name))
-        plans[name] = plan
+        checked_candidates.append((checked.name, checked.adjustment_set, checked.engine))
+        prepare = checked.prepare
         del checked
+    assert prepare is not None  # the candidates are non-empty
+    builder = PlanBuilder()
+    plans: dict[str, PlannedFits] = {}
+    for name, adjustment_set, engine in checked_candidates:
+        # The data is prepared again, one candidate at a time, as under keep_fits=False; the
+        # user saw its warnings in the checks above. ``_planned_fits`` mirrors the run's
+        # ``engine.fit(prepared)`` and fits nothing.
+        with muted():
+            candidate_data = prepare(name, adjustment_set)
+        plans[name] = engine._planned_fits(candidate_data)
+        del candidate_data
+        builder.absorb(plans[name], functools.partial(_candidate_scope, name))
     first = next(iter(plans.values()))
     # The fold state reads only the template's seeds and split plan, so it is the same for
     # every candidate.
     assert all(plan.folds == first.folds for plan in plans.values())
-    builder.multiply("candidates", len(plans))
+    builder.multiply("candidate exposures", len(plans))
     values: dict[str, dict[str, int]] = {}
     for name, plan in plans.items():
         for factor, value in plan.multipliers:

@@ -338,8 +338,8 @@ raises the same error. To cut the count, use fewer outer folds, fewer inner fold
 library, as [Two fold layers](#two-fold-layers) describes.
 
 `variable_importance` fits one model set per candidate exposure. `variable_importance_plan`,
-called with the same arguments, counts those fits in the same way, with each row labelled by its
-candidate.
+called with the same arguments apart from `keep_fits`, counts those fits in the same way, with each
+row labelled by its candidate.
 
 ## Use GLM for the sequential baselines
 
