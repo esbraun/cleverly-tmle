@@ -849,6 +849,26 @@ def cluster_pass(pilot_rows: pd.DataFrame) -> float:
     return c_pass * gt_pass
 
 
+#: The pilot readings the declaration rests on, frozen from the committed pilot (sets A to D):
+#: each gated arm's stop under the extension rule, read block by block, with its draws; each
+#: gated law's 20,000 tail exceedances among 3,000 draws; the whole-study predictive pass.
+FROZEN_PILOT: dict[str, Any] = {
+    "calibration_stop": {
+        "calibration_density_G": (1_200, "target"),
+        "calibration_density_T": (800, "target"),
+        "calibration_density_C": (1_200, "target"),
+        "calibration_dr_G": (400, "target"),
+        "calibration_dr_T": (800, "target"),
+        "calibration_classifier_G": (800, "target"),
+        "calibration_classifier_T": (400, "target"),
+        "calibration_LTMLE": (800, "target"),
+        "calibration_SDR": (400, "target"),
+    },
+    "tail_exceedances": {"G": 1, "T": 0, "C": 1, "B": 0, "U": 0},
+    "whole_study": 0.9338,
+}
+
+
 class TestThePilot:
     def test_each_calibration_arm_passes_with_090_or_is_extended(
         self, pilot_rows: pd.DataFrame
@@ -898,6 +918,28 @@ class TestThePilot:
             gap *= gap_pass(pilot_rows, name)
         whole = calibration * gap * cluster_pass(pilot_rows)
         assert whole >= FLOOR_STUDY, (calibration, gap, whole)
+
+    def test_the_frozen_readings_are_the_pilot_readings(self, pilot_rows: pd.DataFrame) -> None:
+        """The declaration's pilot readings, recomputed from the committed pilot."""
+        stops = {}
+        for label in GATED_CALIBRATION:
+            rows, _, stop = calibration_stop(pilot_rows, label)
+            stops[label] = (len(rows), stop)
+        assert stops == FROZEN_PILOT["calibration_stop"]
+        exceedances = {
+            name: int(
+                np.sum(
+                    _pilot_gaps(pilot_rows, f"ic_gap_tail_{name}_n20000")
+                    > properties.GAP_BOUND_LARGE[name]
+                )
+            )
+            for name in study.GAP_GATED
+        }
+        assert exceedances == FROZEN_PILOT["tail_exceedances"]
+        calibration = math.prod(arm_reading(pilot_rows, label) for label in GATED_CALIBRATION)
+        gap = math.prod(gap_pass(pilot_rows, name) for name in study.GAP_GATED)
+        whole = calibration * gap * cluster_pass(pilot_rows)
+        assert whole == pytest.approx(FROZEN_PILOT["whole_study"], abs=5e-5)
 
     def test_the_booster_counts_against_the_frozen_ceilings(self, pilot_rows: pd.DataFrame) -> None:
         """The ceilings are read, not recomputed: a count above one reopens that law's grid."""
