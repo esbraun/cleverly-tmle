@@ -634,7 +634,7 @@ points at one of these requests.
 
 | part | request | the evidence that reopens it |
 | --- | --- | --- |
-| (e) | a cross-fitted interval at a fold count other than 5, or with `repeats` other than 1 or 3 | a registered measurement at that count. `ctmle-oat-per-arm-parametric-crossfit` measures 5 folds at 1 and 3 repeats, and the fit lists the unmeasured count as an `inference_gap` condition |
+| (e) | a cross-fitted interval at a fold count other than 5 that `per_arm_parametric_support` admits, or with `repeats` other than 1 or 3 | a registered measurement at that count. `ctmle-oat-per-arm-parametric-crossfit` measures 5 folds at 1 and 3 repeats, and the fit lists the unmeasured count as an `inference_gap` condition |
 | (f) | supported intervals at four or more arms, with estimated weights, for a weighted in-sample fit at three arms, and for repeats with weights | support rows from a registered study. These fits report the `experimental` label today |
 | (g) | an interval for an estimate whose arm stack failed on the sample (`stack_failure_plugin`) | a stack that stays defined when the fluctuation does not converge, a diagonal block of its Jacobian is numerically singular, or the solver path meets the outer re-shrink, with a witness on such a sample |
 
@@ -1124,7 +1124,7 @@ term.
 | part | request |
 | --- | --- |
 | (a) | a selector fit with one declared partial candidate and parametric learners |
-| (b) | the composite cells of the per-arm outcome-adaptive design (baseline strata, a missing outcome, a missing treatment), with a parametric outcome, in sample. It builds on [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome), which holds the plain per-arm cells |
+| (b) | the composite cells of the per-arm outcome-adaptive design (baseline strata, a missing outcome, a missing treatment), with a parametric outcome, in sample. It builds on [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome), which delivered the plain per-arm stack ([delivered items](roadmap-delivered.md)) |
 | (c) | the shared design with a parametric outcome and a parametric multinomial design |
 | (d) | the clustered versions of parts (a) to (c) and of the X58 cells, with the few-cluster rules of [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
@@ -1705,15 +1705,19 @@ comparator runs of the [eliminated competing events](technical-reference/method-
 study are pending; they never block. [X6](#x6-continuous-time-survival-and-competing-risks) holds
 what the continuous-time TMLE leaves open.
 
-This item holds the compositions of the delivered parts that a fit still refuses. Each refusal
-that names X91 points at one of these requests.
+This item holds the compositions of the delivered parts that a fit still refuses or labels
+experimental. Each refusal or label that names X91 for missing work points at one of these
+requests. The separable refusals that redirect to `LTMLE(survival_model="hazard",
+targeting="one_step")`, or that refuse `eliminate=` beside a `Separable` regimen as a different
+estimand, also carry the X91 id, but they mark no missing work.
 
 | part | request | base | readiness |
 | --- | --- | --- | --- |
 | (e) | separable effects with time-varying common causes | Stensrud et al. (2021), Section 6.2, Equation (19) | refused: no source gives an efficient influence curve |
-| (h) | a `Separable` regimen with other options: another estimator or `targeting` than `LTMLE(survival_model="hazard", targeting="one_step")`, a learned regimen or a marginal structural model, `eliminate=`, a treatment at several nodes, `node_bounds=`, `stopping=` other than `"relative"`, `iterate="best"`, `n_bootstrap=`, a regimen beside it that is not one static level, and two first causes in one fit | the factor-wise targeting of part (d), which has no form of these yet | not yet reviewed |
+| (h) | a `Separable` regimen beside a learned regimen or a marginal structural model, with `node_bounds=`, `stopping=` other than `"relative"`, `iterate="best"` or `n_bootstrap=`, beside a regimen that is not one static level, or with two first causes in one fit | the factor-wise targeting of part (d), which has no form of these yet | not yet reviewed |
 | (i) | the generated-outcome refutations (`dummy_outcome`, `simulated_outcome`, `plasmode`) of a fit with `eliminate=` or a `Separable` regimen | a generated survival process that declares the eliminated causes' hazards, or each cause's hazard under the two treatment components | no new theory |
 | (j) | the simulated common-cause replay of a separable-effects fit | the survival replay of part (c). The latent shifts every cause's event, so it breaks the dismissible-component conditions the separable estimand rests on | needs a replay that keeps those conditions |
+| (k) | supported continuous-time intervals outside the measured configuration of part (g): n below 1,000, an in-sample fit, other learners or settings, more than one restricted horizon or one past the last target time, a ratio without restricted means, smooth contrasts, and early or late event shares. The `experimental` label of these fits names X91 | a registered study at that configuration. [X6](#x6-continuous-time-survival-and-competing-risks) holds the early-time standard error, other cause counts and the band | no new theory |
 
 `AdaptiveIPTW` on a survival outcome and a structural nested failure-time model are not planned:
 no source extends either, and both refusals name `LTMLE`. The longitudinal sensitivity bounds stay
@@ -2219,7 +2223,7 @@ side. A mutation test changes every evaluation outcome without moving either nui
 rows.
 
 [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) holds the per-arm design with a regular parametric outcome model:
-a corrected curve, its covariance and its Wald interval under a declared support predicate. Part (a) shipped, and parts (b) to (d) stay open.
+a corrected curve, its covariance and its Wald interval under a declared support predicate. X58 parts (a) to (d) are delivered, and X58 holds the unmeasured counts, the unsupported configurations and the stack-failure status.
 [X52](#x52-parametric-c-tmle-intervals) part (b) holds the composite per-arm cells, and part (c)
 holds the shared design with a parametric outcome and design. This item keeps five claims. The table gives the kind of
 argument that each one needs.
@@ -2292,7 +2296,7 @@ is further outside Theorem 1, because Appendix D only outlines its proof.
 
 | open item | what a result must settle |
 | --- | --- |
-| the per-arm generated-design term | an analogue of $c^\top \mathrm{IF}_\beta$ for a flexible outcome learner, or an estimator of the term that does not need a consistent full mechanism when no other derivation supplies one, or a source that shows the term vanishes under a stated condition. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) may use a known or consistently estimated full mechanism, and it does not need to settle this item |
+| the per-arm generated-design term | an analogue of $c^\top \mathrm{IF}_\beta$ for a flexible outcome learner, or an estimator of the term that does not need a consistent full mechanism when no other derivation supplies one, or a source that shows the term vanishes under a stated condition. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) shipped the joint estimating equation for a parametric outcome, which does not settle this item |
 | one shared multinomial | one categorical fit on `K` estimated columns supplies every arm's clever covariate, so an inconsistent column for one arm enters every other arm's mechanism |
 | vector target and simultaneous inference | the joint covariance and the simultaneous critical value, not the per-arm variance alone |
 | uniformity, for both designs | each estimator is superefficient by design, so a pointwise limit law does not give locally uniform coverage. A pointwise claim under stated regularity conditions, such as the [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) claim, does not need a uniformity result. It states that it is pointwise |
