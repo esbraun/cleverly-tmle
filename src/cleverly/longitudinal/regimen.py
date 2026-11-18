@@ -106,6 +106,7 @@ from ..interventions.tuning import (
     tuner_influence,
 )
 from ..learners.crossfit import Folds
+from ._fit_cache import cached
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance, types only
     from ..interventions.policy import Policy
@@ -1062,6 +1063,10 @@ class Plan:
         """
         if not self.has_policy:
             return None
+        return cached("numerator", (self, data), None, lambda: self._numerator(data))
+
+    def _numerator(self, data: LongitudinalData) -> FloatArray:
+        """:meth:`cumulative_numerator` on a plan with a policy node, computed."""
         density = self.intervention_density(data)
         running = np.ones(data.n)
         columns = []
@@ -1089,6 +1094,10 @@ class Plan:
         RegimenMasks
             The prefix scans every node of the recursion reads.
         """
+        return cached("masks", (self, data), None, lambda: self._masks(data))
+
+    def _masks(self, data: LongitudinalData) -> RegimenMasks:
+        """:meth:`masks`, computed."""
         if not self.has_policy:
             return data.regimen_masks(self.values)
         return data.regimen_masks(self.values, support=self.support(data))
