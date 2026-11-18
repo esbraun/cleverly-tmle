@@ -58,6 +58,7 @@ from ..exceptions import (
 )
 from ..learners._fitting import Task, fit_learner, predict_mean
 from ..learners.crossfit import Folds, make_folds, random_partition
+from ..utils.memos import without_memos
 from ._working_basis import WorkingDictionary
 
 __all__ = [
@@ -250,6 +251,16 @@ class _RLoss:
         values and layout, that each call used to make.
         """
         return self.x[:, self.usable]
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Pickle the problem without the column copy that :attr:`xu` memoized.
+
+        Returns
+        -------
+        dict of str to Any
+            The instance state, without the entries a ``cached_property`` owns.
+        """
+        return without_memos(type(self), self.__dict__)
 
     def grid(self) -> FloatArray:
         n, p = self.basis.shape

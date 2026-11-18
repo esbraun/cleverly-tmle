@@ -1,9 +1,10 @@
-r"""Hazard targeting with covariates measured after baseline, on a held design (X70 part (b1)).
+r"""Hazard targeting with covariates measured after baseline (X70 parts (b1) and (b2)).
 
 The shipped hazard engine (:mod:`cleverly.longitudinal.hazard`) models the event hazards given
 the baseline treatment and the baseline covariates.  A covariate :math:`L_k` measured at a node
-:math:`k \ge 2` changes that: the hazard at node :math:`k` reads :math:`H_k = (W, \bar L_k, A_1)`,
-and the plug-in needs the law of :math:`L_k` given the past, which this module never models.
+:math:`k \ge 2` changes that: the hazard at node :math:`k` reads :math:`H_k = (W, \bar L_k, A_1)`
+on a held design, or :math:`(W, \bar L_k, \bar A_{k-1})` with a treatment at every node, and the
+plug-in needs the law of :math:`L_k` given the past, which this module never models.
 Following Rytgaard, Gerds and van der Laan (2022), each node's event hazards and a regression
 that integrates the later covariates out are targeted with the clever weight of the regimen.
 
@@ -63,6 +64,12 @@ of :math:`P_n D^*` is solved.  The plug-in is node 1's panel mixed over its slot
 sum of non-negative products per unit reduced in one order, so each reported curve is
 non-decreasing in floating point, and each unit's causes sum to at most one.
 
+**A treatment at several nodes** (part (b2)).  The pass evaluates node :math:`k` at each unit's
+observed history, so its slots are the regimen's values of :math:`A_k` there and each slot's
+hazards are node :math:`k`'s at the observed :math:`\bar A_{k-1}` with :math:`A_k` at the
+slot's level (:func:`node_slots`).  No counterfactual treatment path is built, so the path
+engine of part (a) and its cap do not enter.
+
 **Cross-fitting** follows the shipped iterated-mean construction (Díaz, Williams, Hoffman and
 Schenck 2023, Section 5.2): each outer fold runs an untargeted backward pass on its training
 rows, with node hazards and continuations fitted there, the held-out predictions are stitched,
@@ -100,6 +107,7 @@ from .hazard import (
     event_indicators,
     fit_hazards,
     influence,
+    is_multinode,
     scores,
     walk_curve,
 )
@@ -117,6 +125,7 @@ __all__ = [
     "hazard_msm_refusal",
     "hazard_replay_refusal",
     "hazard_stopping_refusal",
+    "hazard_time_varying_regimen_refusal",
     "later_covariates",
     "node_panel",
     "node_slots",
@@ -266,6 +275,45 @@ def hazard_replay_refusal() -> Refusal:
     return HAZARD_TIME_VARYING_REPLAY_REFUSAL
 
 
+#: What H27 names for each regimen kind it refuses.
+_REGIMEN_KINDS = {
+    "mtp": "a modified treatment policy",
+    "tilt": "an odds tilt of the declared treatment mechanism",
+}
+
+
+def hazard_time_varying_regimen_refusal(label: str, kind: str, time: int) -> Refusal:
+    """The refusal of a regimen the multi-node backward pass does not build (H27).
+
+    On a design with a treatment at several nodes and covariates after baseline, a modified
+    treatment policy at any node, or an odds tilt of a declared treatment mechanism at any
+    node.  No theory refuses either: the pass evaluates every node at the observed history,
+    so the obstacles of H15 and H26 do not arise.  It is not built on this route yet.
+
+    Parameters
+    ----------
+    label : str
+        The regimen's label.
+    kind : {"mtp", "tilt"}
+        What the regimen holds at ``time``.
+    time : int
+        The node, counted from one.
+
+    Returns
+    -------
+    Refusal
+        An ``api_redirection`` refusal.
+    """
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        f"regimen {label!r} holds {_REGIMEN_KINDS[kind]} at node {time}. "
+        "survival_model='hazard' on a design with a treatment at several nodes and covariates "
+        "measured after baseline is not built for this regimen yet. It fits static arms, known "
+        "rules and known policies at categorical nodes.",
+        alternative="Use survival_model='iterated_mean', which fits this regimen.",
+    )
+
+
 # ------------------------------------------------------------------------ the slots
 
 
@@ -325,18 +373,29 @@ def node_slots(
     initial: InitialHazards,
     slots: MTPSlots | None = None,
 ) -> NodeSlots:
-    """The slots of ``plan`` at ``node`` of a held design.
+    """The slots of ``plan`` at ``node``: the regimen's values of the treatment there.
 
-    At a node after the first the treatment is held, so the one slot is the observed
-    treatment.  At node 1 the slots are the assigned arm of a static arm or a rule, every level
-    at a categorical policy node (a known policy, a resolved odds tilt, or a modified treatment
-    policy's level map), and the observed dose with each branch's dose at a continuous
-    modified treatment policy.
+    On a held design, at a node after the first the treatment is held, so the one slot is the
+    observed treatment.  At node 1 the slots are the assigned arm of a static arm or a rule,
+    every level at a categorical policy node (a known policy, a resolved odds tilt, or a
+    modified treatment policy's level map), and the observed dose with each branch's dose at a
+    continuous modified treatment policy.
+
+    On a design with a treatment at several nodes (X70 part (b2)) the slots of node ``k`` are
+    the regimen's values of ``A_k`` at each unit's observed history, which holds the observed
+    earlier treatments: the one assigned arm of a static arm or a rule (``plan.values``, which
+    is evaluated at the observed history), or every level of node ``k`` at a policy node, with
+    the policy evaluated at the observed history.  Each slot's hazards are the current-level
+    predictions of :func:`~cleverly.longitudinal.hazard.fit_hazards`, node ``k`` at the observed
+    earlier treatments with ``A_k`` at the slot's level, and its key is that level among node
+    ``k``'s own.  The continuation is trained at :func:`outcome_design` of the node and predicted
+    there for a static arm or a rule, and at the design with each level's arm block at a policy
+    node.  No modified treatment policy or odds tilt reaches this branch (H27).
 
     Parameters
     ----------
     data : LongitudinalData
-        The prepared panel of a held design.
+        The prepared panel.
     plan : Plan
         The resolved plan, with any policy numerator attached.
     node : int
@@ -351,6 +410,8 @@ def node_slots(
     NodeSlots
         The slots.
     """
+    if is_multinode(data):
+        return _multinode_slots(data, plan, node, initial)
     n = data.n
     rows = np.arange(n)
     n_levels = 0 if slots is not None else len(data.treatment_levels[0])
@@ -403,6 +464,38 @@ def node_slots(
     return NodeSlots(
         node,
         np.asarray(initial.hazards[rows, 0, assigned], dtype=float)[:, None, :],
+        np.ones((n, 1)),
+        assigned[:, None],
+        n_levels,
+        np.zeros(n, dtype=np.int64),
+        design,
+        (design,),
+    )
+
+
+def _multinode_slots(
+    data: LongitudinalData, plan: Plan, node: int, initial: InitialHazards
+) -> NodeSlots:
+    """:func:`node_slots` on a design with a treatment at several nodes (X70 part (b2))."""
+    n = data.n
+    n_levels = len(data.treatment_levels[node - 1])
+    design = outcome_design(data, plan, node)
+    if plan.is_policy_node(node):
+        observed = np.asarray(np.nan_to_num(data.treatment[:, node - 1], nan=0.0), dtype=np.int64)
+        return NodeSlots(
+            node,
+            np.asarray(initial.hazards[:, node - 1, :n_levels], dtype=float),
+            np.asarray(plan.policy_at(node), dtype=float),
+            np.repeat(np.arange(n_levels, dtype=np.int64)[None, :], n, axis=0),
+            n_levels,
+            observed,
+            design,
+            tuple(outcome_design(data, plan, node, arm=code) for code in range(n_levels)),
+        )
+    assigned = np.asarray(np.nan_to_num(plan.values[:, node - 1], nan=0.0), dtype=np.int64)
+    return NodeSlots(
+        node,
+        np.asarray(initial.hazards[np.arange(n), node - 1, assigned], dtype=float)[:, None, :],
         np.ones((n, 1)),
         assigned[:, None],
         n_levels,
@@ -904,7 +997,7 @@ def backward_pass(
     Parameters
     ----------
     data : LongitudinalData
-        The prepared panel of a held design.
+        The prepared panel of a held or multi-node design.
     plan : Plan
         The resolved plan.
     initial : InitialHazards
@@ -1108,6 +1201,7 @@ def fold_hazards(
     folds: Folds,
     n_jobs: int = 1,
     slots: Sequence[MTPSlots] = (),
+    current_levels: bool = False,
 ) -> tuple[InitialHazards, tuple[InitialHazards, ...]]:
     """Each outer fold's node hazards on its training rows, and their held-out stitch.
 
@@ -1130,6 +1224,9 @@ def fold_hazards(
         Worker count.
     slots : sequence of MTPSlots
         The slots of each modified treatment policy at a continuous baseline node.
+    current_levels : bool, default False
+        Predict each node at its own levels given the observed earlier treatments, on a
+        design with a treatment at several nodes (X70 part (b2)).
 
     Returns
     -------
@@ -1150,6 +1247,7 @@ def fold_hazards(
                 n_jobs=n_jobs,
                 slots=slots,
                 fit_rows=train,
+                current_levels=current_levels,
             )
         )
     hazards = np.array(per_fold[0].hazards, copy=True)
@@ -1247,14 +1345,19 @@ def target_time_varying(
     pass on its training rows, the held-out node hazards and continuations are stitched, and
     one pooled pass walks every node.
 
+    On a held design the node hazards are predicted at each level of the baseline treatment
+    (X70 part (b1)); on a design with a treatment at several nodes, at each level of the node
+    given the observed earlier treatments (part (b2)).
+
     Parameters
     ----------
     data : LongitudinalData
-        The prepared panel of a held design with a covariate after baseline.
+        The prepared panel of a held or multi-node design with a covariate after baseline.
     plans : sequence of Plan
         The resolved plans, with any policy numerator attached.
     levels : sequence of Plan
-        One plan per treatment level, empty at a continuous baseline node.
+        One plan per treatment level of a held categorical design; empty at a continuous
+        baseline node and on a multi-node design.
     mechanism : Mechanism
         The out-of-fold mechanism, evaluated at every plan.
     outcome_learner : Learner
@@ -1295,14 +1398,29 @@ def target_time_varying(
     mtp = tuple(entry for entry in slots.values() if entry is not None)
     single = folds.is_single
     walk = not _UNTARGETED.get()
+    # A treatment at several nodes: each node is predicted at its own levels given the
+    # observed earlier treatments, the slots the backward pass reads (X70 part (b2)).
+    current = is_multinode(data)
     if single:
         initial = fit_hazards(
-            data, levels, learner=outcome_learner, folds=folds, n_jobs=n_jobs, slots=mtp
+            data,
+            levels,
+            learner=outcome_learner,
+            folds=folds,
+            n_jobs=n_jobs,
+            slots=mtp,
+            current_levels=current,
         )
         per_fold: tuple[InitialHazards, ...] = ()
     else:
         initial, per_fold = fold_hazards(
-            data, levels, learner=outcome_learner, folds=folds, n_jobs=n_jobs, slots=mtp
+            data,
+            levels,
+            learner=outcome_learner,
+            folds=folds,
+            n_jobs=n_jobs,
+            slots=mtp,
+            current_levels=current,
         )
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     out: dict[tuple[str, str | None, int], RegimenFit] = {}

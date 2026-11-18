@@ -1527,6 +1527,50 @@ def fit_hazard_multinode(**options: Any) -> Any:
     )
 
 
+def _multinode_policy(frame: Any) -> Any:
+    """A known policy at both nodes: treat with 0.3 at node 1, after it 0.2 plus 0.4 when L2 > 0."""
+    if "L2" in frame.columns:
+        p = 0.2 + 0.4 * (np.asarray(frame["L2"], dtype=float) > 0.0)
+    else:
+        p = np.full(len(frame), 0.3)
+    return np.column_stack([1.0 - p, p])
+
+
+def fit_hazard_time_varying_multinode() -> Any:
+    """The one-step hazard fit of a treatment at two nodes and a covariate after baseline.
+
+    X70 part (b2): the backward pass with the multi-node slot rule, under static arms and a
+    known policy at both nodes.
+    """
+    from cleverly.interventions import Stochastic
+    from cleverly.longitudinal import DynamicRegimen
+
+    frame, _ = make_longitudinal_survival(n=600, seed=12)
+    node = Stochastic(_multinode_policy, "policy", density_kind="known")
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    regimens = {"a1": 1, "a0": 0, "policy": DynamicRegimen("policy", (node, node))}
+    return study.identify(RegimeContrast(regimens=regimens, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        survival_model="hazard",
+        targeting="one_step",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_isotonic() -> Any:
     """The iterated-mean fit with its curve projected."""
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
@@ -2198,6 +2242,11 @@ KINDS: dict[str, Kind] = {
     # The regressions of the future read targeted later hazards, which no truncation replay
     # rebuilds (H31), so the truncation row reads unavailable.
     "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
+    # A treatment at several nodes with a covariate after baseline runs the same backward pass
+    # (X70 (b2)), so the truncation row reads unavailable (H31) as well.
+    "ltmle_hazard_time_varying_multinode": _kind(
+        fit_hazard_time_varying_multinode, *_READ, "refute"
+    ),
     # A treatment at several nodes with baseline covariates walks every regimen path, and its
     # truncation replay rebuilds the walk, so every point row runs.
     "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),
