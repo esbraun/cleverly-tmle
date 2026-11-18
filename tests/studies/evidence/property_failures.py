@@ -1614,6 +1614,11 @@ def shown_mask(rows: pd.DataFrame) -> np.ndarray:
     return np.asarray((withheld == 0) & np.isfinite(se) & (se > 0.0), dtype=bool)
 
 
+#: The candidate label of a shown-only clause on a cell with fewer than two shown draws, where
+#: the complete-case reading (the verdict's own) is returned instead of a fill.
+SHOWN_TOO_FEW = "fewer than two shown draws: the complete-case reading"
+
+
 def _shown_rows(group: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """An arm's shown rows and its lost count, read off the unfiltered arm.
 
@@ -1704,6 +1709,12 @@ def paired_se_ratio_clause(
                 control.loc[shown_mask(control)],
                 positive.loc[shown_mask(positive)],
             )
+            shown_both = np.intersect1d(shown_control["replicate"], shown_positive["replicate"])
+            if len(shown_both) < 2:
+                # The verdict fails a control with fewer than two shown draws in both arms; no
+                # fill of the lost draws can read a clause there, so the complete-case reading
+                # is the only one (it fails, as the verdict does).
+                return [(SHOWN_TOO_FEW, read(ctx, row))]
             numerator = _completed_se(
                 control, float(shown_control["std_error"].max()), shown_only=True
             )
@@ -1794,6 +1805,9 @@ def paired_positive_se_clause(
         positive, _ = _pair_arms(ctx, row, group)
         if shown_only:
             positive, k = _shown_rows(positive)
+            if len(positive) < 2:
+                # Fewer than two shown draws publish no SE ratio: the complete-case reading.
+                return [(SHOWN_TOO_FEW, read(ctx, row))]
         else:
             k = _requested(positive) - len(positive)
         resampling = seed(ctx, positive_row(ctx, row))

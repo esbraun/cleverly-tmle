@@ -1562,6 +1562,10 @@ SHIPPED_JACKKNIFE: Final[dict[str, str]] = {
 }
 #: The route of a family whose floor moved down from its anchor.
 LOWERED: Final[str] = "lowered"
+#: The route of a family with a red at or above its anchor that has no committed counterpart
+#: (J = 15 or 39, a d5 cell, an LTMLE count of 39): nothing can compare it, so it is never read as
+#: chance, the floor stays at the anchor, and the family goes to a redeclaration.
+REDECLARATION: Final[str] = "redeclaration"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1575,8 +1579,10 @@ class Route:
     floor : int
         :math:`F_f` under :func:`family_floor`.
     route : str
-        ``"lowered"``, ``"kept: {count} fails"`` (the count below the anchor fails), or
-        ``"defect suspect: {counts}"`` (counts at or above the anchor fail; diagnosed first).
+        ``"lowered"``, ``"kept: {count} fails"`` (the count below the anchor fails),
+        ``"defect suspect: {counts}"`` (counts at or above the anchor fail; diagnosed first), or
+        ``"redeclaration: {counts}"`` (a red at or above the anchor has no committed
+        counterpart, :data:`REDECLARATION`).
     owners : dict
         Each red ``family/cell`` and ``(RED_OWNER, reading)``, or ``None`` when no reading
         holds it (a defect suspect).
@@ -1632,7 +1638,10 @@ def declared_route(
     its committed counterpart in ``counterparts`` (default :func:`anchor_counterparts`, by
     :func:`agrees_with_committed`; review B3). Otherwise nobody holds it: a red that disagrees
     with the committed anchor is a measured change, and plan 5.8 (rev 3.7) withdraws the
-    support of the shipped floor for that family.
+    support of the shipped floor for that family. A red at or above the anchor with no committed
+    counterpart at all (no cell of the committed study at that law and count) is never read as
+    chance: the route is ``"redeclaration: {counts}"``, the floor stays at the anchor, and the
+    family goes to a redeclaration.
     """
     diagnoses = NO_DEFECT_DIAGNOSES if diagnoses is None else diagnoses
     counterparts = anchor_counterparts() if counterparts is None else counterparts
@@ -1644,7 +1653,19 @@ def declared_route(
     passes = count_passes(verdicts, configurations)
     floor = family_floor(passes, anchor=anchor)
     high = sorted(count for count, ok in passes.items() if not ok and count >= anchor)
-    if high:
+    uncompared = sorted(
+        {
+            count
+            for (_, _, count), pair in cells.items()
+            if count >= anchor
+            for row in pair
+            if not bool(row["passed"]) and str(row["cell"]) not in counterparts
+        }
+    )
+    if uncompared:
+        floor = anchor
+        route = f"{REDECLARATION}: {', '.join(str(count) for count in uncompared)}"
+    elif high:
         route = f"defect suspect: {', '.join(str(count) for count in high)}"
     elif floor < anchor:
         route = LOWERED
@@ -1744,6 +1765,14 @@ def declared_outcome(
     from tests.studies import few_cluster_floor_tmle_properties as sa
 
     routes = {**sa.routes(summary_a), "ltmle_cross_fitted": sb.route(summary_b)}
+    # A d5 red at or above the anchor has no committed counterpart: it sends tmle_stacked, whose
+    # configurations the d5 fits are, to a redeclaration with its floor at the anchor.
+    reported = sa.reported_route(summary_a)
+    if reported.route.startswith(REDECLARATION):
+        stacked = routes["tmle_stacked"]
+        routes["tmle_stacked"] = dataclasses.replace(
+            stacked, floor=sa.study.ANCHORS["tmle_stacked"], route=f"{reported.route} (d5)"
+        )
     decisions = {
         **sa.decisions(summary_a, rows_a),
         "ltmle_cross_fitted": sb.decision(summary_b, rows_b),

@@ -847,15 +847,49 @@ def _family_cells(red: dict[int, str] | None = None, ladder=(4, 5, 6, 10, 15, 20
 
 
 def test_the_route_reads_a_red_above_the_anchor_as_a_defect_suspect():
-    """M3: a red at 15 keeps the floor and names the count; it is no below-floor red."""
+    """M3: a red at 15 with a committed counterpart keeps the floor and names the count; it is
+    no below-floor red."""
     cells = _family_cells({15: "positive"})
-    route = floor.declared_route("x", cells, anchor=10)
+    compared = {"x_known__l__j15__t_reference": floor.Counterpart("committed", 3_800, 4_000)}
+    route = floor.declared_route("x", cells, anchor=10, counterparts=compared)
     assert (route.floor, route.route) == (10, "defect suspect: 15")
     assert route.defect_suspects == (f"{floor.FAMILY}/x_known__l__j15__t_reference",)
     mutated = floor.declared_route(
         "x", {key: value for key, value in cells.items() if key[2] <= 10}, anchor=10
     )
     assert mutated.route == floor.LOWERED and mutated.floor == 4
+
+
+def test_a_red_with_no_committed_counterpart_sends_the_family_to_a_redeclaration():
+    """A red at or above the anchor that no committed cell can be compared with (J15, J39, a d5
+    cell) is never read as chance, even with a diagnosis: the floor stays at the anchor and the
+    route is a redeclaration. The study ladders hold such counts."""
+    cells = _family_cells({15: "positive", 4: "positive"})
+    name = f"{floor.FAMILY}/x_known__l__j15__t_reference"
+    route = floor.declared_route("x", cells, anchor=10, diagnoses={name: "no defect"})
+    assert route.route == f"{floor.REDECLARATION}: 15" and route.floor == 10
+    assert route.owners[name] is None and route.defect_suspects == (name,)
+    # The below-floor red keeps its reading.
+    below = f"{floor.FAMILY}/x_known__l__j4__t_reference"
+    assert route.owners[below] == (floor.RED_OWNER, floor.FINITE_SAMPLE_READING)
+    # The mutation that compares it anyway (a counterpart present) reads a defect suspect.
+    agrees = {"x_known__l__j15__t_reference": floor.Counterpart("committed", 3_800, 4_000)}
+    compared = floor.declared_route("x", cells, anchor=10, counterparts=agrees)
+    assert compared.route == "defect suspect: 15"
+    # Which published counts have no counterpart: 15 and 39 for point fits, 39 for LTMLE, and
+    # every d5 cell.
+    counterparts = floor.anchor_counterparts()
+    for fit, law, count in study_a.grid():
+        anchor = study_a.ANCHORS[study_a.FITS[fit]]
+        if count < anchor:
+            continue
+        cell = study_a.cell_name(fit, law, count, floor.REFERENCE_ARM)
+        expected = fit not in study_a.D5_FITS and count not in (15, 39)
+        assert (cell in counterparts) == expected, cell
+    for law, count in study_b.grid():
+        if count >= study_b.ANCHOR:
+            cell = study_b.cell_name(law, count, floor.REFERENCE_ARM)
+            assert (cell in counterparts) == (count != 39), cell
 
 
 def test_the_route_reads_a_red_at_the_anchor_and_its_diagnosis():
@@ -1174,3 +1208,33 @@ def test_the_committed_runs_reproduce_the_shipped_floors():
         assert CLUSTER_INTERVAL_FLOORS[outcome.family] == outcome.floor
         shipped = floor.SHIPPED_JACKKNIFE.get(outcome.family, "not compared")
         assert outcome.jackknife.split(":")[0] == shipped
+
+
+def test_a_d5_redeclaration_sends_the_stacked_family_to_a_redeclaration(monkeypatch):
+    """A d5 red at or above the anchor has no counterpart: ``declared_outcome`` gives
+    ``tmle_stacked`` the redeclaration route with its floor at the anchor. The mutation that
+    ignores the reported route ships the stacked floor the floor cells read."""
+    lowered = {
+        family: floor.Route(family, 4, floor.LOWERED, {})
+        for family in (*study_a.ANCHORS, study_b.FIT)
+    }
+    reported = floor.Route(study_a.D5_REPORTED, 10, f"{floor.REDECLARATION}: 15", {})
+    monkeypatch.setattr(
+        properties_a,
+        "routes",
+        lambda summary: {
+            family: route for family, route in lowered.items() if family in study_a.ANCHORS
+        },
+    )
+    monkeypatch.setattr(properties_a, "reported_route", lambda summary: reported)
+    monkeypatch.setattr(properties_b, "route", lambda summary: lowered[study_b.FIT])
+    monkeypatch.setattr(properties_a, "decisions", lambda summary, rows: {})
+    refused = types.SimpleNamespace(
+        winner=floor.REFERENCE_ARM, admissible={floor.JACKKNIFE_ARM: None}, reasons={}
+    )
+    monkeypatch.setattr(properties_b, "decision", lambda summary, rows: refused)
+    outcomes = floor.declared_outcome(None, None, None, None)
+    stacked = outcomes["tmle_stacked"]
+    assert stacked.floor == study_a.ANCHORS["tmle_stacked"]
+    assert stacked.route == f"{floor.REDECLARATION}: 15 (d5)"
+    assert outcomes["tmle_in_sample"].floor == 4

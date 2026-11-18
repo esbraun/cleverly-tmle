@@ -427,3 +427,40 @@ class TestShownOnlyAccounting:
         shown, k = pf._shown_rows(positive)
         assert k == 1 and len(shown) == len(positive) - 1 - len(self.WITHHELD_KEPT)
         assert not shown["replicate"].isin([self.WITHHELD_NAN, *self.WITHHELD_KEPT]).any()
+
+
+class TestShownOnlyTooFew:
+    """An arm with fewer than two shown draws and a lost draw gives the complete-case reading,
+    which fails as the verdict does, instead of filling with NaN and raising."""
+
+    @staticmethod
+    def rows() -> pd.DataFrame:
+        rows = synthetic_rows(20, cluster_scale=1.0, iid_scale=0.6, seed=8)
+        rows["withheld"] = 0
+        rows = rows.loc[rows["replicate"] != 0].copy()  # one lost draw
+        rows["failed_replicates"] = 1
+        gated = rows["cell"].isin((POSITIVE, CONTROL))
+        # The positive shows no draw and the control one: the old fills read NaN and raised.
+        rows.loc[gated & (rows["replicate"] > 1), "withheld"] = 1
+        rows.loc[(rows["cell"] == POSITIVE) & (rows["replicate"] == 1), "withheld"] = 1
+        return rows
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "paired iid/cluster se ratio under its ceiling",
+            "paired positive se ratio at most the sanity ceiling",
+        ],
+    )
+    def test_the_complete_case_reading_fails(self, name: str) -> None:
+        rows = self.rows()
+        summary, _ = apply_shared_verdicts(
+            rows, RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(summary, rows, RECORD, GROUPS, shown_only=True)
+        assert not bool(summary.set_index("cell").loc[CONTROL, "passed"])
+        ctx = pf.Context(RECORD, rows, summary, groups={FEW_CLUSTER_FAMILY: GROUPS})
+        row = summary.loc[summary["cell"] == CONTROL].iloc[0]
+        clause = pv.few_cluster_rule(shown_only=True).clause(name)
+        ((label, judged),) = clause.candidates(ctx, row)
+        assert label == pf.SHOWN_TOO_FEW and not judged.passed
