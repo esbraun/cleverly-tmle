@@ -21,7 +21,10 @@ the shipped study's; truth per replicate is rule L4 (each fold's rule refitted t
 The calibration ``R`` needs the 1,400-draw pilots per cell
 (:mod:`tests.studies.learned_rule_ep_declared_pilot`), which have not run;
 :data:`BUDGETED_R` is the plan's budget, which the declaration commit replaces by the computed
-``R`` when larger.  The study runs after Fix-3 PR 2 merges (plan section 7).  It is not
+``R`` when larger.  Fix-3 PR 2 is on main: the package forms the interval of every value this
+study estimates, an unclustered mean of a binary outcome, on the logit scale
+(``interval_scale == "range_logit"``), and ``covered`` reads that interval.  The standard error,
+and with it every SE ratio and the pilot's ``R``, does not depend on the interval.  It is not
 registered: it joins :func:`tests.studies.evidence.registry.registered` with its declared run.
 """
 
@@ -76,7 +79,9 @@ CALIBRATION_N = 16_000
 PRIMARY_N = 2_000
 #: Design review S6: 2,000 per primary cell, so a correct estimator at the shipped pilot's
 #: coverage 0.930 passes each cell's coverage floor with probability 0.986 and all four with
-#: 0.945 (``tests/unit/test_learned_rule_ep_declared_design.py``).
+#: 0.945 (``tests/unit/test_learned_rule_ep_declared_design.py``).  0.930 is a planning figure
+#: read under the old symmetric interval; under the logit interval the shipped primaries move by
+#: at most +0.0005 (design review 3, N1), and the binomial calculation does not read the shape.
 PRIMARY_REPLICATES = 2_000
 CONTROL_REPLICATES = 500
 #: The diagnostic ``optimal__L`` cell's draws: it states no verdict, so it is sized as the
@@ -187,6 +192,7 @@ STUDY = StudyRecord(
         "src/cleverly/effect_modification.py",
         "src/cleverly/bases.py",
         "src/cleverly/estimators/tmle.py",
+        "src/cleverly/inference/influence.py",
         "tests/studies/evidence/properties.py",
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
@@ -386,7 +392,19 @@ def measured(
     estimate = result.estimates[OPTIMAL_ESTIMAND if optimal else ESTIMAND]
     if not (np.isfinite(estimate.psi) and np.isfinite(estimate.std_error)):
         raise RuntimeError(f"a non-finite estimate or standard error (rule L4): {estimate}")
+    require_interval(estimate)
     return Measured(result=result, truth=truth, warnings=count[0], verified=check)
+
+
+def require_interval(estimate: Any) -> None:
+    """Stop on a withheld interval (rule L4), which would otherwise count as uncovered.
+
+    Since Fix-3 a bounded mean on its bound or with a constant arm cell carries
+    ``plugin_interval == (nan, nan)`` with a finite standard error (design review 3, F2).
+    """
+    low, high = estimate.plugin_interval
+    if not (estimate.supplies_inference and np.isfinite(low) and np.isfinite(high)):
+        raise RuntimeError(f"a withheld interval ({estimate.inference}) (rule L4): {estimate}")
 
 
 def optimal_estimator(curve: str, fold_seed: int) -> TMLE:
@@ -495,6 +513,10 @@ def _row(cell: str, replicate: int, n: int, truth: float, estimate: Any) -> dict
         "std_error": std_error,
         "ci_lower": low,
         "ci_upper": high,
+        # ``inference_scale`` is the scale of ``std_error`` and ``inference_estimate``. The
+        # package forms this bounded mean's interval on the logit scale
+        # (``interval_scale == "range_logit"``); ``ci_lower``, ``ci_upper`` and ``covered``
+        # record that interval.
         "inference_scale": "identity",
         "covered": int(low <= truth <= high),
         "initial_estimate": float("nan"),

@@ -313,3 +313,41 @@ def test_the_pilot_rule_sizes_each_arm_and_the_budget_covers_it() -> None:
         pytest.skip("the pilot has not run; the declaration commit adds it (plan 5.2)")
     computed = pilot.declared_replicates(pd.read_csv(pilot.PILOT_CSV))
     assert all(computed[curve] <= study.BUDGETED_R[curve] for curve in study.CURVES)
+
+
+@pytest.mark.xdist_group("learned_rule_ep_declared_fit")
+def test_the_rows_record_the_range_logit_interval() -> None:
+    """Fix-3: coverage reads the package's logit interval of this bounded mean; SE unchanged."""
+    frame, _, fitted = small_fit()
+    estimate = fitted.result.estimates[study.ESTIMAND]
+    assert estimate.interval_scale == "range_logit" and estimate.supplies_inference
+    row = properties._base_row(
+        "nonexc__S", "positive", 0, 1, len(frame), fitted.truth.truth, estimate
+    )
+    low, high = estimate.plugin_interval
+    assert row["std_error"] == estimate.plugin_std_error
+    # A nonzero witness: the identity interval would be symmetric about the estimate.
+    assert high - estimate.psi != pytest.approx(estimate.psi - low, rel=1e-6)
+    primary = study._row("S_nonexc_2k", 0, len(frame), fitted.truth.truth, estimate)
+    assert (primary["ci_lower"], primary["ci_upper"]) == (low, high)
+    assert primary["inference_scale"] == "identity"
+
+
+@pytest.mark.xdist_group("learned_rule_ep_declared_fit")
+def test_the_optimal_value_records_the_range_logit_interval() -> None:
+    cell = study.calibration_cell("optimal", "S")
+    frame = base.draw("non_exceptional", 2_000, study.sample_seed(cell, 0, "smoke"))
+    seed = study.fold_seed(cell, 0, "smoke")
+    fitted = study.measured(frame, "S", "non_exceptional", seed, optimal=True)
+    estimate = fitted.result.estimates[study.OPTIMAL_ESTIMAND]
+    assert estimate.interval_scale == "range_logit"
+
+
+def test_a_withheld_interval_stops_the_replicate() -> None:
+    withheld = SimpleNamespace(
+        plugin_interval=(float("nan"), float("nan")),
+        supplies_inference=False,
+        inference="constant_arm_cell_plugin",
+    )
+    with pytest.raises(RuntimeError, match="withheld interval"):
+        study.require_interval(withheld)
