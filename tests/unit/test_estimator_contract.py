@@ -178,6 +178,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "Targeting",
         "TimeToEvent",
         "TruncationCurve",
+        "ImportanceFacts",
         "VariableImportanceEntry",
         "VariableImportanceResult",
         "ValidationReport",
