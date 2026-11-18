@@ -147,6 +147,20 @@ class _NodeSummary:
     ``used[followed[:, i], i]``, ``share`` is ``share_beyond_bounds[i]``, ``effective_n`` is
     ``effective_n[i]`` and ``followers`` is ``followed[:, i].sum()``, computed from the same
     values in the same row order.
+
+    Parameters
+    ----------
+    time : int
+        The node's time.
+    used : FloatArray
+        The followers' weights, data weight times clever covariate, in row order.
+    share : float
+        The followers' share whose cumulative probability the bounds moved; NaN with no
+        followers.
+    effective_n : float
+        The Kish effective size of ``used``.
+    followers : int
+        The number of followers.
     """
 
     time: int

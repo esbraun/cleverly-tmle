@@ -25,8 +25,13 @@ from cleverly.longitudinal import weights as module
 from tests.unit import _capability_sweep_support as sweep
 
 
-def _ltmle(**overrides: Any) -> Any:
+def _ltmle(*, zero_weights: bool = False, **overrides: Any) -> Any:
     frame, _ = make_longitudinal(n=300, seed=0)
+    extra: dict[str, Any] = {}
+    if zero_weights:
+        # Every seventh unit carries weight zero, the rest 1 or 1.5.
+        frame["w"] = np.where(np.arange(300) % 7 == 0, 0.0, 1.0 + 0.5 * (frame["W1"] > 0))
+        extra["weights"] = "w"
     settings: dict[str, Any] = {
         "n_folds": 1,
         "random_state": 0,
@@ -42,12 +47,14 @@ def _ltmle(**overrides: Any) -> Any:
         baseline=["W1", "W2"],
         time_varying=[[], ["L2"]],
         censoring=["C1", "C2"],
+        **extra,
     )
 
 
 ROUTES: dict[str, Callable[[], Any]] = {
     "bounded": functools.partial(_ltmle, g_bounds=(0.3, 1.0)),
     "cross-fitted repeats": functools.partial(_ltmle, n_folds=2, repeats=2),
+    "zero data weights": functools.partial(_ltmle, zero_weights=True),
     "iterated mean": sweep.fit_ltmle,
     "hazard": sweep.fit_hazard,
     "hazard multinode": sweep.fit_hazard_multinode,
@@ -191,6 +198,11 @@ def test_the_routes_reach_what_the_plot_branches_on() -> None:
         for kind in summary.node_kinds
     )
     assert any(summary.n_repeats > 1 for summary in summaries)
+    # The zero-weight note and a Kish size below the follower count.
+    assert any(np.any(node.used == 0.0) for summary in summaries for node in summary.nodes)
+    assert any(
+        node.effective_n != node.followers for summary in summaries for node in summary.nodes
+    )
     assert len({summary.cause for summary in summaries}) > 2
 
 
