@@ -31,6 +31,7 @@ they retarget or refit.
 
 from __future__ import annotations
 
+from ._planned_fits import PlannedFits
 from ._version import __version__
 from .assessment import (
     AssessmentCapability,
@@ -184,6 +185,7 @@ __all__ = [
     "ParameterKey",
     "ParameterSpaceWarning",
     "ParametricGFormulaMethod",
+    "PlannedFits",
     "PointTreatment",
     "PopulationAttributableFraction",
     "PopulationAttributableRisk",

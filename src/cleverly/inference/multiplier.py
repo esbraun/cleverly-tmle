@@ -507,9 +507,14 @@ def _fill_multipliers(rng: np.random.Generator, out: FloatArray, kind: Multiplie
         # half the bytes drawn, and the comparison writes a bool array the size of the
         # buffer instead of a second float64 one.  The threshold moves the low point's
         # probability by less than 2**-32 (the exact moments are pinned in the tests).
+        # The flags are then written as flag * (LOW - HIGH) + HIGH, two plain passes over the
+        # buffer, about 4x faster than a fill followed by a masked copy.  It is exact, not
+        # merely close: LOW - HIGH and (LOW - HIGH) + HIGH are both representable doubles,
+        # so neither step rounds, and a clear flag gives -0.0 + HIGH == HIGH (both pinned in
+        # the tests).  ``out`` must be float64, as both callers allocate it.
         flags = rng.integers(0, 2**32, size=out.shape, dtype=np.uint32) < _MAMMEN_THRESHOLD
-        np.copyto(out, _MAMMEN_HIGH)
-        np.copyto(out, _MAMMEN_LOW, where=flags)
+        np.multiply(flags, _MAMMEN_LOW - _MAMMEN_HIGH, out=out)
+        np.add(out, _MAMMEN_HIGH, out=out)
         return
     raise ValueError(f"kind must be 'rademacher', 'mammen' or 'normal'; got {kind!r}")
 

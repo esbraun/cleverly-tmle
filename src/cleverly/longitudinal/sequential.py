@@ -1685,6 +1685,281 @@ def fit_mechanism(
     )
 
 
+def plan_mechanism(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    *,
+    treatment_learner: Learner,
+    censoring_learner: Learner,
+    folds: Folds,
+    counter: Any,
+    density_bins: int | None = None,
+    ratio: str = "density",
+    fit_rows: BoolArray | None = None,
+    hazard_pooling: str = "node",
+    competing_learner: Learner | None = None,
+    unresolved: int = 0,
+    n_jobs: int | None = None,
+) -> list[tuple[str, str, Any]]:
+    """The fits :func:`fit_mechanism` makes, counted without fitting.
+
+    Each branch of :func:`fit_mechanism` is followed on the same rows: a held, divided or
+    declared node fits nothing, a retention node where no eligible unit leaves fits nothing,
+    and a training fold whose positive-weight rows hold one retention value fits nothing.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans, as the fit receives them.
+    treatment_learner : Learner
+        The resolved treatment learner.
+    censoring_learner : Learner
+        The resolved censoring learner.
+    folds : Folds
+        The outer split, or the single fold with ``fit_rows``.
+    counter : FitCounter
+        Counts each fit, realized or at nominal counts.
+    density_bins : int or None
+        As :func:`fit_mechanism`.
+    ratio : {"density", "classifier"}
+        As :func:`fit_mechanism`.
+    fit_rows : ndarray of bool or None
+        As :func:`fit_mechanism`.
+    hazard_pooling : {"node", "pooled"}
+        As :func:`fit_mechanism`.
+    competing_learner : Learner or None
+        As :func:`fit_mechanism`.
+    unresolved : int
+        Plans not resolved yet, each holding a modified treatment policy at every continuous
+        or mixed node: the tuned plans of a preview, whose maps need a fitted tuner.
+
+    n_jobs : int or None
+        As :func:`fit_mechanism`.  With it, a dose density's bins and memory refusal run
+        as the fit runs them; ``None`` skips them.
+    Returns
+    -------
+    list of tuple
+        ``(factor, what, Count)``, with ``factor`` one of ``"treatment"``, ``"censoring"`` and
+        ``"competing"``.
+    """
+    from ..interventions.joint_density import joint_density_inputs, plan_joint_density
+    from ..learners.density import plan_conditional_density
+    from ..learners.density_ratio import plan_classifier_ratio
+
+    nominal = None if not counter.nominal else (1 if folds.is_single else folds.n_folds)
+    seed_fixed = counter.seed_fixed
+    competing_learner = censoring_learner if competing_learner is None else competing_learner
+    out: list[tuple[str, str, Any]] = []
+    fit_masks = data.regimen_masks(data.treatment)
+    n_times = data.n_times
+
+    def covariates_at(time: int) -> int | None:
+        # The history the density conditions on, whose width the memory refusal reads.
+        if n_jobs is None or nominal is not None:
+            return None
+        return int(data.history_design(time).shape[1])
+
+    def pooled(
+        nodes: tuple[int, ...], at_risk: dict[int, BoolArray], target: Any, learner: Learner
+    ) -> Any:
+        if fit_rows is not None:
+            at_risk = {time: rows & fit_rows for time, rows in at_risk.items()}
+        stayed = np.concatenate(
+            [np.where(at_risk[t], target[:, t - 1].astype(float), 0.0) for t in nodes]
+        )
+        mask = np.concatenate([at_risk[t] for t in nodes])
+        stacked = Folds(np.tile(folds.assignment, len(nodes)), folds.n_folds)
+        return counter.cross(
+            learner,
+            stayed,
+            stacked,
+            task="classification",
+            fit_mask=mask,
+            constant_skip=True,
+            stack=len(nodes),
+        )
+
+    pooled_censoring = hazard_pooling == "pooled" and bool(data.censoring_names)
+    pooled_competing = hazard_pooling == "pooled" and data.eliminated
+    if pooled_censoring:
+        known = data.known_mechanisms
+        nodes = tuple(
+            time
+            for time in range(1, n_times + 1)
+            if known is None or known.censoring_at(time) is None
+        )
+        rows = {
+            time: fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+            for time in nodes
+        }
+        out.append(
+            (
+                "censoring",
+                "pooled censoring mechanism",
+                pooled(nodes, rows, data.censoring_target, censoring_learner),
+            )
+        )
+    if pooled_competing:
+        assert data.retained is not None
+        nodes = tuple(range(1, n_times + 1))
+        rows = {
+            time: fit_masks.uncensored[:, time - 1]
+            & fit_masks.event_free[:, time - 1]
+            & data.retained[:, time - 1]
+            for time in nodes
+        }
+        out.append(
+            (
+                "competing",
+                "pooled competing-event mechanism",
+                pooled(nodes, rows, data.uncensored, competing_learner),
+            )
+        )
+
+    def classifier(target: FloatArray, fit_at: BoolArray) -> Any:
+        return counter.cross(
+            treatment_learner, target, folds, task="classification", fit_mask=fit_at
+        )
+
+    def ratio_classifier(fit_at: BoolArray) -> Any:
+        return plan_classifier_ratio(
+            treatment_learner,
+            data.n,
+            None if nominal is not None else folds,
+            fit_mask=fit_at,
+            groups=data.cluster,
+            seed_fixed=seed_fixed,
+            nominal_folds=nominal,
+        )
+
+    def retention(target: BoolArray, fit_at: BoolArray, learner: Learner) -> Any:
+        if _retains_every_eligible_unit(data, fit_at, target):
+            return None
+        stayed = np.where(fit_at, target.astype(float), 0.0)
+        return counter.cross(
+            learner, stayed, folds, task="classification", fit_mask=fit_at, constant_skip=True
+        )
+
+    for time in range(1, n_times + 1):
+        at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        fit_at = at_risk if fit_rows is None else at_risk & fit_rows
+        kind = data.node_kind(time)
+        if data.is_held_node(time) or (
+            tilted_treatment_at(data, time) is None and divided_treatment_at(data, time) is not None
+        ):
+            pass
+        elif tilted_treatment_at(data, time) is not None or kind == "categorical":
+            arm = np.nan_to_num(data.node_codes(time), nan=0.0)
+            out.append(("treatment", "treatment mechanism", classifier(arm, fit_at)))
+        elif kind == "mixed" and ratio == "density":
+            layout, branches, _, _, evaluations = _mixed_node_inputs(data, plans, time, at_risk)
+            inputs = joint_density_inputs(
+                layout, branches, evaluations, n_bins=density_bins, fit_rows=fit_at
+            )
+            for what, count in plan_joint_density(
+                layout,
+                inputs,
+                learner=treatment_learner,
+                weights=data.weights,
+                folds=None if nominal is not None else folds,
+                n_bins=density_bins,
+                groups=data.cluster,
+                seed_fixed=seed_fixed,
+                nominal_folds=nominal,
+                n_jobs=n_jobs,
+            ):
+                out.append(("treatment", what, count))
+        elif kind == "mixed" or ratio == "classifier":
+            for _ in range(len(plans) + unresolved):
+                out.append(
+                    ("treatment", "treatment density-ratio classifier", ratio_classifier(fit_at))
+                )
+        else:
+            dose = np.nan_to_num(data.node_codes(time), nan=0.0)
+            atoms = data.node_atoms(time)
+            edges = None
+            if atoms:
+                index = _atom_index(dose, tuple(float(atom) for atom in atoms))
+                label = np.where(index >= 0, index + 1, 0).astype(float)
+                out.append(("treatment", "dose atom classifier", classifier(label, fit_at)))
+                none = fit_at & (index < 0)
+                if none.any():
+                    if not np.array_equal(fit_at, at_risk):
+                        source = dose[at_risk & (index < 0)]
+                        bins = (
+                            default_density_bins(source.size)
+                            if density_bins is None
+                            else density_bins
+                        )
+                        edges = bin_edges(source, bins).tolist()
+                    out.append(
+                        (
+                            "treatment",
+                            "dose density",
+                            plan_conditional_density(
+                                treatment_learner,
+                                dose,
+                                data.weights,
+                                None if nominal is not None else folds,
+                                n_bins=density_bins,
+                                edges=edges,
+                                groups=data.cluster,
+                                fit_mask=none,
+                                seed_fixed=seed_fixed,
+                                nominal_folds=nominal,
+                                n_covariates=covariates_at(time),
+                                n_jobs=1 if n_jobs is None else n_jobs,
+                            ),
+                        )
+                    )
+            else:
+                if not np.array_equal(fit_at, at_risk):
+                    source = dose[at_risk]
+                    bins = (
+                        default_density_bins(source.size) if density_bins is None else density_bins
+                    )
+                    edges = bin_edges(source, bins).tolist()
+                out.append(
+                    (
+                        "treatment",
+                        "dose density",
+                        plan_conditional_density(
+                            treatment_learner,
+                            dose,
+                            data.weights,
+                            None if nominal is not None else folds,
+                            n_bins=density_bins,
+                            edges=edges,
+                            groups=data.cluster,
+                            fit_mask=fit_at,
+                            seed_fixed=seed_fixed,
+                            nominal_folds=nominal,
+                            n_covariates=covariates_at(time),
+                            n_jobs=1 if n_jobs is None else n_jobs,
+                        ),
+                    )
+                )
+        if not data.censoring_names:
+            continue
+        declared = divided_censoring_at(data, time) is not None
+        pooled_here = pooled_censoring and tilted_censoring_at(data, time) is None
+        if not (declared or pooled_here):
+            count = retention(data.censoring_target[:, time - 1], fit_at, censoring_learner)
+            if count is not None:
+                out.append(("censoring", "censoring mechanism", count))
+        if not data.eliminated:
+            continue
+        assert data.retained is not None
+        if not pooled_competing:
+            passed = fit_at & data.retained[:, time - 1]
+            count = retention(data.uncensored[:, time - 1], passed, competing_learner)
+            if count is not None:
+                out.append(("competing", "competing-event mechanism", count))
+    return out
+
+
 @dataclass(frozen=True)
 class _Retention:
     """One node's fitted retention factor: the censoring or the competing factor."""
@@ -2723,6 +2998,57 @@ def _mixed_node_density(
     :math:`g^d / g` with the categorical factor bounded.  Each branch's assigned value is
     also evaluated, for the positivity warning of :func:`warn_unsupported_values`.
     """
+    layout, branches, owners, targets, evaluations = _mixed_node_inputs(data, plans, time, at_risk)
+    parts = evaluate_joint_density(
+        layout,
+        branches,
+        evaluations,
+        learner=treatment_learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=density_bins,
+        groups=data.cluster,
+        n_jobs=n_jobs,
+        fit_rows=fit_at,
+    )
+    g_cell = parts.cell_probabilities
+    induced = np.einsum("ibk,ik->ib", parts.induced[:, 0], g_cell)
+    doses = parts.observed[:, 0]
+    safe = np.where(doses > 0.0, doses, 1.0)
+    for plan in plans:
+        numerator = np.zeros(data.n)
+        owner = None if plan.folds is None else np.asarray(plan.folds.assignment)
+        for label, probability, branch, fold in owners:
+            if label != plan.label:
+                continue
+            term = probability * induced[:, branch]
+            if fold is not None:
+                assert owner is not None
+                term = np.where(owner == fold, term, 0.0)
+            numerator = numerator + term
+        ratio = np.where(doses > 0.0, numerator / safe, 0.0)
+        numerators[plan.label][time] = np.where(at_risk, ratio, 0.0)
+    for (_, _, branch, _), target, index in zip(
+        owners, targets, range(1, len(targets) + 1), strict=True
+    ):
+        moved = at_risk & np.any(np.asarray(target) != layout.natural, axis=1)
+        warn_unsupported_values(branches[branch].name, parts, index, moved, layout.where)
+    return parts
+
+
+def _mixed_node_inputs(
+    data: LongitudinalData, plans: Sequence[Plan], time: int, at_risk: BoolArray
+) -> tuple[
+    NodeLayout,
+    list[JointBranch],
+    list[tuple[str, float, int, int | None]],
+    list[FloatArray],
+    list[JointEvaluation],
+]:
+    """The layout, branches, owners, targets and evaluations of :func:`_mixed_node_density`.
+
+    It fits nothing, so :func:`plan_mechanism` reads the same node.
+    """
     components = data.node_components(time)
     natural = np.nan_to_num(data.node_values(time), nan=0.0)
     layout = NodeLayout(
@@ -2757,41 +3083,7 @@ def _mixed_node_density(
     evaluations = [JointEvaluation(natural, tuple(range(len(branches))))] + [
         JointEvaluation(np.asarray(target, dtype=float)) for target in targets
     ]
-    parts = evaluate_joint_density(
-        layout,
-        branches,
-        evaluations,
-        learner=treatment_learner,
-        weights=data.weights,
-        folds=folds,
-        n_bins=density_bins,
-        groups=data.cluster,
-        n_jobs=n_jobs,
-        fit_rows=fit_at,
-    )
-    g_cell = parts.cell_probabilities
-    induced = np.einsum("ibk,ik->ib", parts.induced[:, 0], g_cell)
-    doses = parts.observed[:, 0]
-    safe = np.where(doses > 0.0, doses, 1.0)
-    for plan in plans:
-        numerator = np.zeros(data.n)
-        owner = None if plan.folds is None else np.asarray(plan.folds.assignment)
-        for label, probability, branch, fold in owners:
-            if label != plan.label:
-                continue
-            term = probability * induced[:, branch]
-            if fold is not None:
-                assert owner is not None
-                term = np.where(owner == fold, term, 0.0)
-            numerator = numerator + term
-        ratio = np.where(doses > 0.0, numerator / safe, 0.0)
-        numerators[plan.label][time] = np.where(at_risk, ratio, 0.0)
-    for (_, _, branch, _), target, index in zip(
-        owners, targets, range(1, len(targets) + 1), strict=True
-    ):
-        moved = at_risk & np.any(np.asarray(target) != natural, axis=1)
-        warn_unsupported_values(branches[branch].name, parts, index, moved, layout.where)
-    return parts
+    return layout, branches, owners, targets, evaluations
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler, *, horizon: int) -> FloatArray:
@@ -4958,6 +5250,95 @@ def untargeted_recursion(
             untargeted = node.carry_marginal
         carried = np.where(node.at_risk, untargeted, _FILLER)
     return nodes
+
+
+def plan_recursion(
+    data: LongitudinalData,
+    masks: RegimenMasks,
+    *,
+    horizon: int,
+    cause: str | None,
+    scaler: OutcomeScaler,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    counter: Any,
+    fit_rows: BoolArray | None = None,
+    bounds: Mapping[int, NodeBound] | None = None,
+) -> list[tuple[str, bool, Any]]:
+    """The fits of one cell's backward recursion on one set of fit rows, counted unfitted.
+
+    One regression per node from ``horizon`` down to 1, each on the node's followers
+    (:func:`_fit_node_regression`), as every recursion of the iterated-mean, sequentially
+    doubly robust, incremental and g-computation estimators fits it.  The horizon node
+    regresses data, so whether it fits is known: it fits no learner when its target is one
+    value on its rows (:func:`constant_target`), or on its positive-weight rows when it is a
+    classification.  Every earlier node regresses the later node's prediction, which may turn
+    out constant, so its fit is the most the node can make.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    masks : RegimenMasks
+        The plan's prefix scans.
+    horizon : int
+        The node the recursion starts from.
+    cause : str or None
+        The absorbing cause, on a competing-risk fit.
+    scaler : OutcomeScaler
+        The outcome transformation.
+    outcome_learner : Learner
+        The regression at the horizon.
+    pseudo_learner : Learner
+        The regression at every earlier node.
+    counter : FitCounter
+        Counts each fit.
+    fit_rows : ndarray of bool or None
+        The rows every regression may train on, ``None`` for every row.
+    bounds : mapping or None
+        The declared outcome bound of each bounded node.
+
+    Returns
+    -------
+    list of tuple
+        ``(learner, exact, Count)`` per fitted node, with ``learner`` ``"outcome"`` or
+        ``"pseudo"`` and ``exact`` true at the horizon node.
+    """
+    out: list[tuple[str, bool, Any]] = []
+    weights = np.asarray(data.weights, dtype=float)
+    carried = seed_carried(data, scaler, horizon=horizon)
+    filler = np.arange(data.n, dtype=float)
+    for time in range(horizon, 0, -1):
+        fitted_on = masks.following(time)
+        if fit_rows is not None:
+            fitted_on = fitted_on & fit_rows
+        rows = np.flatnonzero(fitted_on)
+        bound = None if bounds is None else bounds.get(time)
+        if time != horizon:
+            out.append(
+                ("pseudo", False, counter.one(pseudo_learner, filler, rows, task="regression"))
+            )
+            continue
+        target = _pseudo_outcome(data, carried, time, cause)
+        if bound is not None:
+            target = bound.scale(target)
+        if constant_target(target, fitted_on) is not None:
+            continue
+        classify = data.family == "binomial" and bound is None
+        if classify and not counter.nominal:
+            informative = rows[weights[rows] > 0.0]
+            if np.unique(np.asarray(target, dtype=float)[informative]).size == 1:
+                continue
+        learner = outcome_learner if bound is None else pseudo_learner
+        task = "classification" if classify else "regression"
+        out.append(
+            (
+                "outcome" if bound is None else "pseudo",
+                True,
+                counter.one(learner, target, rows, task=task),
+            )
+        )
+    return out
 
 
 def _untargeted_recursion_in_fold(

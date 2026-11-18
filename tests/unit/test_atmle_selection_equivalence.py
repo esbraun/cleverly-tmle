@@ -202,9 +202,17 @@ def test_the_equivalence_sees_the_defects_hoisting_could_introduce() -> None:
     assert np.array_equal(full.path(reference.grid[: index + 1])[-1], reference.coef)
     assert not np.array_equal(full.path(reference.grid[:index])[-1], reference.coef)
 
-    warm = full.path(reference.grid)
-    cold = [full.path(reference.grid[j : j + 1])[-1] for j in range(reference.grid.size)]
-    assert any(not np.array_equal(a, b) for a, b in zip(warm, cold, strict=True))
+    # On the ordinary fixture a cold start lands on the warm solution at all but about one
+    # penalty, and that one by a single rounding step, so whether they differ there depends on
+    # the BLAS kernel and the array alignment (main CI, Python 3.13). The near-collinear fixture
+    # separates them at about 40 penalties, which no rounding change closes.
+    basis, multiplier, response, k, _ = _problem("collinear", 1)
+    full = atmle._RLoss(basis, multiplier, response, k)
+    grid = full.grid()
+    warm = full.path(grid)
+    cold = [full.path(grid[j : j + 1])[-1] for j in range(grid.size)]
+    differing = sum(not np.array_equal(a, b) for a, b in zip(warm, cold, strict=True))
+    assert differing >= 10
 
 
 def test_both_refuse_the_same_way_below_the_kkt_tolerance(monkeypatch: pytest.MonkeyPatch) -> None:

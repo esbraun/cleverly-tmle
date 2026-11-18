@@ -76,9 +76,18 @@ from .estimator import (
     _HazardBlock,
     _HazardReplay,
     _LongitudinalReplayRecipe,
+    _Preflight,
     _Reported,
 )
-from .hazard import HazardFit, HazardState, InitialHazards, fit_hazards, hazard_inputs, level_label
+from .hazard import (
+    HazardFit,
+    HazardState,
+    InitialHazards,
+    fit_hazards,
+    hazard_inputs,
+    level_label,
+    plan_hazards,
+)
 from .msm import RegimenMSM
 from .regimen import DynamicRegimen, Plan, resolve_regimens
 from .separable import split_separable
@@ -1763,6 +1772,59 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         return nodes or (data.n_times,)
 
     # -- the correction
+
+    def _plan_hazard_block(
+        self,
+        state: _Preflight,
+        mechanism_plans: tuple[Any, ...],
+        plans: tuple[Any, ...],
+        levels: tuple[Plan, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: Any,
+        add: Callable[..., None],
+    ) -> None:
+        """The fits of :meth:`_hazard_block`: the mechanism and the initial hazards.
+
+        Under ``guard=()`` the block is hazard ``LTMLE``'s own.  The drift reductions are
+        kernel smoothers, which fit no learner.
+
+        Parameters
+        ----------
+        state : _Preflight
+            The resolved preflight.
+        mechanism_plans : tuple
+            The plans and levels the mechanism is evaluated at.
+        plans : tuple
+            The resolved plans.
+        levels : tuple of Plan
+            The static plans of the treatment levels.
+        folds : Folds
+            The realized outer split.
+        learners : dict
+            The resolved learners.
+        counter : FitCounter
+            Counts each fit.
+        add : callable
+            Adds a count to the record.
+        """
+        if not self.guard:
+            super()._plan_hazard_block(
+                state, mechanism_plans, plans, levels, folds, learners, counter, add
+            )
+            return
+        self._plan_mechanism(state.prepared, mechanism_plans, 0, folds, learners, counter, add)
+        add(
+            "outcome",
+            "initial hazard by node and cause",
+            plan_hazards(
+                state.prepared,
+                learner=learners["outcome"],
+                folds=folds,
+                counter=counter,
+                hazard_pooling=self.hazard_pooling,
+            ),
+        )
 
     def _hazard_block(
         self,

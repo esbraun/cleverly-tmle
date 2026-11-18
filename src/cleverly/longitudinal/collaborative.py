@@ -82,6 +82,7 @@ from .estimator import (
     _HazardBlock,
     _HazardReplay,
     _LongitudinalReplayRecipe,
+    _Preflight,
     _Reported,
 )
 from .hazard import (
@@ -93,6 +94,7 @@ from .hazard import (
     hazard_inputs,
     influence,
     level_label,
+    plan_hazards,
     solve_per_horizon,
     walk_loss,
 )
@@ -1823,6 +1825,53 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             ),
         )
         return _HazardBlock(mechanism, fits, initial, replay_recipe, plans, True)
+
+    def _plan_hazard_block(
+        self,
+        state: _Preflight,
+        mechanism_plans: tuple[Any, ...],
+        plans: tuple[Any, ...],
+        levels: tuple[Plan, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: Any,
+        add: Callable[..., None],
+    ) -> None:
+        """The fits of :meth:`_hazard_block`: the initial hazards alone.
+
+        The collaborative selection fits its mechanisms by its own Newton solver, which is no
+        learner, so only :func:`~cleverly.longitudinal.hazard.fit_hazards` is counted.
+
+        Parameters
+        ----------
+        state : _Preflight
+            The resolved preflight.
+        mechanism_plans : tuple
+            The plans a mechanism fit would read; unused here.
+        plans : tuple
+            The resolved plans; unused here.
+        levels : tuple of Plan
+            The static plans of the treatment levels; unused here.
+        folds : Folds
+            The realized outer split.
+        learners : dict
+            The resolved learners; only the outcome learner is read.
+        counter : FitCounter
+            Counts each fit.
+        add : callable
+            Adds a count to the record.
+        """
+        add(
+            "outcome",
+            "initial hazard by node",
+            plan_hazards(
+                state.prepared,
+                learner=learners["outcome"],
+                folds=folds,
+                counter=counter,
+                hazard_pooling=self.hazard_pooling,
+            ),
+        )
 
     def _draw_status(
         self,

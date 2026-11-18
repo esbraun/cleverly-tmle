@@ -22,6 +22,7 @@ __all__ = [
     "question_statements",
     "read_methods",
     "read_phases",
+    "read_planned_fits",
     "read_protocol",
     "read_question",
     "read_simulation",
@@ -529,3 +530,39 @@ def read_phases(profile: Any, text: str) -> None:
         expected += _phase_check(rows, profile.workers, shares=False)
     names = [*profile.exclusive, *(profile.workers.exclusive if profile.workers else ())]
     _check_accounted(text, names, [*expected, *_note_numbers(text)])
+
+
+# ----------------------------------------------------------------- the planned-fit preview
+
+
+def _bound_number(cell: str) -> str:
+    """The count in a fits cell, with an ``at most`` mark taken off."""
+    return cell.rsplit(" ", 1)[-1]
+
+
+def read_planned_fits(plan: Any, text: str) -> None:
+    """The header totals, each row's fits and each candidate's fits equal the record."""
+    assert header_value(text, vocabulary.PLANNED_FITS_TOTAL) == f"{plan.total_fits:,}"
+    assert header_value(text, vocabulary.PLANNED_CANDIDATE_TOTAL) == (
+        f"{plan.total_candidate_fits:,}"
+    )
+    rows = table_rows(text, vocabulary.PLANNED_ROWS_TITLE)
+    assert [row[0] for row in rows] == [row.role for row in plan.rows]
+    for cells, row in zip(rows, plan.rows, strict=True):
+        assert cells[3] == row.scope, (cells, row)
+        assert _close(_bound_number(cells[1]), row.fits), (cells, row)
+        assert _close(_bound_number(cells[2]), row.candidate_fits), (cells, row)
+        assert cells[1].startswith("at most") == (row.bound != "exact"), (cells, row)
+    learner_rows = table_rows(text, vocabulary.PLANNED_LEARNERS_TITLE)
+    assert [tuple(cells) for cells in learner_rows] == list(
+        dict.fromkeys((row.role, row.learner) for row in plan.rows)
+    )
+    candidates = table_rows(text, vocabulary.PLANNED_CANDIDATES_TITLE)
+    assert [cells[0] for cells in candidates] == [name for name, _, _ in plan.candidates]
+    for cells, (_, fits, folds) in zip(candidates, plan.candidates, strict=True):
+        assert _close(cells[1], fits) and cells[2] == ("-" if folds is None else str(folds))
+    learners = {row.learner for row in plan.rows} | {row.scope for row in plan.rows}
+    expected = [plan.total_fits, plan.total_candidate_fits, plan.min_fits]
+    expected += [value for row in plan.rows for value in (row.fits, row.candidate_fits)]
+    expected += [value for _, fits, folds in plan.candidates for value in (fits, folds or 0)]
+    _check_accounted(text, learners, expected)
