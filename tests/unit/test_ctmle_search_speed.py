@@ -106,6 +106,9 @@ def _greedy(frame: pd.DataFrame, **overrides: object) -> CTMLE:
         "estimands": ("ate",),
         **overrides,
     }
+    if settings.get("strategy") in {"derivative", "oat"}:
+        # Selector settings are refused by the strategies that select nothing.
+        del settings["selection_folds"], settings["selection_inner_folds"]
     return CTMLE(**settings)  # type: ignore[arg-type]
 
 
@@ -136,32 +139,68 @@ def test_candidate_treatment_risk_equals_the_per_row_formula(
     assert all(got == expected for got, expected in checked)
 
 
-def _scoring_lookups(monkeypatch: pytest.MonkeyPatch, n: int) -> int:
-    """``column_for`` calls made by the three risk-scoring sites during one greedy fit."""
+_SCORING = {"_fluctuate", "_derivative_nuisances", "_outcome_adaptive_nuisances"}
+
+
+def _per_row(self: Propensity, levels: object) -> np.ndarray:
+    """The pre-K2a lookup, swapped in as the guard's positive control."""
+    return np.array([self.column_for(float(arm)) for arm in levels], dtype=int)  # type: ignore[attr-defined]
+
+
+def _scoring_lookups(
+    monkeypatch: pytest.MonkeyPatch, n: int, strategy: str = "greedy", *, per_row: bool = False
+) -> int:
+    """``column_for`` calls made on behalf of the three risk-scoring sites during one fit.
+
+    A call counts when a scoring site is within three frames of it, which covers the
+    sites calling ``column_for`` themselves and calling it through ``columns_for``. The
+    scalar calls of ``Propensity.truncate`` are not counted.
+    """
     import sys
     import types
 
     frame = _frame(n=n)
     calls = 0
     original = Propensity.column_for
-    scoring = {"_fluctuate", "_derivative_nuisances", "_outcome_adaptive_nuisances"}
 
     def counting(self: Propensity, arm: float) -> int:
         nonlocal calls
         caller: types.FrameType | None = sys._getframe(1)
-        # Skip the comprehension's own frame, which is where a per-row form calls from.
-        while caller is not None and caller.f_code.co_name in {"<listcomp>", "<genexpr>"}:
+        for _ in range(3):
+            if caller is None or caller.f_code.co_name == "truncate":
+                break
+            if caller.f_code.co_name in _SCORING:
+                calls += 1
+                break
             caller = caller.f_back
-        if caller is not None and caller.f_code.co_name in scoring:
-            calls += 1
         return original(self, arm)
 
     monkeypatch.setattr(Propensity, "column_for", counting)
-    _greedy(frame).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+    if per_row:
+        monkeypatch.setattr(Propensity, "columns_for", _per_row)
+    overrides: dict[str, object] = {"strategy": strategy}
+    if strategy == "derivative":
+        overrides["lambdas"] = [0.1, 0.01]
+    if strategy == "oat":
+        # The shared design scores the one mechanism with the observed-arm lookup; the
+        # per-arm design scores each arm's binary factor instead.
+        overrides["oat_design"] = "shared"
+    _greedy(frame, **overrides).fit(
+        frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
+    )
     return calls
 
 
-def test_the_search_no_longer_looks_up_columns_row_by_row(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("strategy", ["greedy", "derivative", "oat"])
+def test_the_search_no_longer_looks_up_columns_row_by_row(
+    monkeypatch: pytest.MonkeyPatch, strategy: str
+) -> None:
     """Work guard: the per-row form called ``column_for`` once per scored row per candidate."""
-    assert _scoring_lookups(monkeypatch, 1000) == 0
-    assert _scoring_lookups(monkeypatch, 2000) == 0
+    assert _scoring_lookups(monkeypatch, 1000, strategy) == 0
+    assert _scoring_lookups(monkeypatch, 2000, strategy) == 0
+
+
+@pytest.mark.parametrize("strategy", ["greedy", "derivative", "oat"])
+def test_the_guard_sees_a_per_row_lookup(monkeypatch: pytest.MonkeyPatch, strategy: str) -> None:
+    """Positive control: with the per-row lookup swapped back in, the guard counts every row."""
+    assert _scoring_lookups(monkeypatch, 1000, strategy, per_row=True) >= 1000
