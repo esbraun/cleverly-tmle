@@ -227,13 +227,16 @@ class AssessmentCache(dict[str, Any]):
     again could give different numbers; neither a budget nor :meth:`evict` removes it.  A
     dropped answer is computed again, bit for bit the same, the next time it is asked for.
 
+    Parameters
+    ----------
+    *args : Any
+        Passed to :class:`dict`: a mapping or an iterable of key and answer pairs.
+    **kwargs : Any
+        Passed to :class:`dict`: answers by key.
+
     Attributes
     ----------
     max_bytes : int or None
-        The budget, in bytes.  ``None`` keeps everything.  A positive integer keeps the
-        evictable answers within the budget, dropping the least recently used first, and
-        setting it drops answers at once.  Pinned answers can hold the cache above it.  It
-        is not a memory guard: ``None`` means no budget, not the memory available now.
     nbytes : int
     pinned_nbytes : int
 
@@ -371,6 +374,13 @@ class AssessmentCache(dict[str, Any]):
 
     @property
     def max_bytes(self) -> int | None:
+        """The budget on the whole cache, in bytes, or ``None`` for no budget (the default).
+
+        A positive integer bounds :attr:`nbytes`, pinned answers included: after each filing,
+        and at once when it is set, evictable answers are dropped, least recently used first,
+        until the total fits or no evictable answer is left.  Pinned answers alone can exceed
+        it.  It is not a memory guard: ``None`` means no budget, not the memory available now.
+        """
         return self._max_bytes
 
     @max_bytes.setter
@@ -463,8 +473,13 @@ def _file(cache: Any, key: str, value: Any, *, evictable: bool) -> None:
         cache._evictable.pop(key, None)
     cache._sizes.pop(key, None)
     _touch(cache, key)
-    if cache._max_bytes is not None:
-        cache._enforce()
+    if cache._max_bytes is None:
+        return
+    if evictable and cache._size(key) > cache._max_bytes:
+        # Dropping it alone keeps every older answer that fits.
+        del cache[key]
+        return
+    cache._enforce()
 
 
 # ---------------------------------------------------------------------------- sizing
@@ -503,12 +518,17 @@ def _payload_nbytes(value: Any) -> int:
             total += sys.getsizeof(item)
             continue
         module = type(item).__module__
-        if module.startswith("pandas"):
+        if module.startswith("pandas") and callable(getattr(item, "memory_usage", None)):
             usage = item.memory_usage(deep=True)
             total += int(usage.sum() if hasattr(usage, "sum") else usage)
             continue
-        if module.startswith("polars"):
+        if module.startswith("polars") and callable(getattr(item, "estimated_size", None)):
             total += int(item.estimated_size())
+            continue
+        if module.startswith(("pandas", "polars")):
+            # Scalars and dtypes (``pd.NA``, ``Timestamp``, ``CategoricalDtype``, Polars dtypes)
+            # carry no buffer to report and are counted at their shallow size.
+            total += sys.getsizeof(item)
             continue
         total += sys.getsizeof(item)
         if isinstance(item, (str, bytes, bytearray, int, float, complex, bool, type(None))):

@@ -1350,17 +1350,17 @@ result that answered them, so a derived result starts with an empty cache of its
 ### Limit the memory of saved answers
 
 A result keeps every assessment answer it has computed, so a repeated call returns at once. Most
-answers are a few kilobytes. The omitted-confounder elements behind `omitted_confounding()`,
-`contour()` and `elements()` hold four numbers per row, about 32 MB for each estimand and
-`nu2_estimator` at a million rows, and a derived risk ratio holds one number per row. Many
+answers are a few kilobytes. The omitted-confounder elements that `elements()` returns, and that
+`run_all()` and `assess()` compute along the way, hold four numbers per row: about 32 MB for each
+estimand and `nu2_estimator` at a million rows. A derived risk ratio holds one number per row. Many
 distinct requests on a large fit can therefore add up.
 
-Set `result.assessment_cache.max_bytes` to a number of bytes to cap that memory. The cache then
-drops the answers it can compute again exactly from the fitted result, least recently used first,
-and a later call recomputes the dropped answer with bit-for-bit the same numbers. It never drops an
-answer that refits a model, draws a random seed of its own, fits a learner or runs work in
-parallel, because computing that again could give different numbers. Such answers can keep the
-cache above the cap. `result.assessment_cache.info()` lists each answer with its size and whether
+Set `result.assessment_cache.max_bytes` to a number of bytes to cap the memory of all saved
+answers. When the total passes the cap, the cache drops the answers it can compute again exactly
+from the fitted result, least recently used first, and a later call recomputes a dropped answer
+with bit-for-bit the same numbers. It never drops an answer that refits a model, draws a random
+seed of its own, fits a learner or runs work in parallel, because computing that again could give
+different numbers. Those answers count toward the cap and can hold the cache above it. `result.assessment_cache.info()` lists each answer with its size and whether
 the cap may drop it, and `result.assessment_cache.evict()` drops every answer it may drop now.
 
 There is no cap by default. A cap trades memory for the time to recompute, and `save()` writes only

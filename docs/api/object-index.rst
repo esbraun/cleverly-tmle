@@ -123,6 +123,8 @@ categorized API tables.
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
    cleverly.AssessmentStatus
+   cleverly.assessment.AssessmentCache
+   cleverly.assessment.CacheEntry
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability

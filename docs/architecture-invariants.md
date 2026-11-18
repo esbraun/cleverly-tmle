@@ -516,7 +516,8 @@ the persistent cache silently.
 The cache (`AssessmentCache`) keeps every answer unless its `max_bytes` budget is set. Under a
 budget it may drop only an answer it can recompute bit for bit: a request whose resolved row is a
 `summarize` or `retarget` declared deterministic from saved artifacts, `validate`,
-`diagnostics.influence`, an unguarded derived risk ratio, or a combined report, and only when the
+`diagnostics.influence`, a derived risk ratio except on guarded DR-TMLE or AdaptiveIPTW, or a
+combined report, and only when the
 answer's own computation made no mark in `cleverly.utils.random` (fresh entropy, a `fit_learner`
 fit, a `map_parallel` section). Every refit is kept whatever its seed, because a seed fixes only
 the randomness the package routes through it. Marks go to the innermost computation, so a refit

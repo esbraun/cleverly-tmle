@@ -12,6 +12,7 @@ rule carries a mutation control that must make its witness fail.
 from __future__ import annotations
 
 import copy
+import functools
 import gc
 import pickle
 import re
@@ -64,6 +65,10 @@ SUBSET = (
     "atmle",
 )
 
+#: A kind whose full battery fills in seconds, for the tests that need a filled cache but not
+#: a particular family (the ordinary kind's battery takes about two minutes).
+_QUICK = "drtmle"
+
 #: The answers that hold rows, which a budget exists to drop.
 ROW_SCALING = (
     "sensitivity.elements",
@@ -79,17 +84,36 @@ def _quiet(build: Callable[[], Any]) -> Any:
 
 
 def _fill(result: Any) -> Callable[[], Any]:
-    arguments = sweep_arguments(result)
-
-    def call() -> Any:
-        return _quiet(
-            lambda: result.assess(
-                include_refits=True, include_retargets=True, arguments=arguments, random_state=0
-            )
-        )
-
+    call = _refill(result)
     call()
     return call
+
+
+def _refill(result: Any) -> Callable[[], Any]:
+    """The call that ran :func:`_fill`, without running it."""
+    arguments = sweep_arguments(result)
+    return lambda: _quiet(
+        lambda: result.assess(
+            include_refits=True, include_retargets=True, arguments=arguments, random_state=0
+        )
+    )
+
+
+@functools.cache
+def _filled_bytes(kind: str) -> bytes:
+    result = KINDS[kind].build()
+    _fill(result)
+    return cloudpickle.dumps(result)
+
+
+def _filled(kind: str) -> tuple[Any, Callable[[], Any]]:
+    """A fresh copy of a filled result of ``kind``, built and filled once per worker.
+
+    Each test gets its own copy, so a budget or an eviction in one test reaches no other.
+    The copy comes back through the cache's own persistence path (W7).
+    """
+    result = _quiet(lambda: pickle.loads(_filled_bytes(kind)))
+    return result, _refill(result)
 
 
 def _snapshot(cache: dict[str, Any]) -> dict[str, bytes]:
@@ -139,16 +163,16 @@ def _point_fit(n: int = 400, *, random_state: int | None = 1, **learners: Any) -
 # --------------------------------------------------------------------------------- W1
 
 
-@pytest.mark.parametrize("kind", SUBSET)
-def test_each_dropped_answer_is_computed_again_bit_for_bit(kind: str) -> None:
-    result = KINDS[kind].build()
-    call = _fill(result)
+def _assert_recomputes_bit_for_bit(kind: str, result: Any, call: Callable[[], Any]) -> None:
     cache = result.assessment_cache
     before = _snapshot(cache)
     evictable = {entry.key for entry in cache.info() if entry.evictable}
     assert evictable, "a sweep that drops nothing would pass on any recomputation"
     for entry in cache.info():
-        if _operation(entry.key) == "sensitivity.elements":
+        operation = _operation(entry.key)
+        if operation == "sensitivity.derived_risk_ratio":
+            assert entry.evictable is _DERIVED_RATIO_EVICTABLE[kind], entry.key
+        elif operation in ROW_SCALING:
             assert entry.evictable, entry.key
     cache.evict()
     assert not evictable & set(cache)
@@ -157,32 +181,42 @@ def test_each_dropped_answer_is_computed_again_bit_for_bit(kind: str) -> None:
     refiled = {key for key, _ in filed}
     # Every dropped answer was computed again, not served by something that survived.
     assert evictable <= refiled
-    for key in evictable:
-        assert pickle.dumps(cache[key]) == before[key], key
+    changed = [key for key in sorted(evictable) if pickle.dumps(cache[key]) != before[key]]
+    assert not changed, f"changed on recomputation: {changed}"
     assert set(cache) == set(before)
+
+
+@pytest.mark.parametrize("kind", SUBSET)
+def test_each_dropped_answer_is_computed_again_bit_for_bit(kind: str) -> None:
+    # A fresh fill, not a copy from ``_filled``: pickle bytes record which objects an answer
+    # shares, and a restored graph shares differently from a computed one.
+    result = KINDS[kind].build()
+    _assert_recomputes_bit_for_bit(kind, result, _fill(result))
 
 
 def test_the_comparison_sees_an_answer_that_changes_on_recomputation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mutation control for W1: a perturbed recomputation of a summary must be caught."""
-    result = KINDS["ordinary"].build()
+    """Mutation control for W1: a perturbed recomputation of a summary must fail the witness."""
+    import cleverly.assessment as assessment_module
+
+    result = KINDS[_QUICK].build()
     call = _fill(result)
-    cache = result.assessment_cache
-    before = _snapshot(cache)
-    cache.evict()
-    original = DiagnosticsFacade.score_equations
+    original = assessment_module._cached
 
-    def perturbed(self: Any, **kwargs: Any) -> Any:
-        report = original(self, **kwargs)
-        key = next(key for key in self._result.assessment_cache if "score_equations" in key)
-        self._result.assessment_cache[key] = ("perturbed", report)
-        return report
+    def perturbed(result: Any, name: str, args: Any, kwargs: Any, compute: Any, **o: Any) -> Any:
+        if name == "diagnostics.score_equations":
+            inner = compute
 
-    monkeypatch.setattr(DiagnosticsFacade, "score_equations", perturbed)
-    call()
-    changed = [key for key in before if pickle.dumps(cache[key]) != before[key]]
-    assert any("score_equations" in key for key in changed)
+            def compute() -> Any:
+                return ("perturbed", inner())
+
+        return original(result, name, args, kwargs, compute, **o)
+
+    # The fill is already filed, so only the recomputation after the drop is perturbed.
+    monkeypatch.setattr(assessment_module, "_cached", perturbed)
+    with pytest.raises(AssertionError, match="score_equations"):
+        _assert_recomputes_bit_for_bit(_QUICK, result, call)
 
 
 def test_combined_reports_are_dropped_after_a_refitting_battery() -> None:
@@ -191,8 +225,7 @@ def test_combined_reports_are_dropped_after_a_refitting_battery() -> None:
     A pinned combined report would hold the omitted-confounder elements by reference, so
     dropping their own entries would free nothing.
     """
-    result = KINDS["ordinary"].build()
-    _fill(result)
+    result, _ = _filled(_QUICK)
     cache = result.assessment_cache
     flags = {_operation(entry.key): entry.evictable for entry in cache.info()}
     assert flags["diagnostics.refute"] is False
@@ -212,7 +245,7 @@ def test_marks_credited_to_every_open_computation_would_pin_the_combined_reports
         frames.append(set())
 
     monkeypatch.setattr(random_module, "_mark", mark_all)
-    result = KINDS["ordinary"].build()
+    result = KINDS[_QUICK].build()
     _fill(result)
     flags = {_operation(entry.key): entry.evictable for entry in result.assessment_cache.info()}
     assert flags["diagnostics.run_all"] is False
@@ -285,6 +318,19 @@ def test_unseeded_refits_survive_every_eviction() -> None:
     assert _quiet(lambda: result.diagnostics.refute(n_replicates=1)) is refutation
 
 
+def test_an_unseeded_simulated_confounding_refit_survives_every_eviction() -> None:
+    result = _point_fit(random_state=None)
+    grid = sweep_arguments(result)["simulated_confounding"]["grid"]
+    report = _quiet(lambda: result.sensitivity.simulated_confounding(grid=grid))
+    cache = result.assessment_cache
+    keys = [key for key in cache if _operation(key) == "sensitivity.simulated_confounding"]
+    assert keys and not any(e.evictable for e in cache.info() if e.key in keys)
+    cache.evict()
+    cache.max_bytes = 1
+    assert set(keys) <= set(cache)
+    assert _quiet(lambda: result.sensitivity.simulated_confounding(grid=grid)) is report
+
+
 @contextmanager
 def _summary_that_draws_a_seed(result: Any) -> Iterator[None]:
     """``score_equations`` made to draw a fresh seed, as an unseeded refit does."""
@@ -335,27 +381,44 @@ def test_ignoring_the_marks_would_drop_the_drawn_summary(monkeypatch: pytest.Mon
 # --------------------------------------------------------------------------------- W3
 
 
-@pytest.mark.parametrize("kind", ["ordinary", "ltmle", "continuous_survival", "drtmle"])
-def test_every_refit_answer_is_pinned(kind: str) -> None:
-    result = KINDS[kind].build()
-    _fill(result)
+_REFITS = {
+    "diagnostics.refute",
+    "sensitivity.benchmark",
+    "sensitivity.marginal_bounds",
+    "sensitivity.simulated_confounding",
+}
+
+
+def _assert_refits_pinned(kind: str, result: Any) -> None:
     cache = result.assessment_cache
     refits = [
         entry.key
         for entry in cache.info()
-        if _operation(entry.key)
-        in {
-            "diagnostics.refute",
-            "sensitivity.benchmark",
-            "sensitivity.marginal_bounds",
-            "sensitivity.simulated_confounding",
-        }
+        if _operation(entry.key) in _REFITS
         or (_operation(entry.key) == "diagnostics.truncation_curve" and kind != "ordinary")
     ]
     assert refits
     cache.evict()
     cache.max_bytes = 1
     assert set(refits) <= set(cache)
+
+
+# One kind per family; the point family is DR-TMLE, whose battery fills in seconds.
+@pytest.mark.parametrize("kind", ["drtmle", "ltmle", "continuous_survival"])
+def test_every_refit_answer_is_pinned(kind: str) -> None:
+    _assert_refits_pinned(kind, _filled(kind)[0])
+
+
+def test_a_rule_that_allows_every_answer_fails_the_refit_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation control for rule 1: the survival engine's refits make no mark, so only the rule
+    pins them."""
+    monkeypatch.setattr(cache_module, "_EVICTION_RULE", [lambda *args: True])
+    result = KINDS["continuous_survival"].build()
+    _fill(result)
+    with pytest.raises(AssertionError):
+        _assert_refits_pinned("continuous_survival", result)
 
 
 def test_consistent_mechanism_bounds_are_pinned() -> None:
@@ -435,6 +498,23 @@ def test_dropping_arrays_from_the_count_fails_the_lower_bound(
     assert counted < released
 
 
+def test_the_count_of_a_filled_cache_is_at_most_twice_what_clearing_it_releases() -> None:
+    """The over-count from arrays the answers share with the fit stays within a factor of two."""
+    tracemalloc.start()
+    try:
+        result, _ = _filled(_QUICK)
+        gc.collect()
+        cache = result.assessment_cache
+        counted = cache.nbytes
+        before, _ = tracemalloc.get_traced_memory()
+        cache.clear()
+        gc.collect()
+        after, _ = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert counted <= 2 * (before - after)
+
+
 def test_the_count_stops_at_a_result_and_counts_a_shared_array() -> None:
     result = _point_fit()
     array = np.zeros(10_000)
@@ -452,8 +532,10 @@ def test_without_the_stop_rule_a_result_is_counted(monkeypatch: pytest.MonkeyPat
 
 def test_every_stop_object_of_an_answer_belongs_to_the_fit() -> None:
     """An answer that owned a fitted learner of its own would be under-counted."""
-    result = KINDS["ordinary"].build()
-    _fill(result)
+    _assert_stop_objects_belong_to_the_fit(_filled(_QUICK)[0])
+
+
+def _assert_stop_objects_belong_to_the_fit(result: Any) -> None:
     reachable: set[int] = set()
     stack: list[Any] = [
         getattr(result, name) for name in vars(result) if name != "assessment_cache"
@@ -461,6 +543,10 @@ def test_every_stop_object_of_an_answer_belongs_to_the_fit() -> None:
     while stack:
         item = stack.pop()
         if id(item) in reachable or isinstance(item, (str, int, float, bytes, np.ndarray)):
+            continue
+        if isinstance(item, AssessmentCache):
+            # A facade's back reference leads to the result and its cache; the answers are
+            # what is being checked, so they cannot vouch for themselves.
             continue
         reachable.add(id(item))
         if isinstance(item, dict):
@@ -524,11 +610,32 @@ def test_each_filing_keeps_the_cache_within_its_budget() -> None:
     assert list(cache) == ["op4:{}", "op5:{}"]
 
 
-def test_an_answer_above_the_whole_budget_is_not_kept() -> None:
-    cache = AssessmentCache()
-    cache.max_bytes = 1_000
+def test_an_answer_above_the_whole_budget_is_dropped_alone() -> None:
+    cache = _budgeted(1_000, 1_000)
+    cache.max_bytes = 5_000
     cache_module._file(cache, "big:{}", _Value(10_000), evictable=True)
-    assert "big:{}" not in cache
+    assert list(cache) == ["op0:{}", "op1:{}"]
+
+
+def test_a_hit_through_the_filing_path_makes_an_answer_recent() -> None:
+    result = _point_fit()
+    cache = result.assessment_cache
+    calls: list[str] = []
+
+    def ask(name: str) -> Any:
+        def compute() -> Any:
+            calls.append(name)
+            return np.zeros(1_000)
+
+        return cache_module._cached(result, name, (), {}, compute, evictable=True)
+
+    for name in ("first", "second", "third"):
+        ask(name)
+    ask("first")
+    assert calls == ["first", "second", "third"]
+    sizes = sorted(cache._size(key) for key in cache)
+    cache.max_bytes = sizes[0] + sizes[1] + 1
+    assert sorted(_operation(key) for key in cache) == ["first", "third"]
 
 
 def test_one_byte_below_an_answer_drops_it_and_its_size_keeps_it() -> None:
@@ -557,19 +664,7 @@ def test_the_budget_must_be_a_positive_integer(value: Any) -> None:
 
 
 # --------------------------------------------------------------------------------- W6
-
-
-def test_without_a_budget_nothing_is_sized_or_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[Any] = []
-    original = cache_module._payload_nbytes
-    monkeypatch.setattr(
-        cache_module, "_payload_nbytes", lambda value: calls.append(value) or original(value)
-    )
-    result = KINDS["ordinary"].build()
-    with _filings() as filed:
-        _fill(result)
-    assert calls == []
-    assert set(result.assessment_cache) == {key for key, _ in filed}
+# With no budget nothing is sized: ``test_capability_row_sweep.py`` asserts it on every kind.
 
 
 # --------------------------------------------------------------------------------- W7
@@ -601,14 +696,18 @@ def test_persistence_and_copies_keep_the_budget_and_the_flags(round_trip: Any) -
     other = round_trip(cache)
     assert isinstance(other, AssessmentCache)
     assert _state(other) == _state(cache)
+    state = _state(cache)
     other.evict()
     assert list(other) == ["pinned:{}"]
     assert len(cache) == 3
+    assert _state(cache) == state
+    other.max_bytes = None
+    cache_module._file(other, "late:{}", _Value(100), evictable=True)
+    assert _state(cache) == state
 
 
 def test_a_saved_result_keeps_its_cache_policy(tmp_path: Path) -> None:
-    result = KINDS["ordinary"].build()
-    _fill(result)
+    result, _ = _filled(_QUICK)
     result.assessment_cache.max_bytes = 10**9
     path = tmp_path / "result.joblib"
     result.save(path)
@@ -632,8 +731,7 @@ def test_writes_outside_the_filing_path_are_pinned() -> None:
 def test_a_derived_result_starts_an_empty_cache_with_no_budget() -> None:
     import dataclasses
 
-    result = KINDS["ordinary"].build()
-    _fill(result)
+    result, _ = _filled(_QUICK)
     result.assessment_cache.max_bytes = 10**9
     derived = dataclasses.replace(result)
     assert isinstance(derived.assessment_cache, AssessmentCache)
@@ -747,10 +845,8 @@ def test_removing_a_marker_fails_the_site_check(monkeypatch: pytest.MonkeyPatch)
         test_every_generator_seeding_site_is_classified()
 
 
-@pytest.mark.parametrize("kind", ["ordinary", "ctmle_ordered", "ltmle", "continuous_survival"])
-def test_no_answer_the_rule_allows_marks_and_the_refits_do(
-    kind: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_refit_marks_and_no_answer_the_rule_allows_does(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The marks see a refit; the sweep checks that no allowed answer marks on every kind."""
     seen: list[tuple[str, bool, frozenset[str]]] = []
     original = cache_module._classify
 
@@ -762,15 +858,11 @@ def test_no_answer_the_rule_allows_marks_and_the_refits_do(
         return original(result, operation, args, kwargs, **options)
 
     monkeypatch.setattr(cache_module, "_classify", record)
-    _fill(KINDS[kind].build())
+    _fill(KINDS[_QUICK].build())
     allowed_but_marked = [(op, marks) for op, allowed, marks in seen if allowed and marks]
     assert allowed_but_marked == []
     refits = [marks for op, _, marks in seen if op == "diagnostics.refute"]
-    assert refits
-    if kind != "continuous_survival":
-        # The survival engine fits its hazards outside ``fit_learner``, so its refutation
-        # marks nothing; rule 1 pins it as a refit row (``test_every_refit_answer_is_pinned``).
-        assert all(refits)
+    assert refits and all(refits)
 
 
 def test_every_operation_is_classified() -> None:
@@ -879,33 +971,84 @@ def test_a_member_that_raises_leaves_no_marks_frame_behind(monkeypatch: pytest.M
     assert entry.evictable
 
 
-@pytest.mark.parametrize("kind", ["known_score", "or", "drtmle", "drtmle_companion"])
-def test_a_derived_ratio_is_kept_exactly_where_its_retarget_fits_learners(kind: str) -> None:
-    from cleverly.sensitivity.positivity import refits_reduced_regressions
+#: Whether each fixture's derived risk ratio may be dropped, stated per kind rather than read from
+#: the predicate ``sensitivity/_derived.py`` uses. A guarded DR-TMLE retarget refits the reduced
+#: regressions; the other two retarget from saved nuisances.
+_DERIVED_RATIO_EVICTABLE = {
+    "known_score": True,
+    "or": True,
+    "drtmle": False,
+    "drtmle_companion": False,
+}
 
-    result = KINDS[kind].build()
-    _fill(result)
+
+@pytest.mark.parametrize("kind", sorted(_DERIVED_RATIO_EVICTABLE))
+def test_a_derived_ratio_is_kept_exactly_where_its_retarget_fits_learners(kind: str) -> None:
+    result, _ = _filled(kind)
     flags = [
         e.evictable
         for e in result.assessment_cache.info()
         if _operation(e.key) == "sensitivity.derived_risk_ratio"
     ]
     assert flags
-    fits = result.fitted_method == "adaptive_iptw" or refits_reduced_regressions(result)
-    assert flags == [not fits] * len(flags)
+    assert flags == [_DERIVED_RATIO_EVICTABLE[kind]] * len(flags)
 
 
-def test_the_derived_ratio_fixtures_cover_both_outcomes() -> None:
-    from cleverly.sensitivity.positivity import refits_reduced_regressions
+@contextmanager
+def _classified() -> Iterator[list[tuple[str, frozenset[str], bool]]]:
+    """Record each answer the cache classifies: its operation, its marks and the outcome."""
+    seen: list[tuple[str, frozenset[str], bool]] = []
+    original = cache_module._classify
 
-    outcomes = {
-        kind: KINDS[kind].build() for kind in ("known_score", "or", "drtmle", "drtmle_companion")
-    }
-    fits = {
-        kind: result.fitted_method == "adaptive_iptw" or refits_reduced_regressions(result)
-        for kind, result in outcomes.items()
-    }
-    assert set(fits.values()) == {True, False}, fits
+    def record(result: Any, operation: str, args: Any, kwargs: Any, **options: Any) -> bool:
+        outcome = original(result, operation, args, kwargs, **options)
+        seen.append((operation, frozenset(options["marks"]), outcome))
+        return outcome
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(cache_module, "_classify", record)
+        yield seen
+
+
+def _survives_every_drop(result: Any, operation: str) -> None:
+    cache = result.assessment_cache
+    keys = [key for key in cache if _operation(key) == operation]
+    assert keys
+    cache.evict()
+    cache.max_bytes = 1
+    assert all(key in cache for key in keys)
+
+
+def test_a_guarded_drtmle_derived_ratio_fits_learners_and_is_pinned() -> None:
+    """The pinned outcome above agrees with the marks: the retarget really fits learners."""
+    with _classified() as seen:
+        _fill(KINDS["drtmle"].build())
+    ratios = [(marks, outcome) for op, marks, outcome in seen if "derived_risk_ratio" in op]
+    assert ratios
+    assert all("learner_fit" in marks and outcome is False for marks, outcome in ratios)
+
+
+def test_an_adaptive_iptw_derived_ratio_is_pinned() -> None:
+    from tests.unit._capability_sweep_support import fit_iptw_known
+
+    result = _quiet(fit_iptw_known)
+    with _classified() as seen:
+        _quiet(lambda: result.sensitivity.evalue("ate"))
+    ratios = [(marks, outcome) for op, marks, outcome in seen if "derived_risk_ratio" in op]
+    assert ratios and all("learner_fit" in m and o is False for m, o in ratios)
+    _survives_every_drop(result, "sensitivity.derived_risk_ratio")
+
+
+def test_an_evalue_on_the_missing_at_random_scale_is_pinned() -> None:
+    """The ``response_sd`` E-value refits the outcome scale, so its answer is kept."""
+    from tests.unit.test_evalue_part_g import missing_fit, missing_frame
+
+    frame, _, _ = missing_frame(n=600)
+    result = _quiet(lambda: missing_fit(frame))
+    with _classified() as seen:
+        _quiet(lambda: result.sensitivity.evalue("ate"))
+    assert [(op, o) for op, _, o in seen] == [("sensitivity.evalue", False)]
+    _survives_every_drop(result, "sensitivity.evalue")
 
 
 def test_a_consistent_mechanism_request_still_runs_without_include_refits() -> None:
@@ -928,3 +1071,60 @@ def test_no_thread_or_process_pool_starts_outside_map_parallel() -> None:
         if pools.search(path.read_text())
     ]
     assert found == []
+
+
+def test_a_budget_drops_a_primary_answer_and_its_alias() -> None:
+    """An alias never keeps a report the budget dropped (design review finding 23)."""
+    cache = AssessmentCache()
+    cache_module._file(cache, "op:primary", _Value(10_000), evictable=True)
+    cache_module._file(cache, "op:alias", cache["op:primary"], evictable=True)
+    cache.max_bytes = 1
+    assert list(cache) == []
+
+
+def test_an_alias_of_an_answer_the_budget_refused_is_dropped_too() -> None:
+    result = KINDS[_QUICK].build()
+    result.assessment_cache.max_bytes = 1
+    _quiet(lambda: result.sensitivity.evalue())
+    assert not any(_operation(key) == "sensitivity.evalue" for key in result.assessment_cache)
+
+
+def test_a_restored_cache_pins_a_key_overwritten_before_any_read() -> None:
+    cache = _budgeted(100)
+    restored = pickle.loads(pickle.dumps(cache))
+    restored["op0:{}"] = _Value(100)
+    assert not any(entry.evictable for entry in restored.info())
+
+
+def test_a_consistent_mechanism_report_matches_a_plain_mapping() -> None:
+    """The budgeted cache files and returns the report a plain mapping would (finding 31)."""
+    arguments = {"omitted_confounding": {"assume_consistent_mechanism": True}}
+    budgeted = KINDS["ctmle_ordered"].build()
+    plain = KINDS["ctmle_ordered"].build()
+    object.__setattr__(plain, "assessment_cache", {})
+    first = _quiet(lambda: budgeted.sensitivity.run_all(arguments=arguments))
+    second = _quiet(lambda: plain.sensitivity.run_all(arguments=arguments))
+    assert pickle.dumps(first) == pickle.dumps(second)
+    assert list(budgeted.assessment_cache) == list(plain.assessment_cache)
+
+
+def test_an_answer_owning_a_learner_of_its_own_fails_the_stop_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation control for W4c: a freshly fitted learner inside an answer is caught."""
+    original = DiagnosticsFacade.support
+
+    def owning(self: Any) -> Any:
+        report = original(self)
+        key = next(key for key in self._result.assessment_cache if "support" in key)
+        learner = LinearRegression().fit(np.zeros((3, 1)), np.zeros(3))
+        self._result.assessment_cache[key] = (report, learner)
+        cache_module._file(self._result.assessment_cache, key, (report, learner), evictable=True)
+        return report
+
+    monkeypatch.setattr(DiagnosticsFacade, "support", owning)
+    result = KINDS[_QUICK].build()
+    _fill(result)
+    assert any("support" in e.key and e.evictable for e in result.assessment_cache.info())
+    with pytest.raises(AssertionError):
+        _assert_stop_objects_belong_to_the_fit(result)
