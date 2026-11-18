@@ -322,9 +322,10 @@ states that contract. The other C-TMLE strategies refuse a missing treatment.
 `P(A = a | W)` is not identified, and only `P(A = a | Delta_A = 1, W)` is. A target or a clever
 covariate that reads the treatment law of every row is therefore not identified with a missing
 treatment. That covers `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` and `policies=`. The
-shared preflight refuses each one by name, and each refusal repeats this statement. A regime mean
-and an arm-indexed `msm=` coefficient read only the outcome regression and the law of `W`, so the
-composite identifies them.
+shared preflight refuses each one by name, and each refusal repeats this statement. A regime mean,
+an arm-indexed `msm=` coefficient and the projection coefficients of a `ConditionalContrast` read
+only the outcome regression and the law of `W`, so the composite identifies them; the projection
+runs on the in-sample `TMLE` only ([missing treatments](../conditional-effects.md#missing-treatments)).
 
 No observed-data check can detect a violation of the treatment condition.
 

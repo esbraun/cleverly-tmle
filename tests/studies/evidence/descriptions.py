@@ -1261,6 +1261,70 @@ ARMS.update(
     }
 )
 
+#: ``projection-compositions`` (P1 PR 1): the projection TMLE of ``conditional-projection``
+#: with a missing treatment in sample, ``strata=``, ``repeats=3`` and the full-refit bootstrap.
+#: The groups and cell names are those of ``tests/studies/projection_compositions.py``, which
+#: this module cannot import; ``tests/unit/test_projection_pc_design.py`` pins the
+#: two equal.
+_PC_SLUG = "projection-compositions"
+_PC_GROUPS = {
+    "insample_2k": "the observational law, in-sample fit, n = 2,000",
+    "insample_crr_2k": "the observational law on the log-ratio scale, in-sample fit, n = 2,000",
+    "boot_stacked_2k": (
+        "the observational law, stacked cross-fitting with the full-refit bootstrap, n = 2,000"
+    ),
+    "mtreat_4k": (
+        "the missing-treatment law, treatment recorded with P = expit(1 + 2 W3 - 0.5 A), "
+        "in-sample composite fit, n = 4,000"
+    ),
+    "mtreat_both_4k": (
+        "the missing-treatment law with outcomes also missing at random, in-sample composite "
+        "fit, n = 4,000"
+    ),
+    "mtreat_crr_4k": (
+        "the missing-treatment law on the log-ratio scale, in-sample composite fit, n = 4,000"
+    ),
+    "strata_4k": (
+        "the two-stratum law, S ~ Bernoulli(0.4) with a stratum-specific CATE, strata=('S',), "
+        "stacked cross-fitting, n = 4,000"
+    ),
+    "strata_crr_4k": (
+        "the two-stratum law on the log-ratio scale, strata=('S',), stacked cross-fitting, "
+        "n = 4,000"
+    ),
+    "rep3_obs_4k": "the observational law, stacked cross-fitting with repeats=3, n = 4,000",
+    "rep3_crr_4k": (
+        "the observational law on the log-ratio scale, stacked cross-fitting with repeats=3, "
+        "n = 4,000"
+    ),
+}
+#: The basis terms of each group's projection: ``(1, W1)`` on the missing-treatment law.
+_PC_TERMS = {
+    group: (("intercept", "W1") if group.startswith("mtreat") else tuple(_PROJECTION_TERMS))
+    for group in _PC_GROUPS
+}
+_PC_STRATA = {"": "", "_S0": " in stratum S = 0", "_S1": " in stratum S = 1"}
+
+
+def _pc_basis(group: str) -> str:
+    return "(1, W1)" if group.startswith("mtreat") else "(1, W1, W3)"
+
+
+def _pc_arms(group: str) -> dict[str, str]:
+    """The ``label`` of each calibration row of ``group``: ``<group>_<term>[_S<s>]``."""
+    strata = _PC_STRATA if group.startswith("strata") else {"": ""}
+    return {
+        f"{group}_{term}{suffix}": (
+            f"{_PC_GROUPS[group]}: the {_PROJECTION_TERMS[term]} of the projection "
+            f"on {_pc_basis(group)}{where}"
+        )
+        for term in _PC_TERMS[group]
+        for suffix, where in strata.items()
+    }
+
+
+ARMS.update({label: words for group in _PC_GROUPS for label, words in _pc_arms(group).items()})
+
 #: The laws and groups of the EP studies (P1 part (b)): ``ep-cate``, ``ep-crr`` and
 #: ``ep-assessment``.  Mirrored from ``tests.studies.ep_cate``, ``ep_crr`` and
 #: ``ep_assessment``, which this module cannot import.  A group is ``<law>_<size>`` and a growth
@@ -8241,6 +8305,123 @@ CELLS.update(
             )
             for control, (group, words) in _PROJECTION_BIAS_CONTROLS.items()
             for term in _PROJECTION_CONTROL_TERMS[control.rsplit("_", 1)[0]]
+        },
+    }
+)
+
+
+#: Each calibration arm's reading of the group's fit.
+_PC_KINDS = {
+    "wald_diff": "the influence-curve Wald interval",
+    "boot_diff": "the full-refit bootstrap percentile interval, 200 replicates",
+    "wald_crr": "the influence-curve Wald interval",
+    "boot_crr": "the full-refit bootstrap percentile interval, 200 replicates",
+    "boot_stacked": (
+        "the bootstrap percentile interval of the cross-fitted fit, 200 replicates; diagnostic, "
+        "no verdict"
+    ),
+    "mtreat": "the Wald interval of the composite route",
+    "mtreat_both": "the Wald interval of the composite route",
+    "mtreat_crr": "the Wald interval of the composite route",
+    "strata": "the Wald interval, marginal and stratum coefficients targeted jointly",
+    "strata_crr": (
+        "the Wald interval; the stratum coefficients from the stratified fluctuation and the "
+        "marginal ones from the unstratified log-ratio group"
+    ),
+    "rep3": "the median-rule Wald interval over three fold draws",
+    "rep3_crr": "the median-rule Wald interval over three fold draws",
+}
+_PC_ARM_OF = {
+    "insample_2k": ("wald_diff", "boot_diff"),
+    "insample_crr_2k": ("wald_crr", "boot_crr"),
+    "boot_stacked_2k": ("boot_stacked",),
+    "mtreat_4k": ("mtreat",),
+    "mtreat_both_4k": ("mtreat_both",),
+    "mtreat_crr_4k": ("mtreat_crr",),
+    "strata_4k": ("strata",),
+    "strata_crr_4k": ("strata_crr",),
+    "rep3_obs_4k": ("rep3",),
+    "rep3_crr_4k": ("rep3_crr",),
+}
+_PC_CALIBRATION_CONTROLS = {
+    "insample_2k": (
+        "shrunken_se_control",
+        "the percentile interval shrunk by 0.70 about the replicates' median",
+    ),
+    "rep3_obs_4k": (
+        "independent_splits_control",
+        "the reported SE divided by sqrt(3), as if the three fold draws were independent samples",
+    ),
+}
+STUDY_SCENARIOS[(_PC_SLUG, "mtreat_4k")] = _PC_GROUPS["mtreat_4k"]
+STUDY_ESTIMANDS.update(
+    {
+        (_PC_SLUG, f"cate_projection[{term}]"): (
+            f"the {words} of the least-squares projection of the CATE on (1, W1)"
+        )
+        for term, words in (("(intercept)", "intercept"), ("W1", "W1 slope"))
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_PC_SLUG, "interval_calibration", label, kind): (
+                _PC_KINDS[kind],
+                (
+                    "publishes its coverage and SE-ratio intervals; no verdict"
+                    if kind == "boot_stacked"
+                    else "SE ratio and coverage intervals both inside their calibration bands"
+                ),
+            )
+            for group, kinds in _PC_ARM_OF.items()
+            for label in _pc_arms(group)
+            for kind in kinds
+        },
+        **{
+            (_PC_SLUG, "interval_calibration", f"{group}_{term}", kind): (
+                words,
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for group, (kind, words) in _PC_CALIBRATION_CONTROLS.items()
+            for term in _PC_TERMS[group]
+        },
+        (_PC_SLUG, "type_i_error", "heterogeneity", "rep3_sharp_null"): (
+            "slope s = 0, so the effect does not vary, repeats=3, n = 2,000",
+            "the 99% upper end of the rejection rate at most 0.10",
+        ),
+        (_PC_SLUG, "power", "heterogeneity", "rep3_slope_0.10"): (
+            "slope s = 0.10, repeats=3, n = 4,000",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("bias", f"mtreat_dr_4k_{term}"): (
+                "the missing-treatment law with a declared wrong outcome regression, n = 4,000: "
+                f"the composite TMLE's {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias inside +-0.25",
+            )
+            for term in ("intercept", "W1")
+        },
+        ("bias", "complete_case_4k_intercept"): (
+            "the missing-treatment law, n = 4,000: the projection fitted on the rows with a "
+            "recorded treatment, with the same learners, intercept",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        ("bias", "no_treatment_observation_4k_intercept"): (
+            "the missing-treatment law with a declared wrong outcome regression, n = 4,000: the "
+            "one-step with the treatment-recording probability replaced by 1, intercept",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        **{
+            ("bias", f"marginal_as_stratum_4k_{term}"): (
+                "the two-stratum law, n = 4,000: the marginal coefficient read against the "
+                f"stratum S = 1 truth, {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for term in ("intercept", "W1")
         },
     }
 )

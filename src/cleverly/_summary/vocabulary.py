@@ -164,6 +164,8 @@ def interval_label(level: float) -> str:
 SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "std_err": "std. error",
+        # A repeated projection fit's standard error without the spread between splits.
+        "se_without_displacement": "std. error without split spread",
         "plugin_std_err": "plug-in SE (diagnostic)",
         "ci_lower": "CI lower",
         "ci_upper": "CI upper",
@@ -1150,6 +1152,7 @@ EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
         "mtp": "shifted-treatment mean",
         "effect_modification": "conditional-contrast projection",
         "effect_modification_ratio": "log-ratio conditional-contrast projection",
+        "effect_modification_ratio_strata": "log-ratio conditional-contrast projection by stratum",
     }
 )
 

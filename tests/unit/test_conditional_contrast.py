@@ -149,24 +149,15 @@ class TestRefusalsBeforeAnyLearner:
             law_study().identify(ConditionalContrast(Modifiers(["S"]), model=Linear(["S"])))
         assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
-    @pytest.mark.parametrize(
-        ("design", "axis"),
-        [({"strata": ("W",)}, "strata="), ({"intermediate": "M"}, "an intermediate")],
-    )
-    def test_r7_compositions_outside_p1(self, design: dict, axis: str) -> None:
-        with pytest.raises(CapabilityError, match=f"does not yet compose with {axis}") as caught:
-            law_study(**design).identify(linear_contrast())
-        assert caught.value.refusal.roadmap == "P1"
+    def test_r7_an_intermediate_is_outside_p1(self) -> None:
+        with pytest.raises(CapabilityError, match="does not yet compose with an intermediate") as c:
+            law_study(intermediate="M").identify(linear_contrast())
+        assert c.value.refusal.roadmap == "P1"
 
-    @pytest.mark.parametrize(
-        ("setting", "axis"),
-        [({"repeats": 2}, "repeats above 1"), ({"n_bootstrap": 20}, "the full-refit bootstrap")],
-    )
-    def test_r7_settings_outside_p1(self, setting: dict, axis: str) -> None:
-        effect = law_study().identify(linear_contrast())
-        with pytest.raises(CapabilityError, match=f"does not yet compose with {axis}"):
-            effect.estimate(**never(), **setting)
-        assert NeverFit.calls == 0
+    def test_r7_strata_rank_a_modifier_that_is_the_stratum_column(self) -> None:
+        """Strata compose with the projection; a basis constant inside a stratum does not."""
+        with pytest.raises(DataError, match=r"inside baseline stratum W=0\.0: the working model"):
+            law_study(strata=("W",)).identify(linear_contrast())
 
     def test_r9_sensitivity_and_refutation_refuse_on_the_projection(
         self, projection_fit: Any
