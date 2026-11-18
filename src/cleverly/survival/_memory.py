@@ -96,6 +96,10 @@ class PeakEstimate:
         Grid size ``M``.
     rows : int
         Weight rows ``Q`` of one arm and cause.
+    influence_curve : int or None
+        Under ``variance="switched"``, the predicted peak of the same fit with
+        ``variance="influence_curve"``, which has no predictable-variation pass; ``None``
+        otherwise.
     """
 
     phases: dict[str, int]
@@ -103,6 +107,7 @@ class PeakEstimate:
     causes: int
     times: int
     rows: int
+    influence_curve: int | None = None
 
     @property
     def bytes(self) -> int:
@@ -413,7 +418,34 @@ def peak_bytes(
         "off_grid": final_phase(max(final_rows, slot + adding), variation),
         "band": 5 * influence + band,
     }
-    return PeakEstimate({name: value + fixed for name, value in phases.items()}, n, J, M, Q)
+    influence_curve = None
+    if switched:
+        # The same fit without the predictable variation: only the final pass differs.
+        plain = {**phases, "off_grid": final_phase(final_rows, 0)}
+        influence_curve = max(plain.values()) + fixed
+    return PeakEstimate(
+        {name: value + fixed for name, value in phases.items()}, n, J, M, Q, influence_curve
+    )
+
+
+#: Each phase of :class:`PeakEstimate`, as a refusal names it.
+PHASES: Final = {
+    "nuisance": "fitting the nuisance models",
+    "initial": "the pass that checks the initial hazard fits",
+    "walk": "the targeting walk",
+    "off_grid": "the final pass (the off-grid diagnostic)",
+    "band": "the estimates and their simultaneous band",
+}
+
+
+def _described(phase: str, switched: bool) -> str:
+    """The phase in words; under the switched variance the final pass names its variation."""
+    if phase == "off_grid" and switched:
+        return (
+            "the final pass (the off-grid diagnostic and the switched variance's predictable "
+            "variation)"
+        )
+    return PHASES[phase]
 
 
 def _gib(value: int) -> str:
@@ -442,19 +474,29 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
     if budget is None or estimate.bytes <= budget:
         return
     source = f"max_memory_bytes={budget}" if explicit else "the memory available now"
+    switched = estimate.influence_curve is not None
     condition = (
-        f"The continuous-time fit is predicted to hold at least {_gib(estimate.bytes)} at once "
-        f"(its {estimate.phase} phase) for {estimate.n:,} units, {estimate.causes} cause(s), "
-        f"{estimate.rows} target row(s) and M = {estimate.times:,} grid times, and the budget is "
-        f"{_gib(budget)}, {source}. That is the least the fit needs: it walks over blocks of "
-        "units and keeps no block between passes, so what remains grows with n times the "
-        "number of targets and covariates. Nothing was fitted. The prediction does not count "
-        "a user learner's own memory, and the available memory is read at one instant."
+        f"The continuous-time fit is predicted to hold at least {_gib(estimate.bytes)} at once, "
+        f"in {_described(estimate.phase, switched)}, for {estimate.n:,} units, "
+        f"{estimate.causes} cause(s), {estimate.rows} target row(s) and "
+        f"M = {estimate.times:,} grid times, and the budget is {_gib(budget)}, {source}. That "
+        "is the least the fit needs: it walks over blocks of units and keeps no block between "
+        "passes, so what remains is one block of units' arrays at a time and arrays with one "
+        "row per unit. "
+        "Nothing was fitted. The prediction does not count a user learner's own memory, and "
+        "the available memory is read at one instant."
     )
     alternative = (
         "Pass max_memory_bytes= to ContinuousSurvivalTMLE to set the budget yourself, higher "
         "or lower."
     )
+    if estimate.influence_curve is not None and estimate.influence_curve < estimate.bytes:
+        alternative += (
+            ' With variance="influence_curve" the fit needs less, a predicted '
+            f"{_gib(estimate.influence_curve)}: it skips the predictable variation and reports "
+            "the influence-curve variance alone, without raising it where the influence curve "
+            "is sparse."
+        )
     error = ContinuousSurvivalMemoryError(condition, alternative=alternative)
     error.predicted = estimate.bytes
     error.budget = budget

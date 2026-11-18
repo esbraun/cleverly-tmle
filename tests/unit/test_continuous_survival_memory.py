@@ -511,6 +511,35 @@ def test_the_budget_refuses_one_byte_below_the_prediction_and_fits_at_it() -> No
             assert _estimator(max_memory_bytes=budget).fit_data(_small())
 
 
+def test_a_refusal_names_the_phase_and_the_lower_memory_variance() -> None:
+    """S4-2: the switched variance's final pass binds; the refusal names it and the way out."""
+    switched = _refused_prediction()
+    plain = _refused_prediction(variance="influence_curve")
+    assert plain < switched
+    with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
+        _estimator(max_memory_bytes=switched - 1).fit_data(_small())
+    text = str(caught.value)
+    assert (
+        "in the final pass (the off-grid diagnostic and the switched variance's predictable "
+        in (text)
+    )
+    assert (
+        f'With variance="influence_curve" the fit needs less, a predicted {_memory._gib(plain)}'
+        in text
+    )
+    # The influence-curve variance fits within the budget the switched one is refused at, and
+    # its own refusal names neither the variation nor itself.
+    assert _quiet(
+        lambda: _estimator(max_memory_bytes=switched - 1, variance="influence_curve").fit_data(
+            _small()
+        )
+    )
+    with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
+        _estimator(max_memory_bytes=plain - 1, variance="influence_curve").fit_data(_small())
+    text = str(caught.value)
+    assert "predictable variation" not in text and "influence_curve" not in text
+
+
 class _Spy(CoxHazard):
     """A Cox learner that fails the test if it is ever fitted."""
 
@@ -630,6 +659,7 @@ def test_a_study_refusal_spells_the_estimator_call_that_reproduces_it(
     text = str(caught.value)
     assert "cleverly.survival.ContinuousSurvivalTMLE((1.0, 2.0), " in text
     assert "simultaneous=True" in text and "max_memory_bytes=..." in text
+    assert "variance='switched'" in text
     assert "With this seed it returns the result this study would." in text
     call = text.split("cleverly.survival.ContinuousSurvivalTMLE(", 1)[1].split(".fit_data(", 1)[0]
     call = call[: call.rindex(")")].replace("max_memory_bytes=...", "max_memory_bytes=2**62")
