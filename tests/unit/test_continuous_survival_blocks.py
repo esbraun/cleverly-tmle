@@ -315,6 +315,70 @@ def test_the_block_walk_equals_the_dense_walk_bit_for_bit(name: str, regime: str
         assert summary(fit.result)[key] == golden[key]
 
 
+#: Cells of a predictable-variation buffer where a test forces several: at "two causes" (J = 2,
+#: Q = 2, M about 450) a buffer of about 230 units, which neither divides nor is divided by the
+#: walk's ``ROWS``.
+BUFFER_CELLS = 830_000
+
+
+@pytest.mark.parametrize("case", ["several buffers", "floor binds"])
+def test_the_switched_variance_equals_the_dense_one_bit_for_bit(
+    case: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S5-1, N5-1: the predictable matrix and every switched standard error, bit for bit.
+
+    "several buffers" cuts the units into predictable-variation buffers smaller than ``n`` that
+    walk blocks straddle (the dense reference's ``predictable_covariance`` reads the same
+    patched size, so its cuts match); "floor binds" raises the positivity floor until the
+    floored ratio min(1, pi S_c / floor) is below one for some unit-times.
+    """
+    name = "two causes"
+    extra: dict[str, Any] = {}
+    if case == "several buffers":
+        monkeypatch.setattr(T, "_PV_BLOCK_CELLS", BUFFER_CELLS)
+    else:
+        extra["g_bounds"] = 0.3
+    flushed: list[int] = []
+    flush = engine._Predictable._flush
+
+    def counted(self: Any, stop: int) -> None:
+        flushed.append(stop - self.start)
+        flush(self, stop)
+
+    monkeypatch.setattr(engine._Predictable, "_flush", counted)
+    calls: list[tuple[Any, dict[str, Any]]] = []
+    build = engine.build_estimates
+
+    def captured(*args: Any, **kwargs: Any) -> Any:
+        calls.append((args, kwargs))
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "build_estimates", captured)
+    fit = _fit(name, rows=ROWS, resident=0.0, **extra)
+    n = fit.initial.n
+    assert len(engine.blocks(n, fit.initial.block)) >= 4 and fit.run.replayed > 0
+    if case == "several buffers":
+        size = flushed[0]
+        assert len(flushed) > 1 and size < n
+        assert size % ROWS and ROWS % size, "walk blocks must straddle the buffers"
+    else:
+        assert flushed == [n]
+        assert fit.result.record.bounded_share > 0
+    reference = _reference(fit, name)
+    assert _bitwise(_walk_fields(fit.run.result), _walk_fields(reference.result)) == []
+    assert fit.predictable is not None and reference.predictable is not None
+    assert np.array_equal(fit.predictable, reference.predictable)
+    # The estimates built from the dense matrix: every switched record (its predictable
+    # variance among them) and standard error.
+    ((args, kwargs),) = calls
+    dense_estimates, _ = build(*args, **{**kwargs, "predictable": reference.predictable})
+    for key, estimate in fit.result.estimates.items():
+        other = dense_estimates[key]
+        assert estimate.switched is not None and estimate.switched.predictable_variance > 0
+        assert estimate.std_error == other.std_error, key
+        assert estimate.switched == other.switched, key
+
+
 def test_the_off_grid_sums_carry_block_totals_in_row_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

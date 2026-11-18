@@ -503,6 +503,7 @@ def test_the_budget_refuses_one_byte_below_the_prediction_and_fits_at_it() -> No
         "max_memory_bytes=",
         "Nothing was fitted",
         "keeps no block between passes",
+        "No budget lowers that with these settings",
     ):
         assert part in text
     for budget in (predicted, predicted + 1):
