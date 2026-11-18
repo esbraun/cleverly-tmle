@@ -1,0 +1,431 @@
+"""The EP learner's size step reads every sieve member off one family design (X106 K5).
+
+``SieveDesigns`` evaluates the sieve family's largest member once per set of rows and reads each
+smaller member's columns off it, when the member's columns are computed as the family's are
+(:func:`cleverly.estimators.ep.nested_columns`).  The debiasing inputs of a nuisance fit are read
+once and shared by every size.  Both are equivalent implementations: every fit here is compared
+byte for byte with the per-size path, which the ``uncached`` fixture restores by evaluating each
+member itself and re-reading the inputs for each size.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import pickle
+import warnings
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, ConditionalContrast, PointTreatment
+from cleverly.bases import (
+    Additive,
+    BSpline,
+    Constant,
+    Cosine,
+    Indicators,
+    Interactions,
+    Linear,
+    Modifiers,
+    Sieve,
+    Tensor,
+    UserBasis,
+    resolve,
+)
+from cleverly.estimators import TMLE, ep
+from cleverly.exceptions import CapabilityError, DataError
+from cleverly.interventions import LearnedRule
+
+DOMAINS = {"W1": (-1.0, 1.0), "W2": (-1.0, 1.0)}
+MODIFIERS = Modifiers(["W1", "W2"], domains=DOMAINS)
+WITH_LEVELS = Modifiers(["W1", "W2", "C"], domains=DOMAINS, levels={"C": (0.0, 1.0, 2.0, 3.0)})
+#: The levels the fitted rows hold; a declared level no row holds makes a member collinear.
+FIT_LEVELS = Modifiers(["W1", "W2", "C"], domains=DOMAINS, levels={"C": (0.0, 1.0, 2.0)})
+
+
+def frame(n: int = 500, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w = rng.uniform(-1.0, 1.0, size=(n, 2))
+    w[:2] = [[-1.0, 1.0], [1.0, -1.0]]
+    c = rng.integers(0, 3, n).astype(float)  # level 3 is declared and absent
+    a = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.4 * w[:, 0] - 0.3 * w[:, 1]))))
+    eta = w[:, 0] + a * (0.5 + np.sin(2.0 * w[:, 0]) + w[:, 1] ** 2) - 0.5
+    y = rng.binomial(1, 1.0 / (1.0 + np.exp(-eta))).astype(float)
+    return pd.DataFrame({"W1": w[:, 0], "W2": w[:, 1], "C": c, "A": a, "Y": y})
+
+
+def rows() -> dict[str, np.ndarray]:
+    data = frame(37, seed=4)
+    return {name: np.asarray(data[name]) for name in ("W1", "W2", "C")}
+
+
+# ---------------------------------------------------------------- nesting, bit for bit
+
+NESTED = [
+    pytest.param(Cosine(["W1"], 5), MODIFIERS, id="cosine"),
+    pytest.param(Cosine(["W1", "W2"], 4, intercept=False), MODIFIERS, id="cosine-no-intercept"),
+    pytest.param(Linear(["W1", "W2"]), MODIFIERS, id="linear"),
+    pytest.param(Indicators("C"), WITH_LEVELS, id="indicators"),
+    pytest.param(
+        Additive(Cosine(["W1"], 4), Indicators("C"), Linear(["W2"])), WITH_LEVELS, id="additive"
+    ),
+    pytest.param(
+        Additive(Cosine(["W1"], 3, intercept=False), Cosine(["W2"], 5, intercept=False)),
+        MODIFIERS,
+        id="additive-no-intercepts",
+    ),
+    pytest.param(
+        Additive(Cosine(["W1"], 3), Cosine(["W2"], 2), intercept=False),
+        MODIFIERS,
+        id="additive-no-shared-intercept",
+    ),
+    pytest.param(Tensor(Cosine(["W1"], 3), Cosine(["W2"], 2)), MODIFIERS, id="tensor"),
+    pytest.param(
+        Interactions(Additive(Cosine(["W1"], 3), Cosine(["W2"], 3)), 2),
+        MODIFIERS,
+        id="interactions",
+    ),
+    pytest.param(Sieve.default(WITH_LEVELS, max_size=4).basis, WITH_LEVELS, id="default-sieve"),
+]
+
+
+def assert_same_design(cached: np.ndarray, own: np.ndarray) -> None:
+    assert cached.dtype == own.dtype == np.float64
+    assert cached.shape == own.shape
+    assert cached.flags.c_contiguous == own.flags.c_contiguous
+    assert cached.tobytes() == own.tobytes()
+
+
+@pytest.mark.parametrize(("family", "modifiers"), NESTED)
+def test_every_member_reads_bit_for_bit_off_the_family(family: Any, modifiers: Modifiers) -> None:
+    resolved = ep.sieve_member(family, int(family.max_size), modifiers)
+    values = rows()
+    designs = ep.SieveDesigns(resolved, modifiers, values)
+    for size in range(int(family.max_size) + 1):
+        member = ep.sieve_member(family, size, modifiers)
+        own = np.asarray(member.evaluate(values, modifiers), dtype=float)
+        positions = ep.nested_columns(resolved, member)
+        if size == 0 and not getattr(resolved, "intercept", True):
+            assert positions is None
+        else:
+            assert positions is not None, size
+        assert_same_design(designs.at(member), own)
+
+
+def test_a_bspline_is_never_nested() -> None:
+    family = resolve(BSpline(["W1"], 4), MODIFIERS)
+    for size in range(1, 4):
+        assert ep.nested_columns(family, resolve(family.truncate(size), MODIFIERS)) is None
+    assert ep.nested_columns(family, family) is not None
+
+
+def test_a_bspline_treated_as_nested_reads_the_wrong_columns(monkeypatch: Any) -> None:
+    """Mutation control: the truncated B-spline names its terms as the family does
+    (``bs2(W1)`` and so on) with other knots, so name matching alone would read wrong columns."""
+    real = ep._nests
+    monkeypatch.setattr(ep, "_nests", lambda basis: isinstance(basis, BSpline) or real(basis))
+    family = resolve(BSpline(["W1"], 4), MODIFIERS)
+    member = resolve(family.truncate(2), MODIFIERS)
+    values = rows()
+    assert ep.nested_columns(family, member) is not None
+    cached = ep.SieveDesigns(family, MODIFIERS, values).at(member)
+    assert cached.tobytes() != np.asarray(member.evaluate(values, MODIFIERS)).tobytes()
+
+
+def test_a_user_basis_is_nested_only_in_itself() -> None:
+    family = UserBasis(
+        lambda f: np.column_stack([np.ones(len(f["W1"])), f["W1"]]), ("1", "w"), ("W1",), "known"
+    )
+    assert ep.nested_columns(family, family) is not None
+    other = UserBasis(lambda f: np.ones((len(f["W1"]), 1)), ("1",), ("W1",), "known")
+    assert ep.nested_columns(family, other) is None
+    assert ep.nested_columns(resolve(Cosine(["W1"], 3), MODIFIERS), Constant()) is not None
+
+
+def test_fancy_indexing_would_change_the_layout(monkeypatch: Any) -> None:
+    """Mutation control: ``a[:, positions]`` is Fortran-ordered, where ``evaluate`` gives C order;
+    the final-stage least squares then rounds differently (seen on a five-modifier sieve)."""
+    family = resolve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), MODIFIERS)
+    member = resolve(family.truncate(2), MODIFIERS)
+    values = rows()
+    designs = ep.SieveDesigns(family, MODIFIERS, values)
+    designs.at(family)
+    assert designs._design is not None
+    fancy = designs._design[:, ep.nested_columns(family, member)]
+    own = np.asarray(member.evaluate(values, MODIFIERS))
+    assert fancy.tobytes() == own.tobytes()
+    assert fancy.flags.c_contiguous != own.flags.c_contiguous
+    assert designs.at(member).flags.c_contiguous
+
+
+def test_the_family_is_evaluated_once_per_set_of_rows(monkeypatch: Any) -> None:
+    family = resolve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), MODIFIERS)
+    calls: list[int] = []
+    original = Additive.evaluate
+
+    def counting(self: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(len(self.terms))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Additive, "evaluate", counting)
+    designs = ep.SieveDesigns(family, MODIFIERS, rows())
+    for size in (1, 2, 3, 4, 2):
+        designs.at(resolve(family.truncate(size), MODIFIERS))
+    assert calls == [family.n_terms]
+
+
+# ---------------------------------------------------------------- refusals keep today's text
+
+
+def test_a_family_that_raises_falls_back_to_each_member() -> None:
+    values = rows()
+    values["W1"] = values["W1"].copy()
+    values["W1"][3] = 1.5  # outside the declared domain
+    family = resolve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), MODIFIERS)
+    member = resolve(family.truncate(1), MODIFIERS)
+    designs = ep.SieveDesigns(family, MODIFIERS, values)
+    with pytest.raises((DataError, CapabilityError)) as cached:
+        designs.at(member)
+    with pytest.raises((DataError, CapabilityError)) as own:
+        member.evaluate(values, MODIFIERS)
+    assert type(cached.value) is type(own.value)
+    assert str(cached.value) == str(own.value)
+    assert designs._unusable
+
+
+# ---------------------------------------------------------------- cached and per-size fits
+
+
+@pytest.fixture
+def uncached(monkeypatch: Any) -> Any:
+    """Restore the per-size path: every member evaluated itself, the inputs re-read per size."""
+
+    def enable() -> None:
+        monkeypatch.setattr(
+            ep.SieveDesigns,
+            "at",
+            lambda self, member: np.asarray(member.evaluate(self.frame, self.modifiers), float),
+        )
+        monkeypatch.setattr(
+            ep._FitState, "pieces", property(lambda self: ep._pieces(self.nuisance_fit))
+        )
+
+    return enable
+
+
+def ep_fit(
+    data: pd.DataFrame, modifiers: Modifiers = MODIFIERS, scale: Any = "difference", **kw: Any
+) -> Any:
+    design = {key: kw.pop(key) for key in ("weights", "cluster") if key in kw}
+    study = CausalStudy(
+        data,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "C"), **design),
+    )
+    effect = study.identify(ConditionalContrast(modifiers, scale=scale))
+    settings = {
+        "outcome_learner": LogisticRegression(),
+        "treatment_learner": LogisticRegression(),
+        "n_folds": 3,
+        "random_state": 0,
+        **kw,
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return effect.estimate("ep", **settings)
+
+
+def digest(fit: Any, data: pd.DataFrame) -> tuple[Any, ...]:
+    record = fit.fit.sieve
+    beta = None if fit.model.beta is None else np.asarray(fit.model.beta).tobytes()
+    return (
+        beta,
+        np.asarray(fit.fit.debiasing.coefficients).tobytes(),
+        tuple(record.cv_risks),
+        record.chosen,
+        record.inner_seeds,
+        np.asarray(fit.predict(data.iloc[:50])).tobytes(),
+    )
+
+
+def weighted(data: pd.DataFrame) -> pd.DataFrame:
+    data = data.copy()
+    data["w"] = np.random.default_rng(3).uniform(0.2, 3.0, len(data))
+    return data
+
+
+def clustered(data: pd.DataFrame) -> pd.DataFrame:
+    data = data.copy()
+    data["cluster"] = np.random.default_rng(5).integers(0, 60, len(data))
+    return data
+
+
+CASES = [
+    pytest.param({}, id="cv-difference"),
+    pytest.param({"scale": "log_ratio"}, id="cv-log-ratio"),
+    pytest.param({"modifiers": FIT_LEVELS}, id="cv-with-levels"),
+    pytest.param(
+        {"sieve": Sieve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), size=3)}, id="fixed"
+    ),
+    pytest.param(
+        {"sieve": Sieve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), size=lambda n: 2)},
+        id="schedule",
+    ),
+    pytest.param({"sieve": Sieve(Tensor(Cosine(["W1"], 3), Cosine(["W2"], 2)))}, id="tensor"),
+    pytest.param({"sieve": Sieve(BSpline(["W1"], 3))}, id="bspline"),
+    pytest.param({"final_learner": LinearRegression()}, id="final-learner"),
+    pytest.param({"weights": "w", "_data": weighted}, id="weights"),
+    pytest.param({"cluster": "cluster", "_data": clustered}, id="clusters"),
+]
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_a_cached_fit_equals_the_per_size_fit(case: dict[str, Any], uncached: Any) -> None:
+    case = dict(case)
+    data = case.pop("_data", lambda d: d)(frame())
+    cached = digest(ep_fit(data, **dict(case)), data)
+    uncached()
+    assert digest(ep_fit(data, **dict(case)), data) == cached
+
+
+def test_the_layout_mutation_moves_a_fit(monkeypatch: Any) -> None:
+    """Mutation control for the fit witness: a Fortran-ordered design sends ``design @ beta``
+    through another BLAS kernel, which sums in another order, and the CV risks move."""
+    data = frame()
+    kept = digest(ep_fit(data, FIT_LEVELS), data)
+    original = ep.SieveDesigns.at
+
+    def fortran(self: Any, member: Any) -> np.ndarray:
+        return np.asfortranarray(original(self, member))
+
+    monkeypatch.setattr(ep.SieveDesigns, "at", fortran)
+    moved = digest(ep_fit(data, FIT_LEVELS), data)
+    assert moved[2] != kept[2]
+
+
+def rule_fit(**rule: Any) -> Any:
+    engine = TMLE(
+        learned_rule=LearnedRule(loss="ep", modifiers=MODIFIERS, **rule),
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        n_folds=3,
+        simultaneous=False,
+        random_state=0,
+        cross_fit=True,
+        cv_evaluation=True,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = engine.fit(frame(600), outcome="Y", treatment="A", covariates=["W1", "W2", "C"])
+    estimate = result.single().estimates
+    return tuple(
+        (name, np.float64(e.psi).tobytes(), np.asarray(e.influence_curve).tobytes())
+        for name, e in estimate.items()
+    )
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [{}, {"sieve": Sieve.default(MODIFIERS, max_size=3, size=2)}],
+    ids=["cv", "fixed"],
+)
+def test_the_ep_rule_learner_equals_its_per_size_fit(rule: dict[str, Any], uncached: Any) -> None:
+    cached = rule_fit(**rule)
+    uncached()
+    assert rule_fit(**rule) == cached
+
+
+# ---------------------------------------------------------------- the fold predictor and pieces
+
+
+def test_each_held_out_mapping_gets_its_own_design(monkeypatch: Any) -> None:
+    """``cross_validated_risks`` passes one mapping per fold; a predictor called with another
+    mapping must evaluate that one (mutation control: keying by size alone fails)."""
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+    original = ep.cross_validated_risks
+
+    def probing(splits: Any, sizes: Any, fit_fold: Any, frame_: Any, *args: Any) -> Any:
+        key, train, test = splits[0]
+        predict = fit_fold(key, train)
+        first = {name: np.asarray(column)[test] for name, column in frame_.items()}
+        second = {name: np.asarray(column)[train[:40]] for name, column in frame_.items()}
+        for held in (first, second, first):
+            seen.append((predict(sizes[-1], held), held["W1"]))
+        return original(splits, sizes, fit_fold, frame_, *args)
+
+    monkeypatch.setattr(ep, "cross_validated_risks", probing)
+    fit = ep_fit(frame())
+    assert fit.fit.sieve.mode == "cv"
+    assert len(seen[0][0]) != len(seen[1][0])
+    assert seen[0][0].tobytes() == seen[2][0].tobytes()
+
+
+def test_the_inputs_are_read_once_per_nuisance_fit_and_not_changed(monkeypatch: Any) -> None:
+    """One read per nuisance fit (the outer fit and each fold's), and no size step writes into
+    the arrays every later size reads."""
+    read: list[tuple[Any, str]] = []
+    original = ep._pieces
+
+    def counting(fit: Any) -> Any:
+        pieces = original(fit)
+        read.append((pieces, _hash(pieces)))
+        return pieces
+
+    monkeypatch.setattr(ep, "_pieces", counting)
+    fit = ep_fit(frame())
+    assert len(read) == len(fit.fit.sieve.inner_seeds) + 1
+    assert all(_hash(pieces) == before for pieces, before in read)
+
+
+def _hash(pieces: Any) -> str:
+    out = hashlib.sha256()
+    for name in (
+        "y",
+        "treatment",
+        "observed",
+        "initial_observed",
+        "initial_t",
+        "initial_r",
+        "weight",
+        "rows",
+    ):
+        out.update(np.ascontiguousarray(getattr(pieces, name)).tobytes())
+    return out.hexdigest()
+
+
+def test_the_size_step_evaluates_the_basis_once_per_set_of_rows(monkeypatch: Any) -> None:
+    """Work guard: with F folds and M sizes, ``2F + 2`` evaluations (``check``, each fold's
+    training and held-out rows, the outer rows), where the per-size path makes ``2FM + M + 1``."""
+    calls: list[int] = []
+    original = Additive.evaluate
+
+    def counting(self: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(len(self.terms))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Additive, "evaluate", counting)
+    inside: list[int] = []
+    fit_method = ep.EPEstimator.fit
+
+    def recording(self: Any, data: Any) -> Any:
+        start = len(calls)
+        try:
+            return fit_method(self, data)
+        finally:
+            inside.extend(calls[start:])
+
+    monkeypatch.setattr(ep.EPEstimator, "fit", recording)
+    fit = ep_fit(frame())
+    folds, sizes = len(fit.fit.sieve.inner_seeds), len(fit.fit.sieve.sizes)
+    assert sizes == 6
+    assert len(inside) == 2 * folds + 2
+    assert set(inside) == {fit.fit.estimator.member(sizes).n_terms}
+
+
+def test_nothing_of_the_caches_is_kept(tmp_path: Any) -> None:
+    fit = ep_fit(frame())
+    payload = pickle.dumps(fit)
+    for name in (b"SieveDesigns", b"_FitState"):
+        assert name not in payload
