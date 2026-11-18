@@ -347,14 +347,16 @@ class ContinuousSurvivalTMLE:
     band_scale : {"logit", "identity"}
         The scale of the band of a bounded estimate.
     max_memory_bytes : int or None
-        The memory budget of a fit, in bytes.  Before fitting any nuisance, the fit predicts the
-        largest number of bytes its arrays hold at once, which grows as ``n`` times the number of
-        distinct observed times up to the last target time or restricted horizon, and refuses
-        with :class:`~cleverly.exceptions.MethodConfigurationError` when the prediction exceeds
-        the budget.  ``None`` reads the memory available at that moment and checks nothing on
-        a platform that does not report it.  A value overrides the reading either way.  Every
-        refit of a result, and so every refutation and truncation curve, uses the value of
-        the fit.
+        The memory budget of a fit, in bytes.  The walk works through blocks of units; before
+        fitting any nuisance, the fit predicts the largest number of bytes it holds at once with
+        no block kept between passes, which grows with ``n`` times the number of targets, and
+        refuses with :class:`~cleverly.exceptions.MethodConfigurationError` when the prediction
+        exceeds the budget.  The walk then keeps as many blocks as the budget allows and
+        rebuilds the others on each pass, so the budget sets how long a fit runs and never what
+        it returns.  ``None`` reads the memory available at that moment, keeps blocks up to
+        three quarters of it, and checks nothing (keeping every block) on a platform that does
+        not report it.  A value overrides the reading either way.  Every refit of a result, and
+        so every refutation and truncation curve, uses the value of the fit.
     """
 
     def __init__(

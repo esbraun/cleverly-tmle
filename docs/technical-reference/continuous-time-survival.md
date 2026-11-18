@@ -242,36 +242,64 @@ censoring model and under one that ignores $W$.
 
 ## Memory
 
-The engine holds both arms' hazard jumps, survival and incidences for every unit at every grid
-time: arrays of shape $(2, n, M)$ and $(2, J, n, M)$, with $M$ the distinct observed times up to
-the last target time or restricted horizon. When $M$ grows with $n$, memory grows as $n^2$. A fit
-holds at most about $\max(73 J + 97,\ 81 J + 81)\, n M$ bytes at once, $170\, n M$ with one cause,
-reached in the walk's trial step; a truncation curve keeps the initial jumps and weight product
-beside every walk, $16 (J + 1)\, n M$ bytes more. At $n = 100{,}000$ with one cause and
-$M = 59{,}980$ that is about 1 TB.
+The walk needs each unit's hazards only through means over units, so the engine walks blocks of
+$c = \max(1, \lfloor 2^{18} / (J M) \rfloor)$ units, with $M$ the distinct observed times up to
+the last target time or restricted horizon (`cleverly.survival._chunked`). A block holds both
+arms' hazard jumps, survival and incidences on the walk's grid: every time where some initial
+hazard jump is not zero, some event is observed or a risk's target time sits. At any other time
+every jump is zero and the tilt keeps it zero, so the curves there repeat the last kept time's. A
+restricted mean's weights also sit on the dropped times, so its sums run on the full grid and read
+the block's curves through a forward-fill map. Each pass over the blocks evaluates up to four
+trial step sizes at once and takes them in the order the dense walk would, holding and halving as
+it does.
 
-Before fitting any nuisance, the fit predicts that peak phase by phase from $n$, $J$, $M$, the
-target rows and the largest prediction fold (`cleverly.survival._memory.peak_bytes`), and refuses
-with `MethodConfigurationError` when the prediction exceeds the budget. The budget is the memory
+Beside the blocks the walk holds $(n, P)$ arrays: the initial and current influence curves and
+each trial's score terms, with $P = 2 J Q$ targets. It keeps as many blocks between passes as the
+budget allows, about $(33 J + 33)$ bytes per unit and kept time each, and rebuilds the others from
+the fitted hazard models and the record of accepted steps. With no block kept, the peak grows with
+$n P$ and the off-grid diagnostic's $(n, 200 J)$ array, not with $n M$: about 0.3 GB at
+$n = 100{,}000$ with one cause, two target times and $M = 59{,}980$, against about 1 TB to hold every
+unit's arrays at once. Keeping every block at that size would take about 400 GB, so
+a large fit rebuilds most blocks on every pass and runs longer.
+
+Before fitting any nuisance, the fit predicts each phase's peak with no block kept and the walk on
+the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
+`MethodConfigurationError` when that prediction exceeds the budget. The budget is the memory
 available at that moment (`cleverly.utils.memory.available_memory`, which reads the control
-group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it
-in either direction. Where the platform reports no available memory, as on macOS, nothing is
-checked unless `max_memory_bytes=` is passed. Every refit of a result, and so every refutation,
-assessment replay and truncation curve, uses the fit's `max_memory_bytes`.
+group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it in
+either direction. Where the platform reports no available memory, as on macOS, nothing is checked
+and every block is kept unless `max_memory_bytes=` is passed. After the initial pass the walk
+keeps blocks up to the budget, or up to three quarters of the memory available under the default.
+The budget sets how many blocks are kept, so how long the walk runs, and never what it returns.
+Every refit of a result, and so every refutation, assessment replay and truncation curve, uses the
+fit's `max_memory_bytes`, and a truncation curve holds no more than its fit.
 `TimeToEvent(grid="continuous")` has no such setting; its refusal spells the
-`ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the
-budget can be set.
+`ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the budget
+can be set.
+
+Rebuilding a block calls the hazard learner again, so a learner's `cumulative_hazard` must return
+the same values for the same rows on every call, each row predicted from that row alone. The fit
+predicts the first block twice and refuses a user learner whose predictions differ. The shipped
+learners are read from their linear predictors and baseline hazards, or their strata, without a
+second call.
+
+For risks with the shipped learners, every estimate, standard error, influence curve, band and
+record field equals the dense walk's bit for bit, whatever the block size, the blocks kept, the
+number of trial steps per pass or the budget. With a restricted mean or a user hazard learner the
+sums run in another order, and floats agree to $10^{-12}$ relative.
+`tests/unit/test_continuous_survival_blocks.py` checks both against a transcription of the dense
+walk run from the same nuisance fits, anchored to numbers the dense engine produced, with mutation
+controls on the event-support grid, the replay, the trial ladder and the off-grid sums.
 
 The prediction counts NumPy arrays the engine and the shipped hazard learners allocate. It does
-not count a user learner's own allocations, which can only make the check miss a refusal. It
-exceeds the peak by about 10% at most when the walk takes a step, and by up to about 20% when the
-initial fit already meets the stopping rule, since the check cannot know that in advance.
-`tests/unit/test_continuous_survival_memory.py` checks that the `tracemalloc` peak of a fit stays
-at or below the prediction and within 10% of it. Its fixtures have one to three causes, a
-restricted mean, cross-fitting, the factual tilt and a truncation curve, and each phase's peak
-stays at or below that phase's prediction. Dropping one $(2, J, n, M)$ array from the fit's
-prediction, or the censoring jumps from the nuisance phase's, falls below the measured peak.
-Coarsening the time grid would lower $M$ but changes the analysis, so the engine never does it.
+not count a user learner's own allocations, which can only make the check miss a refusal.
+`tests/unit/test_continuous_survival_memory.py` checks that each phase's `tracemalloc` peak stays at
+or below its prediction in fits that keep every block, none or half, with one to three causes, a
+restricted mean, cross-fitting and the factual tilt. The walk's and the final pass's predictions
+stay within 10% of their peaks, and the nuisance phase's within 25% for an interaction Cox model on
+eight covariates. Dropping one term from a phase's prediction falls below its peak, and doubling
+$n$ with no block kept at most multiplies the peak by 2.5. Coarsening the time grid would lower $M$
+but changes the analysis, so the engine never does it.
 
 ## What is refused
 
@@ -288,7 +316,8 @@ Coarsening the time grid would lower $M$ but changes the analysis, so the engine
 | `ratio()` of anything but the two arms' risks at one cause and one time | `contrast()` takes any other smooth function of reported estimates |
 | a restricted horizon past one arm's follow-up, or before the first event of some cause in some arm | as for a target time |
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
-| a fit whose predicted peak memory exceeds the memory available or `max_memory_bytes=` | the dense arrays would not fit; see [Memory](#memory) |
+| a fit whose predicted peak memory with no block kept exceeds the memory available or `max_memory_bytes=` | the fit would not fit even rebuilding every block; see [Memory](#memory) |
+| a user hazard learner whose predictions change between calls | a block's hazards are rebuilt from the model on every pass; see [Memory](#memory) |
 
 ## Evidence
 
