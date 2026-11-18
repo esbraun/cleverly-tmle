@@ -4265,7 +4265,7 @@ def _check_presence(
     if values.dtype.kind in "biufc":
         finite = np.isfinite(np.asarray(values, dtype=float))
     else:
-        finite = np.asarray([_categorical_value_is_present(value) for value in values], dtype=bool)
+        finite = _present_objects(values)
     missing = required & ~finite
     if np.any(missing):
         if absent is not None:
@@ -4284,6 +4284,36 @@ def _check_presence(
             "refused rather than silently dropped: set the nodes after a unit leaves to "
             "missing."
         )
+
+
+def _present_objects(values: Any) -> BoolArray:
+    """:func:`_categorical_value_is_present` of every cell of an object array.
+
+    The element types are collected in one pass first.  A column whose cells are all exactly
+    ``float``, ``float64``, ``float32`` or ``float16`` (a numeric column handed over as
+    objects) is then read with :func:`numpy.isfinite`, which is that function's answer for each
+    such float: each converts to ``float64`` exactly.  A column with no ``None``, no pandas
+    ``NA`` and no float of any kind holds only present labels.  Any other mix is read one cell
+    at a time, including ``longdouble``, whose finite values above the ``float64`` range would
+    convert to infinity, and a Python ``int``, which is never converted for the same reason.
+    """
+    types = set(map(type, values))
+    if types and types <= _EXACT_FLOATS:
+        return np.asarray(np.isfinite(values.astype(float)), dtype=bool)
+    if not any(_may_be_absent(kind) for kind in types):
+        return np.ones(len(values), dtype=bool)
+    return np.asarray([_categorical_value_is_present(value) for value in values], dtype=bool)
+
+
+#: The element types :func:`_present_objects` converts to ``float64``: each converts exactly.
+_EXACT_FLOATS: frozenset[type] = frozenset({float, np.float64, np.float32, np.float16})
+
+
+def _may_be_absent(kind: type) -> bool:
+    """Whether a ``kind`` cell can read as absent in :func:`_categorical_value_is_present`."""
+    if kind is type(None) or issubclass(kind, (float, np.floating)):
+        return True
+    return kind.__name__ == "NAType" and kind.__module__.startswith("pandas")
 
 
 def _categorical_value_is_present(value: Any) -> bool:
