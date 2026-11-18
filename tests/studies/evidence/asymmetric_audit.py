@@ -64,7 +64,10 @@ its committed ``covered``.  The substitution holds only where the committed ``co
 refit's own normal interval on every replicate (the interval the committed run read); a group
 failing that check, or missing a replicate, stays on its bound.  A verdict that moves on the
 exact intervals alone is listed ``<verdict>@settled`` and the study stays ``moved``, for a real
-regeneration; a study whose flips all clear reads ``neutral``, settled by full refit.
+regeneration; a study whose flips all clear reads ``neutral``, settled by full refit.  A power
+cell whose committed ``covered`` is the coverage of the null 0 (``1 - rejected``) is settled on
+its rejections against 0.  A moved study approved for regeneration (:data:`REGENERATE`) is not
+settled.
 
 **A refit that misses its committed row** (``replay`` = ``mismatch``) is judged, not discarded
 (:func:`replay_shifts`).  The R_a bound is a ratio of the shipped to the normal half-width per
@@ -168,6 +171,19 @@ CURRENT: dict[str, str] = {
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row
 #: records a MOVER flip.
 SCREEN_REASONS: dict[str, str] = {}
+
+#: The moved studies approved for a full regeneration under the shipped intervals, and why.
+#: The settle stage leaves them out (:func:`~asymmetric_refit.settle_targets`): their committed
+#: rows are replaced, so settling them would judge rows about to go.
+REGENERATE: dict[str, str] = {
+    "ctmle-derivative": "settled by full refit and moved; regeneration approved (Fix-3, "
+    "2026-11-18)",
+    "weighted-ltmle": "settled by full refit and moved; regeneration approved (Fix-3, 2026-11-18)",
+    "refuter-calibration-band": "settled by full refit and moved; regeneration approved "
+    "(Fix-3, 2026-11-18)",
+    "cde-tmle": "moved at the R_a bound; regenerated in full instead of settled, approved "
+    "(Fix-3, 2026-11-18)",
+}
 
 #: How far a refit may sit from the committed row it replays, in sampling standard deviations
 #: of the committed group's estimates and of its standard errors, for the R_a bound to apply
@@ -648,6 +664,13 @@ def settled_verdicts(
     the committed run then read another interval, and the shipped one does not replace it.
     ``rejected`` is recomputed against the null 0 where the committed ``rejected`` reads it.
 
+    A property group whose committed ``covered`` is the coverage of the null 0, not of the
+    truth (:func:`_null_coverage`: ``covered = 1 - rejected`` on every replicate, ``rejected``
+    the normal test of 0, as a power cell records it), is settled the same way with 0 in place
+    of the truth: the refit's normal interval must reproduce the committed ``rejected``, the
+    settled ``rejected`` reads the shipped limits against 0, and the settled ``covered`` is
+    ``1 - rejected``.
+
     Parameters
     ----------
     records : pandas.DataFrame
@@ -669,6 +692,8 @@ def settled_verdicts(
         return None
     rows = by_replicate.loc[replicates]
     estimate, se, truth = (_values(group, c) for c in ("estimate", "std_error", "truth"))
+    if _null_coverage(group, z):
+        truth = np.zeros_like(estimate)  # the point ``covered`` reads is the null 0
     committed = group.rows["covered"].to_numpy(dtype=int)
     keep = (rows["scale"].astype(str) == "own").to_numpy() | ~np.isfinite(estimate)
     psi = rows["estimate"].to_numpy(float)
@@ -705,6 +730,19 @@ def settled_verdicts(
             old = group.rows["rejected"].to_numpy(dtype=float)
             rejected = np.where(keep, old, ((low > 0.0) | (high < 0.0)).astype(float))
     return covered, rejected
+
+
+def _null_coverage(group: Group, z: float) -> bool:
+    """Whether a property group's committed ``covered`` reads the null 0 instead of the truth:
+    not the identity interval's coverage of the truth, ``rejected`` the normal test of 0, and
+    ``covered = 1 - rejected`` on every replicate."""
+    if group.kind != "property" or _identity_consistent(group, z):
+        return False
+    if not _null_zero_consistent(group, z):
+        return False
+    covered = group.rows["covered"].to_numpy(dtype=float)
+    rejected = group.rows["rejected"].to_numpy(dtype=float)
+    return bool(np.array_equal(covered, 1.0 - rejected))
 
 
 def replay_shifts(records: pd.DataFrame, groups: Mapping[str, Group]) -> tuple[int, list[str]]:

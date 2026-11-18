@@ -40,9 +40,9 @@ screen widens the observed spread of each side's ratio by :data:`INFLATION` (pla
 both sides (narrowing and widening), with the study's own rule.
 
 **Settle refits.**  The R_a bound is conservative, so a study it lists ``moved`` has only possibly
-moved.  For each such study (:func:`settle_targets`), the ``settle`` stage refits *every*
-replicate of each group its screen row names in ``bound_flips`` (:func:`settle_groups`), and the
-screen then judges those groups' committed verdicts on the refitted shipped interval of each
+moved.  For each such study still unsettled (:func:`settle_targets`), the ``settle`` stage
+refits *every* replicate of each group its screen row names in ``bound_flips``
+(:func:`settle_groups`), and the screen then judges those groups' committed verdicts on the refitted shipped interval of each
 replicate instead of on the bound's corners.  The settle checkpoints sit under their own stage
 label and never reuse the R_a refits: a checkpoint does not record the code that wrote it, and
 the R_a refits hold 20 replicates of groups whose settle run holds hundreds.
@@ -678,13 +678,19 @@ def settle_groups(slug: str, screen: pd.DataFrame | None = None) -> set[str]:
 
 
 def settle_targets(screen: pd.DataFrame | None = None) -> list[str]:
-    """The studies the settle stage refits: every screen row ``moved`` with a ``bound_flips``
-    entry."""
+    """The studies that still need settling: every screen row ``moved`` with a ``bound_flips``
+    entry, less a study a full refit already moved (a ``@settled`` flip) and a study approved
+    for regeneration (:data:`~asymmetric_audit.REGENERATE`)."""
     from tests.studies.evidence import asymmetric_audit
 
     screen = asymmetric_audit.read_screen() if screen is None else screen
     chosen = screen.loc[(screen["disposition"] == "moved") & (screen["bound_flips"] != "")]
-    return sorted(chosen["study"])
+    return sorted(
+        str(row.study)
+        for row in chosen.itertuples()
+        if row.study not in asymmetric_audit.REGENERATE
+        and not any(flip.endswith("@settled") for flip in str(row.bound_flips).split(";"))
+    )
 
 
 def stage_selection(

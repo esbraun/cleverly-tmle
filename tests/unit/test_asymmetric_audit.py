@@ -665,6 +665,20 @@ def test_the_settle_stage_refits_every_replicate_of_each_flagged_group(
     assert refit.settle_groups("a", screen) == {"s/x", "L4/y[1 vs 0 @ t=5]"}
     assert refit.settle_groups("b", screen) == set()
     assert refit.settle_targets(screen) == ["a"]
+    later = pd.concat(
+        [
+            screen,
+            pd.DataFrame(
+                {
+                    "study": ["d", "cde-tmle"],
+                    "disposition": ["moved", "moved"],
+                    "bound_flips": ["s/x@settled;s/y@lo-lo", "s/z@lo-lo"],
+                }
+            ),
+        ]
+    )
+    assert "cde-tmle" in screen_module.REGENERATE
+    assert refit.settle_targets(later) == ["a"]  # moved by a full refit, or regenerated
     keys = [(cell, replicate) for cell in ("s", "t") for replicate in range(50)]
     job = refit.Job(
         "primary", "primary", keys, [], lambda key, drawn: None, 2,
@@ -714,3 +728,60 @@ def test_a_key_writes_the_reported_scenarios_its_study_owner_names() -> None:
     chosen = refit.select(job, replicates=refit.REFIT_REPLICATES, names=wanted)
     assert {job.cell_of(job.keys[i]) for i in chosen} == {"atom_ltmle_tail"}
     assert len(chosen) == refit.REFIT_REPLICATES
+
+
+def _power_group(n: int = 400) -> screen_module.Group:
+    """A power cell: ``covered`` is the coverage of the null 0 (``1 - rejected``), so it is not
+    the identity interval's coverage of the truth, and a share of replicates sits just past
+    the rejection edge."""
+    rng = np.random.default_rng(11)
+    z = 1.959964
+    se = np.full(n, 0.01)
+    statistic = np.where(rng.uniform(size=n) < 0.1, 2.0, rng.uniform(2.5, 5.0, size=n))
+    estimate = statistic * se
+    rejected = (np.abs(estimate) / se > z).astype(float)
+    rows = pd.DataFrame(
+        {
+            "replicate": np.arange(n),
+            "estimate": estimate,
+            "std_error": se,
+            "truth": np.full(n, 0.035),
+            "covered": (1.0 - rejected).astype(int),
+            "rejected": rejected,
+        }
+    ).set_index("replicate", drop=False)
+    return screen_module.Group("power/wald__c", "property", "", rows, rows.index)
+
+
+def test_a_power_cell_settles_on_its_rejections_against_zero() -> None:
+    """Witness: a cell whose ``covered`` reads the null 0 is not identity-consistent, yet its
+    rejections are the normal test of 0.  Widening the lower side by 5% un-rejects the
+    replicates at 2.0 standard errors, and the settled ``covered`` is ``1 - rejected``."""
+    group = _power_group()
+    z = float(stats.norm.ppf(0.975))
+    assert not screen_module._identity_consistent(group, z)
+    assert screen_module._null_coverage(group, z)
+    near = (group.rows["estimate"] / group.rows["std_error"]).to_numpy() < 2.1
+    exact = screen_module.settled_verdicts(_settle_records(group, np.array(1.05)), group, z)
+    assert exact is not None
+    covered, rejected = exact
+    assert rejected is not None
+    assert np.array_equal(rejected, np.where(near, 0.0, 1.0))
+    assert np.array_equal(covered, 1 - rejected.astype(int))
+    same = screen_module.settled_verdicts(_settle_records(group, np.array(1.0)), group, z)
+    assert same is not None and np.array_equal(same[0], group.rows["covered"].to_numpy(int))
+
+
+def test_a_cell_whose_covered_is_not_one_minus_rejected_stays_unbounded() -> None:
+    """Mutation control: one replicate's ``covered`` no longer equals ``1 - rejected``; the
+    cell reads neither the truth nor the null, so its refit does not settle it."""
+    group = _power_group()
+    z = float(stats.norm.ppf(0.975))
+    rows = group.rows.copy()
+    first = rows.index[0]
+    rows.loc[first, "covered"] = 1 - int(rows.loc[first, "covered"])
+    broken = screen_module.Group(group.key, group.kind, group.pool, rows, group.index)
+    assert not screen_module._null_coverage(broken, z)
+    assert (
+        screen_module.settled_verdicts(_settle_records(broken, np.array(1.05)), broken, z) is None
+    )
