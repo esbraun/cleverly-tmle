@@ -2,8 +2,8 @@
 
 The backward recursion reads the same regimen masks, cumulative mechanism products, clever
 covariates at every horizon, cause and fold of one fit.  Built
-afresh at each read they cost time, and the fit's retained records then hold one copy per
-horizon of arrays that are equal by construction.  Inside :func:`fit_cache` such an array is
+afresh at each read, they leave the fit's retained records holding one copy per horizon of
+arrays that are equal by construction.  Inside :func:`fit_cache` such an array is
 built once, marked read-only, and handed to every reader that asks for it while an earlier
 reader still holds it, so the records share one copy.
 
