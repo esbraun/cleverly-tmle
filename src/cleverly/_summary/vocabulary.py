@@ -3794,6 +3794,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "learners_failed": "warning",
         "ensemble_risk": "note",
         "fit_cautions": "warning",
+        "fit_cautions_listed": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
         "guard_scope": "note",
@@ -3897,6 +3898,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "fit_cautions": (
             "The fits of {names} carry warnings that change how to read their rows; print "
             "each with result.fits[name].summary()."
+        ),
+        "fit_cautions_listed": (
+            "The fits of {names} carry warnings that change how to read their rows. This run "
+            "kept no fits (keep_fits=False), so they are listed here: {listing}"
         ),
         "stacked_interval": (
             "Each interval is pointwise and comes from one stacked estimating equation of "
