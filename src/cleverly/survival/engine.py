@@ -37,7 +37,7 @@ from ..utils.memory import check_max_memory_bytes
 from ..exceptions import MethodConfigurationError
 from . import _chunked
 from ._chunked import HazardSource, InitialHazards, blocks, chunk_size
-from ._memory import check_memory, largest_fold, peak_bytes
+from ._memory import check_memory, design_width, peak_bytes, resident_count, train_size
 from ._targeting import (
     Norm,
     Problem,
@@ -665,14 +665,41 @@ class ContinuousSurvivalTMLE:
             ),
         )
 
-    def _initial(
-        self, data: Any, seed: int, *, folds: Any = None, retained: bool = False
-    ) -> _Initial:
+    def _memory_shape(
+        self,
+        n: int,
+        causes: int,
+        times: int,
+        target_weights: FloatArray,
+        covariates: int,
+        folds: IntArray,
+    ) -> dict[str, Any]:
+        """The keyword arguments of :func:`._memory.peak_bytes` for a fit of these sizes."""
+        weights = np.asarray(target_weights)
+        return {
+            "n": n,
+            "causes": causes,
+            "times": times,
+            "rows": int(weights.shape[0]),
+            "covariates": covariates,
+            "train_size": train_size(folds, n, self.cross_fit),
+            "design_width": design_width(
+                (*self.hazard_library, *self.censoring_library), covariates
+            ),
+            "simultaneous": self.simultaneous,
+            "n_multiplier": self.n_multiplier,
+            "factual_tilt": self.tilt == "factual",
+            "stratified_learner": any(
+                isinstance(member, StratifiedNelsonAalen)
+                for member in (*self.hazard_library, *self.censoring_library)
+            ),
+            "restricted": not _point_rows(weights),
+        }
+
+    def _initial(self, data: Any, seed: int, *, folds: Any = None) -> _Initial:
         """Fit every nuisance and build what each walk reads, at the seed ``seed``.
 
-        ``folds`` replaces the outer cross-fitting draw with one label per row.  ``retained``
-        tells the memory check that the caller keeps the initial jumps and weight product
-        through every walk, as a truncation curve does.  The
+        ``folds`` replaces the outer cross-fitting draw with one label per row.  The
         generator state after the nuisance phase is kept, so each walk's off-grid draws
         start from the same state.
         """
@@ -739,25 +766,8 @@ class ContinuousSurvivalTMLE:
             folds = np.zeros(n, dtype=int)
             n_folds = 1
         # Before any nuisance fit, so a refused request costs no learner time.
-        check_memory(
-            peak_bytes(
-                n,
-                J,
-                grid.size,
-                target_weights.shape[0],
-                covariates=L.shape[1],
-                fold_size=largest_fold(folds, n),
-                simultaneous=self.simultaneous,
-                n_multiplier=self.n_multiplier,
-                retained=retained,
-                factual_tilt=self.tilt == "factual",
-                stratified_learner=any(
-                    isinstance(member, StratifiedNelsonAalen)
-                    for member in (*self.hazard_library, *self.censoring_library)
-                ),
-            ),
-            self.max_memory_bytes,
-        )
+        shape = self._memory_shape(n, J, grid.size, target_weights, L.shape[1], folds)
+        check_memory(peak_bytes(**shape), self.max_memory_bytes)
         gap = np.diff(np.unique(T))
         shift = 0.5 * float(gap.min()) if gap.size else 0.5
         censor_time = np.where(D > 0, T - shift, T)
@@ -884,6 +894,7 @@ class ContinuousSurvivalTMLE:
             censoring_record=censoring_record,
             propensity_record=propensity_record,
             D=D,
+            memory=shape,
             hazards=hazards,
             kept=kept,
             block=block,
@@ -1019,6 +1030,7 @@ class _Initial:
     hazard_records: tuple[HazardSelection, ...]
     censoring_record: HazardSelection
     propensity_record: PropensitySelection | None
+    memory: dict[str, Any]
     hazards: InitialHazards
     kept: IntArray
     block: int
@@ -1044,7 +1056,7 @@ class _FitPlan:
         self.dropped = np.ones(grid.size, dtype=bool)
         self.dropped[kept] = False
         weights = initial.target_weights
-        points = bool(np.all((weights == 0) | (weights == 1)) and np.all(weights.sum(axis=1) == 1))
+        points = _point_rows(weights)
         self.expand: IntArray | None = None
         self.kept: IntArray | None = None
         if not self.reduced:
@@ -1059,6 +1071,13 @@ class _FitPlan:
             self.expand = np.searchsorted(kept, np.arange(grid.size), side="right") - 1
             self.kept = kept
         self.pi = np.stack([1.0 - initial.p1, initial.p1])
+        #: The memory model's arguments for this walk: its grid, blocks and target weights.
+        self.shape = {
+            **initial.memory,
+            "kept": int(kept.size),
+            "block": int(initial.block),
+            "restricted": self.expand is not None,
+        }
         self._largest_dropped = np.zeros((2, initial.n))
         self._counted = np.zeros(len(self.bounds), dtype=bool)
         self._bounded = self._relevant = self._last = 0
@@ -1206,6 +1225,11 @@ class _FitPlan:
         return grows.any(axis=(1, 3))
 
 
+def _point_rows(weights: FloatArray) -> bool:
+    """Whether every weight row is a unit vector, a risk's."""
+    return bool(np.all((weights == 0) | (weights == 1)) and np.all(weights.sum(axis=1) == 1))
+
+
 def resident_blocks(plan: _FitPlan, max_memory_bytes: int | None) -> int:
     """The blocks a walk keeps between passes, the first ones in row order.
 
@@ -1225,9 +1249,7 @@ def resident_blocks(plan: _FitPlan, max_memory_bytes: int | None) -> int:
     int
         The kept blocks.
     """
-    from ._memory import resident_count
-
-    return resident_count(plan, max_memory_bytes)
+    return resident_count(plan.shape, plan.bounds, max_memory_bytes)
 
 
 class _OffGrid:
@@ -1257,9 +1279,10 @@ class _OffGrid:
             self.weights[np.flatnonzero(inside), position[inside]] = 1.0
         else:
             self.weights = point_weights(index[keep], grid.size)
-        J = len(initial.causes)
         self.n = initial.n
-        self.spread = np.empty((initial.n, 2 * J * self.weights.shape[0]))
+        self.width = 2 * len(initial.causes) * self.weights.shape[0]
+        # Allocated in the final pass, so the walk does not hold it.
+        self.spread: FloatArray | None = None
         self.parts: FloatArray | None = None
         self.plugins: FloatArray | None = None
 
@@ -1279,6 +1302,8 @@ class _OffGrid:
         """
         shifted = replace(state.problem, target_weights=self.weights, expand=None, kept=None)
         parts, plugins = evaluate_rows(shifted, state.jumps, state.survival, state.incidence)
+        if self.spread is None:
+            self.spread = np.empty((self.n, self.width))
         np.add(parts, plugins, out=self.spread[lo:hi])
         self.parts = _carried(self.parts, parts)
         self.plugins = _carried(self.plugins, plugins)
@@ -1298,13 +1323,14 @@ class _OffGrid:
         """
         if not self.active:
             return 1.0
-        assert self.parts is not None and self.plugins is not None
+        assert self.parts is not None and self.plugins is not None and self.spread is not None
         score = self.parts / self.n
         psi = self.plugins / self.n
         influence = self.spread
         influence -= psi
         np.square(influence, out=influence)
         sigma = np.sqrt(np.mean(influence, axis=0))
+        self.spread = None
         informative = sigma > 0
         if not informative.any():
             return 1.0

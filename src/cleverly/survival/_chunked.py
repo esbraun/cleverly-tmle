@@ -375,8 +375,13 @@ class _Walker:
         v: FloatArray,
         floor: float,
         held: np.ndarray | None,
+        reach: FloatArray | None,
     ) -> tuple[FloatArray, FloatArray, np.ndarray]:
-        """One trial on block ``k``: its parts, plug-ins and low pairs."""
+        """One trial on block ``k``: its parts, plug-ins and low pairs.
+
+        ``reach`` bounds each pair's ``|direction|`` at the times the walk's grid drops
+        (:meth:`reach`), ``None`` when it drops none.
+        """
         increment = direction if held is None else direction * ~held[:, None, :, None]
         increment = increment * step
         candidate = T.tilt_jumps(state.jumps, increment)
@@ -388,65 +393,56 @@ class _Walker:
             parts, plugins = T.evaluate_rows(state.problem, candidate, survival, incidence)
         low = survival[..., -1] < floor
         del candidate, survival, incidence
-        bound = self.plan.dropped_weight(k)
-        if bound is not None:
-            nan = self.overflowing(k, state, direction, step, v, held, bound)
-            if nan is not None:
-                # The dense walk's tilt of a zero jump at a dropped time is inf * 0 there: the
-                # pair's jumps, survival and parts turn NaN, so its survival is not low and the
-                # trial's score is not finite.
-                units = np.flatnonzero(nan.any(axis=0))
-                parts[units] = np.nan
-                plugins[units] = np.nan
-                low &= ~nan
+        if reach is not None:
+            bound = step * reach
+            if held is not None:
+                bound = np.where(held, 0.0, bound)
+            flagged = bound > OVERFLOW_BOUND
+            if flagged.any():
+                units = np.flatnonzero(flagged.any(axis=0))
+                exact = self.plan.overflow(k, units, state, v, step)
+                if exact is not None:
+                    nan = np.zeros_like(flagged)
+                    nan[:, units] = exact & flagged[:, units]
+                    # The dense walk's tilt of a zero jump at a dropped time is inf * 0 there:
+                    # the pair's jumps, survival and parts turn NaN, so its survival is not low
+                    # and the trial's score is not finite.
+                    rows = np.flatnonzero(nan.any(axis=0))
+                    parts[rows] = np.nan
+                    plugins[rows] = np.nan
+                    low &= ~nan
         return parts, plugins, low
 
-    def overflowing(
-        self,
-        k: int,
-        state: _State,
-        direction: FloatArray,
-        step: float,
-        v: FloatArray,
-        held: np.ndarray | None,
-        dropped: FloatArray,
-    ) -> np.ndarray | None:
-        """``(2, c)`` the pairs whose dense increment overflows at a dropped time, or ``None``."""
+    def reach(self, k: int, state: _State, v: FloatArray) -> FloatArray | None:
+        """``(2, c)`` a bound on each pair's ``|direction|`` at the dropped times, or ``None``.
+
+        At a dropped time the survival and incidences repeat the last kept time's (or one and
+        zero before the first), so with :math:`W_l` the reverse sums of the target weights,
+        :math:`|c_l| \\le w \\{\\max_l \\sum |W_l| + 2 \\max |F| \\sum_j \\sum_m
+        |\\omega_{j,m}| / \\min S\\}` with :math:`w` the pair's largest weight there.  A pair masked
+        out of the step (the factual tilt) reads zero.
+        """
+        dropped = self.plan.dropped_weight(k)
+        if dropped is None:
+            return None
         problem = state.problem
         J, Q = problem.n_causes, problem.n_rows
         weights = problem.target_weights
-        with np.errstate(invalid="ignore", over="ignore"):
-            # |W_l| and the incidence sums are at most the row's absolute weight mass times the
-            # largest absolute incidence, and the survival at a dropped time is the last kept
-            # one's (or one), so this bounds |step * direction| at every dropped time.
-            mass = np.stack(
-                [
-                    np.abs(v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ weights).sum(axis=1)
-                    for a in (0, 1)
-                ]
-            )  # (2, J)
-            largest = np.nan_to_num(
-                np.abs(state.incidence).max(axis=(1, 3)), nan=np.inf
-            )  # (2, c)
-            lowest = np.minimum(np.abs(state.survival).min(axis=-1), 1.0)  # (2, c)
-            lowest = np.where(np.isnan(lowest), 0.0, lowest)
+        mass = np.stack(
+            [
+                np.abs(v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ weights).sum(axis=1)
+                for a in (0, 1)
+            ]
+        )  # (2, J)
+        with np.errstate(invalid="ignore", over="ignore", divide="ignore"):
+            largest = np.max(np.abs(state.incidence), axis=(1, 3))  # (2, c), NaN propagates
+            lowest = np.minimum(np.min(np.abs(state.survival), axis=-1), 1.0)
             shared = 2.0 * largest * mass.sum(axis=1)[:, None] / lowest
-            bound = step * dropped * (mass.max(axis=1)[:, None] + shared)
+            bound = dropped * (mass.max(axis=1)[:, None] + shared)
         bound = np.where(np.isnan(bound), np.inf, bound)
         if self.tilt == "factual":
             bound = np.where(problem.arm[None, :] == np.arange(2)[:, None], bound, 0.0)
-        if held is not None:
-            bound = np.where(held, 0.0, bound)
-        flagged = bound > OVERFLOW_BOUND
-        if not flagged.any():
-            return None
-        units = np.flatnonzero(flagged.any(axis=0))
-        exact = self.plan.overflow(k, units, state, v, step)
-        if exact is None:
-            return None
-        out = np.zeros_like(flagged)
-        out[:, units] = exact & flagged[:, units]
-        return out if out.any() else None
+        return bound
 
 
 def run_walk(
@@ -524,7 +520,8 @@ def run_walk(
         elif last.size:
             lowest = min(lowest, float(np.min(last)))
         walker.keep(k, state)
-        del state
+        # ``last`` is a view: deleted, so it keeps no block's survival through the walk.
+        del state, last
     passes += 1
     _log_pass("initial", 0, started, walker, passes)
     initial = T.summarize(parts, plugins)
@@ -564,15 +561,20 @@ def run_walk(
         for k, (lo, hi) in enumerate(bounds):
             state = walker.state(k)
             direction = walker.direction(k, state, v)
+            reach = walker.reach(k, state, v)
             for e, size in enumerate(sizes):
-                p, q, low = walker.trial(k, state, direction, size, v, survival_floor, None)
+                p, q, low = walker.trial(
+                    k, state, direction, size, v, survival_floor, None, reach
+                )
                 tried[e][0][lo:hi], tried[e][1][lo:hi] = p, q
                 if low.any():
                     lows[e][:, lo:hi] = low
-                    p, q, again = walker.trial(k, state, direction, size, v, survival_floor, low)
+                    p, q, again = walker.trial(
+                        k, state, direction, size, v, survival_floor, low, reach
+                    )
                     still[e] = still[e] or bool(again.any())
                 retried[e][0][lo:hi], retried[e][1][lo:hi] = p, q
-            del state, direction
+            del state, direction, reach
         passes += 1
         outcomes = []
         for e in range(len(sizes)):
@@ -752,9 +754,9 @@ class HazardSource:
         self._folds = folds
         self._grid = grid
         self._block = int(block)
-        n = folds.size
-        self._scale = np.zeros((2, n))
-        self._index = np.zeros((2, n), dtype=int)
+        # Filled by the folds whose model keeps per-unit factors, allocated on first use.
+        self._scale: FloatArray | None = None
+        self._index: IntArray | None = None
         self._entries: dict[int, _FoldEntry] = {}
 
     def add(self, fold: int, predict: np.ndarray, model: Any) -> None:
@@ -776,6 +778,8 @@ class HazardSource:
         # subclass may predict otherwise.
         if type(model) is CoxHazard:
             entry = _FoldEntry("cox", model)
+            if self._scale is None:
+                self._scale = np.zeros((2, self._folds.size))
             for a in (0, 1):
                 Xa = self._X[predict].copy()
                 Xa[:, 0] = a
@@ -784,6 +788,8 @@ class HazardSource:
                 entry.base = base
         elif type(model) is StratifiedNelsonAalen:
             tables = []
+            if self._index is None:
+                self._index = np.zeros((2, self._folds.size), dtype=int)
             for a in (0, 1):
                 Xa = self._X[predict].copy()
                 Xa[:, 0] = a
@@ -827,10 +833,10 @@ class HazardSource:
             within = labels == fold
             sel: slice | np.ndarray = slice(None) if within.all() else within
             if entry.kind == "cox":
-                assert entry.base is not None
+                assert entry.base is not None and self._scale is not None
                 out[sel] = self._scale[a, lo:hi][sel][:, None] * entry.base[None, :]
             elif entry.kind == "cells":
-                assert entry.curves is not None
+                assert entry.curves is not None and self._index is not None
                 out[sel] = entry.curves[a][self._index[a, lo:hi][sel]]
             else:
                 Xa = self._X[lo:hi][sel].copy()
