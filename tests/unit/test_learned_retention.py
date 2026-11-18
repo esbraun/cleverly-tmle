@@ -219,3 +219,13 @@ def test_degenerate_folds_match_the_baseline(case: str) -> None:
         assert shares[0] == 0.0
     else:
         assert np.isnan(shares[0])
+
+
+def test_float_codes_still_give_an_int8_record() -> None:
+    """The study law and two stubs pass float codes; the record's codes stay int8 for them."""
+    data, plan, rules = _learned(fit(panel(600, seed=4)))
+    floats = _as_float(rules)
+    assert floats.assignments[0].dtype == np.float64
+    stitched = plan.with_assignment(floats.stitched())
+    ours = learned.learned_regimen_record(data, stitched, floats, seed=0)
+    _same_record(ours, _baseline_record(data, stitched, floats, seed=0))

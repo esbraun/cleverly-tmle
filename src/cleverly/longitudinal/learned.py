@@ -1125,7 +1125,7 @@ def _quantiles(values: FloatArray) -> tuple[float, ...]:
     )
 
 
-def _disagreement(columns: FloatArray, rows: BoolArray) -> float:
+def _disagreement(columns: np.ndarray, rows: BoolArray) -> float:
     if not rows.any():
         return 0.0
     picked = columns[:, rows]

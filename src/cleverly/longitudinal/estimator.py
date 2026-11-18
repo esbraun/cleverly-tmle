@@ -7475,7 +7475,7 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             isotonic_moves=moves,
             initial_hazards=initial,
-            learned_regimen=None if rules is None else learned_record,
+            learned_regimen=learned_record,
         )
         return _DrawOutcome(
             draw,
