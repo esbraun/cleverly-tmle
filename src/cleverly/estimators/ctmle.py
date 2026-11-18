@@ -1299,6 +1299,25 @@ class CTMLESelection:
         the patience counter stopped it. ``None`` when the counter never triggered, and always
         ``None`` without :attr:`patience`. When it is set, :attr:`path` and every array that
         runs along it end at this index.
+    candidate_fits : tuple of int
+        The candidate fluctuations the search scored on each branch: the analysis sample
+        first, then each selection fold in fold order. One per fluctuation of a candidate
+        mechanism, so it counts every trial of a greedy step, the trials scored again after a
+        retry from a further targeted fit, every candidate of every pass of a ``"lasso"`` or
+        ``"learners"`` path, and the options of the ``"lasso"`` final step. Under
+        :attr:`patience` it counts the work done, which can pass :attr:`stopped_at`. With
+        ``repeats=``, the record and its counts describe the first draw, the one reported.
+    mechanism_fits : tuple of int
+        The candidate treatment mechanisms each branch computed, in the order of
+        :attr:`candidate_fits`. A covariate set or learner counts once however many folds it is
+        cross-fitted over, the intercept-only candidate included; each penalty of a
+        ``"lasso"`` path counts once; the ``"logistic"`` preorder's one-covariate models
+        count. A :class:`PropensityArrays` entry and a mechanism the branch already holds
+        are not counted.
+    target_solves : tuple of int
+        The fluctuation solves of each branch, in the order of :attr:`candidate_fits`: one per
+        candidate, plus one per covariate the ``"logistic"`` preorder scores. The
+        estimator's final targeting of the reported candidate is not part of the search.
     """
 
     strategy: CTMLEStrategy
@@ -1322,6 +1341,9 @@ class CTMLESelection:
     restricted_pool: tuple[str, ...] | None = None
     patience: int | None = None
     stopped_at: int | None = None
+    candidate_fits: tuple[int, ...] = ()
+    mechanism_fits: tuple[int, ...] = ()
+    target_solves: tuple[int, ...] = ()
 
     @property
     def reported(self) -> int:
@@ -1779,6 +1801,15 @@ class CTMLEDerivativeFit:
 
     def _repr_html_(self) -> str:
         return self.summary().as_html()
+
+
+@dataclass
+class _SearchWork:
+    """The work one search branch did: what :class:`CTMLESelection` reports per branch."""
+
+    candidate_fits: int = 0
+    mechanism_fits: int = 0
+    target_solves: int = 0
 
 
 @dataclass(frozen=True)
@@ -2826,6 +2857,9 @@ default="greedy"
             ),
             patience=self.patience,
             stopped_at=stopped_at,
+            candidate_fits=selector.counts("candidate_fits"),
+            mechanism_fits=selector.counts("mechanism_fits"),
+            target_solves=selector.counts("target_solves"),
         )
         return nuisance, {"ctmle": selection}
 
@@ -4284,6 +4318,11 @@ class _Selector:
         self.stop = estimator._stop_context(data, base)
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
         self._active: dict[tuple[Any, ...], tuple[str, ...]] = {}
+        #: The work this branch did, for :attr:`CTMLESelection.candidate_fits`,
+        #: :attr:`~CTMLESelection.mechanism_fits` and :attr:`~CTMLESelection.target_solves`.
+        self.work = _SearchWork()
+        #: The work of each selection fold's branch, in fold order, once it has run.
+        self.fold_work: list[_SearchWork] = []
         self.reference = estimator._reference_arm(data)
         self.target_names = self._target_names()
         #: The penalty grid of ``strategy="lasso"``. It reads treatment and covariates only
@@ -4296,6 +4335,10 @@ class _Selector:
                 if estimator.lambdas is not None
                 else default_penalty_grid(data.mechanism_covariates, data.treatment, data.weights)
             )
+
+    def counts(self, kind: str) -> tuple[int, ...]:
+        """One work count of the analysis-sample branch, then of each selection fold's branch."""
+        return tuple(int(getattr(work, kind)) for work in (self.work, *self.fold_work))
 
     # ------------------------------------------------------------ propensities
 
@@ -4318,6 +4361,9 @@ class _Selector:
         self, learner: Learner, covariates: tuple[str, ...], train: IntArray | None
     ) -> Propensity:
         data = self.data
+        # Each call fits one mechanism: the candidate paths cache the result per branch, and
+        # the logistic preorder fits each one-covariate model once.
+        self.work.mechanism_fits += 1
         if not covariates:
             return self._intercept_propensity(train)
 
@@ -4427,6 +4473,7 @@ class _Selector:
         Fitting and applying are separated because the cross-validated selector needs
         an ``epsilon`` fit on training rows and evaluated on held-out ones.
         """
+        self.work.target_solves += 1
         fluctuation = solve_submodel(
             self.scaled[rows],
             _restrict_fit(initial, rows),
@@ -4693,6 +4740,7 @@ class _Selector:
         keys = [(tag, ("lasso", k)) for k in range(count)]
         if all(key in self._cache for key in keys):
             return [Propensity(self._cache[key], data.arm_codes) for key in keys]
+        self.work.mechanism_fits += count
         values = np.empty((count, data.n, data.n_arms))
         active: list[set[int]] = [set() for _ in range(count)]
         for fit_rows, predict_rows, layer in self._fit_rows(train, tag):
@@ -4858,6 +4906,7 @@ class _Selector:
         label: str = "",
     ) -> _Candidate:
         """Fluctuate ``initial`` along one candidate mechanism and score it on ``rows``."""
+        self.work.candidate_fits += 1
         submodel = self.submodel(propensity)
         targeted, epsilon = self.target(initial, submodel, rows)
         loss = self.loss(targeted, rows)
@@ -4970,6 +5019,7 @@ class _Selector:
         influence = np.zeros((len(path), data.n, dimension))
         for fold, (train, test) in enumerate(folds):
             fold_selector = self._fold_selector(train)
+            self.fold_work.append(fold_selector.work)
             fold_path = fold_selector.build_path(train=train, tag=f"cv{fold}")
             if len(fold_path) < len(path):
                 raise RuntimeError(
@@ -5051,6 +5101,7 @@ class _Selector:
         dimension = len(self.target_names)
         full = self.iter_path(train=None, tag="full")
         fold_selectors = [self._fold_selector(train) for train, _ in folds]
+        self.fold_work.extend(fold_selector.work for fold_selector in fold_selectors)
         fold_paths = [
             fold_selector.iter_path(train=train, tag=f"cv{fold}")
             for fold, (fold_selector, (train, _)) in enumerate(
