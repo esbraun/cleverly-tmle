@@ -123,6 +123,7 @@ hazard-msm
 hazard-mtp
 hazard-multinode
 hazard-time-varying
+hazard-time-varying-multinode
 continuous-time-survival
 continuous-survival-functionals
 categorical-incremental
