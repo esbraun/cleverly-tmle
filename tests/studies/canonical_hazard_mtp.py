@@ -340,7 +340,11 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
             law.LevelsTreatment() if mechanism_correct else DummyClassifier(strategy="prior")
         )
     elif ratio == "classifier":
-        out["treatment_learner"] = law.RatioLogistic() if mechanism_correct else law.DoseOnlyRatio()
+        out["treatment_learner"] = (
+            law.RatioLogistic()
+            if mechanism_correct
+            else law.DoseOnlyRatio(column=1 if current.kind == "vector" else 0)
+        )
     else:
         bins = oracle_bins(len(frame))
         covariates = ("W1", "W2", "F") if current.kind == "vector" else ("W1", "W2")
