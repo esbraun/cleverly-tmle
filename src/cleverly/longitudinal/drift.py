@@ -572,8 +572,15 @@ def fit_coefficients(
             )
         if np.any(e_a != 0.0):
             index = _a_term_index(t)
-            d_full = d_product(index, t)
-            b_full = b_product(index, t)
+            if index == 0:
+                # The e_A ranges (D over m = 0..t-1, B over m = 1..t-1) are the k = 0 runs.
+                d_full = d_product(0, t)
+                b_full = b_product(0, t)
+            else:
+                # Another index (only the check-5 mutation sets one) reads the same ranges,
+                # which are not that index's carried runs.
+                d_full = _forward([reductions.d(index, m) for m in range(t)], n)
+                b_full = _forward([reductions.b(index, m) for m in range(1, t)], n)
             hits["B"] += int(np.sum(b_full < DENOMINATOR_FLOOR))
             hits["D"] += int(np.sum(d_full < DENOMINATOR_FLOOR))
             c[:, t - 1] = e_a / (
