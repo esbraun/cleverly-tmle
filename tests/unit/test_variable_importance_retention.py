@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gc
 import importlib
+import re
 import tracemalloc
 import warnings
 import weakref
@@ -25,7 +26,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import variable_importance
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.base import TMLEResult
-from cleverly.exceptions import CapabilityError, RefusalReason
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.variable_importance import ImportanceFacts, VariableImportanceResult
 
 
@@ -60,6 +61,14 @@ def _warning_frame() -> pd.DataFrame:
     return frame
 
 
+def _one_candidate_warns() -> pd.DataFrame:
+    # X2 depends strongly on W, so only X2's fit has its treatment probabilities limited and
+    # warns; X1 before it and X3 after it do not.
+    frame = _frame(seed=11)
+    frame["X2"] = np.random.default_rng(111).binomial(1, 1 / (1 + np.exp(-5.0 * frame["W"])))
+    return frame
+
+
 def _run(frame: Any, *, keep_fits: bool, **extra: Any) -> VariableImportanceResult:
     settings: dict[str, Any] = {
         "outcome": "Y",
@@ -79,10 +88,7 @@ FIXTURES: dict[str, Callable[[], tuple[Any, dict[str, Any]]]] = {
         _frame(levels=3),
         {"candidates": ("X1", "X2")},
     ),
-    "a fit that warns": lambda: (
-        _frame(n=60, seed=11),
-        {"estimator": _estimator(g_bounds=0.45)},
-    ),
+    "a fit that warns": lambda: (_one_candidate_warns(), {}),
     "clustered and weighted": lambda: (
         _frame().assign(cid=np.repeat(np.arange(40), 4), wt=np.linspace(0.5, 1.5, 160)),
         {"id": "cid", "weights": "wt"},
@@ -139,8 +145,24 @@ def test_both_settings_report_the_same_thing(fixture: str) -> None:
     dropped = _run(frame, keep_fits=False, **extra)
     assert _entries(dropped) == _entries(kept)
     assert _frame_bytes(dropped) == _frame_bytes(kept)
-    assert str(dropped.summary()) == str(kept.summary())
-    assert str(dropped.summary(detail="full")) == str(kept.summary(detail="full"))
+    for detail in ("short", "full"):
+        k, d = kept.summary(detail=detail), dropped.summary(detail=detail)
+        if kept.facts.cautious:
+            # Without kept fits the fits' warnings are written out in place of the pointer to
+            # result.fits; everything else in the summary is the same.
+            assert k.note_codes.count("fit_cautions") == 1
+            assert d.note_codes == tuple(
+                "fit_cautions_listed" if code == "fit_cautions" else code for code in k.note_codes
+            )
+            assert [n for n in d.notes if n.code != "fit_cautions_listed"] == [
+                n for n in k.notes if n.code != "fit_cautions"
+            ]
+            assert d.facts == k.facts
+            listed = next(n.text for n in d.notes if n.code == "fit_cautions_listed")
+            for texts in kept.facts.cautions.values():
+                assert all(text in listed for text in texts)
+        else:
+            assert str(d) == str(k)
     assert repr(dropped) == repr(kept)
     assert dropped.facts == kept.facts
     assert kept.keep_fits and not dropped.keep_fits
@@ -151,7 +173,9 @@ def test_the_fixtures_reach_what_they_are_named_for() -> None:
     result = _run(frame, keep_fits=True, **extra)
     assert sum(entry.candidate == "X1" for entry in result) == 2
     frame, extra = FIXTURES["a fit that warns"]()
-    assert _run(frame, keep_fits=True, **extra).facts.cautious
+    # One candidate in the middle warns, so flagging every candidate, or the first or last
+    # one, would not pass.
+    assert _run(frame, keep_fits=True, **extra).facts.cautious == ("X2",)
 
 
 def _facts_from_fits(fits: Mapping[str, TMLEResult]) -> ImportanceFacts:
@@ -163,11 +187,11 @@ def _facts_from_fits(fits: Mapping[str, TMLEResult]) -> ImportanceFacts:
         first_fit=dict(first.summary().facts),
         outcome=first.data.outcome_name,
         n=int(first.data.n),
-        cautious=tuple(
-            candidate
+        cautions={
+            candidate: texts
             for candidate, fit in fits.items()
-            if any(item.kind == "warning" for item in fit.summary().notes)
-        ),
+            if (texts := tuple(item.text for item in fit.summary().notes if item.kind == "warning"))
+        },
     )
 
 
@@ -176,7 +200,7 @@ def _last_fit_facts(fits: Mapping[str, TMLEResult]) -> ImportanceFacts:
     reversed_fits = dict(reversed(list(fits.items())))
     facts = _facts_from_fits(reversed_fits)
     return ImportanceFacts(
-        tuple(fits), facts.first_fit, facts.outcome, facts.n, _facts_from_fits(fits).cautious
+        tuple(fits), facts.first_fit, facts.outcome, facts.n, _facts_from_fits(fits).cautions
     )
 
 
@@ -286,28 +310,57 @@ class _Counting(LogisticRegression):
         return super().fit(X, y, sample_weight=sample_weight)
 
 
-REFUSALS: dict[str, Callable[[], tuple[pd.DataFrame, dict[str, Any], type[Exception]]]] = {
+def _fold_policy_estimator() -> TMLE:
+    estimator = _estimator(cross_fit=True)
+    estimator.stratify_folds = "treatment"
+    return estimator
+
+
+def _bounded(frame: pd.DataFrame) -> tuple[float, float]:
+    return float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0
+
+
+# Each case reaches its own refusal: the type and a phrase only that refusal writes.
+REFUSALS: dict[str, Callable[[], tuple[pd.DataFrame, dict[str, Any], type[Exception], str]]] = {
+    "a modified fold policy": lambda: (
+        _frame(),
+        {"estimator": _fold_policy_estimator()},
+        CapabilityError,
+        "stratify_folds='none'",
+    ),
     "a candidate with missing values": lambda: (
-        _frame().assign(X2=lambda f: f["X2"].where(f.index != 3)),
+        _frame().assign(X1=lambda f: f["X1"].where(f.index != 3)),
         {},
-        Exception,
+        DataError,
+        "has missing values",
     ),
     "an empty adjustment set": lambda: (
         _frame(),
         {"candidates": ("X1",), "covariates": ()},
-        Exception,
+        DataError,
+        "empty adjustment set",
+    ),
+    "a cross-fitted outcome on an undeclared scale": lambda: (
+        _frame(),
+        {},
+        CapabilityError,
+        "Declare the known outcome support",
     ),
     "a withheld clustered status": lambda: (
-        _frame().assign(cid=np.repeat(np.arange(4), 40)),
-        {"id": "cid"},
-        Exception,
+        (frame := _frame()).assign(cid=np.arange(len(frame)) % 2),
+        {"id": "cid", "estimator": _estimator(cross_fit=True, q_bounds=_bounded(frame))},
+        CapabilityError,
+        "fewer than 3 clusters",
     ),
 }
+# The derivative-array refusal (a declared propensity array cannot follow a changed
+# treatment) is raised before the pre-pass, independent of keep_fits; its own test is
+# tests/unit/test_ctmle_derivative_strategy.py::test_variable_importance_refuses_arrays.
 
 
 @pytest.mark.parametrize("case", list(REFUSALS))
 def test_every_refusal_still_comes_before_the_first_fit(case: str) -> None:
-    frame, extra, _ = REFUSALS[case]()
+    frame, extra, kind, phrase = REFUSALS[case]()
     messages = []
     for keep_fits in (True, False):
         _Counting.calls = 0
@@ -315,14 +368,39 @@ def test_every_refusal_still_comes_before_the_first_fit(case: str) -> None:
             "outcome": "Y",
             "candidates": ("X1", "X2"),
             "covariates": ("W",),
-            "estimator": _estimator(treatment_learner=_Counting(max_iter=1000), cross_fit=True),
+            "estimator": _estimator(cross_fit=True),
         }
         settings.update(extra)
-        with pytest.raises(Exception) as raised:
+        settings["estimator"].treatment_learner = _Counting(max_iter=1000)
+        with pytest.raises(kind, match=re.escape(phrase)) as raised:
             variable_importance(frame, keep_fits=keep_fits, **settings)
         assert _Counting.calls == 0
         messages.append((type(raised.value), str(raised.value)))
     assert messages[0] == messages[1]
+
+
+def test_muted_records_and_does_not_show() -> None:
+    from cleverly import _warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with _warnings.recording() as recorder:
+            with _warnings.muted():
+                _warnings.warn("inside", UserWarning)
+                with _warnings.muted():
+                    pass
+                _warnings.warn("still inside", UserWarning)
+            _warnings.warn("outside", UserWarning)
+            with pytest.raises(RuntimeError), _warnings.muted():
+                raise RuntimeError
+            _warnings.warn("after an exception", UserWarning)
+    assert [str(item.message) for item in caught] == ["outside", "after an exception"]
+    assert [record.message for record in recorder] == [
+        "inside",
+        "still inside",
+        "outside",
+        "after an exception",
+    ]
 
 
 def _tracked(keep_fits: bool, keep: str | None = None) -> dict[str, list[Any]]:

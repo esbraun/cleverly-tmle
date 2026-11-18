@@ -80,15 +80,25 @@ class ImportanceFacts:
         The outcome column.
     n : int
         The number of rows.
+    cautions : mapping of str to tuple of str
+        For each candidate whose fit summary carries a warning note, in candidate order, the
+        text of those warnings.
+
+    Attributes
+    ----------
     cautious : tuple of str
-        The candidates whose fit summary carries a warning note, in candidate order.
     """
 
     candidates: tuple[str, ...]
     first_fit: Mapping[str, str]
     outcome: str
     n: int
-    cautious: tuple[str, ...]
+    cautions: Mapping[str, tuple[str, ...]]
+
+    @property
+    def cautious(self) -> tuple[str, ...]:
+        """The candidates whose fit summary carries a warning note, in candidate order."""
+        return tuple(self.cautions)
 
 
 @dataclass(frozen=True)
@@ -124,9 +134,19 @@ class VariableImportanceResult:
     backend: str | None = None
     kept_fits: Mapping[str, TMLEResult] = field(default_factory=dict, repr=False)
 
+    def __post_init__(self) -> None:
+        kept = set(self.kept_fits)
+        if self.keep_fits and kept != set(self.facts.candidates):
+            raise ValueError("a result with keep_fits=True holds one fit per candidate")
+        if not self.keep_fits and kept:
+            raise ValueError("a result with keep_fits=False holds no fits")
+
     @property
     def fits(self) -> Mapping[str, TMLEResult]:
         """The fit behind each candidate.
+
+        Any read refuses on a ``keep_fits=False`` result, ``hasattr(result, "fits")``
+        included, which therefore raises rather than returning ``False``.
 
         Raises
         ------
@@ -297,11 +317,23 @@ def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Sum
         )
     notes.append(note("separate_fits", vocabulary.NOTE_TEXTS["separate_fits"]))
     cautious = kept.cautious
-    if cautious:
+    if cautious and result.keep_fits:
         notes.append(
             note(
                 "fit_cautions",
                 vocabulary.NOTE_TEXTS["fit_cautions"].format(names=", ".join(cautious)),
+            )
+        )
+    elif cautious:
+        # Without kept fits the user cannot print each fit's summary, so the warnings are
+        # listed in place.
+        listing = " ".join(f"{name}: {' '.join(texts)}" for name, texts in kept.cautions.items())
+        notes.append(
+            note(
+                "fit_cautions_listed",
+                vocabulary.NOTE_TEXTS["fit_cautions_listed"].format(
+                    names=", ".join(cautious), listing=listing
+                ),
             )
         )
     sections: list[SummarySection] = []
@@ -507,7 +539,7 @@ def variable_importance(
     fits: dict[str, TMLEResult] = {}
     first_fit: Mapping[str, str] = {}
     outcome_name, n_rows = outcome, 0
-    cautious: list[str] = []
+    cautions: dict[str, tuple[str, ...]] = {}
     raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
     for candidate in list(prepared):
         adjustment_set, kept_data = prepared[candidate]
@@ -529,8 +561,9 @@ def variable_importance(
         if not raw:
             first_fit = dict(fit_summary.facts)
             outcome_name, n_rows = result.data.outcome_name, int(result.data.n)
-        if any(item.kind == "warning" for item in fit_summary.notes):
-            cautious.append(candidate)
+        warned = tuple(item.text for item in fit_summary.notes if item.kind == "warning")
+        if warned:
+            cautions[candidate] = warned
         if keep_fits:
             fits[candidate] = result
         estimates = [
@@ -556,7 +589,7 @@ def variable_importance(
         first_fit=first_fit,
         outcome=outcome_name,
         n=n_rows,
-        cautious=tuple(cautious),
+        cautions=cautions,
     )
     return VariableImportanceResult(
         tuple(entries),

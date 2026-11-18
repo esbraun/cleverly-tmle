@@ -3880,8 +3880,10 @@ and asks the estimator's own `_inference_status()`, which is the status its esti
 By default the result keeps every candidate's fit in `result.fits`. With `keep_fits=False` it keeps
 only the entries and what the summary reads, and releases each candidate's prepared data and fit
 before the next candidate starts. Memory then stays near one candidate's fit instead of growing
-with the number of candidates, each of whose data carries the other candidates as covariates. The
-estimates, p-values, frame and summary are the same under both settings. Each candidate's data is
+with the number of candidates; under the default `adjust_for_other_candidates=True` each
+candidate's data also carries the other candidates as covariates. The estimates, p-values and frame
+are the same under both settings, and so is the summary, except that a fit warning is written out
+in the summary because `result.fits[name].summary()` is not available. Each candidate's data is
 prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
 `CapabilityError`.
 

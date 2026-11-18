@@ -129,6 +129,7 @@ categorized API tables.
    cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
+   cleverly.ImportanceFacts
    cleverly.variable_importance
    cleverly.load
    cleverly.SuperLearner
