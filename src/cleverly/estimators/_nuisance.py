@@ -234,6 +234,26 @@ class Propensity:
             raise KeyError(f"arm {float(arm)!r} is not one of {list(self.arms)}")
         return match[0]
 
+    def columns_for(self, levels: Any) -> IntArray:
+        """The column of each of ``levels``, as :meth:`column_for` finds it one at a time.
+
+        One comparison per arm rather than one Python call per row, which is what a
+        candidate search that scores every row's observed arm needs: the per-row form
+        took about a fifth of a greedy C-TMLE fit at 100k rows. With :attr:`arms` held as
+        Python floats or float64, the result equals
+        ``[self.column_for(level) for level in levels]`` element for element: the first
+        matching arm wins, and the first level that matches no arm raises the same
+        ``KeyError``.
+        """
+        values = np.asarray(levels, dtype=float)
+        columns = np.full(values.shape, -1, dtype=int)
+        for j in range(len(self.arms) - 1, -1, -1):
+            columns[values == self.arms[j]] = j
+        unmatched = columns < 0
+        if bool(np.any(unmatched)):
+            raise KeyError(f"arm {float(values[unmatched][0])!r} is not one of {list(self.arms)}")
+        return columns
+
     def arm(self, arm: float) -> FloatArray:
         """``P(A = arm | W)``, untruncated."""
         return np.asarray(self.values, dtype=float)[:, self.column_for(arm)]
