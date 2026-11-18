@@ -101,6 +101,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._inference_status import InferenceStatus
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
@@ -610,6 +611,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         One row per score equation the fit's method relies on.
     """
     refuse_augmented_trial(result, "score_check", "report")
+    refuse_continuous_survival(result, "score_check")
     n = result.data.n
     rows: list[ScoreCheckRow] = []
 

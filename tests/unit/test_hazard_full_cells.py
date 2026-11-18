@@ -130,13 +130,22 @@ def test_m_a_clipped_cell_stalls_the_walk(one_step: Any) -> None:
     assert not mutated.converged
 
 
-def test_the_parameters_reading_the_cell_take_the_constant_node_status(one_step: Any) -> None:
+def test_the_parameters_reading_the_cell_add_the_boundary_node_supplement(one_step: Any) -> None:
+    """A hazard LTMLE fit is inside the supplement's reach (X54 part (i)): the parameter that
+    reads the full cell carries the node record.  Its value is the risk 1, on the parameter's
+    bound, so it withholds the interval as out of range rather than as a constant node."""
     for label in REGIMENS:
         for horizon in HORIZONS:
             expected = (2,) if label == "a1" and horizon == 2 else ()
             assert constant_nodes(one_step.fits[f"{label} @ t={horizon}"]) == expected
             estimate = one_step[f"risk_regimen[{label} @ t={horizon}]"]
-            assert (estimate.inference == "constant_node_plugin") == bool(expected)
+            assert estimate.inference != "constant_node_plugin"
+            assert (estimate.node is not None) == bool(expected)
+            if expected:
+                assert {node.node for node in estimate.node.loadings.nodes} == {2}
+                assert estimate.inference == "out_of_range_plugin"
+            else:
+                assert estimate.inference == "influence_curve"
     assert one_step["risk_regimen[a1 @ t=2]"].psi == 1.0
 
 

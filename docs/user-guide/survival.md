@@ -93,6 +93,21 @@ holds one decision.
 gives the contract and its evidence.
 :::
 
+To check overlap, plot each person's predicted chance of treatment at baseline:
+
+```python
+from cleverly.plotting import notes, overlap
+
+fig = overlap(curve, censoring=True)
+print(notes(fig))
+```
+
+The top panel shows that chance for the treated above the axis and the untreated below. Where one
+group has people and the other has none, the comparison leans on the model there rather than on
+data. The fit limits the product of that chance and the chance of staying in follow-up, not the
+chance alone, so `censoring=True` adds that product for each plan up to the last horizon, with the
+limit as a dotted line and the share of people beyond it printed at its foot.
+
 [Readmission by day 30, 60 and 90](../examples/discharge-to-readmission.ipynb) works a full
 analysis with this design.
 
@@ -191,6 +206,15 @@ predicted rates, in small steps, until the risks satisfy the equations that make
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
 about ten seconds at 1,000 people.
 
+The fit's memory grows with the number of people times the number of distinct event and
+censoring times up to the last horizon, so when times rarely repeat it grows with the square of
+the number of people. With one kind of event, 100,000 people and a last horizon that covers most
+follow-up times, it would need about 1 TB. Before fitting anything, the fit predicts how much
+memory it needs and stops with an error when that is more than the machine has free; on macOS,
+which does not report free memory, it checks only a limit you set. The error spells the
+`ContinuousSurvivalTMLE` call that runs the same fit, whose `max_memory_bytes=` sets the limit,
+as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
 competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
@@ -200,10 +224,90 @@ any cause have happened, not counting people who left follow-up. By time 0.5 abo
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
 
+`exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
+each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
+the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests
+and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
+lists each with its reason. The one exception is the E-value of a risk ratio, which runs when you
+name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder) shows.
+
+The plots draw the risks and the same checks from what the fit kept:
+
+```python
+from cleverly.plotting import curve, learners, overlap, weights
+
+curve(exact_risks)
+overlap(exact_risks, censoring=True)
+weights(exact_risks)
+learners(exact_risks)
+```
+
+`curve` draws each plan's risk of each event, one column per event, and the difference below.
+Each risk is a point at a time in `horizons=` with its 95% interval, and nothing is drawn between
+those times, because the fit estimates no risk there. No simultaneous band is drawn, because this
+fit did not compute one; `simultaneous=True` adds it.
+
+`overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
+for each arm, the chance of that arm times the chance of staying in follow-up just before the last
+time in `horizons=`. The fit puts a floor on that product, drawn as a dotted line.
+
+`weights` draws one over the product at each time in `horizons=`, for each person under the arm
+they received. Before the floor caps it, no weight the fit gives that person by then is larger.
+Each box holds everyone given that arm, whether or not they were still followed at that time.
+`learners` shows the cross-validated loss of each candidate model and marks the one the fit chose.
+
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
 gives the method, its conditions and what it refuses.
+
+### Restricted means and risk ratios with exact times
+
+With exact times, call `ContinuousSurvivalTMLE` directly to get the restricted mean survival time
+(RMST), the average time without either event up to a cut-off, and the restricted mean time lost
+to one event. Name each cut-off in `restricted_horizons=` before the fit.
+
+```python
+from cleverly.survival import ContinuousSurvivalTMLE
+
+exact_fit = ContinuousSurvivalTMLE(
+    (0.5, 2.0),
+    restricted_horizons=(2.0,),
+    arms={"treated": 1, "control": 0},
+    reference="control",
+    causes={1: "relapse", 2: "death"},
+    random_state=0,
+).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+gained = exact_fit.rmst("treated", 2.0, versus="control")
+lost = exact_fit.rmtl("treated", 2.0, "relapse", versus="control")
+ratio = exact_fit.ratio(
+    "cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]"
+)
+print(round(gained.psi, 3), round(lost.psi, 3), round(ratio.psi, 2), ratio.support.label)
+```
+
+The first number is the time without relapse or death that treating everyone adds, on average,
+over the first 2 time units. The second is the change in time lost to relapse over the same
+window, negative when treatment saves time. The third
+is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci`.
+
+The ratio reads `supported`. A [simulation study](../technical-reference/method-evidence/continuous-survival-functionals.md)
+with one cut-off at the last target time found the restricted means unbiased and their 95%
+intervals covering 93% to 95% of the time. It measured a cut-off by which three quarters of the
+events had happened, and a mean up to an earlier cut-off leans more on the early times, where
+intervals ran narrow. So `rmst` and `rmtl` read `supported` only at a cut-off by which 67% to 85%
+of the events have happened. By time 2 here 62% had, so the first two read `experimental`. The
+study's [limits](../technical-reference/method-evidence/continuous-survival-functionals.md#limits)
+give the other conditions, among them that a cut-off past the last target time reads
+`experimental`.
+
+The fit adjusts its predicted event rates until each reported number satisfies the equation its
+interval rests on. A cut-off it was not told about was never part of that adjustment, so `rmst`
+and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from the first argument, the
+target times. The "What is refused" table of
+[continuous-time survival](../technical-reference/continuous-time-survival.md) lists each case.
+The extra cut-offs join the adjustment, so the risks of this fit differ slightly
+from those of a fit without them.
 
 ## Treatments over time with an event outcome
 
@@ -366,10 +470,11 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, and no covariate after baseline. The treatment can be categories, or a dose under a plan that changes each person's dose |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, or a treatment with categories at each time point. A baseline treatment can also be a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
-Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
+Pass the hazard learner as `outcome_learner`. A hazard fit uses `pseudo_learner` only when the
+design has a covariate measured after baseline, as the next section explains.
 
 ```python
 hazard_curve = CausalStudy(frame, design=design).estimate(
@@ -414,9 +519,76 @@ estimates and band limits move.
 states each claim and its condition.
 :::
 
+### Covariates measured after baseline
+
+A covariate measured after baseline is one recorded again at later time points, such as a lab
+value at each visit, declared with `time_varying=`. When it predicts both dropout and the event, the
+fit must adjust for it. With one treatment at baseline, the hazard model takes such covariates under
+`targeting="one_step"`. At each time point it fits the chance of the event, then a regression of what
+happens later given the history so far, so it needs no model of the covariate itself.
+`pseudo_learner` fits that regression. By default it reuses the `outcome_learner` library, so pass
+`pseudo_learner` yourself when `outcome_learner` is a single classifier.
+
+The answer it targets is the same as the default fit's, and when the models fit well both have the
+same precision in large samples. What the hazard fit adds is a curve that never dips, and with
+competing events, risks that add up to at most one for each person. With well-fitting models the gap
+between the two estimates shrinks faster than their standard errors as the sample grows, so on a
+large sample they nearly agree.
+
+A treatment with categories at each time point fits beside such covariates too. A plan can fix the
+treatment at each time point, follow a known rule that reads the latest covariate, or draw the
+treatment with known probabilities that may read the covariate and the earlier treatment. At each
+time point the fit predicts the event for every treatment level at each person's own history, so it
+never builds the treatment sequences a plan could follow. A
+[validation study](../technical-reference/method-evidence/hazard-time-varying-multinode.md)
+measures this fit with a yes-or-no treatment at three time points and one yes-or-no covariate
+measured before the treatment at each later time point, with one event type, in sample and with
+cross-fitting.
+
+A covariate declared at the first time point only is measured before the treatment, so it is an
+ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in
+`baseline=`. Under `markov_order=` the hazard model, like the default fit, drops that covariate
+at later time points. `SurvivalCTMLE`, `SurvivalDRTMLE` and a `Separable` regimen refuse it; declare it
+in `baseline=` for those. The
+[covariates-after-baseline study](../technical-reference/method-evidence/hazard-time-varying.md)
+measures the hazard fit with one yes-or-no covariate per later time point, for two fixed
+treatments with one or two event types, in sample and with cross-fitting, and for a policy that
+moves everyone up one treatment level.
+[Covariates after baseline on the hazard path](../technical-reference/longitudinal-tmle.md#covariates-after-baseline-on-the-hazard-path)
+gives the exact estimand, the settings it refuses, and its checks.
+
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points and a covariate after baseline.
-Each message points to the default model, which fits those designs.
+With a treatment at several time points and a covariate measured after baseline, the hazard model
+refuses a plan that moves people to another treatment level, or one that multiplies the odds of
+treatment when you supplied the treatment probabilities yourself
+([H27 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+Its message points to the default model, which fits that plan.
+
+A treatment with categories at each time point also fits on the hazard model, when no covariate
+is measured after baseline. A plan can fix the treatment at each time point, follow a rule that
+reads the baseline covariates, or draw the treatment with known probabilities that may depend on
+the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
+follow. A plan that draws at many time points has many sequences, and a fit whose predicted
+memory use passes 2 GiB is refused before any model is fitted.
+
+If a trial design fixes the
+treatment probabilities, you can pass them for the first time point only, as a mapping from the
+first treatment column to its levels, such as
+`treatment_probabilities={"A1": {0: "p0", 1: "p1"}}` with one probability column per level. An
+array that covers every time point is refused, even with the later columns left empty
+([H26 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+The fit
+estimates the probabilities of later treatment and of dropout, because it needs them along
+sequences that nobody followed.
+
+The
+[multi-node hazard study](../technical-reference/method-evidence/hazard-multinode.md)
+measures this fit with a yes-or-no treatment at three and at four time points, one event type and
+no cross-fitting, under the default `targeting="iterative"`. Those fits are labelled `supported`.
+Fits outside that, including the same regimens with `targeting="one_step"`, are labelled
+`experimental`.
+[A treatment at several nodes on the hazard path](../technical-reference/longitudinal-tmle.md#a-treatment-at-several-nodes-on-the-hazard-path)
+gives the exact estimand and its checks.
 
 A plan that changes each person's dose, such as `Shift(1.0, cap=2.0)`, also fits on the hazard
 model. The treatment can be categories, a dose, or a dose recorded beside a yes/no treatment.
@@ -465,7 +637,9 @@ Stitelman and van der Laan (2010) found the points unbiased when the event model
 a covariate that strongly predicts treatment but not the event, their typical error was 40% to
 65% of that of the ordinary hazard fit with every covariate in the treatment model. When the
 event model was wrong, some points were biased by up to about one standard deviation of the
-estimate. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
+estimate. `cleverly.plotting.learners(result)` draws each arm's sequence of added covariates with
+the one the search chose marked, and `cleverly.plotting.overlap(result)` draws each arm's chosen
+treatment model. [Methods and learners](methods-learners.md#method-presets) gives the settings, and
 [Time-to-event outcomes](../technical-reference/collaborative-tmle.md#time-to-event-outcomes)
 gives the algorithm and what it refuses.
 
@@ -532,7 +706,7 @@ not record could change the answer.
 
 | call | what it does | where it runs |
 | --- | --- | --- |
-| `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")` |
+| `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")`. On a fit with exact times, name the two arms' risks of one event at one target time, such as `("cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]")` |
 | `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not |
 
 `simulated_confounding` returns a surface: one estimate for each pair of confounder strengths in

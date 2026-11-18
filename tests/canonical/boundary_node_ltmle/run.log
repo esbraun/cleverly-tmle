@@ -1,0 +1,24 @@
+=== boundary-node-ltmle declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/boundary_node_ltmle/regenerate.py --output /tmp/x54-si-out --jobs 4
+commit: 6c94eeab0365f207c565dde5cb9d23d440fc5039; upstream 6c94eeab0365f207c565dde5cb9d23d440fc5039
+clean tree: True
+cleverly 0.2.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 e8b13bf1f94386b10a931c837a9edc46ee17de9cb73e6550a4f58505fadedbf0
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-14T12:59:10+00:00
+finished: 2026-11-14T13:06:42+00:00
+wall seconds: 452.2
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: c9893c105a34ab6bc882dab987cec4bd1c6fffdc38bcf57a88ed47e63aff3f5a
+sha256 performance-tests.csv: 5a4e7e41989cf2385b9cc7235068deade9adef0c80f2a858df22f71339496fea
+sha256 properties.csv: 8df08c8c32c1a82d8ea7a3fe18fef0ff17952d8d9ae34285d685e035a90e4fd4
+sha256 property-failure-accounting.csv: 38e3df4b711d11809ecc52bf9c7cc89552cc161a638a87a32a321f3f528aea81
+sha256 property-failure-witnesses.parquet: 0df05933b973b3a694522f7a2f6cf3fd110c6ffc9fdbeba49ce6221fc6ac7c93
+sha256 property-failures.csv: 6523674b496ab44ccc8e4eb89ad7c9ad6ef7289fd407d88f511dc35ec95fa3b4
+sha256 property-replicates.parquet: c657420d28dc34426d8c245912e82e0d5e92824167e7f06fa762c106f19a9f08
+sha256 replicates.parquet: 24c17c13ab0e884b43ee5f0a6667ac14d232c69b0a11910c2a2b59cc64aa52fc
+sha256 summary.csv: f5a71c446d5ceee409028bac8c5bc38542b34d8d3194596f6d5e40c8f9ab07d5
+

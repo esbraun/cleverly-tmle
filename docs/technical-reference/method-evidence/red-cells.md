@@ -157,7 +157,9 @@ The test fails on four states.
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
-| total | 209 | 42 studies |
+| [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
+| [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
+| total | 214 | 44 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -250,6 +252,11 @@ same text as the "measured" column of its study page.
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `double_robustness/static__both_wrong` | control | its own rule | bias -0.0251 to -0.0151, margin 0.0167, SE ratio 0.6640 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to 1.0442 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
 | [long-horizon sequentially doubly robust estimation](long-horizon-sequentially-doubly-robust-estimation.md) | truth | `cleverly-long-horizon-sdr/sdr_categorical_k5_switch/ey_regimen[switch]` | cleverly-long-horizon-sdr | its truth legs; a reporting row, with n below the tail size | bias -0.0015 to 0.0038, coverage 0.9133, SE ratio 0.9624 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) |
+| [the boundary-node supplement of LTMLE](boundary-node-ltmle.md) | truth | `cleverly/interior_n200/ate_regimen[always vs never @ t=4]` | cleverly | its truth gate | bias -0.0037 to 0.0133, coverage 0.9470, SE ratio 1.1713 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) |
+| [the boundary-node supplement of LTMLE](boundary-node-ltmle.md) | truth | `cleverly/interior_n200/risk_regimen[always @ t=4]` | cleverly | its truth gate | bias -0.000905 to 0.0124, coverage 0.9270, SE ratio 1.2605 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) |
+| [the centred fold cluster variance at few clusters per fold](few-cluster-fold-variance.md) | property | `fold_variance_calibration/cluster_covariate__v2_j4__t_reference` | positive | its own rule | shown coverage 0.9184 to 0.9336, all-draw coverage 0.9183 to 0.9335, variance ratio 15.6717, 10.9240 to 21.5934 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) |
+| [the centred fold cluster variance at few clusters per fold](few-cluster-fold-variance.md) | property | `fold_variance_calibration/equal10__v2_j4__known_propensity` | positive | its own rule | shown coverage 0.9405 to 0.9539, all-draw coverage 0.8863 to 0.9040, variance ratio 1.2936, 1.2308 to 1.3596 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) |
+| [the centred fold cluster variance at few clusters per fold](few-cluster-fold-variance.md) | property | `fold_variance_calibration/equal10__v2_j4__t_reference` | positive | its own rule | shown coverage 0.9437 to 0.9567, all-draw coverage 0.8892 to 0.9068, variance ratio 10.7635, 8.9540 to 12.9456 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) |
 | [point-treatment survival](point-treatment-survival.md) | property | `interval_calibration/weighted_t5__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to 1.0015 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted point-treatment survival](cross-fitted-point-treatment-survival.md) | property | `interval_calibration/three_arm_t3__correctly_specified` | positive | its own rule | coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to 1.0764 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [adaptive-propensity IPTW](adaptive-iptw.md) | property | `bias/ate__flexible` | positive | its own rule | bias 0.0204 to 0.0254, margin 0.0048 | [`adaptive-iptw-flexible-learner`](../../roadmap.md#red-cell-owners) |
@@ -403,6 +410,7 @@ row. A move to `gated` is a separate registry decision.
 | [Patience on the cross-validated C-TMLE path](option-patience.md) | 7 | 0 |
 | [Binding isotonic projection of a survival curve](isotonic-binding.md) | 6 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
+| [censored continuous-treatment modified policies](mtp-pricing-censored.md) | 16 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | 78 | 0 |
@@ -419,6 +427,7 @@ row. A move to `gated` is a separate registry decision.
 | [Adaptive-propensity IPTW against drtmle](adaptive-iptw-pairing.md) | 282 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
+| [known-score ATT and ATC on point TMLE](known-score-att.md) | 38 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
 | [structural nested mean model](structural-nested-mean.md) | 340 | 0 |

@@ -846,7 +846,10 @@ reads these sources. Each was read first-hand in the copy named.
 | source | copy read | locator and content |
 | --- | --- | --- |
 | Moore & van der Laan (2009), *Covariate adjustment in randomized trials with binary outcomes: targeted maximum likelihood estimation*, *Statistics in Medicine* 28(1):39–64, DOI 10.1002/sim.3445 | the PubMed Central author manuscript, [PMC2857590](https://pmc.ncbi.nlm.nih.gov/articles/PMC2857590/). The publisher's version was not accessible, so its section numbers are not checked | Section 2: with a known mechanism the TMLE "is always consistent whatever the estimator for Q". Section 5: with the true mechanism, inference "is not conservative", and with an estimated one it is conservative. Section 4.2 states that estimating the mechanism increases efficiency when the outcome model is wrong. Section 7.3, Table IV, measures it with a parametric logistic mechanism: relative efficiency about 1.45 and coverage 0.98. The manuscript's own cross-references disagree with its numbering in two places |
-| Hahn (1998), *On the role of the propensity score in efficient semiparametric estimation of average treatment effects*, *Econometrica* 66(2):315–331 | the published abstract only. The full text was not accessible | the abstract states that the propensity score is ancillary for the ATE and not for the ATT. The numbering "Theorem 1, unknown score; Theorem 2, known score" comes from Liu & Qin (arXiv 2205.13200), Section 2.2, and is not checked first-hand |
+| Chen, Hong & Tarozzi (2008), *Semiparametric efficiency in GMM models with auxiliary data*, *Annals of Statistics* 36(2):808–843, DOI 10.1214/009053607000000947 | the published version (Project Euclid) | Section 2, Theorem 1 (page 811, unknown $p(X)$) and Theorem 2 (page 812, known $p(X)$): for a parameter defined by a moment condition given $D=1$, the known-score bound has $p(X)^2/p^2$ where the unknown-score bound has $p(X)/p^2$ on the term in $E[m\mid X]$. Page 813 states the consequence for the ATT, crediting Hahn (1998) |
+| Imbens (2004), *Nonparametric estimation of average treatment effects under exogeneity: a review*, *Review of Economics and Statistics* 86(1):4–29 | NBER Technical Working Paper 294, the pre-publication version. The journal pages are not checked | Section 2.5, working-paper pages [10]–[11]: the ATT bounds with and without a known score, the gap $E[(\tau(X)-\tau_T)^2e(X)(1-e(X))]/E[e(X)]^2$, and the ATE bound unchanged by a known score. Page [17]: with the score known, the treated-mean imputation estimator of the ATT is generally not efficient |
+| Frölich (2002), *What is the value of knowing the propensity score for estimating average treatment effects?*, IZA Discussion Paper 548 | the discussion paper | page 7, displays (8) to (10): the ATE bound, and the ATT bound with an unknown and a known score, whose last terms carry $p(X)$ and $p(X)^2$ |
+| Hahn (1998), *On the role of the propensity score in efficient semiparametric estimation of average treatment effects*, *Econometrica* 66(2):315–332 | not obtained (closed access) | cited only through the three restatements above, which agree with each other. Its theorem numbering is not checked |
 | van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of multiple time point interventions*, *The International Journal of Biostatistics* 8(1) | the publisher's PDF | Section 2.3, page 12: the canonical gradient is the same in the model with $g_0$ known. Theorem 2, page 13: $P_0D^*(\bar Q, g, \Psi(\bar Q_0)) = 0$ if $\bar Q = \bar Q_0$ or $g = g_0$. Section 4, page 19: with $g_n = g_0$ the TMLE is asymptotically linear with curve $D^*(\bar Q^*, g_0, \psi_0)$ at the possibly misspecified limit. The paper does not write the remainder as a sum of terms in $(g - g_0)$; that form is a derivation |
 | Petersen, Schwab, Gruber, Blaser, Schomaker & van der Laan (2014), *J. Causal Inference* 2(2):147–185 | the publisher's PDF | Section 2.1, page 152: the model may assume a known intervention mechanism. Appendix B, Corollary 1, page 180: $-P_0D^*(Q, g_0) = \Psi(Q) - \psi_0$. Section 3.7, page 162: a maximum-likelihood mechanism in a correctly specified model gives the projected curve and a conservative interval |
 | Kennedy (2019), *JASA* 114(526):645–656 | [arXiv v3](https://arxiv.org/abs/1704.00211). The journal numbering is not checked | Theorem 2 and Corollary 2, Section 3.3: the incremental curve and its mechanism term. After Corollary 2: "If the propensity scores were known, the efficient influence function would just be the first weighted average term." Lemma 2, Section 8.2, gives the curve of a known stochastic intervention |
@@ -1612,6 +1615,14 @@ sizes only the cluster sum is the delta-method variance of the row mean
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
   form of `SequentialIPW` rests on `CalcIPTW` in R `ltmle` 1.3-0 and the delta method.
+- Jackson (2016), [*Diagnostics for confounding of time-varying and other joint
+  exposures*](https://doi.org/10.1097/EDE.0000000000000547), *Epidemiology* 27(6):859–869. Read in
+  the author's accepted manuscript (PMC5308856), not the typeset version; the eAppendix is not
+  read. Table 1 defines Diagnostic 1 (prior covariates across the current exposure, within
+  exposure history), Diagnostic 2a (a later covariate across an earlier exposure, weighted by that
+  exposure's weight) and Diagnostic 3 (Diagnostic 1 under the cumulative weights), with censoring
+  treated as another exposure. `covariate_balance` cites it for a fit over time, standardizes each
+  difference, and averages the strata by their size.
 - Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician*
   56(1):29–38. Read in the 2001 preprint (NCSU Mimeo 2528). Section 2 gives the stacked sandwich
   variance of a system of estimating equations. The published page and equation numbers are not
@@ -2745,7 +2756,10 @@ support a shipped claim. Each item states the remaining source work.
   paper. Cited by roadmap item X5.
 - Rytgaard, Gerds & van der Laan (2022), [*Continuous-time targeted minimum loss-based estimation
   of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
-  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. Cited by roadmap item X6.
+  Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. The hazard fit with a treatment at several
+  nodes is the discrete-time case of its Theorem 1, display (19), with remainder display (13) and
+  Theorem 2. The hazard fit with covariates after baseline follows its form. Cited by roadmap
+  item X6.
 - Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
   continuously distributed time-to-event outcomes by targeted maximum likelihood
   estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI

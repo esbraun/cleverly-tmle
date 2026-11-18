@@ -17,12 +17,14 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyRegressor
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly._summary import vocabulary
+from cleverly.datasets import make_point_survival
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
-from cleverly.interventions import Stochastic
+from cleverly.interventions import ModifiedPolicy, Stochastic
 from cleverly.interventions.base import _ESTIMATED_DENSITY, _UNDECLARED_DENSITY
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData, Regimen
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData, Regimen, node_weights
 from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.longitudinal.regimen import (
     declares_policy,
@@ -463,3 +465,54 @@ def test_a_bounded_denominator_can_leave_a_ratio_below_one(mix_fit: Any) -> None
     ratio = fit.cumulative_numerator[:, 1] / lower
     assert rows.any()
     assert np.any(ratio[rows] < 1.0)
+
+
+def _three_arm_policy(frame: Any) -> np.ndarray:
+    return np.tile([0.2, 0.3, 0.5], (len(frame), 1))
+
+
+def _one_level_up(a: Any, history: Any) -> Any:
+    return np.minimum(np.asarray(a, dtype=float) + 1.0, 2.0)
+
+
+@pytest.mark.parametrize("survival_model", ["iterated_mean", "hazard"])
+@pytest.mark.parametrize(
+    ("label", "plan", "kind"),
+    [
+        ("q", Stochastic(_three_arm_policy, "q", density_kind="known"), "policy"),
+        ("up", ModifiedPolicy("up", apply=_one_level_up, policy_kind="known"), "mtp"),
+    ],
+)
+def test_a_held_design_reports_its_later_nodes_as_held(
+    survival_model: str, label: str, plan: Any, kind: str
+) -> None:
+    """A one-node policy regimen on a held design: the later nodes repeat the decision.
+
+    The support report and the node weights read every node's kind, and indexed the
+    one-node plan at each later node, which raised ``IndexError``.
+    """
+    frame, _ = make_point_survival(n=300, seed=3, n_times=3, arms=3)
+    learner = LogisticRegression(max_iter=1000)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            {label: plan},
+            n_folds=1,
+            survival_model=survival_model,
+            outcome_learner=learner,
+            treatment_learner=learner,
+            censoring_learner=learner,
+            random_state=0,
+            **({"pseudo_learner": LinearRegression()} if survival_model != "hazard" else {}),
+        ).fit(
+            LongitudinalData.from_time_to_event(
+                frame, time="time", event="event", treatment="A", baseline=["W1", "W2"]
+            )
+        )
+    rows = result.diagnostics.support().rows
+    assert {(row.horizon, row.time): row.node_kind for row in rows} == {
+        (horizon, time): kind if time == 1 else "held"
+        for horizon in (1, 2, 3)
+        for time in range(1, horizon + 1)
+    }
+    assert node_weights(result, regimen=label, horizon=3).node_kinds == (kind, "held", "held")

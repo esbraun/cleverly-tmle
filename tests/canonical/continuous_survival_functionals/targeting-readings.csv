@@ -1,0 +1,2 @@
+scenario,fits,mean_steps,max_steps,converged_share,mean_bounded_share,mean_last_time_floor_share,mean_frozen_share,mean_off_grid_share,mean_seconds
+functionals_cf_1k,14780,3.760487144790257,54.0,0.9995940460081191,5.122306846894816e-05,0.0034100811907983764,0.0036543978349120433,0.45879942375214633,5.859339112704801

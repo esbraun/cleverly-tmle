@@ -86,13 +86,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_survival_family import is_continuous_survival
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import augmented_trial_refusal, is_augmented_trial, refuse_augmented_trial
+from ..data.known_mechanism import known_score_fit
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
-from ..inference.delta import two_sided_pvalue
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
@@ -105,7 +106,7 @@ from ._band_placebo import (
     placebo_bands,
 )
 from ._interpretation import FitConfiguration, Resolution, Rung
-from ._markov_placebo import MarkovKernel, placebo_known_mechanisms
+from ._markov_placebo import MarkovKernel, _placebo_law, placebo_known_mechanisms
 from ._point_generated import (
     PROJECTION_LINKS,
     InterventionLaw,
@@ -2027,6 +2028,10 @@ def refute_refusal(
         future_treatment_node=int(future_treatment_node),
         negative_control_floor=float(negative_control_floor),
     )
+    if is_continuous_survival(result):
+        from ._continuous_survival_refute import continuous_survival_rules
+
+        return continuous_survival_rules(result, request)
     return _first_refusal(result, request)
 
 
@@ -4081,7 +4086,7 @@ def _generated_outcome_test(
             intermediate=target.intermediate,
             doses=target.doses,
         )
-        weights = held_weights(target, data)
+        weights = held_weights(target, data, known_score=known_score_fit(result))
         mixture = held_mixture(target, data)
         # The truth is the sample-conditional functional of the held rows. The held design
         # reads the SE ratio and coverage only where the covariate part of the curve is
@@ -4404,6 +4409,174 @@ _FUTURE_TREATMENT_SENTENCE = (
 )
 
 
+def _placebo_detail(
+    mean_kind: str, mean: float, null: float, reading: Any, replicate_count: int
+) -> str:
+    """The detail of a placebo reading against an exact null, before any design clause."""
+    if reading is None:
+        return "one placebo draw carries no spread, so the t statistic is undefined"
+    if reading.kind == "constant_zero":
+        return (
+            f"{mean_kind} mean placebo estimate {mean:+.5g}: the estimate does not "
+            "move with the treatment"
+        )
+    return (
+        f"{mean_kind} mean placebo estimate {mean:+.5g} against the exact null "
+        f"{null:g}; the t statistic of the {replicate_count} draws is "
+        f"{reading.t:+.4g} on {reading.df} degrees of freedom"
+    )
+
+
+def _placebo_record(
+    *,
+    estimand: str,
+    original: float,
+    fits: Sequence[tuple[float, float]],
+    null: float,
+    reading: Any,
+    resolution: Resolution,
+    mean_kind: Literal["arithmetic", "geometric"],
+    detail: str,
+    plain_length: int,
+    withheld: str,
+    status: InferenceStatus,
+) -> RefutationTest:
+    """The placebo record every family's loop builds from its refits and reading.
+
+    ``detail[plain_length:]`` holds the design clauses, which become the reading's
+    conditions. The verdict prints only where ``resolution`` licenses it.
+    """
+    passed: bool | None = None
+    if reading is not None and resolution.licensed:
+        passed = not reading.rejects
+    return RefutationTest(
+        name="placebo",
+        estimand=estimand,
+        original=original,
+        values=tuple(psi for psi, _ in fits),
+        expectation="no exact value" if np.isnan(null) else f"~ {null:g}",
+        passed=passed,
+        detail=detail,
+        standard_errors=tuple(se for _, se in fits),
+        mean_kind=mean_kind,
+        rung=resolution.rung,
+        scope_sentence=f"{_PLACEBO_SENTENCE} {resolution.sentence}",
+        conditions=_placebo_conditions(detail[plain_length:]),
+        evidence=resolution.plain,
+        withheld=withheld if resolution.licensed else "",
+        statistic=None if reading is None else reading.t,
+        statistic_name="t",
+        statistic_pvalue=None if reading is None else reading.pvalue,
+        extras=()
+        if reading is None or reading.scale_ratio is None
+        else ((f"mean {_reported_spread(status)} over SD of the draws", reading.scale_ratio),),
+    )
+
+
+def _noise_record(
+    *,
+    estimand: str,
+    original: float,
+    fits: Sequence[tuple[float, float]],
+    shift: float,
+    extras: Sequence[tuple[str, float]],
+    mean_kind: Literal["arithmetic", "geometric"],
+    unit: str,
+    is_ratio: bool,
+) -> RefutationTest:
+    """The random-common-cause record: a paired shift, descriptive on every family."""
+    return RefutationTest(
+        name="random_common_cause",
+        estimand=estimand,
+        original=original,
+        values=tuple(psi for psi, _ in fits),
+        expectation=f"~ {original:.4g}",
+        passed=None,
+        detail=(
+            f"adding an irrelevant covariate moved the estimate by {shift:+.4g} "
+            f"{unit} {'on the log scale ' if is_ratio else ''}against the "
+            "original fit, under its seed and folds"
+        ),
+        standard_errors=tuple(se for _, se in fits),
+        mean_kind=mean_kind,
+        rung="L0",
+        scope_sentence=_NOISE_SENTENCE,
+        conditions=(_NOISE_SENTENCE,),
+        evidence=_interpretation.PLAIN_NONE,
+        statistic=shift,
+        statistic_name=f"paired shift in {unit}",
+        extras=tuple(extras),
+    )
+
+
+def _subset_scatter(
+    fits: Sequence[tuple[float, float]], std_error: float, units: int, size: int, is_ratio: bool
+) -> SubsetReading | None:
+    """The subset reading of the refits, on the log scale for a ratio; ``None`` below two."""
+    if len(fits) < 2:
+        return None
+    values = [float(np.log(psi)) if is_ratio else float(psi) for psi, _ in fits]
+    return subset_reading(values, std_error=std_error, n=units, m=size)
+
+
+def _subset_record(
+    *,
+    estimand: str,
+    original: float,
+    fits: Sequence[tuple[float, float]],
+    reading: SubsetReading | None,
+    resolution: Resolution,
+    is_ratio: bool,
+    units: int,
+    size: int,
+    status: InferenceStatus,
+) -> RefutationTest:
+    """The subset record: the scatter ratio ``rho``, with a verdict only where licensed."""
+    passed: bool | None = None
+    if reading is not None and np.isfinite(reading.rho) and resolution.licensed:
+        passed = bool(reading.pvalue >= 0.05)
+    spread = float("nan") if reading is None else reading.spread
+    expectation = (
+        (
+            f"log-scale scatter ~ {reading.reference_sd:.4g}"
+            if is_ratio
+            else f"scatter ~ {reading.reference_sd:.4g}"
+        )
+        if reading is not None and np.isfinite(reading.reference_sd)
+        else "scatter"
+    )
+    return RefutationTest(
+        name="subset",
+        estimand=estimand,
+        original=original,
+        values=tuple(psi for psi, _ in fits),
+        expectation=expectation,
+        passed=passed,
+        detail=(
+            f"subsample estimates scatter by {spread:.5g} "
+            f"{'on the log scale ' if is_ratio else ''}against "
+            f"{'nan' if reading is None else format(reading.reference_sd, '.5g')} "
+            f"from sampling {size} of {units} units alone" + _plugin_reference_clause(status)
+        ),
+        standard_errors=tuple(se for _, se in fits),
+        spread_kind="log" if is_ratio else "reported",
+        rung=resolution.rung,
+        scope_sentence=f"{_SUBSET_SENTENCE} {resolution.sentence}",
+        conditions=(_SUBSET_SENTENCE,),
+        evidence=resolution.plain,
+        withheld=(
+            ""
+            if passed is not None or not resolution.licensed
+            else "fewer than two subsamples have no spread"
+            if reading is None
+            else "the spread ratio is undefined"
+        ),
+        statistic=None if reading is None else reading.rho,
+        statistic_name="scatter ratio rho",
+        statistic_pvalue=None if reading is None else reading.pvalue,
+    )
+
+
 def _control_residual_reason(
     values: np.ndarray,
     features: np.ndarray,
@@ -4552,8 +4725,11 @@ def _future_treatment_test(
     estimate = fitted.single()["ate"]
     value = float(estimate.psi)
     std_error = float(estimate.plugin_std_error)
-    z = value / std_error if std_error > 0 else float("nan")
-    pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+    # The control fit's own Wald test of no effect: its reference distribution (a few-cluster
+    # t), its interval scale and any stopping-rule margin, as its interval reads them.
+    test = estimate._plugin_wald_test(0.0)
+    z = float(test.statistic) if std_error > 0 else float("nan")
+    pvalue = float(test.pvalue) if np.isfinite(z) else float("nan")
     return RefutationTest(
         name="future_treatment",
         estimand=estimand,
@@ -4647,7 +4823,9 @@ def _placebo_data(
     recorded = data.treatment_recorded if data.has_missing_treatment else slice(None)
     shares = np.asarray([float(np.mean(treatment[recorded] == code)) for code in data.arm_codes])
     values = np.tile(shares, (replaced.n, 1))
-    return replace(replaced, known_treatment=KnownMechanism(values, "array"))
+    # The placebo treatment is independent of (W, A, Y), so E[w | A', W] = E[w | W] and the
+    # shares are the mechanism of the weight-tilted law too, whatever the weights read.
+    return replace(replaced, known_treatment=KnownMechanism(values, "array", law="target"))
 
 
 def _on_draw(error: CleverlyError, label: str) -> CleverlyError:
@@ -4955,6 +5133,10 @@ def refute(
         ``random_common_cause`` adds a column of independent noise. A :class:`~cleverly.CTMLE` with
         an explicit ``ordering=`` places that column after the declared ordering, and a
         :class:`~cleverly.DRTMLE` refits without an ``evaluation=`` companion that lacks it.
+        A continuous-time survival fit runs ``placebo`` on ``ate_regimen`` and ``rr_regimen``,
+        and ``random_common_cause`` and ``subset`` on any estimate, each refitting the
+        estimator the result stores; its readings are descriptive, and it refuses every other
+        test before any refit.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses 20 for ``placebo``, ``subset`` and
         ``random_common_cause`` (``t`` with 19 degrees of freedom for the placebo), 100 for
@@ -4969,8 +5151,10 @@ def refute(
         both give the same null. On a longitudinal fit, ``"markov"`` draws each unit's
         treatment trajectory from a first-order kernel fitted to the observed treatments,
         and masks it by the observed at-risk pattern. ``None`` is ``"permute"`` on a
-        point-treatment fit and ``"markov"`` on a longitudinal fit. A dose whose declared
-        support is a function of the covariates or the history takes the band-rank form of
+        point-treatment fit and ``"markov"`` on a longitudinal fit. A continuous-time survival
+        fit permutes or draws its one baseline treatment and refuses ``"markov"``. A dose
+        whose declared support is a function of the covariates or the history takes the
+        band-rank form of
         the draw: each dose's position within its own band is permuted, drawn or
         kernel-drawn, then mapped into the receiving unit's band, so every placebo dose meets
         the support the refit checks. Each placebo data set meets the refit's declaration
@@ -5080,6 +5264,24 @@ def refute(
         future_treatment_node=int(future_treatment_node),
         negative_control_floor=float(negative_control_floor),
     )
+    if is_continuous_survival(result):
+        # A continuous-time fit has its own request rules, which never read ``result.data``
+        # as point-treatment data, and its own refits (X101).
+        from ._continuous_survival_refute import (
+            continuous_survival_refute,
+            continuous_survival_rules,
+        )
+
+        refusal = continuous_survival_rules(result, request)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
+        return continuous_survival_refute(
+            result,
+            request,
+            seed=resolve_assessment_seed(result, random_state),
+            subset_fraction=subset_fraction,
+            seed_spread=seed_spread,
+        )
     refusal = _first_refusal(result, request)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
@@ -5262,9 +5464,6 @@ def refute(
                     scale=original,
                 )
             resolution = _resolve("placebo", "t", fit, replicate_count, placebo_draw)
-            passed: bool | None = None
-            if reading is not None and resolution.licensed:
-                passed = not reading.rejects
             placebo_withheld = ""
             if computed:
                 placebo_withheld = (
@@ -5288,19 +5487,8 @@ def refute(
                     "coefficient has no exact placebo value under this design and weight, so "
                     "the report states no verdict"
                 )
-            elif reading is None:
-                detail = "one placebo draw carries no spread, so the t statistic is undefined"
-            elif reading.kind == "constant_zero":
-                detail = (
-                    f"{mean_kind} mean placebo estimate {mean:+.5g}: the estimate does not "
-                    "move with the treatment"
-                )
             else:
-                detail = (
-                    f"{mean_kind} mean placebo estimate {mean:+.5g} against the exact null "
-                    f"{placebo_null:g}; the t statistic of the {replicate_count} draws is "
-                    f"{reading.t:+.4g} on {reading.df} degrees of freedom"
-                )
+                detail = _placebo_detail(mean_kind, mean, placebo_null, reading, replicate_count)
             plain_length = len(detail)
             if learned:
                 detail += (
@@ -5330,39 +5518,31 @@ def refute(
                         ". At each banded node the kernel draws the position from one of the "
                         f"{NEAREST_DONORS} donors whose previous value is nearest"
                     )
-            if _declares_known_treatment(data):
+            if _declares_known_treatment(data) and longitudinal and _placebo_law(data) == "sample":
+                # A tilted retention keeps the placebo declarations in the sample beside the
+                # weights, so each placebo treatment node is an estimated tilt.
+                detail += (
+                    ". The refit declares the placebo law's own kernel, read in the sample "
+                    "beside the weights as the declared retention is, so it estimates each "
+                    "node's weight-tilted mechanism from that kernel"
+                )
+            elif _declares_known_treatment(data):
                 detail += ". The refit keeps a known mechanism: the placebo law's own " + (
                     "kernel" if longitudinal else "arm shares"
                 )
             outcomes.append(
-                RefutationTest(
-                    name=name,
+                _placebo_record(
                     estimand=estimand,
                     original=original,
-                    values=values,
-                    expectation=(
-                        "no exact value" if np.isnan(placebo_null) else f"~ {placebo_null:g}"
-                    ),
-                    passed=passed,
-                    detail=detail,
-                    standard_errors=tuple(se for _, se in fits),
+                    fits=fits,
+                    null=placebo_null,
+                    reading=reading,
+                    resolution=resolution,
                     mean_kind=mean_kind,
-                    rung=resolution.rung,
-                    scope_sentence=f"{_PLACEBO_SENTENCE} {resolution.sentence}",
-                    conditions=_placebo_conditions(detail[plain_length:]),
-                    evidence=resolution.plain,
-                    withheld=placebo_withheld if resolution.licensed else "",
-                    statistic=None if reading is None else reading.t,
-                    statistic_name="t",
-                    statistic_pvalue=None if reading is None else reading.pvalue,
-                    extras=()
-                    if reading is None or reading.scale_ratio is None
-                    else (
-                        (
-                            f"mean {_reported_spread(status)} over SD of the draws",
-                            reading.scale_ratio,
-                        ),
-                    ),
+                    detail=detail,
+                    plain_length=plain_length,
+                    withheld=placebo_withheld,
+                    status=status,
                 )
             )
 
@@ -5404,27 +5584,15 @@ def refute(
                 )
                 extras.append(("spread across seeds with no noise column (SE units)", seed_only))
             outcomes.append(
-                RefutationTest(
-                    name=name,
+                _noise_record(
                     estimand=estimand,
                     original=original,
-                    values=values,
-                    expectation=f"~ {original:.4g}",
-                    passed=None,
-                    detail=(
-                        f"adding an irrelevant covariate moved the estimate by {shift:+.4g} "
-                        f"{unit} {'on the log scale ' if is_ratio else ''}against the "
-                        "original fit, under its seed and folds"
-                    ),
-                    standard_errors=tuple(se for _, se in noise_fits),
+                    fits=noise_fits,
+                    shift=shift,
+                    extras=extras,
                     mean_kind=mean_kind,
-                    rung="L0",
-                    scope_sentence=_NOISE_SENTENCE,
-                    conditions=(_NOISE_SENTENCE,),
-                    evidence=_interpretation.PLAIN_NONE,
-                    statistic=shift,
-                    statistic_name=f"paired shift in {unit}",
-                    extras=tuple(extras),
+                    unit=unit,
+                    is_ratio=is_ratio,
                 )
             )
 
@@ -5444,60 +5612,18 @@ def refute(
                 )
                 for index, _, _ in drawn
             ]
-            values = tuple(psi for psi, _ in fits)
             units, size = drawn[0][1], drawn[0][2]
-            reading_s: SubsetReading | None = (
-                None
-                if replicate_count < 2
-                else subset_reading(
-                    [on_scale(psi) for psi in values], std_error=std_error, n=units, m=size
-                )
-            )
-            resolution = _resolve("subset", "rho", fit, replicate_count)
-            passed = None
-            if reading_s is not None and np.isfinite(reading_s.rho) and resolution.licensed:
-                passed = bool(reading_s.pvalue >= 0.05)
-            spread = float("nan") if reading_s is None else reading_s.spread
-            expectation = (
-                (
-                    f"log-scale scatter ~ {reading_s.reference_sd:.4g}"
-                    if is_ratio
-                    else f"scatter ~ {reading_s.reference_sd:.4g}"
-                )
-                if reading_s is not None and np.isfinite(reading_s.reference_sd)
-                else "scatter"
-            )
             outcomes.append(
-                RefutationTest(
-                    name=name,
+                _subset_record(
                     estimand=estimand,
                     original=original,
-                    values=values,
-                    expectation=expectation,
-                    passed=passed,
-                    detail=(
-                        f"subsample estimates scatter by {spread:.5g} "
-                        f"{'on the log scale ' if is_ratio else ''}against "
-                        f"{'nan' if reading_s is None else format(reading_s.reference_sd, '.5g')} "
-                        f"from sampling {size} of {units} units alone"
-                        + _plugin_reference_clause(status)
-                    ),
-                    standard_errors=tuple(se for _, se in fits),
-                    spread_kind="log" if is_ratio else "reported",
-                    rung=resolution.rung,
-                    scope_sentence=f"{_SUBSET_SENTENCE} {resolution.sentence}",
-                    conditions=(_SUBSET_SENTENCE,),
-                    evidence=resolution.plain,
-                    withheld=(
-                        ""
-                        if passed is not None or not resolution.licensed
-                        else "fewer than two subsamples have no spread"
-                        if reading_s is None
-                        else "the spread ratio is undefined"
-                    ),
-                    statistic=None if reading_s is None else reading_s.rho,
-                    statistic_name="scatter ratio rho",
-                    statistic_pvalue=None if reading_s is None else reading_s.pvalue,
+                    fits=fits,
+                    reading=_subset_scatter(fits, std_error, units, size, is_ratio),
+                    resolution=_resolve("subset", "rho", fit, replicate_count),
+                    is_ratio=is_ratio,
+                    units=units,
+                    size=size,
+                    status=status,
                 )
             )
 
@@ -5528,9 +5654,11 @@ def refute(
                 )
             value = refitted[estimand].psi
             control_se = refitted[estimand].plugin_std_error
-            deviation = _no_effect_difference(value, no_effect_null)
-            z = deviation / control_se if control_se > 0 else float("nan")
-            pvalue = float(two_sided_pvalue(z, 1.0)) if np.isfinite(z) else float("nan")
+            # The control refit's own Wald test of the no-effect value, under the reference
+            # distribution, interval scale and margin its interval reads.
+            test = refitted[estimand]._plugin_wald_test(no_effect_null)
+            z = float(test.statistic) if control_se > 0 else float("nan")
+            pvalue = float(test.pvalue) if np.isfinite(z) else float("nan")
             # The control's own outcome family and event count are the scope axes of a
             # negative-control reading, not the primary outcome's.
             control_fit = (
@@ -5572,6 +5700,14 @@ def refute(
                         *((_PRE_TREATMENT_SENTENCE,) if pre_treatment else ()),
                     ),
                     evidence=resolution.plain,
+                    withheld=(
+                        ""
+                        if passed is not None or not resolution.licensed
+                        else f"the control fit reports no interval (status "
+                        f"{refitted[estimand].inference!r}), so it has no Wald test"
+                        if not refitted[estimand].supplies_inference
+                        else "the control estimate has no spread"
+                    ),
                     statistic=z,
                     statistic_name="z",
                     statistic_pvalue=pvalue,

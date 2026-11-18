@@ -53,6 +53,7 @@ import numpy as np
 from scipy.special import expit
 from scipy.stats import norm
 
+from .._continuous_survival_family import refuse_continuous_survival
 from .._inference_status import InferenceStatus, is_labelled, status_record, supplies_inference
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
@@ -77,6 +78,7 @@ __all__ = [
     "SPREAD_NO_PARAMETERS",
     "SPREAD_SINGLE_DRAW",
     "SPREAD_UNAVAILABLE_DRAWS",
+    "TMLE_CONSTANT_TARGET_IN_FOLD",
     "NuisanceDiagnostics",
     "NuisanceModelReport",
     "RepeatSpreadRow",
@@ -99,6 +101,14 @@ NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact
 
 #: The fit is an AdaptiveIPTW fit, which weights the observed outcomes and fits none.
 NO_OUTCOME_REGRESSION = "AdaptiveIPTW fits no outcome regression"
+
+#: A training fold of a cross-fitted fit held one value, 0 or 1, of the binary outcome while
+#: the sample did not.  That fold's outcome regression is the value, so the fold fitted no
+#: learner and its held-out rows start the targeting step there.  The point-treatment twin of
+#: :data:`~cleverly.validation.longitudinal.LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`.
+TMLE_CONSTANT_TARGET_IN_FOLD = (
+    "a training fold holds the same 0 or 1 outcome, its regression is that value"
+)
 
 #: The fit drew the cross-fitting split once, so there is no between-draw spread. Not a
 #: fault: it is the ordinary state of an ordinary fit.
@@ -185,6 +195,11 @@ class NuisanceModelReport:
         The loss the Super Learner scored ``learner_risks`` under (``"mse"`` or
         ``"neg_log_likelihood"``), or ``None`` without a Super Learner or when its fits
         disagree.
+    fold_omission : str or None, default=None
+        Why some folds fitted no learner for this model, for example
+        :data:`TMLE_CONSTANT_TARGET_IN_FOLD`. ``None`` when every fold fitted one.
+    omitted_folds : tuple of int, default=()
+        The one-based folds ``fold_omission`` applies to. Empty when it is ``None``.
     """
 
     name: str
@@ -196,6 +211,8 @@ class NuisanceModelReport:
     calibration_omission: str | None = None
     evaluation: EvaluationBasis | None = None
     learner_loss: str | None = None
+    fold_omission: str | None = None
+    omitted_folds: tuple[int, ...] = ()
 
     def row(self) -> list[str]:
         """Return this model's metrics as one row of the diagnostics table.
@@ -897,6 +914,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         One report per nuisance model, read off the stored fits.
     """
     refuse_augmented_trial(result, "nuisance_diagnostics", "report")
+    refuse_continuous_survival(result, "nuisance_diagnostics")
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []
@@ -1029,18 +1047,23 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     if outcome_omission is not None:
         pass
     elif data.family == "binomial":
-        models.append(
-            _binary_report(
-                "outcome",
-                nuisance.outcome.observed,
-                data.outcome,
-                data.weights,
-                nuisance.diagnostics.get("outcome"),
-                mask=outcome_rows,
-                folds=folds,
-                cluster=data.cluster,
-            )
+        report = _binary_report(
+            "outcome",
+            nuisance.outcome.observed,
+            data.outcome,
+            data.weights,
+            nuisance.diagnostics.get("outcome"),
+            mask=outcome_rows,
+            folds=folds,
+            cluster=data.cluster,
         )
+        if nuisance.outcome_constant_folds:
+            report = replace(
+                report,
+                fold_omission=TMLE_CONSTANT_TARGET_IN_FOLD,
+                omitted_folds=nuisance.outcome_constant_folds,
+            )
+        models.append(report)
     else:
         models.append(
             _continuous_report(
@@ -1294,17 +1317,15 @@ def _weighted_auc(predicted: FloatArray, actual: FloatArray, weights: FloatArray
     w_sorted = weights[order]
 
     # Mid-ranks so ties contribute 0.5, matching the usual AUC convention.
-    ranks = np.empty(p_sorted.shape[0], dtype=float)
+    # A tie block is a run of equal adjacent predictions; each NaN is its own block, since
+    # NaN equals nothing.
     cumulative = np.cumsum(w_sorted)
-    start = 0
-    while start < p_sorted.shape[0]:
-        stop = start
-        while stop + 1 < p_sorted.shape[0] and p_sorted[stop + 1] == p_sorted[start]:
-            stop += 1
-        below = cumulative[start - 1] if start > 0 else 0.0
-        block = cumulative[stop] - below
-        ranks[start : stop + 1] = below + 0.5 * block
-        start = stop + 1
+    size = p_sorted.shape[0]
+    starts = np.flatnonzero(np.concatenate(([True], p_sorted[1:] != p_sorted[:-1])))
+    stops = np.append(starts[1:], size) - 1
+    below = np.concatenate(([0.0], cumulative))[starts]
+    block = cumulative[stops] - below
+    ranks = np.repeat(below + 0.5 * block, stops - starts + 1)
 
     weight_positive = w_sorted[y_sorted].sum()
     weight_negative = w_sorted[~y_sorted].sum()

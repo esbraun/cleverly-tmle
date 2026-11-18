@@ -1,0 +1,29 @@
+=== continuous-survival-functionals declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/continuous_survival_functionals/regenerate.py --jobs 4 --output /tmp/x6-functionals-run2
+commit: 99c20c7f71374fdaabf650b4be4a05df71ae1311; upstream 99c20c7f71374fdaabf650b4be4a05df71ae1311
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 38747293f66db5bd1fda6fc2a3bf743b1d29180f4d2e3f6a3995be6713d3a918
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-14T06:59:47+00:00
+finished: 2026-11-14T10:00:43+00:00
+wall seconds: 10856.2
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 failure-accounting.csv: 399996e5a2a2f22b09b2d86d017ff4cd3f07e6a16f1bffcb759d47aaffa2b629
+sha256 failures.csv: 8fee3da29b1fbf4acc0b0bdec46a6634821bed6209c58235421fcc84bba96ba9
+sha256 manifest.json: 051bf4c3c7c93749cf2b00f54cc05564e1290fe43368307cb55132613d1edb1a
+sha256 necessity-cells.csv: d4885935d22b8b1de4cf71ee5ab36a81b9d8f66fd9ef73a3429d430e637fc8f5
+sha256 necessity-replicates.csv: 878336928375e52a27dcde423cb607557687b46416150f2d1bf735a20567a4df
+sha256 performance-tests.csv: f51a3a47524aaf31781841acf053beca19b3742e3e8cce829f0c1993b868795a
+sha256 properties.csv: dde61a53c00d430c2de76ae6ab3d300bbe9252e6213e4c147cbc25aff6c7fdb5
+sha256 property-failure-accounting.csv: 75ba5ac06055a1e6f5edf75017722120bd60f69496f72a9575633e2db85dd24e
+sha256 property-failure-witnesses.parquet: a59c2893253f92a91714d32380be6e9a61da4795167c88abcb836fd60ba4cd99
+sha256 property-failures.csv: f8c62a4874e12660f34fdddbb4a816937f18397dadd297889a0909865585e9d8
+sha256 property-replicates.parquet: 8e38a331466079030fb98b6c251be2c733d79f225e09e49f6b53424fadfad33d
+sha256 replicates.parquet: d23a901ed736b4e1938317f67a9ca812bf26f67e18826579141f081b40c8d42c
+sha256 summary.csv: e07aaa78c448c87050a39fc372074d83645721fd19ceb3b5b1f6b422f3a758b8
+sha256 targeting-readings.csv: 69bda13d28750e9cabd4fbffaa49fe9ae28a31bca77e8d606ad74fcd26cef4e8
+

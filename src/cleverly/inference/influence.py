@@ -94,6 +94,7 @@ from .delta import (
     wald_ci,
     wald_statistic,
 )
+from .node_variance import NodeLoadings, NodeVariance
 from .policy import PolicyCovariance, PolicyVariance, VarianceSource
 
 __all__ = [
@@ -198,6 +199,12 @@ def outside_bounds(psi: float, bounds: tuple[float, float] | None) -> bool:
         return False
     low, high = bounds
     return not (low < psi < high)
+
+
+def _finite_range(bounds: tuple[float, float]) -> bool:
+    """Whether ``bounds`` is a finite, non-empty open range a logit can map."""
+    low, high = bounds
+    return bool(np.isfinite(low) and np.isfinite(high) and low < high)
 
 
 def family_of(data: Any) -> OutcomeFamily | None:
@@ -404,6 +411,12 @@ DIAGNOSTIC_BOOTSTRAP_NOTE = (
     "no registered study measures the coverage of that interval"
 )
 
+#: Why the bootstrap of an estimate that adds the boundary-node supplement is a diagnostic.
+BOUNDARY_NODE_BOOTSTRAP_NOTE = (
+    "a diagnostic: every row resample keeps the flagged node's one value, so the bootstrap "
+    "cannot see the variance the boundary-node supplement bounds"
+)
+
 #: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
 #: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
 BootstrapInterval = Literal["percentile", "bca"]
@@ -442,6 +455,32 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
     )
 
 
+def bootstrap_diagnostic_reason(estimate: ParameterEstimate) -> str:
+    """Why the bootstrap of an estimate is a diagnostic, as a key of the summary's notes.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        An estimate whose bootstrap :func:`bootstrap_is_diagnostic` reads as a diagnostic.
+
+    Returns
+    -------
+    str
+        ``"withheld"`` when the status withholds the interval, ``"below_floor"`` when the fit
+        reads too few clusters, ``"boundary_node"`` when the estimate adds the boundary-node
+        supplement, and ``"declared"`` when the fit declares its bootstrap a diagnostic.
+    """
+    summary = estimate.bootstrap
+    assert summary is not None
+    if not estimate.supplies_inference:
+        return "withheld"
+    if summary.below_floor:
+        return "below_floor"
+    if summary.boundary_node:
+        return "boundary_node"
+    return "declared"
+
+
 def bootstrap_line(estimate: ParameterEstimate) -> str:
     """The printed bootstrap spread and interval of one estimate.
 
@@ -478,6 +517,8 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
         note = status_record(estimate.inference).bootstrap_note
     elif summary.below_floor:
         note = status_record("few_cluster_plugin").bootstrap_note
+    elif summary.boundary_node:
+        note = BOUNDARY_NODE_BOOTSTRAP_NOTE
     else:
         note = DIAGNOSTIC_BOOTSTRAP_NOTE
     return f"{spread}{interval} range [{low:.5g}, {high:.5g}] ({note})"
@@ -1026,12 +1067,24 @@ class ParameterEstimate:
         it: ``"binomial"`` for a binary outcome and ``"gaussian"`` for a continuous one.
         ``None`` when the builder does not record it. A contrast keeps the family its inputs
         share. It decides :attr:`effective_df`.
+    range_interval : bool
+        Whether a ``"level"`` estimate with finite :attr:`bounds` other than ``(0, 1)`` forms
+        its interval and test on the logit of its position in that range, as a mean of a
+        binary outcome does. The curve and :attr:`std_error` stay on the reported scale.
+        ``True`` for a restricted mean of a continuous-time survival fit, whose range is
+        ``(0, tau)``; ``False`` for every other estimate.
 
     policy : PolicyVariance or None
         Under the ``"policy_weighted"`` rule, both variances of the estimate, its gradient
         over the fit's levels and the fit's shared policy-weighted covariance
         (:class:`~cleverly.inference.policy.PolicyVariance`). ``None`` under every other
         rule.
+    node : NodeVariance or None
+        On a longitudinal estimate whose recursion read a node regression as a constant 0
+        or 1, inside the reach of the boundary-node supplement, the curve's variance and the
+        node supplement with the fit's shared per-unit loadings
+        (:class:`~cleverly.inference.node_variance.NodeVariance`). :attr:`variance` is then
+        their sum, and the interval and test read it. ``None`` on every other estimate.
 
     Attributes
     ----------
@@ -1125,17 +1178,23 @@ class ParameterEstimate:
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
     policy: PolicyVariance | None = None
+    node: NodeVariance | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
+    range_interval: bool = False
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
 
     @property
     def variance_source(self) -> VarianceSource:
-        """Which variance :attr:`variance` is: ``"influence_curve"`` or ``"policy_weighted"``.
+        """Which variance :attr:`variance` is.
 
         ``"policy_weighted"`` only under ``variance="policy_weighted"``, when that variance
-        is usable and larger than the influence-curve variance.
+        is usable and larger than the influence-curve variance. ``"boundary_node"`` when the
+        estimate carries the boundary-node supplement (:attr:`node`). ``"influence_curve"``
+        otherwise.
         """
+        if self.node is not None:
+            return "boundary_node"
         return "influence_curve" if self.policy is None else self.policy.source
 
     def __post_init__(self) -> None:
@@ -1174,7 +1233,8 @@ class ParameterEstimate:
 
         The transform's name for a transformed estimate, ``"log"`` for a ratio,
         ``"range_logit"`` for an unclustered mean of a binary outcome (:attr:`bounds`
-        ``(0, 1)`` on the ``"level"`` scale) and ``"identity"`` otherwise.
+        ``(0, 1)`` on the ``"level"`` scale) or an estimate under :attr:`range_interval`, and
+        ``"identity"`` otherwise.
         """
         if self.transform is not None:
             return self.transform.name
@@ -1185,16 +1245,20 @@ class ParameterEstimate:
     def _range_scale(self) -> Transform | None:
         """The range-logit map of a bounded unclustered mean, or ``None``.
 
-        An unclustered estimate with :attr:`bounds` ``(0, 1)``, the ``"level"`` scale and no
-        :attr:`transform` forms its interval and test on the logit scale with the normal
-        reference. A difference keeps the identity scale, and a clustered estimate keeps its
-        reference. An estimate with a Student t reference keeps it too, which covers singleton
-        clusters: their count equals :attr:`n`, but a stratum with few of them reads a t.
+        An unclustered estimate with :attr:`bounds` ``(0, 1)``, or finite bounds under
+        :attr:`range_interval`, the ``"level"`` scale and no :attr:`transform` forms its
+        interval and test on the logit scale with the normal reference. A difference keeps the
+        identity scale, and a clustered estimate keeps its reference. An estimate with a
+        Student t reference keeps it too, which covers singleton clusters: their count equals
+        :attr:`n`, but a stratum with few of them reads a t.
         """
         if (
             self.transform is not None
             or self.scale != "level"
-            or self.bounds != (0.0, 1.0)
+            or self.bounds is None
+            or not (
+                self.bounds == (0.0, 1.0) or (self.range_interval and _finite_range(self.bounds))
+            )
             or self.n_clusters < self.n
             or self.reference_df is not None
         ):
@@ -1629,7 +1693,10 @@ class ParameterEstimate:
         total test. An estimate under
         ``variance="policy_weighted"`` adds ``variance_source`` and both standard errors,
         ``influence_curve_std_err`` and ``policy_weighted_std_err`` (``nan`` when that variance
-        is not used), on the outcome's scale before any interval map.
+        is not used), on the outcome's scale before any interval map. An estimate with the
+        boundary-node supplement adds ``variance_source`` (``"boundary_node"``),
+        ``influence_curve_std_err`` and ``boundary_node_std_err``, the square root of the
+        supplement alone.
 
         Returns
         -------
@@ -1656,6 +1723,10 @@ class ParameterEstimate:
             row["policy_weighted_std_err"] = (
                 float(np.sqrt(self.policy.policy_variance)) if self.policy.usable else float("nan")
             )
+        if self.node is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = float(np.sqrt(max(self.node.influence_variance, 0.0)))
+            row["boundary_node_std_err"] = float(np.sqrt(self.node.node_variance))
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
@@ -1806,6 +1877,10 @@ class BootstrapSummary:
         Whether the fit declares the bootstrap interval a diagnostic. ``True`` publishes
         the columns under their diagnostic names, through :func:`bootstrap_column`, at every
         status. Only the collaborative fit sets it.
+    boundary_node : bool, default=False
+        Whether the estimate adds the boundary-node supplement. ``True`` comes with
+        ``diagnostic``: every row resample keeps the flagged node's one value, so the
+        bootstrap cannot see the variance the supplement bounds.
     below_floor : bool, default=False
         Whether the fit reads fewer clusters with positive weight mass than the interval floor
         (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
@@ -1837,6 +1912,7 @@ class BootstrapSummary:
     n_failed: int
     draws: FloatArray
     diagnostic: bool = False
+    boundary_node: bool = False
     below_floor: bool = False
     cluster_floor: int | None = None
     support: Support = UNCLASSIFIED
@@ -1934,8 +2010,11 @@ def make_estimate(
     support: Support = UNCLASSIFIED,
     bounds: tuple[float, float] | None = None,
     outcome_family: OutcomeFamily | None = None,
+    range_interval: bool = False,
     policy: PolicyCovariance | None = None,
     gradient: FloatArray | None = None,
+    node: NodeLoadings | None = None,
+    node_gradient: FloatArray | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1991,23 +2070,50 @@ def make_estimate(
         on or outside it takes ``"out_of_range_plugin"`` (:func:`bounded_status`).
     outcome_family : {"binomial", "gaussian"} or None, default=None
         The family of the outcome, when the caller knows it.
+    range_interval : bool, default=False
+        Whether a level estimate with finite ``bounds`` forms its interval on the logit of its
+        position in them (:attr:`ParameterEstimate.range_interval`).
     policy : PolicyCovariance or None, default=None
         The fit's policy-weighted covariance of its levels, under the ``"policy_weighted"``
         rule only.
     gradient : ndarray or None, default=None
         ``(k,)`` the estimate's gradient on its inference scale with respect to the levels
         of ``policy``, under the ``"policy_weighted"`` rule only.
+    node : NodeLoadings or None, default=None
+        The fit's boundary-node loadings, for an estimate that reads a flagged node inside
+        the supplement's reach. The stored variance is then the centred curve variance plus
+        ``node.bound(node_gradient)``. Only the ``"centered"`` rule takes it.
+    node_gradient : ndarray or None, default=None
+        ``(L,)`` the estimate's gradient on its inference scale with respect to the levels
+        of ``node``, given with ``node``.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
         ``support``, ``bounds``, ``rule_widened``, ``outcome_family`` and, under the
-        ``"policy_weighted"`` rule, ``policy``.
+        ``"policy_weighted"`` rule, ``policy``, or with ``node``, its node record.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     record: PolicyVariance | None = None
-    if covariance_rule == "policy_weighted" or policy is not None or gradient is not None:
+    supplement: NodeVariance | None = None
+    if node is not None or node_gradient is not None:
+        if node is None or node_gradient is None:
+            raise ValueError("a boundary-node supplement needs node and node_gradient")
+        if covariance_rule != "centered":
+            raise ValueError(
+                "the boundary-node supplement adds to the centred curve variance only; got "
+                f"covariance_rule={covariance_rule!r}"
+            )
+        weights = np.asarray(node_gradient, dtype=float).reshape(-1)
+        if weights.size != len(node.levels):
+            raise ValueError(
+                f"node_gradient has {weights.size} entries and the loadings have "
+                f"{len(node.levels)} levels"
+            )
+        supplement = NodeVariance(node, weights, influence_variance(ic, cluster))
+        variance = supplement.variance
+    elif covariance_rule == "policy_weighted" or policy is not None or gradient is not None:
         record = _policy_record(ic, covariance_rule, cluster, policy, gradient)
         variance = record.variance
     elif covariance_rule == "second_moment":
@@ -2039,8 +2145,10 @@ def make_estimate(
         support=support,
         bounds=bounds,
         policy=record,
+        node=supplement,
         rule_widened=rule_widened,
         outcome_family=outcome_family,
+        range_interval=range_interval,
     )
 
 
@@ -3485,15 +3593,26 @@ def att_estimate(
     observed: BoolArray | None = None,
     *,
     reference: float = 0.0,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     """The effect among each non-reference arm's own units, on the scaled outcome scale.
 
     One entry per non-reference arm, keyed by that arm -- a single entry, the classic
-    ATT, when the treatment is binary.
+    ATT, when the treatment is binary.  ``known_score`` maps each arm code to its declared
+    probability ``g_0(a | W)``; given, the estimate is the known-score plug-in of
+    :func:`_conditional_effects`.
     """
     _expect(submodel, "att")
     return _conditional_effects(
-        outcome, targeted, submodel, treatment, weights, observed, reference, conditions_on_arm=True
+        outcome,
+        targeted,
+        submodel,
+        treatment,
+        weights,
+        observed,
+        reference,
+        conditions_on_arm=True,
+        known_score=known_score,
     )
 
 
@@ -3506,6 +3625,7 @@ def atc_estimate(
     observed: BoolArray | None = None,
     *,
     reference: float = 0.0,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     """The mirror image: each contrast among the *reference* arm's units."""
     _expect(submodel, "atc")
@@ -3518,6 +3638,7 @@ def atc_estimate(
         observed,
         reference,
         conditions_on_arm=False,
+        known_score=known_score,
     )
 
 
@@ -3531,11 +3652,23 @@ def _conditional_effects(
     reference: float,
     *,
     conditions_on_arm: bool,
+    known_score: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
-    """``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
+    r"""``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
 
     ``conditions_on_arm`` picks which: the contrast arm itself for the ATT, the reference
     arm for the ATC, where every parameter conditions on the same population.
+
+    The default plug-in averages the contrast over the units observed in arm ``c``.  With
+    ``known_score`` (the declared mechanism, one column per arm code) it is the known-score
+    plug-in :math:`P_n\{g_0(c\mid W)(\bar Q^*_a-\bar Q^*_r)\}/P_n g_0(c\mid W)`, the TMLE of the
+    model in which :math:`g_0` is known.  The residual term is the same in both, because the
+    targeting step and its score are; only the last term of the curve changes, from
+    :math:`\mathbb 1(A=c)(\tau-\psi)/P_n\mathbb 1(A=c)` to
+    :math:`g_0(c\mid W)(\tau-\psi)/P_n g_0(c\mid W)`.  The difference is the projection of the
+    arm-mean curve on the mechanism's tangent space, so the known-score curve has the smaller
+    variance at a consistent outcome regression (the known-score ATT bound of Chen, Hong and
+    Tarozzi 2008, Theorem 2).
 
     The columns are read by :meth:`~cleverly.fluctuation.submodel.Submodel.contrast_column_for`
     rather than positionally, so an implementation that lined the arms up by order would
@@ -3553,9 +3686,17 @@ def _conditional_effects(
             raise ValueError(f"no observations in arm {conditioning:g}: the estimand is undefined")
 
         contrast = targeted.arms[arm] - targeted.arms[reference]
-        psi = float(np.average(contrast, weights=w * indicator))
         column = submodel.contrast_column_for(arm)
-        out[arm] = ArmMean(psi, w * (column * residual + (indicator / share) * (contrast - psi)))
+        if known_score is None:
+            weight, mass = indicator, share
+        else:
+            # The residual term keeps the targeting's clever covariate, normalized by the
+            # arm share P_n(A = c); the projection term is normalized by P_n g0(c | W). The
+            # two estimate the same p, so the curve is D_KS to first order.
+            weight = np.asarray(known_score[conditioning], dtype=float).reshape(-1)
+            mass = float(np.average(weight, weights=w))
+        psi = float(np.average(contrast, weights=w * weight))
+        out[arm] = ArmMean(psi, w * (column * residual + (weight / mass) * (contrast - psi)))
     return out
 
 

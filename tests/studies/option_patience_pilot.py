@@ -1,7 +1,8 @@
 """The pilot of ``option-patience`` (Fix-8 plan sections 5.0 and 5.5), and its summary.
 
 Before the declaration the gated streams are read on :data:`DRAWS` pilot draws each, from draw
-0 of :data:`PILOT_SEED`, a stream no study draws from, at the declared n and settings
+0 of :data:`PILOT_SEED`, a stream no study drew from when it ran (``hazard-multinode`` later
+declared the same root), at the declared n and settings
 (:func:`tests.studies._option_patience_laws.fit`):
 
 * ``lc1``: the greedy path with patience 1 and 2 and the whole greedy path.  The stop shares

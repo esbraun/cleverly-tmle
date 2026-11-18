@@ -1,0 +1,172 @@
+{
+  "schema_version": 2,
+  "study": "covariates after baseline on the hazard path, one-step targeting",
+  "slug": "hazard-time-varying",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.4",
+      "cleverly_commit": "5aeef0696a6e34fdba638d3f6bdef47ed71f546c",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 2000,
+    "seed": 20261901,
+    "resampling_seed": 2026190101,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "one_cause": [
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[always @ t=3]",
+        "risk_regimen[always @ t=4]",
+        "risk_regimen[always @ t=5]",
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[never @ t=3]",
+        "risk_regimen[never @ t=4]",
+        "risk_regimen[never @ t=5]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]",
+        "ate_regimen[always vs never @ t=4]",
+        "ate_regimen[always vs never @ t=5]"
+      ],
+      "competing": [
+        "cif_regimen[always, relapse @ t=1]",
+        "cif_regimen[always, relapse @ t=2]",
+        "cif_regimen[always, relapse @ t=3]",
+        "cif_regimen[always, relapse @ t=4]",
+        "cif_regimen[always, death @ t=1]",
+        "cif_regimen[always, death @ t=2]",
+        "cif_regimen[always, death @ t=3]",
+        "cif_regimen[always, death @ t=4]",
+        "cif_regimen[never, relapse @ t=1]",
+        "cif_regimen[never, relapse @ t=2]",
+        "cif_regimen[never, relapse @ t=3]",
+        "cif_regimen[never, relapse @ t=4]",
+        "cif_regimen[never, death @ t=1]",
+        "cif_regimen[never, death @ t=2]",
+        "cif_regimen[never, death @ t=3]",
+        "cif_regimen[never, death @ t=4]",
+        "ate_regimen[always vs never, relapse @ t=1]",
+        "ate_regimen[always vs never, relapse @ t=2]",
+        "ate_regimen[always vs never, relapse @ t=3]",
+        "ate_regimen[always vs never, relapse @ t=4]",
+        "ate_regimen[always vs never, death @ t=1]",
+        "ate_regimen[always vs never, death @ t=2]",
+        "ate_regimen[always vs never, death @ t=3]",
+        "ate_regimen[always vs never, death @ t=4]"
+      ],
+      "three_arm": [
+        "risk_regimen[up @ t=1]",
+        "risk_regimen[up @ t=2]",
+        "risk_regimen[up @ t=3]",
+        "risk_regimen[up @ t=4]",
+        "risk_regimen[up @ t=5]",
+        "risk_regimen[natural @ t=1]",
+        "risk_regimen[natural @ t=2]",
+        "risk_regimen[natural @ t=3]",
+        "risk_regimen[natural @ t=4]",
+        "risk_regimen[natural @ t=5]",
+        "ate_regimen[up vs natural @ t=1]",
+        "ate_regimen[up vs natural @ t=2]",
+        "ate_regimen[up vs natural @ t=3]",
+        "ate_regimen[up vs natural @ t=4]",
+        "ate_regimen[up vs natural @ t=5]"
+      ]
+    },
+    "construction": "held baseline treatment, a binary covariate at every node after the first, one backward pass per regimen; at each node one one-step walk over the node hazards and the continuation, after every later node is final",
+    "survival_model": "hazard",
+    "targeting": "one_step",
+    "tol": 1e-10,
+    "fits": {
+      "one_cause": [
+        "one_cause",
+        1
+      ],
+      "competing": [
+        "competing",
+        1
+      ],
+      "three_arm": [
+        "three_arm",
+        1
+      ],
+      "crossfit": [
+        "one_cause",
+        5
+      ]
+    },
+    "outcome_learner": "unpenalized logistic regression on W1, W2, L_k and the treatment at each node (the earlier L columns dropped)",
+    "pseudo_learner": "the weighted cell mean over W1, W2, L_k, the treatment and the later-node indicators",
+    "treatment_learner": "unpenalized logistic (multinomial on three levels) on W1, W2",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, L_k and the treatment at each node",
+    "regimens": {
+      "always / never": "the treatment set to 1 or 0 (one_cause, competing, crossfit)",
+      "up / natural": "one level up, the top stays, against the identity (three_arm)"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_hazard_time_varying.py": "0a7f1e345847cd10bc468be49e7e453e4e27455df42b1bcb3697392e477e8527",
+    "tests/studies/hazard_time_varying_properties.py": "f7695eac502094b413f70c228fd222f010e52c215f8f5ea3217a5c6661b0f3ab",
+    "tests/studies/hazard_time_varying_law.py": "4fa26e57655e85ad644041801e92cd694cdd795f290300eff38a43ff85863202",
+    "src/cleverly/longitudinal/hazard.py": "587b5017ea7cd364d1d4313af92a79e2ce5f96555c92b0e84f8e76cb5aaee263",
+    "src/cleverly/longitudinal/hazard_backward.py": "86ac15b7951aadf48629510e6a3a4d277b41dd5a6e01a875e0f33cd9c204f020",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "1167356fe67ff14c53c62266c6140c880e0f14af90eaf3914571c6f85dfc1505",
+    "tests/studies/evidence/property_verdicts.py": "80dd5aa45bdb65f5b8526861035d1012c389d0e6e492eb46febc40fa65a2316e",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "0407058d966ab0c455baeab27608b8090015271c512b779e966165e79a97ffc5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "901ed83a372d287f422c4d61b95340527bdfd11495363af3d2b166ce791cb0c9",
+    "summary.csv": "edd03568f32ef6a48246761bd515f7fe12a6a9001bba87722dcb9b9e95ccf1c5",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "e763c66edee7f015cb2b9fdf0ab8dc3915427782a50dedcc96f16a4158ec54b2",
+    "property-replicates.parquet": "284ea2b1d0e174c08225eb82c7b5b49e7d85ca167e57a9aa98e3cac695a5b3a3",
+    "properties.csv": "6641f65fdad475930529527567766f33e2918d65181d1c8331180a5ce0167536"
+  }
+}

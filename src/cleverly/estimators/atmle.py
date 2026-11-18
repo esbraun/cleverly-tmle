@@ -38,6 +38,7 @@ import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal
 
@@ -57,6 +58,7 @@ from ..exceptions import (
 )
 from ..learners._fitting import Task, fit_learner, predict_mean
 from ..learners.crossfit import Folds, make_folds, random_partition
+from ..utils.memos import without_memos
 from ._working_basis import WorkingDictionary
 
 __all__ = [
@@ -237,6 +239,26 @@ class _RLoss:
             float(np.max(np.abs(self.z.T @ self.y))) / self.total if self.usable.size else 0.0
         )
 
+    @cached_property
+    def xu(self) -> FloatArray:
+        """The penalized columns of ``x``, copied once, when coefficients() first needs them.
+
+        Built lazily so that the full-row problem holds no copy while the fold problems are
+        solved, and a problem with no unpenalized column never builds it. It is the same copy,
+        values and layout, that each call used to make.
+        """
+        return self.x[:, self.usable]
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Pickle the problem without the column copy that :attr:`xu` memoized.
+
+        Returns
+        -------
+        dict of str to Any
+            The instance state, without the entries a ``cached_property`` owns.
+        """
+        return without_memos(type(self), self.__dict__)
+
     def grid(self) -> FloatArray:
         n, p = self.basis.shape
         if self.lambda_max == 0.0:
@@ -251,7 +273,7 @@ class _RLoss:
         coef = np.zeros(self.basis.shape[1])
         coef[self.usable] = standardized / self.scale
         if self.k:
-            rest = self.response - self.x[:, self.usable] @ coef[self.usable]
+            rest = self.response - self.xu @ coef[self.usable]
             coef[: self.k] = scipy.linalg.solve_triangular(self.r, self.q.T @ rest)
         return coef
 
@@ -275,13 +297,14 @@ class _RLoss:
     def tolerance(self) -> float:
         return KKT_TOLERANCE * (self.lambda_max if self.lambda_max > 0.0 else 1.0)
 
-    def solve(self, grid: FloatArray) -> list[LassoSolution]:
+    def path(self, grid: FloatArray) -> list[FloatArray]:
+        """The original-scale coefficients at each penalty, warm-started down the grid."""
         values = np.asarray(grid, dtype=float)
         if values.size > 1 and np.any(np.diff(values) >= 0.0):
             raise ValueError("the penalty grid must be strictly decreasing")
         if np.any(values < 0.0):
             raise ValueError("penalties must be non-negative")
-        out: list[LassoSolution] = []
+        out: list[FloatArray] = []
         gram = self.z.T @ self.z / self.total
         linear = self.z.T @ self.y / self.total
         standardized = np.zeros(self.usable.size)
@@ -290,9 +313,15 @@ class _RLoss:
                 standardized = _lasso(gram, linear, float(lam), standardized)
             elif self.usable.size:
                 standardized = np.linalg.lstsq(self.z, self.y, rcond=None)[0]
-            coef = self.coefficients(standardized)
-            out.append(LassoSolution(float(lam), coef, self.kkt(coef, float(lam))))
+            out.append(self.coefficients(standardized))
         return out
+
+    def solve(self, grid: FloatArray) -> list[LassoSolution]:
+        values = np.asarray(grid, dtype=float)
+        return [
+            LassoSolution(float(lam), coef, self.kkt(coef, float(lam)))
+            for lam, coef in zip(values, self.path(values), strict=True)
+        ]
 
 
 def _lasso_objective(gram: FloatArray, linear: FloatArray, penalty: float, c: FloatArray) -> float:
@@ -616,12 +645,21 @@ def select_working_model(
         for fold in np.unique(assignment):
             held = assignment == fold
             sub = _RLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
-            for k, solution in enumerate(sub.solve(grid)):
-                fitted = multiplier[held] * (basis[held] @ solution.coef)
-                loss[k] += float(np.sum((response[held] - fitted) ** 2))
+            # The held rows are sliced once per fold, not once per penalty. The fold paths
+            # compute no KKT residual: only the final solution's is read.
+            basis_held, multiplier_held = basis[held], multiplier[held]
+            response_held = response[held]
+            for k, coef in enumerate(sub.path(grid)):
+                fitted = multiplier_held * (basis_held @ coef)
+                loss[k] += float(np.sum((response_held - fitted) ** 2))
+            # Released before the next fold's problem is built, which keeps the peak below the
+            # replaced code's.
+            del sub, basis_held, multiplier_held, response_held
     risk = loss / problem.total
     index = int(np.flatnonzero(risk == risk.min())[0])
-    solution = problem.solve(grid[: index + 1])[-1]
+    penalty = float(grid[index])
+    coef = problem.path(grid[: index + 1])[-1]
+    solution = LassoSolution(penalty, coef, problem.kkt(coef, penalty))
     if not solution.kkt <= problem.tolerance():
         raise CapabilityError(
             f"The working-model lasso did not reach its optimality tolerance at penalty "
@@ -1512,6 +1550,17 @@ class AdaptiveTMLEFit:
         The data and nuisance diagnostics.
     folds : Folds
         The outer split.
+    treatment_probability : ndarray of float
+        The cross-fitted ``g(1 | W)`` on each row, the combined-data treatment probability,
+        before ``probability_bounds`` were applied.  Stored for the diagnostics and plots;
+        the targeting reads the bounded values.
+    source_probability : ndarray of float
+        The cross-fitted ``pi(W) = P(S = 1 | W)`` on each row, before
+        ``probability_bounds``.  :attr:`AdaptiveTMLEDiagnostics.external_source_min` and the
+        :data:`SOURCE_FLOOR` warning read it on the external rows.  The targeting starts
+        from the bounded values and moves them by :attr:`epsilon`.
+    probability_bounds : tuple of float
+        The pair both probabilities were clipped to before targeting.
     """
 
     estimate: float
@@ -1529,6 +1578,9 @@ class AdaptiveTMLEFit:
     scores: ScoreResiduals
     diagnostics: AdaptiveTMLEDiagnostics
     folds: Folds
+    treatment_probability: FloatArray
+    source_probability: FloatArray
+    probability_bounds: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -1568,8 +1620,13 @@ def _nuisances_on(
     controls_only: bool,
     bounds: tuple[float, float],
     with_pibar: bool,
-) -> tuple[Nuisances, FloatArray]:
-    """Fit every nuisance on ``train`` and predict it on ``rows``; also the raw ``pi``."""
+) -> tuple[Nuisances, FloatArray, FloatArray]:
+    """Fit every nuisance on ``train`` and predict it on ``rows``; also the raw ``pi`` and ``g``.
+
+    The raw values are the predictions before ``bounds``: ``pibar`` (``nan`` without
+    ``with_pibar``) and ``g(1 | W)``.  They are returned for the diagnostics and the
+    stored record only; nothing downstream of the targeting reads them.
+    """
     low, high = bounds
     w, a, s = data.w, data.a, data.s
     outcome_task: Task = "classification" if data.family == "binomial" else "regression"
@@ -1579,7 +1636,8 @@ def _nuisances_on(
         return np.column_stack([x, np.broadcast_to(np.asarray(arm, float), (x.shape[0],))])
 
     g_model = _fit(learners.treatment, w[train], a[train], "classification")
-    g = np.clip(_predict(g_model, at, "classification"), low, high)
+    raw_g = _predict(g_model, at, "classification")
+    g = np.clip(raw_g, low, high)
     if controls_only:
         controls = train[a[train] == 0.0]
         pi_model = _fit(learners.source, w[controls], s[controls], "classification")
@@ -1601,7 +1659,7 @@ def _nuisances_on(
         qt_model = _fit(learners.outcome, with_arm(w[train], a[train]), data.y[train], outcome_task)
         theta = _predict(theta_model, at, outcome_task)
         qt = _predict(qt_model, with_arm(at, own), outcome_task)
-        return Nuisances(g, theta, source0, source1, qt, pibar), raw_pibar
+        return Nuisances(g, theta, source0, source1, qt, pibar), raw_pibar, raw_g
     if learners.missingness is None:
         raise ValueError("missing outcomes need a missingness learner")
     seen = train[data.observed[train]]
@@ -1634,7 +1692,7 @@ def _nuisances_on(
     qt = np.where(own == 1.0, qt1, qt0)
     q_own = _predict(q_model, design(at, s[rows], own), outcome_task)
     g_delta = np.clip(_predict(delta_model, design(at, s[rows], own), "classification"), low, 1.0)
-    return Nuisances(g, theta, source0, source1, qt, pibar, q_own, g_delta), raw_pibar
+    return Nuisances(g, theta, source0, source1, qt, pibar, q_own, g_delta), raw_pibar, raw_g
 
 
 def _stack(pieces: Sequence[tuple[IntArray, Nuisances]], n: int) -> Nuisances:
@@ -1838,10 +1896,11 @@ def fit_adaptive_tmle(
     every = np.arange(n, dtype=np.int64)
     out_of_fold: list[tuple[IntArray, Nuisances]] = []
     raw_pibar = np.full(n, np.nan)
+    raw_g = np.full(n, np.nan)
     for v in range(split.n_folds):
         held = np.flatnonzero(assignment == v)
         train = every if split.n_folds == 1 else np.flatnonzero(assignment != v)
-        values, raw = _nuisances_on(
+        values, raw, raw_treatment = _nuisances_on(
             data,
             learners,
             train,
@@ -1852,6 +1911,7 @@ def fit_adaptive_tmle(
         )
         out_of_fold.append((held, values))
         raw_pibar[held] = raw
+        raw_g[held] = raw_treatment
     cross_fitted = _stack(out_of_fold, n)
     seeds = np.random.default_rng(random_state).integers(0, 2**32 - 1, size=split.n_folds + 1)
     selections: list[tuple[int | None, IntArray, Nuisances, IntArray]] = []
@@ -1861,7 +1921,7 @@ def fit_adaptive_tmle(
             for v in range(u + 1, split.n_folds):
                 both = np.flatnonzero((assignment == u) | (assignment == v))
                 train = np.flatnonzero((assignment != u) & (assignment != v))
-                values, _ = _nuisances_on(
+                values, _, _ = _nuisances_on(
                     data,
                     learners,
                     train,
@@ -1929,6 +1989,8 @@ def fit_adaptive_tmle(
         raw_pibar,
         controls_only,
         n_external_treated,
+        raw_g=raw_g,
+        bounds=g_bounds,
     )
 
 
@@ -2255,6 +2317,9 @@ def _assemble(
     raw_pibar: FloatArray,
     controls_only: bool,
     n_external_treated: int,
+    *,
+    raw_g: FloatArray,
+    bounds: tuple[float, float],
 ) -> AdaptiveTMLEFit:
     """The estimate, its standard error and the record of the targeting.
 
@@ -2364,6 +2429,9 @@ def _assemble(
             data, units, split, form, raw_pibar, controls_only, n_external_treated, population
         ),
         folds=split,
+        treatment_probability=raw_g,
+        source_probability=raw_pibar,
+        probability_bounds=(float(bounds[0]), float(bounds[1])),
     )
 
 

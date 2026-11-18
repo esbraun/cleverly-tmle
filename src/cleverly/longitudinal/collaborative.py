@@ -1276,6 +1276,11 @@ class SurvivalSelection:
         """The treatment-model covariates and the censoring-model terms of the selected position."""
         return self.g1_terms[self.selected], self.g2_terms[self.selected]
 
+    @property
+    def move_labels(self) -> tuple[str, ...]:
+        """The move of each path position in words: ``"M0"``, then ``"+<term> in <g1|g2>"``."""
+        return tuple(self._label(index) for index in range(len(self.moves)))
+
     def _label(self, index: int) -> str:
         move = self.moves[index]
         return "M0" if move is None else f"+{move[1]} in {move[0]}"
@@ -1480,6 +1485,9 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("collaborative_tmle", "greedy")
+    #: A constant node keeps the constant-node status: the mechanism is selected along the
+    #: fit, and no study measures the boundary-node supplement with that selection.
+    _boundary_kind: ClassVar[str | None] = "collaborative"
 
     def __init__(
         self,

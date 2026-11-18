@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._inference_status import (
+    BOUNDARY_NODE_BAND_NOTE,
     MINIMUM_INTERVAL_CLUSTERS,
     NO_CONSTANT_ARM_BANDS,
     NO_KNOWN_REGIME_BANDS,
@@ -55,6 +56,7 @@ from ..inference.cluster import (
 )
 from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
+    bootstrap_diagnostic_reason,
     bootstrap_is_diagnostic,
 )
 from ..inference.multiplier import (
@@ -436,8 +438,19 @@ def _bands(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTable,
     if bands.support.label == vocabulary.EXPERIMENTAL:
         sentences.append(vocabulary.NOTE_TEXTS["bands_experimental"])
     outside = [name for name in result.estimates if name not in bands.bands]
+    # An estimate with the boundary-node supplement has an interval, and the band leaves it
+    # out for another reason (X54 part (i)).
+    supplemented = [
+        name
+        for name in outside
+        if getattr(result.estimates[name], "node", None) is not None
+        and result.estimates[name].supplies_inference
+    ]
+    outside = [name for name in outside if name not in supplemented]
     if outside:
         sentences.append(vocabulary.NOTE_TEXTS["bands_leave_out"].format(names=", ".join(outside)))
+    if supplemented:
+        sentences.append(BOUNDARY_NODE_BAND_NOTE.format(names=", ".join(supplemented)))
     return table, note("simultaneous_bands", " ".join(sentences))
 
 
@@ -457,13 +470,9 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
         low, high = summary.ci
         flagged = bootstrap_is_diagnostic(estimate)
         if flagged:
-            if not estimate.supplies_inference:
-                reason = "withheld"
-            elif summary.below_floor:
-                reason = "below_floor"
+            reason = bootstrap_diagnostic_reason(estimate)
+            if reason == "below_floor":
                 floor = summary.cluster_floor or floor
-            else:
-                reason = "declared"
             diagnostic.setdefault(reason, []).append(name)
         elif summary.support.label == vocabulary.EXPERIMENTAL:
             experimental.append(name)
@@ -924,6 +933,11 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
         lines.append(f"Clusters: {_cluster_fact(data)}.")
     if config.treatment_mechanism == "known":
         lines.append("Treatment probabilities are the declared known values; no limit moved one.")
+        if getattr(config, "conditional_form", "arm_mean") == "known_score":
+            lines.append(
+                "The ATT and ATC weight every row's targeted contrast by the declared "
+                "probability of the conditioning arm (conditional_form='known_score')."
+            )
     if config.bounded_mechanisms:
         lines.append(
             f"Estimated probabilities {_mechanism_words(config.bounded_mechanisms)} raised to "

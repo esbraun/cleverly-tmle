@@ -60,6 +60,8 @@ def _point_fit(
     for key in ("weights", "weights_estimated", "delta", "treatment_covariates"):
         if key in extra:
             fit_args[key] = extra.pop(key)
+    if known and "weights" in fit_args:
+        fit_args["mechanism_law"] = "target"
     settings.update(extra)
     if covariates is None and frame is None:
         fit_args["covariates"] = ["W1", "W2"]
@@ -141,7 +143,7 @@ class TestW18StatusRouting:
                 frame,
                 interventions=regimes,
                 estimands=None,
-                fit={"treatment_probabilities": probabilities},
+                fit={"treatment_probabilities": probabilities, "mechanism_law": "target"},
             )
         assert_reports_inference(result)
 
