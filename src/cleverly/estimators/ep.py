@@ -757,6 +757,15 @@ def _nests(basis: Any) -> bool:
     return False  # BSpline (its knots move with the size), UserBasis and any other type
 
 
+def _equal(left: Any, right: Any) -> bool:
+    """``left == right`` as a plain truth value; ``False`` where the comparison cannot give one
+    (a subclass field holding an array)."""
+    try:
+        return bool(left == right)
+    except (TypeError, ValueError):
+        return False
+
+
 def nested_columns(family: Any, member: Any) -> IntArray | None:
     """The positions of ``member``'s design columns in ``family``'s design, or ``None``.
 
@@ -779,7 +788,7 @@ def nested_columns(family: Any, member: Any) -> IntArray | None:
         Integer column positions, or ``None`` when the member must be evaluated itself.
     """
     terms = tuple(family.terms)
-    if member is family or (type(member) is type(family) and member == family):
+    if member is family or (type(member) is type(family) and _equal(member, family)):
         return np.arange(len(terms), dtype=np.intp)
     if not (_nests(family) and _nests(member)):
         return None
@@ -856,9 +865,21 @@ class SieveDesigns:
 
 
 def read_only_pieces(pieces: _Pieces) -> _Pieces:
-    """``pieces`` with every array replaced by a read-only view, for inputs that several
-    sizes share: a size step that wrote into one would change every later size.  A view, so
-    the nuisance fit's own arrays keep their flags."""
+    """Return ``pieces`` with every array replaced by a read-only view.
+
+    The inputs several sizes share: a size step that wrote into one would change every later
+    size.  A view, so the nuisance fit's own arrays keep their flags.
+
+    Parameters
+    ----------
+    pieces : _Pieces
+        The debiasing inputs (:func:`nuisance_pieces`).
+
+    Returns
+    -------
+    _Pieces
+        The same values, read-only.
+    """
     views: dict[str, Any] = {}
     for name in _PIECE_ARRAYS:
         view = np.asarray(getattr(pieces, name)).view()
@@ -880,15 +901,29 @@ _PIECE_ARRAYS = (
 )
 
 
-class _FitState:
+class FitState:
     """What every sieve size reads off one nuisance fit: its rows, designs and pieces.
 
-    The pieces are read on first use, after the first design, in the order a single size's
-    curve reads them.
+    Both the EP learner's size step and the EP rule learner's build one per nuisance fit.  The
+    pieces are read on first use, after the first design, in the order a single size's curve
+    reads them, and handed out as read-only views (:func:`read_only_pieces`).
+
+    Parameters
+    ----------
+    reader : callable
+        ``reader()`` returns the debiasing inputs of the nuisance fit.
+    designs : SieveDesigns
+        The sieve designs at the fit's rows.
+    values : dict of str to ndarray
+        The fit's modifier columns.
+    width : float
+        ``b - a``, the outcome range.
     """
 
-    def __init__(self, nuisance_fit: Any, designs: SieveDesigns, values: Any, width: float) -> None:
-        self.nuisance_fit = nuisance_fit
+    def __init__(
+        self, reader: Callable[[], _Pieces], designs: SieveDesigns, values: Any, width: float
+    ) -> None:
+        self.reader = reader
         self.designs = designs
         self.values = values
         self.width = width
@@ -896,9 +931,9 @@ class _FitState:
 
     @property
     def pieces(self) -> _Pieces:
-        """The debiasing inputs of the nuisance fit (:func:`_pieces`), computed once."""
+        """The debiasing inputs of the nuisance fit, read once."""
         if self._pieces is None:
-            self._pieces = read_only_pieces(_pieces(self.nuisance_fit))
+            self._pieces = read_only_pieces(self.reader())
         return self._pieces
 
 
@@ -1349,19 +1384,21 @@ class EPEstimator:
         """The sieve designs at the rows of ``frame``: the family shared across sizes when
         ``shared`` (two or more sizes read these rows), each member evaluated itself otherwise."""
         spec = self.effect_modification
+        # Resolving the largest member can raise only for an Indicators with no levels, which
+        # the public call refuses before any fit; and only under CV, where no size refusal fires.
         family = self.member(int(spec.basis.max_size)) if shared else None
         return SieveDesigns(family, spec.modifiers, frame)
 
-    def _state(self, nuisance_fit: Any, *, shared: bool = False) -> _FitState:
+    def _state(self, nuisance_fit: Any, *, shared: bool = False) -> FitState:
         """What every size's curve reads off ``nuisance_fit``, computed once."""
         columns = tuple(self.effect_modification.modifiers.columns)
         values = modifier_frame(nuisance_fit.data, columns)
         lower, upper = nuisance_fit.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
         designs = self._designs(values, shared=shared)
-        return _FitState(nuisance_fit, designs, values, float(upper - lower))
+        return FitState(lambda: _pieces(nuisance_fit), designs, values, float(upper - lower))
 
     def _curve_at(
-        self, nuisance_fit: Any, size: int, state: _FitState | None = None
+        self, nuisance_fit: Any, size: int, state: FitState | None = None
     ) -> tuple[EPCurve, Debiasing]:
         """Debias and fit the final stage at ``size`` from the nuisances of ``nuisance_fit``.
 

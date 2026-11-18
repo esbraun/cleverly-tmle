@@ -96,7 +96,9 @@ NESTED = [
 def assert_same_design(cached: np.ndarray, own: np.ndarray) -> None:
     assert cached.dtype == own.dtype == np.float64
     assert cached.shape == own.shape
+    assert cached.strides == own.strides
     assert cached.flags.c_contiguous == own.flags.c_contiguous
+    assert cached.flags.f_contiguous == own.flags.f_contiguous
     assert cached.tobytes() == own.tobytes()
 
 
@@ -211,7 +213,7 @@ def uncached(monkeypatch: Any) -> Any:
             lambda self, member: np.asarray(member.evaluate(self.frame, self.modifiers), float),
         )
         monkeypatch.setattr(
-            ep._FitState, "pieces", property(lambda self: ep._pieces(self.nuisance_fit))
+            ep.FitState, "pieces", property(lambda self: ep.read_only_pieces(self.reader()))
         )
 
     return enable
@@ -294,10 +296,6 @@ def test_a_cached_fit_equals_the_per_size_fit(case: dict[str, Any], uncached: An
 def test_the_layout_mutation_moves_a_fit(monkeypatch: Any) -> None:
     """Mutation control for the fit witness: a Fortran-ordered design sends ``design @ beta``
     through another BLAS kernel, which sums in another order, and the CV risks move."""
-    probe = np.random.default_rng(0).normal(size=(500, 9))
-    beta = np.ones(9) / 3.0
-    if np.array_equal(probe @ beta, np.asfortranarray(probe) @ beta):
-        pytest.skip("this BLAS sums both layouts alike; the layout unit test still gates")
     data = frame()
     kept = digest(ep_fit(data, FIT_LEVELS), data)
     original = ep.SieveDesigns.at
@@ -307,10 +305,27 @@ def test_the_layout_mutation_moves_a_fit(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(ep.SieveDesigns, "at", fortran)
     moved = digest(ep_fit(data, FIT_LEVELS), data)
+    if moved == kept:
+        pytest.skip("this BLAS sums both layouts alike; the layout unit test still gates")
     assert moved[2] != kept[2]
 
 
 def rule_fit(**rule: Any) -> Any:
+    """A learned-rule fit with ``loss="ep"``: its estimates and every fold's EP rule record."""
+    from cleverly.interventions import _rule_learners as rule_learners
+
+    records: list[Any] = []
+    fold_curve = rule_learners.ep_fold_curve
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        out = fold_curve(*args, **kwargs)
+        record = out[1]
+        records.append(
+            (record.mode, record.sizes, np.asarray(record.cv_risks).tobytes(), record.chosen)
+        )
+        return out
+
+    rule_learners.ep_fold_curve = recording
     engine = TMLE(
         learned_rule=LearnedRule(loss="ep", modifiers=MODIFIERS, **rule),
         outcome_learner=LogisticRegression(),
@@ -321,14 +336,20 @@ def rule_fit(**rule: Any) -> Any:
         cross_fit=True,
         cv_evaluation=True,
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        result = engine.fit(frame(600), outcome="Y", treatment="A", covariates=["W1", "W2", "C"])
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = engine.fit(
+                frame(600), outcome="Y", treatment="A", covariates=["W1", "W2", "C"]
+            )
+    finally:
+        rule_learners.ep_fold_curve = fold_curve
     estimate = result.single().estimates
+    assert records
     return tuple(
         (name, np.float64(e.psi).tobytes(), np.asarray(e.influence_curve).tobytes())
         for name, e in estimate.items()
-    )
+    ) + tuple(records)
 
 
 @pytest.mark.parametrize(
@@ -544,7 +565,7 @@ def test_no_fold_state_outlives_its_fold(monkeypatch: Any) -> None:
     nuisances = ep.EPEstimator._nuisances
 
     def probing(self: Any, data: Any, **changes: Any) -> Any:
-        gc.collect()
+        # Reference counting alone must free a fold's state: no collection before counting.
         seen.append(sum(ref() is not None for ref in alive))
         return nuisances(self, data, **changes)
 
@@ -577,3 +598,82 @@ def test_a_size_step_that_writes_into_a_shared_input_raises(monkeypatch: Any) ->
     monkeypatch.setattr(ep, "debias", writing_design)
     with pytest.raises(ValueError, match="read-only"):
         ep_fit(frame(), sieve=Sieve(Additive(Cosine(["W1"], 2), Cosine(["W2"], 2))))
+
+
+def test_the_rule_learner_releases_each_fold(monkeypatch: Any) -> None:
+    """The rule learner's size step shares ``cross_validated_risks`` and so its release: no
+    shared design of an earlier inner fold is alive when the next inner fold's nuisances fit."""
+    from cleverly.interventions import _rule_learners as rule_learners
+
+    alive: list[weakref.ref[Any]] = []
+    init = ep.SieveDesigns.__init__
+
+    def tracking(self: Any, *args: Any) -> None:
+        init(self, *args)
+        if self.family is not None:
+            alive.append(weakref.ref(self))
+
+    seen: list[int] = []
+    step = rule_learners._size_step_nuisance
+
+    def probing(*args: Any, **kwargs: Any) -> Any:
+        seen.append(sum(ref() is not None for ref in alive))
+        return step(*args, **kwargs)
+
+    monkeypatch.setattr(ep.SieveDesigns, "__init__", tracking)
+    monkeypatch.setattr(rule_learners, "_size_step_nuisance", probing)
+    rule_fit()
+    assert len(seen) > 3 and alive
+    assert seen == [0] * len(seen)
+
+
+def test_a_declared_learner_reads_no_held_out_design(monkeypatch: Any) -> None:
+    """With a declared final learner the curve reads no basis on held-out rows: ``F + 2``
+    evaluations inside ``EPEstimator.fit`` (mutation control: always reading the held-out
+    design gives ``2F + 2``) and ``F + 1`` per rule-learner curve."""
+    inside, recording = counted_evaluations(monkeypatch, ep.EPEstimator, "fit")
+    monkeypatch.setattr(ep.EPEstimator, "fit", recording)
+    fit = ep_fit(frame(), final_learner=LinearRegression())
+    folds = len(fit.fit.sieve.inner_seeds)
+    assert len(inside) == folds + 2
+
+
+def test_a_declared_learner_in_the_rule_learner_reads_no_held_out_design(
+    monkeypatch: Any,
+) -> None:
+    from cleverly.interventions import _rule_learners as rule_learners
+
+    folds: list[int] = []
+    risks = ep.cross_validated_risks
+
+    def recording_splits(splits: Any, *args: Any) -> Any:
+        folds.append(len(splits))
+        return risks(splits, *args)
+
+    monkeypatch.setattr(ep, "cross_validated_risks", recording_splits)
+    counts, recording = counted_evaluations(monkeypatch, rule_learners, "ep_fold_curve")
+    monkeypatch.setattr(rule_learners, "ep_fold_curve", recording)
+    rule_fit(learner=LinearRegression())
+    assert counts and counts == [k + 1 for k in folds]
+
+
+def test_the_rule_learner_keys_each_held_out_mapping(monkeypatch: Any) -> None:
+    """The rule learner's fold predictor, called with two held-out mappings, returns each
+    mapping's own prediction (mutation control: keying by size alone fails)."""
+    seen: list[np.ndarray] = []
+    original = ep.cross_validated_risks
+
+    def probing(splits: Any, sizes: Any, fit_fold: Any, frame_: Any, *args: Any) -> Any:
+        if not seen:
+            key, train, test = splits[0]
+            predict = fit_fold(key, train)
+            first = {name: np.asarray(column)[test] for name, column in frame_.items()}
+            second = {name: np.asarray(column)[train[:40]] for name, column in frame_.items()}
+            for held in (first, second, first):
+                seen.append(predict(sizes[-1], held))
+        return original(splits, sizes, fit_fold, frame_, *args)
+
+    monkeypatch.setattr(ep, "cross_validated_risks", probing)
+    rule_fit()
+    assert len(seen[0]) != len(seen[1]) == 40
+    assert seen[0].tobytes() == seen[2].tobytes()
