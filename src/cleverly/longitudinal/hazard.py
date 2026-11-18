@@ -2023,13 +2023,15 @@ def is_multinode(data: LongitudinalData) -> bool:
 #: ``(PATH_SLOT_BYTES + PATH_STATE_BYTES * J) * nTU + PATH_DESIGN_BYTES * nUp`` (plan 2.4.3):
 #: the walk state, its candidate and temporaries, the best iterate and the retained initial
 #: hazards hold ``(n, T, U, J)`` arrays, and the survival curve, weights and copy structure hold
-#: ``(n, T, U)`` arrays that do not grow with the causes.  Measured with ``tracemalloc`` over
+#: ``(n, T, U)`` arrays that do not grow with the causes.  Calibrated with ``tracemalloc`` over
 #: eight whole one-step fits of a known policy with full support at every node (logistic
-#: learners, one fold), recorded in ``tests/unit/test_hazard_multinode.py`` as ``PEAKS``.  Least
-#: squares on ``(nTU, nTUJ)`` gives 145 and 132 bytes (on ``nTUJ`` alone, 257).  The constants are
-#: raised to 165 and 150, so with the design floor the prediction exceeds every measured peak by
-#: 13 to 42 per cent (13 to 20 per cent except the 44-column fixture, where the floor adds); the
-#: bytes per value did not grow with ``T`` or ``U`` across the fixtures (``U`` up to 128).
+#: learners, one fold): least squares on ``(nTU, nTUJ)`` gave 145 and 132 bytes, raised to 165
+#: and 150.  Re-measured after each horizon's state was released (X106 J2c) in both targeting
+#: modes, and at ten folds with both ``iterate`` values, recorded in
+#: ``tests/unit/test_hazard_multinode.py`` as ``PEAKS``: with the design floor the prediction
+#: exceeds every measured peak by 15 to 48 per cent (15 to 23 per cent except the 44-column
+#: fixture, where the floor adds); the bytes per value did not grow with ``T`` or ``U`` across
+#: the fixtures (``U`` up to 128), and ten folds peaked no higher than one.
 PATH_SLOT_BYTES = 165.0
 
 #: Bytes per value of an ``(n, T, U, J)`` array in the traced peak; see :data:`PATH_SLOT_BYTES`.

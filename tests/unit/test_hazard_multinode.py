@@ -975,25 +975,54 @@ def test_h17_a_policy_at_many_nodes_is_refused_before_any_learner() -> None:
     assert float(found.group(8)) == pytest.approx(peak / 1024.0**3, abs=0.05)
 
 
-#: A record, not a run: the traced peak (MB) of whole one-step fits at ``iterate="best"`` of a
-#: known policy with full support at every node, ``(n, T, J, p, U, peak)``, from which
-#: :data:`~cleverly.longitudinal.hazard.PATH_SLOT_BYTES`, ``PATH_STATE_BYTES`` and
-#: ``PATH_DESIGN_BYTES`` were set.
+#: A record, not a run: the traced peak (MB) of whole fits of a known coin policy with full
+#: support at every node (logistic learners), ``(n, T, J, p, U, targeting, iterate, n_folds,
+#: peak)``, measured after X106 J2c released each horizon's state
+#: (``rows/X106/J2/evidence/2026-11-18/peaks.py`` in the plans repository): the eight fixtures in
+#: both targeting modes at one fold and ``iterate="best"``, and two of them at ten folds in both
+#: modes and both ``iterate`` values.  :data:`~cleverly.longitudinal.hazard.PATH_SLOT_BYTES`,
+#: ``PATH_STATE_BYTES`` and ``PATH_DESIGN_BYTES`` cover every row.
 PEAKS = (
-    (20_000, 4, 1, 5, 16, 367.7),
-    (20_000, 5, 1, 6, 32, 874.0),
-    (20_000, 4, 2, 5, 16, 522.6),
-    (20_000, 4, 1, 44, 16, 362.2),
-    (40_000, 4, 1, 5, 16, 711.9),
-    (2_000, 6, 1, 7, 64, 219.8),
-    (10_000, 4, 2, 5, 16, 261.4),
-    (1_000, 7, 1, 8, 128, 241.8),
+    (20_000, 4, 1, 5, 16, "one_step", "best", 1, 346.2),
+    (20_000, 5, 1, 6, 32, "one_step", "best", 1, 848.9),
+    (20_000, 4, 2, 5, 16, "one_step", "best", 1, 513.4),
+    (20_000, 4, 1, 44, 16, "one_step", "best", 1, 352.4),
+    (40_000, 4, 1, 5, 16, "one_step", "best", 1, 692.2),
+    (2_000, 6, 1, 7, 64, "one_step", "best", 1, 202.2),
+    (10_000, 4, 2, 5, 16, "one_step", "best", 1, 256.8),
+    (1_000, 7, 1, 8, 128, "one_step", "best", 1, 235.5),
+    (20_000, 4, 1, 5, 16, "iterative", "best", 1, 341.3),
+    (20_000, 5, 1, 6, 32, "iterative", "best", 1, 831.8),
+    (20_000, 4, 2, 5, 16, "iterative", "best", 1, 526.8),
+    (20_000, 4, 1, 44, 16, "iterative", "best", 1, 347.6),
+    (40_000, 4, 1, 5, 16, "iterative", "best", 1, 682.5),
+    (2_000, 6, 1, 7, 64, "iterative", "best", 1, 197.2),
+    (10_000, 4, 2, 5, 16, "iterative", "best", 1, 263.5),
+    (1_000, 7, 1, 8, 128, "iterative", "best", 1, 228.7),
+    (20_000, 4, 1, 5, 16, "iterative", "last", 10, 331.1),
+    (10_000, 4, 2, 5, 16, "iterative", "last", 10, 243.0),
+    (20_000, 4, 1, 5, 16, "iterative", "best", 10, 331.1),
+    (10_000, 4, 2, 5, 16, "iterative", "best", 10, 243.0),
+    (20_000, 4, 1, 5, 16, "one_step", "last", 10, 346.2),
+    (10_000, 4, 2, 5, 16, "one_step", "last", 10, 256.8),
+    (20_000, 4, 1, 5, 16, "one_step", "best", 10, 346.2),
+    (10_000, 4, 2, 5, 16, "one_step", "best", 10, 256.8),
 )
 
 
-@pytest.mark.parametrize(("n", "n_times", "causes", "columns", "paths", "peak"), PEAKS)
+@pytest.mark.parametrize(
+    ("n", "n_times", "causes", "columns", "paths", "targeting", "iterate", "folds", "peak"), PEAKS
+)
 def test_h17_the_predicted_peak_covers_each_measured_fit(
-    n: int, n_times: int, causes: int, columns: int, paths: int, peak: float
+    n: int,
+    n_times: int,
+    causes: int,
+    columns: int,
+    paths: int,
+    targeting: str,
+    iterate: str,
+    folds: int,
+    peak: float,
 ) -> None:
     """The prediction stays at least 5 per cent above each recorded peak and within twice it."""
     predicted = hazard_module.path_peak(n, n_times, paths, causes, columns) / 1e6

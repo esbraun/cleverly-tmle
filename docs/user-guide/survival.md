@@ -569,7 +569,8 @@ is measured after baseline. A plan can fix the treatment at each time point, fol
 reads the baseline covariates, or draw the treatment with known probabilities that may depend on
 the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
 follow. A plan that draws at many time points has many sequences, and a fit whose predicted
-memory use passes 2 GiB is refused before any model is fitted.
+memory use passes 2 GiB is refused before any model is fitted. On a machine with more memory,
+`LTMLE(..., max_memory_bytes=...)` sets a different limit, higher or lower.
 
 If a trial design fixes the
 treatment probabilities, you can pass them for the first time point only, as a mapping from the
