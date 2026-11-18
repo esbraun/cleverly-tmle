@@ -116,14 +116,19 @@ def for_blocks(
     depth = 2 * n_jobs
     for start in range(0, count, depth):
         batch = map_parallel(
-            run, list(range(start, min(start + depth, count))), n_jobs=n_jobs, prefer="threads"
+            run,
+            list(range(start, min(start + depth, count))),
+            n_jobs=n_jobs,
+            # Threads always: the blocks write into the walk's shared arrays, so a process
+            # backend set around the fit (joblib.parallel_config) must not take them.
+            require="sharedmem",
         )
         for k, (ok, value, records) in enumerate(batch, start):
             merge(records)
             if not ok:
                 raise value
             commit(k, value)
-        del batch
+        del batch, value, records
 
 
 def chunk_size(n: int, causes: int, times: int) -> int:

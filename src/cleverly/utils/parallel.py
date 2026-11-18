@@ -133,11 +133,14 @@ def map_parallel(
     *,
     n_jobs: int | None = 1,
     prefer: str | None = None,
+    require: str | None = None,
 ) -> list[T]:
     """Apply ``func`` to each payload, in parallel when ``n_jobs != 1``.
 
     Payloads that are tuples are splatted as positional arguments; anything
-    else is passed as a single argument.
+    else is passed as a single argument.  ``prefer`` is joblib's hint, which a backend the
+    caller set with ``joblib.parallel_config`` overrides; ``require="sharedmem"`` holds the
+    work to threads whatever that backend is, for a ``func`` that writes into shared arrays.
 
     Each task runs under its own warning recorder and returns its records with its
     value, because a worker's warnings never reach the parent. The parent merges them
@@ -154,7 +157,7 @@ def map_parallel(
             for item in items
         ]
     else:
-        runner = Parallel(n_jobs=jobs, prefer=prefer)
+        runner = Parallel(n_jobs=jobs, prefer=prefer, require=require)
         outcomes = list(
             runner(
                 delayed(run_recorded)(func, *item)

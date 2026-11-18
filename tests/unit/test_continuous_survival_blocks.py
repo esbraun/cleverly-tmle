@@ -533,6 +533,16 @@ def test_threads_change_no_bit(name: str, resident: float) -> None:
         assert threaded.run.replayed == one.run.replayed
 
 
+def test_a_process_backend_around_the_fit_keeps_the_walk_on_threads() -> None:
+    """The blocks write shared arrays: a loky backend set by the caller must not take them."""
+    import joblib
+
+    one = _fit("two causes", rows=37, resident=0.0, n_jobs=1)
+    with joblib.parallel_config(backend="loky"):
+        threaded = _fit("two causes", rows=37, resident=0.0, n_jobs=2)
+    assert _bitwise(_record_fields(threaded), _record_fields(one)) == []
+
+
 def test_threads_change_no_bit_with_two_blas_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """DR15: the walk leaves BLAS settings alone, so threads match at any one setting."""
     threadpoolctl = pytest.importorskip("threadpoolctl")

@@ -54,12 +54,12 @@ the moment two blocks overlap::
 
 Both halves are wrong: B silently loses the limit it asked for, and the setting the process
 started with never comes back.  This is **not** something the controller cache introduced --
-a fresh ``threadpool_limits`` per call has the identical save/restore race, and did -- and
-nothing inside this package reaches it, because every
-:func:`cleverly.utils.parallel.map_parallel` call leaves ``prefer=None``, so joblib
-dispatches to loky *processes* and each worker has pools of its own.  But
-:func:`thread_limit` is public API, and an ambient ``joblib.parallel_backend("threading")``
-or a caller's own threads reach it in one step.
+a fresh ``threadpool_limits`` per call has the identical save/restore race, and did.  Most
+:func:`cleverly.utils.parallel.map_parallel` calls leave ``prefer=None``, so joblib
+dispatches to loky *processes* and each worker has pools of its own, but the continuous-time
+walk runs its blocks on threads (``require="sharedmem"``), :func:`thread_limit` is public
+API, and an ambient ``joblib.parallel_backend("threading")`` or a caller's own threads reach
+it in one step.
 
 So the *snapshots* are refcounted rather than the applies.  ``_STACK`` is the limits
 currently in force, innermost last; exactly one limiter is kept -- ``_ROOT``, built by the
