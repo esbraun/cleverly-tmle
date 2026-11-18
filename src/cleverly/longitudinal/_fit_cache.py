@@ -15,8 +15,9 @@ an identity cannot be reused under a live entry.  Two things can therefore live 
 without the cache: the panel's cleaned covariate blocks (:func:`held`), held for the draw at the
 size of the panel's own covariates, and the sources of a value a record keeps (a regimen's masks
 behind the node masks its records hold), which is what lets later horizons share that value.
-Retained memory does not rise; a fit's peak can rise by about the held blocks where nothing is
-shared (measured at under 2.5 per cent on SDR, IPSI, MTP and learned-regimen fits at n = 5,000).
+Retained memory and the peak can each rise by at most about the held blocks where nothing is
+shared (measured at under 2.5 per cent on SDR, IPSI, MTP and learned-regimen fits at n = 5,000,
+and under 0.3 per cent at n = 100,000).
 
 The cache lives in a context variable for the duration of one draw's fit and is emptied when
 the fit returns.  Outside it every reader computes as before, so the cache can change when an
