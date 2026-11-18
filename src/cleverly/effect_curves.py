@@ -34,7 +34,7 @@ from ._typing import FloatArray, IntArray
 from .bases import Modifiers
 from .data.known_mechanism import divides_by_declaration
 from .estimators.targeting import _STALL_FACTOR, _UNSOLVED, DEFAULT_MAX_OUTER
-from .exceptions import CapabilityError, DataError, RefusalReason
+from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
 from .fluctuation._score import StopContext, rule_ratio_at
 from .inference.cluster import cluster_inference_status, cluster_reference_df
 from .inference.delta import reference_quantile
@@ -53,6 +53,7 @@ __all__ = [
     "EffectCurveResult",
     "HeterogeneityTest",
     "ProjectionCurve",
+    "ProjectionDraw",
     "ScoreAssessment",
     "heterogeneity_test",
     "score_assessment",
@@ -136,6 +137,7 @@ def heterogeneity_test(
     *,
     scale: str,
     cluster: IntArray | None = None,
+    covariance: FloatArray | None = None,
 ) -> HeterogeneityTest:
     """The Wald test of the non-constant coefficients, from their joint covariance.
 
@@ -153,6 +155,10 @@ def heterogeneity_test(
         The scale of the projected contrast.
     cluster : ndarray or None
         Cluster codes, for the cluster-level covariance.
+    covariance : ndarray or None
+        The joint covariance of the tested (non-constant) coefficients, in basis order.
+        ``None`` reads :func:`estimate_covariance` of their influence curves; a repeated fit
+        passes the matrix rule over its draws.
 
     Returns
     -------
@@ -202,7 +208,8 @@ def heterogeneity_test(
                 "each coefficient's own interval."
             ),
         )
-    covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
+    if covariance is None:
+        covariance = estimate_covariance(estimates, list(selected), cluster=cluster)
     beta = np.array([estimates[name].psi for name in selected])
     statistic = float(beta @ np.linalg.solve(covariance, beta))
     # Under a declared stopping rule the coefficients' error is (P_n - P_0) D - s, with s the
@@ -270,6 +277,25 @@ class CurveBand:
 
 
 @dataclass(frozen=True)
+class ProjectionDraw:
+    """One cross-fitting draw's projection coefficients, their covariance and their curves.
+
+    Parameters
+    ----------
+    beta : ndarray
+        ``(p,)`` the draw's coefficients.
+    covariance : ndarray
+        ``(p, p)`` the draw's joint covariance of the coefficients.
+    influence : ndarray
+        ``(n, p)`` the draw's influence curves of the coefficients.
+    """
+
+    beta: FloatArray
+    covariance: FloatArray
+    influence: FloatArray
+
+
+@dataclass(frozen=True)
 class ProjectionCurve:
     r"""The fitted projection :math:`v \mapsto \varphi(v)^\top\hat\beta` and its curves.
 
@@ -297,6 +323,18 @@ class ProjectionCurve:
     rule_widened : bool
         Whether the coefficients come from a fit under a declared stopping rule, so each
         interval and band adds :meth:`residual_margin` to its half-width.
+    draws : tuple of ProjectionDraw
+        Each cross-fitting draw of a fit with ``repeats`` above 1, or ``()``.  With two or
+        more draws the curve at a point is the median rule over the draws' values
+        :math:`\varphi(v)^\top\beta_r` with variances
+        :math:`\varphi(v)^\top\Sigma_r\varphi(v)`, and the band takes the median of the
+        draws' critical values (P1 plan 2.3).  ``beta``, ``covariance`` and ``influence``
+        then hold the reported median coefficients, their matrix-rule covariance and the
+        central draw's curves.
+    inference : str
+        The inference status of the coefficients: a status that withholds inference in the
+        reported coefficients or in any draw.  :meth:`std_error` and :meth:`band` refuse
+        under a status that supplies no inference, and the curve's points stay available.
     """
 
     basis: Any
@@ -309,6 +347,41 @@ class ProjectionCurve:
     cluster: IntArray | None = None
     reference_df: int | None = None
     rule_widened: bool = False
+    draws: tuple[ProjectionDraw, ...] = ()
+    inference: str = "influence_curve"
+
+    @property
+    def repeated(self) -> bool:
+        """Whether the curve combines two or more cross-fitting draws."""
+        return len(self.draws) > 1
+
+    def _median_rule(self, phi: FloatArray) -> tuple[FloatArray, FloatArray]:
+        """The median point and the median-rule variance at each row of ``phi``."""
+        values = np.column_stack([phi @ draw.beta for draw in self.draws])
+        variances = np.column_stack(
+            [np.einsum("ip,pq,iq->i", phi, draw.covariance, phi) for draw in self.draws]
+        )
+        point = np.median(values, axis=1)
+        variance = np.median(variances + (values - point[:, None]) ** 2, axis=1)
+        return point, variance
+
+    def at_design(self, phi: FloatArray) -> FloatArray:
+        """The curve at the rows of an evaluated basis design.
+
+        Parameters
+        ----------
+        phi : ndarray
+            ``(m, p)`` basis design.
+
+        Returns
+        -------
+        ndarray
+            One value per row.
+        """
+        design = np.asarray(phi, dtype=float)
+        if self.repeated:
+            return self._median_rule(design)[0]
+        return np.asarray(design @ self.beta, dtype=float)
 
     def residual_margin(self, frame: Any) -> FloatArray:
         r"""What a declared stopping rule adds to the half-width at each row of ``frame``.
@@ -361,7 +434,7 @@ class ProjectionCurve:
         ndarray
             One prediction per row.
         """
-        return self.design(frame) @ self.beta
+        return self.at_design(self.design(frame))
 
     def std_error(self, frame: Any) -> FloatArray:
         """The pointwise standard error of the curve at the rows of ``frame``.
@@ -375,8 +448,16 @@ class ProjectionCurve:
         -------
         ndarray
             One standard error per row.
+
+        Raises
+        ------
+        CapabilityError
+            If :attr:`inference` supplies no inference.
         """
+        refuse_inference(self.inference, operation="the curve's standard error")
         phi = self.design(frame)
+        if self.repeated:
+            return np.sqrt(self._median_rule(phi)[1])
         return np.sqrt(np.einsum("ip,pq,iq->i", phi, self.covariance, phi))
 
     def band(
@@ -407,23 +488,50 @@ class ProjectionCurve:
         -------
         CurveBand
             The curve and its band at each grid point.
+
+        Raises
+        ------
+        CapabilityError
+            If :attr:`inference` supplies no inference.
         """
+        refuse_inference(self.inference, operation="the curve's band")
         phi = self.design(grid)
-        estimate = phi @ self.beta
-        se = np.sqrt(np.einsum("ip,pq,iq->i", phi, self.covariance, phi))
+        estimate = self.at_design(phi)
+        se = self.std_error(grid)
         if np.any(se <= 0):
             raise DataError("a grid point has a zero standard error; drop it from the grid")
-        curves = self.influence @ phi.T
-        critical = multiplier_critical_value(
-            curves,
-            se,
-            n=int(curves.shape[0]),
-            cluster=self.cluster,
-            alpha=alpha,
-            n_replicates=n_replicates,
-            kind=kind,
-            random_state=random_state,
-        )
+
+        def critical_value(influence: FloatArray, se_at: FloatArray) -> float:
+            curves = influence @ phi.T
+            return float(
+                multiplier_critical_value(
+                    curves,
+                    se_at,
+                    n=int(curves.shape[0]),
+                    cluster=self.cluster,
+                    alpha=alpha,
+                    n_replicates=n_replicates,
+                    kind=kind,
+                    random_state=random_state,
+                )
+            )
+
+        if self.repeated:
+            # Each draw's critical value from its own curves and standard errors, with the
+            # one seed, and their median around the median-rule curve (``median_bands``).
+            critical = float(
+                np.median(
+                    [
+                        critical_value(
+                            draw.influence,
+                            np.sqrt(np.einsum("ip,pq,iq->i", phi, draw.covariance, phi)),
+                        )
+                        for draw in self.draws
+                    ]
+                )
+            )
+        else:
+            critical = critical_value(self.influence, se)
         values = self.modifiers.values(grid, self.basis.columns)
         half = critical * se + self.residual_margin(grid)
         return CurveBand(

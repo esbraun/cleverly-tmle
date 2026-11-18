@@ -54,7 +54,11 @@ from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
 from ..data.known_mechanism import divides_by_declaration
-from ..effect_modification import EffectModification, modifier_frame
+from ..effect_modification import (
+    EffectModification,
+    effect_modification_ep_refusal,
+    modifier_frame,
+)
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..learners._fitting import clone_learner, fit_learner, seed_unset
 from ..learners.parametric import logistic_newton
@@ -388,7 +392,13 @@ def final_stage(
         contrast = debiased.contrast
         if learner is not None:
             assert values is not None
-            fitted = fit_learner(clone_learner(learner), _learner_input(values), contrast, w)
+            # Unit weights are no weights. Passing them changes no fit, but it sends
+            # scikit-learn's histogram booster through weighted-percentile binning, which
+            # doubles its cost (tests/unit/test_learned_rule_ep_declared_design.py).
+            unit = bool(np.all(w == 1.0))
+            fitted = fit_learner(
+                clone_learner(learner), _learner_input(values), contrast, None if unit else w
+            )
             return None, fitted
         root = np.sqrt(w)
         beta = np.linalg.lstsq(design * root[:, None], contrast * root, rcond=None)[0]
@@ -1130,11 +1140,15 @@ class EPEstimator:
         Raises
         ------
         CapabilityError
-            If a fixed or scheduled size exceeds the family's largest member, or a basis
-            reads an undeclared domain or level (R3).
+            If the data hold a missing treatment or baseline strata (R7-ep-mt,
+            R7-ep-strata), a fixed or scheduled size exceeds the family's largest member,
+            or a basis reads an undeclared domain or level (R3).
         DataError
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
+        data_refusal = effect_modification_ep_refusal(data)
+        if data_refusal is not None:
+            raise CapabilityError.from_refusal(data_refusal)
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
         for size in self.sizes(data.n):
             refusal = size_refusal(size, self.effect_modification.basis, data.n)

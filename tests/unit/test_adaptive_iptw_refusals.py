@@ -481,8 +481,9 @@ class TestMissingTreatmentGate:
         head = (
             "A is missing on {n} row(s). A missing treatment is supported for arm means and "
             "their contrasts (ey, ate, rr, or) on in-sample TMLE and DRTMLE fits and, for point "
-            "estimates, per-arm outcome-adaptive CTMLE fits, and for regime means and "
-            "arm-indexed MSM coefficients on in-sample TMLE fits, through the composite "
+            "estimates, per-arm outcome-adaptive CTMLE fits, and for regime means, "
+            "arm-indexed MSM coefficients and the projection coefficients of a "
+            "ConditionalContrast on in-sample TMLE fits, through the composite "
             "indicator Delta_A * Delta * 1{{A = a}}. The composite construction uses the "
             "in-sample (Donsker) theorem. The cross-fitted composite construction is open "
             "(roadmap {row}). Pass cross_fit=False (CrossFitting(enabled=False) on a method)."

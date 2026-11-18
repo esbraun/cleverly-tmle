@@ -1390,6 +1390,7 @@ def attach_bootstrap(
     diagnostic: bool = False,
     classification: Classification | None = None,
     interval: BootstrapInterval = "percentile",
+    experimental_reason: str | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -1416,6 +1417,12 @@ def attach_bootstrap(
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
         clusters when the bootstrap resamples clusters.
+    experimental_reason : str or None, default=None
+        The sentence a summary whose support reads experimental gives as its reason, in place
+        of the generic one.  When the estimate itself reads experimental, the summary keeps
+        the generic reason, which names why, and adds this sentence after it.  The
+        point-treatment TMLE passes the reason of a cross-fitted bootstrap (roadmap F2);
+        ``None`` keeps the generic reason.
 
     Returns
     -------
@@ -1448,15 +1455,23 @@ def attach_bootstrap(
             drawn = bootstrap.interval(name, alpha)
         # A row resample keeps a flagged node's one value, so the bootstrap spread leaves out
         # the variance the boundary-node supplement bounds; that interval is a diagnostic.
+        support = support_for(classification, estimate.inference, estimate.reference_df, kind=kind)
+        # An estimate that is itself experimental keeps the generic reason, which names why
+        # its own fit reads experimental, and adds the given one after it.
+        if experimental_reason is not None and support.label == "experimental":
+            reason = (
+                f"{support.reason} {experimental_reason}"
+                if estimate.support.label == "experimental" and support.reason
+                else experimental_reason
+            )
+            support = replace(support, reason=reason)
         return replace(
             drawn,
             diagnostic=diagnostic or estimate.node is not None,
             boundary_node=estimate.node is not None,
             below_floor=below_floor,
             cluster_floor=cluster_floor,
-            support=support_for(
-                classification, estimate.inference, estimate.reference_df, kind=kind
-            ),
+            support=support,
         )
 
     estimates = {

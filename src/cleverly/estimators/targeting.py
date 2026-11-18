@@ -99,6 +99,8 @@ __all__ = [
     "DEFAULT_MAX_OUTER",
     "ONE_STEP_CARRY_COST",
     "ONE_STEP_FOLDWISE_REFUSAL",
+    "REPORTED_GROUP",
+    "STRATIFIED_RATIO_GROUP",
     "ObservationMechanismFluctuation",
     "ProjectionFluctuation",
     "ReductionExit",
@@ -424,6 +426,10 @@ def build_submodel(
     link.
     """
     lower = float(nuisance_bound)
+    if group == STRATIFIED_RATIO_GROUP:
+        return _stratified_ratio_submodel(
+            data, nuisance, bounds=bounds, nuisance_bound=lower, beta=msm_beta
+        )
     if group == "msm" and nuisance.msm is not None and nuisance.msm.continuous:
         if nuisance.density is None:
             raise ValueError("a continuous MSM needs the fitted conditional treatment density")
@@ -536,6 +542,44 @@ def build_submodel(
         # g is inside that estimand, so a bound there would move the parameter.
         incremental=None if nuisance.incremental is None else nuisance.incremental.weights,
     )
+
+
+def _stratified_ratio_submodel(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    *,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    beta: FloatArray | None,
+) -> Submodel:
+    r"""The stratified log-ratio covariate, block ``s`` at stratum ``s``'s coefficients.
+
+    Block ``s`` is :math:`1\{S = s\} \sum_a c_a(V; \beta_s) C_a / g_a / P_n(S = s)`: the
+    unstratified log-ratio covariate at :math:`\beta_s`, restricted to the stratum and scaled
+    by its mass (:func:`~cleverly.fluctuation.submodel.stratify`).  ``beta`` holds the
+    stratum coefficients stratum-major, ``(n_strata * p,)``.
+    """
+    contrast = nuisance.effect_modification
+    if contrast is None or data.strata is None or beta is None:
+        raise ValueError(
+            "the stratified log-ratio covariate needs the projection, baseline strata and the "
+            "stratum coefficients it is read at"
+        )
+    coefficients = np.asarray(beta, dtype=float).reshape(data.n_strata, contrast.n_terms)
+    pieces = [
+        build_submodel(
+            data,
+            nuisance,
+            "effect_modification_ratio",
+            bounds=bounds,
+            nuisance_bound=nuisance_bound,
+            msm_beta=coefficients[code],
+        )
+        for code in range(data.n_strata)
+    ]
+    labels = [data.stratum_label(code) for code in range(data.n_strata)]
+    stratified = stratify(pieces, data.strata, stratum_probabilities(data), labels)
+    return replace(stratified, group=STRATIFIED_RATIO_GROUP)
 
 
 def solve_submodel(
@@ -708,14 +752,33 @@ class ProjectionFluctuation:
         return len(self.trace)
 
 
+#: The fluctuation of a log-ratio conditional contrast's stratum coefficients under
+#: ``strata=`` (P1 plan 2.2).  It holds one block of basis columns per baseline stratum,
+#: block ``s`` read at that stratum's own coefficients, and reports the stratum names only.
+#: The marginal names of the same fit come from the unstratified ``effect_modification_ratio``
+#: fluctuation, run beside it on the same initial nuisances.  It is a fluctuation and not a
+#: target group: no target names it, and :meth:`~cleverly.TMLE._groups` adds it.
+STRATIFIED_RATIO_GROUP = "effect_modification_ratio_strata"
+
+#: The target group whose targets each fluctuation group reports.
+REPORTED_GROUP: dict[str, str] = {
+    "natural_course": "mean",
+    STRATIFIED_RATIO_GROUP: "effect_modification_ratio",
+}
+
+
 def needs_projection(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
     """Whether this fit's targeting has a projection half to alternate with.
 
     Only a log-ratio conditional contrast has one: its clever covariate reads its own
-    coefficients.  A working model's covariate :math:`h\\varphi/g` is free of them under
-    every link (:mod:`cleverly.msm`), so its targeting is one fluctuation.
+    coefficients, the stratum coefficients under ``strata=``.  A working model's covariate
+    :math:`h\\varphi/g` is free of them under every link (:mod:`cleverly.msm`), so its
+    targeting is one fluctuation.
     """
-    return group == "effect_modification_ratio" and nuisance.effect_modification is not None
+    return (
+        group in ("effect_modification_ratio", STRATIFIED_RATIO_GROUP)
+        and nuisance.effect_modification is not None
+    )
 
 
 def reported_beta(
@@ -805,9 +868,27 @@ def solve_with_projection(
     fold_stop = stop if stop is None or index is None else stop.restrict(index)
     scaler = nuisance.scaler
     contrast = contrast if index is None else contrast.subset(index)
+    if group == STRATIFIED_RATIO_GROUP:
+        # One projection per stratum on that stratum's rows, stacked stratum-major, which is
+        # the layout the stratified covariate reads them in (``_stratified_ratio_submodel``).
+        # Fold-wise targeting refuses strata=, so ``index`` is None here.
+        assert data.strata is not None and index is None
+        strata_rows = [np.flatnonzero(data.strata == code) for code in range(data.n_strata)]
+        parts = [contrast.subset(rows_s) for rows_s in strata_rows]
 
-    def project(fit: InitialFit) -> FloatArray:
-        return contrast.project(_raw_arms(fit, contrast.arms, scaler), w).beta
+        def project(fit: InitialFit) -> FloatArray:
+            raw = _raw_arms(fit, contrast.arms, scaler)
+            return np.concatenate(
+                [
+                    part.project(raw[rows_s], w[rows_s]).beta
+                    for part, rows_s in zip(parts, strata_rows, strict=True)
+                ]
+            )
+
+    else:
+
+        def project(fit: InitialFit) -> FloatArray:
+            return contrast.project(_raw_arms(fit, contrast.arms, scaler), w).beta
 
     def submodel_at(coefficients: FloatArray) -> Submodel:
         return _projection_submodel(
