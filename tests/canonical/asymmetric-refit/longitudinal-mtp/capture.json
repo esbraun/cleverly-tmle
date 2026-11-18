@@ -38,5 +38,28 @@
     "seconds_fit": 32.61,
     "stage": "scope",
     "study": "longitudinal-mtp"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "root_n_and_efficiency/up__n_2000"
+    ],
+    "jobs": 16,
+    "keys_fitted": 600,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/n500",
+      "properties/n1000",
+      "properties/n2000",
+      "properties/n4000",
+      "properties/n8000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 600,
+    "seconds_capture": 0.63,
+    "seconds_fit": 520.49,
+    "stage": "settle",
+    "study": "longitudinal-mtp"
   }
 }

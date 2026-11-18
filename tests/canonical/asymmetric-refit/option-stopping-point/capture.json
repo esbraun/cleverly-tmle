@@ -30,5 +30,26 @@
     "seconds_fit": 3.1,
     "stage": "scope",
     "study": "option-stopping-point"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "binary/ate",
+      "continuous/ate",
+      "continuous/ey1"
+    ],
+    "jobs": 16,
+    "keys_fitted": 6400,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 12800,
+    "seconds_capture": 7.15,
+    "seconds_fit": 4438.68,
+    "stage": "settle",
+    "study": "option-stopping-point"
   }
 }

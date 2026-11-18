@@ -30,5 +30,25 @@
     "seconds_fit": 157.16,
     "stage": "scope",
     "study": "weighted-ltmle"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "root_n_and_efficiency/static__n_2000",
+      "type_i_error/static__sharp_null"
+    ],
+    "jobs": 16,
+    "keys_fitted": 1600,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 2400,
+    "seconds_capture": 0.43,
+    "seconds_fit": 1350.68,
+    "stage": "settle",
+    "study": "weighted-ltmle"
   }
 }
