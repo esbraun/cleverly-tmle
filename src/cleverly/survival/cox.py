@@ -123,24 +123,54 @@ def _tail(values: FloatArray, start: IntArray) -> FloatArray:
     return cum[start]
 
 
-def _loglik_parts(
+#: Bytes one block of the risk second moments may take: the ``(n, b, q)`` products, their
+#: reversed running sums and the ``(M, b, q)`` sums at the event times are each about this size.
+#: A block holds at least one row, so when ``8 n q`` exceeds this budget a block is ``8 n q``.
+_BLOCK_BYTES: Final = 32 * 2**20
+
+
+def _loglik_terms(
     beta: FloatArray, Z: FloatArray, sets: _RiskSets
 ) -> tuple[float, FloatArray, FloatArray]:
-    """Breslow log partial likelihood, its gradient and its negative Hessian."""
+    """The log partial likelihood, the risks in time order, and their sums ``s0``."""
     eta = Z @ beta
     shift = float(np.max(eta)) if eta.size else 0.0
     risk = np.exp(eta - shift)
-    zs = Z[sets.order]
     rs = risk[sets.order]
     s0 = _tail(rs, sets.start)
-    s1 = _tail(rs[:, None] * zs, sets.start)
-    s2 = _tail(rs[:, None, None] * zs[:, :, None] * zs[:, None, :], sets.start)
-    zbar = s1 / s0[:, None]
     loglik = float(np.sum(eta[sets.event_sum_rows]) - np.sum(sets.deaths * (np.log(s0) + shift)))
+    return loglik, rs, s0
+
+
+def _loglik(beta: FloatArray, Z: FloatArray, sets: _RiskSets) -> float:
+    """Breslow log partial likelihood alone, which is all a step-halving trial reads."""
+    return _loglik_terms(beta, Z, sets)[0]
+
+
+def _loglik_parts(
+    beta: FloatArray, Z: FloatArray, sets: _RiskSets
+) -> tuple[float, FloatArray, FloatArray]:
+    """Breslow log partial likelihood, its gradient and its negative Hessian.
+
+    The risk second moments are built a block of Hessian rows at a time, so no ``(n, q, q)``
+    array exists. Each entry is the same product, running sum and sum over event times that
+    one full array would hold, so the result does not depend on the block size.
+    """
+    loglik, rs, s0 = _loglik_terms(beta, Z, sets)
+    zs = Z[sets.order]
+    s1 = _tail(rs[:, None] * zs, sets.start)
+    zbar = s1 / s0[:, None]
     grad = Z[sets.event_sum_rows].sum(axis=0) - (sets.deaths[:, None] * zbar).sum(axis=0)
-    info = (
-        sets.deaths[:, None, None] * (s2 / s0[:, None, None] - zbar[:, :, None] * zbar[:, None, :])
-    ).sum(axis=0)
+    q = zs.shape[1]
+    info = np.full((q, q), np.nan)  # a row no block writes stays visible
+    block = max(1, _BLOCK_BYTES // (8 * max(1, zs.shape[0] * q)))
+    for first in range(0, q, block):
+        rows = slice(first, min(q, first + block))
+        s2 = _tail(rs[:, None, None] * zs[:, rows, None] * zs[:, None, :], sets.start)
+        info[rows] = (
+            sets.deaths[:, None, None]
+            * (s2 / s0[:, None, None] - zbar[:, rows, None] * zbar[:, None, :])
+        ).sum(axis=0)
     return loglik, grad, info
 
 
@@ -262,7 +292,7 @@ class CoxHazard:
                 trial = beta + step
                 resolved = bool(np.ptp(Zs @ trial) <= _SPREAD_MAX)
                 value = (
-                    _loglik_parts(trial, Zs, sets)[0] - 0.5 * self.penalty * trial @ trial
+                    _loglik(trial, Zs, sets) - 0.5 * self.penalty * trial @ trial
                     if resolved
                     else np.nan
                 )
@@ -410,7 +440,7 @@ def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> f
     sets = _risk_sets(np.asarray(time, dtype=float), np.asarray(event, dtype=float))
     if sets.times.size == 0:
         return 0.0
-    return _loglik_parts(model._zs_beta, Zs, sets)[0]
+    return _loglik(model._zs_beta, Zs, sets)
 
 
 class StratifiedNelsonAalen:
