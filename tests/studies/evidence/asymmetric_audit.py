@@ -168,6 +168,11 @@ CURRENT: dict[str, str] = {
     "skew-widened t",
     "small-sample-wald": "its rows hold the rule it measured, the record under "
     "F3-normal-reference, not a shipped interval",
+    # Regenerated under the shipped intervals (Fix-3 step 7d, run branch fix3-refit-audit).
+    "ctmle-derivative": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
+    "weighted-ltmle": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
+    "refuter-calibration-band": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
+    "cde-tmle": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
 }
 
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row
