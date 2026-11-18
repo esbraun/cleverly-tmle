@@ -535,7 +535,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.followed_through"): "compares presence codes",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
-    ("longitudinal/data.py", "LongitudinalData._history_design"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
     ("longitudinal/estimator.py", "_observed_cumulative"): (
         "after refuse_multinode_design: every node categorical (H22, H21)"
@@ -645,7 +645,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ),
     ("longitudinal/data.py", "LongitudinalData._declare_known"): "a mixed node is refused first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
-    ("longitudinal/data.py", "LongitudinalData._history_design"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.with_treatment"): "a mixed node is refused first",

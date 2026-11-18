@@ -81,7 +81,7 @@ def mutant_bias_over_sd(estimand: str) -> float:
     from cleverly.longitudinal import LongitudinalData
 
     data_module = importlib.import_module("cleverly.longitudinal.data")
-    source = textwrap.dedent(inspect.getsource(LongitudinalData._history_design))
+    source = textwrap.dedent(inspect.getsource(LongitudinalData.history_design))
     old = "first = self.window_arm_start(time)"
     assert source.count(old) == 1
     namespace: dict[str, object] = {}
@@ -90,12 +90,12 @@ def mutant_bias_over_sd(estimand: str) -> float:
         vars(data_module),
         namespace,
     )
-    original = LongitudinalData._history_design
-    LongitudinalData._history_design = namespace["_history_design"]  # type: ignore[method-assign, assignment]
+    original = LongitudinalData.history_design
+    LongitudinalData.history_design = namespace["history_design"]  # type: ignore[method-assign, assignment]
     try:
         limit = law.exact_limit("lf2_order0")[estimand]
     finally:
-        LongitudinalData._history_design = original  # type: ignore[method-assign]
+        LongitudinalData.history_design = original  # type: ignore[method-assign]
     return (limit.estimate - law.truth("LF2")[estimand]) / limit.sd(N)
 
 

@@ -123,7 +123,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
-from ._fit_cache import active, cached, held
+from ._fit_cache import cached
 from .panel import PanelLayout
 
 __all__ = [
@@ -3207,29 +3207,6 @@ class LongitudinalData:
 
     # ----------------------------------------------------------------- design
 
-    def _clean_blocks(self, start: int, stop: int) -> list[FloatArray]:
-        """The baseline and the covariate blocks of nodes ``start..stop``, finite.
-
-        Each block is :meth:`covariate_history`'s fill of that block alone, so a history is
-        their concatenation.  Inside a fit's cache every block is built once and held, at the
-        size of the panel's own covariates; outside it only the blocks asked for are built.
-        """
-
-        def finite(block: FloatArray) -> FloatArray:
-            return np.nan_to_num(block, nan=0.0, posinf=0.0, neginf=0.0)
-
-        if not active():
-            return [
-                finite(block) for block in (self.baseline, *self.time_varying[start - 1 : stop])
-            ]
-        clean = held(
-            "clean_blocks",
-            (self,),
-            None,
-            lambda: tuple(finite(block) for block in (self.baseline, *self.time_varying)),
-        )
-        return [clean[0], *clean[start : stop + 1]]
-
     def covariate_history(self, time: int) -> FloatArray:
         """``[W, L_1, ..., L_t]`` as a finite matrix.
 
@@ -3243,16 +3220,9 @@ class LongitudinalData:
         """
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
-        return cached("history", (self,), time, lambda: self._covariate_history(time))
-
-    def _covariate_history(self, time: int) -> FloatArray:
-        """:meth:`covariate_history`, computed from the finite blocks.
-
-        Filling each block and then joining them gives the same matrix, bit for bit, as
-        joining and then filling: the fill acts on each cell alone.
-        """
-        blocks = self._clean_blocks(1, time)
-        return np.hstack([block for block in blocks if block.shape[1]])
+        blocks = [self.baseline, *self.time_varying[:time]]
+        matrix = np.hstack([block for block in blocks if block.shape[1]])
+        return np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
     def window_start(self, time: int) -> int:
         """The first covariate node the nuisance designs at ``time`` read.
@@ -3316,15 +3286,12 @@ class LongitudinalData:
             return self.covariate_history(time)
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
-        return cached("window", (self,), time, lambda: self._window_covariates(time))
-
-    def _window_covariates(self, time: int) -> FloatArray:
-        """:meth:`window_covariates` under a Markov order, computed."""
-        blocks = self._clean_blocks(self.window_start(time), time)
+        start = self.window_start(time)
+        blocks = [self.baseline, *self.time_varying[start - 1 : time]]
         present = [block for block in blocks if block.shape[1]]
         if not present:
             return np.zeros((self.n, 0))
-        return np.hstack(present)
+        return np.nan_to_num(np.hstack(present), nan=0.0, posinf=0.0, neginf=0.0)
 
     def history_names(self, time: int) -> tuple[str, ...]:
         """Column names of :meth:`covariate_history`, in its column order.
@@ -3565,19 +3532,6 @@ class LongitudinalData:
         design those arms are all the node-1 decision, whose block every design with a
         non-empty arm range keeps (:meth:`window_arm_start`).
         """
-        if treatment is None:
-            return cached(
-                "history_design",
-                (self,),
-                (time, include_current),
-                lambda: self._history_design(time, None, include_current),
-            )
-        return self._history_design(time, treatment, include_current)
-
-    def _history_design(
-        self, time: int, treatment: Assignment | None, include_current: bool
-    ) -> FloatArray:
-        """:meth:`history_design`, computed."""
         columns = [self.window_covariates(time)]
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
