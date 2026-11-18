@@ -63,6 +63,8 @@ import numpy as np
 from sklearn.base import BaseEstimator, is_classifier
 
 from .._inference_status import InferenceStatus, precedent_status
+from .._planned_fits import Count, FitCounter, PlanBuilder, PlanItem
+from .._summary._learners import learner_name
 from .._support import Classification, Preflight
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
@@ -1255,6 +1257,164 @@ class AdaptiveIPTW(TMLE):
             n_jobs=self.n_jobs,
         )
         return replace(nuisance, fold_mechanisms=slabs), {}
+
+    # ------------------------------------------------------------ planned fits
+
+    def _plan_flags(self, data: CausalData, estimands: Sequence[str]) -> dict[str, bool]:
+        """The flags :meth:`_nuisances` passes: the mechanisms and no outcome regression."""
+        return {
+            "fit_treatment": not _is_natural_course(data, tuple(estimands)),
+            "fit_outcome": False,
+        }
+
+    def _plan_extras(
+        self,
+        data: CausalData,
+        folds: Folds,
+        seed: int | None,
+        *,
+        counter: FitCounter,
+        builder: PlanBuilder,
+        config: TMLEConfig,
+        level: float | None,
+    ) -> list[PlanItem]:
+        """The leave-two-folds-out mechanisms and the reduced regression of every key.
+
+        A cross-fitted fit refits each estimated mechanism ``K`` times over the ``K`` folds
+        (:func:`~cleverly.estimators._nuisance.fit_fold_mechanisms`).  Each key fits its
+        reduced regression once, then once more per update, up to ``max_iter`` updates, so
+        that row is an upper bound whose minimum is one fit per key.
+        """
+        del level
+        estimands = tuple(config.estimands)
+        natural = _is_natural_course(data, estimands)
+        items: list[PlanItem] = []
+        if not folds.is_single:
+            assignment = np.asarray(folds.assignment)
+            treatment = Count()
+            observation = Count()
+            mechanism = self._resolve_learner(
+                self.treatment_learner, task="classification", seed=seed
+            )
+            observing = self._resolve_learner(
+                self.missingness_learner,
+                task="classification",
+                fallback=self.treatment_learner,
+                seed=seed,
+            )
+            recorded = (
+                np.asarray(data.treatment_recorded, dtype=bool)
+                if data.has_missing_treatment
+                else np.ones(data.n, dtype=bool)
+            )
+            for fold in range(folds.n_folds):
+                without = assignment != fold
+                if not natural and data.known_treatment is None:
+                    treatment.add(
+                        counter.cross(
+                            mechanism,
+                            data.treatment,
+                            folds,
+                            task="classification",
+                            fit_mask=recorded & without,
+                        )
+                    )
+                if data.has_missing_treatment:
+                    observation.add(
+                        counter.cross(
+                            observing,
+                            recorded.astype(float),
+                            folds,
+                            task="classification",
+                            fit_mask=without,
+                        )
+                    )
+                if data.has_missing_outcome:
+                    observation.add(
+                        counter.cross(
+                            observing,
+                            np.asarray(data.observed, dtype=float),
+                            folds,
+                            task="classification",
+                            fit_mask=recorded & without,
+                        )
+                    )
+            items.append(
+                PlanItem(
+                    "treatment_learner",
+                    "leave-two-folds-out treatment mechanism, per outer fold",
+                    learner_name(self.treatment_learner),
+                    treatment,
+                )
+            )
+            items.append(
+                PlanItem(
+                    "missingness_learner",
+                    "leave-two-folds-out observation mechanisms, per outer fold",
+                    learner_name(
+                        self.missingness_learner
+                        if self.missingness_learner is not None
+                        else self.treatment_learner
+                    ),
+                    observation,
+                )
+            )
+        specs = self._specs(data, estimands, self._regimes(data, None))  # type: ignore[arg-type]
+        route = iptw_missing_data_route(data, estimands)
+        view = composite_view(data) if route == "composite" else data
+        role = (
+            "reduced_outcome_learner"
+            if self.reduced_outcome_learner is not None
+            else "outcome_learner"
+        )
+        declared = (
+            self.reduced_outcome_learner
+            if self.reduced_outcome_learner is not None
+            else self.outcome_learner
+        )
+        per_key = Count()
+        for spec in specs:
+            source = view if spec.arm_weights is not None else data
+            learner = self._resolve_learner(
+                self.reduced_outcome_learner, task=spec.task, fallback=self.outcome_learner
+            )
+            mask = spec.indicator > 0.0
+            regions = (
+                [mask]
+                if source.strata is None
+                else [mask & (np.asarray(source.strata) == code) for code in range(source.n_strata)]
+            )
+            for rows in regions:
+                per_key.add(
+                    counter.cross(
+                        learner,
+                        spec.target,
+                        folds,
+                        task=spec.task,
+                        fit_mask=rows,
+                        constant_skip=spec.task == "classification",
+                    )
+                )
+        cap = int(self.max_iter)
+        total = per_key.scaled(1 + cap)
+        constant = (
+            "; a known constant mechanism gives a constant design, which fits no learner"
+            if data.known_treatment is not None
+            else ""
+        )
+        items.append(
+            PlanItem(
+                role,
+                "reduced regression of every key, initial fit and every update",
+                learner_name(declared),
+                total,
+                upper=f"the key updates stop when the score meets tol, before max_iter={cap}"
+                + constant,
+                min_fits=0 if constant else per_key.fits,
+            )
+        )
+        builder.search("adaptive IPTW updates", cap * len(specs), True, total.fits)
+        return items
 
     # ------------------------------------------------------------------- specs
 

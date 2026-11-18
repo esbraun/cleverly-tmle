@@ -533,7 +533,7 @@ def test_a_newton_step_that_fails_every_halving_is_not_taken(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Away from zero the likelihood is not finite, as when a risk set's weights underflow at a
-    # monotone-likelihood boundary: the fit stays at its last finite coefficients and warns.
+    # monotone-likelihood boundary: the fit stays at its last resolved coefficients and warns.
     from cleverly.survival import cox
 
     X, time, event = _cox_sample()
@@ -544,10 +544,178 @@ def test_a_newton_step_that_fails_every_halving_is_not_taken(
         return (loglik if not np.any(beta) else float("nan")), grad, info
 
     monkeypatch.setattr(cox, "_loglik_parts", overflowing)
-    with pytest.warns(ConvergenceWarning, match="monotone-likelihood boundary"):
+    with pytest.warns(ConvergenceWarning, match="last fit whose likelihood was resolved"):
         model = CoxHazard("main").fit(X, time, event)
     assert not model.converged_
+    assert not model.monotone_likelihood_  # stuck at zero, not pinned at the range's edge
     np.testing.assert_array_equal(model.coef_, 0.0)
+
+
+def test_a_trial_whose_likelihood_reads_plus_infinity_is_not_taken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An underflowed risk set gives log(0) = -inf and a likelihood of +inf, which a plain
+    # "not lower" test accepts.
+    from cleverly.survival import cox
+
+    X, time, event = _cox_sample()
+    original = cox._loglik_parts
+
+    def underflowing(beta: np.ndarray, *args: Any) -> tuple[float, np.ndarray, np.ndarray]:
+        loglik, grad, info = original(beta, *args)
+        return (loglik if not np.any(beta) else float("inf")), grad, info
+
+    monkeypatch.setattr(cox, "_loglik_parts", underflowing)
+    with pytest.warns(ConvergenceWarning, match="last fit whose likelihood was resolved"):
+        model = CoxHazard("main").fit(X, time, event)
+    np.testing.assert_array_equal(model.coef_, 0.0)
+
+
+def _heavy_tailed_sample(n: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A regular law whose covariate is lognormal: one outlier dominates the risk weights."""
+    rng = np.random.default_rng(seed)
+    L = rng.lognormal(0.0, 2.5, n)
+    A = rng.binomial(1, 0.5, n)
+    hazard = np.exp(0.5 * A + np.log(L))
+    T = rng.exponential(1 / hazard)
+    C = rng.exponential(2 * np.median(1 / hazard), n)
+    return np.column_stack([A, L]), np.minimum(T, C), (T <= C).astype(float)
+
+
+@pytest.mark.parametrize(("n", "seed"), [(1000, 1), (2000, 3)])
+def test_a_newton_step_past_the_resolved_range_on_regular_data_is_halved(
+    monkeypatch: pytest.MonkeyPatch, n: int, seed: int
+) -> None:
+    # Newton's first steps on these draws spread the linear predictor past the bound, where risk
+    # sets underflow to +inf, though the maximum is interior. Halving and carrying on reaches it;
+    # taking the +inf trial (main) or stopping at the bound does not.
+    from cleverly.survival import cox
+
+    X, time, event = _heavy_tailed_sample(n, seed)
+    reached: list[float] = []
+    original = cox._loglik_parts
+
+    def recording(beta: np.ndarray, Z: np.ndarray, sets: Any) -> Any:
+        reached.append(float(np.ptp(Z @ beta)))
+        return original(beta, Z, sets)
+
+    monkeypatch.setattr(cox, "_loglik_parts", recording)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = CoxHazard("main").fit(X, time, event)
+    assert model.converged_ and not model.monotone_likelihood_
+    assert np.ptp(model.linear_predictor(X)) < 0.5 * cox._SPREAD_MAX
+    _, grad, _ = original(
+        model._zs_beta, model._standardize(_design(X, "main")), _risk_sets(time, event)
+    )
+    assert np.max(np.abs(grad)) < 1e-9
+    # The witness is live: the bound turned a trial away before it was evaluated.
+    monkeypatch.setattr(cox, "_loglik_parts", original)
+    monkeypatch.setattr(cox, "_SPREAD_MAX", np.inf)
+    reached.clear()
+    monkeypatch.setattr(cox, "_loglik_parts", recording)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        CoxHazard("main").fit(X, time, event)
+    assert max(reached) > 0.8 * float(np.log(np.finfo(float).max))
+
+
+def _ordered_sample(n: int = 200) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Every row an event, in the order of covariate 1: a monotone partial likelihood."""
+    rng = np.random.default_rng(1)
+    L = rng.normal(size=(n, 2))
+    A = rng.integers(0, 2, n)
+    time = np.argsort(np.argsort(-L[:, 0])).astype(float) + 1.0
+    return np.column_stack([A, L]), time, np.ones(n)
+
+
+def test_a_separated_fit_stops_inside_the_resolved_range_and_says_why() -> None:
+    from cleverly.survival import cox
+
+    X, time, event = _ordered_sample()
+    times = np.quantile(time, [0.1, 0.5, 0.9])
+    for terms in ("main", "interaction"):
+        with pytest.warns(ConvergenceWarning, match="coefficients of covariate 1 may be infinite"):
+            model = CoxHazard(terms).fit(X, time, event)
+        assert model.monotone_likelihood_ and not model.converged_
+        # Pinned at the edge of the resolved range, not stalled short of it.
+        reach = np.ptp(model.linear_predictor(X))
+        assert 0.5 * cox._SPREAD_MAX < reach <= cox._SPREAD_MAX
+        assert np.all(np.isfinite(model.baseline_jumps_)) and np.all(model.baseline_jumps_ > 0)
+        # Finite on the rows and on both treatment-set copies the engine predicts at.
+        for arm in (0, 1):
+            Xa = X.copy()
+            Xa[:, 0] = arm
+            assert np.all(np.isfinite(model.cumulative_hazard(Xa, times)))
+        # The run is along covariate 1, far past where a regular fit would sit.
+        others = np.delete(np.abs(model.coef_), 1)
+        assert abs(model.coef_[1]) > 10 * np.max(others)
+
+
+def test_a_ridge_penalty_gives_the_separated_data_a_finite_maximum() -> None:
+    X, time, event = _ordered_sample()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = CoxHazard("main", penalty=1.0).fit(X, time, event)
+    assert model.converged_ and not model.monotone_likelihood_
+
+
+def test_an_arm_without_events_is_reported_and_its_fit_is_unchanged_by_the_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The score tolerance is met with the treatment coefficient running to -infinity: the fit
+    # is the likelihood's limit, and only coxph's infinite-coefficient test can tell.
+    from cleverly.survival import cox
+
+    X, time, event = _cox_sample()
+    event = np.where(X[:, 0] == 1, 0.0, event)
+    for terms in ("treatment", "interaction"):
+        # Only the running column is named, not the columns coupled to it.
+        with pytest.warns(
+            ConvergenceWarning, match=r"coefficients of the treatment may be infinite\."
+        ):
+            CoxHazard(terms).fit(X, time, event)
+    with pytest.warns(ConvergenceWarning, match=r"coefficients of the treatment may be infinite\."):
+        model = CoxHazard("main").fit(X, time, event)
+    assert model.converged_ and model.monotone_likelihood_
+    assert model.coef_[0] < -10
+    # Inside the resolved range the bound changes nothing, bit for bit.
+    monkeypatch.setattr(cox, "_SPREAD_MAX", np.inf)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        unbounded = CoxHazard("main").fit(X, time, event)
+    np.testing.assert_array_equal(model.coef_, unbounded.coef_)
+    # Control: without the infinite-coefficient test the separation goes unreported.
+    monkeypatch.setattr(cox, "_INF_EPS", np.inf)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        silent = CoxHazard("main").fit(X, time, event)
+    assert not silent.monotone_likelihood_
+
+
+@pytest.mark.parametrize("code", [1, 0], ids=["outcome", "censoring"])
+def test_a_hazard_without_events_in_one_arm_still_gives_finite_estimates(code: int) -> None:
+    # One treated event of the modelled hazard (cause 1, or censoring) is kept, so the arm passes
+    # the engine's checks while every training fold without that unit has none: the hazard's Cox
+    # fits there are separated. Censored treated rows become deaths in the censoring case.
+    frame = _sample()
+    treated = (frame["Z"] == 1) & (frame["event"] == code)
+    keep = frame.index[treated & (frame["time"] < 1.0)][0]
+    frame.loc[treated & (frame.index != keep), "event"] = 1 if code == 0 else 0
+    with pytest.warns(ConvergenceWarning, match="monotone partial likelihood"):
+        fit = ContinuousSurvivalTMLE([1.0], n_folds=2, learner_folds=2, random_state=0).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert all(np.isfinite(e.psi) and np.isfinite(e.std_error) for e in fit.values())
+
+
+def test_a_regular_fit_reports_no_monotone_likelihood() -> None:
+    X, time, event = _cox_sample()
+    for terms in ("treatment", "main", "interaction"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ConvergenceWarning)
+            model = CoxHazard(terms).fit(X, time, event)
+        assert model.converged_ and not model.monotone_likelihood_
 
 
 # --------------------------------------------------------- end to end and refusals
