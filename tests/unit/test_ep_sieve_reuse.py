@@ -10,9 +10,10 @@ member itself and re-reading the inputs for each size.
 
 from __future__ import annotations
 
+import gc
 import hashlib
-import pickle
 import warnings
+import weakref
 from typing import Any
 
 import numpy as np
@@ -293,6 +294,10 @@ def test_a_cached_fit_equals_the_per_size_fit(case: dict[str, Any], uncached: An
 def test_the_layout_mutation_moves_a_fit(monkeypatch: Any) -> None:
     """Mutation control for the fit witness: a Fortran-ordered design sends ``design @ beta``
     through another BLAS kernel, which sums in another order, and the CV risks move."""
+    probe = np.random.default_rng(0).normal(size=(500, 9))
+    beta = np.ones(9) / 3.0
+    if np.array_equal(probe @ beta, np.asfortranarray(probe) @ beta):
+        pytest.skip("this BLAS sums both layouts alike; the layout unit test still gates")
     data = frame()
     kept = digest(ep_fit(data, FIT_LEVELS), data)
     original = ep.SieveDesigns.at
@@ -395,10 +400,10 @@ def _hash(pieces: Any) -> str:
     return out.hexdigest()
 
 
-def test_the_size_step_evaluates_the_basis_once_per_set_of_rows(monkeypatch: Any) -> None:
-    """Work guard: with F folds and M sizes, ``2F + 2`` evaluations (``check``, each fold's
-    training and held-out rows, the outer rows), where the per-size path makes ``2FM + M + 1``."""
+def counted_evaluations(monkeypatch: Any, owner: Any, method: str) -> tuple[list[int], Any]:
+    """Count ``Additive.evaluate`` calls made inside ``owner.method``, by term count."""
     calls: list[int] = []
+    inside: list[int] = []
     original = Additive.evaluate
 
     def counting(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -406,26 +411,139 @@ def test_the_size_step_evaluates_the_basis_once_per_set_of_rows(monkeypatch: Any
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(Additive, "evaluate", counting)
-    inside: list[int] = []
-    fit_method = ep.EPEstimator.fit
+    wrapped = getattr(owner, method)
 
-    def recording(self: Any, data: Any) -> Any:
+    def recording(*args: Any, **kwargs: Any) -> Any:
         start = len(calls)
         try:
-            return fit_method(self, data)
+            return wrapped(*args, **kwargs)
         finally:
-            inside.extend(calls[start:])
+            # One count per call of the rule learner's curve; one entry per evaluation in a fit.
+            if method == "ep_fold_curve":
+                inside.append(len(calls) - start)
+            else:
+                inside.extend(calls[start:])
 
+    return inside, recording
+
+
+def test_the_size_step_evaluates_the_basis_once_per_set_of_rows(monkeypatch: Any) -> None:
+    """Work guard inside ``EPEstimator.fit``: with F folds and M sizes, ``2F + 2`` evaluations
+    (``check`` and each fold's training and held-out rows read the family; the outer curve
+    evaluates its own member), where the per-size path makes ``2FM + M + 1``."""
+    inside, recording = counted_evaluations(monkeypatch, ep.EPEstimator, "fit")
     monkeypatch.setattr(ep.EPEstimator, "fit", recording)
     fit = ep_fit(frame())
     folds, sizes = len(fit.fit.sieve.inner_seeds), len(fit.fit.sieve.sizes)
     assert sizes == 6
     assert len(inside) == 2 * folds + 2
-    assert set(inside) == {fit.fit.estimator.member(sizes).n_terms}
+    family = fit.fit.estimator.member(sizes).n_terms
+    assert inside[:-1] == [family] * (2 * folds + 1)
+    assert inside[-1] == fit.fit.estimator.member(fit.fit.sieve.chosen).n_terms
 
 
-def test_nothing_of_the_caches_is_kept(tmp_path: Any) -> None:
+def test_a_single_size_never_evaluates_the_family(monkeypatch: Any) -> None:
+    """A fixed size reads one member in ``check`` and one for the curve, as before (design
+    review finding 1: a shared family would only add work and memory there)."""
+    inside, recording = counted_evaluations(monkeypatch, ep.EPEstimator, "fit")
+    monkeypatch.setattr(ep.EPEstimator, "fit", recording)
+    family = Additive(Cosine(["W1"], 6), Cosine(["W2"], 6))
+    fit = ep_fit(frame(), sieve=Sieve(family, size=2))
+    assert inside == [fit.fit.estimator.member(2).n_terms] * 2
+
+
+def test_the_rule_learner_evaluates_the_basis_once_per_set_of_rows(monkeypatch: Any) -> None:
+    from cleverly.interventions import _rule_learners as rule_learners
+
+    folds: list[int] = []
+    risks = ep.cross_validated_risks
+
+    def recording_splits(splits: Any, *args: Any) -> Any:
+        folds.append(len(splits))
+        return risks(splits, *args)
+
+    monkeypatch.setattr(ep, "cross_validated_risks", recording_splits)
+    counts, recording = counted_evaluations(monkeypatch, rule_learners, "ep_fold_curve")
+    monkeypatch.setattr(rule_learners, "ep_fold_curve", recording)
+    rule_fit()
+    assert counts and len(counts) == len(folds)
+    assert counts == [2 * k + 1 for k in folds]
+
+
+class SizedCosine(Cosine):
+    """A cosine whose columns shrink with the size: a subclass need not nest."""
+
+    def _block(self, values: Any, modifiers: Any) -> np.ndarray:
+        return super()._block(values, modifiers) / self.size
+
+    def truncate(self, k: int) -> SizedCosine:
+        return SizedCosine(self.columns, k, self.domains, self.intercept)
+
+
+def test_a_subclass_of_a_nested_basis_is_not_nested(monkeypatch: Any) -> None:
+    family = resolve(SizedCosine(["W1"], 4), MODIFIERS)
+    member = resolve(family.truncate(2), MODIFIERS)
+    values = rows()
+    assert ep.nested_columns(family, member) is None
+    own = np.asarray(member.evaluate(values, MODIFIERS))
+    assert ep.SieveDesigns(family, MODIFIERS, values).at(member).tobytes() == own.tobytes()
+    # Mutation control: an isinstance test would read the family's columns, which differ.
+    monkeypatch.setattr(ep, "_nests", lambda basis: isinstance(basis, Cosine))
+    wrong = ep.SieveDesigns(family, MODIFIERS, values).at(member)
+    assert wrong.tobytes() != own.tobytes()
+
+
+def test_a_family_that_raises_leaves_each_member_to_itself(monkeypatch: Any) -> None:
+    """If the family alone raises, a member still gets its own design (mutation control for
+    the fallback: without it the family's error escapes)."""
+    family = resolve(Additive(Cosine(["W1"], 4), Cosine(["W2"], 4)), MODIFIERS)
+    member = resolve(family.truncate(2), MODIFIERS)
+    values = rows()
+    own = np.asarray(member.evaluate(values, MODIFIERS))
+    original = Additive.evaluate
+
+    def failing(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if len(self.terms) == family.n_terms:
+            raise DataError("the family alone fails")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Additive, "evaluate", failing)
+    designs = ep.SieveDesigns(family, MODIFIERS, values)
+    assert designs.at(member).tobytes() == own.tobytes()
+    assert designs._unusable
+
+
+def test_the_shared_family_design_is_read_only() -> None:
+    family = resolve(Additive(Cosine(["W1"], 3), Cosine(["W2"], 3)), MODIFIERS)
+    design = ep.SieveDesigns(family, MODIFIERS, rows()).at(family)
+    assert not design.flags.writeable
+    with pytest.raises(ValueError):
+        design[0, 0] = 0.0
+
+
+def test_no_fold_state_outlives_its_fold(monkeypatch: Any) -> None:
+    """Each fold's cached designs are released before the next fold's nuisance fit, and
+    nothing is kept after the fit (design review finding 3; mutation control: dropping the
+    release in ``cross_validated_risks`` keeps the previous fold's designs alive)."""
+    alive: list[weakref.ref[Any]] = []
+    init = ep.SieveDesigns.__init__
+
+    def tracking(self: Any, *args: Any) -> None:
+        init(self, *args)
+        alive.append(weakref.ref(self))
+
+    seen: list[int] = []
+    nuisances = ep.EPEstimator._nuisances
+
+    def probing(self: Any, data: Any, **changes: Any) -> Any:
+        gc.collect()
+        seen.append(sum(ref() is not None for ref in alive))
+        return nuisances(self, data, **changes)
+
+    monkeypatch.setattr(ep.SieveDesigns, "__init__", tracking)
+    monkeypatch.setattr(ep.EPEstimator, "_nuisances", probing)
     fit = ep_fit(frame())
-    payload = pickle.dumps(fit)
-    for name in (b"SieveDesigns", b"_FitState"):
-        assert name not in payload
+    assert len(seen) == len(fit.fit.sieve.inner_seeds) + 1
+    assert seen == [0] * len(seen)
+    gc.collect()
+    assert alive and all(ref() is None for ref in alive)

@@ -541,12 +541,11 @@ def ep_fold_curve(
     pair = (float(treated), float(control))
     width = float(np.diff(nuisance.scaler.unscale_levels(np.array([0.0, 1.0])))[0])
 
-    resolved = sieve_member(family, int(family.max_size), modifiers)
-
-    def reads(rows: CausalData, fitted: NuisanceEstimates) -> dict[str, Any]:
-        """What every size's curve reads off one nuisance fit, each read once on first use."""
+    def reads(rows: CausalData, fitted: NuisanceEstimates, shared: Any = None) -> dict[str, Any]:
+        """What every size's curve reads off one nuisance fit, each read once on first use;
+        ``shared`` is the resolved family when several sizes read these rows."""
         values = modifier_frame(rows, columns)
-        return {"values": values, "designs": SieveDesigns(resolved, modifiers, values)}
+        return {"values": values, "designs": SieveDesigns(shared, modifiers, values)}
 
     def curve(
         rows: CausalData, fitted: NuisanceEstimates, size: int, cached: dict[str, Any] | None = None
@@ -592,22 +591,25 @@ def ep_fold_curve(
         return curve(inner, nuisance, size), EPRuleRecord(mode, (size,), (), size)
 
     sizes = tuple(range(1, int(family.max_size) + 1))
+    resolved = sieve_member(family, int(family.max_size), modifiers)
     seeds: list[int] = []
 
     def fit_fold(index: int, train: np.ndarray) -> Any:
         refit = refit_seed(seed, index)
         seeds.append(refit)
         rows, fitted = _size_step_nuisance(inner, train, fit_inner, refit, fold)
-        cached = reads(rows, fitted)
+        cached = reads(rows, fitted, resolved)
         held_designs: list[tuple[Any, Any]] = []
 
         def predict(size: int, held: Any) -> np.ndarray:
-            # cross_validated_risks passes one held-out mapping for every size of a fold.
-            if not held_designs or held_designs[-1][0] is not held:
-                held_designs[:] = [(held, SieveDesigns(resolved, modifiers, held))]
             fold_curve = curve(rows, fitted, size, cached)
             # Both sides on the scaled outcome: the curve's prediction is on the outcome's
             # own scale, b - a times the scaled contrast.
+            if fold_curve.learner is not None:
+                return fold_curve.predict(held) / width  # a declared learner reads no basis
+            # cross_validated_risks passes one held-out mapping for every size of a fold.
+            if not held_designs or held_designs[-1][0] is not held:
+                held_designs[:] = [(held, SieveDesigns(resolved, modifiers, held))]
             return fold_curve._predict(held, held_designs[-1][1].at(fold_curve.basis)) / width
 
         return predict

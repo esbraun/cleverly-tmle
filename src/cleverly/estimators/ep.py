@@ -517,6 +517,8 @@ def cross_validated_risks(
                 * total
             )
         mass += total
+        # Release this fold's curves and cached designs before the next fold's nuisance fit.
+        del predict, held
     return tuple(float(value / mass) for value in totals)
 
 
@@ -740,18 +742,19 @@ def _nests(basis: Any) -> bool:
     by the same operations, at every size; sums and products of such bases keep that.  A
     B-spline's truncation moves its knots, so its columns change with the size.
     """
-    from ..bases import Additive, BSpline, Cosine, Indicators, Interactions, Linear, Tensor
+    from ..bases import Additive, Cosine, Indicators, Interactions, Linear, Tensor
 
-    if isinstance(basis, (Constant, Linear, Cosine, Indicators)):
+    # Exact types: a subclass may compute its columns differently at each size.
+    kind = type(basis)
+    if kind in (Constant, Linear, Cosine, Indicators):
         return True
-    if isinstance(basis, Additive):
+    if kind is Additive:
         return all(_nests(component) for component in basis.bases)
-    if isinstance(basis, Tensor):
+    if kind is Tensor:
         return _nests(basis.left) and _nests(basis.right)
-    if isinstance(basis, Interactions):
+    if kind is Interactions:
         return _nests(basis.basis)
-    del BSpline  # never nested: its knots depend on the size
-    return False
+    return False  # BSpline (its knots move with the size), UserBasis and any other type
 
 
 def nested_columns(family: Any, member: Any) -> IntArray | None:
@@ -776,7 +779,7 @@ def nested_columns(family: Any, member: Any) -> IntArray | None:
         Integer column positions, or ``None`` when the member must be evaluated itself.
     """
     terms = tuple(family.terms)
-    if member is family or member == family:
+    if member is family or (type(member) is type(family) and member == family):
         return np.arange(len(terms), dtype=np.intp)
     if not (_nests(family) and _nests(member)):
         return None
@@ -792,10 +795,21 @@ def nested_columns(family: Any, member: Any) -> IntArray | None:
 class SieveDesigns:
     """The sieve family's design at one set of rows, from which each member's columns are read.
 
-    The family is evaluated once, on first use; a member whose columns nest in it
+    Built only where two or more sizes are read on the same rows (the size step's folds and
+    ``check`` under cross-validation); a single size evaluates its own member.  The family is
+    evaluated once, on first use, and stored read-only; a member whose columns nest in it
     (:func:`nested_columns`) is read off those columns, any other member is evaluated
     itself.  If the family's evaluation raises, every member is evaluated itself, so a
     refusal names the member that today's per-size evaluation would have named.
+
+    Parameters
+    ----------
+    family : Basis or None
+        The resolved largest member, or ``None`` to evaluate every member itself.
+    modifiers : Modifiers
+        The modifier schema.
+    frame : mapping
+        The rows' modifier columns.
     """
 
     def __init__(self, family: Any, modifiers: Modifiers, frame: Any) -> None:
@@ -818,14 +832,18 @@ class SieveDesigns:
         ndarray
             ``(n, k)`` design.
         """
-        positions = None if self._unusable else nested_columns(self.family, member)
+        positions = (
+            None if self._unusable or self.family is None else nested_columns(self.family, member)
+        )
         if positions is not None and self._design is None:
             try:
-                self._design = np.asarray(
-                    self.family.evaluate(self.frame, self.modifiers), dtype=float
-                )
+                design = np.asarray(self.family.evaluate(self.frame, self.modifiers), dtype=float)
             except (CapabilityError, DataError):
                 self._unusable = True
+            else:
+                # Every size reads this array; none may write into it.
+                design.flags.writeable = False
+                self._design = design
         if positions is None or self._design is None:
             return np.asarray(member.evaluate(self.frame, self.modifiers), dtype=float)
         if positions.size == self._design.shape[1] and np.array_equal(
@@ -1284,8 +1302,9 @@ class EPEstimator:
         if data_refusal is not None:
             raise CapabilityError.from_refusal(data_refusal)
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
-        designs = self._designs(frame)
-        for size in self.sizes(data.n):
+        sizes = self.sizes(data.n)
+        designs = self._designs(frame, shared=len(sizes) > 1)
+        for size in sizes:
             refusal = size_refusal(size, self.effect_modification.basis, data.n)
             if refusal is not None:
                 raise refusal
@@ -1301,17 +1320,20 @@ class EPEstimator:
 
         return TMLE(**self._nuisance_kwargs(**changes)).fit(data).single()
 
-    def _designs(self, frame: Any) -> SieveDesigns:
-        """The sieve designs at the rows of ``frame``, the family evaluated at most once."""
+    def _designs(self, frame: Any, *, shared: bool) -> SieveDesigns:
+        """The sieve designs at the rows of ``frame``: the family shared across sizes when
+        ``shared`` (two or more sizes read these rows), each member evaluated itself otherwise."""
         spec = self.effect_modification
-        return SieveDesigns(self.member(int(spec.basis.max_size)), spec.modifiers, frame)
+        family = self.member(int(spec.basis.max_size)) if shared else None
+        return SieveDesigns(family, spec.modifiers, frame)
 
-    def _state(self, nuisance_fit: Any) -> _FitState:
+    def _state(self, nuisance_fit: Any, *, shared: bool = False) -> _FitState:
         """What every size's curve reads off ``nuisance_fit``, computed once."""
         columns = tuple(self.effect_modification.modifiers.columns)
         values = modifier_frame(nuisance_fit.data, columns)
         lower, upper = nuisance_fit.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
-        return _FitState(nuisance_fit, self._designs(values), values, float(upper - lower))
+        designs = self._designs(values, shared=shared)
+        return _FitState(nuisance_fit, designs, values, float(upper - lower))
 
     def _curve_at(
         self, nuisance_fit: Any, size: int, state: _FitState | None = None
@@ -1374,14 +1396,16 @@ class EPEstimator:
                     data.subset(train), n_folds=INNER_FOLDS, random_state=seed, split_plan=None
                 )
             messages.extend(str(item.message) for item in caught)
-            state = self._state(inner)
+            state = self._state(inner, shared=len(sizes) > 1)
             held_designs: list[tuple[Any, SieveDesigns]] = []
 
             def predict(size: int, held: Any) -> FloatArray:
+                curve = self._curve_at(inner, size, state)[0]
+                if curve.learner is not None:
+                    return curve.predict(held)  # a declared learner reads no basis
                 # cross_validated_risks passes one held-out mapping for every size of a fold.
                 if not held_designs or held_designs[-1][0] is not held:
-                    held_designs[:] = [(held, self._designs(held))]
-                curve = self._curve_at(inner, size, state)[0]
+                    held_designs[:] = [(held, self._designs(held, shared=len(sizes) > 1))]
                 return curve._predict(held, held_designs[-1][1].at(curve.basis))
 
             return predict
