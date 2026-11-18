@@ -3525,12 +3525,12 @@ def _projection_composition_rows() -> tuple[SupportRow, ...]:
         "the basis over the sample's modifier distribution, not the CATE where it lies outside "
         "the span of the basis.",
         "Every calibration group fits learners consistent for its law. The in-sample composite "
-        "and the in-sample log ratio read SE ratios 1 to 2% below 1 at n = 2,000 and 4,000 "
+        "and the in-sample log ratio read SE ratios up to 2.4% below 1 at n = 2,000 and 4,000 "
         "(lowest 0.9765, upper end 0.9895, on the composite intercept with missing outcomes); "
         "a diagnosis on fresh draws found the shortfall closes with n, to 0.993 at n = 16,000, "
         "and that the shipped composite ATE shares it. Smaller n reads a larger shortfall.",
         "The cross-fitted bootstrap reads experimental: on boot_stacked_2k it covers 0.927 to "
-        "0.952 with SE ratios of 0.965 to 1.006, published without a verdict. The plug-in "
+        "0.952 with SE ratios of 0.965 to 1.014, published without a verdict. The plug-in "
         "learner (method='ep') refuses a missing treatment and strata=. No comparator: no "
         "maintained package fits a projection TMLE of the CATE with these compositions.",
     ]

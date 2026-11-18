@@ -120,7 +120,7 @@ experimental label cites.
 
 ## Result
 
-Every primary test and every gated property cell passed, and no fit failed. Each of the 50
+Every primary test and every gated property cell passed, and no fit failed. Each of the 42
 calibration positives has an SE-ratio interval inside 0.93 to 1.07 and a coverage interval inside
 0.92 to 0.98, for the missing treatment in sample, both strata scales with their stratum
 coefficients, repeats on both scales, and the in-sample Wald and bootstrap intervals on both
@@ -136,13 +136,14 @@ The shrunken bootstrap control reads SE ratios near 0.70 and the $\sqrt{3}$ cont
 The complete-case control is displaced by 0.90 SD, the one-step without the recording probability
 by -4.29 SD, and the marginal-as-stratum control by -4.38 and 2.14 SD. The heterogeneity test under
 `repeats=3` rejects at 0.044 under the null and 0.930 at slope 0.10. The cross-fitted bootstrap
-covers 0.927 to 0.952 with SE ratios of 0.965 to 1.006.
+covers 0.927 to 0.952 with SE ratios of 0.965 to 1.014.
 
 ### Rows that read just below 1
 
-Two gated rows pass with 99% SE-ratio intervals that lie wholly below 1: the `mtreat_both_4k`
-intercept (0.9765, upper end 0.9895) and the `mtreat_crr_4k` $W_1$ slope (0.9806, upper end
-0.9935). The pilot read these rows low, and a diagnosis declared before the run found no defect.
+Three gated rows pass with 99% SE-ratio intervals that lie wholly below 1: the `mtreat_both_4k`
+intercept (0.9765, upper end 0.9895), the `mtreat_crr_4k` $W_1$ slope (0.9806, upper end 0.9935)
+and the `mtreat_4k` $W_1$ slope (0.9827, upper end 0.9953). All three are in-sample composite
+fits. The pilot read the composite rows low, and a diagnosis declared before the run found no defect.
 It used fresh draws on its own stream with a paired oracle at the true nuisances as a control
 variate. The shortfall is a finite-sample effect of the in-sample composite construction that the
 shipped composite ATE shares, and of the in-sample log ratio. It closes as n grows:
@@ -154,7 +155,7 @@ shipped composite ATE shares, and of the in-sample log ratio. It closes as n gro
 | in-sample log-ratio intercept / $W_1$ (`insample_crr`) | | 0.989 / 0.987 | | 0.998 / 0.997 | |
 
 The reported standard error is within 1.2% of the exact efficient influence function's SD at
-n = 4,000 on every diagnosed row. The run's readings, 0.977 to 0.993 on these rows, sit at or above
+n = 4,000 on every diagnosed row. The run's readings, 0.977 to 0.990 on these rows, sit at or above
 the diagnosis's floor of 0.965, so they agree with it. The declared reading treated a red on any of
 these rows as a defect suspect; none was red.
 
@@ -232,7 +233,7 @@ from the committed results and checked at the precision printed.
 | Strata | One binary stratum with probability 0.4 and stacked cross-fitting. More strata, a rare stratum, or strata with a missing treatment are not measured |
 | Repeats | `repeats=3` with the median rule on stacked cross-fitting, at GLM nuisances, where the split displacement is under 1% of the SE. The median rule's displacement term itself rests on the unit witnesses; another repeat count or a learner whose fold draws differ more reads supported and rests on the theory |
 | The bootstrap | The full-refit percentile bootstrap was measured in sample with 200 replicates. The cross-fitted bootstrap reads experimental: on `boot_stacked_2k` it covers 0.927 to 0.952, published without a verdict |
-| Laws and sizes | n = 2,000 and 4,000 on smooth laws. The in-sample composite and the in-sample log ratio read SE ratios 1 to 2% below 1 at these sizes, closing with n (see the result above); smaller n reads a larger shortfall |
+| Laws and sizes | n = 2,000 and 4,000 on smooth laws. The in-sample composite and the in-sample log ratio read SE ratios up to 2.4% below 1 at these sizes, closing with n (see the result above); smaller n reads a larger shortfall |
 | Compositions outside the rows | The EP learner (`method="ep"`) refuses a missing treatment and baseline strata. A missing treatment with cross-fitting, an intermediate variable and `model=None` refuse. The EP rule with a declared sieve or final learner reads experimental until the declared `learned-rule-ep-declared` study is registered |
 
 ## Reproduction

@@ -1195,6 +1195,7 @@ def ep1_fit() -> Any:
         weights="w",
         id="c",
         treatment_probabilities={1.0: "p1", 0.0: "p0"},
+        mechanism_law="target",
     ).single()
 
 

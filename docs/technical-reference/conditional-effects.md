@@ -651,7 +651,7 @@ no row. The key keeps that label now that the point study `option-outcome-by-arm
 option's fit condition is deleted (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
 has its own measured configurations, below.
 
-The in-sample composite fit and the in-sample log ratio read SE ratios 1 to 2% below 1 at
+The in-sample composite fit and the in-sample log ratio read SE ratios up to 2.4% below 1 at
 n = 2,000 and 4,000, inside the declared band. A diagnosis on fresh draws traced this to a
 finite-sample effect that closes as n grows and that the shipped composite ATE shares
 ([projection compositions](method-evidence/projection-compositions.md#rows-that-read-just-below-1)).
