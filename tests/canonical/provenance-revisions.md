@@ -687,6 +687,14 @@ seed 0 every one of the study's 13 groups, fitted through `fit_group` at `07943c
 merge, gives the same point, standard error, bootstrap interval, control value and heterogeneity
 statistic to 12 significant digits.
 
+Two later edits touched recorded modules, and main was merged again before the pull request
+merged. In `tmle.py` the stratified pass renames only the stratified log-ratio group, so the
+natural-course group keeps its own name; no projection fit has a natural-course group. In
+`results.py` the bootstrap of an estimate that is itself experimental keeps its own reason before
+the cross-fitted one, which changes support text only. The second merge of main changed no other
+recorded module. The same seed-0 fits of all 13 groups after both edits and the second merge match
+the first merge's output line for line.
+
 ## Registration edits after the `projection-compositions` run (P1)
 
 Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_compositions_properties.py`,
