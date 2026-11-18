@@ -49,7 +49,7 @@ pilot changed no rule, margin, law or ladder.
   every family), under the declared 60 and the 75 that would go back to the row thread.
 
 **What is gated** (the registered two-clause rule of ``clustered-few-cluster-tmle``,
-``property_verdicts._few_cluster_rule``). On each ``t_reference`` row: G1, the exact 99% lower
+``property_verdicts.few_cluster_rule``). On each ``t_reference`` row: G1, the exact 99% lower
 end of coverage over every requested draw at least 0.90 (a withheld row is a miss; a lost draw
 is judged by the failure accounting's worst case); G2, the bias within 0.25 empirical SD. On
 each ``iid_t_control`` row: the paired IID/cluster SE ratio's 99% upper end below 0.80, and the

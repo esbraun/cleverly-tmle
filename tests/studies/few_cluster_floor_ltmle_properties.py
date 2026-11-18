@@ -61,8 +61,10 @@ PROPERTY_GROUPS: Final[dict[str, tuple[tuple[str, ...], ...]]] = {
     ),
     floor.POOLED_FAMILY: tuple((name,) for name in study.POOLED_CELLS),
 }
-#: The module's own rule for the part (c) families.
-PROPERTY_RULES = (floor.candidate_rule(),)
+#: The module's own rule for the part (c) families, and the registered ``few_cluster_reference``
+#: rule in its shown-only form, so the failure accounting's worst cases read the shown draws the
+#: verdict reads (``shown_only=True``).
+PROPERTY_RULES = (floor.candidate_rule(), property_verdicts.few_cluster_rule(shown_only=True))
 
 
 def declared_cells() -> tuple[PropertyCell, ...]:

@@ -62,7 +62,7 @@ from tests.studies.evidence.properties import bootstrap_draw_blocks
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 #: The family every positive and control row belongs to: the registered two-clause rule of
-#: ``clustered-few-cluster-tmle`` (``property_verdicts._few_cluster_rule``) judges it.
+#: ``clustered-few-cluster-tmle`` (``property_verdicts.few_cluster_rule``) judges it.
 FAMILY: Final[str] = "few_cluster_reference"
 #: Every row's role in that family.
 POSITIVE, CONTROL, DIAGNOSTIC = "positive", "control", "diagnostic"
@@ -1187,6 +1187,359 @@ AVAILABILITY_SHARE: Final[float] = 0.03
 #: Recorded no-defect diagnoses of reds at or above an anchor, by ``family/cell``; empty at the
 #: declaration, so such a red is a defect suspect until a diagnosis is recorded here.
 NO_DEFECT_DIAGNOSES: Final[dict[str, str]] = {}
+
+
+@dataclasses.dataclass(frozen=True)
+class Counterpart:
+    """A committed cell an anchor red is compared with (review B3).
+
+    Parameters
+    ----------
+    slug : str
+        The committed study.
+    hits : int
+        A positive cell's covering draws (every draw; the committed cells lost none).
+    draws : int
+        A positive cell's draws.
+    ratio : float
+        A control cell's paired IID/cluster SE ratio.
+    ratio_low : float
+        Its 99% interval's lower end.
+    ratio_high : float
+        Its 99% interval's upper end.
+    """
+
+    slug: str
+    hits: int = 0
+    draws: int = 0
+    ratio: float = math.nan
+    ratio_low: float = math.nan
+    ratio_high: float = math.nan
+
+
+#: The committed ``few_cluster_reference`` cells of ``clustered-few-cluster-tmle`` and
+#: ``few-cluster-cross-fitted-ltmle`` at 10, 20 and 30 clusters, copied from their committed
+#: ``properties.csv``; ``tests/unit/test_few_cluster_floor_design.py`` checks the copy.
+COMMITTED_CELLS: Final[dict[str, Counterpart]] = {
+    "drtmle_crossfit__equal10__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7659136930500346,
+        ratio_low=0.7585610279452084,
+        ratio_high=0.7735280361774681,
+    ),
+    "drtmle_crossfit__equal10__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3791, draws=4000
+    ),
+    "drtmle_crossfit__equal10__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7338898342816227,
+        ratio_low=0.7298065056276075,
+        ratio_high=0.7379010837958329,
+    ),
+    "drtmle_crossfit__equal10__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3810, draws=4000
+    ),
+    "drtmle_crossfit__equal10__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7277934116762391,
+        ratio_low=0.7248025319161029,
+        ratio_high=0.7307729986303725,
+    ),
+    "drtmle_crossfit__equal10__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3814, draws=4000
+    ),
+    "drtmle_crossfit__unequal_informative__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.6837715997986044,
+        ratio_low=0.6749718925869178,
+        ratio_high=0.6928792757092729,
+    ),
+    "drtmle_crossfit__unequal_informative__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3732, draws=4000
+    ),
+    "drtmle_crossfit__unequal_informative__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.6229619023260806,
+        ratio_low=0.6188893618001229,
+        ratio_high=0.6269583930655988,
+    ),
+    "drtmle_crossfit__unequal_informative__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3788, draws=4000
+    ),
+    "drtmle_crossfit__unequal_informative__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.6088131653225648,
+        ratio_low=0.6058321923239623,
+        ratio_high=0.6117560276688337,
+    ),
+    "drtmle_crossfit__unequal_informative__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3784, draws=4000
+    ),
+    "ltmle_in_sample__equal10__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7140671065474723,
+        ratio_low=0.7102849331131998,
+        ratio_high=0.717806595480112,
+    ),
+    "ltmle_in_sample__equal10__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3764, draws=4000
+    ),
+    "ltmle_in_sample__equal10__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7149115724437758,
+        ratio_low=0.7118863585392204,
+        ratio_high=0.7179822264359734,
+    ),
+    "ltmle_in_sample__equal10__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3797, draws=4000
+    ),
+    "ltmle_in_sample__unequal_informative__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.5894088568271826,
+        ratio_low=0.5862444657530322,
+        ratio_high=0.5925897684794095,
+    ),
+    "ltmle_in_sample__unequal_informative__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3772, draws=4000
+    ),
+    "ltmle_in_sample__unequal_informative__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.5886622544223854,
+        ratio_low=0.5862071894827089,
+        ratio_high=0.5911276920115287,
+    ),
+    "ltmle_in_sample__unequal_informative__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3779, draws=4000
+    ),
+    "tmle_crossfit__equal10__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7340648295289189,
+        ratio_low=0.728161204722442,
+        ratio_high=0.7401980927257343,
+    ),
+    "tmle_crossfit__equal10__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3740, draws=4000
+    ),
+    "tmle_crossfit__equal10__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7226555263996368,
+        ratio_low=0.7188286710436261,
+        ratio_high=0.7265402481174634,
+    ),
+    "tmle_crossfit__equal10__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3770, draws=4000
+    ),
+    "tmle_crossfit__equal10__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7204743247026979,
+        ratio_low=0.717436205334585,
+        ratio_high=0.72348308684362,
+    ),
+    "tmle_crossfit__equal10__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3807, draws=4000
+    ),
+    "tmle_crossfit__unequal_informative__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.6112508725800283,
+        ratio_low=0.6061957183926808,
+        ratio_high=0.6163240771484058,
+    ),
+    "tmle_crossfit__unequal_informative__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3724, draws=4000
+    ),
+    "tmle_crossfit__unequal_informative__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.5932922794766998,
+        ratio_low=0.59019248779312,
+        ratio_high=0.5965418249533712,
+    ),
+    "tmle_crossfit__unequal_informative__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3781, draws=4000
+    ),
+    "tmle_crossfit__unequal_informative__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.5909727783147798,
+        ratio_low=0.5885117587603365,
+        ratio_high=0.5934964190047076,
+    ),
+    "tmle_crossfit__unequal_informative__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3788, draws=4000
+    ),
+    "tmle_cv_evaluation__equal10__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7583734079833067,
+        ratio_low=0.7492299473764898,
+        ratio_high=0.7674192252617587,
+    ),
+    "tmle_cv_evaluation__equal10__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3762, draws=4000
+    ),
+    "tmle_cv_evaluation__equal10__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7339316805564021,
+        ratio_low=0.7292848016182738,
+        ratio_high=0.7386259064011245,
+    ),
+    "tmle_cv_evaluation__equal10__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3780, draws=4000
+    ),
+    "tmle_cv_evaluation__equal10__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7273102443207347,
+        ratio_low=0.7238037634039721,
+        ratio_high=0.7307511904428045,
+    ),
+    "tmle_cv_evaluation__equal10__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3804, draws=4000
+    ),
+    "tmle_in_sample__equal10__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7169291865059745,
+        ratio_low=0.7110246049114152,
+        ratio_high=0.7226718058978878,
+    ),
+    "tmle_in_sample__equal10__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3721, draws=4000
+    ),
+    "tmle_in_sample__equal10__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.7143718977123157,
+        ratio_low=0.7106475665053341,
+        ratio_high=0.7181875018684405,
+    ),
+    "tmle_in_sample__equal10__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3760, draws=4000
+    ),
+    "tmle_in_sample__equal10__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.715267251083649,
+        ratio_low=0.7122405786644733,
+        ratio_high=0.7182689815536448,
+    ),
+    "tmle_in_sample__equal10__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3800, draws=4000
+    ),
+    "tmle_in_sample__unequal_informative__j10__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.6019345817235324,
+        ratio_low=0.596836410834067,
+        ratio_high=0.6068673380455044,
+    ),
+    "tmle_in_sample__unequal_informative__j10__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3696, draws=4000
+    ),
+    "tmle_in_sample__unequal_informative__j20__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.5893439345791245,
+        ratio_low=0.5861630933142585,
+        ratio_high=0.5925473180513177,
+    ),
+    "tmle_in_sample__unequal_informative__j20__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3773, draws=4000
+    ),
+    "tmle_in_sample__unequal_informative__j30__iid_t_control": Counterpart(
+        "clustered-few-cluster-tmle",
+        ratio=0.5885852260666844,
+        ratio_low=0.5861149297807821,
+        ratio_high=0.5909999574876917,
+    ),
+    "tmle_in_sample__unequal_informative__j30__t_reference": Counterpart(
+        "clustered-few-cluster-tmle", hits=3779, draws=4000
+    ),
+    "ltmle_crossfit__equal40__j20__iid_t_control": Counterpart(
+        "few-cluster-cross-fitted-ltmle",
+        ratio=0.6546786399021827,
+        ratio_low=0.6509957529909383,
+        ratio_high=0.6584282441966791,
+    ),
+    "ltmle_crossfit__equal40__j20__t_reference": Counterpart(
+        "few-cluster-cross-fitted-ltmle", hits=3788, draws=4000
+    ),
+    "ltmle_crossfit__equal40__j30__iid_t_control": Counterpart(
+        "few-cluster-cross-fitted-ltmle",
+        ratio=0.6509862800563911,
+        ratio_low=0.6479423316124039,
+        ratio_high=0.6540562900134884,
+    ),
+    "ltmle_crossfit__equal40__j30__t_reference": Counterpart(
+        "few-cluster-cross-fitted-ltmle", hits=3799, draws=4000
+    ),
+    "ltmle_crossfit__unequal40__j20__iid_t_control": Counterpart(
+        "few-cluster-cross-fitted-ltmle",
+        ratio=0.6328463221146452,
+        ratio_low=0.6285451106301871,
+        ratio_high=0.6371704430410732,
+    ),
+    "ltmle_crossfit__unequal40__j20__t_reference": Counterpart(
+        "few-cluster-cross-fitted-ltmle", hits=3756, draws=4000
+    ),
+    "ltmle_crossfit__unequal40__j30__iid_t_control": Counterpart(
+        "few-cluster-cross-fitted-ltmle",
+        ratio=0.6226054143210805,
+        ratio_low=0.6192238198241798,
+        ratio_high=0.6260680055177177,
+    ),
+    "ltmle_crossfit__unequal40__j30__t_reference": Counterpart(
+        "few-cluster-cross-fitted-ltmle", hits=3770, draws=4000
+    ),
+}
+#: Each floor-study fit and the committed fit of the same family it is compared with at and
+#: above the anchor (review B3). An estimated configuration reads the committed oracle cell. The
+#: d5 configurations have no committed counterpart.
+COUNTERPART_FITS: Final[dict[str, str]] = {
+    "tmle_in_sample_known": "tmle_in_sample",
+    "tmle_in_sample_estimated": "tmle_in_sample",
+    "tmle_stacked_known": "tmle_crossfit",
+    "tmle_stacked_estimated": "tmle_crossfit",
+    "tmle_fold_evaluated_known": "tmle_cv_evaluation",
+    "tmle_fold_evaluated_estimated": "tmle_cv_evaluation",
+    "drtmle_known": "drtmle_crossfit",
+    "ltmle_in_sample": "ltmle_in_sample",
+    "ltmle_cross_fitted": "ltmle_crossfit",
+}
+
+
+def anchor_counterparts() -> dict[str, Counterpart]:
+    """Each floor-study cell with a committed counterpart at the same law and count."""
+    out = {}
+    for name, counterpart in COMMITTED_CELLS.items():
+        committed_fit, rest = name.split("__", 1)
+        for fit, target in COUNTERPART_FITS.items():
+            if target == committed_fit:
+                out[f"{fit}__{rest}"] = counterpart
+    return out
+
+
+def agrees_with_committed(
+    row: Mapping[str, Any], counterpart: Counterpart | None, *, control: bool
+) -> bool:
+    """Whether a red cell agrees with its committed counterpart (review B3).
+
+    The two-sample 99% interval of the difference must hold 0: the all-draw coverage of a
+    positive (withheld and lost draws as misses) against the committed coverage, by the normal
+    form of a difference of two independent proportions; the paired IID/cluster ratio of a
+    control against the committed ratio, each SE read off its own 99% interval. No counterpart
+    is no agreement.
+    """
+    if counterpart is None:
+        return False
+    z = float(stats.norm.ppf(0.5 + LEVEL / 2.0))
+    if control:
+        mine = (float(row["paired_se_ratio_ci_upper"]) - float(row["paired_se_ratio_ci_lower"])) / (
+            2.0 * z
+        )
+        theirs = (counterpart.ratio_high - counterpart.ratio_low) / (2.0 * z)
+        difference = float(row["paired_se_ratio"]) - counterpart.ratio
+        spread = math.hypot(mine, theirs)
+    else:
+        requested = float(row["requested_draws"])
+        p1 = float(row["all_draw_coverage"])
+        p2 = counterpart.hits / counterpart.draws
+        difference = p1 - p2
+        spread = math.sqrt(p1 * (1.0 - p1) / requested + p2 * (1.0 - p2) / counterpart.draws)
+    return bool(math.isfinite(difference) and abs(difference) <= z * spread)
+
+
 #: The study's family name and the package's floor family (``FLOOR_FAMILY_NAMES`` keys of
 #: :data:`cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`), where they differ (m7).
 PACKAGE_FAMILIES: Final[dict[str, str]] = {
@@ -1265,6 +1618,7 @@ def declared_route(
     *,
     anchor: int,
     diagnoses: Mapping[str, str] | None = None,
+    counterparts: Mapping[str, Counterpart] | None = None,
 ) -> Route:
     """The route and the red owners of one floor family (plan 5.8, reviews B3 and M3).
 
@@ -1273,10 +1627,14 @@ def declared_route(
     of the per-count passes. A red below the floor is held under :func:`red_reading` (positive)
     or :data:`CONTROL_READING` (control). A red at or above the anchor makes the route a
     defect suspect; it is held under :data:`CHANCE_READING` only when ``diagnoses`` (default
-    :data:`NO_DEFECT_DIAGNOSES`) records a no-defect diagnosis for it, and otherwise held by
-    nobody.
+    :data:`NO_DEFECT_DIAGNOSES`) records a no-defect diagnosis for it **and** it agrees with
+    its committed counterpart in ``counterparts`` (default :func:`anchor_counterparts`, by
+    :func:`agrees_with_committed`; review B3). Otherwise nobody holds it: a red that disagrees
+    with the committed anchor is a measured change, and plan 5.8 (rev 3.7) withdraws the
+    support of the shipped floor for that family.
     """
     diagnoses = NO_DEFECT_DIAGNOSES if diagnoses is None else diagnoses
+    counterparts = anchor_counterparts() if counterparts is None else counterparts
     verdicts = {
         key: bool(positive["passed"]) and bool(control["passed"])
         for key, (positive, control) in cells.items()
@@ -1298,7 +1656,10 @@ def declared_route(
                 continue
             name = f"{FAMILY}/{row['cell']}"
             if count >= anchor or count >= floor:
-                owners[name] = (RED_OWNER, CHANCE_READING) if name in diagnoses else None
+                chance = name in diagnoses and agrees_with_committed(
+                    row, counterparts.get(str(row["cell"])), control=is_control
+                )
+                owners[name] = (RED_OWNER, CHANCE_READING) if chance else None
             elif is_control:
                 owners[name] = (RED_OWNER, CONTROL_READING)
             else:

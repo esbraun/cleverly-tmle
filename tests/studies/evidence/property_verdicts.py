@@ -2132,8 +2132,8 @@ def few_cluster_reference_verdicts(
     ``few-cluster-cross-fitted-ltmle`` both read this one rule.
 
     A study whose fits can withhold an interval (the X54 floor studies) passes ``shown_only``.
-    The SE ratios then read the shown draws whose arms report a finite positive SE, and the
-    paired ratio the draws both arms show; a withheld draw stays a miss in the coverage the
+    The SE ratios then read the shown draws (:func:`~tests.studies.evidence.property_failures.shown_mask`: not
+    withheld, with a finite positive SE), and the paired ratio the draws both arms show; a withheld draw stays a miss in the coverage the
     shared summary computed over every draw. A cell with fewer than two such draws publishes
     no SE ratio, and its control fails: no clause can be read.
 
@@ -2149,7 +2149,7 @@ def few_cluster_reference_verdicts(
         The module's declared groups of the family (``PROPERTY_GROUPS``), which pair each
         control with its positive arm.
     shown_only : bool, default False
-        Read the SE ratios on the draws with a finite positive SE, as above.
+        Read the SE ratios on the shown draws, as above.
     """
     margins = record.margins
     family = summary["property"] == FEW_CLUSTER_FAMILY
@@ -2158,10 +2158,9 @@ def few_cluster_reference_verdicts(
         selected = rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
         if not shown_only:
             return selected
-        se = selected["std_error"].to_numpy(dtype=float)
         # The shown subset is no longer the accounted cell, so it pairs on replicate ids alone.
         return selected.loc[
-            np.isfinite(se) & (se > 0.0), ["replicate", "estimate", "std_error", "truth"]
+            pf.shown_mask(selected), ["replicate", "estimate", "std_error", "truth"]
         ]
 
     for index in summary.index[family.to_numpy()]:
@@ -2886,7 +2885,14 @@ def _paired_rules() -> tuple[pf.FamilyRule, ...]:
     )
 
 
-def _few_cluster_rule() -> pf.FamilyRule:
+def few_cluster_rule(*, shown_only: bool = False) -> pf.FamilyRule:
+    """The ``few_cluster_reference`` rule; ``shown_only`` is the floor studies' form.
+
+    With ``shown_only`` the two SE-ratio clauses' worst cases read what the verdict reads
+    (``few_cluster_reference_verdicts(..., shown_only=True)``): the lost count comes from the
+    unfiltered cell, then the withheld rows are dropped. A module that passes ``shown_only`` to
+    the verdict declares this rule in its ``PROPERTY_RULES``.
+    """
     return pf.FamilyRule(
         families=frozenset({FEW_CLUSTER_FAMILY}),
         shared="few_cluster_reference_verdicts",
@@ -2903,6 +2909,7 @@ def _few_cluster_rule() -> pf.FamilyRule:
                 judge=pf.below_judge(lambda ctx: FEW_CLUSTER_IID_CONTROL_CEILING),
                 seed=_cell_seed(FEW_CLUSTER_FAMILY),
                 applies=pf.roles("control"),
+                shown_only=shown_only,
             ),
             pf.paired_positive_se_clause(
                 "paired positive se ratio at most the sanity ceiling",
@@ -2910,6 +2917,7 @@ def _few_cluster_rule() -> pf.FamilyRule:
                 seed=_cell_seed(FEW_CLUSTER_FAMILY),
                 applies=pf.roles("control"),
                 truth_varies=lambda ctx: False,
+                shown_only=shown_only,
             ),
         ),
     )
@@ -3593,6 +3601,6 @@ FAMILY_RULES: tuple[pf.FamilyRule, ...] = (
     calibration_rule(efficiency_band=None),
     _simultaneous_rule(),
     *_paired_rules(),
-    _few_cluster_rule(),
+    few_cluster_rule(),
     _contraction_rule(),
 )

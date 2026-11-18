@@ -73,10 +73,14 @@ def test_published_cells_equal_the_declaration(study, properties):
     assert properties.PROPERTY_GROUPS[floor.POOLED_FAMILY] == tuple(
         (name,) for name in study.POOLED_CELLS
     )
-    # The part (c) families read the module's rule; the floor family the registered one.
+    # The part (c) families read the module's rule; the floor family the registered rule in its
+    # shown-only form, which the shared registered rule is not (review B2).
     for family in (floor.CANDIDATE_FAMILY, floor.POOLED_FAMILY):
         assert property_failures.rule_for(family, properties) is properties.PROPERTY_RULES[0]
-    assert property_failures.rule_for(floor.FAMILY, properties) not in properties.PROPERTY_RULES
+    rule = property_failures.rule_for(floor.FAMILY, properties)
+    assert rule is properties.PROPERTY_RULES[1]
+    assert property_failures.rule_for(floor.FAMILY, None) not in properties.PROPERTY_RULES
+    assert rule.shared == "few_cluster_reference_verdicts"
 
 
 @pytest.mark.parametrize(("study", "properties"), STUDIES)
@@ -855,17 +859,93 @@ def test_the_route_reads_a_red_above_the_anchor_as_a_defect_suspect():
 
 
 def test_the_route_reads_a_red_at_the_anchor_and_its_diagnosis():
-    """M3, B3: a red at the anchor is a defect suspect until a diagnosis records no defect."""
+    """M3, B3: a red at the anchor is a defect suspect until a diagnosis records no defect and
+    the cell agrees with its committed counterpart (two-sample 99% interval holding 0)."""
     cells = _family_cells({10: "positive"})
-    name = f"{floor.FAMILY}/x_known__l__j10__t_reference"
-    route = floor.declared_route("x", cells, anchor=10)
+    cell = "x_known__l__j10__t_reference"
+    name = f"{floor.FAMILY}/{cell}"
+    positive, control = cells[("x_known", "l", 10)]
+    cells[("x_known", "l", 10)] = ({**positive, "all_draw_coverage": 0.905}, control)
+    agrees = {cell: floor.Counterpart("committed", hits=3_640, draws=4_000)}  # 0.910
+    differs = {cell: floor.Counterpart("committed", hits=3_721, draws=4_000)}  # 0.930
+    route = floor.declared_route("x", cells, anchor=10, counterparts=agrees)
     assert route.route == "defect suspect: 10" and route.owners[name] is None
-    diagnosed = floor.declared_route("x", cells, anchor=10, diagnoses={name: "no defect"})
-    assert diagnosed.owners[name] == (floor.RED_OWNER, floor.CHANCE_READING)
+    diagnosis = {name: "no defect"}
+    held = floor.declared_route("x", cells, anchor=10, diagnoses=diagnosis, counterparts=agrees)
+    assert held.owners[name] == (floor.RED_OWNER, floor.CHANCE_READING)
+    for counterparts in (differs, {}):
+        changed = floor.declared_route(
+            "x", cells, anchor=10, diagnoses=diagnosis, counterparts=counterparts
+        )
+        assert changed.owners[name] is None and changed.defect_suspects == (name,)
+    # The mutation that skips the comparison holds the measured change under the chance reading.
+    assert name in diagnosis and not floor.agrees_with_committed(
+        cells[("x_known", "l", 10)][0], differs[cell], control=False
+    )
     # The mutation that treats the anchor as a lower count reads a below-floor red instead.
     mutated = floor.declared_route("x", cells, anchor=15)
     assert mutated.route == "kept: 10 fails"
     assert mutated.owners[name] == (floor.RED_OWNER, floor.FINITE_SAMPLE_READING)
+
+
+def test_an_anchor_control_red_compares_its_paired_ratio():
+    """B3: a control reads its paired IID/cluster ratio against the committed one. The pilot's
+    fold-evaluated J10 control (0.804, 99% interval 0.775 to 0.836) disagrees with the committed
+    ``tmle_cv_evaluation`` cell (0.758, 0.749 to 0.767)."""
+    committed = floor.anchor_counterparts()[
+        "tmle_fold_evaluated_known__equal10__j10__iid_t_control"
+    ]
+    pilot_row = {
+        "paired_se_ratio": 0.804,
+        "paired_se_ratio_ci_lower": 0.775,
+        "paired_se_ratio_ci_upper": 0.836,
+    }
+    assert not floor.agrees_with_committed(pilot_row, committed, control=True)
+    close = {
+        "paired_se_ratio": 0.762,
+        "paired_se_ratio_ci_lower": 0.752,
+        "paired_se_ratio_ci_upper": 0.772,
+    }
+    assert floor.agrees_with_committed(close, committed, control=True)
+
+
+def test_the_committed_counterparts_are_the_committed_cells():
+    """B3: :data:`COMMITTED_CELLS` copies the committed studies' anchor cells, and every floor
+    family but d5 has a counterpart at its anchor on every law."""
+    for directory, slug in (
+        ("ltmle_few_cluster", "clustered-few-cluster-tmle"),
+        ("few_cluster_crossfit_ltmle", "few-cluster-cross-fitted-ltmle"),
+    ):
+        table = pd.read_csv(study_a.STUDY.artifacts.parent / directory / "properties.csv")
+        table = table.loc[
+            (table["property"] == floor.FAMILY) & table["role"].isin(["positive", "control"])
+        ]
+        for row in table.itertuples(index=False):
+            copy = floor.COMMITTED_CELLS[row.cell]
+            assert copy.slug == slug and row.failed_replicates == 0
+            if row.role == "positive":
+                assert copy.hits / copy.draws == pytest.approx(row.coverage, abs=1e-12)
+                assert copy.draws == row.replicates
+            else:
+                assert (copy.ratio, copy.ratio_low, copy.ratio_high) == pytest.approx(
+                    (
+                        row.paired_se_ratio,
+                        row.paired_se_ratio_ci_lower,
+                        row.paired_se_ratio_ci_upper,
+                    )
+                )
+    counterparts = floor.anchor_counterparts()
+    for fit, family in study_a.FITS.items():
+        if fit in study_a.D5_FITS:
+            assert not any(name.startswith(fit) for name in counterparts)
+            continue
+        anchor = study_a.ANCHORS[family]
+        for law in study_a.laws_of(fit):
+            for arm in (floor.REFERENCE_ARM, "iid_t_control"):
+                assert study_a.cell_name(fit, law, anchor, arm) in counterparts
+    for law in study_b.SIZE_LAWS:
+        for arm in (floor.REFERENCE_ARM, "iid_t_control"):
+            assert study_b.cell_name(law, study_b.ANCHOR, arm) in counterparts
 
 
 def test_below_floor_readings():

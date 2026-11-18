@@ -1601,16 +1601,44 @@ def spread_ratio_clause(
     return Clause(name, "S9", applies, read, candidates, target=target, reads=reads)
 
 
-def _completed_se(group: pd.DataFrame, fill: float) -> pd.DataFrame:
-    """One arm's ``replicate`` and ``std_error`` with every lost replicate at ``fill``."""
+def shown_mask(rows: pd.DataFrame) -> np.ndarray:
+    """The rows whose interval is shown: ``withheld == 0`` and a finite positive SE.
+
+    A withheld row may keep the SE it computed (a constant arm, an out-of-range estimate), so
+    the SE alone does not mark a shown draw. ``rows`` must carry the ``withheld`` column.
+    """
+    if "withheld" not in rows:
+        raise ValueError("a shown-only reading needs the rows' withheld column")
+    se = rows["std_error"].to_numpy(dtype=float)
+    withheld = pd.to_numeric(rows["withheld"], errors="coerce").fillna(1).to_numpy()
+    return np.asarray((withheld == 0) & np.isfinite(se) & (se > 0.0), dtype=bool)
+
+
+def _shown_rows(group: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """An arm's shown rows and its lost count, read off the unfiltered arm.
+
+    The lost replicates are those the arm's key never returned; a withheld row is a kept row,
+    so it never counts as lost, and it is dropped only after the count is taken.
+    """
+    k = _requested(group) - len(group)
+    return group.loc[shown_mask(group)], k
+
+
+def _completed_se(group: pd.DataFrame, fill: float, *, shown_only: bool = False) -> pd.DataFrame:
+    """One arm's ``replicate`` and ``std_error`` with every lost replicate at ``fill``.
+
+    With ``shown_only`` the lost ids are read off the unfiltered arm, then the withheld rows are
+    dropped (:func:`shown_mask`), so a withheld draw is neither filled nor read.
+    """
     requested = _requested(group)
-    survived = [int(value) for value in group["replicate"]]
-    missing = sorted(set(range(requested)) - set(survived))
+    lost = sorted(set(range(requested)) - {int(value) for value in group["replicate"]})
+    kept = group.loc[shown_mask(group)] if shown_only else group
+    survived = [int(value) for value in kept["replicate"]]
     return pd.DataFrame(
         {
-            "replicate": survived + missing,
+            "replicate": survived + lost,
             "std_error": np.concatenate(
-                [group["std_error"].to_numpy(dtype=float), np.full(len(missing), fill)]
+                [kept["std_error"].to_numpy(dtype=float), np.full(len(lost), fill)]
             ),
         }
     ).sort_values("replicate", ignore_index=True)
@@ -1624,6 +1652,7 @@ def paired_se_ratio_clause(
     applies: Applies,
     group: str = "pair",
     columns: tuple[str, str] = ("paired_se_ratio_ci_lower", "paired_se_ratio_ci_upper"),
+    shown_only: bool = False,
 ) -> Clause:
     """S9m: the control's mean SE over its paired positive arm's mean SE, pushed upward.
 
@@ -1649,6 +1678,10 @@ def paired_se_ratio_clause(
         The rule's group, which says which cells form the pair.
     columns : tuple of str
         The summary columns of the published interval.
+    shown_only : bool, default False
+        The verdict reads the shown draws (``few_cluster_reference_verdicts``): the lost ids
+        are read off the unfiltered arms, then the withheld rows are dropped, and the arms pair
+        on the replicates both keep.
 
     Returns
     -------
@@ -1666,8 +1699,23 @@ def paired_se_ratio_clause(
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
         positive, control = _pair_arms(ctx, row, group)
-        numerator = _completed_se(control, float(control["std_error"].max()))
-        denominator = _completed_se(positive, float(positive["std_error"].min()))
+        if shown_only:
+            shown_control, shown_positive = (
+                control.loc[shown_mask(control)],
+                positive.loc[shown_mask(positive)],
+            )
+            numerator = _completed_se(
+                control, float(shown_control["std_error"].max()), shown_only=True
+            )
+            denominator = _completed_se(
+                positive, float(shown_positive["std_error"].min()), shown_only=True
+            )
+            both = np.intersect1d(numerator["replicate"], denominator["replicate"])
+            numerator = numerator.loc[numerator["replicate"].isin(both)]
+            denominator = denominator.loc[denominator["replicate"].isin(both)]
+        else:
+            numerator = _completed_se(control, float(control["std_error"].max()))
+            denominator = _completed_se(positive, float(positive["std_error"].min()))
         interval = paired_se_ratio_interval(
             numerator,
             denominator,
@@ -1689,6 +1737,7 @@ def paired_positive_se_clause(
     truth_varies: Callable[[Context], bool] | None = None,
     group: str = "pair",
     column: str = "paired_positive_se_ratio_ci_upper",
+    shown_only: bool = False,
 ) -> Clause:
     """S5 on the paired positive arm: its SE-ratio interval, judged on the control's row.
 
@@ -1712,6 +1761,9 @@ def paired_positive_se_clause(
         The rule's group, which says which cells form the pair.
     column : str
         The control-row column that publishes the positive arm's upper endpoint.
+    shown_only : bool, default False
+        The verdict reads the positive's shown draws: the S4 set fills the lost count of the
+        unfiltered arm onto its shown rows (:func:`_shown_rows`).
 
     Returns
     -------
@@ -1740,7 +1792,10 @@ def paired_positive_se_clause(
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
         positive, _ = _pair_arms(ctx, row, group)
-        k = _requested(positive) - len(positive)
+        if shown_only:
+            positive, k = _shown_rows(positive)
+        else:
+            k = _requested(positive) - len(positive)
         resampling = seed(ctx, positive_row(ctx, row))
         out = []
         for label, frame in se_ratio_sets(positive, k, truth_varies=varies(ctx)):
