@@ -29,10 +29,10 @@ The design note is ``rows/X101/pr3-design.md`` (rev 2) in the planning repositor
 
 from __future__ import annotations
 
-import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from functools import cached_property
 from itertools import product
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
@@ -139,9 +139,9 @@ class BreslowHazard:
         """The baseline's jumps at :attr:`atoms`."""
         return np.asarray(self.model.baseline_jumps_, dtype=float)
 
-    @property
+    @cached_property
     def _cum(self) -> np.ndarray[Any, Any]:
-        # The same cumulative sum CoxHazard.cumulative_hazard reads.
+        # The same cumulative sum CoxHazard.cumulative_hazard reads, computed once per model.
         return np.cumsum(self.jumps)
 
     def eta(self, X: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
@@ -389,6 +389,8 @@ def _on_jump(
     t: np.ndarray[Any, Any],
     eta: np.ndarray[Any, Any],
     raw: np.ndarray[Any, Any],
+    *,
+    end: float,
 ) -> np.ndarray[Any, Any]:
     r"""Levels on the jump at ``t``: :math:`V` uniform on :math:`[S(t), S(t^-))`.
 
@@ -396,8 +398,10 @@ def _on_jump(
     never falls below its first term; one ``nextafter`` pulls a level that rounding put on
     :math:`\Lambda_0(t)` back inside, at an atom only.  On a continuous baseline the level is
     :math:`\Lambda_0(t)` exactly.  A grouped baseline with no atom at ``t`` cannot have
-    produced the time there, so the time is past ``t`` (administrative censoring at the end of
-    follow-up) and the level is drawn past :math:`\Lambda_0(t)`, as :func:`_after` draws it.
+    produced the time there.  At ``end``, the last observed time, the unit was censored by the
+    end of follow-up, so its latent time is past ``t`` and the level is drawn past
+    :math:`\Lambda_0(t)`, as :func:`_after` draws it.  Before ``end`` no level reproduces the
+    data, and the draw raises.
     """
     if not model.atomic:
         return np.asarray(model.cumulative(t), dtype=float)
@@ -411,6 +415,11 @@ def _on_jump(
     over = (jump > 0.0) & (level >= top)
     level[over] = np.nextafter(top[over], -np.inf)
     off = jump <= 0.0
+    if np.any(off & (t != end)):
+        raise ValueError(
+            "a grouped replay model has no atom at an observed time before the end of follow-up, "
+            "so no latent level reproduces that unit"
+        )
     if off.any():
         level[off] = _after(model, t[off], eta[off], raw[off])
     return np.asarray(level, dtype=float)
@@ -529,6 +538,7 @@ def observed_levels(
     r_censoring, r_set, r_tie = uniforms[J], uniforms[J + 1], uniforms[J + 2].copy()
     eta = np.stack([model.eta(X) for model in models.causes]) if J else np.zeros((0, n))
     event = cause_index >= 0
+    end = float(np.max(time)) if n else 0.0
     levels = np.zeros((J, n))
     with np.errstate(over="ignore", invalid="ignore"):
         # Unit-level jumps of every cause at each unit's own time.
@@ -556,7 +566,7 @@ def observed_levels(
             on = tied[i, rows]
             out = np.empty(rows.size)
             if on.any():
-                out[on] = _on_jump(model, t[on], eta[i, rows][on], r_cause[i, rows][on])
+                out[on] = _on_jump(model, t[on], eta[i, rows][on], r_cause[i, rows][on], end=end)
             if (~on).any():
                 out[~on] = _after(model, t[~on], eta[i, rows][~on], r_cause[i, rows][~on])
             levels[i, rows] = out
@@ -590,7 +600,9 @@ def observed_levels(
         eta_c = model.eta(X)
         censoring = np.empty(n)
         censoring[event] = _after(model, time[event], eta_c[event], r_censoring[event], left=True)
-        censoring[~event] = _on_jump(model, time[~event], eta_c[~event], r_censoring[~event])
+        censoring[~event] = _on_jump(
+            model, time[~event], eta_c[~event], r_censoring[~event], end=end
+        )
     return Levels(levels, censoring, r_tie, eta, eta_c)
 
 
@@ -888,11 +900,7 @@ def validate_continuous_request(
     points = tuple(float(value) for value in grid.treatment)  # type: ignore[arg-type]
     if any(value < 0.0 or value > 0.5 for value in points):
         raise ValueError("binary treatment strengths must be between 0 and 0.5")
-    if any(not math.isfinite(value) for value in grid.outcome):
-        raise ValueError(
-            "outcome strengths are finite log-hazard shifts per standard deviation of the "
-            "simulated cause"
-        )
+    # Outcome strengths are finite: ConfounderStrengthGrid refuses any other value.
     causes = tuple(result.causes)
     if outcome_cause is not None:
         if len(causes) < 2:
@@ -1032,12 +1040,36 @@ def _state(
         return _State(
             models, None, RuntimeError(f"the replay models cannot be read: {models.failure}")
         )
-    uniforms = np.random.default_rng(seed).uniform(size=(len(codes) + _EXTRA_STREAMS, data.n))
-    levels = observed_levels(models, time, cause_index, uniforms)
-    # Preflight: the general path at zero strength must return the observed data.
-    zero = replay_cell(
-        models, levels, time, cause_index, coded, coded, np.zeros(data.n), np.zeros(len(codes))
-    )
+    return _drawn_state(models, time, cause_index, coded, len(codes), seed, preflight=True)
+
+
+def _drawn_state(
+    models: ReplayModels,
+    time: np.ndarray[Any, Any],
+    cause_index: np.ndarray[Any, Any],
+    coded: np.ndarray[Any, Any],
+    n_causes: int,
+    seed: int,
+    *,
+    preflight: bool,
+) -> _State:
+    """Draw the levels and run the preflight; an error in either fails every moved cell.
+
+    Supplied continuous models skip the preflight: their inversion returns the observed time
+    only to rounding, which the known-hazard checks bound instead.
+    """
+    n = time.size
+    try:
+        uniforms = np.random.default_rng(seed).uniform(size=(n_causes + _EXTRA_STREAMS, n))
+        levels = observed_levels(models, time, cause_index, uniforms)
+        if not preflight:
+            return _State(models, levels, None)
+        # Preflight: the general path at zero strength must return the observed data.
+        zero = replay_cell(
+            models, levels, time, cause_index, coded, coded, np.zeros(n), np.zeros(n_causes)
+        )
+    except Exception as error:  # every nonzero cell then records it as its failure
+        return _State(models, None, error)
     if not (np.array_equal(zero.time, time) and np.array_equal(zero.cause_index, cause_index)):
         return _State(
             models,
@@ -1247,5 +1279,6 @@ def _known_state(
 ) -> _State:
     """The state of a surface run on supplied models (the known-hazard checks)."""
     time = np.asarray(result.data.time, dtype=float)
-    uniforms = np.random.default_rng(seed).uniform(size=(n_causes + _EXTRA_STREAMS, time.size))
-    return _State(models, observed_levels(models, time, cause_index, uniforms), None)
+    return _drawn_state(
+        models, time, cause_index, np.asarray(coded), n_causes, seed, preflight=False
+    )

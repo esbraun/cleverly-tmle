@@ -611,9 +611,20 @@ class ContinuousSurvivalTMLE:
         -------
         ContinuousSurvivalResult
             The fit of the copy.
+
+        Raises
+        ------
+        ValueError
+            If both ``_frozen_folds`` and ``_frozen_plan`` are passed, or the plan does not
+            fit the data.
         """
         folds = _frozen_folds
         plan = _frozen_plan
+        if plan is not None and folds is not None:
+            raise ValueError(
+                "pass a frozen fold plan or frozen outer labels, not both: the plan holds its "
+                "own outer labels"
+            )
         if plan is not None and plan.outer.size != len(data.time):
             raise ValueError(
                 f"a frozen fold plan holds {plan.outer.size} rows; the data hold {len(data.time)}"

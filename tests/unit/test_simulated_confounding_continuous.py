@@ -217,6 +217,19 @@ def test_t14a_a_plan_without_its_generator_state_fails_the_refit() -> None:
     assert again.record.off_grid_share != result.record.off_grid_share
 
 
+def test_t14a_a_plan_and_frozen_labels_together_are_refused() -> None:
+    """The plan holds its own outer labels, so a refit refuses a second set."""
+    result = _in_sample()
+    estimator = result.estimator
+    with pytest.raises(ValueError, match="not both"):
+        estimator.refit(
+            result.data,
+            random_state=estimator.random_state,
+            _frozen_folds=np.zeros(result.data.n, dtype=int),
+            _frozen_plan=estimator._fold_plan,
+        )
+
+
 def _treatment_only(observed: _Observed, levels: Any = None) -> tuple[Any, ...]:
     latent = observed.latent()
     mask = _flip_mask(latent, 0.22)
@@ -661,6 +674,61 @@ def test_t14d_the_replay_has_the_declared_discrete_law(u_latent: float, gamma: A
         assert _law_error(level, a, a_new, u_latent, gamma) < 1e-12, (level, a, a_new)
 
 
+def _shared_atom_units(k: int, n: int = 20000) -> tuple[Any, ...]:
+    """``n`` units observed with cause ``k`` at the shared atom 2 of the step law."""
+    x = np.array([1.0, 1.0])
+    design = np.tile(x, (n, 1))
+    models = cc.ReplayModels(STEP_CAUSES, STEP_CENSORING, design, design[:, 1:])
+    time = np.full(n, 2.0)
+    cause_index = np.full(n, k)
+    uniforms = np.random.default_rng(40 + k).uniform(size=(len(STEP_CAUSES) + 3, n))
+    levels = cc.observed_levels(models, time, cause_index, uniforms)
+    return models, time, cause_index, uniforms, levels
+
+
+def _zero_replay(models: Any, levels: Any, time: Any, cause_index: Any) -> cc.Replay:
+    n = time.size
+    treatment = np.ones(n)
+    return cc.replay_cell(
+        models, levels, time, cause_index, treatment, treatment, np.zeros(n), np.zeros(2), tau=TAU
+    )
+
+
+@pytest.mark.parametrize("k", [0, 1])
+def test_t14d_the_zero_replay_keeps_every_unit_at_a_shared_atom(k: int) -> None:
+    """Unit by unit: a tied set holding both causes still returns the observed cause.
+
+    The law check above is blind to the conditioning of the tie uniform, because a raw uniform
+    moves as much mass from cause ``k`` to the other cause as back, so this check reads each
+    unit. Mutation: the raw tie uniform reassigns units whose tied set holds both causes.
+    """
+    models, time, cause_index, uniforms, levels = _shared_atom_units(k)
+    times, _ = cc.latent_draws(models, levels, np.ones(time.size), np.ones(time.size),
+                               np.zeros(time.size), np.zeros(2))  # fmt: skip
+    both = np.all(times == 2.0, axis=0)
+    assert both.sum() > 1000  # the witness reaches tied sets of two causes
+    zero = _zero_replay(models, levels, time, cause_index)
+    assert np.array_equal(zero.time, time)
+    assert np.array_equal(zero.cause_index, cause_index)
+    raw = dataclasses.replace(levels, tie=uniforms[len(STEP_CAUSES) + 2])
+    mutated = _zero_replay(models, raw, time, cause_index)
+    assert np.any(mutated.cause_index[both] != k)
+
+
+def test_t14d_a_grouped_model_without_an_atom_before_the_end_refuses_the_draw() -> None:
+    """Only the end of follow-up may sit off a grouped model's atoms; earlier, no level fits."""
+    design = np.array([[0.0, 0.0], [0.0, 0.0]])
+    models = cc.ReplayModels(STEP_CAUSES, STEP_CENSORING, design, design[:, 1:])
+    time = np.array([2.5, 6.0])  # 2.5 is no censoring atom, and 6.0 is the end
+    uniforms = np.full((len(STEP_CAUSES) + 3, 2), 0.5)
+    with pytest.raises(ValueError, match="no atom at an observed time before the end"):
+        cc.observed_levels(models, time, np.array([-1, -1]), uniforms)
+    # At the end the level is drawn past the last atom, so no censoring is replayed.
+    last = dataclasses.replace(models, design=design[1:], baseline=design[1:, 1:])
+    levels = cc.observed_levels(last, time[1:], np.array([-1]), uniforms[:, 1:])
+    assert np.isinf(STEP_CENSORING.inverse(levels.censoring))[0]
+
+
 def _worst(cases: Any = None) -> float:
     cases = cases or [(level, a, a_new, u, g) for level, a, a_new in STRATA for u, g in LATENTS]
     return max(_law_error(*case) for case in cases)
@@ -1000,6 +1068,43 @@ def test_t14g_an_overflowing_replay_model_fails_every_moved_cell(
     assert moved and all(cell.failure is not None for cell in moved)
     assert all("not finite" in cell.failure.message for cell in moved)
     assert any("cannot be read" in line for line in surface.replay_models)
+
+
+def test_t14g_a_failed_preflight_fails_every_moved_cell(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A level that does not reproduce the data is a package defect in every moved cell."""
+    original = cc.observed_levels
+
+    def broken(models: Any, time: Any, cause_index: Any, uniforms: Any) -> Any:
+        levels = original(models, time, cause_index, uniforms)
+        cause = levels.cause.copy()
+        censored = np.flatnonzero(cause_index < 0)[0]
+        cause[0, censored] = 0.0  # an event before the unit's censoring time
+        return dataclasses.replace(levels, cause=cause)
+
+    monkeypatch.setattr(cc, "observed_levels", broken)
+    result = _fresh(_in_sample())
+    surface = _surface(result)
+    anchor, *moved = surface.cells
+    assert anchor.estimate == result[RD].psi
+    assert moved and all(cell.failure is not None for cell in moved)
+    assert all("package defect" in cell.failure.message for cell in moved)
+
+
+def test_t14g_an_error_while_drawing_levels_fails_every_moved_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The surface records an unforeseen error in the level draw instead of raising it."""
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        raise FloatingPointError("a level draw failed")
+
+    monkeypatch.setattr(cc, "observed_levels", failing)
+    result = _fresh(_in_sample())
+    surface = _surface(result)
+    anchor, *moved = surface.cells
+    assert anchor.estimate == result[RD].psi
+    assert all(cell.failure is not None for cell in moved)
+    assert {cell.failure.error_type for cell in moved} == {"FloatingPointError"}
 
 
 class _Overflow:
