@@ -15,6 +15,7 @@ import copy
 import gc
 import pickle
 import re
+import sys
 import tracemalloc
 import warnings
 from collections.abc import Callable, Iterator
@@ -401,7 +402,8 @@ def _released(build: Callable[[], Any], key_part: str) -> tuple[int, int]:
         gc.collect()
         cache = result.assessment_cache
         (key,) = [key for key in cache if build_answer in key]
-        counted = cache._size(key)
+        # Deleting the entry also frees its key string, which the answer's count leaves out.
+        counted = cache._size(key) + sys.getsizeof(key)
         before, _ = tracemalloc.get_traced_memory()
         del cache[key]
         gc.collect()
@@ -859,3 +861,70 @@ def test_a_reused_address_cannot_pass_for_the_filed_answer() -> None:
     cache.pop("op0:{}")
     cache.update({"op0:{}": _Value(100)})
     assert not any(entry.evictable for entry in cache.info())
+
+
+def test_a_member_that_raises_leaves_no_marks_frame_behind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The frame stack unwinds on an exception, so later filings are classified on their own."""
+    result = KINDS["ordinary"].build()
+
+    def raising() -> Any:
+        random_module.note_learner_fit()
+        raise RuntimeError("member failed")
+
+    with pytest.raises(RuntimeError):
+        cache_module._cached(result, "diagnostics.support", (), {}, raising)
+    assert random_module._FRAMES.get() == ()
+    _quiet(lambda: result.diagnostics.support())
+    (entry,) = [e for e in result.assessment_cache.info() if "support" in e.key]
+    assert entry.evictable
+
+
+@pytest.mark.parametrize("kind", ["known_score", "or", "drtmle", "drtmle_companion"])
+def test_a_derived_ratio_is_kept_exactly_where_its_retarget_fits_learners(kind: str) -> None:
+    from cleverly.sensitivity.positivity import refits_reduced_regressions
+
+    result = KINDS[kind].build()
+    _fill(result)
+    flags = [
+        e.evictable
+        for e in result.assessment_cache.info()
+        if _operation(e.key) == "sensitivity.derived_risk_ratio"
+    ]
+    assert flags
+    fits = result.fitted_method == "adaptive_iptw" or refits_reduced_regressions(result)
+    assert flags == [not fits] * len(flags)
+
+
+def test_the_derived_ratio_fixtures_cover_both_outcomes() -> None:
+    from cleverly.sensitivity.positivity import refits_reduced_regressions
+
+    outcomes = {
+        kind: KINDS[kind].build() for kind in ("known_score", "or", "drtmle", "drtmle_companion")
+    }
+    fits = {
+        kind: result.fitted_method == "adaptive_iptw" or refits_reduced_regressions(result)
+        for kind, result in outcomes.items()
+    }
+    assert set(fits.values()) == {True, False}, fits
+
+
+def test_a_consistent_mechanism_request_still_runs_without_include_refits() -> None:
+    """The cache's refit classification leaves the capability row, and so the report, alone."""
+    result = KINDS["ctmle_ordered"].build()
+    report = _quiet(
+        lambda: result.sensitivity.run_all(
+            arguments={"omitted_confounding": {"assume_consistent_mechanism": True}}
+        )
+    )
+    (item,) = [item for item in report.items if item.name == "omitted_confounding"]
+    assert item.status.name not in ("DEFERRED", "SKIPPED"), item
+
+
+def test_no_thread_or_process_pool_starts_outside_map_parallel() -> None:
+    pools = re.compile(r"threading\.Thread\(|ThreadPoolExecutor\(|ProcessPoolExecutor\(")
+    found = [
+        path.relative_to(SRC).as_posix()
+        for path in SRC.rglob("*.py")
+        if pools.search(path.read_text())
+    ]
+    assert found == []

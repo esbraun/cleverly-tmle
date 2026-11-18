@@ -1347,6 +1347,26 @@ The saved artifact carries the assessment cache. A result you derive with `datac
 does not. The cache key records the operation and its arguments, and it records nothing about the
 result that answered them, so a derived result starts with an empty cache of its own.
 
+### Limit the memory of saved answers
+
+A result keeps every assessment answer it has computed, so a repeated call returns at once. Most
+answers are a few kilobytes. The omitted-confounder elements behind `omitted_confounding()`,
+`contour()` and `elements()` hold four numbers per row, about 32 MB for each estimand and
+`nu2_estimator` at a million rows, and a derived risk ratio holds one number per row. Many
+distinct requests on a large fit can therefore add up.
+
+Set `result.assessment_cache.max_bytes` to a number of bytes to cap that memory. The cache then
+drops the answers it can compute again exactly from the fitted result, least recently used first,
+and a later call recomputes the dropped answer with bit-for-bit the same numbers. It never drops an
+answer that refits a model, draws a random seed of its own, fits a learner or runs work in
+parallel, because computing that again could give different numbers. Such answers can keep the
+cache above the cap. `result.assessment_cache.info()` lists each answer with its size and whether
+the cap may drop it, and `result.assessment_cache.evict()` drops every answer it may drop now.
+
+There is no cap by default. A cap trades memory for the time to recompute, and `save()` writes only
+the answers that survive it. `result.assessment_cache.clear()` removes every answer, including the
+refits; a repeated unseeded refit then draws a new seed, as it would after any removal.
+
 The artifact contains the complete result graph, including nuisance estimator templates, so
 successfully restored results retain refit-based assessment. `save()` writes the graph with
 `cloudpickle`. It saves an importable function or class by reference. It saves a lambda, a
