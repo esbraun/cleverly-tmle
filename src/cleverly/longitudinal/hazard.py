@@ -88,7 +88,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 from scipy.special import expit, xlogy
@@ -164,6 +164,7 @@ __all__ = [
     "refuse_hazard_design",
     "refuse_hazard_settings",
     "refuse_multinode_design",
+    "refuse_multinode_time_varying",
     "refuse_separable_mtp",
     "slot_design",
     "softmax_logits",
@@ -176,9 +177,6 @@ __all__ = [
 
 #: The two hazard targeting algorithms.
 HazardAlgorithm = Literal["per_horizon", "one_step", "untargeted"]
-
-#: The roadmap item that tracks hazard targeting outside its held baseline design.
-HAZARD_ROADMAP = "X70"
 
 #: The refusal of ``step_bound=`` beside the one-step hazard walk, which already walks the
 #: universal least favorable submodel in steps of ``step_size``.  The same code and shape as
@@ -1312,6 +1310,7 @@ def fit_hazards(
     cause_order: Sequence[int] | None = None,
     slots: Sequence[MTPSlots] = (),
     fit_rows: BoolArray | None = None,
+    current_levels: bool = False,
 ) -> InitialHazards:
     """Fit the sequential pseudo-hazards at every node and cause, out of fold.
 
@@ -1352,6 +1351,14 @@ def fit_hazards(
         ``(n,)`` the rows every regression may train on, ``None`` for every row.  An outer
         fold's untargeted backward pass of a fit with covariates after baseline trains on its
         own training rows with the single fold, and predicts every row.
+    current_levels : bool, default False
+        Predict node :math:`k` at each unit's observed earlier treatments with the node-:math:`k`
+        treatment set to each of node :math:`k`'s levels, the slot hazards a design with a
+        treatment at several nodes and covariates after baseline reads (X70 part (b2)).
+        ``levels`` must then be empty.  ``hazards[:, k - 1, a]`` holds level ``a`` of node
+        ``k``, the level axis is the largest level count over the nodes, and the entries past a
+        node's own count stay zero.  The fit design and the fit rows are the ones of every other
+        mode, so the learners fitted are the same; only the prediction points move.
 
     Returns
     -------
@@ -1372,7 +1379,12 @@ def fit_hazards(
             n_jobs=n_jobs,
             cause_order=cause_order,
         )
-    hazards = np.zeros((data.n, data.n_times, len(levels), n_causes))
+    if current_levels and (levels or slots or hazard_pooling == "pooled"):
+        raise ValueError(
+            "current_levels=True predicts its own levels, without level plans, slots or pooling"
+        )
+    n_levels = max(len(codes) for codes in data.treatment_levels) if current_levels else len(levels)
+    hazards = np.zeros((data.n, data.n_times, n_levels, n_causes))
     slot_hazards = {
         entry.label: np.zeros((data.n, data.n_times, entry.n_slots, n_causes)) for entry in slots
     }
@@ -1389,9 +1401,16 @@ def fit_hazards(
             plan.label: data.history_design(time, treatment=plan.values, include_current=True)
             for plan in levels
         }
+        # Not ``keys``: the slot loop below binds that name for each slot entry.
+        level_keys = tuple(plan.label for plan in levels)
+        if current_levels:
+            predict.update(_current_level_designs(data, time))
+            level_keys = tuple(
+                current_level_label(code) for code in range(len(data.treatment_levels[time - 1]))
+            )
         slot_keys = _slot_predictions(data, time, slots, design, predict)
         earlier = np.zeros(data.n, dtype=bool)
-        taken = np.zeros((data.n, len(levels)))
+        taken = np.zeros((data.n, len(level_keys)))
         observed_taken = np.zeros(data.n)
         slot_taken = {label: np.zeros((data.n, len(keys))) for label, keys in slot_keys.items()}
         # Filed by cause index, so the nuisance report reads cause order whatever the fit
@@ -1405,7 +1424,7 @@ def fit_hazards(
             if not np.any(target[rows] * data.weights[rows] > 0):
                 no_events.append((time, cause))
                 node_diagnostics[cause] = ()
-                rho = np.zeros((data.n, len(levels)))
+                rho = np.zeros((data.n, len(level_keys)))
                 predictions = None
             else:
                 constant: list[int] = []
@@ -1425,12 +1444,13 @@ def fit_hazards(
                 )
                 node_diagnostics[cause] = tuple(fold_diagnostics)
                 rho = (
-                    np.column_stack([predictions[plan.label] for plan in levels])
-                    if levels
+                    np.column_stack([predictions[key] for key in level_keys])
+                    if level_keys
                     else np.zeros((data.n, 0))
                 )
-            hazards[:, time - 1, :, cause] = rho * (1.0 - taken)
-            taken = taken + hazards[:, time - 1, :, cause]
+            node_hazards = rho * (1.0 - taken)
+            hazards[:, time - 1, : len(level_keys), cause] = node_hazards
+            taken = taken + node_hazards
             for label, keys in slot_keys.items():
                 slot_rho = (
                     np.zeros((data.n, len(keys)))
@@ -1456,8 +1476,119 @@ def fit_hazards(
     )
 
 
+def plan_hazards(
+    data: LongitudinalData,
+    *,
+    learner: Learner,
+    folds: Folds,
+    counter: Any,
+    hazard_pooling: str = "node",
+    cause_order: Sequence[int] | None = None,
+    fit_rows: BoolArray | None = None,
+) -> Any:
+    """The fits :func:`fit_hazards` makes, counted without fitting.
+
+    One cross-fitted classification per node and cause with an event on its rows, each
+    training fold whose positive-weight rows hold one value fitting nothing; under
+    ``"pooled"`` one per cause with an event at some node.  The rows do not depend on the
+    plans or the slots, which only add predictions.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared survival panel.
+    learner : Learner
+        The resolved hazard learner.
+    folds : Folds
+        The outer split, or the single fold with ``fit_rows``.
+    counter : FitCounter
+        Counts each fit.
+    hazard_pooling : {"node", "pooled"}
+        As :func:`fit_hazards`.
+    cause_order : sequence of int or None
+        As :func:`fit_hazards`.
+    fit_rows : ndarray of bool or None
+        As :func:`fit_hazards`.
+
+    Returns
+    -------
+    Count
+        The fits.
+    """
+    from .._planned_fits import Count
+
+    at_risk, events = event_indicators(data)
+    n_causes = events.shape[2]
+    order = range(n_causes) if cause_order is None else cause_order
+    weights = np.asarray(data.weights, dtype=float)
+    out = Count()
+    if hazard_pooling == "pooled":
+        n_times = data.n_times
+        stacked = Folds(np.tile(folds.assignment, n_times), folds.n_folds)
+        stacked_earlier = np.zeros((data.n, n_times), dtype=bool)
+        for cause in order:
+            cells = at_risk & ~stacked_earlier
+            target = events[:, :, cause]
+            if np.any((target * weights[:, None])[cells] > 0):
+                out.add(
+                    counter.cross(
+                        learner,
+                        target.T.reshape(-1),
+                        stacked,
+                        task="classification",
+                        fit_mask=cells.T.reshape(-1),
+                        stack=n_times,
+                    )
+                )
+            stacked_earlier = stacked_earlier | (target > 0)
+        return out
+    for time in range(1, data.n_times + 1):
+        earlier = np.zeros(data.n, dtype=bool)
+        for cause in order:
+            rows = at_risk[:, time - 1] & ~earlier
+            if fit_rows is not None:
+                rows = rows & fit_rows
+            target = events[:, time - 1, cause]
+            if np.any(target[rows] * weights[rows] > 0):
+                out.add(
+                    counter.cross(
+                        learner,
+                        target,
+                        folds,
+                        task="classification",
+                        fit_mask=rows,
+                        constant_skip=True,
+                    )
+                )
+            earlier = earlier | (target > 0)
+    return out
+
+
 #: The prediction key of the observed treatment's design, shared by every policy's slot 0.
 _OBSERVED_SLOT = "\x00hazard-observed"
+
+
+def current_level_label(code: int) -> str:
+    """The internal prediction key of level ``code`` of the current node (X70 part (b2))."""
+    return f"\x00hazard-current-{code}"
+
+
+def _current_level_designs(data: LongitudinalData, time: int) -> dict[str, FloatArray]:
+    """Node ``time``'s design at each of its levels, the earlier treatments as observed.
+
+    The treatment matrix is the observed one with column ``time - 1`` set to the level's code;
+    a missing earlier entry fills with code 0 in :meth:`LongitudinalData.history_design`, on a
+    row that no fit or score reads.
+    """
+    observed = np.asarray(data.treatment, dtype=float)
+    out: dict[str, FloatArray] = {}
+    for code in range(len(data.treatment_levels[time - 1])):
+        values = np.array(observed, copy=True)
+        values[:, time - 1] = float(code)
+        out[current_level_label(code)] = data.history_design(
+            time, treatment=values, include_current=True
+        )
+    return out
 
 
 def _slot_predictions(
@@ -4414,14 +4545,29 @@ def hazard_declared_mechanism_refusal(factor: str, time: int, name: str, first: 
     )
 
 
-def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSpec]) -> None:
-    """Refuse what the hazard fit of a design with several treatment nodes does not build.
+def _refuse_node_kinds(data: LongitudinalData) -> None:
+    """Refuse a continuous or mixed node after the first on a multi-node hazard fit (H22)."""
+    for time in range(2, data.n_times + 1):
+        kind = data.node_kind(time)
+        if kind != "categorical":
+            what = "is continuous" if kind == "continuous" else "is a vector with a dose"
+            raise CapabilityError.from_refusal(
+                hazard_node_kind_refusal(time, data.decision_name(time), what)
+            )
 
-    Checked before any learner, in the order H23, H22, H26, then per regimen H21 and H15, so
-    a continuous or mixed later node gets the node-kind refusal even though it can hold only
-    a modified treatment policy.  H26 refuses a declared treatment factor after the first
-    node and a declared retention factor at any node: each is given at the observed history
-    only, and the walk weights every slot by the mechanism along the slot's own history.
+
+def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSpec]) -> None:
+    """Refuse what the path engine of a design with several treatment nodes does not build.
+
+    The path engine of X70 part (a) fits a design with a treatment at several nodes and
+    baseline covariates only (a block at node 1 included).  Checked before any learner, in
+    the order H23, H22, H26, then per regimen H21 and H15, so a continuous or mixed later node
+    gets the node-kind refusal even though it can hold only a modified treatment policy.  H26
+    refuses a declared treatment factor after the first node and a declared retention factor at
+    any node: each is given at the observed history only, and the walk weights every slot by
+    the mechanism along the slot's own history.  H23 and H26 belong to the path engine: a design
+    with covariates after baseline runs the backward pass instead, which evaluates every node
+    at the observed history, and :func:`refuse_multinode_time_varying` checks it.
 
     Parameters
     ----------
@@ -4437,13 +4583,7 @@ def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSp
     """
     if data.markov_order is not None:
         raise CapabilityError.from_refusal(HAZARD_MARKOV_ORDER_REFUSAL)
-    for time in range(2, data.n_times + 1):
-        kind = data.node_kind(time)
-        if kind != "categorical":
-            what = "is continuous" if kind == "continuous" else "is a vector with a dose"
-            raise CapabilityError.from_refusal(
-                hazard_node_kind_refusal(time, data.decision_name(time), what)
-            )
+    _refuse_node_kinds(data)
     known = data.known_mechanisms
     if known is not None:
         for time in range(2, data.n_times + 1):
@@ -4472,6 +4612,59 @@ def refuse_multinode_design(data: LongitudinalData, regimens: Sequence[RegimenSp
                 raise CapabilityError.from_refusal(hazard_later_mtp_refusal(label, time))
 
 
+def refuse_multinode_time_varying(data: LongitudinalData, regimens: Sequence[RegimenSpec]) -> None:
+    """Refuse what the backward pass of a multi-node design with later covariates does not build.
+
+    A design with a categorical treatment at several nodes and a covariate block at a node
+    after the first is fitted by the backward pass of
+    :mod:`cleverly.longitudinal.hazard_backward` (X70 part (b2)) under static arms, rules and
+    known policies.  Checked before any learner, after H28 to H30: H22, then H27 per regimen and
+    node, a modified treatment policy before an odds tilt at each node.  The check reads the
+    declared regimen, because :meth:`~cleverly.longitudinal.LTMLE._resolve_tilts` later turns a
+    tilt into a known policy.  A regimen with a tilt node whose treatment factor is not
+    declared is not checked: ``_resolve_tilts`` refuses it on every LTMLE route
+    (:data:`~cleverly.methods.LTMLE_TILT_REFUSAL`), so H27 never recommends a route that refuses
+    the same regimen.  H23 and H26 do not apply: the pass evaluates every node, its declared
+    factors and its windows at the observed history and builds no treatment path.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel of a multi-node design with a covariate after baseline.
+    regimens : sequence of Regimen or DynamicRegimen
+        The declared regimens, before any rule is evaluated.
+
+    Raises
+    ------
+    CapabilityError
+        On any refused design.
+    """
+    from ..data.known_mechanism import divided_treatment_at
+    from .hazard_backward import hazard_time_varying_regimen_refusal
+
+    _refuse_node_kinds(data)
+    for regimen in regimens:
+        label = getattr(regimen, "label", "")
+        is_mtp = getattr(regimen, "is_mtp", None)
+        is_tilt = getattr(regimen, "is_tilt", None)
+        tilts = (
+            [time for time in range(1, data.n_times + 1) if is_tilt(time)]
+            if is_tilt is not None
+            else []
+        )
+        if any(divided_treatment_at(data, time) is None for time in tilts):
+            continue
+        for time in range(1, data.n_times + 1):
+            if is_mtp is not None and is_mtp(time):
+                raise CapabilityError.from_refusal(
+                    hazard_time_varying_regimen_refusal(label, "mtp", time)
+                )
+            if time in tilts:
+                raise CapabilityError.from_refusal(
+                    hazard_time_varying_regimen_refusal(label, "tilt", time)
+                )
+
+
 def refuse_hazard_design(
     data: LongitudinalData,
     regimens: Sequence[RegimenSpec],
@@ -4485,13 +4678,15 @@ def refuse_hazard_design(
 ) -> None:
     """Refuse a design the hazard model or the projection does not support.
 
-    Called after the data and the regimens are read, before any learner: H2, H6, H16,
-    H19 and, on a held design with covariates after baseline, H28 to H30.  A modified
-    treatment policy at the baseline decision is fitted on a categorical, continuous or
-    mixed node (X70 part (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).  A
-    held design with covariates after baseline is fitted by the backward pass of
-    :mod:`cleverly.longitudinal.hazard_backward` (X70 part (b1)).  A categorical treatment
-    at several nodes with baseline covariates only is fitted (X70 part (a)), and
+    Called after the data and the regimens are read, before any learner: H6, H16, H19 and,
+    on a design with covariates after baseline, H28 to H30.  A modified treatment policy at
+    the baseline decision is fitted on a categorical, continuous or mixed node (X70 part
+    (c)), except with a tuned cap (H16) or beside ``msm=`` (H19).  A design with covariates
+    after baseline is fitted by the backward pass of
+    :mod:`cleverly.longitudinal.hazard_backward`, held (X70 part (b1)) or with a categorical
+    treatment at several nodes (part (b2)), where :func:`refuse_multinode_time_varying`
+    refuses what the pass does not take (H22, H27).  A categorical treatment at several nodes
+    with baseline covariates only is fitted by the path engine (X70 part (a)), and
     :func:`refuse_multinode_design` refuses what that design does not take (H15, H21 to
     H23, H26).
 
@@ -4546,24 +4741,6 @@ def refuse_hazard_design(
         later_covariates,
     )
 
-    blocks = [name for block in data.time_varying_names for name in block]
-    if is_multinode(data) and blocks:
-        # H2 (narrowed): a treatment at several nodes with covariates after baseline is X70
-        # part (b2), which is not built.
-        raise CapabilityError(
-            "survival_model='hazard' on a design with a treatment at several nodes models the "
-            "event and censoring hazards given the treatment history and the baseline "
-            f"covariates. This fit declares time-varying covariates ({', '.join(blocks)}), and "
-            "hazard targeting with time-varying covariates on a design with a treatment at "
-            "several nodes is not built, a block at node 1 included.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap=HAZARD_ROADMAP,
-            alternative=(
-                "LTMLE with survival_model='iterated_mean' adjusts for them, and "
-                "isotonic=True makes its curve monotone. If one baseline treatment is held over "
-                "every node, declare treatment='A'."
-            ),
-        )
     later = later_covariates(data)
     if later:
         if targeting != "one_step":
@@ -4578,7 +4755,9 @@ def refuse_hazard_design(
             "baseline covariates only. Such a fit regresses the event indicator at each node "
             "and fits no pseudo-outcome. Pass the hazard learner as outcome_learner="
         )
-    if is_multinode(data):
+    if is_multinode(data) and later:
+        refuse_multinode_time_varying(data, regimens)
+    elif is_multinode(data):
         refuse_multinode_design(data, regimens)
     for regimen in regimens:
         label = getattr(regimen, "label", "")

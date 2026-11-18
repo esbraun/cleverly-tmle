@@ -422,6 +422,48 @@ class FittedTuner:
         return np.asarray(self.model.predict(features), dtype=float).reshape(-1)
 
 
+def tuner_fit_inputs(
+    tuner: DoseQuantile | SupportBoundary,
+    frame: Callable[[], Any],
+    rows: BoolArray,
+    n: int,
+) -> tuple[BoolArray, FloatArray | None]:
+    """The rows a tuner is fitted on and a boundary's design, with the refusals they raise.
+
+    :func:`fit_tuner` and the planned-fit preview both call this, so the preview raises
+    what the fit raises before it reaches a learner.
+
+    Parameters
+    ----------
+    tuner : DoseQuantile or SupportBoundary
+        The declared tuner.
+    frame : callable
+        Returns the policy frame of every row.  Called only for a boundary.
+    rows : ndarray
+        ``(n,)`` the rows the tuner is fitted on.
+    n : int
+        The number of rows.
+
+    Returns
+    -------
+    keep : ndarray
+        ``(n,)`` the rows, as booleans.
+    design : ndarray or None
+        A boundary's design of every row, or ``None`` for a dose quantile.
+
+    Raises
+    ------
+    DataError
+        When no row is at risk.
+    """
+    keep = np.asarray(rows, dtype=bool)
+    if not keep.any():
+        raise DataError("a tuned cap has no rows at risk to fit its tuner on")
+    if isinstance(tuner, DoseQuantile):
+        return keep, None
+    return keep, FittedTuner(tuner, np.zeros(0)).design(frame(), n)
+
+
 def fit_tuner(
     tuner: DoseQuantile | SupportBoundary,
     doses: FloatArray,
@@ -451,15 +493,12 @@ def fit_tuner(
     """
     a = np.asarray(doses, dtype=float).reshape(-1)
     n = a.size
-    keep = np.asarray(rows, dtype=bool)
-    if not keep.any():
-        raise DataError("a tuned cap has no rows at risk to fit its tuner on")
+    keep, design = tuner_fit_inputs(tuner, frame, rows, n)
     w = _normalised(weights, n)
     if isinstance(tuner, DoseQuantile):
         theta = np.array([weighted_quantile(a[keep], w[keep], tuner.q)])
         return FittedTuner(tuner, theta, n_fitted=int(keep.sum()))
-    placeholder = FittedTuner(tuner, np.zeros(0))
-    design = placeholder.design(frame(), n)
+    assert design is not None
     if tuner.finite_dimensional:
         theta = _linear_quantile(design[keep], a[keep], w[keep], tuner.q)
         return FittedTuner(tuner, theta, n_fitted=int(keep.sum()))

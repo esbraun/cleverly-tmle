@@ -51,6 +51,36 @@ _SCORE_TOL: Final = 1e-10
 _MAX_NEWTON: Final = 100
 #: A Newton step below this share of the coefficients' size is below rounding: converged.
 _STEP_TOL: Final = 1e-12
+#: The widest spread (largest minus smallest) the standardized linear predictor may reach on
+#: the fitting rows.  Within it every shifted risk in a risk set is at least
+#: ``exp(-_SPREAD_MAX)``, a normal double, so the Breslow sums keep full relative precision.  The
+#: design is centred, so the predictor spans zero and the unshifted risks of the baseline stay
+#: within ``exp(+-_SPREAD_MAX)``, and a fitting row's cumulative hazard stays finite.  Fits
+#: running to a monotone-likelihood boundary end at it; a regular maximum reaches it only with
+#: hazard ratios of about ``exp(568)`` between two fitting rows.
+_SPREAD_MAX: Final = 0.8 * float(np.log(np.finfo(float).max))
+#: The infinite-coefficient test of ``survival::coxph.fit`` (Therneau): coefficient ``j`` runs
+#: to infinity when the Newton step at the final fit exceeds ``_INF_EPS`` and
+#: ``sqrt(_INF_EPS) * |beta_j|``.
+_INF_EPS: Final = 1e-9
+
+
+def _newton_step(info: FloatArray, grad: FloatArray) -> FloatArray:
+    """The Newton step ``info^{-1} grad``, by least squares where ``info`` is singular."""
+    try:
+        return np.asarray(cho_solve(cho_factor(info), grad))
+    except np.linalg.LinAlgError:
+        return np.asarray(np.linalg.lstsq(info, grad, rcond=None)[0])
+
+
+def _column_names(terms: CoxTerms, p: int) -> list[str]:
+    """The design columns in words: the treatment, covariates by their ``X`` column."""
+    names = ["the treatment"]
+    if terms != "treatment":
+        names += [f"covariate {k}" for k in range(1, p)]
+    if terms == "interaction":
+        names += [f"treatment x covariate {k}" for k in range(1, p)]
+    return names
 
 
 def _design(X: FloatArray, terms: CoxTerms) -> FloatArray:
@@ -161,6 +191,22 @@ class CoxHazard:
     Ties use the Breslow partial likelihood, and the baseline is the Breslow estimate
     :math:`d\Lambda_0(u) = d(u) / \sum_{i:\, T_i \ge u} e^{x_i^\top\beta}`, so
     ``CoxHazard("treatment")`` at :math:`\beta = 0` is the Nelson-Aalen estimator.
+
+    Newton steps are halved until the likelihood does not fall and the standardized linear
+    predictor's spread over the fitting rows stays within :math:`0.8 \log(\text{max double})`,
+    about 568, where the Breslow sums keep full precision. A regular fit ends inside that range.
+    On separated data (a cause with no events in one arm, or a covariate that orders the event
+    times) the partial likelihood keeps rising along one direction toward a limit it never
+    reaches, so no maximum exists. The fit then either ends pinned at the range's edge, or meets
+    the score tolerance with the coefficients still running, which the infinite-coefficient test
+    of R's ``survival::coxph`` usually detects (a heuristic: a small separated sample can pass
+    it). A detected case sets ``monotone_likelihood_`` and warns with a
+    :class:`~cleverly.exceptions.ConvergenceWarning` naming the coefficients that may be
+    infinite. That fit is not a maximum-likelihood estimate: it is the point its Newton path
+    reached, where the hazards the separating direction sends toward zero or infinity are
+    effectively at their limit. A positive ``penalty`` gives the likelihood a finite maximum.
+    ``converged_`` says whether the score met its tolerance. A regular maximum with hazard ratios
+    of about :math:`e^{568}` between two fitting rows is beyond the range and is not reached.
     """
 
     def __init__(self, terms: CoxTerms = "main", penalty: float = 0.0) -> None:
@@ -212,6 +258,10 @@ class CoxHazard:
         sets = _risk_sets(time, event)
         beta = np.zeros(Zs.shape[1])
         converged = sets.times.size == 0
+        # The last full Newton step left the resolved range (or read a non-finite value).
+        unresolved_step = False
+        info = np.zeros((beta.size, beta.size))
+        grad = np.zeros(beta.size)
         for _ in range(_MAX_NEWTON):
             if converged:
                 break
@@ -219,42 +269,82 @@ class CoxHazard:
             grad = grad - self.penalty * beta
             info = info + self.penalty * np.eye(beta.size)
             if not (np.all(np.isfinite(grad)) and np.all(np.isfinite(info))):
-                # A risk set's weights underflowed: the same monotone-likelihood boundary.
+                # Inside the resolved range only a non-finite input reaches this.
                 break
             if np.max(np.abs(grad)) < _SCORE_TOL:
                 converged = True
                 break
-            try:
-                step = cho_solve(cho_factor(info), grad)
-            except np.linalg.LinAlgError:
-                step = np.linalg.lstsq(info, grad, rcond=None)[0]
+            step = _newton_step(info, grad)
             # At n in the thousands the summed score can stall just above its tolerance while
             # the Newton step is already below rounding; that is convergence, not a boundary,
             # where the step grows instead.
             if np.max(np.abs(step)) <= _STEP_TOL * (1.0 + np.max(np.abs(beta))):
                 converged = True
                 break
-            # Halve until the penalized likelihood does not fall.
+            # Halve until the penalized likelihood is resolved and does not fall.  A trial whose
+            # linear predictor leaves the resolved range is halved without being evaluated: its
+            # Breslow sums would lose precision or underflow, and an underflowed risk set reads
+            # as +inf.  A regular fit's Newton step can leave the range too (one heavy-tailed
+            # covariate), so leaving it is halved like a fall, never taken as a boundary.
             target = loglik - 0.5 * self.penalty * beta @ beta
             accepted = False
-            for _halving in range(30):
+            for halving in range(30):
                 trial = beta + step
-                value = _loglik(trial, Zs, sets) - 0.5 * self.penalty * trial @ trial
-                if value >= target - 1e-12:  # False for a non-finite value
+                resolved = bool(np.ptp(Zs @ trial) <= _SPREAD_MAX)
+                value = (
+                    _loglik(trial, Zs, sets) - 0.5 * self.penalty * trial @ trial
+                    if resolved
+                    else np.nan
+                )
+                if halving == 0:
+                    unresolved_step = not np.isfinite(value)
+                if np.isfinite(value) and value >= target - 1e-12:
                     accepted = True
                     break
                 step = step / 2
             if not accepted:
-                # No step keeps the likelihood finite and not lower: the coefficients run to a
-                # monotone-likelihood boundary, so they stay at the last finite fit.
+                # No step keeps the likelihood resolved and not lower: the fit stays here.
                 break
             beta = beta + step
-        if not converged:
+        reach = float(np.ptp(Zs @ beta)) if beta.size else 0.0
+        if converged and beta.size:
+            # coxph's infinite-coefficient test, on the standardized scale where its relative
+            # criterion is scale-free: at a finite maximum the Newton step is at rounding; along
+            # a separating direction the score and the information decay together and the step
+            # stays near the inverse of the separation's gap.
+            final_step = np.abs(np.linalg.pinv(info) @ grad)
+            runaway = (final_step > _INF_EPS) & (final_step > np.sqrt(_INF_EPS) * np.abs(beta))
+            # Columns coupled to the run through the inverse information can pass the test with a
+            # step orders of magnitude below the run's own; they are not named.
+            runaway &= final_step >= 0.1 * np.max(final_step)
+            boundary = bool(np.any(runaway))
+        else:
+            # Pinned at the edge of the resolved range by steps that keep leaving it.
+            boundary = unresolved_step and reach > 0.5 * _SPREAD_MAX and not self.penalty
+            runaway = (
+                np.abs(beta) >= 0.5 * np.max(np.abs(beta))
+                if boundary
+                else np.zeros(beta.size, bool)
+            )
+        if boundary:
+            names = _column_names(self.terms, np.asarray(X).shape[1])
+            diverging = ", ".join(n for n, r in zip(names, runaway, strict=True) if r)
             _warn(
-                f"{self!r} did not reach a score below {_SCORE_TOL:g} in {_MAX_NEWTON} Newton "
-                "steps; the coefficients may sit on a monotone-likelihood boundary.",
+                f"{self!r} has a monotone partial likelihood: the coefficients of {diverging} may "
+                "be infinite. The fit stops along its Newton path where the likelihood is still "
+                "resolved in double precision, so the hazards it sends toward zero or infinity "
+                "are effectively at their limit; it is not a maximum-likelihood estimate. A ridge "
+                "penalty, such as CoxHazard(..., penalty=1.0), has a finite maximum; a "
+                "StratifiedNelsonAalen on a separating discrete column fits the limit exactly.",
                 ConvergenceWarning,
             )
+        elif not converged:
+            _warn(
+                f"{self!r} did not reach a score below {_SCORE_TOL:g} in {_MAX_NEWTON} Newton "
+                "steps; the coefficients are the last fit whose likelihood was resolved.",
+                ConvergenceWarning,
+            )
+        self.monotone_likelihood_ = boundary
         self.converged_ = converged
         self.coef_ = beta / self.scale_
         self.intercept_shift_ = float(self.center_ / self.scale_ @ beta)

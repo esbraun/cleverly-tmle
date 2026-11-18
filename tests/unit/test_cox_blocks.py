@@ -88,9 +88,9 @@ def _fit(
 
 
 def _separated() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # Failure order is a monotone function of one covariate: its coefficient runs to a
-    # monotone-likelihood boundary. A step to a +inf likelihood is accepted, the next Newton
-    # step is not finite, and the fit stops unconverged and warns.
+    # Failure order is a monotone function of one covariate: its coefficient runs toward
+    # infinity. Trials past the resolved range are halved unevaluated, so the fit stops
+    # unconverged at the range's edge and reports a monotone partial likelihood.
     rng = np.random.default_rng(0)
     n = 200
     W = rng.normal(size=n)
@@ -155,29 +155,25 @@ def test_the_fit_is_byte_identical_to_the_one_array_construction(
     assert _state(fitted, X) == _state(reference, X)
 
     # The package's own warnings are identical. NumPy's floating-point warnings are drawn
-    # from the same messages, and no new message appears; their count is not fixed. A halving
-    # trial no longer forms the means and second moments it discards, which at a boundary
-    # divide zero by zero, so one block warns fewer times; each further block repeats that
-    # division, so many blocks can warn more times.
+    # from the same messages, and no new message appears; their count is not fixed, because
+    # each further block repeats a division. Since the fit bounds the linear predictor's
+    # spread, none of these fixtures reaches an overflowing trial, so none of them warns.
     def own(caught: list[tuple[str, str]]) -> list[tuple[str, str]]:
         return [item for item in caught if item[0] != "RuntimeWarning"]
 
     assert own(fitted_warnings) == own(reference_warnings)
     assert set(fitted_warnings) <= set(reference_warnings)
-    if case == "boundary" and not one_row_blocks:
-        # The witness for the subset: here the reference divides zero by zero in trials the
-        # candidate no longer builds, so the count must drop, not merely stay within.
-        assert len(fitted_warnings) < len(reference_warnings)
 
 
 def test_the_hard_cases_reach_the_paths_they_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The boundary fixture must stop unconverged at the monotone-likelihood boundary, the
+    # The boundary fixture must stop unconverged with a monotone partial likelihood, the
     # singular one must reach the least-squares step, and the halving one must reject a trial;
     # otherwise their witnesses above would not cover those paths.
     model, (X, time, event) = CASES["boundary"]()
     _, caught = _fit(model, X, time, event, monkeypatch)
     assert not model.converged_
-    assert any("monotone-likelihood boundary" in text for _, text in caught)
+    assert model.monotone_likelihood_
+    assert any("monotone partial likelihood" in text for _, text in caught)
     calls = []
     original = np.linalg.lstsq
 
