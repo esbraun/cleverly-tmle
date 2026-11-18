@@ -377,3 +377,12 @@ def test_loo_scan_is_the_baseline_scan(gap: bool) -> None:
         masked.append(bool(np.any(sums[0, left] - own <= 1e-300)))
     # Reach: the gap fixture takes the masked branch at some bandwidths, the other never.
     assert any(masked) == gap
+
+
+def test_observation_weights_are_still_refused() -> None:
+    """The change list leaves the weights refusal in place: weighted reductions are not built."""
+    frame = sample_frame(400, 33)
+    frame["w"] = np.where(frame["W1"] > 0, 2.0, 1.0)
+    data = container(frame, weights="w")
+    assert data.is_weighted
+    assert drift.drift_design_refusal(data, ARMS) is drift.WEIGHTS_REFUSAL
