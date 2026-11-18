@@ -350,6 +350,14 @@ rebuilds most blocks on every pass. A block rebuilt in the pass after accepted s
 $s$ steps, so a walk of $S$ accepted steps replays about $S (S + 1) / 2$ steps per block not kept,
 and a larger `max_iter` lengthens a long walk quadratically.
 
+The switched variance (`variance="switched"`, the default) does not yet run in blocks. After the
+walk it rebuilds every unit's targeted hazard jumps, survival, incidences, weight and floored ratio
+on the full grid at once, about $(32 J + 64)$ bytes per unit and grid time, to compute the
+predictable variation; the final pass also collects the targeted jumps, $16 J$ bytes per unit and
+grid time. So under the default the peak grows with $n M$: at $n = 4{,}000$, one cause and
+$M = 3{,}000$ that pass holds about 1.2 GB, and the guard refuses a fit whose dense pass exceeds the
+budget. `variance="influence_curve"` skips the pass and keeps the growth with $n P$ above.
+
 Before fitting any nuisance, the fit predicts each phase's peak with no block kept and the walk on
 the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
 `MethodConfigurationError` when that prediction exceeds the budget. The budget is the memory
@@ -390,9 +398,10 @@ not count a user learner's own allocations, which can only make the check miss a
 `tests/unit/test_continuous_survival_memory.py` checks that each phase's `tracemalloc` peak stays at
 or below its prediction in fits that keep every block, none or half, with one to three causes, a
 restricted mean, cross-fitting and the factual tilt. The walk's and the final pass's predictions
-stay within 10% of their peaks, and the nuisance phase's within 25% for an interaction Cox model on
+stay within 10% of their peaks, as does the switched variance's dense pass, and the nuisance phase's
+within 25% for an interaction Cox model on
 eight covariates. Dropping one term from a phase's prediction falls below its peak, and doubling
-$n$ with no block kept at most multiplies the peak by 2.5. Coarsening the time grid would lower $M$
+$n$ with no block kept and the influence-curve variance at most multiplies the peak by 2.5. Coarsening the time grid would lower $M$
 but changes the analysis, so the engine never does it.
 
 ## What is refused

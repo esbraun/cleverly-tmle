@@ -206,10 +206,15 @@ predicted rates, in small steps, until the risks satisfy the equations that make
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
 about ten seconds at 1,000 people.
 
-The fit works through the people in small groups, so its memory grows with the number of people
-and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
-people and two horizons, it needs about 0.3 GB. Before fitting anything, it checks that the
-machine has that much free and stops with an error when it does not; on macOS, which does not
+The fit adjusts the risks working through the people in small groups, so that step's memory
+grows with the number of people and of estimates, not with the number of distinct follow-up
+times. The default standard errors are the exception for now: `ContinuousSurvivalTMLE`'s
+`variance="switched"` computes them for everyone at once at every distinct follow-up time, so
+that step's memory grows with the number of people times the number of distinct times, about
+1.2 GB at 4,000 people with one kind of event and 3,000 distinct times. With
+`variance="influence_curve"`, one kind of event, 100,000 people and two horizons, a fit needs about
+0.3 GB. Before fitting anything, the fit checks that the machine has the memory it needs free and
+stops with an error when it does not; on macOS, which does not
 report free memory, it checks only a limit you set. Between passes it keeps as many groups as the
 free memory holds and recomputes the rest, so a larger limit makes a large fit faster and never
 changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
