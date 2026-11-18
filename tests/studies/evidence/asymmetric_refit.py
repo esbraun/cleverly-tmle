@@ -14,8 +14,16 @@ replicate 0 of every property cell and primary scenario.  A recorder inside each
 :class:`~cleverly.inference.ParameterEstimate` whose interval or test is read, and every call of
 :func:`~cleverly.inference.skew_widened_ci` (the working-model and effect-curve paths), with the
 interval scale, the degrees of freedom, the acceleration, MOVER's arms and the shipped and normal
-limits.  Each written row is matched to the logged estimates by its estimate and standard error,
-and its estimate and standard error are held to the committed row at :data:`REPLAY_TOLERANCE`
+limits.  A sensitivity bound forms its limits through
+:func:`~cleverly.sensitivity._limits.bound_limits`, which none of those paths sees, so the
+recorder also wraps that function where the bounds bind it (:data:`BOUND_MODULES`) and logs each
+read about a bound end with its standard error.  A registered row reads the two-sided interval at
+:data:`ROW_ALPHA` about the end, and the per-side ratio of a t quantile, a MOVER multiple or a
+logit slope depends on the level, so a read at another level (the one-sided limits of
+:func:`~cleverly.sensitivity.omitted_variable_bounds`) is also logged at :data:`ROW_ALPHA`, and
+:func:`match` reads a bound row only at its row's alpha.  Each written row is matched to the
+logged estimates by its estimate and standard error, and its estimate and standard error are held
+to the committed row at :data:`REPLAY_TOLERANCE`
 (``replay`` = ``ok``, ``mismatch`` or ``absent``).  A row that matches no logged estimate is
 ``own``: the study formed that interval itself, so the shipped default does not reach its
 committed verdict.  A mismatch is recorded, not a stop: the screen judges each one
@@ -62,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import json
 import math
 import time
@@ -99,6 +108,20 @@ NEW_SCALES = frozenset({"mover", "skew_t"})
 REPLAY_TOLERANCE = band_rerun.REPLAY_TOLERANCE
 #: The matching tolerance of a row to a logged estimate, relative.
 MATCH_TOLERANCE = 1e-10
+#: The two-sided alpha of the row interval a sensitivity bound's read is matched to, unless
+#: the study's ``margins.alpha`` says otherwise (:func:`logging`).
+ROW_ALPHA = 0.05
+#: The recorder's version, written into each stage's ``capture.json`` entry.  2: the recorder
+#: logs every :func:`~cleverly.sensitivity._limits.bound_limits` read (0ad3cef7).  A stage entry
+#: with no version was written by version 1.
+RECORDER_VERSION = 2
+#: The first recorder version that sees a sensitivity bound's reads; the screen reads the
+#: records of a bound-end study only from this version on
+#: (:data:`~asymmetric_audit.BOUND_END_STUDIES`).
+BOUND_RECORDER = 2
+#: The modules whose bounds form their limits through ``bound_limits``, each binding the name
+#: at import, so each is wrapped where it reads it.
+BOUND_MODULES = ("cleverly.sensitivity.omitted_variable", "cleverly.sensitivity.marginal")
 
 RECORD_COLUMNS = (
     "stage",
@@ -129,6 +152,8 @@ RECORD_COLUMNS = (
 # ---------------------------------------------------------------------------- the recorder
 
 _LOG: list[dict[str, Any]] = []
+#: The row alpha a bound read is re-read at in this process, set by :func:`logging`.
+_ROW = [ROW_ALPHA]
 _GUARD = [False]
 _INSTALLED = [False]
 
@@ -188,6 +213,33 @@ def _estimate_entry(estimate: Any, original: Callable[..., Any]) -> dict[str, An
     return entry
 
 
+def _read_alpha(read: Any) -> float:
+    """The two-sided alpha of an :class:`~cleverly.inference.IntervalReference`."""
+    level = float(read.level)
+    return 1.0 - level if read.sided == "two" else 2.0 * (1.0 - level)
+
+
+def _bound_entry(read: Any) -> dict[str, Any]:
+    """The log entry of one read of a bound end (:func:`~cleverly.inference.interval_reference`):
+    its point, its standard error and its shipped and normal limits at the read's alpha."""
+    psi, se, alpha = float(read.psi), float(read.std_error), _read_alpha(read)
+    half = _z(alpha) * se + float(read.margin)
+    return {
+        "source": "bound",
+        "psi": psi,
+        "std_error": se,
+        "plugin_se": se,
+        "scale": str(read.interval_scale),
+        "effective_df": _float(read.df),
+        "acceleration": _float(read.acceleration),
+        "alpha": alpha,
+        "shipped_lower": float(read.lower),
+        "shipped_upper": float(read.upper),
+        "normal_lower": psi - half,
+        "normal_upper": psi + half,
+    }
+
+
 def install() -> None:
     """Log every interval or test the package forms, in this process (idempotent)."""
     if _INSTALLED[0]:
@@ -239,6 +291,31 @@ def install() -> None:
             )
         return low, high
 
+    from cleverly.sensitivity import _limits
+
+    bound = _limits.bound_limits
+
+    def logged_bound(estimate: Any, **options: Any) -> Any:
+        read = bound(estimate, **options)
+        # A ratio's spread is not on the row's scale, so its rows read ``own``.  That is harmless
+        # only while ``log`` is not one of NEW_SCALES.
+        if _GUARD[0] or estimate.scale == "ratio":
+            return read
+        _GUARD[0] = True
+        try:
+            _LOG.append(_bound_entry(read))
+            if abs(_read_alpha(read) - _ROW[0]) > 1e-12:
+                again = bound(estimate, **{**options, "sided": "two", "level": 1.0 - _ROW[0]})
+                _LOG.append(_bound_entry(again))
+        except Exception:  # the recorder never changes a fit
+            pass
+        finally:
+            _GUARD[0] = False
+        return read
+
+    for name in BOUND_MODULES:
+        module: Any = importlib.import_module(name)
+        module.bound_limits = logged_bound
     ParameterEstimate._wald_interval = logged_interval  # type: ignore[method-assign]
     ParameterEstimate._plugin_wald_test = logged_test  # type: ignore[method-assign]
     delta.skew_widened_ci = logged_skew  # type: ignore[assignment]
@@ -246,14 +323,17 @@ def install() -> None:
 
 
 @contextlib.contextmanager
-def logging() -> Iterator[list[dict[str, Any]]]:
-    """The entries logged inside the block (the recorder installed first)."""
+def logging(alpha: float = ROW_ALPHA) -> Iterator[list[dict[str, Any]]]:
+    """The entries logged inside the block (the recorder installed first), each bound read
+    also re-read at the row ``alpha``."""
     install()
     start = len(_LOG)
     held: list[dict[str, Any]] = []
+    before, _ROW[0] = _ROW[0], float(alpha)
     try:
         yield held
     finally:
+        _ROW[0] = before
         held.extend(_LOG[start:])
         del _LOG[start:]
 
@@ -268,13 +348,16 @@ class Logged:
         The study's ``fit_one(key, drawn)``.
     rows_at : int or None
         The position of the rows in the worker's value, as the study declares it.
+    alpha : float, default=ROW_ALPHA
+        The study's row alpha, at which each bound read is also re-read.
     """
 
     fit_one: Callable[[Any, Any], Any]
     rows_at: int | None
+    alpha: float = ROW_ALPHA
 
     def __call__(self, key: Any, drawn: Any) -> dict[str, Any]:
-        with logging() as log:
+        with logging(self.alpha) as log:
             try:
                 value = self.fit_one(key, drawn)
             except Exception as error:  # every failure is reported, none stops the audit
@@ -460,11 +543,16 @@ def _close(a: float, b: float, tolerance: float) -> bool:
     return abs(a - b) <= tolerance * max(1.0, abs(b))
 
 
-def match(row: Mapping[str, Any], log: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def match(
+    row: Mapping[str, Any], log: Sequence[Mapping[str, Any]], *, alpha: float = ROW_ALPHA
+) -> dict[str, Any]:
     """The logged estimate a written row reports, by its estimate and standard error.
 
     Returns the entry, with ``scale`` the sorted ``+``-joined scales when several entries of
     different scales match, ``own`` when none does, and ``failed`` for a row with no estimate.
+    A read of a sensitivity bound end counts only at the row's ``alpha``: the recorder logs
+    each such read at :data:`ROW_ALPHA` too, and a row at another alpha raises, since its
+    ratios were never read.  Every other entry matches as before.
     """
     estimate, se = _float(row.get("estimate")), _float(row.get("std_error"))
     if not (math.isfinite(estimate) and math.isfinite(se)):
@@ -478,6 +566,15 @@ def match(row: Mapping[str, Any], log: Sequence[Mapping[str, Any]]) -> dict[str,
             or _close(se, entry.get("plugin_se", float("nan")), MATCH_TOLERANCE)
         )
     ]
+    bound = [entry for entry in hits if entry.get("source") == "bound"]
+    if bound:
+        at = [entry for entry in bound if abs(float(entry["alpha"]) - alpha) <= 1e-12]
+        if not at:
+            raise ValueError(
+                f"a bound row at alpha {alpha} matches reads at "
+                f"{sorted({float(entry['alpha']) for entry in bound})} only"
+            )
+        hits = [entry for entry in hits if entry.get("source") != "bound"] + at
     if not hits:
         return {"scale": "own"}
     scales = sorted({str(entry["scale"]) for entry in hits})
@@ -520,8 +617,13 @@ def records(
     job: Job,
     values: Sequence[Mapping[str, Any]],
     committed: Mapping[tuple[str, str, int], tuple[float, float]],
+    *,
+    alpha: float = ROW_ALPHA,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """The audit records of one job's fitted keys, and the messages of its failed keys."""
+    """The audit records of one job's fitted keys, and the messages of its failed keys.
+
+    ``alpha`` is the study's row alpha (``margins.alpha``), at which a bound row is matched.
+    """
     out: list[dict[str, Any]] = []
     errors: list[str] = []
     for value in values:
@@ -533,7 +635,7 @@ def records(
                 continue
             group = _group(job.phase, row)
             replicate = int(row["replicate"])
-            entry = match(row, value["log"])
+            entry = match(row, value["log"], alpha=alpha)
             estimate, se = _float(row.get("estimate")), _float(row.get("std_error"))
             before = committed.get((job.phase, group, replicate))
             if before is None:
@@ -581,9 +683,30 @@ def targets() -> list[str]:
     return sorted(chosen["study"])
 
 
-def settle_groups(slug: str, screen: pd.DataFrame | None = None) -> set[str]:
+def stale_stages(slug_or_dir: str | Path, version: int) -> list[str]:
+    """The stages whose committed records a recorder older than ``version`` wrote: each stage
+    with a record file whose ``capture.json`` entry records an older version, or none."""
+    directory = AUDIT_DIR / slug_or_dir if isinstance(slug_or_dir, str) else slug_or_dir
+    path = directory / CAPTURE_FILE
+    captured = json.loads(path.read_text()) if path.exists() else {}
+    return [
+        stage
+        for stage, name in STAGE_FILES.items()
+        if (directory / name).exists() and int(captured.get(stage, {}).get("recorder", 1)) < version
+    ]
+
+
+def settle_groups(
+    slug: str, screen: pd.DataFrame | None = None, *, remaining: set[str] | None = None
+) -> set[str]:
     """The groups the settle stage refits: each group the study's screen row names in
-    ``bound_flips``, with its ``@corner`` (or ``@unbounded``, ``@settled``) stripped."""
+    ``bound_flips``, with its ``@corner`` (or ``@unbounded``, ``@settled``) stripped, and every
+    remaining group of each flagged property family.
+
+    A property verdict can move because another cell of its family moves (the study's own
+    rule compares cells), so settling the flagged cell alone could leave the cell that moves it
+    on its bound.  ``remaining`` defaults to :func:`remaining_groups`.
+    """
     from tests.studies.evidence import asymmetric_audit
 
     screen = asymmetric_audit.read_screen() if screen is None else screen
@@ -591,7 +714,27 @@ def settle_groups(slug: str, screen: pd.DataFrame | None = None) -> set[str]:
     if row.empty:
         return set()
     flips = str(row.iloc[0]["bound_flips"])
-    return {flip.rsplit("@", 1)[0] for flip in flips.split(";") if flip}
+    flagged = {flip.rsplit("@", 1)[0] for flip in flips.split(";") if flip}
+    if not flagged:
+        return flagged
+    cells = _property_cells(slug)
+    families = {name.split("/", 1)[0] for name in flagged if name in cells}
+    if not families:
+        return flagged
+    remaining = remaining_groups(slug) if remaining is None else remaining
+    return flagged | {
+        name for name in remaining if name in cells and name.split("/", 1)[0] in families
+    }
+
+
+def _property_cells(slug: str) -> set[str]:
+    """The study's committed positive property cells, ``property/cell``."""
+    path = band_rerun.record_for(slug).artifacts / "property-replicates.parquet"
+    if not path.exists():
+        return set()
+    rows = read_rows(path)
+    rows = rows.loc[rows["role"] == "positive"]
+    return {f"{p}/{c}" for p, c in zip(rows["property"], rows["cell"], strict=True)}
 
 
 def settle_targets(screen: pd.DataFrame | None = None) -> list[str]:
@@ -627,7 +770,7 @@ def stage_selection(
 def _fit(record: StudyRecord, job: Job, *, jobs: int, cache: Path | None, stage: str) -> list[Any]:
     outcomes = replication.fit_replicates(
         [job.keys[i] for i in job.selected],
-        Logged(job.fit_one, job.rows_at),
+        Logged(job.fit_one, job.rows_at, record.margins.alpha),
         n_jobs=jobs,
         label=f"{stage}-{job.phase}-{job.label}",
         implementation=record.implementation,
@@ -694,7 +837,7 @@ def run_study(
             continue
         values = _fit(record, job, jobs=jobs, cache=cache, stage=stage)
         fitted += len(job.selected)
-        out, failed = records(stage, job, values, committed)
+        out, failed = records(stage, job, values, committed, alpha=record.margins.alpha)
         rows.extend(out)
         errors.extend(failed)
     frame = pd.DataFrame(rows, columns=list(RECORD_COLUMNS))
@@ -713,6 +856,7 @@ def run_study(
         "jobs": jobs,
         "seconds_capture": round(captured, 2),
         "seconds_fit": round(time.perf_counter() - started - captured, 2),
+        "recorder": RECORDER_VERSION,
     }
     if errors:
         (output / slug).mkdir(parents=True, exist_ok=True)

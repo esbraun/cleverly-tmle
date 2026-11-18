@@ -30,6 +30,7 @@ import pytest
 from scipy import stats
 
 import cleverly.sensitivity.omitted_variable as ov
+from cleverly.inference import interval_reference
 from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity._parameters import ArmParameter
 from tests import discrete_law as law
@@ -200,10 +201,24 @@ def reported_lower_bound_curve(result: Any, name: str) -> np.ndarray:
     return np.asarray(result[name].influence_curve) - STRENGTH * np.asarray(elements.psi_max_bias)
 
 
-def reported_lower_standard_error(result: Any, name: str) -> float:
-    """The standard error of the lower limit, read back off the limit the bound reports."""
+def lower_unit_read(result: Any, name: str) -> Any:
+    """The lower limit's rule at a unit standard error: the read whose half-width the reported
+    limit is a multiple of (:func:`~cleverly.inference.interval_reference`)."""
     bounds = ov.omitted_variable_bounds(result, name, cf_y=CF_Y, cf_d=CF_D, rho=1.0)
-    return float((bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95))
+    return interval_reference(
+        result[name], level=bounds.level, sided="one", psi=bounds.lower, std_error=1.0
+    )
+
+
+def reported_lower_standard_error(result: Any, name: str) -> float:
+    """The standard error of the lower limit, read back off the limit the bound reports.
+
+    The limit is the end minus the rule's unit half-width times the standard error, so it is
+    read back with that half-width.  :meth:`TestTheClusteredStandardError.\
+test_the_clustered_limit_keeps_the_normal_reference` pins it to ``z_0.95`` on the clustered fit.
+    """
+    bounds = ov.omitted_variable_bounds(result, name, cf_y=CF_Y, cf_d=CF_D, rho=1.0)
+    return float((bounds.lower - bounds.ci_lower) / lower_unit_read(result, name).lower_half_width)
 
 
 class TestTheConditionalCurve:
@@ -299,6 +314,17 @@ class TestTheClusteredStandardError:
 
     def test_the_fit_keeps_its_inference(self, clustered_fit: Any) -> None:
         assert clustered_fit.inference_status == "influence_curve"
+
+    @pytest.mark.parametrize("name", ["att", "atc", "ate"])
+    def test_the_clustered_limit_keeps_the_normal_reference(
+        self, clustered_fit: Any, name: str
+    ) -> None:
+        """A clustered estimate keeps its symmetric normal reference under the shipped rule, so
+        the limit is the end minus ``z_0.95`` standard errors and the read-back is the classic
+        one."""
+        read = lower_unit_read(clustered_fit, name)
+        assert (read.interval_scale, read.reference) == ("identity", "normal")
+        assert read.lower_half_width == pytest.approx(stats.norm.ppf(0.95), rel=1e-15)
 
     @pytest.mark.parametrize("name", ["att", "atc", "ate"])
     def test_the_standard_error_sums_the_exact_curve(self, clustered_fit: Any, name: str) -> None:
