@@ -222,3 +222,27 @@ def test_the_kish_size_is_the_shared_helper() -> None:
     summary = module._weight_summary(result, **selection)
     for node in summary.nodes:
         assert node.effective_n == effective_sample_size(node.used, on_degenerate=0.0)
+
+
+def test_the_bounded_fixture_moves_different_shares_by_node() -> None:
+    """Premise of the wrong-column mutation: shares are nonzero and differ between nodes."""
+    result = _fit("bounded")
+    shares = list(node_weights(result, **_selections(result)[0]).share_beyond_bounds)
+    assert any(share > 0.0 for share in shares) and len(set(shares)) > 1
+
+
+def test_the_plot_builds_no_unit_by_node_arrays(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deterministic guard: the plot never calls node_weights, the four (n, T) arrays."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from cleverly import plotting
+
+    def refused(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("plotting.weights built NodeWeights")
+
+    monkeypatch.setattr(module, "node_weights", refused)
+    for route in ("bounded", "hazard", "odds tilt"):
+        plt.close(plotting.weights(_fit(route), regimens=[_selections(_fit(route))[0]["regimen"]]))
