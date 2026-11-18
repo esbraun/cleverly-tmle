@@ -1299,22 +1299,23 @@ class CTMLESelection:
         the patience counter stopped it. ``None`` when the counter never triggered, and always
         ``None`` without :attr:`patience`. When it is set, :attr:`path` and every array that
         runs along it end at this index.
-    candidates : tuple of int
-        The candidates the search scored on each branch: the analysis sample first, then each
-        selection fold in fold order. One per fluctuation of a candidate mechanism, so it
-        counts every trial of a greedy step, the trials scored again after a retry from a
-        further targeted fit, every candidate of every pass of a ``"lasso"`` or
+    candidate_fits : tuple of int
+        The candidate fluctuations the search scored on each branch: the analysis sample
+        first, then each selection fold in fold order. One per fluctuation of a candidate
+        mechanism, so it counts every trial of a greedy step, the trials scored again after a
+        retry from a further targeted fit, every candidate of every pass of a ``"lasso"`` or
         ``"learners"`` path, and the options of the ``"lasso"`` final step. Under
-        :attr:`patience` it counts the work done, which can pass :attr:`stopped_at`.
+        :attr:`patience` it counts the work done, which can pass :attr:`stopped_at`. With
+        ``repeats=``, the record and its counts describe the first draw, the one reported.
     mechanism_fits : tuple of int
         The candidate treatment mechanisms each branch computed, in the order of
-        :attr:`candidates`. A covariate set or learner counts once however many folds it is
+        :attr:`candidate_fits`. A covariate set or learner counts once however many folds it is
         cross-fitted over, the intercept-only candidate included; each penalty of a
         ``"lasso"`` path counts once; the ``"logistic"`` preorder's one-covariate models
         count. A :class:`PropensityArrays` entry and a mechanism the branch already holds
         are not counted.
     target_solves : tuple of int
-        The fluctuation solves of each branch, in the order of :attr:`candidates`: one per
+        The fluctuation solves of each branch, in the order of :attr:`candidate_fits`: one per
         candidate, plus one per covariate the ``"logistic"`` preorder scores. The
         estimator's final targeting of the reported candidate is not part of the search.
     """
@@ -1340,7 +1341,7 @@ class CTMLESelection:
     restricted_pool: tuple[str, ...] | None = None
     patience: int | None = None
     stopped_at: int | None = None
-    candidates: tuple[int, ...] = ()
+    candidate_fits: tuple[int, ...] = ()
     mechanism_fits: tuple[int, ...] = ()
     target_solves: tuple[int, ...] = ()
 
@@ -1806,7 +1807,7 @@ class CTMLEDerivativeFit:
 class _SearchWork:
     """The work one search branch did: what :class:`CTMLESelection` reports per branch."""
 
-    candidates: int = 0
+    candidate_fits: int = 0
     mechanism_fits: int = 0
     target_solves: int = 0
 
@@ -2853,7 +2854,7 @@ default="greedy"
             ),
             patience=self.patience,
             stopped_at=stopped_at,
-            candidates=selector.counts("candidates"),
+            candidate_fits=selector.counts("candidate_fits"),
             mechanism_fits=selector.counts("mechanism_fits"),
             target_solves=selector.counts("target_solves"),
         )
@@ -4314,7 +4315,7 @@ class _Selector:
         self.stop = estimator._stop_context(data, base)
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
         self._active: dict[tuple[Any, ...], tuple[str, ...]] = {}
-        #: The work this branch did, for :attr:`CTMLESelection.candidates`,
+        #: The work this branch did, for :attr:`CTMLESelection.candidate_fits`,
         #: :attr:`~CTMLESelection.mechanism_fits` and :attr:`~CTMLESelection.target_solves`.
         self.work = _SearchWork()
         #: The work of each selection fold's branch, in fold order, once it has run.
@@ -4357,7 +4358,8 @@ class _Selector:
         self, learner: Learner, covariates: tuple[str, ...], train: IntArray | None
     ) -> Propensity:
         data = self.data
-        # Every caller caches the result per branch, so each call is one mechanism.
+        # Each call fits one mechanism: the candidate paths cache the result per branch, and
+        # the logistic preorder fits each one-covariate model once.
         self.work.mechanism_fits += 1
         if not covariates:
             return self._intercept_propensity(train)
@@ -4901,7 +4903,7 @@ class _Selector:
         label: str = "",
     ) -> _Candidate:
         """Fluctuate ``initial`` along one candidate mechanism and score it on ``rows``."""
-        self.work.candidates += 1
+        self.work.candidate_fits += 1
         submodel = self.submodel(propensity)
         targeted, epsilon = self.target(initial, submodel, rows)
         loss = self.loss(targeted, rows)
