@@ -213,7 +213,8 @@ class InitialFit:
 
         An arm held as the observed array itself, as a longitudinal node's regimen arm is,
         gets the observed result rather than a second call of ``fn`` on the same array, so the
-        two stay one array.  Every ``fn`` passed here is a function of its argument alone.
+        two stay one array.  ``fn`` must therefore be a function of its argument alone, with no
+        state between calls; every caller passes such a function.
         """
         observed = fn(self.observed)
         return InitialFit(

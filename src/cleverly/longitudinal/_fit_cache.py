@@ -8,12 +8,15 @@ built once, marked read-only, and handed to every reader that asks for it while 
 reader still holds it, so the records share one copy.
 
 An entry holds its value weakly.  It lives exactly as long as some record or reader holds the
-value, and is dropped when the last one lets go, so the cache never keeps an array alive that
-the fit without it would have freed: the fit's peak and its retained memory can only fall.  An
-entry is keyed by the identity of the objects the value is computed from (the panel, the plan,
-the mechanism, an earlier cached value) and holds those objects while its value lives, so an
-identity cannot be reused under a live entry.  The only values held strongly are the panel's
-cleaned covariate blocks (:func:`held`), whose size is that of the panel itself.
+value, and is dropped when the last one lets go, so no cached value outlives its last reader.
+An entry is keyed by the identity of the objects the value is computed from (the panel, the
+plan, the mechanism, an earlier cached value) and holds those objects while its value lives, so
+an identity cannot be reused under a live entry.  Two things can therefore live longer than
+without the cache: the panel's cleaned covariate blocks (:func:`held`), held for the draw at the
+size of the panel's own covariates, and the sources of a value a record keeps (a regimen's masks
+behind the node masks its records hold), which is what lets later horizons share that value.
+Retained memory does not rise; a fit's peak can rise by about the held blocks where nothing is
+shared (measured at under 2.5 per cent on SDR, IPSI, MTP and learned-regimen fits at n = 5,000).
 
 The cache lives in a context variable for the duration of one draw's fit and is emptied when
 the fit returns.  Outside it every reader computes as before, so the cache can change when an

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import gc
 import warnings
+import weakref
 from typing import Any
 
 import numpy as np
@@ -177,6 +178,7 @@ def test_an_entry_lives_only_while_its_value_does() -> None:
         pass
 
     source = Source()
+    source_ref = weakref.ref(source)
     with _fit_cache.fit_cache():
         first = _fit_cache.cached("probe", (source,), 1, lambda: np.arange(5.0))
         again = _fit_cache.cached("probe", (source,), 1, lambda: np.arange(5.0))
@@ -185,9 +187,11 @@ def test_an_entry_lives_only_while_its_value_does() -> None:
         cache = _fit_cache._ACTIVE.get()
         assert cache is not None and len(cache.entries) == 1
         del first, again
-        gc.collect()
-        assert not cache.entries
-        rebuilt = _fit_cache.cached("probe", (source,), 1, lambda: np.arange(5.0))
+        assert not cache.entries  # dropped by reference counting, with no collection
+        del source
+        assert source_ref() is None  # the entry released its source
+        other = Source()
+        rebuilt = _fit_cache.cached("probe", (other,), 1, lambda: np.arange(5.0))
         assert np.array_equal(rebuilt, np.arange(5.0))
     assert not cache.entries and not cache.strong
 
@@ -206,6 +210,34 @@ def test_a_tuple_value_is_shared_while_every_part_lives() -> None:
         gc.collect()
         fresh = _fit_cache.cached("pair", (source,), None, lambda: (np.zeros(2), np.ones(2)))
         assert fresh[0] is not kept
+
+
+def test_an_arm_that_is_a_distinct_array_moves_along_its_own_covariate() -> None:
+    """a3: only an arm that is the observed array itself reuses the observed result; an arm
+    with equal-shaped but distinct predictions and covariate moves on its own (the mutation
+    "always reuse" fails here), and the reused arm is the observed result object."""
+    from cleverly.fluctuation.iterative import InitialFit, apply_logistic
+    from cleverly.fluctuation.submodel import Submodel
+
+    rng = np.random.default_rng(3)
+    observed = rng.uniform(0.2, 0.8, 20)
+    other = rng.uniform(0.2, 0.8, 20)
+    h_observed = rng.normal(size=(20, 1))
+    h_other = rng.normal(size=(20, 1))
+    epsilon = np.array([0.3])
+    fit = InitialFit(observed, {0.0: other, 1.0: observed})
+    submodel = Submodel(h_observed, {0.0: h_other, 1.0: h_observed}, ("h",), "mean")
+    moved = apply_logistic(fit, submodel, epsilon, 0.9995)
+    plain = apply_logistic(
+        InitialFit(observed, {0.0: other.copy(), 1.0: observed.copy()}),
+        Submodel(h_observed, {0.0: h_other.copy(), 1.0: h_observed.copy()}, ("h",), "mean"),
+        epsilon,
+        0.9995,
+    )
+    assert moved.arms[1.0] is moved.observed
+    assert moved.arms[0.0].tobytes() == plain.arms[0.0].tobytes()
+    assert moved.arms[1.0].tobytes() == plain.arms[1.0].tobytes()
+    assert not np.array_equal(moved.arms[0.0], moved.observed)
 
 
 def test_two_bounds_give_two_cumulative_products() -> None:

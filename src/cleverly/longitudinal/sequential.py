@@ -683,7 +683,8 @@ class SequentialStep:
     """One retained node of the backward recursion.
 
     ``trained_on``, ``at_risk`` and ``clever`` may be shared with the same node's step at
-    another horizon and read-only; copy before writing.
+    another horizon or cause and read-only, and ``targeted`` may be the same array as the
+    fluctuation record's observed and regimen-arm results; copy before writing.
 
     Parameters
     ----------
@@ -870,8 +871,9 @@ class FitSimulation:
 class RegimenFit:
     """The estimate under one regimen, with the pieces that produced it.
 
-    The arrays a fit reads at several horizons (the cumulative products, and each step's masks
-    and clever covariate) may be shared between records and read-only; copy before writing.
+    The arrays a fit reads at several horizons or causes (the cumulative products, the policy
+    numerator, and each step's masks and clever covariate) may be shared between records and
+    read-only; copy before writing.
     """
 
     regimen: RegimenSpec
