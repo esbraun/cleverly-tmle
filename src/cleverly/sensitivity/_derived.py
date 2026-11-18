@@ -70,12 +70,18 @@ def _derived_risk_ratio(
             )
         return combined[alias]
 
+    from .positivity import refits_reduced_regressions
+
     return _cached(
         result,
         "sensitivity.derived_risk_ratio",
         (key,),
         {},
         compute,
+        # A guarded DR-TMLE retarget refits the reduced regressions, and an AdaptiveIPTW
+        # retarget fits learners, so those answers are kept.
+        evictable=result.fitted_method != "adaptive_iptw"
+        and not refits_reduced_regressions(result),
     )
 
 

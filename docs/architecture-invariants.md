@@ -513,6 +513,21 @@ invariant above states that rule for every saved object.
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
 
+The cache (`AssessmentCache`) keeps every answer unless its `max_bytes` budget is set. Under a
+budget it may drop only an answer it can recompute bit for bit: a request whose resolved row is a
+`summarize` or `retarget` declared deterministic from saved artifacts, `validate`,
+`diagnostics.influence`, a derived risk ratio except on guarded DR-TMLE or AdaptiveIPTW, or a
+combined report, and only when the
+answer's own computation made no mark in `cleverly.utils.random` (fresh entropy, a `fit_learner`
+fit, a `map_parallel` section). Every refit is kept whatever its seed, because a seed fixes only
+the randomness the package routes through it. Marks go to the innermost computation, so a refit
+inside a combined report pins itself and not the report. `max_bytes` is not a memory guard: `None`
+means no budget, and it is outside any facade-level `max_memory_bytes` override.
+`tests/unit/test_assessment_cache_budget.py` holds the witnesses and their mutation controls.
+*Reconsider when* a new site draws entropy, fits a learner outside `fit_learner` from a row the rule
+allows, or starts a pool outside `map_parallel`: that test's site tables then fail until it is
+classified.
+
 Both assessment facades route through one base. Lookup, refusal, and the combined report are
 written once. A refusal therefore always carries the reason its own capability row declares, and a
 combined report reads that declaration the same way on both facades. Sensitivity
