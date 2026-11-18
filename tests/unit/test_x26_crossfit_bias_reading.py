@@ -237,3 +237,47 @@ def test_the_committed_rows_are_reproduced_by_a_refit(n: int) -> None:
         refit[columns], committed[columns], check_exact=False, rtol=0, atol=1e-9
     )
     assert refit["refusal"].fillna("").tolist() == committed["refusal"].fillna("").tolist()
+
+
+def test_the_bound_rows_read_each_end_s_own_standard_error() -> None:
+    """A rerun reports the influence standard error of each end's own curve.
+
+    The limit reads the skew-widened t of the cross-fitted fit, whose linear outcome model
+    reads the outcome as continuous, so the half-width
+    over ``z_0.95`` is not the end's standard error (nonzero witness), and a standard error
+    1e-6 off fails the diagnostic's check of the reported limit (deliberate mutation).
+    """
+    import numpy as np
+    from scipy import stats
+
+    from cleverly.inference.cluster import influence_variance
+    from cleverly.sensitivity import omitted_variable as ov
+
+    frame, _ = study.draw_from_seed(diagnostic.SCENARIO, 400, 7)
+    result = diagnostic.fit_crossfit(frame)
+    token = diagnostic.PARAMETERS[0]
+    name = study.PARAMETERS[diagnostic.SCENARIO][token][0]
+    values = diagnostic.parameter_values(result, token)
+    assert values["refusal"] == ""
+    bounds = ov.omitted_variable_bounds(
+        result, name, cf_y=study.CF_Y, cf_d=study.CF_D, rho=study.RHO, nu2_estimator="plugin"
+    )
+    elements = ov.sensitivity_elements(result, name, nu2_estimator="plugin")
+    curve = np.asarray(result[name].influence_curve, dtype=float)
+    bias = bounds.confounding_strength * np.asarray(elements.psi_max_bias, dtype=float)
+    lower_se = float(np.sqrt(influence_variance(curve - bias, None)))
+    upper_se = float(np.sqrt(influence_variance(curve + bias, None)))
+    assert values["lower_se"] == pytest.approx(lower_se, rel=1e-13)
+    assert values["upper_se"] == pytest.approx(upper_se, rel=1e-13)
+    assert result[name].interval_scale == "skew_t"
+    backed_out = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
+    assert abs(backed_out - lower_se) > 1e-6 * lower_se
+    original = diagnostic.influence_variance
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            diagnostic,
+            "influence_variance",
+            lambda rows, cluster: (1.0 + 1e-6) ** 2 * original(rows, cluster),
+        )
+        with pytest.raises(RuntimeError, match="not reported"):
+            diagnostic.parameter_values(result, token)

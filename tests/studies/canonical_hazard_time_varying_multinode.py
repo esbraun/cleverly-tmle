@@ -36,7 +36,8 @@ transitive evidence only.  The record names no reference.
 Publication policy is ``gated``.  The red-cell readings are declared in
 ``tests/canonical/hazard_time_varying_multinode/regenerate.py`` before any run.  The declared run
 at ``10d19ab9`` passed, and the record is registered with the support rows ``G63.multinode.*``
-(:func:`support_rows`).
+(:func:`support_rows`).  The committed artifacts are its regeneration at ``6fe1bac5`` under the
+shipped intervals (Fix-3 PR 3), which changed no gated verdict.
 """
 
 from __future__ import annotations

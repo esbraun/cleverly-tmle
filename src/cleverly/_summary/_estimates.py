@@ -22,7 +22,7 @@ from .._inference_status import (
     is_labelled,
     status_record,
 )
-from ..inference.influence import spread_name
+from ..inference.influence import ParameterEstimate, spread_name
 from . import Cell, Note, SummaryTable, note, vocabulary
 from ._render import decimals_for, number_text, pvalue_text
 
@@ -136,6 +136,35 @@ def plain_support_reason(reason: str) -> str:
     return re.sub(r"\s{2,}", " ", text).replace(" .", ".").strip()
 
 
+#: The degrees of freedom a df cell prints in full; at this many and above it reads "250+".
+DF_SHOWN_BELOW: float = 250.0
+
+
+def df_cell(estimate: ParameterEstimate) -> Cell:
+    """The df cell of one estimate's row.
+
+    The t reference's degrees of freedom on a clustered estimate, the skew-widened t's
+    degrees of freedom to one decimal (``250+`` from 250 up) on an unclustered estimate of a
+    continuous outcome, and ``normal`` otherwise.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        The estimate.
+
+    Returns
+    -------
+    Cell
+        The cell.
+    """
+    if estimate.reference_df is not None:
+        return Cell(estimate.reference_df, str(estimate.reference_df))
+    if estimate.interval_scale == "skew_t" and estimate.effective_df is not None:
+        df = float(estimate.effective_df)
+        return Cell(df, f"{df:.1f}" if df < DF_SHOWN_BELOW else f"{DF_SHOWN_BELOW:.0f}+")
+    return Cell(None, "normal")
+
+
 def estimates_table(
     estimates: Mapping[str, Any],
     *,
@@ -166,6 +195,19 @@ def estimates_table(
     inferential = {name: bool(estimate.supplies_inference) for name, estimate in items}
     whole_diagnostic = not any(inferential.values())
     t_reference = any(estimate.reference_df is not None for _, estimate in items)
+    skewed = [
+        name
+        for name, estimate in items
+        if inferential[name]
+        and estimate.interval_scale == "skew_t"
+        and estimate.effective_df is not None
+    ]
+    items_by_name = dict(items)
+    # The df column shows when a df is small enough to matter: a t reference, or a
+    # skew-widened t below DF_SHOWN_BELOW degrees of freedom.
+    df_column = t_reference or any(
+        float(items_by_name[name].effective_df) < DF_SHOWN_BELOW for name in skewed
+    )
     experimental = [
         name for name, estimate in items if estimate.support.label == vocabulary.EXPERIMENTAL
     ]
@@ -194,7 +236,7 @@ def estimates_table(
             vocabulary.SPREAD_LABELS["std_err"],
             vocabulary.interval_label(level),
             vocabulary.P_VALUE,
-            *([vocabulary.DF] if t_reference else []),
+            *([vocabulary.DF] if df_column else []),
         ]
         extra = dict(without_split_spread or {})
         if extra:
@@ -210,7 +252,7 @@ def estimates_table(
                         *([missing] if extra else []),
                         missing,
                         missing,
-                        *([missing] if t_reference else []),
+                        *([missing] if df_column else []),
                     )
                 )
                 continue
@@ -232,18 +274,7 @@ def estimates_table(
                     # A transformed estimate whose default null has no value on its
                     # scale has no default test, and prints none.
                     Cell(float(pvalue := estimate._reported_pvalue()), pvalue_text(pvalue)),
-                    *(
-                        [
-                            Cell(
-                                estimate.reference_df,
-                                "normal"
-                                if estimate.reference_df is None
-                                else str(estimate.reference_df),
-                            )
-                        ]
-                        if t_reference
-                        else []
-                    ),
+                    *([df_cell(estimate)] if df_column else []),
                 )
             )
     if experimental:
@@ -345,6 +376,21 @@ def estimates_table(
                 vocabulary.NOTE_TEXTS["interval_scale"].format(names=_names(range_logit)),
             )
         )
+    if skewed:
+        text = "skew_widened" if df_column else "skew_widened_large_df"
+        notes.append(
+            note(
+                "skew_widened",
+                vocabulary.NOTE_TEXTS[text].format(
+                    names=_names(skewed), df_floor=f"{DF_SHOWN_BELOW:.0f}"
+                ),
+            )
+        )
+    mover = [
+        name for name, estimate in items if inferential[name] and estimate.interval_scale == "mover"
+    ]
+    if mover:
+        notes.append(note("mover", vocabulary.NOTE_TEXTS["mover"].format(names=_names(mover))))
     if t_reference:
         notes.append(
             note(

@@ -213,12 +213,26 @@ def test_the_test_interval_and_frame_read_the_stored_variance() -> None:
                 expected = (center - float(logit.forward(null))) / (estimate.std_error * slope)
                 assert test.statistic == pytest.approx(expected)
             continue
-        assert estimate.interval_scale == "identity"
-        assert lower == pytest.approx(estimate.psi - z * estimate.std_error, rel=1e-12)
-        assert upper == pytest.approx(estimate.psi + z * estimate.std_error, rel=1e-12)
-        for null in (0.0, estimate.psi + 0.02):
-            test = estimate.wald_test(null)
-            assert test.statistic == pytest.approx((estimate.psi - null) / estimate.std_error)
+        if estimate.interval_scale == "mover":
+            # A bounded contrast (Fix-3 PR 3): correlated MOVER on the two levels'
+            # influence-curve intervals, joined with the normal interval at the
+            # policy-weighted SE, so each side is at least as wide as both.
+            record = estimate.policy
+            default = dataclasses.replace(estimate, policy=None, variance=record.influence_variance)
+            assert default.interval_scale == "mover"
+            low_default, high_default = default.ci
+            half = z * np.sqrt(record.policy_variance)
+            assert lower == pytest.approx(min(low_default, estimate.psi - half), rel=1e-12)
+            assert upper == pytest.approx(max(high_default, estimate.psi + half), rel=1e-12)
+            for end in (lower, upper):
+                assert estimate.wald_test(end).pvalue == pytest.approx(estimate.alpha, abs=1e-9)
+        else:
+            assert estimate.interval_scale == "identity"
+            assert lower == pytest.approx(estimate.psi - z * estimate.std_error, rel=1e-12)
+            assert upper == pytest.approx(estimate.psi + z * estimate.std_error, rel=1e-12)
+            for null in (0.0, estimate.psi + 0.02):
+                test = estimate.wald_test(null)
+                assert test.statistic == pytest.approx((estimate.psi - null) / estimate.std_error)
         assert frame.loc[name, "std_err"] == pytest.approx(estimate.std_error, rel=1e-14)
         payload = estimate.to_dict()
         assert payload["variance_source"] == estimate.variance_source
@@ -228,8 +242,8 @@ def test_the_test_interval_and_frame_read_the_stored_variance() -> None:
         assert payload["policy_weighted_std_err"] == pytest.approx(
             np.sqrt(estimate.policy.policy_variance)
         )
-    # Law P's outcome lies in [0, 1]: the levels read the logit scale, the contrasts not.
-    assert scales == {"range_logit", "identity"}
+    # Law P's outcome lies in [0, 1]: the levels read the logit scale and the contrasts MOVER.
+    assert scales == {"range_logit", "mover"}
 
 
 def test_the_default_fit_carries_no_policy_record() -> None:

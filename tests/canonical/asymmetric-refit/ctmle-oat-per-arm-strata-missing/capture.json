@@ -1,0 +1,48 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/natural_course_insample",
+      "properties/missing_outcome_crossfit",
+      "properties/strata_missing",
+      "properties/weighted_strata_missing",
+      "properties/strata_missing_outcome_wrong",
+      "properties/n_2000",
+      "properties/n_4000",
+      "properties/n_8000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 0.16,
+    "seconds_fit": 0.17,
+    "stage": "refits",
+    "study": "ctmle-oat-per-arm-strata-missing"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 12,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/natural_course_insample",
+      "properties/missing_outcome_crossfit",
+      "properties/strata_missing",
+      "properties/weighted_strata_missing",
+      "properties/strata_missing_outcome_wrong",
+      "properties/n_2000",
+      "properties/n_4000",
+      "properties/n_8000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 65,
+    "seconds_capture": 0.16,
+    "seconds_fit": 1.78,
+    "stage": "scope",
+    "study": "ctmle-oat-per-arm-strata-missing"
+  }
+}

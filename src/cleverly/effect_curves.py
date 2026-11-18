@@ -3,8 +3,10 @@ r"""Fitted conditional effect curves, their intervals, and the assessment of a f
 A projection TMLE of a :class:`cleverly.ConditionalContrast` reports coefficients
 :math:`\hat\beta` of a declared basis :math:`\varphi(V)`.  The curve
 :math:`v \mapsto \varphi(v)^\top\hat\beta` is linear in :math:`\hat\beta`, so its influence
-curve at a point is :math:`\varphi(v)^\top D_\beta`, its pointwise interval is Wald, and a
-band over a declared finite grid is the shipped multiplier band of those curves (see
+curve at a point is :math:`\varphi(v)^\top D_\beta`.  Its pointwise interval is the skew-widened
+t of that curve on an unclustered continuous outcome and Wald otherwise, and a band over a
+declared finite grid is the shipped multiplier band of those curves, symmetric, so it need not
+contain a skew-widened pointwise interval (see
 ``docs/technical-reference/conditional-effects.md``).  :class:`EffectCurveResult` holds that
 curve, predicts it at new rows, and saves and loads like every result.
 
@@ -323,6 +325,13 @@ class ProjectionCurve:
     rule_widened : bool
         Whether the coefficients come from a fit under a declared stopping rule, so each
         interval and band adds :meth:`residual_margin` to its half-width.
+    outcome_family : {"binomial", "gaussian"} or None, default=None
+        The outcome family the coefficients record. On an unclustered difference-scale curve
+        of a ``"gaussian"`` outcome with the normal reference, :meth:`interval` is the
+        skew-widened t of the curve's influence curve at each row.
+    covariance_rule : {"centered", "second_moment"}, default="centered"
+        The coefficients' covariance rule, which centres the influence curve the skew-widened
+        interval reads.
     draws : tuple of ProjectionDraw
         Each cross-fitting draw of a fit with ``repeats`` above 1, or ``()``.  With two or
         more draws the curve at a point is the median rule over the draws' values
@@ -347,8 +356,71 @@ class ProjectionCurve:
     cluster: IntArray | None = None
     reference_df: int | None = None
     rule_widened: bool = False
+    outcome_family: str | None = None
+    covariance_rule: str = "centered"
     draws: tuple[ProjectionDraw, ...] = ()
     inference: str = "influence_curve"
+
+    def skew_widened(self) -> bool:
+        """Whether :meth:`interval` is the skew-widened t at each row."""
+        return (
+            self.outcome_family == "gaussian"
+            and self.cluster is None
+            and self.reference_df is None
+            and self.scale == "difference"
+        )
+
+    def interval(self, frame: Any, *, alpha: float = 0.05) -> tuple[FloatArray, FloatArray]:
+        """The pointwise interval of the curve at the rows of ``frame``.
+
+        On a curve that :meth:`skew_widened` names, each row's interval is
+        :func:`~cleverly.inference.skew_widened_ci` at ``max(satterthwaite_df, 5)`` and the
+        acceleration of the row's influence curve :math:`\\varphi(v)^\\top \\mathrm{IC}`,
+        over its non-zero terms, as a coefficient's own interval reads them. Otherwise it is
+        the Wald interval at the reference the coefficients read. Each half-width adds
+        :meth:`residual_margin`.
+
+        Parameters
+        ----------
+        frame : dataframe or mapping
+            Rows holding the modifier columns.
+        alpha : float, default=0.05
+            The interval holds at ``1 - alpha``.
+
+        Returns
+        -------
+        tuple of ndarray
+            The lower and upper limits, one per row.
+        """
+        from .inference.delta import skew_widened_ci
+        from .inference.influence import curve_acceleration, satterthwaite_df
+
+        estimate = self.predict(frame)
+        se = self.std_error(frame)
+        margin = self.residual_margin(frame)
+        if not self.skew_widened():
+            half = reference_quantile(alpha, self.reference_df) * se + margin
+            return estimate - half, estimate + half
+        centered = self.covariance_rule == "centered"
+        curves = self.influence @ self.design(frame).T
+        lower = np.full(estimate.shape, np.nan)
+        upper = np.full(estimate.shape, np.nan)
+        for i in range(estimate.shape[0]):
+            curve = np.asarray(curves[:, i], dtype=float)
+            rows = curve != 0.0
+            if not rows.any():
+                continue
+            df = max(satterthwaite_df(curve, rows=rows, centered=centered), 5.0)
+            acceleration = curve_acceleration(curve, rows=rows, centered=centered)
+            lower[i], upper[i] = skew_widened_ci(
+                float(estimate[i]),
+                float(se[i]),
+                alpha,
+                df=df,
+                acceleration=acceleration,
+                margin=float(margin[i]),
+            )
+        return lower, upper
 
     @property
     def repeated(self) -> bool:
@@ -734,17 +806,17 @@ class EffectCurveResult:
         if not interval:
             return estimate
         se = self.model.std_error(data)
-        # The reference the coefficients' own intervals read: t on a few-cluster fit.
-        z = reference_quantile(alpha, self.model.reference_df)
-        # Under a declared stopping rule each interval adds the score the curve leaves there.
-        half = z * se + self.model.residual_margin(data)
+        # The interval the coefficients' own intervals read: t on a few-cluster fit, the
+        # skew-widened t on an unclustered continuous outcome, and under a declared stopping
+        # rule the score the curve leaves there added to each half-width.
+        lower, upper = self.model.interval(data, alpha=alpha)
         backend = backend_of(as_frame(data)) if is_dataframe(data) else self.backend
         return frame_from_dict(
             {
                 "estimate": estimate,
                 "std_err": se,
-                "ci_lower": estimate - half,
-                "ci_upper": estimate + half,
+                "ci_lower": lower,
+                "ci_upper": upper,
             },
             backend=backend,
         )

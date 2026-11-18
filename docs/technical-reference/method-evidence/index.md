@@ -103,6 +103,7 @@ option-outcome-by-arm
 option-patience
 isotonic-binding
 small-sample-wald-intervals
+asymmetric-wald-intervals
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response

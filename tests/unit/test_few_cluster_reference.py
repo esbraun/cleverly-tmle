@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import importlib
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -704,10 +705,14 @@ class TestAFortyClusterFoldEvaluatedFit:
         self, forty: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         t_bounds = omitted_variable_bounds(forty, "ate", cf_y=0.02, cf_d=0.02)
-        import cleverly.sensitivity.omitted_variable as omitted
 
+        from cleverly.sensitivity import _limits
+
+        real = _limits.interval_reference
         monkeypatch.setattr(
-            omitted, "one_sided_quantile", lambda level, df=None: stats.norm.ppf(level)
+            _limits,
+            "interval_reference",
+            lambda estimate, **options: real(replace(estimate, reference_df=None), **options),
         )
         normal_bounds = omitted_variable_bounds(forty, "ate", cf_y=0.02, cf_d=0.02)
         ratio = (t_bounds.lower - t_bounds.ci_lower) / (
@@ -827,10 +832,14 @@ class TestTheConsumersReadTheReference:
         """The limit's half-width is the t(10) quantile times its standard error."""
         result = _linear(12, estimands=("ate",))
         t_bounds = omitted_variable_bounds(result, "ate", cf_y=0.02, cf_d=0.02)
-        import cleverly.sensitivity.omitted_variable as omitted
 
+        from cleverly.sensitivity import _limits
+
+        real = _limits.interval_reference
         monkeypatch.setattr(
-            omitted, "one_sided_quantile", lambda level, df=None: stats.norm.ppf(level)
+            _limits,
+            "interval_reference",
+            lambda estimate, **options: real(replace(estimate, reference_df=None), **options),
         )
         normal_bounds = omitted_variable_bounds(result, "ate", cf_y=0.02, cf_d=0.02)
         ratio = (t_bounds.lower - t_bounds.ci_lower) / (

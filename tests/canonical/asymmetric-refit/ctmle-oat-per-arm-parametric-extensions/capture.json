@@ -1,0 +1,50 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/three_arm",
+      "properties/three_arm_shared",
+      "properties/binary_population",
+      "properties/three_arm_crossfit",
+      "properties/three_arm_generated_design",
+      "properties/weighted",
+      "properties/weighted_crossfit",
+      "properties/composition",
+      "properties/three_arm_null"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 13.05,
+    "seconds_fit": 3.44,
+    "stage": "refits",
+    "study": "ctmle-oat-per-arm-parametric-extensions"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 11,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/three_arm",
+      "properties/three_arm_shared",
+      "properties/binary_population",
+      "properties/three_arm_crossfit",
+      "properties/three_arm_generated_design",
+      "properties/weighted",
+      "properties/weighted_crossfit",
+      "properties/composition",
+      "properties/three_arm_null"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 61,
+    "seconds_capture": 13.53,
+    "seconds_fit": 6.43,
+    "stage": "scope",
+    "study": "ctmle-oat-per-arm-parametric-extensions"
+  }
+}

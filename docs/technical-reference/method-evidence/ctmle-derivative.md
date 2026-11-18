@@ -12,8 +12,10 @@ The study is comparator-backed. The Python primary phase, the property study and
 runs all ran. Each of the three scenarios has a paired row against R, and all three rows read
 `equivalent`.
 
-The study publishes under the `reporting` policy, which was declared before the run. All six
-implementation-scenario accuracy tests pass, three for each side. All 21 property rows pass, and no cell is red. The
+The study publishes under the `reporting` policy, which was declared before the run. Five of the
+six implementation-scenario accuracy tests pass. The `cleverly` row of `binary_declared_pair` is
+red under [`ctmle-derivative-coverage-draws`](../../roadmap.md#red-cell-owners), on one draw set,
+as the paragraph after the accuracy table explains. All 21 property rows pass. The
 ordinary TMLE on the same initial fit sits next to every result as a descriptive control.
 
 ## What was compared
@@ -58,13 +60,24 @@ penalty is 0.0010 for the declared pair and 0.0019 for the package pipeline.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0012 to 0.0030 | 0.9688 | 1.0783 | pass |
+| binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0012 to 0.0030 | 0.9712 | 1.0783 | pass |
 | binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | R `ctmle` | -0.0012 to 0.0030 | 0.9688 | 1.0782 | pass |
-| binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0030 to 0.0013 | 0.9275 | 0.9318 | pass |
+| binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0030 to 0.0013 | 0.9263 | 0.9318 | **fail** |
 | binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | R `ctmle` | -0.0030 to 0.0013 | 0.9275 | 0.9318 | pass |
-| binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0024 to 0.0017 | 0.9525 | 0.9813 | pass |
+| binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0024 to 0.0017 | 0.9513 | 0.9813 | pass |
 | binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | R `ctmle` | -0.0024 to 0.0017 | 0.9537 | 0.9808 | pass |
 <!-- /generated -->
+
+The study was regenerated on its own seeds when correlated MOVER became the interval of a bounded
+difference (Fix-3). Every estimate and standard error stayed the same, and only the intervals
+moved. On `binary_declared_pair` the `cleverly` row covers 741 of 800 fits, one fewer than under
+the identity interval. The lower end of its 99% coverage interval falls from 0.9006 to 0.8992,
+under the 0.90 floor. R `ctmle` reads the same estimates under its identity interval and covers
+742, which passes. One fit at the boundary of both intervals decides the cell, at an SE ratio of
+0.93, so this is chance on one draw set at an SE ratio below one, not a defect of MOVER.
+
+The support row `C10.in_sample`, which covers this fit, stays supported for Wald intervals and
+prints the row's bias, coverage and SE ratio as a stated limit.
 
 ## Agreement with the canonical implementation
 
@@ -73,9 +86,9 @@ Comparator-backed: a paired comparison with `r-ctmle` on the same samples. Each 
 
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | 0.000001 | 0.000394 | 1.0000 | 0 | matching implementation | 0.000064 vs 0.0500 | equivalent |
-| binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | 4.366e-07 | 0.000123 | 1.0000 | 0 | matching implementation | 0.000020 vs 0.0500 | equivalent |
-| binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | -0.000002 | 0.000614 | 1.0003 | -0.0012 | matching implementation | 0.0017 vs 0.0500 | equivalent |
+| binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | 0.000001 | 0.000394 | 1.0000 | 0.0025 | matching implementation | 0.000064 vs 0.0500 | equivalent |
+| binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | 4.366e-07 | 0.000123 | 1.0000 | -0.0012 | matching implementation | 0.000020 vs 0.0500 | equivalent |
+| binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | -0.000002 | 0.000614 | 1.0003 | -0.0025 | matching implementation | 0.0017 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
@@ -110,14 +123,14 @@ model with a correct treatment law.
 | `double_robustness` | `multi_arm_treatment_correct` | positive | three arms with a multinomial lasso and a constant outcome regression, on the contrast of arm 1.0 against arm 0.0 | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0017 to 0.0017, margin 0.0069, SE ratio 1.0783 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0021 to 0.0021, margin 0.0070, SE ratio 0.8746 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000689 to 0.0027, margin 0.0056, SE ratio 1.0898 | pass |
-| `interval_calibration` | `cross_fitted` | positive | the same law and nuisances, cross-fitted over five folds | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9360 to 0.9597, SE ratio 0.9548 to 1.0255 | pass |
-| `interval_calibration` | `in_sample` | positive | the internal lasso is consistent for the main-terms treatment law, and the outcome regression is a correct GLM | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9379 to 0.9611, SE ratio 0.9509 to 1.0251 | pass |
-| `interval_calibration` | `missing_outcome` | positive | outcomes are missing at random, with a correct response learner | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9406 to 0.9634, SE ratio 0.9607 to 1.0330 | pass |
-| `interval_calibration` | `multi_arm` | positive | three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0 | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9328 to 0.9570, SE ratio 0.9547 to 1.0289 | pass |
-| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9208, 0.8986 to 0.9396 | pass |
+| `interval_calibration` | `cross_fitted` | positive | the same law and nuisances, cross-fitted over five folds | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9379 to 0.9611, SE ratio 0.9548 to 1.0255 | pass |
+| `interval_calibration` | `in_sample` | positive | the internal lasso is consistent for the main-terms treatment law, and the outcome regression is a correct GLM | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9365 to 0.9600, SE ratio 0.9509 to 1.0251 | pass |
+| `interval_calibration` | `missing_outcome` | positive | outcomes are missing at random, with a correct response learner | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9416 to 0.9641, SE ratio 0.9607 to 1.0330 | pass |
+| `interval_calibration` | `multi_arm` | positive | three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0 | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9333 to 0.9574, SE ratio 0.9547 to 1.0289 | pass |
+| `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9200, 0.8977 to 0.9389 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000100, coverage 0.9267 to 0.9613, SE ratio 0.9667 | pass |
-| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000431, coverage 0.9192 to 0.9556, SE ratio 0.9553 | pass |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000051, coverage 0.9163 to 0.9534, SE ratio 0.9270 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000431, coverage 0.9201 to 0.9563, SE ratio 0.9553 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000051, coverage 0.9182 to 0.9549, SE ratio 0.9270 | pass |
 | `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5023 to -0.4510 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4883 to -0.4859 | pass |
 | `targeting_necessity` | `ate__targeted` | positive | average treatment effect: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0029 to 0.000440, margin 0.0057 | pass |
@@ -134,9 +147,9 @@ verdict reads them.
 
 | scenario | mean C-TMLE0 minus TMLE | SD of the difference | coverage, C-TMLE0 and TMLE | mean standard error, C-TMLE0 and TMLE |
 | --- | --- | --- | --- | --- |
-| `binary_declared_pair` | 0.000009 | 0.0018 | 0.9275 and 0.9338 | 0.02207 and 0.02219 |
-| `binary_pipeline` | 0.000015 | 0.0020 | 0.9525 and 0.9550 | 0.02201 and 0.02214 |
-| `binary_constant_q` | -0.000555 | 0.0052 | 0.9688 and 0.9713 | 0.02464 and 0.02484 |
+| `binary_declared_pair` | 0.000009 | 0.0018 | 0.9263 and 0.9325 | 0.02207 and 0.02219 |
+| `binary_pipeline` | 0.000015 | 0.0020 | 0.9513 and 0.9575 | 0.02201 and 0.02214 |
+| `binary_constant_q` | -0.000555 | 0.0052 | 0.9712 and 0.9725 | 0.02464 and 0.02484 |
 
 With the correct GLM, the two estimators agree on average to $10^{-5}$. The standard deviation of
 their difference is under one tenth of the empirical standard deviation of the estimates, 0.0224
@@ -156,12 +169,12 @@ the committed results and checked at the precision printed.
 | `replicates` | 800 | replications per scenario |
 | `n` | 2000 | observations per replication |
 | `independent_tests_total` | 6 | implementation-scenario tests against truth |
-| `independent_tests_passed` | 6 | of those, passing |
+| `independent_tests_passed` | 5 | of those, passing |
 | `property_cells_total` | 21 | independent property cells |
 | `property_cells_passed` | 21 | of those, passing |
 | `max_standardized_bias` | 0.0401 | largest absolute primary bias in empirical standard deviations |
-| `min_coverage` | 0.9275 | lowest primary coverage |
-| `min_coverage_ci_lower` | 0.9006 | lowest exact 99% coverage endpoint |
+| `min_coverage` | 0.9263 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.8992 | lowest exact 99% coverage endpoint |
 | `min_se_ratio_ci_lower` | 0.8783 | lowest bootstrap SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.1511 | highest bootstrap SE-ratio endpoint |
 | `equivalence[binary_declared_pair/ate]:mean_difference` | 4.366e-07 | mean `cleverly` minus R difference at the declared pair |
@@ -177,10 +190,10 @@ the committed results and checked at the precision printed.
 | `properties[double_robustness/both_wrong]:standardized_bias` | 0.5093 | its bias in empirical standard deviations |
 | `properties[double_robustness/outcome_correct]:bias` | -0.000006 | bias with only the outcome regression correct |
 | `properties[double_robustness/treatment_correct]:bias` | 0.000990 | bias with only the treatment mechanism correct |
-| `properties[interval_calibration/in_sample]:coverage` | 0.9504 | in-sample calibration coverage |
+| `properties[interval_calibration/in_sample]:coverage` | 0.9492 | in-sample calibration coverage |
 | `properties[interval_calibration/in_sample]:se_ratio` | 0.9865 | in-sample calibration SE ratio |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0458 | rejection under the confounded sharp null |
-| `properties[power/alternative]:rejection_rate` | 0.9208 | rejection under the alternative |
+| `properties[power/alternative]:rejection_rate` | 0.9200 | rejection under the alternative |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.4763 | fitted empirical-spread rate |
 | `properties[root_n_rate/reported_se]:slope` | -0.4871 | fitted reported-SE rate |
 | `properties[targeting_necessity/ate__untargeted]:bias` | 0.0565 | bias of the initial plug-in estimate |

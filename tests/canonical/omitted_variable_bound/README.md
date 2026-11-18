@@ -1,9 +1,9 @@
 # Omitted-variable bound standard error
 
 This directory holds a repeated-sampling study of the one-sided limits of `cleverly`'s
-omitted-variable bound. Each bound is read as an estimate of a known population value. The
-study reads its standard error back off the reported limit, as `(lower - ci_lower) / z_0.95`
-for a lower bound and `(ci_upper - upper) / z_0.95` for an upper bound.
+omitted-variable bound. Each bound is read as an estimate of a known population value. Its
+standard error is the influence standard error of the end's own curve, and the harness checks
+that it reproduces the reported limit under the estimate's interval rule.
 
 The law is `make_linear_ate(n=1000)`. An in-sample TMLE fits it with a linear outcome regression
 and an unpenalized main-effects logistic treatment model, and both are correctly specified. The

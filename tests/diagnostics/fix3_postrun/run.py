@@ -13,7 +13,7 @@ probe              what it fits
                    averaged per support point (``h3_big.csv.gz``), against H3's exact efficient
                    influence function
 ``confirm``        3,000 draws each of H1 (``ho_sparse_treat``), H2 (``ho_hurdle``) and the
-                   lognormal law of skewness 2.0, through ``fit_group`` and ``rule_columns``
+                   lognormal law of skewness 2.3, through ``fit_group`` and ``rule_columns``
                    (``confirm.csv.gz``); a lost fit is a row with an ``error``
 ``h2_leverage``    the H2 draws of ``confirm`` again, with a hand-built stratum-2 curve beside the
                    fit and the same curve with each residual divided by ``sqrt(1 - 1/n_cell)``,
