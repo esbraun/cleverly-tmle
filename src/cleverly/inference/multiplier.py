@@ -486,9 +486,10 @@ def _uint32_words(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarra
     output into its low then its high half.  That is the little-endian ``uint32`` view of
     ``random_raw``, which skips the per-element bounded-integer path: the same words, and
     the generator state left exactly as ``integers`` leaves it (its unbuffered ``uinteger``
-    slot included), in about half the time.  It holds only when no half word is buffered
-    from an earlier odd-length draw and this draw has even length (so none is left buffered
-    for the next), on a little-endian machine.  Anything else takes ``integers`` itself.
+    slot included), with the word kernel about 1.8 times as fast on a band-sized block.  It
+    holds only when no half word is buffered from an earlier odd-length draw and this draw has
+    even length (so none is left buffered for the next), on a little-endian machine.  Anything
+    else takes ``integers`` itself.
     ``tests/unit/test_multiplier_words.py`` pins the equality on the NumPy that CI resolves.
     """
     size = int(np.prod(shape))

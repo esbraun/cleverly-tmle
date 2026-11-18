@@ -91,8 +91,39 @@ def test_other_bit_generators_take_the_integers_route(make: type) -> None:
     assert _next_draws(fast) == _next_draws(frozen)
 
 
+def test_a_big_endian_host_takes_the_integers_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``uint32`` view of ``random_raw`` is low-then-high only on a little-endian host."""
+    monkeypatch.setattr(multiplier.sys, "byteorder", "big")
+    calls: list[object] = []
+    original = np.random.Generator.integers
+
+    class Counting(np.random.Generator):
+        def integers(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(kwargs.get("size"))
+            return original(self, *args, **kwargs)
+
+    frozen, fast = np.random.default_rng(13), Counting(np.random.PCG64(13))
+    expected = frozen.integers(0, 2**32, size=(4, 6), dtype=np.uint32)
+    assert _uint32_words(fast, (4, 6)).tobytes() == expected.tobytes()
+    assert calls == [(4, 6)]
+    assert _state(fast) == _state(frozen)
+
+
+def test_a_pcg64_subclass_takes_the_integers_route() -> None:
+    """Only the exact PCG64 type is known to split its outputs low half first."""
+
+    class Raw(np.random.PCG64):
+        def random_raw(self, *args: object, **kwargs: object) -> np.ndarray:  # type: ignore[override]
+            raise AssertionError("random_raw read on a PCG64 subclass")
+
+    frozen, fast = np.random.default_rng(15), np.random.Generator(Raw(15))
+    expected = frozen.integers(0, 2**32, size=(4, 6), dtype=np.uint32)
+    assert _uint32_words(fast, (4, 6)).tobytes() == expected.tobytes()
+    assert _state(fast)["state"] == _state(frozen)["state"]
+
+
 def test_the_fast_route_is_the_one_a_band_takes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The band's blocks are even-length PCG64 draws, so none falls back to ``integers``."""
+    """A band on even-length blocks takes the fast route; an odd last block would fall back."""
     calls: list[tuple[int, ...]] = []
     original = np.random.Generator.integers
 
@@ -129,14 +160,13 @@ def _frozen_critical_value(
     cluster: np.ndarray | None = None,
 ) -> float:
     """``multiplier_critical_value(kind="mammen")`` with the frozen fill."""
-    original = multiplier._fill_multipliers
 
     def frozen(rng: np.random.Generator, out: np.ndarray, kind: str) -> None:
         assert kind == "mammen"
         _frozen_fill(rng, out)
 
-    multiplier._fill_multipliers = frozen
-    try:
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(multiplier, "_fill_multipliers", frozen)
         return multiplier_critical_value(
             curves,
             se,
@@ -146,8 +176,6 @@ def _frozen_critical_value(
             kind="mammen",
             random_state=random_state,
         )
-    finally:
-        multiplier._fill_multipliers = original
 
 
 @pytest.mark.parametrize("n", [999, 10_000])
