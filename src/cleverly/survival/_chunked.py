@@ -412,6 +412,11 @@ class _Walker:
                     # the pair's jumps, survival and parts turn NaN, so its survival is not low
                     # and the trial's score is not finite.
                     rows = np.flatnonzero(nan.any(axis=0))
+                    if rows.size:
+                        # The dense walk's exp overflowed and its product with the zero jump
+                        # was invalid; NumPy's error state answers here as it did there.
+                        probe = np.exp(np.full(1, 2.0 * OVERFLOW_BOUND))
+                        probe *= 0.0
                     parts[rows] = np.nan
                     plugins[rows] = np.nan
                     low &= ~nan

@@ -872,13 +872,8 @@ class ContinuousSurvivalTMLE:
                 "covariate divides by zero. The estimator needs the survival bounded away from "
                 "zero there; choose an earlier last target time or restricted horizon."
             )
-        # The walk's grid: every time where some initial hazard jumps, some event is observed
-        # or a risk's target sits.  Elsewhere every jump is zero and stays zero along the walk,
-        # so the curves there repeat the last kept time's (event-support grid, X106 part C2).
         observed = T[D > 0]
-        support = jumping | np.isin(grid, observed)
-        support[target_index] = True
-        kept = np.flatnonzero(support) if _chunked.REDUCE_GRID else np.arange(grid.size)
+        kept = walk_grid(grid, jumping, observed, target_index)
         initial = _Initial(
             n=n,
             T=T,
@@ -1247,6 +1242,38 @@ class _FitPlan:
         return grows.any(axis=(1, 3))
 
 
+def walk_grid(
+    grid: FloatArray, jumping: np.ndarray, observed: FloatArray, target_index: IntArray
+) -> IntArray:
+    """The positions on the full grid that the walk keeps: the event-support grid.
+
+    Every time where some initial hazard jumps (a NaN jump counts), some event is observed or
+    a risk's target sits.  Elsewhere every jump is zero and stays zero along the walk, so the
+    curves there repeat the last kept time's.
+
+    Parameters
+    ----------
+    grid : ndarray
+        ``(M,)`` the full grid.
+    jumping : ndarray
+        ``(M,)`` whether some initial hazard jump is not zero there.
+    observed : ndarray
+        The observed event times.
+    target_index : ndarray
+        The risks' positions on the grid.
+
+    Returns
+    -------
+    ndarray
+        The kept positions, increasing; every position with the grid reduction off.
+    """
+    if not _chunked.REDUCE_GRID:
+        return np.arange(grid.size)
+    support = jumping | np.isin(grid, observed)
+    support[target_index] = True
+    return np.flatnonzero(support)
+
+
 def _point_rows(weights: FloatArray) -> bool:
     """Whether every weight row is a unit vector, a risk's."""
     return bool(np.all((weights == 0) | (weights == 1)) and np.all(weights.sum(axis=1) == 1))
@@ -1353,6 +1380,8 @@ class _OffGrid:
         np.square(influence, out=influence)
         sigma = np.sqrt(np.mean(influence, axis=0))
         self.spread = None
+        #: The vectors the share read, kept for the tests that compare them to the dense walk's.
+        self.vectors = (score, psi, sigma)
         informative = sigma > 0
         if not informative.any():
             return 1.0
