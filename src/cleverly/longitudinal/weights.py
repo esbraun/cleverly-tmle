@@ -140,7 +140,7 @@ class NodeWeights:
 
 
 @dataclass(frozen=True)
-class NodeSummary:
+class _NodeSummary:
     """What :func:`cleverly.plotting.weights` reads at one node, without the ``(n, T)`` arrays.
 
     Each field equals the one :class:`NodeWeights` gives at the node: ``used`` is
@@ -156,7 +156,7 @@ class NodeSummary:
     followers: int
 
 
-def node_summaries(fit: RegimenFit) -> tuple[NodeSummary, ...]:
+def _node_summaries(fit: RegimenFit) -> tuple[_NodeSummary, ...]:
     """Per-node weight summaries of one fitted regimen, one node at a time.
 
     :func:`node_weights` builds four ``(n, T)`` arrays; this reads the same per-node values
@@ -170,7 +170,7 @@ def node_summaries(fit: RegimenFit) -> tuple[NodeSummary, ...]:
 
     Returns
     -------
-    tuple of NodeSummary
+    tuple of _NodeSummary
         One summary per scored node, in time order.
     """
     out = []
@@ -180,7 +180,7 @@ def node_summaries(fit: RegimenFit) -> tuple[NodeSummary, ...]:
         column = node.time - 1
         moved = fit.cumulative_unbounded[rows, column] != fit.cumulative[rows, column]
         out.append(
-            NodeSummary(
+            _NodeSummary(
                 time=node.time,
                 used=used,
                 share=float(np.mean(moved)) if moved.size else float("nan"),
@@ -192,8 +192,8 @@ def node_summaries(fit: RegimenFit) -> tuple[NodeSummary, ...]:
 
 
 @dataclass(frozen=True)
-class WeightSummary:
-    """The scalar fields of :class:`NodeWeights` and one :class:`NodeSummary` per node.
+class _WeightSummary:
+    """The scalar fields of :class:`NodeWeights` and one :class:`_NodeSummary` per node.
 
     Parameters
     ----------
@@ -219,7 +219,7 @@ class WeightSummary:
         As :class:`NodeWeights`.
     reports_curve : bool
         As :class:`NodeWeights`.
-    nodes : tuple of NodeSummary
+    nodes : tuple of _NodeSummary
         One summary per node, in time order.
     """
 
@@ -234,7 +234,7 @@ class WeightSummary:
     unit_weights: bool
     cross_fitted: bool
     reports_curve: bool
-    nodes: tuple[NodeSummary, ...]
+    nodes: tuple[_NodeSummary, ...]
 
 
 def _select(
@@ -355,14 +355,14 @@ def node_weights(
     )
 
 
-def weight_summary(
+def _weight_summary(
     result: Any,
     *,
     regimen: str | None = None,
     horizon: int | None = None,
     cause: str | None = None,
     repeat: int = 1,
-) -> WeightSummary:
+) -> _WeightSummary:
     """The per-node summaries :func:`cleverly.plotting.weights` draws, without the matrices.
 
     It selects and refuses exactly as :func:`node_weights` does.
@@ -382,12 +382,12 @@ def weight_summary(
 
     Returns
     -------
-    WeightSummary
+    _WeightSummary
         The fields of :class:`NodeWeights` that are not per-unit arrays, and one
-        :class:`NodeSummary` per node.
+        :class:`_NodeSummary` per node.
     """
     fit, meta = _resolve(result, regimen, horizon, cause, repeat)
-    return WeightSummary(**meta, nodes=node_summaries(fit))
+    return _WeightSummary(**meta, nodes=_node_summaries(fit))
 
 
 def _resolve(

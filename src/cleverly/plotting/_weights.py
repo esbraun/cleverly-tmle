@@ -248,7 +248,7 @@ def weights(
     from .._refusal import RefusalReason
     from ..exceptions import CapabilityError, DataError
     from ..longitudinal.estimator import LongitudinalResult
-    from ..longitudinal.weights import weight_summary
+    from ..longitudinal.weights import _weight_summary
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(result, ContinuousSurvivalResult):
@@ -300,7 +300,7 @@ def weights(
     # Per-node summaries, read node by node from the fit: the same values node_weights
     # gives, without its four (n, T) arrays per regimen.
     series = [
-        weight_summary(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
+        _weight_summary(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
         for name in names
     ]
     first = series[0]

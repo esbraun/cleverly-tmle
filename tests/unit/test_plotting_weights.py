@@ -718,9 +718,22 @@ class TestTheWeightsPlotRefusalsAndNotes:
     def test_a_node_without_followers_prints_no_share(
         self, bounded: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            NodeWeights, "share_beyond_bounds", property(lambda self: np.array([0.25, np.nan]))
-        )
+        import dataclasses
+
+        from cleverly.longitudinal import weights as module
+
+        original = module._weight_summary
+
+        def patched(*args: Any, **kwargs: Any) -> Any:
+            found = original(*args, **kwargs)
+            nodes = tuple(
+                dataclasses.replace(node, share=share)
+                for node, share in zip(found.nodes, (0.25, np.nan), strict=True)
+            )
+            return dataclasses.replace(found, nodes=nodes)
+
+        # The plot reads each node's share from the per-node summaries (X106 J3b).
+        monkeypatch.setattr(module, "_weight_summary", patched)
         fig = plotting.weights(bounded, regimens=["never"])
         texts = [t.get_text() for t in fig.axes[0].texts if t.get_gid() == "cleverly-tail-share"]
         assert texts == ["25%"]
@@ -1003,18 +1016,22 @@ def _with_zeros(
 
     from cleverly.longitudinal import weights as module
 
-    original = module.node_weights
+    original = module._weight_summary
 
-    def patched(*args: Any, **kwargs: Any) -> NodeWeights:
+    def patched(*args: Any, **kwargs: Any) -> Any:
         found = original(*args, **kwargs)
-        used = found.used.copy()
-        rows = np.flatnonzero(found.followed[:, node])[:count]
-        used[rows, node] = 0.0
+        summary = found.nodes[node]
+        used = summary.used.copy()
+        used[:count] = 0.0
+        nodes = list(found.nodes)
+        nodes[node] = dataclasses.replace(summary, used=used)
         return dataclasses.replace(
-            found, used=used, unit_weights=found.unit_weights and unit_weights
+            found, nodes=tuple(nodes), unit_weights=found.unit_weights and unit_weights
         )
 
-    monkeypatch.setattr(module, "node_weights", patched)
+    # The plot reads the per-node summaries (X106 J3b), whose ``used`` holds the followers'
+    # weights in row order, so the first ``count`` entries are the first ``count`` followers.
+    monkeypatch.setattr(module, "_weight_summary", patched)
 
 
 def _kinds(monkeypatch: pytest.MonkeyPatch, *kinds: str) -> None:
@@ -1241,16 +1258,18 @@ class TestTheCauseOfAZeroWeight:
 
         from cleverly.longitudinal import weights as module
 
-        original = module.node_weights
+        original = module._weight_summary
 
-        def both(*args: Any, **kwargs: Any) -> NodeWeights:
+        def both(*args: Any, **kwargs: Any) -> Any:
             found = original(*args, **kwargs)
-            used = found.used.copy()
-            for node in (0, 1):
-                used[np.flatnonzero(found.followed[:, node])[:2], node] = 0.0
-            return dataclasses.replace(found, used=used)
+            nodes = []
+            for summary in found.nodes:
+                used = summary.used.copy()
+                used[:2] = 0.0
+                nodes.append(dataclasses.replace(summary, used=used))
+            return dataclasses.replace(found, nodes=tuple(nodes))
 
-        monkeypatch.setattr(module, "node_weights", both)
+        monkeypatch.setattr(module, "_weight_summary", both)
         notes = _core.note_text(plotting.weights(longitudinal, regimens=["always"]))
         assert "acts at this or an earlier time point (time point 2);" in notes
 
