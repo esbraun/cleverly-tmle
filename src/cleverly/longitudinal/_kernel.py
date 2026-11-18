@@ -85,14 +85,15 @@ def _bin(
     left = np.clip(np.floor(position).astype(np.intp), 0, BINS - 2)
     right_weight = np.clip(position - left, 0.0, 1.0)
     left_weight = 1.0 - right_weight
-    counts = np.zeros(BINS)
-    sums = np.zeros(BINS)
     # Rows were sorted by (index, outcome), so tied indices add in one value order and the
-    # result does not depend on the row order of the input.
-    np.add.at(counts, left, left_weight)
-    np.add.at(counts, left + 1, right_weight)
-    np.add.at(sums, left, left_weight * y)
-    np.add.at(sums, left + 1, right_weight * y)
+    # result does not depend on the row order of the input.  One bincount over the left
+    # entries and then the right entries adds into each bin in the same sequence as adding
+    # the left weights and then the right weights in row order.
+    both = np.concatenate([left, left + 1])
+    counts = np.bincount(both, weights=np.concatenate([left_weight, right_weight]), minlength=BINS)
+    sums = np.bincount(
+        both, weights=np.concatenate([left_weight * y, right_weight * y]), minlength=BINS
+    )
     return left, left_weight, right_weight, np.stack([counts, sums])
 
 
@@ -110,6 +111,7 @@ def _convolve(binned: NDArray[np.float64], kernel: NDArray[np.float64]) -> NDArr
 def _loo_error(
     y: NDArray[np.float64],
     left: NDArray[np.intp],
+    right: NDArray[np.intp],
     left_weight: NDArray[np.float64],
     right_weight: NDArray[np.float64],
     sums: NDArray[np.float64],
@@ -119,20 +121,24 @@ def _loo_error(
 
     Each row's own binned weight is removed from the grid sums at its two bins, and the fit at
     the row is the interpolation of the two reduced grid ratios, as :func:`smooth` evaluates.
+    ``right`` is ``left + 1``, built once for every candidate bandwidth.
     """
     near = kernel[BINS - 1]
     step = kernel[BINS]
     own_left = near * left_weight + step * right_weight
     own_right = step * left_weight + near * right_weight
     fits = np.zeros(y.size)
-    for bins, own, weight in ((left, own_left, left_weight), (left + 1, own_right, right_weight)):
-        denominator = sums[0, bins] - own
-        numerator = sums[1, bins] - own * y
+    for bins, own, weight in ((left, own_left, left_weight), (right, own_right, right_weight)):
+        denominator = sums[0].take(bins) - own
+        numerator = sums[1].take(bins) - own * y
         safe = denominator > 1e-300
         ratio = np.where(safe, numerator / np.where(safe, denominator, 1.0), np.nan)
         fits += weight * ratio
     residual = y - fits
     finite = np.isfinite(residual)
+    if finite.all():
+        # The masked form below returns ``residual`` itself here.
+        return float(np.mean(residual**2))
     if not finite.any():
         return float("inf")
     # A row whose removal empties a bin's neighbourhood has no LOO fit; it scores as the worst.
@@ -176,11 +182,14 @@ def smooth(
     width = (high - low) / (BINS - 1)
     left, left_weight, right_weight, binned = _bin(x, y, low, width)
     candidates = bandwidth_grid(x, width)
+    right = left + 1
     best, best_error = candidates[-1], float("inf")
     # From the largest bandwidth down with a strict comparison, so a tie keeps the larger one.
     for bandwidth in candidates[::-1]:
         kernel = _kernel(float(bandwidth), width)
-        error = _loo_error(y, left, left_weight, right_weight, _convolve(binned, kernel), kernel)
+        error = _loo_error(
+            y, left, right, left_weight, right_weight, _convolve(binned, kernel), kernel
+        )
         if error < best_error:
             best, best_error = bandwidth, error
     sums = _convolve(binned, _kernel(float(best), width))

@@ -389,6 +389,14 @@ class _Reductions:
                 )
         return self._cache[key]
 
+    def release(self, family: str, index: int, time: int) -> None:
+        """Drop one fitted regression that no later product reads; its record stays."""
+        self._cache.pop((family, index, time), None)
+
+    def release_all(self) -> None:
+        """Drop every fitted regression once the fixed products are formed; records stay."""
+        self._cache.clear()
+
     # -- the families of section 4.2
 
     def e_r(self, k: int) -> FloatArray:
@@ -513,18 +521,50 @@ def fit_coefficients(
             for k in range(t):
                 # [V_t(t-1)/V_t(k)] = prod_{m=k+1}^{t-1}; [U_t(t)/U_t(k)] = prod_{m=k}^{t-1}.
                 r[k][:, t - 1] = _forward(v[k:], n) * _forward(u[k:], n) * e_l[t]
+            # U_t and V_t are read at this t only.
+            for m in range(t):
+                reductions.release("u", t, m)
+            for m in range(1, t):
+                reductions.release("v", t, m)
+            del u, v
     e_r = {k: reductions.e_r(k) for k in range(tau)}
     e_a = reductions.e_a()
     q_raw = reductions.q(g_lower)
     q = np.clip(q_raw, g_lower, 1.0 - g_lower)
     hits["q"] = int(np.sum(q != q_raw))
+    # B_k(m) and D_k(m) enter only through the products over m = k+1..t-1 and m = k..t-1,
+    # which grow by one factor per horizon step.  Each product is carried forward and
+    # multiplied by its new factor, in the order _forward multiplies, so it is the same
+    # floating-point product; the factor is fitted where the full list first asked for it
+    # and released once multiplied in.
+    b_run: dict[int, tuple[int, FloatArray]] = {}
+    d_run: dict[int, tuple[int, FloatArray]] = {}
+
+    def b_product(k: int, t: int) -> FloatArray:
+        """prod_{m=k+1}^{t-1} (1 - B_k(m)), as _forward over that list."""
+        upto, value = b_run.get(k, (k + 1, np.ones(n)))
+        while upto < t:  # the factor m = upto
+            value = value * (1.0 - reductions.b(k, upto))
+            upto += 1
+        b_run[k] = (upto, value)
+        return value
+
+    def d_product(k: int, t: int) -> FloatArray:
+        """prod_{m=k}^{t-1} (1 - D_k(m)), as _forward over that list."""
+        upto, value = d_run.get(k, (k, np.ones(n)))
+        while upto < t:
+            value = value * (1.0 - reductions.d(k, upto))
+            upto += 1
+        d_run[k] = (upto, value)
+        return value
+
     for t in range(1, tau + 1):
         for k in range(t):
             if not np.any(e_r[k] != 0.0):
                 continue
             # B_k(k)/B_k(t-1) = 1/prod_{m=k+1}^{t-1}; D_k(k)/D_k(t) = 1/prod_{m=k}^{t-1}.
-            b_prod = _forward([reductions.b(k, m) for m in range(k + 1, t)], n)
-            d_prod = _forward([reductions.d(k, m) for m in range(k, t)], n)
+            b_prod = b_product(k, t)
+            d_prod = d_product(k, t)
             hits["B"] += int(np.sum(b_prod < DENOMINATOR_FLOOR))
             hits["D"] += int(np.sum(d_prod < DENOMINATOR_FLOOR))
             l_terms[t - 1][:, k] = -e_r[k] / (
@@ -532,13 +572,17 @@ def fit_coefficients(
             )
         if np.any(e_a != 0.0):
             index = _a_term_index(t)
-            d_full = _forward([reductions.d(index, m) for m in range(t)], n)
-            b_full = _forward([reductions.b(index, m) for m in range(1, t)], n)
+            d_full = d_product(index, t)
+            b_full = b_product(index, t)
             hits["B"] += int(np.sum(b_full < DENOMINATOR_FLOOR))
             hits["D"] += int(np.sum(d_full < DENOMINATOR_FLOOR))
             c[:, t - 1] = e_a / (
                 q * np.maximum(d_full, DENOMINATOR_FLOOR) * np.maximum(b_full, DENOMINATOR_FLOOR)
             )
+        # Every factor fitted at this t is now inside its carried product.
+        for k in range(t):
+            reductions.release("b", k, t - 1)
+            reductions.release("d", k, t - 1)
     return _Coefficients(a, tuple(r), tuple(l_terms), c, hits)
 
 
@@ -1049,6 +1093,9 @@ def target_drift(
     state = _State(view.g_a.copy(), view.g_r.copy(), view.h.copy())
     reductions = _Reductions(view, state, tau, g_bounds, regress)
     coefficients = fit_coefficients(reductions, tau, g_bounds[0], drift=drift)
+    # The fixed products hold everything the loop reads; the regressions themselves are not
+    # read again (their records are).
+    reductions.release_all()
     threshold = stop_threshold(view.n)
     path: list[FloatArray] = []
     converged = False
