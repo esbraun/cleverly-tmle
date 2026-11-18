@@ -1050,3 +1050,28 @@ def test_a_truncation_curve_replays_the_fit_with_no_block_kept() -> None:
 
 def test_every_kind_of_time_is_named() -> None:
     assert set(itertools.chain(FIXTURES, TOLERANT)) == set(GOLDEN)
+
+
+def test_a_kept_block_takes_each_step_in_its_own_arrays(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Accepted steps are written into a kept block's arrays, so threads never move them.
+
+    New arrays would come from the malloc arena of whichever thread replayed the block, and
+    the freed kept arrays would pile up in other threads' arenas (R7, 16k: four-thread peaks
+    crept from 1.04 to 1.16 times the prediction over the passes).
+    """
+    keep = _chunked._Walker.keep
+    seen: dict[int, list[tuple[int, int]]] = {}
+
+    def watched(self: Any, k: int, state: Any) -> Any:
+        kept = keep(self, k, state)
+        if k < self.resident:
+            seen.setdefault(k, []).append((kept.applied, kept.jumps.ctypes.data))
+        return kept
+
+    monkeypatch.setattr(_chunked._Walker, "keep", watched)
+    fit = _fit("two causes", rows=37, resident=0.5, n_jobs=2)
+    assert fit.run.result.steps >= 1
+    stepped = [calls for calls in seen.values() if max(applied for applied, _ in calls) >= 1]
+    assert stepped
+    for calls in seen.values():
+        assert len({address for _, address in calls}) == 1, calls

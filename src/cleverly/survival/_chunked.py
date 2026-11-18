@@ -407,9 +407,25 @@ class _Walker:
         survival, incidence = T.curves(jumps)
         return _State(jumps, survival, incidence, 0, self.plan.problem(k))
 
-    def keep(self, k: int, state: _State) -> None:
-        if k < self.resident:
+    def keep(self, k: int, state: _State) -> _State:
+        """Keep block ``k``'s state when it is a kept block; return the state to work on."""
+        if k >= self.resident:
+            return state
+        slot = self.slots[k]
+        if slot is None or slot is state or len(self.bounds) == 1:
+            # One block runs on the calling thread, and the dense walk's initial jumps are the
+            # caller's array, which must not be written.
             self.slots[k] = state
+            return state
+        # Each step is written into the kept arrays.  New arrays would come from the malloc
+        # arena of whichever thread replayed the block (glibc keeps an arena per thread), so
+        # with threads the freed kept arrays would pile up in other threads' arenas and the
+        # resident memory would creep pass after pass.
+        np.copyto(slot.jumps, state.jumps)
+        np.copyto(slot.survival, state.survival)
+        np.copyto(slot.incidence, state.incidence)
+        slot.applied = state.applied
+        return slot
 
     def state(self, k: int) -> _State:
         """Block ``k`` after every accepted step, kept or rebuilt."""
@@ -432,8 +448,7 @@ class _Walker:
             del direction
             survival, incidence = T.curves(jumps)
             state = _State(jumps, survival, incidence, state.applied + 1, state.problem)
-        self.keep(k, state)
-        return state
+        return self.keep(k, state)
 
     def local(self, flat: IntArray, lo: int, hi: int) -> np.ndarray:
         """The ``(2, hi - lo)`` mask of the flat ``(2, n)`` indices that fall in rows ``lo:hi``."""
