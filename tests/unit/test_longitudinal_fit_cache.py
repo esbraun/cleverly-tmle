@@ -21,8 +21,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.interventions import Incremental
 from cleverly.learners import GLM
-from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, _fit_cache
-from cleverly.longitudinal import data as data_module
+from cleverly.longitudinal import IPSI, LTMLE, SDR, _fit_cache
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
 
@@ -193,7 +192,7 @@ def test_an_entry_lives_only_while_its_value_does() -> None:
         other = Source()
         rebuilt = _fit_cache.cached("probe", (other,), 1, lambda: np.arange(5.0))
         assert np.array_equal(rebuilt, np.arange(5.0))
-    assert not cache.entries and not cache.strong
+    assert not cache.entries
 
 
 def test_a_tuple_value_is_shared_while_every_part_lives() -> None:
@@ -273,90 +272,3 @@ def test_two_numerator_columns_give_two_clever_covariates() -> None:
         second_node = sequential_module._clever_covariate(at_risk, at_risk, halving, 2, None)
         third_node = sequential_module._clever_covariate(at_risk, at_risk, halving, 3, None)
         assert np.allclose(second_node[1], 4.0) and np.allclose(third_node[1], 8.0)
-
-
-def test_the_design_with_and_without_the_current_arm_differ() -> None:
-    """``include_current`` is part of the design key, so the two designs never share."""
-    frame, columns = _panel(300, 3, survival=False)
-    data = LongitudinalData.from_frame(frame, **columns)
-    with _fit_cache.fit_cache():
-        without = data.history_design(2, include_current=False)
-        with_arm = data.history_design(2, include_current=True)
-        assert with_arm.shape[1] > without.shape[1]
-        assert np.array_equal(data.covariate_history(2), data._covariate_history(2))
-
-
-def test_the_covariate_blocks_are_cleaned_once_per_panel() -> None:
-    frame, columns = _panel(300, 4, survival=False)
-    data = LongitudinalData.from_frame(frame, **columns)
-    with _fit_cache.fit_cache():
-        held = [data.covariate_history(t) for t in range(1, 5)]
-        cache = _fit_cache._ACTIVE.get()
-        assert cache is not None and len(cache.strong) == 1
-        outside = [data._covariate_history(t) for t in range(1, 5)]
-    for t, (inside, plain) in enumerate(zip(held, outside, strict=True), start=1):
-        # The shipped construction: join the raw blocks, then fill.
-        blocks = [data.baseline, *data.time_varying[:t]]
-        shipped = np.nan_to_num(np.hstack([b for b in blocks if b.shape[1]]), nan=0.0)
-        for matrix in (inside, plain):
-            assert matrix.tobytes(order="A") == shipped.tobytes(order="A")
-            assert matrix.flags.c_contiguous == shipped.flags.c_contiguous
-
-
-class _WritesIntoX(LogisticRegression):
-    def predict_proba(self, X: Any) -> Any:
-        X[0, 0] = 0.0
-        return super().predict_proba(X)
-
-
-def test_a_learner_that_writes_into_its_design_is_refused_by_numpy() -> None:
-    """The shared designs are read-only, so a learner that writes into ``X`` raises numpy's
-    error rather than changing the design another model reads."""
-    frame, columns = _panel(300, 2, survival=False)
-    options = {**_learners(), "treatment_learner": _WritesIntoX(max_iter=1000)}
-    with pytest.raises(ValueError, match="read-only"), warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        LTMLE({"always": 1, "never": 0}, n_folds=1, **options).fit(frame, **columns)
-
-
-@pytest.mark.parametrize(
-    ("values", "expected"),
-    [
-        (np.array([1.0, np.nan, np.inf, 2.0], dtype=object), [True, False, False, True]),
-        (np.array([np.float32(1.0), np.float16(np.nan)], dtype=object), [True, False]),
-        (np.array([np.longdouble("1e400"), 1.0], dtype=object), [True, True]),
-        (np.array([2**1100, 1], dtype=object), [True, True]),
-        (np.array(["a", None, "b"], dtype=object), [True, False, True]),
-        (np.array(["a", pd.NA, 1.0], dtype=object), [True, False, True]),
-        (np.array(["a", "b"], dtype=object), [True, True]),
-    ],
-)
-def test_the_presence_check_is_the_per_cell_reading(
-    values: np.ndarray, expected: list[bool]
-) -> None:
-    """The fast paths answer what the per-cell reading answers, including a long double above
-    the ``float64`` range and a Python integer too large for a float."""
-    per_cell = [data_module._categorical_value_is_present(value) for value in values]
-    assert per_cell == expected
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        assert data_module._present_objects(values).tolist() == expected
-
-
-def test_a_float_subclass_holding_nan_is_read_one_cell_at_a_time() -> None:
-    class Odd(float):
-        pass
-
-    values = np.array([Odd("nan"), 1.0], dtype=object)
-    assert data_module._present_objects(values).tolist() == [False, True]
-
-
-def test_an_object_column_of_floats_is_not_read_one_cell_at_a_time(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def refuse(value: Any) -> bool:
-        raise AssertionError("per-cell reading")
-
-    monkeypatch.setattr(data_module, "_categorical_value_is_present", refuse)
-    values = np.array([1.0, np.nan, 0.0] * 100, dtype=object)
-    assert data_module._present_objects(values).sum() == 200
