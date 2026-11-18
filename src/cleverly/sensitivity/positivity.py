@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._continuous_survival_family import refuse_continuous_survival
+from .._continuous_survival_family import is_continuous_survival, refuse_continuous_survival
 from .._refusal import Refusal, RefusalReason
 from .._summary import Detail, Summary, check_detail
 from .._trial_family import refuse_augmented_trial
@@ -629,6 +629,31 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     DataError
         If the treatment is continuous, which has no per-arm propensity either.
     """
+    _refuse_unreportable(result)
+    if result.data.is_binary_treatment:
+        return _binary_positivity_report(result)
+    return _multi_arm_positivity_report(result)
+
+
+def _refuse_unreportable(result: Any) -> None:
+    """Raise the refusals of :func:`positivity_report` without computing the report.
+
+    :func:`~cleverly.plotting.overlap` needs only these: an augmented-trial or
+    continuous-time survival fit, a fit that estimated no treatment mechanism, and a
+    continuous treatment.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+
+    Raises
+    ------
+    CapabilityError
+        If the fit estimated no treatment mechanism.
+    DataError
+        If the treatment is continuous.
+    """
     refuse_augmented_trial(result, "positivity_report", "report")
     refuse_continuous_survival(result, "positivity_report")
     if not result.nuisance.fits_treatment:
@@ -648,9 +673,6 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
                 "res.diagnostics.truncation_curve(mechanism=True) sweeps it."
             ),
         )
-    if result.data.is_binary_treatment:
-        return _binary_positivity_report(result)
-    return _multi_arm_positivity_report(result)
 
 
 def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
@@ -1403,7 +1425,7 @@ def truncation_curve(
     estimands: Any = None,
     mechanism: bool | None = None,
 ) -> Any:
-    """Re-estimate across a grid of truncation bounds.
+    r"""Re-estimate across a grid of truncation bounds.
 
     Returns a tidy frame with one row per evaluated bound pair and estimand, giving the
     point estimate and confidence interval.  A fit whose inference status supplies no
@@ -1427,6 +1449,12 @@ def truncation_curve(
     The primary outcome regression and the propensity stay cached, so one bound costs
     less than a fit -- but the default grid has several of them, so the **whole curve can
     cost more than the fit it describes**.  Budget it as refitting work.
+
+    A **continuous-time survival** fit refits its initial hazards once from the stored
+    estimator and data, proves that the replay reproduces the fit at its own floor, and reruns
+    the targeting walk at each floor on :math:`\pi(a \mid L) S_c(u^- \mid a, L)`
+    (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`, which documents its
+    grid and columns).  It refuses ``mechanism=True``.
 
     A curve that is flat over the plausible range of bounds says the estimate does not
     hinge on the truncation choice.  A curve that drifts monotonically says the estimate
@@ -1481,7 +1509,12 @@ def truncation_curve(
         explicit ``g(W)`` bound moves a value of a declared known mechanism.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
-    refuse_continuous_survival(result, "truncation_curve")
+    if is_continuous_survival(result):
+        from ..survival.diagnostics import MECHANISM_REFUSAL, continuous_truncation_curve
+
+        if mechanism:
+            raise CapabilityError.from_refusal(MECHANISM_REFUSAL)
+        return continuous_truncation_curve(result, bounds, estimands=estimands)  # type: ignore[arg-type]
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError(

@@ -321,7 +321,8 @@ _LEVEL_PATTERN: Final = re.compile(r"^(?:risk|cif)_regimen\[.+ @ t=(?P<time>[^\]
 
 if TYPE_CHECKING:
     from ._targeting import WalkResult
-    from .engine import ContinuousSurvivalRecord
+    from .data import ContinuousSurvivalData
+    from .engine import ContinuousSurvivalRecord, ContinuousSurvivalTMLE
 
 __all__ = [
     "CONTINUOUS_SURVIVAL_STUDY",
@@ -721,14 +722,24 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         Under ``variance="switched"``, the predictable-variation covariance of every targeted
         level, with each stored estimate's gradient over them; :meth:`contrast` and
         :meth:`ratio` read it.  ``None`` under ``variance="influence_curve"``.
+    estimator : ContinuousSurvivalTMLE or None
+        A copy of the estimator that produced the fit, with its seed resolved and the outer
+        cross-fitting label of each row recorded, so
+        ``estimator.refit(data, random_state=estimator.random_state)`` reproduces the fit.
+        ``None`` only on a result built by hand, which the refits refuse.
+    data : ContinuousSurvivalData or None
+        The rows the fit read. ``None`` only on a result built by hand.
 
     Notes
     -----
     :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a
     row for every assessment operation. The support, nuisance, score and influence
     diagnostics read :attr:`record` and the influence curves, and the E-value reads a risk
-    ratio of the fit; every refutation, the truncation curve and every other sensitivity
-    analysis refuses with its reason and roadmap item.
+    ratio of the fit. ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of
+    :attr:`data` (the placebo on a contrast, the random common cause and the subset tests, all
+    descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting walk at other
+    floors from refitted initial hazards. The simulated common cause and every other
+    sensitivity analysis refuse with their reason and roadmap item.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -741,6 +752,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     backend: str | None = None
     restricted_horizons: tuple[float, ...] = field(default=())
     predictable: PredictableCovariance | None = None
+    estimator: ContinuousSurvivalTMLE | None = field(default=None, repr=False)
+    data: ContinuousSurvivalData | None = field(default=None, repr=False)
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
@@ -1491,6 +1504,39 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             f"causes={len(self.causes)}, times={len(self.horizons)})"
         )
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot each arm's risk and their difference at the target times.
+
+        Each estimate is drawn at its target time with its interval and, when the fit holds
+        one, its simultaneous band. Nothing is drawn between target times, where the fit
+        estimates no risk.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.curve` (``scale=``, ``measure=``, ``band=``,
+            ``cause=``, ``regimens=``, ``labels=``, ``units=``, ``time_label=``,
+            ``truth=`` and ``title=``).
+
+        Returns
+        -------
+        Figure
+            The levels above and their difference below, one column per cause.
+
+        Raises
+        ------
+        CapabilityError
+            When the fit refuses the requested view, with the fit's own reason.
+        ValueError
+            When ``band=``, ``measure=``, ``scale=`` or ``cause=`` do not fit together or
+            the fit, such as ``band="bootstrap"`` or ``cause=`` with ``measure="rmst"``.
+        DataError
+            When ``cause=`` or ``regimens=`` names a cause or arm the fit does not hold.
+        """
+        from ..plotting import curve
+
+        return curve(self, **kwargs)
+
     def to_frame(self) -> Any:
         """One row per parameter, in the backend the data arrived in.
 
@@ -1545,7 +1591,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     ) -> Any:
         """Run the applicable post-fit assessment battery.
 
-        The refutation, the truncation curve and every sensitivity row refuse on this fit,
+        With ``include_refits=True`` the refutation and the truncation curve refit the stored
+        estimator; the simulated common cause and every sensitivity bound refuse on this fit,
         and the report names each refusal without raising it.
 
         Parameters

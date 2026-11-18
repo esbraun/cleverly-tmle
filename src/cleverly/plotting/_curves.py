@@ -196,6 +196,7 @@ def curve(
     units: str | None = None,
     time_label: str | None = None,
     truth: Any = None,
+    max_rug_points: int | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -215,7 +216,10 @@ def curve(
     treatment level, and the working model of a marginal structural model fit beside them.
     A conditional effect curve draws the effect over one modifier. A smoothed dose-response
     curve draws one series per declared bandwidth, at most three, with its pointwise
-    intervals and the band over every declared pair.
+    intervals and the band over every declared pair. A continuous-time survival fit draws
+    each arm's risk, or cumulative incidence by cause in one column per cause, and their
+    difference below, at its target times only: a point with its interval bar and band
+    brackets at each target time, and nothing between them, where the fit estimates no risk.
 
     A band is drawn only when the fit computed one. A fit that reports every time point
     gets step ribbons, because the curve is constant between time points, and the last time
@@ -226,15 +230,18 @@ def curve(
 
     Parameters
     ----------
-    obj : LongitudinalResult, TMLEResult, EffectCurveResult or DoseResponseResult
-        What to draw.
+    obj : LongitudinalResult, TMLEResult, EffectCurveResult or another result
+        What to draw: one of those, a ``DoseResponseResult`` or a
+        ``ContinuousSurvivalResult``.
     scale : {"risk", "survival", "mean"} or None, default=None
-        Longitudinal fits: the view of the outcome. ``None`` is ``"risk"`` for a survival
-        outcome and ``"mean"`` for a repeated one. The levels and differences are read from
-        ``obj.curve(scale=...)``.
+        Longitudinal and continuous-time survival fits: the view of the outcome. ``None`` is
+        ``"risk"`` for a survival outcome and ``"mean"`` for a repeated one. The levels and
+        differences are read from ``obj.curve(scale=...)``.
     measure : {"curve", "rmst", "rmtl"}, default="curve"
         Longitudinal fits: the curve over time, or the restricted mean survival time or time
-        lost up to each horizon (points joined by a thin line, pointwise intervals only).
+        lost up to each horizon (points joined by a thin line, pointwise intervals only). A
+        continuous-time survival fit draws the restricted means at its
+        ``restricted_horizons``, as points with pointwise intervals.
     band : {"multiplier", "bootstrap", "none"}, False or None, default=None
         Which simultaneous band to draw. ``None`` draws the multiplier band when the fit holds one,
         else the bootstrap band; :func:`~cleverly.plotting.notes` names the other. ``"none"`` (or
@@ -242,9 +249,11 @@ def curve(
         point-treatment fit of per-level means or of policies, and a conditional effect curve, hold
         a multiplier band at most.
     cause : str or None, default=None
-        Longitudinal fits with several causes: the cause to draw.
+        Longitudinal fits with several causes: the cause to draw. A continuous-time survival
+        fit draws one column per cause when omitted.
     regimens : sequence of str or None, default=None
-        Longitudinal fits: the regimens to draw, at most three.
+        Longitudinal fits: the regimens to draw, at most three. A continuous-time survival
+        fit: its arm labels.
     labels : mapping of str to str or None, default=None
         Display names for regimens.
     msm : TMLEResult or None, default=None
@@ -295,6 +304,14 @@ def curve(
         a sequence in increasing order of the level or a mapping of level to value. A
         conditional effect curve takes a function of the modifier's values, drawn as a
         dash-dot line. Values are on the scale the plot draws.
+    max_rug_points : int or None, default=None
+        The most ticks the rug of a conditional effect curve draws in each panel (the short
+        marks along the bottom at the rows' modifier values). With a number, a panel with
+        more rows draws that many values evenly spaced in rank, from the smallest to the
+        largest, so the ticks follow the modifier's distribution whatever the row order;
+        ``0`` draws no rug. When omitted, a panel with more than 20,000 rows draws every
+        k-th row in row order. The curve and its interval use every row either way, and the
+        notes say how many ticks were drawn. Other views draw no rug and ignore it.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -383,6 +400,7 @@ def curve(
 
     if band is False:
         band = "none"
+    rug_limit = _core.display_limit(max_rug_points, "max_rug_points", 0)
     if isinstance(obj, DoseResponseResult):
         return _dose_response(
             obj,
@@ -394,6 +412,31 @@ def curve(
             truth=truth,
             title=title or None,
             ax=ax,
+        )
+    from ..survival.result import ContinuousSurvivalResult
+
+    if isinstance(obj, ContinuousSurvivalResult):
+        if ax is not None:
+            raise ValueError("curve() draws a continuous-time survival fit in several panels")
+        if outcome_label is not None:
+            raise ValueError(
+                "outcome_label= words the axis of a mean outcome; a continuous-time survival "
+                "fit draws risks, survival or restricted means, whose axes are named for them"
+            )
+        from ._continuous_curve import curve as continuous_curve
+
+        return continuous_curve(
+            obj,
+            scale=scale,
+            measure=measure,
+            band=band,
+            cause=cause,
+            regimens=regimens,
+            labels=labels,
+            units=units,
+            time_label=time_label,
+            truth=truth,
+            title=title or None,
         )
     if isinstance(obj, LongitudinalResult):
         if measure not in ("curve", "rmst", "rmtl"):
@@ -437,6 +480,7 @@ def curve(
             truth=truth,
             title=title or None,
             ax=ax,
+            rug_limit=rug_limit,
         )
     keys = getattr(obj, "parameter_keys", None)
     if isinstance(keys, Mapping) and hasattr(obj, "estimates"):
@@ -483,18 +527,6 @@ def curve(
                 title=title or None,
                 ax=ax,
             )
-    from ..survival.result import ContinuousSurvivalResult
-
-    if isinstance(obj, ContinuousSurvivalResult):
-        from .._refusal import RefusalReason
-        from ..exceptions import CapabilityError
-
-        raise CapabilityError(
-            "curve() does not draw a continuous-time survival fit yet.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="forest() draws its risks and contrasts at the target times.",
-            roadmap="X100",
-        )
     raise TypeError(
         "curve() draws a longitudinal fit, a point-treatment fit of per-level means, of a "
         "working model or of a family of policies, or a conditional effect curve; "
@@ -1168,6 +1200,18 @@ def _over_time(
     note_list += _support_notes([r.estimate for r in in_play], "curve")
     if band_obj is not None:
         note_list += _band_note(band_obj.support, "simultaneous band")
+        supplemented = [
+            r.parameter
+            for r in in_play
+            if getattr(r.estimate, "node", None) is not None and r.parameter not in band_obj.bands
+        ]
+        if supplemented:
+            from .._inference_status import BOUNDARY_NODE_BAND_NOTE
+
+            note_list.append(
+                BOUNDARY_NODE_BAND_NOTE.format(names=", ".join(dict.fromkeys(supplemented)))
+                + " No band is drawn at those times."
+            )
         if view == "survival":
             note_list.append(
                 "The survival band mirrors the fit's risk band about the survival estimate."
@@ -2188,6 +2232,7 @@ def _effect_curve(
     truth: Any,
     title: str | None,
     ax: Axes | None,
+    rug_limit: int | None = None,
 ) -> Figure:
     from .._inference_status import supplies_inference
     from .._summary import vocabulary
@@ -2288,6 +2333,7 @@ def _effect_curve(
     binary = _binary_outcome(result)
     average, average_note = _average_effect(result, binary, several_panels=rows > 1)
     notes: list[str] = []
+    rug_sizes: list[int] = []
     color = _core.series_color(0)
     for panel, level in zip(panels, panels_levels, strict=True):
         if by is not None:
@@ -2332,7 +2378,7 @@ def _effect_curve(
             )
         if band is not None:
             _band_marks(panel, band, modifier, by, level, held, transform, color)
-        _rug(panel, result, modifier, by, level, mods)
+        rug_sizes.append(_rug(panel, result, modifier, by, level, mods, rug_limit))
         if by is not None:
             _core.corner_label(panel, 0.97, f"{by} = {level}", color)
         if ratio:
@@ -2396,6 +2442,9 @@ def _effect_curve(
             )
         )
     notes.append(average_note)
+    rug_note = _rug_note(rug_sizes, rug_limit, modifier)
+    if rug_note:
+        notes.append(rug_note)
     if held:
         shown = ", ".join(
             f"{name} = {value:g}" if isinstance(value, (int, float)) else f"{name} = {value}"
@@ -2586,19 +2635,75 @@ def _band_marks(
     )
 
 
-def _rug(ax: Axes, result: Any, modifier: str, by: str | None, level: Any, mods: Any) -> None:
-    """Short ticks along the bottom edge at the fitted rows' modifier values."""
+#: The most rug ticks a panel draws when no limit is given: every k-th row past it.
+_RUG_CAP = 20000
+
+
+def _rug_values(values: np.ndarray, limit: int | None) -> np.ndarray:
+    """The modifier values a panel's rug draws.
+
+    With no limit, every k-th row in row order once there are more than 20,000. With a
+    limit, that many values evenly spaced in rank from the smallest to the largest, which
+    does not depend on the order of the rows; ``0`` draws none.
+    """
+    if limit is None:
+        if values.size > _RUG_CAP:
+            return values[:: math.ceil(values.size / _RUG_CAP)]
+        return values
+    if values.size <= limit:
+        return values
+    ranks = np.rint(np.linspace(0.0, values.size - 1.0, limit)).astype(int)
+    return np.sort(values)[ranks]
+
+
+def _rug_note(sizes: Sequence[int], limit: int | None, modifier: str) -> str | None:
+    """The note that says how a rug was thinned, or ``None`` when every row was drawn."""
+    largest = max(sizes, default=0)
+    if limit == 0 and largest:
+        return "No rug is drawn."
+    if limit is None:
+        if largest <= _RUG_CAP:
+            return None
+        return (
+            f"Rug: at most {_RUG_CAP:,} ticks per panel; a panel with more rows draws every "
+            f"k-th row in row order ({largest:,} rows in the largest panel)."
+        )
+    if largest <= limit:
+        return None
+    if limit == 1:
+        return f"Rug: each panel's smallest {modifier} value only."
+    return (
+        f"Rug: at most {limit:,} of each panel's rows' {modifier} values, evenly spaced in rank "
+        f"({largest:,} rows in the largest panel)."
+    )
+
+
+def _rug(
+    ax: Axes,
+    result: Any,
+    modifier: str,
+    by: str | None,
+    level: Any,
+    mods: Any,
+    limit: int | None = None,
+) -> int:
+    """Short ticks along the bottom edge at the fitted rows' modifier values.
+
+    Returns the number of rows the panel holds, which the rug note reads.
+    """
     from matplotlib.transforms import blended_transform_factory
 
     values = _observed(result, modifier)
     if values is None:
-        return
+        return 0
     if by is not None:
         mask = _level_rows(result, by, level, mods.levels_of(by)[0])
         if mask is not None:
             values = values[mask]
-    if values.size > 20000:
-        values = values[:: math.ceil(values.size / 20000)]
+    size = int(values.size)
+    if limit == 0:
+        return size
+    values = _rug_values(values, limit)
     ax.vlines(
         values,
         0.0,
@@ -2609,3 +2714,4 @@ def _rug(ax: Axes, result: Any, modifier: str, by: str | None, level: Any, mods:
         alpha=0.35,
         gid="cleverly-rug",
     )
+    return size

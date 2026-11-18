@@ -206,6 +206,15 @@ predicted rates, in small steps, until the risks satisfy the equations that make
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
 about ten seconds at 1,000 people.
 
+The fit's memory grows with the number of people times the number of distinct event and
+censoring times up to the last horizon, so when times rarely repeat it grows with the square of
+the number of people. With one kind of event, 100,000 people and a last horizon that covers most
+follow-up times, it would need about 1 TB. Before fitting anything, the fit predicts how much
+memory it needs and stops with an error when that is more than the machine has free; on macOS,
+which does not report free memory, it checks only a limit you set. The error spells the
+`ContinuousSurvivalTMLE` call that runs the same fit, whose `max_memory_bytes=` sets the limit,
+as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
 competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
@@ -222,15 +231,21 @@ and the sensitivity analyses for an unmeasured confounder do not run on this fit
 lists each with its reason. The one exception is the E-value of a risk ratio, which runs when you
 name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder) shows.
 
-The plots draw the same checks from what the fit kept:
+The plots draw the risks and the same checks from what the fit kept:
 
 ```python
-from cleverly.plotting import learners, overlap, weights
+from cleverly.plotting import curve, learners, overlap, weights
 
+curve(exact_risks)
 overlap(exact_risks, censoring=True)
 weights(exact_risks)
 learners(exact_risks)
 ```
+
+`curve` draws each plan's risk of each event, one column per event, and the difference below.
+Each risk is a point at a time in `horizons=` with its 95% interval, and nothing is drawn between
+those times, because the fit estimates no risk there. No simultaneous band is drawn, because this
+fit did not compute one; `simultaneous=True` adds it.
 
 `overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
 for each arm, the chance of that arm times the chance of staying in follow-up just before the last
@@ -455,7 +470,7 @@ horizon on its own, so its curve can dip slightly. Two options prevent that.
 
 | option | what it does | what it needs |
 | --- | --- | --- |
-| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, or a treatment with categories at each time point when no covariate is measured after baseline. A baseline treatment can also be a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
+| `survival_model="hazard", targeting="one_step"` | fits the hazard at every time point and corrects one set of hazards for every horizon together | one treatment at baseline, held over every time point, or a treatment with categories at each time point. A baseline treatment can also be a dose under a plan that changes each person's dose. A covariate measured after baseline needs `targeting="one_step"` |
 | `isotonic=True` | projects each fitted curve and its band limits onto a curve that never decreases | a longitudinal TMLE (`LTMLE`) survival or competing-risk fit without `msm=`. The other longitudinal estimators have no `isotonic=` |
 
 Pass the hazard learner as `outcome_learner`. A hazard fit uses `pseudo_learner` only when the
@@ -520,6 +535,16 @@ competing events, risks that add up to at most one for each person. With well-fi
 between the two estimates shrinks faster than their standard errors as the sample grows, so on a
 large sample they nearly agree.
 
+A treatment with categories at each time point fits beside such covariates too. A plan can fix the
+treatment at each time point, follow a known rule that reads the latest covariate, or draw the
+treatment with known probabilities that may read the covariate and the earlier treatment. At each
+time point the fit predicts the event for every treatment level at each person's own history, so it
+never builds the treatment sequences a plan could follow. A
+[validation study](../technical-reference/method-evidence/hazard-time-varying-multinode.md)
+measures this fit with a yes-or-no treatment at three time points and one yes-or-no covariate
+measured before the treatment at each later time point, with one event type, in sample and with
+cross-fitting.
+
 A covariate declared at the first time point only is measured before the treatment, so it is an
 ordinary confounder. The hazard model fits it, and gives the same estimate as declaring it in
 `baseline=`. Under `markov_order=` the hazard model, like the default fit, drops that covariate
@@ -533,8 +558,11 @@ moves everyone up one treatment level.
 gives the exact estimand, the settings it refuses, and its checks.
 
 :::{dropdown} Details: what the hazard model refuses, and its studies
-The hazard model refuses a treatment at several time points together with a covariate measured
-after baseline. Its message points to the default model, which fits that design.
+With a treatment at several time points and a covariate measured after baseline, the hazard model
+refuses a plan that moves people to another treatment level, or one that multiplies the odds of
+treatment when you supplied the treatment probabilities yourself
+([H27 in the hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+Its message points to the default model, which fits that plan.
 
 A treatment with categories at each time point also fits on the hazard model, when no covariate
 is measured after baseline. A plan can fix the treatment at each time point, follow a rule that

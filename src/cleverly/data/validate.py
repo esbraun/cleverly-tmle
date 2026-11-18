@@ -628,16 +628,21 @@ def check_covariates(
                 keep[j] = False
                 dropped.append(names[j])
 
-    seen: dict[bytes, int] = {}
+    # A fixed-size digest finds candidate duplicates without retaining every column's bytes
+    # (about 8 * n * p of them); a digest match is confirmed byte for byte, so the test stays
+    # exact, keeps signed zeros apart and keeps the first of each duplicated set.
+    seen: dict[int, list[int]] = {}
     for j in range(matrix.shape[1]):
         if not keep[j]:
             continue
-        digest = np.ascontiguousarray(matrix[:, j]).tobytes()
-        if digest in seen:
+        column = np.ascontiguousarray(matrix[:, j]).tobytes()
+        digest = _column_digest(column)
+        kept = seen.setdefault(digest, [])
+        if any(column == _column_bytes(matrix, k) for k in kept):
             keep[j] = False
             dropped.append(names[j])
         else:
-            seen[digest] = j
+            kept.append(j)
 
     if dropped:
         _warn(
@@ -650,6 +655,16 @@ def check_covariates(
     if not retained:
         raise DataError("all covariates were constant or duplicated; nothing left to adjust for")
     return matrix[:, keep], retained, dropped
+
+
+def _column_digest(column: bytes) -> int:
+    """A fixed-size digest of a column's bytes; equal bytes give equal digests."""
+    return hash(column)
+
+
+def _column_bytes(matrix: FloatArray, j: int) -> bytes:
+    """The bytes of column ``j``, so ``0.0`` and ``-0.0`` differ."""
+    return np.ascontiguousarray(matrix[:, j]).tobytes()
 
 
 def encode_clusters(values: np.ndarray, name: str) -> IntArray:

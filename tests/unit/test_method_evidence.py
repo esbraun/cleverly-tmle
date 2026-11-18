@@ -1570,6 +1570,55 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own clause"
             )
 
+        # ``boundary-node-ltmle``: restated from the declaration in the driver's docstring.
+        # The control's clauses are statements about its own firing draws, read against the
+        # paired arms, and the readings they rest on are columns of the control's own row.
+        boundary = published.loc[published["property"] == "boundary_node"]
+        if not boundary.empty:
+            module = study.properties()
+            for row in boundary.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.role == "control":
+                    expected = (
+                        row.mcnemar_lower > 0.0
+                        and row.oracle_gain_lower >= module.ORACLE_GAIN_MARGIN
+                    )
+                else:
+                    expected = bool(row.bias_equivalent)
+                    if row.cell in module.FIRING_CELLS:
+                        expected = expected and row.firing_ci_lower >= module.FIRING_FLOOR
+                    if row.cell in module.ZERO_CELLS:
+                        expected = expected and row.coverage_ci_lower >= module.ZERO_FLOOR
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
+        # ``few-cluster-fold-variance``: restated from the declaration in ``regenerate.py``. A
+        # positive row passes the shown band, G1 and the variance-ratio lower end; a deflated
+        # control fails that rule; the IID control's median upper end sits below 0.95.
+        fold = published.loc[published["property"] == "fold_variance_calibration"]
+        if not fold.empty:
+            for row in fold.itertuples():
+                rule = (
+                    row.shown_ci_lower >= 0.92
+                    and row.shown_ci_upper <= 0.98
+                    and row.all_draw_ci_lower >= 0.90
+                    and row.variance_ratio_ci_lower >= 0.93**2
+                )
+                arm = str(row.cell).rsplit("__", 1)[1]
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif arm.endswith("deflated_control"):
+                    expected = not rule
+                elif arm == "iid_t_control":
+                    expected = row.paired_median_ci_upper < 0.95
+                else:
+                    expected = rule
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
@@ -1948,6 +1997,15 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Checked row by row below.
         "policy_variance",
         "policy_calibration",
+        # ``boundary-node-ltmle``: a supplemented row answers to its bias, its firing floor
+        # where gated and the zero-cell floor where declared; the paired control to its two
+        # clauses on the control's firing draws; the other arms carry the diagnostic role.
+        # Checked row by row below.
+        "boundary_node",
+        # ``few-cluster-fold-variance``: a positive row answers to the shown-coverage band, G1
+        # and the variance-ratio lower end; a deflated control must fail that rule; the IID
+        # control to its median ratio's upper end. Checked row by row below.
+        "fold_variance_calibration",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
@@ -2109,6 +2167,13 @@ SAME_DRAW_FAMILIES = {
     # contrast with the untargeted backward plug-in of the ``one_cause`` ``mechanism_correct``
     # robustness fits, as ``adaptive-iptw``'s does.  No claim reads two verdicts jointly.
     "hazard-time-varying": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
+    # ``hazard-time-varying-multinode`` (X70 (b2)): the same pairs as ``hazard-time-varying``,
+    # on the ``multinode`` calibration fits and the ``multinode`` ``mechanism_correct``
+    # robustness fits.
+    "hazard-time-varying-multinode": (
         frozenset({"interval_calibration", "power"}),
         frozenset({"double_robustness", "targeting_necessity"}),
     ),

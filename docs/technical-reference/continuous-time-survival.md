@@ -254,7 +254,11 @@ descriptive.
 
 `ContinuousSurvivalResult` declares a capability row for every assessment operation, so
 `result.assess()` reports each operation as run or refused and does not raise for a refused one.
-Each diagnostic that runs reads the record and the influence curves and refits nothing.
+The support, score, nuisance and influence diagnostics read the record and the influence curves
+and refit nothing. The result also stores a copy of its estimator, with the seed resolved and the
+outer fold labels recorded, and its data, so `result.estimator.refit(result.data,
+random_state=result.estimator.random_state)` reproduces the fit bit for bit in one process. The
+refutation and the truncation curve refit that copy.
 
 | operation | status | what it reads, or why it refuses |
 | --- | --- | --- |
@@ -263,9 +267,9 @@ Each diagnostic that runs reads the record and the influence curves and refits n
 | `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
 | `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
 | `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
-| `diagnostics.refute()` | refused, [X101](../roadmap.md#x101-assessment-of-continuous-time-survival-fits) | each test refits the estimator on perturbed data, and the result keeps neither its estimator nor its data |
-| `diagnostics.truncation_curve()` | refused, X101 | each point reruns the walk at another floor, and the result keeps no initial hazard jumps |
-| `sensitivity.simulated_confounding()` | refused, X101 | the replay refits on simulated data, as `refute` does |
+| `diagnostics.refute()` | runs, descriptive (`passed=None`) | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
+| `diagnostics.truncation_curve()` | runs, descriptive | the walk rerun at each floor on $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ from refitted initial hazards, after an exact replay of the fit at its own floor; [truncation stability](validation-methods.md#truncation-stability) states the grid and columns |
+| `sensitivity.simulated_confounding()` | refused, [X101](../roadmap.md#x101-assessment-of-continuous-time-survival-fits) | the replay redraws event and censoring times under a latent shift of the hazards, and the shipped survival replay reads a time grid |
 | `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
 | `sensitivity.marginal_bounds()` | refused, F16 | the point-treatment bound tilts the outcome regression of an arm mean, and no tilt of the cause-specific hazards is derived |
 | `sensitivity.missingness()`, `tipping_gamma()` | refused, F16 | the tilt perturbs a missing-at-random outcome, and no tilt of independent censoring in continuous time is derived |
@@ -273,10 +277,18 @@ Each diagnostic that runs reads the record and the influence curves and refits n
 
 Each refusal is a `CapabilityError` carrying the record its row declares. The free functions of
 `cleverly.sensitivity` and `cleverly.validation` raise the same record before they read any
-point-treatment attribute. `tests/unit/test_continuous_survival_assessment.py` checks every row and
-every refusal, and that `influence()` reads each estimate's influence curve. The capability sweep
+point-treatment attribute, and `cleverly.validation.refute` and
+`cleverly.sensitivity.truncation_curve` run as the facade does.
+`tests/unit/test_continuous_survival_assessment.py` checks every row and every refusal, and that
+`influence()` reads each estimate's influence curve. The capability sweep
 (`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
-agrees.
+agrees, and requires `refute` and `truncation_curve` to answer.
+
+A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk), and the curve one refit
+of the nuisances plus one walk per floor. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
+(`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
+jumps and the weight product, about 600 MB, while it runs. No registered study calibrates the refutation readings on this
+fit, so each prints its numbers without a verdict.
 
 The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
 support row, and a censoring model that depends on the arm. Under that model each arm's stored
@@ -284,7 +296,66 @@ censoring survival matches the model's prediction under that arm, recomputed as 
 observed times strictly before each target, and the two arms differ. One target sits on an observed
 censoring time, so a lookup that includes that time's own jump fails. Under cross-fitting, a patched
 treatment fit whose value encodes its training rows shows that each row stores the probability from
-the model its own fold did not train.
+the model its own fold did not train. `tests/unit/test_continuous_survival_refute.py` holds the
+witnesses and mutation controls of the stored estimator, the refutation and the curve: a refit at
+another seed moves a cross-fitted estimate, an unseeded SAGA treatment learner breaks the replay
+unless the fit seeds it, and the curve and refutation controls listed in the validation reference.
+
+### Covariate balance
+
+`covariate_balance(result)` returns a `BalanceOverTime` with three diagnostics, each over the
+baseline covariates $W$, unweighted and weighted, with no interval. The general definitions and
+the averages are in [covariate balance over time](longitudinal-tmle.md#covariate-balance-over-time).
+
+| diagnostic | rows | compares | weight |
+| --- | --- | --- | --- |
+| `"confounding"` | every unit | the arms | $1 / \hat\pi(A \mid L)$, the point-treatment ATE weight |
+| `"joint"`, at each $t_k$ | units whose status at $t_k$ is known: an event of any cause at $\tilde T \le t_k$, or $\tilde T \ge t_k$ | the arms | $1 / \max(\hat\pi(A \mid L)\,\hat S_c(\min(\tilde T, t_k)^- \mid A, L), \text{floor})$ |
+| `"censoring"`, at each $t_k$ and arm $a$ | the arm's status-known units against the whole arm | known against all | $1 / \hat S_c(\min(\tilde T, t_k)^- \mid a, L)$ on the known units |
+
+For a continuous all-cause $T$, $E[\mathbb 1\{\text{known}\} / S_c(\min(\tilde T, t_k)^-) \mid A, L]
+= P(T \le t_k \mid A, L) + P(T \ge t_k \mid A, L) = 1$, so under correct models both weighted
+differences are zero in expectation. The `"joint"` row is the weighted population the risk at
+$t_k$ stands on, but it is an arm contrast and cannot see a censoring-model error that shifts both
+arms alike; the `"censoring"` row can. Its standardized column divides by the arm's unweighted
+standard deviation. A unit with an event before $t_k$ reads $\hat S_c(\tilde T^-)$ from
+`record.retention_at_time`; the others read `record.retention_before`. A result built by hand with
+no data is refused, and there is no feedback diagnostic, because the fit has no covariates after
+baseline. `tests/unit/test_balance_over_time.py` checks both rows at large $n$ under the true
+censoring model and under one that ignores $W$.
+
+## Memory
+
+The engine holds both arms' hazard jumps, survival and incidences for every unit at every grid
+time: arrays of shape $(2, n, M)$ and $(2, J, n, M)$, with $M$ the distinct observed times up to
+the last target time or restricted horizon. When $M$ grows with $n$, memory grows as $n^2$. A fit
+holds at most about $\max(73 J + 97,\ 81 J + 81)\, n M$ bytes at once, $170\, n M$ with one cause,
+reached in the walk's trial step; a truncation curve keeps the initial jumps and weight product
+beside every walk, $16 (J + 1)\, n M$ bytes more. At $n = 100{,}000$ with one cause and
+$M = 59{,}980$ that is about 1 TB.
+
+Before fitting any nuisance, the fit predicts that peak phase by phase from $n$, $J$, $M$, the
+target rows and the largest prediction fold (`cleverly.survival._memory.peak_bytes`), and refuses
+with `MethodConfigurationError` when the prediction exceeds the budget. The budget is the memory
+available at that moment (`cleverly.utils.memory.available_memory`, which reads the control
+group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it
+in either direction. Where the platform reports no available memory, as on macOS, nothing is
+checked unless `max_memory_bytes=` is passed. Every refit of a result, and so every refutation,
+assessment replay and truncation curve, uses the fit's `max_memory_bytes`.
+`TimeToEvent(grid="continuous")` has no such setting; its refusal spells the
+`ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the
+budget can be set.
+
+The prediction counts NumPy arrays the engine and the shipped hazard learners allocate. It does
+not count a user learner's own allocations, which can only make the check miss a refusal. It
+exceeds the peak by about 10% at most when the walk takes a step, and by up to about 20% when the
+initial fit already meets the stopping rule, since the check cannot know that in advance.
+`tests/unit/test_continuous_survival_memory.py` checks that the `tracemalloc` peak of a fit stays
+at or below the prediction and within 10% of it. Its fixtures have one to three causes, a
+restricted mean, cross-fitting, the factual tilt and a truncation curve, and each phase's peak
+stays at or below that phase's prediction. Dropping one $(2, J, n, M)$ array from the fit's
+prediction, or the censoring jumps from the nuisance phase's, falls below the measured peak.
+Coarsening the time grid would lower $M$ but changes the analysis, so the engine never does it.
 
 ## What is refused
 
@@ -301,6 +372,7 @@ the model its own fold did not train.
 | `ratio()` of anything but the two arms' risks at one cause and one time | `contrast()` takes any other smooth function of reported estimates |
 | a restricted horizon past one arm's follow-up, or before the first event of some cause in some arm | as for a target time |
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
+| a fit whose predicted peak memory exceeds the memory available or `max_memory_bytes=` | the dense arrays would not fit; see [Memory](#memory) |
 
 The rows on an arm's first event of a cause and on an arm's follow-up read the drawn data, not the
 request, so they raise `DataError`, and a repeated-sampling study records such a draw as a lost

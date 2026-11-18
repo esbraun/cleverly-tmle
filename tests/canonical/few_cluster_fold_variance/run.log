@@ -1,0 +1,21 @@
+=== few-cluster-fold-variance declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/few_cluster_fold_variance/regenerate.py --output /tmp/x54-se-out --jobs 4
+commit: 76d8b965b704daaab03646865fd78d402480dce1; upstream 76d8b965b704daaab03646865fd78d402480dce1
+clean tree: True
+cleverly 0.2.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 e8b13bf1f94386b10a931c837a9edc46ee17de9cb73e6550a4f58505fadedbf0
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-14T18:01:44+00:00
+finished: 2026-11-14T18:25:48+00:00
+wall seconds: 1443.2
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 199cebf232edcb33bc0258233a4e967e48b041dab9db390f9e2dd305e7b83907
+sha256 performance-tests.csv: d91105052552ede556b89f7733301d4a2b414b51042490e0976419656e841437
+sha256 properties.csv: 6da1bfe356938117cb3cf8014c177ebc9d2214153bddd3cce3aef0abe6746461
+sha256 property-replicates.parquet: 279862b2abc243217e7c53da8ba00f6bb2285b3406799238529b752e3961b540
+sha256 replicates.parquet: 5694d13ad42dc005c040d9ef73a5f83d1a64a3341083b186e23daa838d41160c
+sha256 summary.csv: c49d01cda540d12c89a05b88ec071c10c05b85479edcf6b1d0f74f0b253de91f
+

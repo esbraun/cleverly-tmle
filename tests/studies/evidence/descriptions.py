@@ -1898,6 +1898,51 @@ ARMS.update(
     }
 )
 
+#: The labels of ``hazard-time-varying-multinode``: one estimate of one fit label, the band over
+#: every estimate, and the ``multinode`` fit label's own draws.  Mirrored from
+#: ``tests.studies.hazard_time_varying_multinode_properties``, which this module cannot import.
+_HAZARD_TV_MULTINODE_FITS = {
+    "multinode": (
+        "the three-node law with a binary covariate before the treatment at nodes 2 and 3, "
+        "n = 2,000"
+    ),
+    "crossfit": (
+        "the three-node law with a binary covariate before the treatment at nodes 2 and 3, five "
+        "outer folds, n = 2,000"
+    ),
+}
+_HAZARD_TV_MULTINODE_ARMS = {
+    "contrast": "the risk difference of treating at every node against never by node 3",
+    "rule": "the risk difference of the known rule against never by node 3",
+    "policy": "the risk difference of the known policy against never by node 3",
+    "risk": "the risk under treatment at every node by node 3",
+}
+#: ``crossfit_contrast`` is also a label of ``hazard-time-varying``, so :data:`STUDY_ARMS` scopes
+#: the cross-fitted labels' words to this study, beside its scenario below.
+_HAZARD_TV_MULTINODE_CROSSFIT = {
+    f"crossfit_{arm}": f"{_HAZARD_TV_MULTINODE_FITS['crossfit']}, {_HAZARD_TV_MULTINODE_ARMS[arm]}"
+    for arm in ("contrast", "policy")
+}
+ARMS.update(
+    {
+        **{
+            f"multinode_{arm}": (
+                f"{_HAZARD_TV_MULTINODE_FITS['multinode']}, {_HAZARD_TV_MULTINODE_ARMS[arm]}"
+            )
+            for arm in ("contrast", "rule", "policy", "risk")
+        },
+        "crossfit_policy": _HAZARD_TV_MULTINODE_CROSSFIT["crossfit_policy"],
+        "multinode_curve": (
+            f"{_HAZARD_TV_MULTINODE_FITS['multinode']}, every risk and risk difference of every "
+            "regimen read as one joint set"
+        ),
+        "multinode": (
+            f"{_HAZARD_TV_MULTINODE_FITS['multinode']}, beside the iterated-mean fit of the same "
+            "regimens on the same draw"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -10816,6 +10861,73 @@ for _twin, _words in _PV_LARGE.items():
                 _DIAGNOSTIC_REQUIRED,
             )
 
+#: ``boundary-node-ltmle`` (X54 part (i)): the boundary-node supplement of ``LTMLE``, read in
+#: three arms off one fit per draw. The cells are those of
+#: ``tests/studies/boundary_node_ltmle.py`` and its properties module.
+_BN_SLUG = "boundary-node-ltmle"
+STUDY_SCENARIOS[(_BN_SLUG, "interior_n200")] = (
+    "law A, three known treatment decisions before event nodes 1, 3 and 4 with every hazard "
+    "near 0.08, in-sample iterated-mean LTMLE at n = 200: node 4 is flagged under always on "
+    "about half the draws, and the shipped interval adds its variance at the exact one-sided "
+    "bound of its hazard"
+)
+PROPERTIES["boundary_node"] = (
+    "the supplemented interval covers where a flagged node fires, its point estimate is "
+    "unbiased, and the flagged node's true variance is what the plug-in interval misses"
+)
+_BN_CELLS = {
+    "interior_n100": "law A in sample at n = 100",
+    "interior_n200": "law A in sample at n = 200",
+    "interior_n400": "law A in sample at n = 400",
+    "interior_n200_crossfit": "law A cross-fitted with five folds at n = 200",
+    "clustered_j40": "law A with a cluster effect, 40 clusters of 10 rows",
+    "zero_n200": "law A with a true node-4 hazard of 0 under always, n = 200",
+    "held_n200": "law B, one held baseline decision, hazard path, n = 200",
+    "held_zero_n200": "law B with a true node-4 hazard of 0 under always, hazard path, n = 200",
+}
+_BN_TARGETS = {
+    "always": "risk under always at horizon 4",
+    "never": "risk under never at horizon 4",
+    "contrast": "always-minus-never risk difference at horizon 4",
+}
+_BN_ARMS = {
+    "supplemented": "the shipped interval, the curve's variance plus the supplement",
+    "plugin": "the same estimate at the curve's variance alone, the supplement removed",
+    "oracle_node": (
+        "the same estimate at the curve's variance plus the flagged nodes' variance at the "
+        "true row hazards"
+    ),
+}
+
+
+def _bn_required(cell: str, target: str, arm: str) -> str:
+    from tests.studies import boundary_node_properties as _bn
+
+    name = f"{cell}__{target}__{arm}"
+    if name == _bn.CONTROL_CELL:
+        return (
+            "on the firing draws, the exact 99% McNemar lower end of supplemented minus plug-in "
+            "coverage above 0, and the exact 99% lower end of oracle-node minus plug-in coverage "
+            "at least 0.05"
+        )
+    if arm != "supplemented":
+        return _DIAGNOSTIC_REQUIRED
+    clauses = ["bias inside the margin"]
+    if name in _bn.FIRING_CELLS:
+        clauses.append("the exact 99% lower end of coverage on the firing draws at least 0.90")
+    if name in _bn.ZERO_CELLS:
+        clauses.append("the exact 99% lower end of all-draw coverage at least 0.92")
+    return ", ".join(clauses[:-1]) + (" and " if len(clauses) > 1 else "") + clauses[-1]
+
+
+for _bn_cell, _bn_words in _BN_CELLS.items():
+    for _bn_target, _bn_quantity in _BN_TARGETS.items():
+        for _bn_arm, _bn_interval in _BN_ARMS.items():
+            CELLS[("boundary_node", f"{_bn_cell}__{_bn_target}__{_bn_arm}")] = (
+                f"{_bn_words}, {_bn_quantity}: {_bn_interval}",
+                _bn_required(_bn_cell, _bn_target, _bn_arm),
+            )
+
 
 #: ``known-mechanism-sample-weights`` (Fix-16): a declared treatment mechanism read in the
 #: weighted sample (``mechanism_law="sample"``).  The laws and fits are those of
@@ -11051,6 +11163,140 @@ STUDY_ARM_CELLS[
 )
 
 
+#: ``hazard-time-varying-multinode`` (X70 part (b2)): a binary treatment at each of three nodes
+#: and a binary covariate after baseline, one backward pass per regimen.  The law and fits are
+#: those of ``tests/studies/hazard_time_varying_multinode_law.py`` and
+#: ``tests/studies/canonical_hazard_time_varying_multinode.py``, which this module cannot import.
+_HAZARD_TV_MULTINODE_SLUG = "hazard-time-varying-multinode"
+_HAZARD_TV_MULTINODE_REGIMENS = {
+    "always": "treatment at every node",
+    "never": "no treatment at any node",
+    "rule": "the known rule that treats at node 1 when W1 = 1 and later when the covariate is high",
+    "policy": (
+        "the known policy that treats at node 1 with probability 0.3 + 0.4 W1 and later with "
+        "probability 0.05 + 0.3 [high covariate] + 0.6 A(k-1)"
+    ),
+}
+STUDY_ARMS.update(
+    {
+        (_HAZARD_TV_MULTINODE_SLUG, label): words
+        for label, words in _HAZARD_TV_MULTINODE_CROSSFIT.items()
+    }
+)
+STUDY_SCENARIOS[(_HAZARD_TV_MULTINODE_SLUG, "multinode")] = (
+    "three nodes, one cause, two baseline covariates, a binary covariate before the treatment at "
+    "nodes 2 and 3 that reads the previous covariate and treatment, a binary treatment at every "
+    "node logistic in W1, the previous arm and the covariate, logistic dropout and event hazard "
+    "that read the covariate and the last two arms"
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by node {t} under {words}"
+            )
+            for label, words in _HAZARD_TV_MULTINODE_REGIMENS.items()
+            for t in range(1, 4)
+        },
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, f"ate_regimen[{label} vs never @ t={t}]"): (
+                f"the risk by node {t} under {words} minus the risk under no treatment"
+            )
+            for label, words in _HAZARD_TV_MULTINODE_REGIMENS.items()
+            if label != "never"
+            for t in range(1, 4)
+        },
+    }
+)
+_HAZARD_TV_MULTINODE_ROBUSTNESS = {
+    "both_correct": (
+        "correct logistic hazard, treatment and censoring learners and the correct cell-mean "
+        "continuation"
+    ),
+    "outcome_correct": (
+        "a correct hazard and continuation with treatment and censoring learners that omit the "
+        "covariate"
+    ),
+    "mechanism_correct": (
+        "a hazard and continuation that omit the covariate, with correct treatment and "
+        "censoring learners"
+    ),
+    "continuation_wrong": (
+        "a correct hazard, treatment and censoring learners with a continuation that omits the "
+        "earlier covariates; it witnesses the covariate term of the panel"
+    ),
+}
+_HAZARD_TV_MULTINODE_KEEPS = (
+    "bias interval inside the equivalence margin, with the reported standard error on the scale "
+    "of the empirical spread"
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, "iterated_mean_difference", f"multinode_{arm}", base): words
+            for arm in ("contrast", "policy")
+            for base, words in _HAZARD_MTP_DIFFERENCE_CELLS.items()
+        },
+        **{
+            (
+                _HAZARD_TV_MULTINODE_SLUG,
+                "iterated_mean_difference",
+                f"multinode_{arm}",
+                "isotonic_difference",
+            ): CELLS["iterated_mean_difference", "isotonic_difference"]
+            for arm in ("contrast", "policy")
+        },
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, "double_robustness", f"multinode_{arm}", base): (
+                _HAZARD_TV_MULTINODE_ROBUSTNESS[base],
+                _HAZARD_TV_MULTINODE_KEEPS,
+            )
+            for arm, bases in (
+                ("contrast", _HAZARD_TV_MULTINODE_ROBUSTNESS),
+                ("rule", ("both_correct", "outcome_correct")),
+                ("policy", _HAZARD_TV_MULTINODE_ROBUSTNESS),
+            )
+            for base in bases
+        },
+        (_HAZARD_TV_MULTINODE_SLUG, "double_robustness", "multinode_contrast", "both_wrong"): (
+            "hazard, continuation, treatment and censoring learners that all omit the covariate",
+            "bias interval must fall entirely outside the margin, with the reported standard "
+            "error still on the scale of the empirical spread",
+        ),
+        **{
+            (
+                _HAZARD_TV_MULTINODE_SLUG,
+                "double_robustness",
+                f"multinode_{arm}",
+                "outcome_correct_untargeted",
+            ): (
+                "the backward plug-in, with every targeting step removed, of a correct hazard and "
+                "continuation with treatment and censoring learners that omit the covariate, on "
+                "draws of 8,000 rows in place of 2,000; it carries the regimen's slots, which "
+                "targeting would repair",
+                "bias interval inside the equivalence margin",
+            )
+            for arm in ("rule", "policy")
+        },
+        (_HAZARD_TV_MULTINODE_SLUG, "targeting_necessity", "multinode_contrast", "targeted"): (
+            "the estimator with a hazard and continuation that omit the covariate and correct "
+            "treatment and censoring learners, so targeting does all the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_HAZARD_TV_MULTINODE_SLUG, "targeting_necessity", "multinode_contrast", "untargeted"): (
+            "the same fit's backward plug-in with every targeting step removed",
+            "bias interval must fall entirely outside the margin",
+        ),
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, "root_n_and_efficiency", label, "n_1000"): (
+                "bias, coverage and SE calibration at n = 1,000, a rate rung that carries no claim",
+                "coverage interval lies below nominal or clears the declared floor",
+            )
+            for label in ("multinode_contrast", "multinode_policy")
+        },
+    }
+)
+
 #: ``hazard-multinode`` (X70 part (a)): a binary treatment decided at every node on the hazard
 #: path, its treatment paths enumerated as slots.  The laws and fits are those of
 #: ``tests/studies/hazard_multinode_law.py`` and ``tests/studies/canonical_hazard_multinode.py``,
@@ -11220,3 +11466,58 @@ STUDY_ARM_CELLS.update(
         },
     }
 )
+
+
+#: ``few-cluster-fold-variance`` (X54 part (e)): the centred fold cluster variance of a
+#: fold-evaluated ``TMLE`` with ``id=``, on t with J - V degrees of freedom, at 2 to 24 training
+#: clusters. The cells and arms are those of ``tests/studies/few_cluster_fold_variance.py``.
+_FCFV_SLUG = "few-cluster-fold-variance"
+STUDY_SCENARIOS[(_FCFV_SLUG, "equal10__v5_j20")] = (
+    "20 clusters of 10 rows with a cluster latent in the outcome and an informative "
+    "propensity, a fold-evaluated TMLE with five grouped folds and unpenalized logistic "
+    "learners, the shipped report"
+)
+PROPERTIES["fold_variance_calibration"] = (
+    "the fold-evaluated cluster variance covers at its nominal rate, keeps the mean squared SE "
+    "near the spread of the estimates, and its controls see a variance that is too small and "
+    "a cluster effect"
+)
+_FCFV_LAWS = {
+    "equal10": "equal clusters of 10 rows, cluster latent in the outcome, the ATE",
+    "cluster_covariate": "a cluster-level covariate in the outcome, the arm-1 mean",
+}
+_FCFV_ARMS = {
+    "t_reference": "the shipped interval, propensity estimated",
+    "known_propensity": "the shipped interval, propensity declared known",
+    "deflated_control": "the estimated-propensity variance times 0.64",
+    "known_deflated_control": "the known-propensity variance times 0.64",
+    "iid_t_control": "the paired variance with no clustering, against the cluster SE",
+    "pooled_centered": "the fold curves re-centred at the pooled point",
+    "t_j_minus_2_reference": "the shipped variance on t with J - 2 degrees of freedom",
+    "normal_reference": "the shipped variance on the normal reference",
+}
+_FCFV_POSITIVE = (
+    "the exact 99% interval of shown coverage inside [0.92, 0.98], the exact 99% lower end of "
+    "all-draw coverage at least 0.90, and the 99% bootstrap lower end of the variance ratio at "
+    "least 0.8649"
+)
+_FCFV_REQUIRED = {
+    "t_reference": _FCFV_POSITIVE,
+    "known_propensity": _FCFV_POSITIVE,
+    "deflated_control": "the positive rule must fail",
+    "known_deflated_control": "the positive rule must fail",
+    "iid_t_control": (
+        "the exact 99% upper end of the median paired IID/cluster SE ratio below 0.95"
+    ),
+}
+for _fcfv_law, _fcfv_law_words in _FCFV_LAWS.items():
+    for _fcfv_v, _fcfv_j in ((2, 4), (2, 8), (2, 12), (5, 10), (5, 20), (5, 30)):
+        _fcfv_training = _fcfv_j - _fcfv_j // _fcfv_v
+        for _fcfv_arm, _fcfv_arm_words in _FCFV_ARMS.items():
+            CELLS[
+                ("fold_variance_calibration", f"{_fcfv_law}__v{_fcfv_v}_j{_fcfv_j}__{_fcfv_arm}")
+            ] = (
+                f"{_fcfv_law_words}, V = {_fcfv_v} and J = {_fcfv_j} ({_fcfv_training} training "
+                f"clusters): {_fcfv_arm_words}",
+                _FCFV_REQUIRED.get(_fcfv_arm, _DIAGNOSTIC_REQUIRED),
+            )

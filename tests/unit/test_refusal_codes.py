@@ -323,6 +323,17 @@ _MALFORMED = "a malformed argument: a value or a type outside the argument's dom
 #: text. The value says why the raise reports a malformed argument and refuses no capability.
 BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     (
+        "src/cleverly/sensitivity/balance_time.py",
+        "distances= applies to over='all' only",
+    ): "BalanceOverTime.average argument: distances= paired with another over= is a malformed "
+    "call of the report's own method, and no estimator capability is involved",
+    (
+        "src/cleverly/sensitivity/balance_time.py",
+        "This fit's balance has no",
+    ): "BalanceOverTime diagnostic= argument: a name the report holds no rows for (joint on a "
+    "longitudinal fit) is a malformed argument; a check the fit omits raises a coded "
+    "CapabilityError just above",
+    (
         "src/cleverly/datasets/synthetic.py",
         "This is refused rather than clipped",
     ): "make_* generator argument: an outcome_mean outside the probability range is a "
@@ -393,6 +404,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/fluctuation/mechanism.py", "has no mechanism covariate"): _MALFORMED,
     ("src/cleverly/inference/cluster.py", "Only a fit whose status shows an interval"): (_INTERNAL),
     ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
+    (
+        "src/cleverly/inference/influence.py",
+        "boundary-node supplement adds to the centred curve variance only",
+    ): "low-level guard on a covariance_rule and node pair: LTMLE adds the boundary-node "
+    "supplement only under the default variance (the reach check in longitudinal/estimator.py), "
+    "so only a direct call of make_estimate with a malformed pair reaches it",
     ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
     ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,

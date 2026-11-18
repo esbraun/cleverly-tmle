@@ -507,7 +507,10 @@ def walk(
         direction *= step
         candidate = tilt_jumps(current, direction)
         del direction
-        trial = evaluate(problem, candidate)
+        # A trial step can take a survival to zero, where the score divides 0 by 0; the check
+        # below rejects such a trial, so its warning carries nothing.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            trial = evaluate(problem, candidate)
         low = trial.survival[..., -1] < survival_floor
         if low.any():
             del candidate, trial

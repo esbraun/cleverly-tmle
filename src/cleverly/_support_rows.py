@@ -3867,8 +3867,9 @@ def _x33_options(
 
     The defaults are those of a fit that declares none of them, in the order
     :func:`cleverly._support.longitudinal_key` records them. Only the ``mtp-tuning`` rows
-    (``G41``) declare a cap tuned on the data, and only the ``hazard-time-varying`` rows
-    (``G63``) a hazard fit with covariates after baseline.
+    (``G41``) declare a cap tuned on the data, and only the ``hazard-time-varying`` and
+    ``hazard-time-varying-multinode`` rows (``G63``) a hazard fit with covariates after
+    baseline.
     """
     return (
         ("node_bounds", node_bounds),
@@ -3983,7 +3984,7 @@ def long_row(
         under ``"relative"``.
     later_covariates : bool, default False
         Whether the row's fits are hazard fits (``survival_model="hazard"``) with a covariate
-        block at a node after the first, which run the backward pass of X70 part (b1).
+        block at a node after the first, which run the backward pass of X70 parts (b1) and (b2).
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -5774,7 +5775,8 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
 #: collaborative TMLE of a risk curve (``G50``), the drift-corrected survival TMLE (``G51``),
 #: the working model over the hazard curve (``G60``), a modified treatment policy on the
 #: hazard path (``G61``), hazards with a treatment at several nodes (``G62``) and hazards with
-#: covariates after baseline (``G63``).
+#: covariates after baseline, on a held design and beside a treatment at several nodes
+#: (``G63``).
 #:
 def _learned_regimen_rows() -> tuple[SupportRow, ...]:
     """The learned two-node regimen of ``learned-regimen-ltmle`` (X11 (b), X11 PR K): ``G47``.
@@ -6482,6 +6484,79 @@ def _hazard_time_varying_rows() -> tuple[SupportRow, ...]:
     )
 
 
+def _hazard_time_varying_multinode_rows() -> tuple[SupportRow, ...]:
+    """Covariates after baseline beside a treatment at several nodes (X70 (b2)): ``G63``.
+
+    ``LTMLE`` with ``survival_model="hazard"`` and ``targeting="one_step"`` on a design with a
+    binary treatment at each node and a ``time_varying=`` block at a node after the first runs
+    the backward pass of :mod:`cleverly.longitudinal.hazard_backward` with each node evaluated at
+    the observed history, which the key marks ``later_covariates`` on the unheld treatment axis.
+    The rows were added because every declared verdict passed: 21 of 21 primary tests and 46 of
+    46 property rows with a verdict (calibration with its controls on two fit labels, the
+    simultaneous band, robustness with an all-wrong control, targeting necessity, the root-n
+    rate and power).  One cross-fitted calibration fit was a recorded lost replicate, inside
+    the failure bound.  The numbers are the committed results
+    (``tests/canonical/hazard_time_varying_multinode``).
+    """
+    slug = ["hazard-time-varying-multinode"]
+    shared = (
+        "Evidence covers one finite law: three nodes, W1 binary and W2 on four levels, one "
+        "scalar binary covariate per node after the first on a Markov law, a binary treatment "
+        "at every node logistic in W1, the previous arm and L_k, dropout and a logistic event "
+        "hazard in W, L_k and the last two arms, one cause. A continuous, multivariate or "
+        "non-Markov L_k, competing causes and more than two treatment levels rest on "
+        "tests/unit/test_hazard_time_varying_multinode.py.",
+        "Evidence covers targeting='one_step' with correctly specified or misspecified logistic "
+        "and cell-mean learners at n = 2,000, without observation weights, clusters, "
+        "node_bounds, declared factors or markov_order. Regimens: always, never, a known rule "
+        "of W1 and L_k, and a known policy that reads L_k and the previous arm. No "
+        "comparator: no maintained package targets discrete-time hazards with covariates "
+        "after baseline by a backward pass.",
+    )
+    common: dict[str, Any] = {
+        "outcome_kind": "survival",
+        "regimens": ("static", "stochastic"),
+        "treatment": ("2",) * 3,
+        "survival_model": "hazard",
+        "targeting": "one_step",
+        "later_covariates": True,
+    }
+    return (
+        long_row(
+            "G63.multinode.in_sample",
+            slug,
+            kinds=_LONG_BAND,
+            cells=[
+                "multinode_contrast",
+                "multinode_rule",
+                "multinode_policy",
+                "multinode_risk",
+                "multinode_curve",
+            ],
+            limits=[
+                "The primary rows read coverage 0.936 to 0.959 over 2,400 draws, the "
+                "calibration cells SE ratio 0.976 to 0.994 over 15,600, and the max-t band "
+                "over all 21 risks and contrasts joint coverage 0.942.",
+                *shared,
+            ],
+            **common,
+        ),
+        long_row(
+            "G63.multinode.cross_fitted",
+            slug,
+            splitting=("cross_fitted",),
+            cells=["crossfit_contrast", "crossfit_policy"],
+            limits=[
+                "The same law on five outer folds. The calibration cells read SE ratio 0.988 "
+                "and 0.984 over 15,600 draws, one of them lost to a walk that stopped short; no "
+                "band is validated on this fit.",
+                *shared,
+            ],
+            **common,
+        ),
+    )
+
+
 # The longitudinal rows of the X76 option studies, one function per part, each registered from
 # its committed run: a declared stopping rule (G55), ratio_trim= (G56) and a Markov order (G57).
 def _x76_stopping_long_rows() -> tuple[SupportRow, ...]:
@@ -6625,6 +6700,7 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_known_sample_weights_long_rows(),
         *_hazard_multinode_rows(),
         *_hazard_time_varying_rows(),
+        *_hazard_time_varying_multinode_rows(),
         *_x76_stopping_long_rows(),
         *_x76_trim_rows(),
         *_x76_markov_rows(),
@@ -6638,6 +6714,18 @@ LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
 #: estimate cannot license a configuration, so it is not the evidence of a row. A study of an
 #: engine that no support key reads is the other case: its reason names what a row would need.
 EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "boundary-node-ltmle": (
+        "It measures the boundary-node supplement of LTMLE under the reporting policy, with "
+        "two primary SE-ratio legs red by design under the owner X54-supplement-width. No "
+        "support row was declared before the run, so the study licenses none and moves no label."
+    ),
+    "few-cluster-fold-variance": (
+        "It measures the centred fold cluster variance of cross-fitted TMLE to set "
+        "MINIMUM_FOLD_TRAINING_CLUSTERS, below which an estimate takes few_cluster_plugin. Its "
+        "red rows, held by X54-training-floor, are cells at 2 training clusters, below the "
+        "floor. No support row was declared before the run, so the study licenses none and "
+        "moves no label."
+    ),
     "band-t-reference-held-out": (
         "It holds out one t band cell, the strata law at n = 1,000, to test the rule out of "
         "sample. The cell licenses no row: band-t-reference licenses the t band, and this study "
@@ -7019,6 +7107,8 @@ BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
     # hazard_time_varying_properties: each fit label's band over every risk and contrast.
     "G63.held.in_sample": (_band("hazard_time_varying", "one_cause_curve"),),
     "G63.held.competing": (_band("hazard_time_varying", "competing_curve"),),
+    # hazard_time_varying_multinode_properties: the band over every risk and contrast.
+    "G63.multinode.in_sample": (_band("hazard_time_varying_multinode", "multinode_curve"),),
     # stratified_tmle_properties._calibration with crossfit=True: the default cross-fitted fit
     # with baseline strata, ("ey", "ate"), under the row's key (stacked, strata).
     "T14": (_band("tmle3_stratified", "crossfit_strata"),),

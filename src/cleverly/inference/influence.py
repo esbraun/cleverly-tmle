@@ -94,6 +94,7 @@ from .delta import (
     wald_ci,
     wald_statistic,
 )
+from .node_variance import NodeLoadings, NodeVariance
 from .policy import PolicyCovariance, PolicyVariance
 from .switched import SWITCHED_REFUSAL, SwitchedVariance, switched_record
 
@@ -157,9 +158,12 @@ OutcomeFamily = Literal["binomial", "gaussian"]
 CovarianceRule = Literal["centered", "second_moment", "policy_weighted", "switched"]
 
 #: Which variance an estimate reports: its influence curve's, the policy-weighted one
-#: (:mod:`cleverly.inference.policy`) or the predictable variation
-#: (:mod:`cleverly.inference.switched`).
-VarianceSource = Literal["influence_curve", "policy_weighted", "predictable_variation"]
+#: (:mod:`cleverly.inference.policy`), the predictable variation
+#: (:mod:`cleverly.inference.switched`), or the curve's plus the boundary-node supplement
+#: (:mod:`cleverly.inference.node_variance`).
+VarianceSource = Literal[
+    "influence_curve", "policy_weighted", "predictable_variation", "boundary_node"
+]
 
 #: What kind of bounded functional a target is: a mean of the outcome, or a difference of two
 #: such means.  :func:`parameter_bounds` turns it into the range on a binary outcome.
@@ -418,6 +422,12 @@ DIAGNOSTIC_BOOTSTRAP_NOTE = (
     "no registered study measures the coverage of that interval"
 )
 
+#: Why the bootstrap of an estimate that adds the boundary-node supplement is a diagnostic.
+BOUNDARY_NODE_BOOTSTRAP_NOTE = (
+    "a diagnostic: every row resample keeps the flagged node's one value, so the bootstrap "
+    "cannot see the variance the boundary-node supplement bounds"
+)
+
 #: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
 #: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
 BootstrapInterval = Literal["percentile", "bca"]
@@ -456,6 +466,32 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
     )
 
 
+def bootstrap_diagnostic_reason(estimate: ParameterEstimate) -> str:
+    """Why the bootstrap of an estimate is a diagnostic, as a key of the summary's notes.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        An estimate whose bootstrap :func:`bootstrap_is_diagnostic` reads as a diagnostic.
+
+    Returns
+    -------
+    str
+        ``"withheld"`` when the status withholds the interval, ``"below_floor"`` when the fit
+        reads too few clusters, ``"boundary_node"`` when the estimate adds the boundary-node
+        supplement, and ``"declared"`` when the fit declares its bootstrap a diagnostic.
+    """
+    summary = estimate.bootstrap
+    assert summary is not None
+    if not estimate.supplies_inference:
+        return "withheld"
+    if summary.below_floor:
+        return "below_floor"
+    if summary.boundary_node:
+        return "boundary_node"
+    return "declared"
+
+
 def bootstrap_line(estimate: ParameterEstimate) -> str:
     """The printed bootstrap spread and interval of one estimate.
 
@@ -492,6 +528,8 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
         note = status_record(estimate.inference).bootstrap_note
     elif summary.below_floor:
         note = status_record("few_cluster_plugin").bootstrap_note
+    elif summary.boundary_node:
+        note = BOUNDARY_NODE_BOOTSTRAP_NOTE
     else:
         note = DIAGNOSTIC_BOOTSTRAP_NOTE
     return f"{spread}{interval} range [{low:.5g}, {high:.5g}] ({note})"
@@ -1061,6 +1099,12 @@ class ParameterEstimate:
         over the fit's levels and the fit's shared policy-weighted covariance
         (:class:`~cleverly.inference.policy.PolicyVariance`). ``None`` under every other
         rule.
+    node : NodeVariance or None
+        On a longitudinal estimate whose recursion read a node regression as a constant 0
+        or 1, inside the reach of the boundary-node supplement, the curve's variance and the
+        node supplement with the fit's shared per-unit loadings
+        (:class:`~cleverly.inference.node_variance.NodeVariance`). :attr:`variance` is then
+        their sum, and the interval and test read it. ``None`` on every other estimate.
 
     Attributes
     ----------
@@ -1154,14 +1198,12 @@ class ParameterEstimate:
     support: Support = UNCLASSIFIED
     bounds: tuple[float, float] | None = None
     policy: PolicyVariance | None = None
+    node: NodeVariance | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     range_interval: bool = False
     switched: SwitchedVariance | None = None
     small_sample_df: float | None = field(init=False, compare=False, repr=False)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "small_sample_df", self._small_sample_df())
 
     @property
     def variance_source(self) -> VarianceSource:
@@ -1170,12 +1212,18 @@ class ParameterEstimate:
         ``"policy_weighted"`` only under ``variance="policy_weighted"``, when that variance
         is usable and larger than the influence-curve variance. ``"predictable_variation"``
         only under ``variance="switched"``, when the curve is sparse and its predictable
-        variation is usable and larger than its centred variance. ``"influence_curve"``
+        variation is usable and larger than its centred variance. ``"boundary_node"`` when the
+        estimate carries the boundary-node supplement (:attr:`node`). ``"influence_curve"``
         otherwise.
         """
+        if self.node is not None:
+            return "boundary_node"
         if self.policy is not None:
             return self.policy.source
         return "influence_curve" if self.switched is None else self.switched.source
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "small_sample_df", self._small_sample_df())
 
     def _small_sample_df(self) -> float | None:
         """:attr:`small_sample_df`, from the curve's non-zero rows; no status is read or set."""
@@ -1674,7 +1722,10 @@ class ParameterEstimate:
         total test. An estimate under
         ``variance="policy_weighted"`` adds ``variance_source`` and both standard errors,
         ``influence_curve_std_err`` and ``policy_weighted_std_err`` (``nan`` when that variance
-        is not used), on the outcome's scale before any interval map.
+        is not used), on the outcome's scale before any interval map. An estimate with the
+        boundary-node supplement adds ``variance_source`` (``"boundary_node"``),
+        ``influence_curve_std_err`` and ``boundary_node_std_err``, the square root of the
+        supplement alone.
 
         Returns
         -------
@@ -1701,6 +1752,10 @@ class ParameterEstimate:
             row["policy_weighted_std_err"] = (
                 float(np.sqrt(self.policy.policy_variance)) if self.policy.usable else float("nan")
             )
+        if self.node is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = float(np.sqrt(max(self.node.influence_variance, 0.0)))
+            row["boundary_node_std_err"] = float(np.sqrt(self.node.node_variance))
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
@@ -1856,6 +1911,10 @@ class BootstrapSummary:
         Whether the fit declares the bootstrap interval a diagnostic. ``True`` publishes
         the columns under their diagnostic names, through :func:`bootstrap_column`, at every
         status. Only the collaborative fit sets it.
+    boundary_node : bool, default=False
+        Whether the estimate adds the boundary-node supplement. ``True`` comes with
+        ``diagnostic``: every row resample keeps the flagged node's one value, so the
+        bootstrap cannot see the variance the supplement bounds.
     below_floor : bool, default=False
         Whether the fit reads fewer clusters with positive weight mass than the interval floor
         (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
@@ -1887,6 +1946,7 @@ class BootstrapSummary:
     n_failed: int
     draws: FloatArray
     diagnostic: bool = False
+    boundary_node: bool = False
     below_floor: bool = False
     cluster_floor: int | None = None
     support: Support = UNCLASSIFIED
@@ -1988,6 +2048,8 @@ def make_estimate(
     predictable_variance: float | None = None,
     policy: PolicyCovariance | None = None,
     gradient: FloatArray | None = None,
+    node: NodeLoadings | None = None,
+    node_gradient: FloatArray | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -2059,17 +2121,26 @@ def make_estimate(
     gradient : ndarray or None, default=None
         ``(k,)`` the estimate's gradient on its inference scale with respect to the levels
         of ``policy``, under the ``"policy_weighted"`` rule only.
+    node : NodeLoadings or None, default=None
+        The fit's boundary-node loadings, for an estimate that reads a flagged node inside
+        the supplement's reach. The stored variance is then the centred curve variance plus
+        ``node.bound(node_gradient)``. Only the ``"centered"`` rule takes it.
+    node_gradient : ndarray or None, default=None
+        ``(L,)`` the estimate's gradient on its inference scale with respect to the levels
+        of ``node``, given with ``node``.
 
     Returns
     -------
     ParameterEstimate
         The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df``,
         ``support``, ``bounds``, ``rule_widened``, ``outcome_family`` and, under the
-        ``"policy_weighted"`` rule, ``policy``, and under the ``"switched"`` rule, ``switched``.
+        ``"policy_weighted"`` rule, ``policy``, under the ``"switched"`` rule, ``switched``, or with
+        ``node``, its node record.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     record: PolicyVariance | None = None
     switched: SwitchedVariance | None = None
+    supplement: NodeVariance | None = None
     if covariance_rule == "switched" and predictable_variance is None:
         # A copy of a switched estimate that does not carry its predictable variation.
         raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
@@ -2082,6 +2153,22 @@ def make_estimate(
             raise ValueError("the switched variance is defined for independent rows only")
         switched = switched_record(ic, influence_variance(ic, None), predictable_variance)
         variance = switched.variance
+    elif node is not None or node_gradient is not None:
+        if node is None or node_gradient is None:
+            raise ValueError("a boundary-node supplement needs node and node_gradient")
+        if covariance_rule != "centered":
+            raise ValueError(
+                "the boundary-node supplement adds to the centred curve variance only; got "
+                f"covariance_rule={covariance_rule!r}"
+            )
+        weights = np.asarray(node_gradient, dtype=float).reshape(-1)
+        if weights.size != len(node.levels):
+            raise ValueError(
+                f"node_gradient has {weights.size} entries and the loadings have "
+                f"{len(node.levels)} levels"
+            )
+        supplement = NodeVariance(node, weights, influence_variance(ic, cluster))
+        variance = supplement.variance
     elif covariance_rule == "policy_weighted" or policy is not None or gradient is not None:
         record = _policy_record(ic, covariance_rule, cluster, policy, gradient)
         variance = record.variance
@@ -2115,6 +2202,7 @@ def make_estimate(
         support=support,
         bounds=bounds,
         policy=record,
+        node=supplement,
         rule_widened=rule_widened,
         outcome_family=outcome_family,
         range_interval=range_interval,

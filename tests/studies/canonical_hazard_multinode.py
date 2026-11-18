@@ -484,6 +484,13 @@ def refuse_held_cells(fit_label: str, result: Any) -> None:
     """
     for name in estimand_names(fit_label):
         status = result[name].inference
+        if result[name].node is not None:
+            # The boundary-node supplement (X54 part (i)) now gives a held cell's estimates an
+            # interval; the draw stays the lost replicate it was when the study was registered.
+            raise HeldCellError(
+                f"{name} reads a held cell and adds the boundary-node supplement, not the "
+                "influence curve alone (constant_node_plugin before X54 part (i))"
+            )
         if status != "influence_curve":
             raise HeldCellError(
                 f"{name} reports the inference status {status!r}, not the influence curve"

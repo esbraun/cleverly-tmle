@@ -1367,6 +1367,56 @@ def fit_hazard() -> Any:
     return _fit_point_survival(survival_model="hazard")
 
 
+def fit_ltmle_boundary_node() -> Any:
+    """The per-horizon hazard fit with no event in arm ``a1`` at node 2.
+
+    The arm's hazard regression at node 2 holds one value, so the estimates at horizons 2 to
+    4 add the boundary-node supplement to their influence-curve variance
+    (:mod:`cleverly.inference.node_variance`), while horizon 1 reads the curve alone.
+    """
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        survival_model="hazard",
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
+def fit_ltmle_boundary_node_iterated() -> Any:
+    """The clustered iterated-mean fit with no event in arm ``a1`` at node 2.
+
+    Law A's path of ``boundary-node-ltmle``: the arm's node-2 regression holds one value, so
+    the estimates at horizons 2 to 4 add the supplement summed within clusters of ten.
+    """
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    frame["site"] = np.arange(len(frame)) // 10
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(
+            time="time", event="event", treatment="A", baseline=["W1", "W2"], cluster="site"
+        ),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 def fit_hazard_one_step() -> Any:
     """The one-step whole-curve hazard fit."""
     return _fit_point_survival(survival_model="hazard", targeting="one_step")
@@ -1450,8 +1500,11 @@ def fit_hazard_time_varying() -> Any:
     )
 
 
-def fit_hazard_multinode() -> Any:
-    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a))."""
+def fit_hazard_multinode(**options: Any) -> Any:
+    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a)).
+
+    In sample unless ``options`` say otherwise; they override the estimate's settings.
+    """
     frame, _ = make_longitudinal_survival(n=600, seed=12)
     study = CausalStudy(
         frame.drop(columns=["L2"]),
@@ -1468,6 +1521,50 @@ def fit_hazard_multinode() -> Any:
         censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
         survival_model="hazard",
         targeting="iterative",
+        random_state=5,
+        simultaneous=False,
+        **{**IN_SAMPLE, **options},
+    )
+
+
+def _multinode_policy(frame: Any) -> Any:
+    """A known policy at both nodes: treat with 0.3 at node 1, after it 0.2 plus 0.4 when L2 > 0."""
+    if "L2" in frame.columns:
+        p = 0.2 + 0.4 * (np.asarray(frame["L2"], dtype=float) > 0.0)
+    else:
+        p = np.full(len(frame), 0.3)
+    return np.column_stack([1.0 - p, p])
+
+
+def fit_hazard_time_varying_multinode() -> Any:
+    """The one-step hazard fit of a treatment at two nodes and a covariate after baseline.
+
+    X70 part (b2): the backward pass with the multi-node slot rule, under static arms and a
+    known policy at both nodes.
+    """
+    from cleverly.interventions import Stochastic
+    from cleverly.longitudinal import DynamicRegimen
+
+    frame, _ = make_longitudinal_survival(n=600, seed=12)
+    node = Stochastic(_multinode_policy, "policy", density_kind="known")
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    regimens = {"a1": 1, "a0": 0, "policy": DynamicRegimen("policy", (node, node))}
+    return study.identify(RegimeContrast(regimens=regimens, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        survival_model="hazard",
+        targeting="one_step",
         random_state=5,
         simultaneous=False,
         **IN_SAMPLE,
@@ -1581,6 +1678,35 @@ def fit_per_arm_constant_fold() -> Any:
     result = estimator.fit(frame, outcome="Y", treatment="A").single()
     assert result.nuisance.outcome_constant_folds == (1,)
     return result
+
+
+def _pooled_constant_fold(**options: Any) -> Any:
+    """A cross-fitted pooled fit whose events all sit in fold 1, so fold 1's complement has none.
+
+    The plain TMLE's pooled outcome regression predicts 0 in that fold (the constant-target
+    rule, X54 part (e)) where the preflight used to refuse the draw.
+    """
+    frame, folds = _constant_outcome_frame(400, 17)
+    frame.loc[folds != 0, "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(
+            outcome_learner=LogisticRegression(max_iter=1000), cross_fit=True, n_folds=3, **options
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result.nuisance.outcome_constant_folds == (1,)
+    assert np.all(result.nuisance.outcome.observed[folds == 0] == 0.0)
+    return result
+
+
+def fit_pooled_constant_fold() -> Any:
+    """The stacked form of :func:`_pooled_constant_fold`."""
+    return _pooled_constant_fold()
+
+
+def fit_cv_evaluation_constant_fold() -> Any:
+    """The fold-evaluated form of :func:`_pooled_constant_fold` (``rr`` and ``or`` refuse there)."""
+    return _pooled_constant_fold(cv_evaluation=True, estimands=("ate", "ey1", "ey0"))
 
 
 def fit_per_arm_constant_arm() -> Any:
@@ -2081,6 +2207,10 @@ KINDS: dict[str, Kind] = {
     "drtmle_companion": _kind(fit_drtmle_companion, "marginal_bounds", *_LIVE, "corrections"),
     # The constant-target rule (X54): a per-arm training fold of one outcome value predicts it.
     "per_arm+constant_fold": _kind(fit_per_arm_constant_fold, *_ARM, "marginal_bounds"),
+    # The same rule on a plain TMLE's pooled outcome regression, stacked and fold-evaluated,
+    # where the training-support preflight refused the draw before X54 part (e).
+    "constant_fold": _kind(fit_pooled_constant_fold, *_ARM, "marginal_bounds"),
+    "cv_evaluation+constant_fold": _kind(fit_cv_evaluation_constant_fold, *_ARM, "marginal_bounds"),
     # An in-sample per-arm fit of a constant arm: the estimates that read it withhold their
     # interval, so the E-value and the marginal bounds of the default ATE refuse with the
     # constant-cell reason and the plug-in bound rows answer.
@@ -2115,6 +2245,10 @@ KINDS: dict[str, Kind] = {
     # an estimated mechanism run. The benchmark refuses (its refit would divide by g0).
     "ltmle_known_sample_weights": _kind(fit_ltmle_known_sample_weights, *_READ, *_POINT),
     "ltmle_hazard": _kind(fit_hazard, *_READ, *_POINT),
+    # Horizons 2 to 4 carry the boundary-node supplement; every row the hazard fit answers runs.
+    "ltmle_boundary_node": _kind(fit_ltmle_boundary_node, *_READ, *_POINT),
+    # The iterated-mean path, clustered: the same rows run on the supplemented horizons.
+    "ltmle_boundary_node_iterated": _kind(fit_ltmle_boundary_node_iterated, *_READ, *_POINT),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
     # Each policy is targeted by its own weighted walk, which no truncation replay
@@ -2123,6 +2257,11 @@ KINDS: dict[str, Kind] = {
     # The regressions of the future read targeted later hazards, which no truncation replay
     # rebuilds (H31), so the truncation row reads unavailable.
     "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
+    # A treatment at several nodes with a covariate after baseline runs the same backward pass
+    # (X70 (b2)), so the truncation row reads unavailable (H31) as well.
+    "ltmle_hazard_time_varying_multinode": _kind(
+        fit_hazard_time_varying_multinode, *_READ, "refute"
+    ),
     # A treatment at several nodes with baseline covariates walks every regimen path, and its
     # truncation replay rebuilds the walk, so every point row runs.
     "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),
@@ -2185,13 +2324,15 @@ KINDS: dict[str, Kind] = {
     "eliminated": _kind(fit_eliminated, *_READ, *_POINT),
     "separable": _kind(fit_separable, *_READ, *_POINT),
     "learned_regimen": _kind(fit_learned_regimen, *_READ),
-    # The E-value reads the risk ratio of the pair of risks the sweep names.
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, "evalue", refits=False),
+    # The stored estimator refits on the stored data (X101): refute answers through the first
+    # reported estimate, an arm risk, so it runs the noise test. The E-value reads the risk
+    # ratio of the pair of risks the sweep names.
+    "continuous_survival": _kind(fit_continuous_survival, *_READ, *_POINT, "evalue"),
     "continuous_survival+restricted": _kind(
-        fit_continuous_survival_restricted, *_READ, "evalue", refits=False
+        fit_continuous_survival_restricted, *_READ, *_POINT, "evalue"
     ),
     "continuous_survival+influence_curve": _kind(
-        fit_continuous_survival_influence_curve, *_READ, "evalue", refits=False
+        fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
     ),
 }
 
@@ -2539,13 +2680,18 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule+level",
                 # The value at an intermediate level has no exact placebo null (X11 (j4)).
                 "optimal_rule+intermediate",
+                # The default continuous-time request reads cif_regimen, a risk with no
+                # fixed null, so the placebo declines there (X101).
+                "continuous_survival",
+                "continuous_survival+restricted",
+                "continuous_survival+influence_curve",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
         # supplied plan no longer meets a default refusal, because ``subset`` keeps the
         # original fold labels, and an MSM coefficient has a placebo reference (X82 A2).
         _RAISED.format("refute")
-        + r"(the placebo refutation|the placebo has no exact null|"
+        + r"(the placebo refutation|the placebo has no (exact|fixed) null|"
         + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value|"
         # A mixed node's placebo meets its missing Markov kernel first (X82).
         + r"the longitudinal placebo has no Markov kernel)",
