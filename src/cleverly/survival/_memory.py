@@ -19,12 +19,18 @@ be checked against the line that allocates it.  Write ``A = n M`` and ``JA = J n
   before each time and the product of treatment and retention probabilities: ``16 JA + 80 A``.
 * ``indicators``: the jumps and the product beside the at-risk and event indicators, which are
   boolean.
-* ``weights``: the bounded inverse weight built from the product, beside it.
-* ``walk``: the held indicators and weight, the current jumps and their evaluation, a trial's
-  jumps and the trial evaluation's temporaries (:func:`~cleverly.survival._targeting.evaluate`),
-  or the direction's (:func:`~cleverly.survival._targeting._direction`), whichever is larger.
+* ``weights``: the bounded inverse weight built from the product, beside it, and under
+  ``variance="switched"`` the floored ratio :math:`\min(1, \hat\pi \hat S_c / g_{\min})`
+  ``(2, n, M)``, which the predictable variation reads after the walk.
+* ``walk``: the held indicators and weight (and the floored ratio under ``"switched"``), the
+  current jumps and their evaluation, a trial's jumps and the trial evaluation's temporaries
+  (:func:`~cleverly.survival._targeting.evaluate`), or the direction's
+  (:func:`~cleverly.survival._targeting._direction`), whichever is larger.
 * ``off_grid``: the walk's result beside one more evaluation at up to
   :data:`~cleverly.survival.engine.OFF_GRID_TIMES` random times.
+* ``predictable``: under ``"switched"`` only, the walk's result and the floored ratio beside
+  one block of :func:`~cleverly.survival._targeting.predictable_covariance`'s temporaries,
+  whose units per block keep them near ``_PV_BLOCK_CELLS`` cells.
 * ``band``: the multiplier buffer of :func:`~cleverly.inference.simultaneous_bands`.
 
 A truncation curve (``retained=True``) keeps the initial jumps and the product alive through
@@ -40,6 +46,7 @@ from typing import Final
 from ..exceptions import MethodConfigurationError
 from ..inference.multiplier import _BLOCK_BYTES
 from ..utils.memory import available_memory
+from ._targeting import _PV_BLOCK_CELLS
 
 #: Bytes of one float64.
 F8: Final = 8
@@ -113,6 +120,7 @@ def peak_bytes(
     retained: bool = False,
     factual_tilt: bool = False,
     stratified_learner: bool = False,
+    switched: bool = True,
 ) -> PeakEstimate:
     """Predict the bytes a continuous-time fit holds at once, by phase.
 
@@ -143,6 +151,9 @@ def peak_bytes(
     stratified_learner : bool
         Whether a library holds a stratified Nelson-Aalen learner, whose prediction caches a
         curve per stratum.
+    switched : bool
+        Whether the fit reports the switched variance (``variance="switched"``), which holds
+        the floored ratio through the walk and computes the predictable variation after it.
 
     Returns
     -------
@@ -166,22 +177,32 @@ def peak_bytes(
     fold = F8 * int(fold_size) * M * (4 if stratified_learner else 3)
     # A truncation curve also keeps the first replay's estimates and record beside each walk.
     held = 16 * A + 16 * JA + 8 * influence if retained else 0
-    # evaluate's peak over its inputs: the survival and incidences beside either the first
-    # arm's temporaries or the moment the second arm's weighted jumps replace the first's.
-    evaluate = max(F8 * (4 * JA + 6 * A), F8 * (3 * JA + 8 * A)) + 3 * influence
-    walk_held = 17 * A + JA  # boolean at-risk and events, float weight
+    # evaluate's peak over its inputs: the survival and incidences beside one arm's weighted
+    # jumps, its residual ratio, that ratio cumulated, the survival before each time and one
+    # cause's increment and cumulated increment beside the previous cause's two.
+    evaluate_arrays = F8 * (3 * JA + 8 * A)
+    evaluate = evaluate_arrays + 3 * influence
+    # The floored ratio min(1, pi S_c / floor), held from the weights to the predictable
+    # variation under variance="switched".
+    ratio = 16 * A if switched else 0
+    walk_held = 17 * A + JA + ratio  # boolean at-risk and events, float weight, ratio
     current = 16 * JA + 16 * A + 16 * JA + 2 * influence  # jumps, evaluation, initial curves
     trial = walk_held + current + 16 * JA + evaluate
-    direction = walk_held + current + 16 * JA + 24 * JA + 16 * A + 16 * JA * factual_tilt
+    # _direction: its output beside one arm's summed quotient and one conditional_risk call's
+    # three (n, M) temporaries.
+    direction = walk_held + current + 16 * JA + 32 * A + 16 * JA * factual_tilt
     tilt = walk_held + current + 32 * JA + 32 * A
     off_P = 2 * J * OFF_GRID
     off_grid = (
-        walk_held
-        + current
-        + max(F8 * (4 * JA + 6 * A), F8 * (3 * JA + 8 * A))
-        + 3 * F8 * int(n) * off_P
-        + F8 * OFF_GRID * M * 2
+        walk_held + current + evaluate_arrays + 3 * F8 * int(n) * off_P + F8 * OFF_GRID * M * 2
     )
+    # predictable_covariance: per block of b units, c = b M cells, the clever covariates
+    # (J, JQ, b, M) beside the first moment, the scaled covariates and one product (JQ, b, M
+    # each) and the block's weights; and the (n, P) plug-ins, centred.
+    Q = int(rows)
+    b = min(int(n), max(1, _PV_BLOCK_CELLS // max(1, J * J * Q * M)))
+    c = b * M
+    predictable = walk_held + current + F8 * c * (J * J * Q + 3 * J * Q + 4) + 3 * influence
     band = (BAND_BUFFER + F8 * int(n_multiplier) * P * 3 + 3 * influence) if simultaneous else 0
     phases = {
         "nuisance": 16 * JA + 16 * A + fold,
@@ -190,8 +211,11 @@ def peak_bytes(
         "weights": 16 * JA + JA + 49 * A,
         "walk": max(trial, direction, tilt),
         "off_grid": off_grid,
-        "band": walk_held + current + band,
+        "band": walk_held - ratio + current + band,
     }
+    if switched:
+        phases["weights"] += ratio
+        phases["predictable"] = predictable
     return PeakEstimate(
         {
             name: value + small + (held if name not in ("nuisance", "curves") else 0)

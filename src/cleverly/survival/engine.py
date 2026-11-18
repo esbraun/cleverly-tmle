@@ -776,6 +776,7 @@ class ContinuousSurvivalTMLE:
                 n_multiplier=self.n_multiplier,
                 retained=retained,
                 factual_tilt=self.tilt == "factual",
+                switched=self.variance == "switched",
                 stratified_learner=any(
                     isinstance(member, StratifiedNelsonAalen)
                     for member in (*self.hazard_library, *self.censoring_library)
@@ -930,14 +931,11 @@ class ContinuousSurvivalTMLE:
         bounded_share = float(np.mean(product[relevant] < floor)) if relevant.any() else 0.0
         last_time_floor_share = float(np.mean(product[..., -1] < floor))
         # pi S_c w^2 = w min(1, pi S_c / floor): the predictable variation reads the floored
-        # weight squared, as P_n D^2 does.  Only the binding cells are kept through the walk
-        # (their indices and ratios), so no (2, n, M) array outlives this block; the dense
-        # factor is rebuilt for the one call that reads it.  None where the floor binds nowhere.
-        floored: tuple[tuple[np.ndarray, ...], np.ndarray] | None = None
+        # weight squared, as P_n D^2 does.  Held through the walk only under "switched".
+        floored = None
         if self.variance == "switched":
-            binding = np.nonzero(product < floor)
-            if binding[0].size:
-                floored = (binding, product[binding] / floor)
+            floored = product / floor
+            np.minimum(floored, 1.0, out=floored)
         del product, factual, reach, relevant
 
         problem = Problem(A, initial.at_risk, initial.events, weight, initial.target_weights)
@@ -1007,15 +1005,8 @@ class ContinuousSurvivalTMLE:
             )
 
         predictable = None
-        if self.variance == "switched":
-            reach_factor = None
-            if floored is not None:
-                reach_factor = np.ones((2, n, len(grid)))
-                reach_factor[floored[0]] = floored[1]
-            predictable = predictable_covariance(
-                problem, result.evaluation, result.dlam, reach_factor
-            )
-            del reach_factor
+        if floored is not None:
+            predictable = predictable_covariance(problem, result.evaluation, result.dlam, floored)
         del floored
         estimates, covariance = build_estimates(
             result,

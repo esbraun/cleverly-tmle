@@ -281,6 +281,8 @@ def evaluate(problem: Problem, dlam: FloatArray) -> Evaluation:
             block = slice((a * J + j) * Q, (a * J + j + 1) * Q)
             parts[:, block] = cum_own @ rows
             plugins[:, block] = incidence[a, j] @ rows
+        # Freed before the next arm allocates its own, so two arms' temporaries never coexist.
+        del weighted, ratio, ratio_before, before, increment, cum_own
     psi = plugins.mean(axis=0)
     influence = parts + plugins - psi
     return Evaluation(psi, parts.mean(axis=0), influence, survival, incidence)
@@ -686,8 +688,8 @@ def predictable_covariance(
     dlam : ndarray
         ``(2, J, n, M)`` the hazard jumps, the targeted ones for a fit.
     reach : ndarray or None
-        ``(2, n, M)`` :math:`\min(1, \hat\pi \hat S_c(u^-) / g_{\min})`, or ``None`` where the
-        floor binds nowhere.
+        ``(2, n, M)`` :math:`\min(1, \hat\pi \hat S_c(u^-) / g_{\min})`, or ``None`` to read
+        one everywhere.
 
     Returns
     -------

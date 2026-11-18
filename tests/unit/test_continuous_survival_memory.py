@@ -114,6 +114,7 @@ FIXTURES: dict[str, tuple[int, dict[str, Any]]] = {
     ),
     "three causes": (3, {}),
     "factual tilt": (2, {"tilt": "factual"}),
+    "two causes, influence-curve variance": (2, {"variance": "influence_curve"}),
 }
 
 
@@ -131,6 +132,9 @@ def test_the_prediction_bounds_a_fit_and_stays_within_ten_percent(name: str) -> 
     # Mutation control: without one (2, J, n, M) array the prediction misses the peak.
     dropped = predicted.bytes - 16 * causes * N * predicted.times
     assert dropped < peak[0]
+    if estimator.variance == "switched":
+        # ...and so it does without the floored ratio the switched variance holds.
+        assert predicted.bytes - 16 * N * predicted.times < peak[0]
 
 
 def test_the_prediction_bounds_a_truncation_curve_over_every_floor() -> None:
@@ -179,6 +183,7 @@ def test_each_phase_stays_below_its_own_prediction(monkeypatch: pytest.MonkeyPat
     wrap(engine, "_off_grid_share", "off_grid")
     wrap(engine, "build_estimates", "estimates")
     wrap(multiplier, "simultaneous_bands", "band")
+    wrap(engine, "predictable_covariance", "predictable")
     original_walk = engine.walk
 
     def walk(
@@ -225,6 +230,7 @@ def test_each_phase_stays_below_its_own_prediction(monkeypatch: pytest.MonkeyPat
     assert peaks["off_grid"] <= predicted["off_grid"]
     assert peaks["estimates"] <= predicted["band"]
     assert peaks["band"] <= predicted["band"]
+    assert peaks["predictable"] <= predicted["predictable"]
     # Mutation control on a phase that does not bind: the window that fits the nuisances and
     # builds the curves misses its peak without the censoring jumps.
     cells = N * _prediction(estimator, data).times
