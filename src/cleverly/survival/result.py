@@ -34,20 +34,30 @@ CONTINUOUS_SURVIVAL_STUDY: Final[str] = "continuous-time-survival"
 #: of each arm and cause nor n, which :data:`MEASURED_N` bounds.
 MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
 
-#: The smallest sample size a study gates.  The registered study gates n = 1,000, where at the
+#: The smallest sample size at which a risk or risk difference of a fit without
+#: ``restricted_horizons=`` reads supported.  The registered study gates n = 1,000, where at the
 #: early time the cell with the fewest events (about 16 per fit) covered least; the gated
-#: 500-unit cell of :data:`VARIANCE_STUDY` (``v3_half_n``) passed every primary row, which lowers
-#: the floor to 500.  The design test checks it against that study's committed ``floors.csv``.
+#: 500-unit cell of :data:`VARIANCE_STUDY` (``v3_half_n``) measured these risks and differences
+#: and passed every primary row, which lowers their floor to 500.  The design test checks it
+#: against that study's committed ``floors.csv``.  A fit with restricted horizons keeps
+#: :data:`FUNCTIONALS_N`.
 MEASURED_N: Final[int] = 500
+
+#: The smallest sample size at which an estimate of a fit with ``restricted_horizons=`` reads
+#: supported: the n of :data:`FUNCTIONALS_STUDY`'s one cell.  The variance study's 500-unit cell
+#: fits no restricted horizon, and the horizons move every risk of the fit, so its floor does not
+#: carry over.  The functionals design test checks it against that study's record.
+FUNCTIONALS_N: Final[int] = 1_000
 
 #: The study that measures the default interval's sparse-cell floors (X6 part (a)).
 VARIANCE_STUDY: Final[str] = "continuous-survival-variance"
 
 #: The largest relative standard deviation of the influence-curve variance (``variance_rel_sd``)
 #: at which a risk or risk difference reads supported: :data:`VARIANCE_STUDY`'s
-#: :math:`r^*_{\mathrm{prim}}`, the largest median rung over its gated cells such that every
-#: primary row at or below it passes, read from that study's committed ``floors.csv`` (the
-#: design test checks the value; the run at 0cb80a56 measured it).
+#: :math:`r^*_{\mathrm{prim}}`, the largest median rung such that every primary row at or below
+#: it passes, over its gated cells and its reported heavy-weight cell (``v2_heavy_weights``),
+#: whose primary rows set the value; read from that study's committed ``floors.csv`` (the design
+#: test checks the value; the run at 0cb80a56 measured it).
 MEASURED_REL_SD: Final[float | None] = 0.24582894675266365
 
 #: The same floor for event shares in ``[0.25, 0.40)``, :math:`r^*_{\mathrm{cal}}`, read from the
@@ -140,15 +150,18 @@ def continuous_survival_support(
 
     A risk or a risk difference of a fit without ``restricted_horizons=`` reads ``supported``
     when the registered ``continuous-time-survival`` study measures its configuration: two
-    causes and at least :data:`MEASURED_N` units, at a time by which between 40% and 85% of the
-    observed events have happened (:data:`MEASURED_EVENT_SHARE`), from a cross-fitted fit with
-    the default libraries and the settings of :data:`MEASURED_DEFAULTS`.  A fit with one
-    restricted horizon, at or before its last target time, is measured by the registered
-    ``continuous-survival-functionals`` study under the same conditions: its risks, risk
-    differences and risk ratios, and its restricted means and their differences at a
-    restriction time by which between 67% and 85% of the observed events have happened
-    (:data:`RESTRICTED_EVENT_SHARE`).  Otherwise the estimate reads ``experimental`` with every
-    reason that applies.
+    causes, at a time by which between 40% and 85% of the observed events have happened
+    (:data:`MEASURED_EVENT_SHARE`), from a cross-fitted fit with the default libraries and the
+    settings of :data:`MEASURED_DEFAULTS`, with at least :data:`MEASURED_N` units and its
+    influence curve's relative SD at most :data:`MEASURED_REL_SD`, the two floors the registered
+    ``continuous-survival-variance`` study measures, so its evidence names both studies.  A fit
+    with one restricted horizon, at or before its last target time, is measured by the
+    registered ``continuous-survival-functionals`` study under the same conditions but with at
+    least :data:`FUNCTIONALS_N` units: its risks, risk differences and risk ratios, and its
+    restricted means and their differences at a restriction time by which between 67% and 85%
+    of the observed events have happened (:data:`RESTRICTED_EVENT_SHARE`).  Its risks and
+    differences keep the relative-SD floor and name the variance study too.  Otherwise the
+    estimate reads ``experimental`` with every reason that applies.
 
     Parameters
     ----------
@@ -246,22 +259,30 @@ def continuous_survival_support(
             "75%."
         )
     floor = MEASURED_REL_SD_EARLY if event_share < SHARE_FLOOR_DEFAULT else MEASURED_REL_SD
+    floored = floor is not None and not restricted and scale in ("level", "difference")
     if (
-        floor is not None
+        floored
+        and floor is not None
         and variance_rel_sd is not None
-        and not restricted
-        and scale in ("level", "difference")
         and not variance_rel_sd <= floor
     ):
         reasons.append(
             f"The influence curve of this estimate is sparse: the relative standard deviation of "
             f"its variance is {variance_rel_sd:.3f}, above {floor:.3f}, the largest at which "
-            f"every gated row of the {VARIANCE_STUDY} study passes."
+            f"every primary row of the {VARIANCE_STUDY} study's cells passes, its reported "
+            "heavy-weight cell included."
         )
-    if n < MEASURED_N:
+    if functionals and n < FUNCTIONALS_N:
         reasons.append(
-            f"The fit has {n:,} units, and the registered study gates n = {MEASURED_N:,}; a "
-            "smaller sample has fewer events of each arm and cause."
+            f"The fit has {n:,} units, and the registered {FUNCTIONALS_STUDY} study measures a "
+            f"fit with a restricted horizon at n = {FUNCTIONALS_N:,} only; a smaller sample has "
+            "fewer events of each arm and cause."
+        )
+    elif not functionals and n < MEASURED_N:
+        reasons.append(
+            f"The fit has {n:,} units, and the registered {VARIANCE_STUDY} study measures "
+            f"risks and risk differences down to n = {MEASURED_N:,}; a smaller sample has fewer "
+            "events of each arm and cause."
         )
     if causes != 2:
         reasons.append(
@@ -288,12 +309,17 @@ def continuous_survival_support(
     if reasons:
         return _experimental(" ".join(reasons), limits)
     study = FUNCTIONALS_STUDY if functionals else CONTINUOUS_SURVIVAL_STUDY
-    return Support(
-        "supported",
-        f"The registered {study} study measures this configuration.",
-        (study,),
-        limits=limits,
-    )
+    # The variance study measures risks and differences at n = 500 and sets their relative-SD
+    # floor, so it is evidence for each of them; restricted means and ratios it does not measure.
+    evidence = (study, VARIANCE_STUDY) if floored else (study,)
+    measured = f"The registered {study} study measures this configuration."
+    if floored:
+        measured += (
+            f" The registered {VARIANCE_STUDY} study sets the floor on the sparsity of its "
+            "influence curve"
+            + ("." if functionals else f" and measures it down to n = {MEASURED_N:,}.")
+        )
+    return Support("supported", measured, evidence, limits=limits)
 
 
 #: The support of a simultaneous band: the study measures pointwise intervals only.

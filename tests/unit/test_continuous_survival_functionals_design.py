@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from cleverly.survival import ContinuousSurvivalTMLE
+from cleverly.survival import result as survival_result
 from tests.studies import continuous_survival as registered
 from tests.studies import continuous_survival_functionals as study
 from tests.studies import continuous_survival_functionals_law as functionals
@@ -28,6 +29,8 @@ def test_the_declaration_is_the_plans() -> None:
     assert study.PILOT_REPLICATES == 3_200
     assert study.STUDY.replicates == study.PRIMARY_REPLICATES
     assert study.PRIMARY_N == 1_000 == study.STUDY.n
+    # The size floor of a fit with restricted horizons is the one n the study ran (B2).
+    assert set(study.SCENARIOS.values()) == {survival_result.FUNCTIONALS_N}
     assert study.TAU == law.TIMES[2] == 2.32
     assert study.MARGINS.standardized_bias == 0.2
     assert study.STUDY.reference is None

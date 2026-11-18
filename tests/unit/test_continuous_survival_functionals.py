@@ -35,11 +35,14 @@ from cleverly.survival._targeting import (
 from cleverly.survival.result import (
     CONTINUOUS_SURVIVAL_STUDY,
     FUNCTIONALS_LIMITS,
+    FUNCTIONALS_N,
     FUNCTIONALS_STUDY,
     MEASURED_DEFAULTS,
+    MEASURED_N,
     OFF_GRID_SHARE,
     RATIO_REASON,
     RESTRICTED_EVENT_SHARE,
+    VARIANCE_STUDY,
     continuous_survival_support,
     risk_names,
 )
@@ -357,13 +360,16 @@ def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> 
         return continuous_survival_support(settings=measured, **{**common, **kwargs})
 
     plain = label(scale="level", event_share=0.6)
-    assert plain.label == "supported" and plain.evidence == (CONTINUOUS_SURVIVAL_STUDY,)
+    assert plain.label == "supported"
+    assert plain.evidence == (CONTINUOUS_SURVIVAL_STUDY, VARIANCE_STUDY)
     # A ratio is measured only in a fit with one restricted horizon.
     assert label(scale="ratio", event_share=0.6).reason == RATIO_REASON
     for scale in ("level", "difference", "ratio"):
         moved = label(scale=scale, event_share=0.6, restricted_horizons=1)
         assert moved.label == "supported", scale
-        assert moved.evidence == (FUNCTIONALS_STUDY,)
+        # The variance study's relative-SD floor gates the risks and differences, not ratios.
+        floored = scale != "ratio"
+        assert moved.evidence == (FUNCTIONALS_STUDY, *((VARIANCE_STUDY,) * floored))
         assert moved.limits[-1] == FUNCTIONALS_LIMITS[0]
     # m3: a restricted mean reads supported only inside the window around the measured share.
     low, high = RESTRICTED_EVENT_SHARE
@@ -395,6 +401,49 @@ def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> 
     # The other conditions still bind on a restricted fit.
     small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=400)
     assert small.label == "experimental"
+
+
+def test_a_fit_with_a_restricted_horizon_keeps_the_functionals_size_floor() -> None:
+    """B2: the variance study's 500-unit cell fits no restricted horizon, so it lowers no floor."""
+    assert MEASURED_N < FUNCTIONALS_N
+    measured = dict(MEASURED_DEFAULTS)
+    common = {"causes": 2, "cross_fitted": True, "default_nuisances": True}
+
+    def label(n: int, **kwargs: Any) -> Any:
+        return continuous_survival_support(settings=measured, n=n, **{**common, **kwargs})
+
+    rmtl = {"scale": "level", "event_share": 0.75, "restricted": True, "restricted_horizons": 1}
+    for kwargs in (
+        rmtl,
+        {**rmtl, "scale": "difference"},
+        {"scale": "level", "event_share": 0.6, "restricted_horizons": 1},
+        {"scale": "ratio", "event_share": 0.6, "restricted_horizons": 1},
+    ):
+        below = label(MEASURED_N, **kwargs)
+        assert below.label == "experimental", kwargs
+        assert f"{FUNCTIONALS_STUDY} study measures a fit with a restricted horizon" in below.reason
+        assert f"n = {FUNCTIONALS_N:,} only" in below.reason
+        assert label(FUNCTIONALS_N - 1, **kwargs).label == "experimental"
+        assert label(FUNCTIONALS_N, **kwargs).label == "supported", kwargs
+    assert label(FUNCTIONALS_N, **rmtl).evidence == (FUNCTIONALS_STUDY,)
+
+
+def test_a_risk_at_the_variance_studys_size_floor_cites_that_study() -> None:
+    """B2: a risk at n = 500 is supported by the variance study's 500-unit cell, and says so."""
+    measured = dict(MEASURED_DEFAULTS)
+    common = {"causes": 2, "cross_fitted": True, "default_nuisances": True, "event_share": 0.6}
+    for scale in ("level", "difference"):
+        at = continuous_survival_support(settings=measured, n=MEASURED_N, scale=scale, **common)
+        assert at.label == "supported", scale
+        assert at.evidence == (CONTINUOUS_SURVIVAL_STUDY, VARIANCE_STUDY)
+        assert f"{VARIANCE_STUDY} study" in at.reason
+        assert f"n = {MEASURED_N:,}" in at.reason
+        below = continuous_survival_support(
+            settings=measured, n=MEASURED_N - 1, scale=scale, **common
+        )
+        assert below.label == "experimental"
+        assert f"{VARIANCE_STUDY} study measures risks and risk differences down to" in below.reason
+        assert f"n = {MEASURED_N:,}" in below.reason
 
 
 # ----------------------------------------------------------------- T-c4: refusal C1

@@ -383,10 +383,10 @@ replicate. The other rows raise `CapabilityError`.
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, at least 500 units, two
-causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
-cause have happened
-(`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
+that configuration: cross-fitted, the default libraries and settings, two causes, a risk or a
+risk difference, at a time by which 40% to 85% of the observed events of any cause have happened
+(`cleverly.survival.result.continuous_survival_support`), and the two floors of the switched-variance
+study below. At the lower quartile the standard error
 ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
 early reads experimental. The time condition is calibrated on this one law and does not read
 how many events each arm and cause has.
@@ -398,7 +398,8 @@ differences of that fit, whose extra targets move them, the log risk ratios at t
 upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
 at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
 calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
-its last target time reads `supported` under the conditions above, and its restricted means read
+its last target time reads `supported` under the conditions above with at least 1,000 units
+(`FUNCTIONALS_N`), the one size that study ran, and its restricted means read
 `supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
 (`RESTRICTED_EVENT_SHARE`). The measured $\tau$ sits at about 75%, and a restricted mean at an
 earlier $\tau$ weights the sparse early times, where the risks' standard error ran low, more
@@ -414,11 +415,16 @@ this law, so the claim that a restricted mean must be targeted rests on the scor
 The registered study [continuous-time survival switched
 variance](method-evidence/continuous-survival-variance.md) ships the switched variance as the
 default: it passes its ship rule with 20 rows improved and none harmed, and every gated row of its
-four gated cells passes at 6,000 replicates. It sets three floors. A risk or risk difference whose
-`variance_rel_sd` lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at
-0.40, because not every first-quartile row passed. Its gated 500-unit cell passed every row, so the
-size floor is 500 units (`MEASURED_N`), not the 1,000 the first study gated. Both studies above
-were written under the influence-curve variance and regenerate under the switched default.
+four gated cells passes at 6,000 replicates. Both studies above were written under the
+influence-curve variance and regenerate under the switched default.
+
+The switched-variance study sets three floors. A risk or risk difference whose `variance_rel_sd`
+lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at 0.40, because
+not every first-quartile row passed. The study's gated 500-unit cell, which fits no restricted
+horizon, passed every row, so a risk or risk difference of a fit without restricted horizons
+needs 500 units (`MEASURED_N`), not the 1,000 the first study gated, and a fit with restricted
+horizons keeps 1,000. A supported risk or risk difference names this study in its evidence beside
+the study that measured its configuration.
 
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation

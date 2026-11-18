@@ -183,7 +183,7 @@ rows and committed as `ship-rule.csv`, `candidate-readings.csv` and `floors.csv`
 | controls | the predictable variation times 1.3 must fire the harm clause; a switch that never fires must fail the benefit clause; the standard error times 0.85 must fail the calibration rule at every gated row | the run is void if one does not behave so |
 | reported controls | the gated rows the primary rule turns red at 0.85 times the standard error, and the cells whose sparsest first-quartile influence-curve row passes the calibration rule | nothing; the first is the merge gate's own sensitivity, the second says whether a cell exercises the sparse-cell failure |
 | paired readings | each candidate's coverage minus the influence curve's, and minus the influence-curve interval widened to the candidate's mean width in its row, each with its paired 99% bootstrap interval | nothing; the evidence of roadmap item X6 (a2) |
-| floors | the largest `variance_rel_sd` rung at which every gated row passes; the event-share floor (0.40, or 0.25 if every first-quartile row passes); the size floor (1,000, or 500 if every gated `v3_half_n` row passes) | which risks and risk differences read `supported` |
+| floors | the largest `variance_rel_sd` rung at which every primary row of the gated cells and of the reported heavy-weight cell passes; the event-share floor (0.40, or 0.25 if every first-quartile row passes); the size floor (1,000, or 500 if every gated `v3_half_n` row passes) | which risks and risk differences read `supported` |
 
 The switched variance ships. The harm clause finds no harmed row, and the benefit clause finds 20
 improved first-quartile rows, four in each cell: both differences, control cause 1 and treated
@@ -201,11 +201,12 @@ The floors, read from the switched rows in `floors.csv`, are written as constant
 | --- | --- | --- |
 | `variance_rel_sd` (`MEASURED_REL_SD`) | 0.2458 | the three red V2 rows have median `variance_rel_sd` 0.246, 0.289 and 0.318, so the floor stops at the largest rung below them, that of V2's treated cause 2 at $t = 2.32$ |
 | event share (`SHARE_FLOOR_DEFAULT`) | 0.40 | 8 of the 30 first-quartile rows fail the calibration rule, so the floor does not fall to 0.25, and no first-quartile floor (`MEASURED_REL_SD_EARLY`) is read |
-| size (`MEASURED_N`) | 500 | every gated `v3_half_n` row passes, and its 12 lost fits are inside the bound |
+| size (`MEASURED_N`) | 500 | every gated `v3_half_n` row passes, and its 12 lost fits are inside the bound; the cell fits no restricted horizon, so a fit with restricted horizons keeps 1,000 (`FUNCTIONALS_N`) |
 
 Beside the other conditions of [continuous-time survival](../continuous-time-survival.md#evidence),
 a risk or risk difference whose `variance_rel_sd` lies above 0.2458, whose time has fewer than 40%
-of the observed events behind it, or whose fit has fewer than 500 units reads experimental.
+of the observed events behind it, or whose fit has fewer than 500 units reads experimental. A
+supported risk or risk difference names this study in its evidence.
 `tests/unit/test_continuous_survival_variance_design.py` checks each constant against
 `floors.csv`.
 
