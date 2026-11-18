@@ -151,7 +151,11 @@ must hold 0 (:func:`tests.studies.few_cluster_floor.agrees_with_committed`). Oth
 holds it. A red that disagrees with the committed anchor, with no code defect found, means the
 shipped floor is not supported for that family by the code that ships (plan 5.8):
 ``CLUSTER_INTERVAL_FLOORS[f]`` keeps its value only under a new roadmap item that owns the
-re-measurement, and no page says the family is certified from 10. A
+re-measurement, and no page says the family is certified from 10. A red at or above the anchor
+that no committed cell can be compared with (J15 and J39 of the point families, J39 of
+in-sample ``LTMLE``, and every d5 cell from 10) is never read as chance: the family's route is
+``redeclaration: {counts}``, its floor stays at the anchor, and it goes to a redeclaration. A d5
+red there sends ``tmle_stacked`` to that route. A
 part (c) candidate cell that fails below its admissibility count reads ``candidate not
 non-inferior``. A replication that raises is never redrawn: it is a lost draw, a miss in G1 by
 the accounting's worst case. No cell is re-sized, re-drawn, dropped or relabelled after a

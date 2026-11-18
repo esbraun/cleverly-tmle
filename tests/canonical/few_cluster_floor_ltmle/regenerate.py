@@ -55,7 +55,8 @@ projects 13.1 CPU-h at the declared R (a three-draw smoke 15.2 at R = 6,000). Th
 
 **Red-cell readings**: as ``few-cluster-floor-tmle``, owner ``X54-cluster-floor``; a red at or
 above 20 is compared with the committed ``few-cluster-cross-fitted-ltmle`` cell at the same law
-and J. ``unequal40`` at 6 to 10 clusters may read
+and J. A red at 39, where no committed cell exists, is never read as chance: the route is
+``redeclaration: 39``, the floor stays at 20, and the study goes to a redeclaration. ``unequal40`` at 6 to 10 clusters may read
 all-draw coverage near 0.92, where G1 passes or fails by chance (plan 2.2); the floor reports
 the count honestly either way.
 """
