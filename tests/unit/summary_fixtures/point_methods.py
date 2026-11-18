@@ -348,7 +348,7 @@ def spread_withheld() -> Any:
 
 
 @functools.cache
-def importance() -> Any:
+def importance(keep_fits: bool = True) -> Any:
     """Two candidate exposures fitted in sample by a flexible learner."""
     rng = np.random.default_rng(5)
     n = 180
@@ -365,7 +365,13 @@ def importance() -> Any:
         estimator=TMLE(
             **_learners(outcome_learner=DecisionTreeRegressor(max_depth=3, random_state=0))
         ),
+        keep_fits=keep_fits,
     )
+
+
+def importance_without_fits() -> Any:
+    """The same run with ``keep_fits=False``: the fits' warnings are listed in the summary."""
+    return importance(keep_fits=False)
 
 
 @functools.cache
@@ -424,6 +430,9 @@ FIXTURES: dict[str, Case] = {
     "spread_missing": Case(spread_missing, fidelity=read.read_spread),
     "spread_withheld": Case(spread_withheld, fidelity=read.read_spread),
     "importance": Case(importance, names=("X1", "X2", "W"), fidelity=read.read_importance),
+    "importance without fits": Case(
+        importance_without_fits, names=("X1", "X2", "W"), fidelity=read.read_importance
+    ),
     "ensemble": Case(ensemble, fidelity=read.read_ensemble),
     "ensemble_failed": Case(
         ensemble_failed, names=("lm", "tree", "forest"), fidelity=read.read_ensemble

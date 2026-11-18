@@ -1428,6 +1428,87 @@ def resolve_tuned_plans(
     return tuple(plans)
 
 
+def plan_tuned_fits(
+    regimens: Sequence[RegimenSpec],
+    data: LongitudinalData,
+    folds: Folds,
+    *,
+    nominal_folds: int | None = None,
+) -> Any:
+    """The learner fits of the tuned caps :func:`resolve_tuned_plans` fits, counted unfitted.
+
+    Each learner-backed boundary is fitted on the rows at risk at its node and, on a
+    cross-fitted fit, again on each outer fold's training rows of them.  A quantile or a
+    linear-program tuner fits no learner.  The checks before each fit run here as they do
+    there: the target and outcome-column refusals and the fit's input validation.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens, in report order.
+    data : LongitudinalData
+        The validated panel.
+    folds : Folds
+        The outer split.
+    nominal_folds : int or None
+        Count each fit at the learner's nominal counts, with this many fold fits per tuned
+        cap in place of ``folds``: a bootstrap replicate's.
+
+    Returns
+    -------
+    Count
+        The fits and candidate fits.
+    """
+    from .._planned_fits import Count, count_learner, needs_target, sample_weight_attempts
+    from ..interventions.tuning import tuner_fit_inputs
+
+    count = Count()
+    for regimen in regimens:
+        if not _tuned(regimen):
+            continue
+        assert isinstance(regimen, DynamicRegimen)
+        target = _regimen_target(regimen)
+        tuned_nodes = [
+            (time, node, component, tuned)
+            for time, node in enumerate(regimen.plan, start=1)
+            for component, tuned, _ in tuned_maps(node)
+        ]
+        refuse_outcome_tuners(
+            [
+                (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
+                for _, _, _, tuned in tuned_nodes
+            ],
+            _outcome_columns(data),
+        )
+        if target == "fold_average" and folds.is_single:
+            raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
+        for time, node, component, tuned in tuned_nodes:
+            cap = tuned.cap
+            if not (isinstance(cap, SupportBoundary) and not cap.finite_dimensional):
+                continue
+            doses, frame = _tuner_source(regimen, data, time, node, component)
+            reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+            attempts = sample_weight_attempts(cap.learner, data.weights)
+            seed_fixed = getattr(cap.learner, "random_state", None) is not None
+            row_sets = [reachable]
+            if nominal_folds is None and not folds.is_single:
+                for train, _ in folds:
+                    rows = np.zeros(data.n, dtype=bool)
+                    rows[train] = True
+                    row_sets.append(reachable & rows)
+            for rows in row_sets:
+                keep, _ = tuner_fit_inputs(cap, frame, rows, data.n)
+                if nominal_folds is not None:
+                    fit = count_learner(cap.learner, doses, nominal=True, attempts=attempts)
+                    count.add(fit, 1 + nominal_folds)
+                    continue
+                dose = doses[keep] if needs_target(cap.learner) else None
+                count.add(
+                    count_learner(cap.learner, dose, seed_fixed=seed_fixed, attempts=attempts)
+                )
+    return count
+
+
 def _outcome_columns(data: LongitudinalData) -> tuple[str, ...]:
     names = [data.outcome_name] if getattr(data, "outcome_name", None) else []
     names.extend(getattr(data, "event_names", None) or ())

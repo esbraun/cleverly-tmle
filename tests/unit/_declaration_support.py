@@ -34,6 +34,7 @@ from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.unit._natural_course_support import NeverFit
+from tests.unit._planned_fits_support import assert_preview_parity
 
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
@@ -73,6 +74,10 @@ def assert_refused_before_any_call(
 ) -> Exception:
     """``build()`` refuses before any learner fit and before any call of the spy ``function``.
 
+    It then replays ``build()`` with every fit entry replaced by its planned-fit preview
+    (:func:`tests.unit._planned_fits_support.assert_preview_parity`), which must refuse with
+    the same record, fitting nothing.
+
     ``spy`` is the declared function, a :class:`tests.unit._confounding_support.Counter`
     whose ``calls`` starts at 0.  Pass the object the fit receives: a pickle round trip
     copies a counter.  Pass ``None`` when the request declares no function, and the check
@@ -83,6 +88,11 @@ def assert_refused_before_any_call(
     raised = assert_refused(build, error, *fragments)
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
     assert spy is None or spy.calls == 0, f"the {function} was evaluated before the refusal"
+    # The planned-fit preview refuses what the fit refuses before its first learner: the
+    # same request, replayed with every fit entry previewed, raises the same record.
+    assert_preview_parity(build, raised)
+    assert NeverFit.calls == 0, f"the preview fitted {NeverFit.calls} learner(s)"
+    assert spy is None or spy.calls == 0, f"the preview evaluated the {function}"
     return raised
 
 

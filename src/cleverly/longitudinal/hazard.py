@@ -88,7 +88,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 from scipy.special import expit, xlogy
@@ -1474,6 +1474,94 @@ def fit_hazards(
     return InitialHazards(
         hazards, tuple(sorted(no_events)), tuple(diagnostics), slot_hazards, observed
     )
+
+
+def plan_hazards(
+    data: LongitudinalData,
+    *,
+    learner: Learner,
+    folds: Folds,
+    counter: Any,
+    hazard_pooling: str = "node",
+    cause_order: Sequence[int] | None = None,
+    fit_rows: BoolArray | None = None,
+) -> Any:
+    """The fits :func:`fit_hazards` makes, counted without fitting.
+
+    One cross-fitted classification per node and cause with an event on its rows, each
+    training fold whose positive-weight rows hold one value fitting nothing; under
+    ``"pooled"`` one per cause with an event at some node.  The rows do not depend on the
+    plans or the slots, which only add predictions.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared survival panel.
+    learner : Learner
+        The resolved hazard learner.
+    folds : Folds
+        The outer split, or the single fold with ``fit_rows``.
+    counter : FitCounter
+        Counts each fit.
+    hazard_pooling : {"node", "pooled"}
+        As :func:`fit_hazards`.
+    cause_order : sequence of int or None
+        As :func:`fit_hazards`.
+    fit_rows : ndarray of bool or None
+        As :func:`fit_hazards`.
+
+    Returns
+    -------
+    Count
+        The fits.
+    """
+    from .._planned_fits import Count
+
+    at_risk, events = event_indicators(data)
+    n_causes = events.shape[2]
+    order = range(n_causes) if cause_order is None else cause_order
+    weights = np.asarray(data.weights, dtype=float)
+    out = Count()
+    if hazard_pooling == "pooled":
+        n_times = data.n_times
+        stacked = Folds(np.tile(folds.assignment, n_times), folds.n_folds)
+        stacked_earlier = np.zeros((data.n, n_times), dtype=bool)
+        for cause in order:
+            cells = at_risk & ~stacked_earlier
+            target = events[:, :, cause]
+            if np.any((target * weights[:, None])[cells] > 0):
+                out.add(
+                    counter.cross(
+                        learner,
+                        target.T.reshape(-1),
+                        stacked,
+                        task="classification",
+                        fit_mask=cells.T.reshape(-1),
+                        stack=n_times,
+                    )
+                )
+            stacked_earlier = stacked_earlier | (target > 0)
+        return out
+    for time in range(1, data.n_times + 1):
+        earlier = np.zeros(data.n, dtype=bool)
+        for cause in order:
+            rows = at_risk[:, time - 1] & ~earlier
+            if fit_rows is not None:
+                rows = rows & fit_rows
+            target = events[:, time - 1, cause]
+            if np.any(target[rows] * weights[rows] > 0):
+                out.add(
+                    counter.cross(
+                        learner,
+                        target,
+                        folds,
+                        task="classification",
+                        fit_mask=rows,
+                        constant_skip=True,
+                    )
+                )
+            earlier = earlier | (target > 0)
+    return out
 
 
 #: The prediction key of the observed treatment's design, shared by every policy's slot 0.

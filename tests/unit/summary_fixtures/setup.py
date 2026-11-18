@@ -47,6 +47,7 @@ from . import Case
 from ._setup_readers import (
     read_methods,
     read_phases,
+    read_planned_fits,
     read_protocol,
     read_question,
     read_simulation,
@@ -329,6 +330,24 @@ def regime_methods() -> Any:
     return regime_effect().available_methods()
 
 
+@functools.cache
+def planned_fits() -> Any:
+    """A preview with an ensemble and a bootstrap, so exact and upper rows both print."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    from cleverly import SuperLearner
+
+    library = [("ols", LinearRegression()), ("ridge_free", LinearRegression(fit_intercept=False))]
+    return ate_effect().planned_fits(
+        outcome_learner=SuperLearner(library=library, n_folds=3),
+        treatment_learner=LogisticRegression(),
+        n_folds=3,
+        n_bootstrap=2,
+        random_state=0,
+        q_bounds=(-20.0, 20.0),
+    )
+
+
 # ----------------------------------------------------------------- simulation
 
 
@@ -532,4 +551,5 @@ FIXTURES = {
     "simulation_constant": Case(simulation_constant, names=("ate",), fidelity=read_simulation),
     "simulation_diagnostic": Case(simulation_diagnostic, names=("ate",), fidelity=read_simulation),
     "phase_profile": Case(phase_profile, names=("outer", "inner", "fit"), fidelity=read_phases),
+    "planned_fits": Case(planned_fits, names=("ols", "ridge_free"), fidelity=read_planned_fits),
 }
