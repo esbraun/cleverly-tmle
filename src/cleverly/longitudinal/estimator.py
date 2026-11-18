@@ -7219,6 +7219,7 @@ class _SequentialEstimator:
         # A learned regimen learns each fold's rule pair before the mechanism is fitted, because
         # the mechanism is evaluated at each row's own learned rule (X11 (b)).
         rules: LearnedRules | None = None
+        learned_record: LearnedRegimenRecord | None = None
         if any(isinstance(plan.regimen, LearnedRegimen) for plan in plans):
             (plan,) = plans
             rules = learn_fold_rules(
@@ -7232,6 +7233,11 @@ class _SequentialEstimator:
                 bounds=None if node_bounds is None else node_bounds.get(None),
             )
             plans = (plan.with_assignment(rules.stitched()),)
+            # The record reads only the panel, the plan's label and masks, and the rules, none of
+            # which the rest of the fit changes, so it is built here; the recursion then carries
+            # only the codes and the split, not every fold's blips.
+            learned_record = learned_regimen_record(prepared, plans[0], rules, seed=seed)
+            rules = rules.codes_only()
         # Build this record before the first backward pass. It holds only cloneable
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
@@ -7469,11 +7475,7 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             isotonic_moves=moves,
             initial_hazards=initial,
-            learned_regimen=(
-                None
-                if rules is None
-                else learned_regimen_record(prepared, plans[0], rules, seed=seed)
-            ),
+            learned_regimen=None if rules is None else learned_record,
         )
         return _DrawOutcome(
             draw,
