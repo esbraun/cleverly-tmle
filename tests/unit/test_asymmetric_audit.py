@@ -487,6 +487,11 @@ def test_every_committed_refit_record_names_a_scale_and_each_mismatch_is_judged(
             assert records["scale"].astype(str).str.len().gt(0).all(), (directory.name, name)
             missed += int((records["replay"] == "mismatch").sum())
         row = by_study.loc[directory.name]
+        if directory.name in screen_module.CURRENT:
+            # Regenerated under the shipped intervals: its records replay the rows it replaced,
+            # and the screen reads the study as current, judging no record.
+            assert row["disposition"] == "current", directory.name
+            continue
         if missed and not str(row["scope"]).startswith("mismatch:"):
             assert int(row["replay_shifts"]) > 0, directory.name
 
@@ -947,3 +952,23 @@ def test_every_study_that_calls_a_sensitivity_bound_is_gated_on_the_recorder(
     for slug in screen_module.BOUND_END_STUDIES:
         if refit.stale_stages(slug, refit.BOUND_RECORDER):
             assert by_study.loc[slug, "disposition"] == "refits", slug
+
+
+def test_a_large_record_file_is_written_and_read_compressed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record file over the size limit is committed as ``<name>.gz`` and reads the same;
+    under the limit it stays plain (control)."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    frame = pd.DataFrame({"group": ["s/ate"] * 3, "replicate": [0, 1, 2], "scale": ["mover"] * 3})
+    refit._write(frame, tmp_path / "small" / refit.SETTLE_FILE)
+    assert (tmp_path / "small" / refit.SETTLE_FILE).exists()
+    monkeypatch.setattr(refit, "COMPRESS_BYTES", 10)
+    refit._write(frame, tmp_path / "big" / refit.SETTLE_FILE)
+    assert not (tmp_path / "big" / refit.SETTLE_FILE).exists()
+    assert (tmp_path / "big" / f"{refit.SETTLE_FILE}.gz").exists()
+    for name in ("small", "big"):
+        read = refit.read_records(tmp_path / name, refit.SETTLE_FILE)
+        assert read is not None
+        pd.testing.assert_frame_equal(read[frame.columns], frame, check_dtype=False)

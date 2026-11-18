@@ -692,7 +692,8 @@ def stale_stages(slug_or_dir: str | Path, version: int) -> list[str]:
     return [
         stage
         for stage, name in STAGE_FILES.items()
-        if (directory / name).exists() and int(captured.get(stage, {}).get("recorder", 1)) < version
+        if record_path(directory, name) is not None
+        and int(captured.get(stage, {}).get("recorder", 1)) < version
     ]
 
 
@@ -783,18 +784,42 @@ def _fit(record: StudyRecord, job: Job, *, jobs: int, cache: Path | None, stage:
     return [value for value in outcomes.fitted if value is not None]
 
 
+#: A record file larger than this is committed gzip-compressed as ``<name>.gz`` (GitHub
+#: refuses files over 100 MB; one settle file of 240,000 keys is about 150 MB as text).
+COMPRESS_BYTES = 50_000_000
+
+
+def record_path(directory: Path, name: str) -> Path | None:
+    """The record file ``name`` in ``directory``, plain or as ``<name>.gz``, or ``None``."""
+    for path in (directory / name, directory / f"{name}.gz"):
+        if path.exists():
+            return path
+    return None
+
+
 def _write(frame: pd.DataFrame, path: Path) -> None:
+    import gzip
+
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     frame.to_csv(temporary, index=False, lineterminator="\n", float_format="%.17g")
-    temporary.replace(path)
+    packed = path.with_name(f"{path.name}.gz")
+    packed.unlink(missing_ok=True)
+    if temporary.stat().st_size <= COMPRESS_BYTES:
+        temporary.replace(path)
+        return
+    # mtime=0 keeps the compressed bytes a function of the text alone.
+    with temporary.open("rb") as source, gzip.GzipFile(packed, "wb", mtime=0) as target:
+        target.write(source.read())
+    temporary.unlink()
+    path.unlink(missing_ok=True)
 
 
 def read_records(slug_or_dir: str | Path, name: str) -> pd.DataFrame | None:
-    """A study's committed scope or refit records, or ``None``."""
+    """A study's committed scope or refit records, plain or gzip-compressed, or ``None``."""
     directory = AUDIT_DIR / slug_or_dir if isinstance(slug_or_dir, str) else slug_or_dir
-    path = directory / name
-    if not path.exists():
+    path = record_path(directory, name)
+    if path is None:
         return None
     return pd.read_csv(path, keep_default_na=False, na_values=[""], dtype={"scale": str})
 
@@ -940,7 +965,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     name = STAGE_FILES[arguments.stage]
     status = 0
     for slug in chosen:
-        if (arguments.output / slug / name).exists() and not arguments.force:
+        if record_path(arguments.output / slug, name) is not None and not arguments.force:
             print(f"{slug}: {name} exists, skipped", flush=True)
             continue
         if arguments.stage == "settle" and not settle_groups(slug):
