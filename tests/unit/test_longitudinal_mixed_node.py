@@ -505,6 +505,7 @@ def test_hazard_targeting_fits_a_policy_on_a_vector_with_a_dose() -> None:
 _DISPATCHING: dict[tuple[str, str], str] = {
     ("data/causal_data.py", "CausalData.treated_fraction"): "point CausalData",
     ("data/causal_data.py", "CausalData.subset"): "point CausalData",
+    ("data/causal_data.py", "RowDesign.rows"): "a counterfactual block, not a node slot",
     ("data/known_mechanism.py", "KnownNodeMechanisms.treatment_at"): "declared matrices",
     ("estimators/_nuisance.py", "_retained_covariates"): "point CausalData",
     ("estimators/ctmle.py", "CTMLE._derivative_nuisances"): "point CausalData",
