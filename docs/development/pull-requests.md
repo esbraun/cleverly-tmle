@@ -75,7 +75,7 @@ cannot affect a fitted result.
 | `lint` | 3.12 | `ruff check .`, and then `ruff format --check .` |
 | `typecheck` | 3.12 | `mypy` |
 | `docs` | 3.12 | `sphinx-build -W --keep-going -b html docs docs/_build/html` |
-| `tests` | 3.11, 3.12, 3.13, split into shards (2, 4, 2) | `pytest -q -n auto --dist loadgroup` with `CLEVERLY_TEST_SHARD=i/N`. On 3.11 and 3.13 it adds `--ignore=tests/unit/test_method_evidence.py`. The `tests` check reports every shard together |
+| `tests` | 3.11, 3.12, 3.13, each split into 4 shards | `pytest -q -n auto --dist loadgroup` with `CLEVERLY_TEST_SHARD=i/N`. On 3.11 and 3.13 it adds `--ignore=tests/unit/test_method_evidence.py`. The `tests` check reports every shard together |
 | `slow-tests` | 3.12 | `pytest -q -n auto --dist loadgroup -m slow`: each tutorial notebook with its refit cells |
 | `property-differential` | 3.12 | `pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py`, when the change touches a study, `tests/canonical/`, `src/cleverly`, the dependency pins, or the CI files |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
