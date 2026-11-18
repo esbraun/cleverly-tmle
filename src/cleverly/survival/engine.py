@@ -55,6 +55,7 @@ from .result import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._planned_fits import PlannedFits
     from ..inference.influence import ParameterEstimate
 
 __all__ = ["ContinuousSurvivalRecord", "ContinuousSurvivalTMLE"]
@@ -532,6 +533,33 @@ class ContinuousSurvivalTMLE:
         ContinuousSurvivalResult
             The targeted risks, their contrasts and the record.
         """
+        return self._fit_data(
+            self._container(data, time=time, event=event, treatment=treatment, baseline=baseline)
+        )
+
+    def _planned_fits(
+        self,
+        data: Any,
+        *,
+        time: str,
+        event: str,
+        treatment: str,
+        baseline: Sequence[str],
+    ) -> PlannedFits:
+        """The model fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        Takes :meth:`fit`'s arguments, runs its checks of the frame, and previews the
+        container as :meth:`_planned_fit_data` does.
+        """
+        return self._planned_fit_data(
+            self._container(data, time=time, event=event, treatment=treatment, baseline=baseline)
+        )
+
+    @staticmethod
+    def _container(
+        data: Any, *, time: str, event: str, treatment: str, baseline: Sequence[str]
+    ) -> Any:
+        """The validated container :meth:`fit` builds from a frame."""
         from ..utils.frames import as_frame, backend_of
         from .data import ContinuousSurvivalData
 
@@ -554,7 +582,7 @@ class ContinuousSurvivalTMLE:
             None,
             backend_of(frame),
         )
-        return self._fit_data(container)
+        return container
 
     def fit_data(self, data: Any) -> ContinuousSurvivalResult:
         """Fit a :class:`~cleverly.survival.data.ContinuousSurvivalData` container.
@@ -618,35 +646,62 @@ class ContinuousSurvivalTMLE:
             If both ``_frozen_folds`` and ``_frozen_plan`` are passed, or the plan does not
             fit the data.
         """
-        folds = _frozen_folds
-        plan = _frozen_plan
-        if plan is not None and folds is not None:
+        folds, plan = self._refit_split(data, _frozen_folds, _frozen_plan)
+        estimator = self._copy(random_state)
+        return estimator._fit_data(data, folds=folds, plan=plan)
+
+    def _planned_refit(
+        self,
+        data: Any,
+        *,
+        random_state: int | None,
+        _frozen_folds: Any = None,
+        _frozen_plan: FoldPlan | None = None,
+    ) -> PlannedFits:
+        """The model fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        :func:`cleverly._planned_fits.refit_plan` reads it.
+        """
+        folds, plan = self._refit_split(data, _frozen_folds, _frozen_plan)
+        return self._copy(random_state)._planned_fit_data(data, folds=folds, plan=plan)
+
+    def _refit_split(
+        self, data: Any, frozen: Any, frozen_plan: FoldPlan | None
+    ) -> tuple[Any, FoldPlan | None]:
+        """The outer labels or the fold plan a refit on ``data`` reuses, or neither.
+
+        A plan holds its own outer labels, so both together are refused.  Without either, a
+        fit made under a plan reuses it on data of the same size, and otherwise a fit made on
+        frozen labels reuses those (:meth:`_refit_folds`).
+        """
+        if frozen_plan is not None and frozen is not None:
             raise ValueError(
                 "pass a frozen fold plan or frozen outer labels, not both: the plan holds its "
                 "own outer labels"
             )
+        plan = frozen_plan
         if plan is not None and plan.outer.size != len(data.time):
             raise ValueError(
                 f"a frozen fold plan holds {plan.outer.size} rows; the data hold {len(data.time)}"
             )
         prior = self._plan_override
         if (
-            folds is None
+            frozen is None
             and plan is None
             and prior is not None
             and prior.outer.size == len(data.time)
         ):
             plan = prior
+        if plan is not None:
+            return None, plan
+        return self._refit_folds(data, frozen), None
+
+    def _refit_folds(self, data: Any, frozen: Any) -> Any:
+        """The outer labels a refit on ``data`` reuses, or ``None`` for a fresh draw."""
         override = self._fold_override
-        if (
-            folds is None
-            and plan is None
-            and override is not None
-            and override.size == len(data.time)
-        ):
-            folds = override
-        estimator = self._copy(random_state)
-        return estimator._fit_data(data, folds=folds, plan=plan)
+        if frozen is None and override is not None and override.size == len(data.time):
+            return override
+        return frozen
 
     def _copy(self, random_state: int | None) -> ContinuousSurvivalTMLE:
         """A copy at ``random_state`` that shares no mapping with this estimator."""
@@ -720,7 +775,105 @@ class ContinuousSurvivalTMLE:
             ),
         )
 
-    def _initial(
+    def _planned_fit_data(
+        self, data: Any, *, folds: Any = None, plan: FoldPlan | None = None
+    ) -> PlannedFits:
+        """The model fits :meth:`fit_data` would make, counted without fitting.
+
+        Runs the same checks before the first fit (:meth:`_initial_inputs`).  Per outer fold
+        each cause's hazard and the censoring hazard are chosen from their library by
+        cross-validation over the inner folds, ``M * V`` fits and one refit of the winner (one
+        fit for a library of one), and the treatment model is the user's learner, one fit,
+        or the selection over the four default logistic models, ``4 * V + 1`` fits.  ``V`` is
+        the inner fold count the stratified labels reach on the fold's training rows.
+
+        Parameters
+        ----------
+        data : ContinuousSurvivalData
+            The container.
+        folds : array-like or None
+            One outer label per row in place of a fresh draw, as :meth:`_fit_data` takes it.
+        plan : FoldPlan or None
+            A recorded fold plan in place of every fold draw, as :meth:`_fit_data` takes it.
+
+        Returns
+        -------
+        PlannedFits
+            The record.
+        """
+        from .._planned_fits import Count, PlanBuilder, count_learner
+        from .._summary._learners import learner_name
+
+        seed = self._resolved_seed()
+        inputs = self._initial_inputs(data, seed, folds=folds, plan=plan)
+        A, D, n, codes, folds = inputs[1], inputs[4], inputs[6], inputs[7], inputs[14]
+        hazard_library = tuple(seed_unset(member, seed) for member in self.hazard_library)
+        censoring_library = tuple(seed_unset(member, seed) for member in self.censoring_library)
+
+        def selection(library: tuple[Any, ...], inner: int) -> Count:
+            count = Count(fits=1)
+            if len(library) == 1:
+                count.candidates[type(library[0]).__name__] += 1
+                return count
+            for member in library:
+                count.candidates[type(member).__name__] += inner
+            # The refit of the winner, whose name is known only after the selection.
+            count.candidates[type(library[0]).__name__] += 1
+            return count
+
+        builder = PlanBuilder()
+        names = ", ".join(learner_name(member) for member in hazard_library)
+        for fold in np.unique(folds):
+            train = folds != fold if self.cross_fit else np.ones(n, dtype=bool)
+            observed = np.unique(D[train], return_counts=True)[1]
+            inner = min(self.learner_folds, int(observed.max()))
+            for _ in codes:
+                builder.add(
+                    "hazard_library",
+                    "cause-specific hazard selection, per cause and fold",
+                    names,
+                    selection(hazard_library, inner),
+                )
+            builder.add(
+                "censoring_library",
+                "censoring hazard selection, per fold",
+                ", ".join(learner_name(member) for member in censoring_library),
+                selection(censoring_library, inner),
+            )
+            if self.treatment_learner is not None:
+                count = count_learner(seed_unset(self.treatment_learner, seed), A[train])
+                builder.add(
+                    "treatment_learner",
+                    "treatment model, per fold",
+                    learner_name(self.treatment_learner),
+                    count,
+                )
+                continue
+            candidates = _logistic_candidates(seed)
+            count = Count(fits=1)
+            for _, candidate in candidates:
+                count.candidates.update(count_learner(candidate, None).scaled(inner).candidates)
+            count.candidates.update(count_learner(candidates[0][1], None).candidates)
+            builder.add(
+                "treatment_learner",
+                "treatment model selection over the default logistic models, per fold",
+                "default logistic selection",
+                count,
+            )
+        if len(hazard_library) > 1 or len(censoring_library) > 1:
+            builder.note(
+                "A hazard selection's refit is filed under the first member's class; the "
+                "winner is known only after the cross-validation."
+            )
+        return builder.build(
+            "realized"
+            if self.random_state is not None
+            else "one draw"
+            if folds is None
+            else "outer realized"
+        )
+
+    def _initial_inputs(
         self,
         data: Any,
         seed: int,
@@ -728,16 +881,31 @@ class ContinuousSurvivalTMLE:
         folds: Any = None,
         retained: bool = False,
         plan: FoldPlan | None = None,
-    ) -> _Initial:
-        """Fit every nuisance and build what each walk reads, at the seed ``seed``.
+    ) -> tuple[Any, ...]:
+        """Every check :meth:`_initial` runs before its first fit, and what they resolve.
 
-        ``folds`` replaces the outer cross-fitting draw with one label per row.  ``plan``
-        replaces every fold draw, outer and inner, and the generator state after them, with a
-        recorded :class:`FoldPlan`.  ``retained``
-        tells the memory check that the caller keeps the initial jumps and weight product
-        through every walk, as a truncation curve does.  The
-        generator state after the nuisance phase is kept, so each walk's off-grid draws
-        start from the same state.
+        :meth:`_initial` and :meth:`_planned_fits` both call it: the arms and causes, the
+        follow-up refusals, the outer split drawn from ``seed`` and the memory check.
+
+        Parameters
+        ----------
+        data : ContinuousSurvivalData
+            The container.
+        seed : int
+            The fit's resolved seed.
+        folds : array-like or None
+            As :meth:`_initial`.
+        retained : bool
+            As :meth:`_initial`.
+        plan : FoldPlan or None
+            As :meth:`_initial`; its outer labels replace the split.
+
+        Returns
+        -------
+        tuple
+            The arm labels, the arm codes, the causes, the times, event codes and covariates,
+            ``n``, the cause codes and their count, the grid, the target index and weights, the
+            design, the generator after the split, the fold labels and their count.
         """
         arm_labels, A = self._arms(data.treatment)
         causes = self._causes(data.event, self.causes if self.causes is not None else data.causes)
@@ -830,6 +998,62 @@ class ContinuousSurvivalTMLE:
             ),
             self.max_memory_bytes,
         )
+        return (
+            arm_labels,
+            A,
+            causes,
+            T,
+            D,
+            L,
+            n,
+            codes,
+            J,
+            grid,
+            target_index,
+            target_weights,
+            X,
+            rng,
+            folds,
+            n_folds,
+        )
+
+    def _initial(
+        self,
+        data: Any,
+        seed: int,
+        *,
+        folds: Any = None,
+        retained: bool = False,
+        plan: FoldPlan | None = None,
+    ) -> _Initial:
+        """Fit every nuisance and build what each walk reads, at the seed ``seed``.
+
+        ``folds`` replaces the outer cross-fitting draw with one label per row.  ``plan``
+        replaces every fold draw, outer and inner, and the generator state after them, with a
+        recorded :class:`FoldPlan`.  ``retained``
+        tells the memory check that the caller keeps the initial jumps and weight product
+        through every walk, as a truncation curve does.  The
+        generator state after the nuisance phase is kept, so each walk's off-grid draws
+        start from the same state.
+        """
+        (
+            arm_labels,
+            A,
+            causes,
+            T,
+            D,
+            L,
+            n,
+            codes,
+            J,
+            grid,
+            target_index,
+            target_weights,
+            X,
+            rng,
+            folds,
+            n_folds,
+        ) = self._initial_inputs(data, seed, folds=folds, retained=retained, plan=plan)
         gap = np.diff(np.unique(T))
         shift = 0.5 * float(gap.min()) if gap.size else 0.5
         censor_time = np.where(D > 0, T - shift, T)

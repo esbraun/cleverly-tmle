@@ -549,6 +549,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "_Simulator._tilted"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_support_rows"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "plan_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "natural_nodes"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "observed_table"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
@@ -658,6 +659,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "_Simulator._modified"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "_Simulator._policy_density"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "plan_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/hazard.py", "_codes_of"): "after refuse_multinode_design: categorical nodes",
     ("longitudinal/hazard.py", "_current_level_designs"): (

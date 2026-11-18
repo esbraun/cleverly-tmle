@@ -690,12 +690,12 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "re-shrink. The fit's warning names the failed condition. The point estimate "
                 "stands. The plug-in standard error of the shipped curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, and it omits the "
-                "generated-design term. X58 in docs/roadmap.md describes the stack."
+                "generated-design term. X58 in docs/roadmap.md holds this status."
             ),
             assessment_note=(
                 "the reported curve is a stacked-equation failure diagnostic: no confidence "
                 "interval or p-value is available for an estimate whose arm stack failed on "
-                "this sample, and X58 in the roadmap describes the stack"
+                "this sample, and X58 in the roadmap holds this status"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of the per-arm "

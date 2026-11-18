@@ -83,6 +83,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -1490,6 +1491,73 @@ def target_time_varying(
     if walk:
         warn_bound_excludes(data, records)
     return initial, out
+
+
+def plan_time_varying(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    *,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    horizons: Sequence[int],
+    counter: Any,
+) -> tuple[Any, Any]:
+    """The fits :func:`target_time_varying` makes, counted without fitting.
+
+    The node hazards in sample, or on each outer fold's training rows, exactly as
+    :func:`~cleverly.longitudinal.hazard.plan_hazards` counts them.  Then one continuation
+    per regimen, node below the last horizon and cause, in sample or in each fold's
+    untargeted pass.  A continuation regresses the next node's pseudo-outcome, which can turn
+    out all zero or all one, so its count is the most it can make, each at the learner's
+    declared inner folds.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans.
+    outcome_learner : Learner
+        The node hazard learner.
+    pseudo_learner : Learner
+        The continuation learner.
+    folds : Folds
+        The outer split.
+    horizons : sequence of int
+        The reported horizons.
+    counter : FitCounter
+        Counts each fit.
+
+    Returns
+    -------
+    tuple of Count
+        The node hazards' fits and the continuations' fits.
+    """
+    from .._planned_fits import Count, count_nominal
+    from .hazard import plan_hazards
+
+    single = Folds.single(data.n)
+    trains: list[BoolArray | None] = []
+    if folds.is_single:
+        trains.append(None)
+        hazards = plan_hazards(data, learner=outcome_learner, folds=folds, counter=counter)
+    else:
+        hazards = Count()
+        for _, test in folds:
+            train = np.ones(data.n, dtype=bool)
+            train[test] = False
+            trains.append(train)
+            hazards.add(
+                plan_hazards(
+                    data, learner=outcome_learner, folds=single, counter=counter, fit_rows=train
+                )
+            )
+    n_causes = max(len(data.cause_labels), 1)
+    nodes = max(horizons) - 1
+    one = count_nominal(pseudo_learner, np.arange(data.n, dtype=float), 1, task="regression")
+    continuations = one.scaled(len(plans) * len(trains) * nodes * n_causes)
+    return hazards, continuations
 
 
 def _stitched_continuations(
