@@ -350,13 +350,26 @@ rebuilds most blocks on every pass. A block rebuilt in the pass after accepted s
 $s$ steps, so a walk of $S$ accepted steps replays about $S (S + 1) / 2$ steps per block not kept,
 and a larger `max_iter` lengthens a long walk quadratically.
 
-The switched variance (`variance="switched"`, the default) does not yet run in blocks. After the
-walk it rebuilds every unit's targeted hazard jumps, survival, incidences, weight and floored ratio
-on the full grid at once, about $(32 J + 64)$ bytes per unit and grid time, to compute the
-predictable variation; the final pass also collects the targeted jumps, $16 J$ bytes per unit and
-grid time. So under the default the peak grows with $n M$: at $n = 4{,}000$, one cause and
-$M = 3{,}000$ that pass holds about 1.2 GB, and the guard refuses a fit whose dense pass exceeds the
-budget. `variance="influence_curve"` skips the pass and keeps the growth with $n P$ above.
+The switched variance (`variance="switched"`, the default) adds its predictable variation in the
+final pass. Each block's targeted jumps are copied onto the full grid into a buffer of
+$b = \max(1, \lfloor 6 \times 10^6 / (J^2 Q M) \rfloor)$ units, the blocks over which
+`cleverly.survival._targeting.predictable_covariance` sums. When the buffer fills, its units'
+survival, incidences, bounded weight and floored ratio $\min(1, \hat\pi \hat S_c / g_{\min})$
+are built and its martingale term is added, and every unit's plug-ins, $(n, P)$, are kept for
+the centred plug-in covariance. The pass holds $16 J b M$ bytes for the buffer and about
+$8 b M (J^2 Q + 3 J Q + 8)$ more while a buffer's term is formed: at most about 0.4 GB with one
+cause and two targets, whatever $n$. So the default's peak grows with $n P$ too, plus that bounded
+term: about 0.7 GB at $n = 100{,}000$ with one cause, two target times and $M = 59{,}980$.
+`variance="influence_curve"` skips the pass and needs the 0.3 GB above. A refusal whose peak is
+this pass's names the final pass and `variance="influence_curve"` with its own prediction.
+
+The buffer is cut where the sum's blocks are, so the
+pass adds the same blocks whatever the walk's block size or the blocks kept, and the martingale
+term equals the one-pass computation's bit for bit. The plug-ins' matrix products run over a
+buffer's rows rather than all $n$, so for a restricted mean the plug-in covariance can differ in
+the last bit. Over 61 study fits refitted both ways, every standard error, both variances and
+every choice between them matched a pass over all units at once bit for bit, and one matrix entry
+pair of one restricted-mean fit differed by $1.5 \times 10^{-16}$ relative.
 
 Before fitting any nuisance, the fit predicts each phase's peak with no block kept and the walk on
 the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
@@ -397,12 +410,12 @@ The prediction counts NumPy arrays the engine and the shipped hazard learners al
 not count a user learner's own allocations, which can only make the check miss a refusal.
 `tests/unit/test_continuous_survival_memory.py` checks that each phase's `tracemalloc` peak stays at
 or below its prediction in fits that keep every block, none or half, with one to three causes, a
-restricted mean, cross-fitting and the factual tilt. The walk's and the final pass's predictions
-stay within 10% of their peaks, as does the switched variance's dense pass, and the nuisance phase's
-within 25% for an interaction Cox model on
-eight covariates. Dropping one term from a phase's prediction falls below its peak, and doubling
-$n$ with no block kept and the influence-curve variance at most multiplies the peak by 2.5. Coarsening the time grid would lower $M$
-but changes the analysis, so the engine never does it.
+restricted mean or two, cross-fitting, the factual tilt and both variances. The walk's and the final
+pass's predictions stay within 10% of their peaks, and the nuisance phase's within 25% for an
+interaction Cox model on eight covariates. Dropping one term from a phase's prediction falls below
+its peak, and doubling $n$ with no block kept, under the default with a predictable-variation
+buffer smaller than a block, at most multiplies the peak by 2.5. Coarsening the time grid would
+lower $M$ but changes the analysis, so the engine never does it.
 
 ## What is refused
 
