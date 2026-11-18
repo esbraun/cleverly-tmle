@@ -30,11 +30,10 @@ from .._refusal import NO_ALTERNATIVE, RefusalReason
 from .._support import Support
 from .._typing import FloatArray, IntArray
 from .._warnings import warn as _warn
-from ..exceptions import CapabilityError, ConvergenceWarning, DataError
+from ..exceptions import CapabilityError, ConvergenceWarning, DataError, MethodConfigurationError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
 from ..utils.memory import check_max_memory_bytes
-from ..exceptions import MethodConfigurationError
 from . import _chunked
 from ._chunked import HazardSource, InitialHazards, blocks, chunk_size
 from ._memory import check_memory, design_width, peak_bytes, resident_count, train_size
@@ -825,8 +824,10 @@ class ContinuousSurvivalTMLE:
         combined = low_survival = False
         for k, (lo, hi) in enumerate(blocks(n, block)):
             dlam = hazards.jumps(lo, hi)
-            if k == 0 and hazards.calls_model and not np.array_equal(
-                dlam, hazards.jumps(lo, hi), equal_nan=True
+            if (
+                k == 0
+                and hazards.calls_model
+                and not np.array_equal(dlam, hazards.jumps(lo, hi), equal_nan=True)
             ):
                 raise MethodConfigurationError(
                     "A hazard learner whose predictions change between calls cannot be "
@@ -844,7 +845,9 @@ class ContinuousSurvivalTMLE:
             # A NaN jump is not zero, so its time stays on the walk's grid.
             jumping |= (dlam != 0).any(axis=(0, 1, 2))
             del dlam, total, survival
-            retention = np.cumprod(1.0 - np.clip(hazards.censoring_jumps(lo, hi), 0.0, 1.0), axis=-1)
+            retention = np.cumprod(
+                1.0 - np.clip(hazards.censoring_jumps(lo, hi), 0.0, 1.0), axis=-1
+            )
             retention_before = np.concatenate(
                 [np.ones((2, hi - lo, 1)), retention[..., :-1]], axis=-1
             )
@@ -1055,6 +1058,10 @@ class _FitPlan:
         self.times = grid[kept]
         self.dropped = np.ones(grid.size, dtype=bool)
         self.dropped[kept] = False
+        # A kept time preceded by a dropped one; a trailing run of dropped times carries no
+        # target weight after it, so its direction is zero.
+        previous = np.concatenate([[-1], kept[:-1]])
+        self._gap_ends = np.flatnonzero(kept - previous > 1)
         weights = initial.target_weights
         points = _point_rows(weights)
         self.expand: IntArray | None = None
@@ -1180,6 +1187,16 @@ class _FitPlan:
         lo, hi = self.bounds[k]
         return self._largest_dropped[:, lo:hi]
 
+    def gap_ends(self) -> IntArray:
+        """The walk-grid times that a run of dropped times precedes.
+
+        Returns
+        -------
+        ndarray
+            Positions on the walk's grid.
+        """
+        return self._gap_ends
+
     def overflow(
         self, k: int, units: IntArray, state: Any, v: FloatArray, step: float
     ) -> np.ndarray | None:
@@ -1206,7 +1223,7 @@ class _FitPlan:
         ndarray or None
             The overflowing pairs.
         """
-        lo, hi = self.bounds[k]
+        lo = self.bounds[k][0]
         initial = self.fit
         expand = np.searchsorted(initial.kept, np.arange(initial.grid.size), side="right") - 1
         survival = state.survival[:, units]
@@ -1217,7 +1234,12 @@ class _FitPlan:
         rows = lo + units
         at_risk = initial.T[rows, None] >= initial.grid[None, :]
         events = np.zeros((len(initial.causes), *at_risk.shape), dtype=bool)
-        full = Problem(initial.A[rows], at_risk, events, weight, initial.target_weights)
+        weights = state.problem.target_weights
+        if state.problem.expand is None:
+            # The walk's own weight rows, read on the full grid (zero at the dropped times).
+            weights = np.zeros((weights.shape[0], initial.grid.size))
+            weights[:, initial.kept] = state.problem.target_weights
+        full = Problem(initial.A[rows], at_risk, events, weight, weights)
         light = _chunked._light(survival, incidence)
         direction = _chunked.T._direction(full, light, v)
         with np.errstate(over="ignore"):

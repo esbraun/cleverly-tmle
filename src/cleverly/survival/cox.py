@@ -402,9 +402,10 @@ class StratifiedNelsonAalen:
         return curves[index]
 
     def hazard_cells(self, X: Any, times: Any) -> tuple[IntArray, FloatArray]:
-        """The cell of each row and each cell's cumulative hazard, :meth:`cumulative_hazard`'s parts.
+        """The cell of each row and each cell's cumulative hazard.
 
-        ``cumulative_hazard(X, times)`` is ``curves[index]`` bit for bit.
+        These are the parts of :meth:`cumulative_hazard`: ``cumulative_hazard(X, times)`` is
+        ``curves[index]`` bit for bit.
 
         Parameters
         ----------

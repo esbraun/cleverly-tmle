@@ -247,6 +247,10 @@ class Plan(Protocol):
         """``(2, c)`` each pair's largest weight at a dropped time, or ``None`` when none."""
         ...  # pragma: no cover - protocol
 
+    def gap_ends(self) -> IntArray:
+        """The walk-grid times that a run of dropped times precedes, in order."""
+        ...  # pragma: no cover - protocol
+
 
 @dataclass
 class _State:
@@ -414,31 +418,67 @@ class _Walker:
         return parts, plugins, low
 
     def reach(self, k: int, state: _State, v: FloatArray) -> FloatArray | None:
-        """``(2, c)`` a bound on each pair's ``|direction|`` at the dropped times, or ``None``.
+        """``(2, c)`` a bound on each pair's direction at the dropped times, or ``None``.
 
-        At a dropped time the survival and incidences repeat the last kept time's (or one and
-        zero before the first), so with :math:`W_l` the reverse sums of the target weights,
-        :math:`|c_l| \\le w \\{\\max_l \\sum |W_l| + 2 \\max |F| \\sum_j \\sum_m
-        |\\omega_{j,m}| / \\min S\\}` with :math:`w` the pair's largest weight there.  A pair masked
-        out of the step (the factual tilt) reads zero.
+        At a dropped time the curves repeat the last kept time's (one and zero before the
+        first), so the dense direction there is the pair's weight times
+        :math:`d_l = W_l - \\sum_j \\{R_j - F_j W_j\\} / S`, with :math:`W` and :math:`R` the
+        reverse sums of the target weights and of the weighted incidences.  On a risk's grid
+        those sums are constant over each run of dropped times and equal their value at the
+        next kept time, so :math:`d` is read once per run; on a restricted mean's they run on
+        the full grid.  The bound is the pair's largest dropped weight times the largest
+        positive :math:`d`; only a positive increment can overflow.  A pair masked out of the
+        step (the factual tilt) reads zero, and an undefined :math:`d` reads infinity.
         """
         dropped = self.plan.dropped_weight(k)
         if dropped is None:
             return None
         problem = state.problem
         J, Q = problem.n_causes, problem.n_rows
-        weights = problem.target_weights
-        mass = np.stack(
-            [
-                np.abs(v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ weights).sum(axis=1)
-                for a in (0, 1)
-            ]
-        )  # (2, J)
+        c = problem.n
+        expand, kept = problem.expand, problem.kept
+        gaps = self.plan.gap_ends()
+        largest = np.zeros((2, c))
         with np.errstate(invalid="ignore", over="ignore", divide="ignore"):
-            largest = np.max(np.abs(state.incidence), axis=(1, 3))  # (2, c), NaN propagates
-            lowest = np.minimum(np.min(np.abs(state.survival), axis=-1), 1.0)
-            shared = 2.0 * largest * mass.sum(axis=1)[:, None] / lowest
-            bound = dropped * (mass.max(axis=1)[:, None] + shared)
+            for a in (0, 1):
+                own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
+                revs = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W, (J, M)
+                if expand is None:
+                    if gaps.size == 0:
+                        continue
+                    W = revs[:, gaps]  # (J, g)
+                    before = gaps - 1
+                    first = before < 0
+                    shared = np.zeros((c, gaps.size))
+                    for j in range(J):
+                        weighted = state.incidence[a, j] * own[j][None, :]
+                        rev = np.cumsum(weighted[:, ::-1], axis=1)[:, ::-1][:, gaps]
+                        F = np.where(first[None, :], 0.0, state.incidence[a, j][:, before])
+                        shared += rev - F * W[j][None, :]
+                        del weighted, rev, F
+                    S = np.where(first[None, :], 1.0, state.survival[a][:, before])
+                    shared /= S
+                    factor = W.max(axis=0)[None, :] - shared  # (c, g)
+                else:
+                    assert kept is not None
+                    mask = np.ones(expand.size, dtype=bool)
+                    mask[kept] = False
+                    shared = np.zeros((c, int(mask.sum())))
+                    for j in range(J):
+                        F = T._filled(state.incidence[a, j], expand)
+                        weighted = F * own[j][None, :]
+                        rev = np.cumsum(weighted[:, ::-1], axis=1)[:, ::-1]
+                        shared += (rev - F * revs[j][None, :])[:, mask]
+                        del F, weighted, rev
+                    padded = np.concatenate([np.ones((c, 1)), state.survival[a]], axis=-1)
+                    S = np.take(padded, expand[mask] + 1, axis=-1)
+                    shared /= S
+                    factor = revs[:, mask].max(axis=0)[None, :] - shared
+                factor = np.where(np.isnan(factor), np.inf, factor)
+                if factor.shape[1]:
+                    largest[a] = np.maximum(factor.max(axis=1), 0.0)
+                del shared, factor
+            bound = dropped * largest
         bound = np.where(np.isnan(bound), np.inf, bound)
         if self.tilt == "factual":
             bound = np.where(problem.arm[None, :] == np.arange(2)[:, None], bound, 0.0)
@@ -563,9 +603,7 @@ def run_walk(
             direction = walker.direction(k, state, v)
             reach = walker.reach(k, state, v)
             for e, size in enumerate(sizes):
-                p, q, low = walker.trial(
-                    k, state, direction, size, v, survival_floor, None, reach
-                )
+                p, q, low = walker.trial(k, state, direction, size, v, survival_floor, None, reach)
                 tried[e][0][lo:hi], tried[e][1][lo:hi] = p, q
                 if low.any():
                     lows[e][:, lo:hi] = low
@@ -707,6 +745,10 @@ class DensePlan:
     def dropped_weight(self, k: int) -> FloatArray | None:  # numpy ignore=PR01
         """No time is dropped."""
         return None
+
+    def gap_ends(self) -> IntArray:
+        """No time is dropped."""
+        return np.empty(0, dtype=int)
 
 
 # ------------------------------------------------------------------- hazard sources
