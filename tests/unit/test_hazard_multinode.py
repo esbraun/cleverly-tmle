@@ -1148,3 +1148,167 @@ def test_h17_counts_every_regimen_whatever_their_order(
         LTMLE(chosen, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
     with pytest.raises(_Reached):
         LTMLE(arms, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
+
+
+# ------------------------------------------------------------------- the nuisance report
+
+#: The sweep's two-node survival fit, in sample and with five outer folds.  Its level axis
+#: holds the two static paths, and 161 of the 398 rows at risk at node 2 follow neither.
+REPORT_FITS: dict[str, dict[str, Any]] = {
+    "in_sample": {},
+    "five_folds": {"cross_fit": True, "n_folds": 5},
+}
+
+
+def _report_fit(options: dict[str, Any]) -> Any:
+    from tests.unit._capability_sweep_support import fit_hazard_multinode
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*read their influence curve from few rows")
+        return fit_hazard_multinode(**options)
+
+
+def _observed_rho(result: Any) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
+    """By node and cause, the rows the learner trained on and its prediction at the fit design.
+
+    The design is each unit's own history, so the prediction is the pseudo-hazard at the
+    observed treatment path.  Each fold's learner is refitted on the fold's training rows at
+    risk with no event of an earlier cause, and predicts the fold's held rows, so a cross-fitted
+    fit is checked against its out-of-fold predictions.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    data = result.data
+    at_risk, events = hazard_module.event_indicators(data)
+    assignment = result.folds.assignment
+    folds = np.unique(assignment)
+    out: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+    for time in range(1, data.n_times + 1):
+        design = data.history_design(time, include_current=True)
+        earlier = np.zeros(data.n, dtype=bool)
+        for cause in range(events.shape[2]):
+            rows = at_risk[:, time - 1] & ~earlier
+            target = events[:, time - 1, cause]
+            rho = np.full(data.n, np.nan)
+            for fold in folds:
+                train = rows if len(folds) == 1 else rows & (assignment != fold)
+                learner = LogisticRegression(max_iter=1000, random_state=0)
+                learner.fit(design[train], target[train], sample_weight=data.weights[train])
+                held = assignment == fold
+                rho[held] = learner.predict_proba(design[held])[:, 1]
+            out[time, cause] = (rows, rho)
+            earlier = earlier | (target > 0)
+    return out
+
+
+@pytest.mark.parametrize("options", REPORT_FITS.values(), ids=REPORT_FITS)
+def test_the_nuisance_report_scores_each_hazard_at_the_observed_path(
+    options: dict[str, Any],
+) -> None:
+    """Each hazard row's log loss and calibration bins are the learner's at the fit design.
+
+    The level axis holds regimen paths, so reading it at the observed ``A_1`` scored the other
+    arm's path (node 1 log loss 0.48372 in sample, against 0.46242), and a row whose observed
+    path no regimen follows had no slot at all.
+    """
+    from cleverly.validation.nuisance import _calibration_table
+
+    result = _report_fit(options)
+    data = result.data
+    _, events = hazard_module.event_indicators(data)
+    expected = _observed_rho(result)
+    rows = [row for row in result.diagnostics.nuisance_models().rows if row.role == "hazard"]
+    assert len(rows) == len(expected) == data.n_times
+    for row in rows:
+        cause = 0 if row.cause is None else data.cause_labels.index(row.cause)
+        mask, rho = expected[row.time, cause]
+        p = np.clip(rho[mask], 1e-12, 1.0 - 1e-12)
+        y = events[mask, row.time - 1, cause]
+        w = data.weights[mask]
+        log_loss = -np.average(y * np.log(p) + (1.0 - y) * np.log(1.0 - p), weights=w)
+        assert row.n == int(mask.sum())
+        assert row.evaluation == ("in_sample" if not options else "out_of_fold")
+        assert row.loss == pytest.approx(log_loss, rel=0.0, abs=1e-12)
+        bins = _calibration_table(p, y, w)
+        reported = row.model.calibration
+        assert reported["n"] == bins["n"]
+        for column in ("mean_predicted", "mean_observed"):
+            np.testing.assert_allclose(reported[column], bins[column], rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("options", REPORT_FITS.values(), ids=REPORT_FITS)
+def test_the_observed_hazards_are_the_path_hazards_where_the_paths_coincide(
+    options: dict[str, Any],
+) -> None:
+    """On a row that follows a regimen path through node ``k``, the two designs are one.
+
+    At node 2 some rows at risk follow no regimen path, which only the observed design reads.
+    """
+    with captured("fit_hazards") as calls:
+        _report_fit(options)
+    ((args, initial),) = calls
+    data, plans = args[0], args[1]
+    at_risk, _ = hazard_module.event_indicators(data)
+    codes = np.asarray(np.nan_to_num(data.treatment, nan=-1.0), dtype=np.int64)
+    assert initial.observed is not None
+    assert initial.observed.shape == (data.n, data.n_times, 1)
+    for time in range(1, data.n_times + 1):
+        followed = np.zeros(data.n, dtype=bool)
+        for slot, plan in enumerate(plans):
+            on_path = at_risk[:, time - 1] & np.all(
+                codes[:, :time] == plan.values[:, :time], axis=1
+            )
+            assert on_path.any()
+            np.testing.assert_allclose(
+                initial.observed[on_path, time - 1],
+                initial.hazards[on_path, time - 1, slot],
+                rtol=0.0,
+                atol=1e-12,
+            )
+            followed |= on_path
+        if time > 1:
+            assert np.any(at_risk[:, time - 1] & ~followed)
+
+
+def _without_observed(original: Callable[..., Any]) -> Callable[..., Any]:
+    """``cross_fit_predictions`` that never predicts at the observed design, and returns nan."""
+
+    def predictions(*args: Any, **kwargs: Any) -> Any:
+        designs = dict(kwargs.pop("predict_designs"))
+        dropped = designs.pop(hazard_module._OBSERVED_SLOT, None)
+        out, diagnostics = original(*args, predict_designs=designs, **kwargs)
+        if dropped is not None:
+            out = {**out, hazard_module._OBSERVED_SLOT: np.full(dropped.shape[0], np.nan)}
+        return out, diagnostics
+
+    return predictions
+
+
+@pytest.mark.parametrize("options", REPORT_FITS.values(), ids=REPORT_FITS)
+def test_no_estimate_reads_the_observed_hazards(
+    monkeypatch: pytest.MonkeyPatch, options: dict[str, Any]
+) -> None:
+    """Every estimate, standard error and influence curve is bit-equal without them.
+
+    The patched fit never predicts at the observed design and fills the observed hazards with
+    nan, so any reader of them would move or poison an estimate.
+    """
+    result = _report_fit(options)
+    monkeypatch.setattr(
+        hazard_module,
+        "cross_fit_predictions",
+        _without_observed(hazard_module.cross_fit_predictions),
+    )
+    patched = _report_fit(options)
+    assert np.all(np.isfinite(result.initial_hazards.observed))
+    assert np.all(np.isnan(patched.initial_hazards.observed))
+    assert set(result.estimates) == set(patched.estimates)
+    for name, estimate in result.estimates.items():
+        other = patched.estimates[name]
+        assert estimate.psi == other.psi
+        assert estimate.std_error == other.std_error
+        assert np.array_equal(estimate.influence_curve, other.influence_curve)
+    assert set(result.influence_curves) == set(patched.influence_curves)
+    for name, curve in result.influence_curves.items():
+        assert np.array_equal(curve, patched.influence_curves[name])
+    np.testing.assert_array_equal(result.initial_hazards.hazards, patched.initial_hazards.hazards)

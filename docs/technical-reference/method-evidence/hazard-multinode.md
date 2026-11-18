@@ -416,7 +416,7 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| a binary treatment and no covariate after baseline | a treatment with more than two levels is not measured, and a covariate measured after baseline beside a treatment at several nodes is part (b2) of plan X70, refused until then (H2) |
+| a binary treatment and no covariate after baseline | a treatment with more than two levels is not measured, and a covariate measured after baseline beside a treatment at several nodes runs the backward pass of [its own study](hazard-time-varying-multinode.md) |
 | finite covariates and low-dimensional learners | the evidence covers correct or misspecified logistic learners. A flexible learner is outside it |
 | held cells | the laws keep every treatment prefix populated at n = 2,000, and a held draw is a lost replicate. A policy over many nodes on a small sample holds cells, whose intervals then add the boundary-node variance; held cells rest on `tests/unit/test_hazard_multinode.py` |
 | the one-step walk on regimen curves | the gated regimen cells use the per-horizon walk. The one-step walk is reported at 200 draws over `always`, `never` and `policy` on `base`, with no verdict, and takes 30 to 160 seconds a fit when a policy is present |

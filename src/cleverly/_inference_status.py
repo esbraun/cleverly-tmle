@@ -38,6 +38,7 @@ __all__ = [
     "FLOOR_FAMILY_NAMES",
     "HELD_OUT_SCALE",
     "JACKKNIFE_REFIT_STATUS",
+    "MINIMUM_FOLD_TRAINING_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
     "NO_CONSTANT_ARM_BANDS",
     "NO_JACKKNIFE_BANDS",
@@ -107,6 +108,20 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 #: admits no fit at all. From :data:`MINIMUM_T_REFERENCE_CLUSTERS` to one below it the fit takes
 #: ``"few_cluster_plugin"``, which shows a labelled interval on ``t(J - 2)``.
 DEFAULT_POINT_INTERVAL_CLUSTERS: Final[int] = 10
+
+#: The fewest clusters with positive weight mass a training complement of a fold-evaluated
+#: ``TMLE`` (``cv_evaluation=True``) must hold for the fit to report its interval without the
+#: few-cluster label, keyed by the treatment mechanism: ``"estimated"``, or ``"known"`` when the
+#: propensity is declared through ``treatment_probabilities=``. The training complement of a
+#: validation fold is every cluster outside it, the clusters its nuisances are fitted on. The
+#: registered ``few-cluster-fold-variance`` study measures the centred fold cluster variance from
+#: 2 to 24 training clusters: with either mechanism every cell passes from 4, and at 2 the
+#: all-draw coverage or the coverage band fails. A fit whose smallest training complement holds
+#: fewer takes ``"few_cluster_plugin"``, on top of the fit family's floor in
+#: :data:`CLUSTER_INTERVAL_FLOORS` on the whole fit.
+MINIMUM_FOLD_TRAINING_CLUSTERS: Final[Mapping[str, int]] = MappingProxyType(
+    {"estimated": 4, "known": 4}
+)
 
 #: The fewest clusters with positive weight mass for which a Student t reference has a positive
 #: degree of freedom, ``J - 2 >= 1``. A fit that reads fewer takes ``"no_cluster_variance_plugin"``
@@ -699,7 +714,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"With {MINIMUM_T_REFERENCE_CLUSTERS} clusters up to one below the fit's "
                 f"interval floor ({floor_table()}) the interval uses a t distribution with "
                 "the degrees of freedom in the df column, and no validation study measures "
-                "intervals at so few clusters for this fit, so cleverly marks it experimental."
+                "intervals at so few clusters for this fit, so cleverly marks it experimental. "
+                "A fold-evaluated fit takes the same mark when the clusters outside one "
+                "validation fold, which fit that fold's models, number fewer than "
+                f"{min(MINIMUM_FOLD_TRAINING_CLUSTERS.values())}."
             ),
             reason=(
                 "A clustered fit that reads from "
@@ -711,7 +729,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "measure each fit from its floor, and no registered study measures an interval "
                 "below those counts. The estimate carries the experimental label. X54 in "
                 "docs/roadmap.md holds the registered measurements that reopen counts from "
-                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor."
+                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor. A fold-evaluated "
+                "TMLE whose smallest training complement holds fewer positive-mass clusters "
+                "than MINIMUM_FOLD_TRAINING_CLUSTERS at its treatment mechanism ("
+                f"{MINIMUM_FOLD_TRAINING_CLUSTERS['estimated']} estimated, "
+                f"{MINIMUM_FOLD_TRAINING_CLUSTERS['known']} known) takes the same status: the "
+                "registered few-cluster-fold-variance study measures the fold-evaluated "
+                "cluster variance from those counts."
             ),
             assessment_note=(
                 "the reported interval is experimental: no registered study measures it for "
@@ -729,7 +753,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             shown_reason=(
                 "The interval uses a Student t reference with J - 2 degrees of freedom, and no "
                 "registered study measures a clustered interval of this fit below its floor "
-                f"({floor_table()}). X54 in docs/roadmap.md holds the measurements."
+                f"({floor_table()}), or a fold-evaluated interval whose smallest training "
+                "complement holds fewer than MINIMUM_FOLD_TRAINING_CLUSTERS. X54 in "
+                "docs/roadmap.md holds the measurements."
             ),
         ),
         "low_dose_support_plugin": StatusRecord(

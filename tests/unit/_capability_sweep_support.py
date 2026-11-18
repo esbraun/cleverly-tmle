@@ -1582,8 +1582,11 @@ def fit_hazard_time_varying() -> Any:
     )
 
 
-def fit_hazard_multinode() -> Any:
-    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a))."""
+def fit_hazard_multinode(**options: Any) -> Any:
+    """The iterative hazard fit of a treatment at two nodes with baseline covariates (X70 (a)).
+
+    In sample unless ``options`` say otherwise; they override the estimate's settings.
+    """
     frame, _ = make_longitudinal_survival(n=600, seed=12)
     study = CausalStudy(
         frame.drop(columns=["L2"]),
@@ -1600,6 +1603,50 @@ def fit_hazard_multinode() -> Any:
         censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
         survival_model="hazard",
         targeting="iterative",
+        random_state=5,
+        simultaneous=False,
+        **{**IN_SAMPLE, **options},
+    )
+
+
+def _multinode_policy(frame: Any) -> Any:
+    """A known policy at both nodes: treat with 0.3 at node 1, after it 0.2 plus 0.4 when L2 > 0."""
+    if "L2" in frame.columns:
+        p = 0.2 + 0.4 * (np.asarray(frame["L2"], dtype=float) > 0.0)
+    else:
+        p = np.full(len(frame), 0.3)
+    return np.column_stack([1.0 - p, p])
+
+
+def fit_hazard_time_varying_multinode() -> Any:
+    """The one-step hazard fit of a treatment at two nodes and a covariate after baseline.
+
+    X70 part (b2): the backward pass with the multi-node slot rule, under static arms and a
+    known policy at both nodes.
+    """
+    from cleverly.interventions import Stochastic
+    from cleverly.longitudinal import DynamicRegimen
+
+    frame, _ = make_longitudinal_survival(n=600, seed=12)
+    node = Stochastic(_multinode_policy, "policy", density_kind="known")
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    regimens = {"a1": 1, "a0": 0, "policy": DynamicRegimen("policy", (node, node))}
+    return study.identify(RegimeContrast(regimens=regimens, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        survival_model="hazard",
+        targeting="one_step",
         random_state=5,
         simultaneous=False,
         **IN_SAMPLE,
@@ -1713,6 +1760,35 @@ def fit_per_arm_constant_fold() -> Any:
     result = estimator.fit(frame, outcome="Y", treatment="A").single()
     assert result.nuisance.outcome_constant_folds == (1,)
     return result
+
+
+def _pooled_constant_fold(**options: Any) -> Any:
+    """A cross-fitted pooled fit whose events all sit in fold 1, so fold 1's complement has none.
+
+    The plain TMLE's pooled outcome regression predicts 0 in that fold (the constant-target
+    rule, X54 part (e)) where the preflight used to refuse the draw.
+    """
+    frame, folds = _constant_outcome_frame(400, 17)
+    frame.loc[folds != 0, "Y"] = 0
+    estimator = TMLE(
+        **linear_in_sample(
+            outcome_learner=LogisticRegression(max_iter=1000), cross_fit=True, n_folds=3, **options
+        )
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    assert result.nuisance.outcome_constant_folds == (1,)
+    assert np.all(result.nuisance.outcome.observed[folds == 0] == 0.0)
+    return result
+
+
+def fit_pooled_constant_fold() -> Any:
+    """The stacked form of :func:`_pooled_constant_fold`."""
+    return _pooled_constant_fold()
+
+
+def fit_cv_evaluation_constant_fold() -> Any:
+    """The fold-evaluated form of :func:`_pooled_constant_fold` (``rr`` and ``or`` refuse there)."""
+    return _pooled_constant_fold(cv_evaluation=True, estimands=("ate", "ey1", "ey0"))
 
 
 def fit_per_arm_constant_arm() -> Any:
@@ -2198,6 +2274,10 @@ KINDS: dict[str, Kind] = {
     "drtmle_companion": _kind(fit_drtmle_companion, "marginal_bounds", *_LIVE, "corrections"),
     # The constant-target rule (X54): a per-arm training fold of one outcome value predicts it.
     "per_arm+constant_fold": _kind(fit_per_arm_constant_fold, *_ARM, "marginal_bounds"),
+    # The same rule on a plain TMLE's pooled outcome regression, stacked and fold-evaluated,
+    # where the training-support preflight refused the draw before X54 part (e).
+    "constant_fold": _kind(fit_pooled_constant_fold, *_ARM, "marginal_bounds"),
+    "cv_evaluation+constant_fold": _kind(fit_cv_evaluation_constant_fold, *_ARM, "marginal_bounds"),
     # An in-sample per-arm fit of a constant arm: the estimates that read it withhold their
     # interval, so the E-value and the marginal bounds of the default ATE refuse with the
     # constant-cell reason and the plug-in bound rows answer.
@@ -2248,6 +2328,11 @@ KINDS: dict[str, Kind] = {
     # The regressions of the future read targeted later hazards, which no truncation replay
     # rebuilds (H31), so the truncation row reads unavailable.
     "ltmle_hazard_time_varying": _kind(fit_hazard_time_varying, *_READ, "refute"),
+    # A treatment at several nodes with a covariate after baseline runs the same backward pass
+    # (X70 (b2)), so the truncation row reads unavailable (H31) as well.
+    "ltmle_hazard_time_varying_multinode": _kind(
+        fit_hazard_time_varying_multinode, *_READ, "refute"
+    ),
     # A treatment at several nodes with baseline covariates walks every regimen path, and its
     # truncation replay rebuilds the walk, so every point row runs.
     "ltmle_hazard_multinode": _kind(fit_hazard_multinode, *_READ, *_POINT),

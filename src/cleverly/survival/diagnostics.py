@@ -445,7 +445,9 @@ def continuous_truncation_curve(
     -----
     The curve keeps the initial hazard jumps alive through every walk, one extra
     ``(2, J, n, M)`` array over the fit's peak memory, and also keeps the ``(2, n, M)``
-    weight product that the fit frees before its walk: about 600 MB at n = 4,000.
+    weight product that the fit frees before its walk: about 600 MB at n = 4,000 with two
+    causes.  The memory check counts both, against the fit's ``max_memory_bytes``, or the
+    memory available when that is ``None``.
     """
     from ..utils.frames import emit_frame
     from .result import MEASURED_DEFAULTS
@@ -469,7 +471,7 @@ def continuous_truncation_curve(
             )
     seed = estimator.random_state
     assert seed is not None  # a stored estimator carries its resolved seed
-    initial = estimator._initial(data, int(seed), folds=estimator._fold_override)
+    initial = estimator._initial(data, int(seed), folds=estimator._fold_override, retained=True)
     settings = {key: getattr(estimator, key) for key in MEASURED_DEFAULTS}
     replayed, record = estimator._target(initial, fitted, settings=settings, consume=False)
     if not _reproduces(result, replayed, record):

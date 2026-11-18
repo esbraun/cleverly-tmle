@@ -629,6 +629,31 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     DataError
         If the treatment is continuous, which has no per-arm propensity either.
     """
+    _refuse_unreportable(result)
+    if result.data.is_binary_treatment:
+        return _binary_positivity_report(result)
+    return _multi_arm_positivity_report(result)
+
+
+def _refuse_unreportable(result: Any) -> None:
+    """Raise the refusals of :func:`positivity_report` without computing the report.
+
+    :func:`~cleverly.plotting.overlap` needs only these: an augmented-trial or
+    continuous-time survival fit, a fit that estimated no treatment mechanism, and a
+    continuous treatment.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+
+    Raises
+    ------
+    CapabilityError
+        If the fit estimated no treatment mechanism.
+    DataError
+        If the treatment is continuous.
+    """
     refuse_augmented_trial(result, "positivity_report", "report")
     refuse_continuous_survival(result, "positivity_report")
     if not result.nuisance.fits_treatment:
@@ -648,9 +673,6 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
                 "res.diagnostics.truncation_curve(mechanism=True) sweeps it."
             ),
         )
-    if result.data.is_binary_treatment:
-        return _binary_positivity_report(result)
-    return _multi_arm_positivity_report(result)
 
 
 def _binary_positivity_report(result: TMLEResult) -> PositivityReport:

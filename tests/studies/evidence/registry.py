@@ -630,6 +630,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_hazard_mtp import STUDY as HAZARD_MTP
     from tests.studies.canonical_hazard_multinode import STUDY as HAZARD_MULTINODE
     from tests.studies.canonical_hazard_time_varying import STUDY as HAZARD_TIME_VARYING
+    from tests.studies.canonical_hazard_time_varying_multinode import (
+        STUDY as HAZARD_TIME_VARYING_MULTINODE,
+    )
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
@@ -761,6 +764,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
+    from tests.studies.few_cluster_fold_variance import STUDY as FEW_CLUSTER_FOLD_VARIANCE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
@@ -871,6 +875,7 @@ def registered() -> tuple[StudyRecord, ...]:
         HAZARD_MTP,
         HAZARD_MULTINODE,
         HAZARD_TIME_VARYING,
+        HAZARD_TIME_VARYING_MULTINODE,
         CONTINUOUS_SURVIVAL,
         CONTINUOUS_SURVIVAL_FUNCTIONALS,
         TARGETING_CURVES,
@@ -922,6 +927,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_RATIO_TRIM,
         OPTION_MARKOV_ORDER,
         BOUNDARY_NODE_LTMLE,
+        FEW_CLUSTER_FOLD_VARIANCE,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

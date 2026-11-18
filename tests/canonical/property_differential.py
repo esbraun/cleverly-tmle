@@ -97,8 +97,8 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: whose committed rows leave the clause
 #: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
 #: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
-#: long-horizon studies and ``boundary-node-ltmle`` bind to their committed rows, so they are
-#: subjects by slug.
+#: long-horizon studies, ``boundary-node-ltmle`` and ``few-cluster-fold-variance`` bind to their
+#: committed rows, so they are subjects by slug.
 #: The two few-cluster floor studies (``few_cluster_floor_tmle_properties`` and
 #: ``few_cluster_floor_ltmle_properties``), declared and not yet run, run on synthetic rows
 #: of their declared subset (:func:`declared_subset`).

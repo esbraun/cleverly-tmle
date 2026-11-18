@@ -6,7 +6,9 @@ whose tests now check that the same designs fit, and added H16, H19, H20, H24 an
 H18, H21, H22, H23 and H26 (H17 is pinned in ``tests/unit/test_hazard_multinode.py``).  Part
 (b1) narrowed H2 to a design with a treatment at several nodes and H6 to a design without
 covariates after baseline; its own refusals H28 to H31 are pinned in
-``tests/unit/test_hazard_time_varying.py``.
+``tests/unit/test_hazard_time_varying.py``.  Part (b2) removed H2, whose test now checks that a
+treatment at several nodes with a covariate after baseline fits, and added H27, pinned with the
+check order and the narrowed H23 and H26 in ``tests/unit/test_hazard_time_varying_multinode.py``.
 
 Each fit passes learners that raise on ``fit``, so a refusal that reached a learner would
 fail with ``AssertionError`` rather than the refusal under test.
@@ -73,11 +75,6 @@ def _msm() -> MSM:
 LAW = survival_law()
 
 
-def _assert_gap(error: CapabilityError) -> None:
-    assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert error.refusal.roadmap == "X70"
-
-
 def test_h1_a_treatment_at_several_nodes_now_fits() -> None:
     """X70 part (a) closed H1: a static plan at three treatment nodes is fitted."""
     result = LTMLE(
@@ -91,28 +88,22 @@ def test_h1_a_treatment_at_several_nodes_now_fits() -> None:
     assert all(fit.hazard is not None and fit.hazard.converged for fit in result.fits.values())
 
 
-def test_h2_a_covariate_after_baseline_beside_several_treatment_nodes_is_refused() -> None:
-    """X70 part (b1) narrowed H2 to a design with a treatment at several nodes.
-
-    Part (a) fits a treatment at several nodes with baseline covariates only; with a covariate
-    measured after baseline the design stays refused until part (b2).
-    """
+def test_h2_a_covariate_after_baseline_beside_several_treatment_nodes_now_fits() -> None:
+    """X70 part (b2) removed H2: a treatment at several nodes with a covariate measured after
+    baseline is fitted by the backward pass (one step), every node walked."""
     law = survival_law(with_l2=True)
-    message = (
-        "survival_model='hazard' on a design with a treatment at several nodes models the event "
-        "and censoring hazards given the treatment history and the baseline covariates. This "
-        "fit declares time-varying covariates (L2), and hazard targeting with time-varying "
-        "covariates on a design with a treatment at several nodes is not built, a block at node "
-        "1 included. X70 in "
-        "docs/roadmap.md tracks this. LTMLE with survival_model='iterated_mean' adjusts for "
-        "them, and isotonic=True makes its curve monotone. If one baseline treatment is held "
-        "over every node, declare treatment='A'."
-    )
-    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
-        LTMLE(
-            {"a1": 1}, n_folds=1, survival_model="hazard", targeting="one_step", **_refusing()
-        ).fit(law.frame(), **law.fit_columns(held=False))
-    _assert_gap(raised.value)
+    result = LTMLE(
+        {"a1": 1},
+        n_folds=1,
+        survival_model="hazard",
+        targeting="one_step",
+        outcome_learner=CellMeans(),
+        pseudo_learner=CellMeans(),
+        treatment_learner=CellProbabilities(),
+        censoring_learner=CellMeans(),
+    ).fit(law.frame(), **law.fit_columns(held=False))
+    record = result.fits["a1 @ t=3"].hazard
+    assert len(record.nodes) == 3 and record.converged
 
 
 def test_h2_a_covariate_after_baseline_on_a_held_design_now_fits() -> None:

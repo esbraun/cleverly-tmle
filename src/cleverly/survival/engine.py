@@ -33,6 +33,8 @@ from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
+from ..utils.memory import check_max_memory_bytes
+from ._memory import check_memory, largest_fold, peak_bytes
 from ._targeting import (
     Norm,
     Problem,
@@ -42,7 +44,7 @@ from ._targeting import (
     restricted_weights,
     walk,
 )
-from .cox import HazardSelection, default_library, select_hazard
+from .cox import HazardSelection, StratifiedNelsonAalen, default_library, select_hazard
 from .result import (
     BAND_SUPPORT,
     MEASURED_DEFAULTS,
@@ -346,6 +348,15 @@ class ContinuousSurvivalTMLE:
         The multiplier distribution, as :func:`~cleverly.inference.simultaneous_bands` takes.
     band_scale : {"logit", "identity"}
         The scale of the band of a bounded estimate.
+    max_memory_bytes : int or None
+        The memory budget of a fit, in bytes.  Before fitting any nuisance, the fit predicts the
+        largest number of bytes its arrays hold at once, which grows as ``n`` times the number of
+        distinct observed times up to the last target time or restricted horizon, and refuses
+        with :class:`~cleverly.exceptions.MethodConfigurationError` when the prediction exceeds
+        the budget.  ``None`` reads the memory available at that moment and checks nothing on
+        a platform that does not report it.  A value overrides the reading either way.  Every
+        refit of a result, and so every refutation and truncation curve, uses the value of
+        the fit.
     """
 
     def __init__(
@@ -374,7 +385,9 @@ class ContinuousSurvivalTMLE:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        max_memory_bytes: int | None = None,
     ) -> None:
+        budget = check_max_memory_bytes(max_memory_bytes)
         times = tuple(float(t) for t in horizons)
         if not times or any(not np.isfinite(t) or t <= 0 for t in times):
             raise ValueError("horizons are positive finite target times, at least one")
@@ -423,6 +436,7 @@ class ContinuousSurvivalTMLE:
         self.n_multiplier = int(n_multiplier)
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.max_memory_bytes = budget
         #: The outer cross-fitting label of each row, recorded on the estimator a result
         #: stores; a subset refit reads them so its refits keep the fit's split.
         self._outer_folds: IntArray | None = None
@@ -654,10 +668,14 @@ class ContinuousSurvivalTMLE:
             ),
         )
 
-    def _initial(self, data: Any, seed: int, *, folds: Any = None) -> _Initial:
+    def _initial(
+        self, data: Any, seed: int, *, folds: Any = None, retained: bool = False
+    ) -> _Initial:
         """Fit every nuisance and build what each walk reads, at the seed ``seed``.
 
-        ``folds`` replaces the outer cross-fitting draw with one label per row.  The
+        ``folds`` replaces the outer cross-fitting draw with one label per row.  ``retained``
+        tells the memory check that the caller keeps the initial jumps and weight product
+        through every walk, as a truncation curve does.  The
         generator state after the nuisance phase is kept, so each walk's off-grid draws
         start from the same state.
         """
@@ -723,6 +741,26 @@ class ContinuousSurvivalTMLE:
         else:
             folds = np.zeros(n, dtype=int)
             n_folds = 1
+        # Before any nuisance fit, so a refused request costs no learner time.
+        check_memory(
+            peak_bytes(
+                n,
+                J,
+                grid.size,
+                target_weights.shape[0],
+                covariates=L.shape[1],
+                fold_size=largest_fold(folds, n),
+                simultaneous=self.simultaneous,
+                n_multiplier=self.n_multiplier,
+                retained=retained,
+                factual_tilt=self.tilt == "factual",
+                stratified_learner=any(
+                    isinstance(member, StratifiedNelsonAalen)
+                    for member in (*self.hazard_library, *self.censoring_library)
+                ),
+            ),
+            self.max_memory_bytes,
+        )
         gap = np.diff(np.unique(T))
         shift = 0.5 * float(gap.min()) if gap.size else 0.5
         censor_time = np.where(D > 0, T - shift, T)
@@ -872,17 +910,17 @@ class ContinuousSurvivalTMLE:
 
         problem = Problem(A, initial.at_risk, initial.events, weight, initial.target_weights)
         cutoff = default_cutoff(n) if self.tol is None else float(self.tol)
-        jumps = initial.jumps.pop() if consume else initial.jumps[0]
+        # A consuming walk takes the initial jumps with no name here keeping them, so they are
+        # freed at its first accepted step rather than held beside every later trial.
         result = walk(
             problem,
-            jumps,
+            initial.jumps.pop() if consume else initial.jumps[0],
             cutoff=cutoff,
             norm=self.norm,
             step=self.step_size,
             max_steps=self.max_iter,
             tilt=self.tilt,
         )
-        del jumps
         if not result.converged:
             worst = np.argsort(-result.standardized_score)[:3]
             _warn(

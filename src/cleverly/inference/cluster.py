@@ -52,6 +52,7 @@ __all__ = [
     "fold_evaluated_reference_df",
     "influence_variance",
     "positive_mass_clause",
+    "smallest_training_clusters",
     "stacked_second_moment_covariance",
     "stacked_second_moment_variance",
     "unequal_cluster_sizes",
@@ -621,6 +622,53 @@ def positive_mass_clause(cluster: IntArray, weights: FloatArray | None) -> str:
     return ""
 
 
+def smallest_training_clusters(
+    cluster: IntArray,
+    validation: Sequence[IntArray],
+    weights: FloatArray | None = None,
+) -> int:
+    """The fewest clusters with positive weight mass in one training complement.
+
+    The training complement of a validation fold is every row outside it, the rows the fold's
+    nuisances are fitted on. A fold-evaluated fit reads this count against
+    :data:`~cleverly._inference_status.MINIMUM_FOLD_TRAINING_CLUSTERS`.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    validation : sequence of ndarray of int
+        The row indices of each validation fold.
+    weights : ndarray of float or None, default None
+        The observation weight of each row, or ``None`` for an unweighted fit.
+
+    Returns
+    -------
+    int
+        The smallest positive-mass cluster count over the training complements.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import smallest_training_clusters
+    >>> cluster = np.repeat(np.arange(12), 2)
+    >>> smallest_training_clusters(cluster, [np.arange(0, 6), np.arange(6, 24)])
+    3
+    """
+    labels = np.asarray(cluster).reshape(-1)
+    positive = (
+        np.ones(labels.size, dtype=bool)
+        if weights is None
+        else np.asarray(weights, dtype=float).reshape(-1) > 0.0
+    )
+    counts = []
+    for index in validation:
+        training = positive.copy()
+        training[np.asarray(index, dtype=int)] = False
+        counts.append(int(np.unique(labels[training]).size))
+    return min(counts)
+
+
 def cluster_inference_status(
     cluster: IntArray | None,
     *,
@@ -637,7 +685,10 @@ def cluster_inference_status(
     count to one below the fit's interval floor, ``minimum``: the fit shows a labelled interval
     on the t reference. That is the whole fit, or, with baseline
     strata, any one stratum: :func:`fewest_clusters` gives the count. The fit takes one status,
-    so the stratum with the fewest clusters decides it for every estimate. Otherwise
+    so the stratum with the fewest clusters decides it for every estimate. A fold-evaluated
+    ``TMLE`` also takes ``"few_cluster_plugin"`` when :func:`smallest_training_clusters` is
+    below :data:`~cleverly._inference_status.MINIMUM_FOLD_TRAINING_CLUSTERS`, which the
+    estimator checks once its folds exist. Otherwise
     ``"influence_curve"``, in sample or cross-fitted, at equal or unequal cluster sizes. Below
     :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters an estimate takes a
     Student t reference, which :func:`cluster_reference_df` gives.

@@ -45,6 +45,7 @@ clustered-unequal-cv-tmle
 clustered-few-cluster-tmle
 clustered-cross-fitted-longitudinal-tmle
 few-cluster-cross-fitted-longitudinal-tmle
+few-cluster-fold-variance
 fold-evaluated-point-treatment-cv-tmle
 fold-evaluated-strata
 fold-targeted-point-treatment-cv-tmle
@@ -122,6 +123,7 @@ hazard-msm
 hazard-mtp
 hazard-multinode
 hazard-time-varying
+hazard-time-varying-multinode
 continuous-time-survival
 continuous-survival-functionals
 categorical-incremental

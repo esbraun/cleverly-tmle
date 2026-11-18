@@ -388,6 +388,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "hazard_mtp": sweep.fit_hazard_mtp,
     # X70 (b1): the hazard path on a held design with covariates after baseline.
     "hazard_time_varying": sweep.fit_hazard_time_varying,
+    # X70 (b2): the same backward pass with a treatment at several nodes.
+    "hazard_time_varying_multinode": sweep.fit_hazard_time_varying_multinode,
     # X70 (a): the hazard path with a treatment at several nodes and baseline covariates.
     "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
@@ -730,6 +732,19 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    "hazard_time_varying_multinode": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        # The known policy at both nodes is a ratio of probabilities, not one probability.
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "hazard_multinode": {
         "forest": "draws",
         "curve": "draws",
@@ -779,7 +794,7 @@ def _raised_by_cleverly(error: BaseException) -> bool:
     return in_package and line.startswith("raise")
 
 
-def outcome(plot: str, result: Any) -> str:
+def outcome(plot: str, result: Any, **options: Any) -> str:
     """``"draws"``, the roadmap id a refusal names, or the refusal's class and first words.
 
     An exception that a ``raise`` statement of ``cleverly`` did not raise, or that is not a
@@ -788,7 +803,7 @@ def outcome(plot: str, result: Any) -> str:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            fig = getattr(plotting, plot)(result)
+            fig = getattr(plotting, plot)(result, **options)
     except (ValueError, TypeError) as error:
         if not _raised_by_cleverly(error):
             raise
@@ -806,6 +821,87 @@ def outcome(plot: str, result: Any) -> str:
 @pytest.mark.parametrize("plot", PLOTS)
 def test_each_plot_draws_or_refuses_each_family(fits: Any, family: str, plot: str) -> None:
     assert outcome(plot, fits(family)) == EXPECTED[family][plot]
+
+
+#: Each display limit, the call that sets it small, and the note a limit that reduces adds.
+#: A limit changes only what is drawn: the figure's numbers and refusals stay as they are.
+LIMITED: dict[str, tuple[dict[str, Any], str]] = {
+    "influence": ({"max_points": 16}, "Line drawn through"),
+    "curve": ({"max_rug_points": 3}, "Rug: at most 3"),
+    "balance": ({"max_covariates": 1, "page": 1}, "Page 1 of"),
+}
+
+
+def _drawn_arrays(fig: Figure) -> list[Any]:
+    """Every line's and collection's drawn coordinates, panel by panel."""
+    arrays: list[Any] = []
+    for axis in fig.axes:
+        arrays.extend(np.asarray(line.get_xydata()).tolist() for line in axis.lines)
+        for item in axis.collections:
+            segments = getattr(item, "get_segments", None)
+            drawn = segments() if segments is not None else item.get_offsets()
+            arrays.append([np.asarray(piece).tolist() for piece in drawn])
+        arrays.append([label.get_text() for label in axis.get_yticklabels()])
+    return arrays
+
+
+def _limited_count(plot: str, fig: Figure) -> list[int]:
+    """What each display limit bounds, per panel: line points, rug ticks or covariate rows."""
+    counts = []
+    for axis in fig.axes:
+        if plot == "influence":
+            counts.extend(
+                len(line.get_xdata())
+                for line in axis.lines
+                if line.get_gid() == "cleverly-influence-curve"
+            )
+        elif plot == "curve":
+            counts.extend(
+                len(item.get_segments())
+                for item in axis.collections
+                if item.get_gid() == "cleverly-rug"
+            )
+        elif any(item.get_gid() == "cleverly-balance-after" for item in axis.collections):
+            counts.append(len([t for t in axis.get_yticklabels() if t.get_text()]))
+    return counts
+
+
+def _quiet_plot(plot: str, result: Any, **options: Any) -> Figure:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return getattr(plotting, plot)(result, **options)
+
+
+@_SHARED
+@pytest.mark.parametrize("family", list(FAMILIES))
+@pytest.mark.parametrize("plot", list(LIMITED))
+def test_a_display_limit_bounds_the_drawing_and_nothing_else(
+    fits: Any, family: str, plot: str
+) -> None:
+    """Where the plot refuses, the limited call refuses alike; where it draws, the limit holds.
+
+    A limit that reduces leaves at most its count drawn and says so in the notes. Where it
+    has nothing to reduce (a ``curve`` view with no rug, a short influence line), the figure
+    is the plain one, so a limit that is ignored, or that changes another figure, fails.
+    """
+    options, note = LIMITED[plot]
+    result = fits(family)
+    plain = EXPECTED[family][plot]
+    assert outcome(plot, result, **options) == plain
+    if plain != "draws":
+        return
+    bound = next(iter(value for key, value in options.items() if key != "page"))
+    before = _quiet_plot(plot, result)
+    after = _quiet_plot(plot, result, **options)
+    reduces = any(count > bound for count in _limited_count(plot, before))
+    if plot == "balance" or reduces:
+        assert all(count <= bound for count in _limited_count(plot, after))
+        assert any(line.startswith(note) for line in plotting.notes(after)), plotting.notes(after)
+    else:
+        assert _drawn_arrays(after) == _drawn_arrays(before)
+        assert plotting.notes(after) == plotting.notes(before)
+    plt.close(before)
+    plt.close(after)
 
 
 def test_every_public_plot_is_in_the_matrix() -> None:
@@ -1026,6 +1122,16 @@ def test_a_hazard_policy_names_its_shifted_weights(fits: Any) -> None:
     text = " ".join(plotting.notes(fig))
     assert "modified treatment policy" in text
     assert "held" not in text
+    plt.close(fig)
+
+
+@_SHARED
+def test_a_static_arm_of_a_multinode_hazard_fit_draws_its_overlap(fits: Any) -> None:
+    """X70 (b2): overlap of every regimen refuses on the known policy, so one static arm is
+    drawn on its own, by the same path as the held designs."""
+    result = fits("hazard_time_varying_multinode")
+    fig = plotting.overlap(result, regimen="a1")
+    assert fig.axes
     plt.close(fig)
 
 

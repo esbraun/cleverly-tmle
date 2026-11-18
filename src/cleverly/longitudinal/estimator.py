@@ -6151,10 +6151,16 @@ class _SequentialEstimator:
                 tuned=tuned_folds is not None,
             )
         )
-        if getattr(self, "survival_model", None) == "hazard" and is_multinode(prepared):
+        if (
+            getattr(self, "survival_model", None) == "hazard"
+            and is_multinode(prepared)
+            and not later_covariates(prepared)
+        ):
             # The treatment paths of every regimen, with each policy evaluated at every
             # counterfactual prefix, before any learner: the cap (H17) and every density
-            # check are raised here (X70 part (a)).
+            # check are raised here (X70 part (a)).  With covariates after baseline the
+            # backward pass evaluates every node at the observed history and builds no path
+            # (part (b2)).
             path_slots(prepared, plans)
         checked = branch_plans(plans[0]) if learned is not None else plans
         # Every declared factor is checked against the bounds before any learner.
@@ -6511,7 +6517,8 @@ class _SequentialEstimator:
             )
         algorithm: HazardAlgorithm = "one_step" if self.targeting == "one_step" else "per_horizon"
         if later_covariates(prepared):
-            # Covariates after baseline: one backward pass per regimen (X70 part (b1)).  The
+            # Covariates after baseline: one backward pass per regimen, on a held design (X70
+            # part (b1)) or a treatment at several nodes (part (b2)).  The
             # refusals H28-H31 keep the per-horizon algorithm, msm=, a declared stopping rule
             # and every replay away from it, and the separable refusal keeps a separable regimen.
             if msm is not None or separable:
@@ -6719,13 +6726,16 @@ class _SequentialEstimator:
         # continuous or mixed baseline node has no levels: its regimens are modified
         # treatment policies, each weighted at its own plan.
         levels: tuple[Plan, ...] = ()
-        if hazard and is_multinode(prepared):
+        if hazard and is_multinode(prepared) and not later_covariates(prepared):
             # A design with a treatment at several nodes: one internal static plan per
             # treatment path of every regimen (X70 part (a)), at which the mechanism and the
             # hazards are evaluated.
             levels = path_slots(prepared, plans).plans
-        elif hazard and prepared.node_kind(1) == "categorical":
+        elif hazard and prepared.node_kind(1) == "categorical" and not is_multinode(prepared):
             levels = level_plans(prepared)
+        # A multi-node design with covariates after baseline keeps no level plan: its backward
+        # pass reads the mechanism at the regimens' plans only, and the hazards at each node's
+        # own levels given the observed earlier treatments (X70 part (b2)).
         treatment_learner = resolve_learner(
             self.treatment_learner,
             task="classification",
