@@ -9,7 +9,7 @@ observed history with only the current treatment set. The section on
 [a treatment at several nodes with covariates after baseline](../longitudinal-tmle.md#a-treatment-at-several-nodes-with-covariates-after-baseline)
 states the estimand, the slots and the exact-law evidence.
 
-The declared run at commit `10d19ab` passed every gated row: 21 of 21 primary tests against
+The declared run at commit `10d19ab`, regenerated at `6fe1bac` under the shipped intervals, passes every gated row: 21 of 21 primary tests against
 known truth and 46 of 46 property rows with a verdict. The nine agreement rows with the
 iterated-mean fit are reported with no verdict. One cross-fitted calibration fit stopped short
 of `tol` and was recorded as a lost replicate, inside the failure bound of 0.01

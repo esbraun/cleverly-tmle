@@ -119,6 +119,16 @@ def test_the_pairing_refuses_an_impossible_correlation() -> None:
     assert unpaired == {}
 
 
+@pytest.fixture(autouse=True)
+def _recorder_removed() -> Any:
+    """Each test leaves the package unpatched: the refit recorder replaces package functions
+    process-wide, and a later test in the same worker reads their source or their results."""
+    yield
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    refit.uninstall()
+
+
 # ------------------------------------------------------------------ the committed screen
 
 

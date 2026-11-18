@@ -156,6 +156,8 @@ _LOG: list[dict[str, Any]] = []
 _ROW = [ROW_ALPHA]
 _GUARD = [False]
 _INSTALLED = [False]
+#: What :func:`install` replaced, as ``(owner, name, original)``, for :func:`uninstall`.
+_REPLACED: list[tuple[Any, str, Any]] = []
 
 
 def _z(alpha: float) -> float:
@@ -313,13 +315,26 @@ def install() -> None:
             _GUARD[0] = False
         return read
 
-    for name in BOUND_MODULES:
-        module: Any = importlib.import_module(name)
-        module.bound_limits = logged_bound
-    ParameterEstimate._wald_interval = logged_interval  # type: ignore[method-assign]
-    ParameterEstimate._plugin_wald_test = logged_test  # type: ignore[method-assign]
-    delta.skew_widened_ci = logged_skew  # type: ignore[assignment]
+    replacements: list[tuple[Any, str, Any]] = [
+        (importlib.import_module(name), "bound_limits", logged_bound) for name in BOUND_MODULES
+    ]
+    replacements += [
+        (ParameterEstimate, "_wald_interval", logged_interval),
+        (ParameterEstimate, "_plugin_wald_test", logged_test),
+        (delta, "skew_widened_ci", logged_skew),
+    ]
+    for owner, attribute, logged in replacements:
+        _REPLACED.append((owner, attribute, owner.__dict__[attribute]))
+        setattr(owner, attribute, logged)
     _INSTALLED[0] = True
+
+
+def uninstall() -> None:
+    """Restore what :func:`install` replaced, so a test process leaves the package as it was."""
+    while _REPLACED:
+        owner, attribute, original = _REPLACED.pop()
+        setattr(owner, attribute, original)
+    _INSTALLED[0] = False
 
 
 @contextlib.contextmanager
