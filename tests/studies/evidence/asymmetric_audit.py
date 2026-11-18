@@ -173,6 +173,7 @@ CURRENT: dict[str, str] = {
     "weighted-ltmle": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
     "refuter-calibration-band": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
     "cde-tmle": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
+    "hazard-time-varying-multinode": "regenerated under the shipped intervals (Fix-3 PR 3, step 9)",
 }
 
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row
