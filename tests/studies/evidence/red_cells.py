@@ -454,6 +454,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "learned-rule-arms-coverage-draws": _keys(
         "learned-rule-arms", "property", "conservative_coverage/missing_quadratic__declared"
     ),
+    # The binary declared-pair ATE, red on one draw set under correlated MOVER, which the
+    # regeneration under the shipped intervals reads (Fix-3 PR 3).
+    "ctmle-derivative-coverage-draws": _keys(
+        "ctmle-derivative", "truth", "cleverly-ctmle-derivative/binary_declared_pair/ate"
+    ),
     # The in-sample band over the arm mean near 0.94 in the smallest stratum.
     "strata-boundary-mean": _keys(
         "canonical-stratified-tmle",

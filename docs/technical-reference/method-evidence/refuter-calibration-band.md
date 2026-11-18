@@ -56,7 +56,7 @@ The primary phase checks the fit that the rule reads. It does not calibrate the 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; TMLE of a capped +0.5 shift at five folds | `ate` | average treatment effect | `cleverly` fit that the band-rank placebo rule reads | -0.0024 to 0.0078 | 0.9500 | 1.0145 | **fail** |
+| law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; TMLE of a capped +0.5 shift at five folds | `ate` | average treatment effect | `cleverly` fit that the band-rank placebo rule reads | -0.0024 to 0.0078 | 0.9550 | 1.0145 | **fail** |
 <!-- /generated -->
 
 ## Theory properties
@@ -70,7 +70,7 @@ The cell name gives the configuration, then the reading.
 | --- | --- | --- | --- | --- | --- | --- |
 | `refuter_power` | `LJ1__placebo_stale_rows` | control | LTMLE of a dose shift at three nodes on the pricing-shaped law L: the placebo t rule, with a declared share of stale rows | at least 38 detections in 50 trials | detections 49 of 50 | pass |
 | `refuter_power` | `PJ1__placebo_stale_rows` | control | TMLE of a capped dose shift on law P: the placebo t rule, with a declared share of stale rows | at least 38 detections in 50 trials | detections 50 of 50 | pass |
-| `refuter_size` | `LJ1__placebo` | positive | LTMLE of a dose shift at three nodes on the pricing-shaped law L: the placebo t rule against the exact band-rank null | no more than 20 rejections in 200 trials | rejections 12 of 200 | pass |
+| `refuter_size` | `LJ1__placebo` | positive | LTMLE of a dose shift at three nodes on the pricing-shaped law L: the placebo t rule against the exact band-rank null | no more than 20 rejections in 200 trials | rejections 11 of 200 | pass |
 | `refuter_size` | `PJ1__placebo` | positive | TMLE of a capped dose shift on law P: the placebo t rule against the exact band-rank null | no more than 20 rejections in 200 trials | rejections 10 of 200 | pass |
 <!-- /generated -->
 
@@ -105,7 +105,7 @@ from the committed results and checked at the precision printed.
 | `property_cells_total` | 4 | repeated-sampling property cells |
 | `property_cells_passed` | 4 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0978 | largest absolute primary bias in empirical standard deviations |
-| `min_coverage` | 0.9500 | lowest measured primary-study coverage |
+| `min_coverage` | 0.9550 | lowest measured primary-study coverage |
 | `min_se_ratio_ci_lower` | 0.9052 | lowest bootstrap primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.1631 | highest bootstrap primary SE-ratio endpoint |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
