@@ -136,10 +136,17 @@ CASES: dict[str, Callable[[], tuple[CoxHazard, tuple[np.ndarray, np.ndarray, np.
 }
 
 
+@pytest.mark.parametrize(
+    "one_row_blocks", [False, True], ids=["production blocks", "one-row blocks"]
+)
 @pytest.mark.parametrize("case", list(CASES))
 def test_the_fit_is_byte_identical_to_the_one_array_construction(
-    case: str, monkeypatch: pytest.MonkeyPatch
+    case: str, one_row_blocks: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Production blocks are one block on these small fixtures; one-row blocks run the fit
+    # through as many blocks as the design has columns.
+    if one_row_blocks:
+        monkeypatch.setattr(cox, "_BLOCK_BYTES", 1)
     model, (X, time, event) = CASES[case]()
     reference, reference_warnings = _fit(
         CoxHazard(model.terms, model.penalty), X, time, event, monkeypatch, _reference_parts
@@ -147,15 +154,17 @@ def test_the_fit_is_byte_identical_to_the_one_array_construction(
     fitted, fitted_warnings = _fit(model, X, time, event, monkeypatch)
     assert _state(fitted, X) == _state(reference, X)
 
-    # The package's own warnings are identical. NumPy's floating-point warnings can only be
-    # fewer: a halving trial no longer forms the means and second moments it discards, which
-    # at a boundary divide zero by zero.
+    # The package's own warnings are identical. NumPy's floating-point warnings are drawn
+    # from the same messages, and no new message appears; their count is not fixed. A halving
+    # trial no longer forms the means and second moments it discards, which at a boundary
+    # divide zero by zero, so one block warns fewer times; each further block repeats that
+    # division, so many blocks can warn more times.
     def own(caught: list[tuple[str, str]]) -> list[tuple[str, str]]:
         return [item for item in caught if item[0] != "RuntimeWarning"]
 
     assert own(fitted_warnings) == own(reference_warnings)
     assert set(fitted_warnings) <= set(reference_warnings)
-    if case == "boundary":
+    if case == "boundary" and not one_row_blocks:
         # The witness for the subset: here the reference divides zero by zero in trials the
         # candidate no longer builds, so the count must drop, not merely stay within.
         assert len(fitted_warnings) < len(reference_warnings)
@@ -207,7 +216,7 @@ def test_no_block_size_changes_a_byte(block_bytes: int, monkeypatch: pytest.Monk
     X, time, event = _sample(p=6)
     Z = cox._design(X, "interaction")
     sets = _risk_sets(time, event)
-    beta = np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1])
+    beta = np.asarray(np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1]))
     n, q = Z.shape
     monkeypatch.setattr(cox, "_BLOCK_BYTES", block_bytes * 8 * n * q)
     # The candidate runs before the reference, so a skipped row cannot inherit the reference's
@@ -248,7 +257,7 @@ def test_a_block_that_skips_a_row_is_caught() -> None:
     X, time, event = _sample(p=6)
     Z = cox._design(X, "interaction")
     sets = _risk_sets(time, event)
-    beta = np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1])
+    beta = np.asarray(np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1]))
     want = _reference_parts(beta, Z, sets)[2].tobytes()
     assert _blocked_parts(beta, Z, sets, 3, skip=False)[2].tobytes() == want
     assert _blocked_parts(beta, Z, sets, 3, skip=True)[2].tobytes() != want
@@ -270,9 +279,12 @@ def test_an_unset_information_row_is_nan() -> None:
     X, time, event = _sample(p=6)
     Z = cox._design(X, "interaction")
     sets = _risk_sets(time, event)
-    beta = np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1])
+    beta = np.asarray(np.random.default_rng(1).normal(scale=0.1, size=Z.shape[1]))
+    n, q = Z.shape
+    namespace["_BLOCK_BYTES"] = 3 * 8 * n * q  # blocks of three rows, so earlier blocks write
     want = _reference_parts(beta, Z, sets)[2]
     got = mutated(beta, Z, sets)[2]
+    assert not np.isnan(got[0]).any()
     assert np.isnan(got[-1]).all()
     assert got.tobytes() != want.tobytes()
 

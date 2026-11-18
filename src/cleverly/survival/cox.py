@@ -95,6 +95,7 @@ def _tail(values: FloatArray, start: IntArray) -> FloatArray:
 
 #: Bytes one block of the risk second moments may take: the ``(n, b, q)`` products, their
 #: reversed running sums and the ``(M, b, q)`` sums at the event times are each about this size.
+#: A block holds at least one row, so when ``8 n q`` exceeds this budget a block is ``8 n q``.
 _BLOCK_BYTES: Final = 32 * 2**20
 
 
