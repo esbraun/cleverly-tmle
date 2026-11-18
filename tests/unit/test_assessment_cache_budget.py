@@ -789,6 +789,7 @@ _SAFE = {
     ("survival/engine.py", "default_rng()"): "state set from the stored rng_state next line",
     ("sensitivity/_simulated_confounding_survival.py", "SeedSequence([root_seed"): "list seed",
     ("sensitivity/_simulated_confounding_survival.py", "default_rng(seed)"): "spawned int",
+    ("sensitivity/_simulated_confounding_continuous.py", "default_rng(seed)"): "coupling int",
     ("sensitivity/simulated_confounding.py", "SeedSequence([root_seed"): "list seed",
     ("sensitivity/simulated_confounding.py", "default_rng(latent_seed)"): "spawned int",
     ("learners/crossfit.py", "RandomState(seed)"): "seed validated as an integer",
