@@ -10,7 +10,8 @@ alone, so the route appends those indicators to the dose (``_policy_steps``).
 - W11b: fold-tuned caps use each fold's map; without a declared support a side of the fold's
   observed training range is read only where a training image passes it (at risk at a
   longitudinal node), so a held-out sample maximum keeps its ratio and an undeclared bounded
-  dose keeps its edge step.
+  dose keeps its edge step.  Rows at a declared atom stay out of that range, and a piece's
+  images count only on the rows inside it; each mask has a mutation that fails.
 - W11c: the column order ``[A, atoms, steps, H]``, and the ``policy_steps = "omit"`` opt-out.
 - W11d: the longitudinal node's columns are its lowered maps' indicators.
 - W11e: a constant column, or one equal to an atom indicator, is dropped per fold.
@@ -29,7 +30,7 @@ from sklearn.linear_model import LogisticRegression
 import cleverly.interventions.policy as policy_module
 import cleverly.learners.density_ratio as density_ratio
 from cleverly.data import CausalData
-from cleverly.interventions import ModifiedPolicy, Piece, Shift, Support
+from cleverly.interventions import ModifiedPolicy, Piece, Piecewise, Shift, Support
 from cleverly.interventions.policy import PolicySet
 from cleverly.learners.crossfit import make_folds
 
@@ -407,6 +408,141 @@ def test_w11b_without_the_observed_bound_the_edge_step_is_lost(
     for draw in range(2):
         error, bottom = _exponential_dose(draw)
         assert error >= 1.0 and bottom >= 0.3, (draw, error, bottom)
+
+
+def _half_plus(a: Any, h: Any) -> np.ndarray:
+    return np.asarray(a, dtype=float) + 0.5
+
+
+def _half_minus(b: Any, h: Any) -> np.ndarray:
+    return np.asarray(b, dtype=float) - 0.5
+
+
+#: Holds the atom at 0 and moves every dose above it up by 0.5.
+ATOM_HELD = ModifiedPolicy(
+    "up off the atom",
+    pieces=(
+        Piece(-np.inf, 0.0, closed="right"),
+        Piece(0.0, np.inf, _half_plus, _half_minus, _one, closed="right"),
+    ),
+    policy_kind="known",
+)
+
+
+def _atom_edge(draw: int) -> tuple[float, float]:
+    """A declared atom at 0 on a quarter of the rows and a continuous part ``1 + Exp(1 + W/2)``,
+    undeclared, under :data:`ATOM_HELD`: the ratio error on the continuous rows, and their mean
+    ratio on ``[1, 1.5)``, where the true ratio is 0.  The observed minimum off the atom is
+    near 1; the atom's 0 must not stand in for it."""
+    rng = np.random.default_rng(9600 + draw)
+    w = rng.uniform(0.0, 1.0, 2000)
+    rate = 1.0 + 0.5 * w
+    a = 1.0 + rng.exponential(1.0 / rate)
+    a = np.where(rng.random(2000) < 0.25, 0.0, a)
+    frame = pd.DataFrame({"W": w, "A": a, "Y": rng.normal(a + w)})
+    data = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=["W"], treatment_kind="continuous"
+    ).with_dose_declarations(dose_atoms=(0.0,))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        evaluated = PolicySet.evaluate_by_classifier(
+            (ATOM_HELD,), data, Logit(), make_folds(2000, 5, random_state=0)
+        )
+    rn = np.asarray(evaluated.ratio[:, 0], dtype=float)
+    continuous = a > 0
+    r0 = np.where(a >= 1.5, np.exp(0.5 * rate), 0.0)
+    error = float(np.sqrt(np.mean((rn[continuous] - r0[continuous]) ** 2)))
+    return error, float(np.mean(rn[continuous & (a < 1.5)]))
+
+
+def test_w11b_a_declared_atom_does_not_stand_in_for_the_edge() -> None:
+    for draw in range(3):
+        error, low = _atom_edge(draw)
+        assert error <= 0.3 and low <= 0.05, (draw, error, low)
+
+
+def test_w11b_an_observed_range_that_reads_the_atom_loses_the_edge_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mutation keeps the atom rows in the observed range (no ``off_atom`` mask): the
+    declared atoms reach ``_policy_steps`` only through that mask."""
+    real = policy_module._policy_steps
+
+    def build(branches: Any, frame: Any, n: int, bounds: Any, observed: Any, atoms: Any) -> Any:
+        return real(branches, frame, n, bounds, observed, ())
+
+    monkeypatch.setattr(policy_module, "_policy_steps", build)
+    for draw in range(3):
+        error, low = _atom_edge(draw)
+        assert error >= 1.0 and low >= 0.3, (draw, error, low)
+
+
+#: ``Shift(-1)`` below 0 and ``Shift(+1)`` from 0: only the up piece's images can pass a side.
+SPLIT = Piecewise(
+    pieces=((-np.inf, 0.0, Shift(-1.0, cap=None)), (0.0, np.inf, Shift(1.0, cap=None)))
+)
+
+
+def _split_maximum(draw: int) -> tuple[float, float]:
+    """:func:`_held_out_maximum`'s draw under :data:`SPLIT`: ``(r_n, r0)`` at the moved maximum.
+    The down piece's formula ``x + 1``, read at rows outside its piece, would pass the training
+    maximum; a piece's images count only on its own rows."""
+    frame = law.draw("G", 400, 9400 * 400 + draw)
+    top = int(np.argmax(frame["A"].to_numpy()))
+    frame.loc[frame.index[top], "A"] = np.sort(frame["A"].to_numpy())[-2] + 1.5
+    w1, w2, a, _ = law.columns(frame)
+    r0 = law.pdf("G", a[top] - 1.0, w1[top], w2[top]) / law.pdf("G", a[top], w1[top], w2[top])
+    data = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=["W1", "W2"], treatment_kind="continuous"
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        evaluated = PolicySet.evaluate_by_classifier(
+            (SPLIT,), data, Logit(), make_folds(400, 5, random_state=0)
+        )
+    return float(evaluated.ratio[top, 0]), float(r0)
+
+
+def test_w11b_a_piece_images_count_only_on_its_own_rows() -> None:
+    for draw in range(5):
+        rn, r0 = _split_maximum(draw)
+        assert 0.25 * r0 <= rn <= 4.0 * r0, (draw, rn, r0)
+
+
+def test_w11b_images_read_outside_their_piece_zero_the_held_out_maximum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mutation counts every finite image, inside its piece or not."""
+    real = policy_module._policy_steps
+
+    def build(branches: Any, frame: Any, n: int, bounds: Any, observed: Any, atoms: Any) -> Any:
+        if bounds is not None:
+            return real(branches, frame, n, bounds, observed, atoms)
+        natural = np.asarray(observed, dtype=float)
+
+        def steps(dose: Any, rows: Any, fold: int, train: Any) -> np.ndarray:
+            seen = natural[train]
+            low, high = -np.inf, np.inf
+            key = fold if len(branches) > 1 else 0
+            for branch in branches[key]:
+                if not branch.continuous:
+                    continue
+                for piece in branch.lowered(frame, n).smooth:
+                    with np.errstate(all="ignore"):
+                        source = np.asarray(piece.inverse(natural.copy()), dtype=float)
+                    images = source[train][np.isfinite(source[train])]
+                    low = seen.min() if np.any(images < seen.min()) else low
+                    high = seen.max() if np.any(images > seen.max()) else high
+            empirical = (np.full(n, low), np.full(n, high))
+            return real(branches, frame, n, empirical, observed, atoms)(dose, rows, fold, train)
+
+        return steps
+
+    monkeypatch.setattr(policy_module, "_policy_steps", build)
+    zeroed = [
+        draw for draw in range(5) if (lambda rn_r0: rn_r0[0] < 0.1 * rn_r0[1])(_split_maximum(draw))
+    ]
+    assert len(zeroed) >= 4, zeroed
 
 
 def test_w11b_each_fold_lowers_its_own_tuned_cap(monkeypatch: pytest.MonkeyPatch) -> None:
