@@ -794,6 +794,9 @@ def test_check_10_the_fit_is_deterministic_and_round_trips(instrument: Longitudi
         assert one[name].psi == two[name].psi
     for key, record in one.selection.items():
         assert record.moves == two.selection[key].moves
+        # The work counts the record reports are part of the deterministic fit.
+        assert record.target_solves == two.selection[key].target_solves
+        assert record.candidate_pairs == two.selection[key].candidate_pairs
     loaded = pickle.loads(pickle.dumps(one))
     assert loaded.selection[("a1", 1)].moves == one.selection[("a1", 1)].moves
     from cleverly.estimators.serialize import dumps, loads
