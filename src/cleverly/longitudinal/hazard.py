@@ -1695,6 +1695,9 @@ def hazard_inputs(
     At a bounded node an empty cell is held at zero only under a lower bound of zero, and
     no full cell is held (finding M3 of the bounded-hazard design).  Every other such cell
     is an ordinary cell that the bound excludes.
+    On a design with a treatment at several nodes the slots are rebuilt without the path cap
+    (H17): the fit checks it on the same panel and plans before any learner, with its
+    ``max_memory_bytes=``, and a caller outside a fit checks it with :func:`path_slots`.
 
     Parameters
     ----------
@@ -2029,7 +2032,7 @@ def is_multinode(data: LongitudinalData) -> bool:
 #: and 150.  Re-measured after each horizon's state was released (X106 J2c) in both targeting
 #: modes, and at ten folds with both ``iterate`` values, recorded in
 #: ``tests/unit/test_hazard_multinode.py`` as ``PEAKS``: with the design floor the prediction
-#: exceeds every measured peak by 15 to 48 per cent (15 to 23 per cent except the 44-column
+#: exceeds every measured peak by 18 to 53 per cent (18 to 31 per cent except the 44-column
 #: fixture, where the floor adds); the bytes per value did not grow with ``T`` or ``U`` across
 #: the fixtures (``U`` up to 128), and ten folds peaked no higher than one.
 PATH_SLOT_BYTES = 165.0

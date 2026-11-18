@@ -8878,10 +8878,10 @@ class LTMLE(_SequentialEstimator):
         ``supported`` only where a support row licenses the option.
     max_memory_bytes : int or None
         The traced-memory limit of a ``survival_model="hazard"`` fit with a treatment
-        decision at several nodes, which holds the hazards of every treatment path for every
-        unit.  Before any learner the fit predicts its traced peak from the units, nodes,
-        paths, causes and design columns
-        (:func:`~cleverly.longitudinal.hazard.path_peak`) and raises
+        decision at several nodes, no covariate after baseline and a regimen that draws from
+        a known policy, which holds the hazards of every treatment path for every unit.
+        Before any learner the fit predicts its traced peak from the units, nodes, paths,
+        causes and design columns (:func:`~cleverly.longitudinal.hazard.path_peak`) and raises
         :class:`~cleverly.exceptions.CapabilityError` when the prediction exceeds the limit.
         ``None`` keeps the fixed limit of 2 GiB
         (:data:`~cleverly.longitudinal.hazard.PATH_PEAK_LIMIT`).  A positive integer
