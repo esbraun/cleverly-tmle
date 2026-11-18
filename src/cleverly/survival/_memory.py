@@ -158,9 +158,9 @@ def _trial(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) -
     score = 11 * J * cG + 32 * cG + 16 * (max(cG, cM) if restricted else cG)
     return max(
         _direction(c, J, M, G, factual=factual, restricted=restricted),
-        # The direction beside the overflow bound's one-cause sums, read on the full grid for
-        # a restricted mean.
-        16 * J * cG + 48 * (max(cG, cM) if restricted else cG),
+        # The direction beside the overflow bound's one-cause sums, on the full grid for a
+        # restricted mean, and its factor at the dropped times.
+        16 * J * cG + (24 * cM + 16 * c * (M - G) if restricted else 48 * cG),
         # The direction beside the increment, the tilted candidate and its denominators, then
         # the candidate's curves and their score temporaries.
         16 * J * cG + max(32 * J * cG + 32 * cG, 32 * J * cG + 16 * cG + score),

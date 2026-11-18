@@ -463,7 +463,9 @@ class _Walker:
                         del weighted, rev, F
                     S = np.where(first[None, :], 1.0, state.survival[a][:, before])
                     shared /= S
-                    factor = W.max(axis=0)[None, :] - shared  # (c, g)
+                    del S
+                    np.subtract(W.max(axis=0)[None, :], shared, out=shared)
+                    factor = shared  # (c, g)
                 else:
                     assert kept is not None
                     mask = np.ones(expand.size, dtype=bool)
@@ -471,15 +473,19 @@ class _Walker:
                     shared = np.zeros((c, int(mask.sum())))
                     for j in range(J):
                         F = T._filled(state.incidence[a, j], expand)
-                        weighted = F * own[j][None, :]
-                        rev = np.cumsum(weighted[:, ::-1], axis=1)[:, ::-1]
-                        shared += (rev - F * revs[j][None, :])[:, mask]
-                        del F, weighted, rev
+                        work = F * own[j][None, :]
+                        flipped = work[:, ::-1]
+                        np.cumsum(flipped, axis=1, out=flipped)
+                        work -= F * revs[j][None, :]
+                        del F
+                        shared += work[:, mask]
+                        del work, flipped
                     padded = np.concatenate([np.ones((c, 1)), state.survival[a]], axis=-1)
-                    S = np.take(padded, expand[mask] + 1, axis=-1)
-                    shared /= S
-                    factor = revs[:, mask].max(axis=0)[None, :] - shared
-                factor = np.where(np.isnan(factor), np.inf, factor)
+                    shared /= np.take(padded, expand[mask] + 1, axis=-1)
+                    del padded
+                    np.subtract(revs[:, mask].max(axis=0)[None, :], shared, out=shared)
+                    factor = shared
+                factor[np.isnan(factor)] = np.inf
                 if factor.shape[1]:
                     largest[a] = np.maximum(factor.max(axis=1), 0.0)
                 del shared, factor
