@@ -29,7 +29,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any
 
 import numpy as np
 
@@ -191,7 +191,8 @@ def _cached(
 # ------------------------------------------------------------------------------- budget
 
 
-class CacheEntry(NamedTuple):
+@dataclass(frozen=True)
+class CacheEntry:
     """One filed answer of an :class:`AssessmentCache`.
 
     Parameters
