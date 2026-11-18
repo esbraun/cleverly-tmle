@@ -795,6 +795,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_longitudinal import (
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
@@ -863,6 +864,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_OPTIMAL_COMPOSITIONS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
+        PROJECTION_COMPOSITIONS,
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,

@@ -619,36 +619,42 @@ pins the rows of the four compositions above.
 ## Status and evidence
 
 The registered [conditional-projection study](method-evidence/conditional-projection.md)
-passed every one of its 64 property cells and its three primary tests. Its support rows `T49`
-(the CATE projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit
-`supported` when its key is one the study measured, with one outcome regression per arm
-(`outcome_by_arm=True`):
+passed every one of its 64 property cells and its three primary tests, and the registered
+[projection-compositions study](method-evidence/projection-compositions.md) passed every one of
+its 56 gated property cells and its two primary tests. Their support rows `T49` (the CATE
+projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit `supported` when
+its key is one a study measured, with binary outcome and treatment, iid rows and one outcome
+regression per arm (`outcome_by_arm=True`):
 
-| row | composition |
-| --- | --- |
-| `T49`, `T50` | binary outcome and treatment, iid rows, complete outcomes, stacked cross-fitting |
-| `T49.known` | the same with `treatment_probabilities=` |
-| `T49.arms3` | three arms |
-| `T49.weighted` | sampling weights |
-| `T49.clustered` | equal clusters |
-| `T49.missing`, `T50.missing` | outcomes missing at random |
+| row | composition | study |
+| --- | --- | --- |
+| `T49`, `T50` | complete outcomes, stacked cross-fitting | conditional-projection |
+| `T49.known` | the same with `treatment_probabilities=` | conditional-projection |
+| `T49.arms3` | three arms | conditional-projection |
+| `T49.weighted` | sampling weights | conditional-projection |
+| `T49.clustered` | equal clusters | conditional-projection |
+| `T49.missing`, `T50.missing` | outcomes missing at random | conditional-projection |
+| `T49.in_sample`, `T50.in_sample` | the in-sample fit, with its Wald interval and the full-refit bootstrap | projection-compositions |
+| `T49.in_sample.missing_treatment`, `T50.in_sample.missing_treatment` | a treatment missing at random, fitted in sample | projection-compositions |
+| `T49.in_sample.missing_both` | a missing treatment and missing outcomes, in sample | projection-compositions |
+| `T49.strata`, `T50.strata` | `strata=` with stacked cross-fitting | projection-compositions |
+| `T49.repeats`, `T50.repeats` | `repeats=3` with stacked cross-fitting | projection-compositions |
 
 A pooled outcome regression on this axis, a composition no group measured (weights with
-clusters, for example) and the simultaneous band read `experimental`. On this axis the
+clusters, or strata with a missing treatment, for example), the bootstrap of a cross-fitted fit and
+the simultaneous band read `experimental`. The cross-fitted bootstrap's label names
+[F2](../roadmap.md#f2-targeted-bootstrap-inference); the study published its readings on that fit,
+coverage 0.927 to 0.952, without a verdict. On this axis the
 outcome-regression option reads the other way round from the point estimands: the measured fit
 is the per-arm one, and the support key holds `outcome_by_arm`, so a pooled projection matches
 no row. The key keeps that label now that the point study `option-outcome-by-arm` is registered and the
 option's fit condition is deleted (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
 has its own measured configurations, below.
 
-The in-sample fit, a missing treatment, `strata=`, `repeats` above 1 and the bootstrap read
-`experimental` too. The study that measures them, `projection-compositions`, is declared in
-`tests/studies/projection_compositions.py`, and `tests/unit/test_projection_compositions_design.py`
-checks its laws, cells and the design numbers that need no pilot. It has not run: its calibration
-`R` is computed first from the pilot, `python -m tests.studies.projection_compositions_pilot`, on
-seed streams the run never draws. The declared run is
-`python -m tests.canonical.projection_compositions.regenerate`, whose docstring holds the red-cell
-readings, and its rows join this table when it is registered.
+The in-sample composite fit and the in-sample log ratio read SE ratios 1 to 2% below 1 at
+n = 2,000 and 4,000, inside the declared band. A diagnosis on fresh draws traced this to a
+finite-sample effect that closes as n grows and that the shipped composite ATE shares
+([projection compositions](method-evidence/projection-compositions.md#rows-that-read-just-below-1)).
 
 The study was declared in `tests/studies/conditional_projection.py` with its verdicts in
 `tests/studies/conditional_projection_properties.py`, and its declared run is

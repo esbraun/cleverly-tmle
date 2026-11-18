@@ -341,7 +341,7 @@ preflight, and `tests/unit/test_option_support.py` checks each label against the
 option. The support key records each option too (`point_key`, `longitudinal_key`), and
 `step_bound=` and `iterate=` only under a declared stopping rule. A fit that declares an
 option then matches only a row whose study declared it. Those are the `conditional-projection`
-rows, which fit one outcome regression per arm (`outcome_by_arm=True`), and the option rows
+and `projection-compositions` rows, which fit one outcome regression per arm (`outcome_by_arm=True`), and the option rows
 below.
 
 When the nearest row differs on options, the reason names each differing option, with

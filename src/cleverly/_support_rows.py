@@ -3437,10 +3437,10 @@ def _projection_rows() -> tuple[SupportRow, ...]:
         "The simultaneous band of effect_curve(grid=) and the held-out curve checks of "
         "curve.diagnostics are not measured and stay experimental. The plug-in learner "
         "(method='ep'), model=None, an intermediate variable and missing treatment values "
-        "with cross-fitting refuse; strata=, missing treatment values in sample, repeats and "
-        "the bootstrap run and read experimental until a registered cell measures them. No "
-        "comparator: no maintained package fits a projection TMLE of the CATE on a declared "
-        "basis.",
+        "with cross-fitting refuse. Missing treatment values in sample, strata=, repeats and "
+        "the in-sample bootstrap have their own rows (study projection-compositions); the "
+        "cross-fitted bootstrap reads experimental. No comparator: no maintained package "
+        "fits a projection TMLE of the CATE on a declared basis.",
     ]
     cells = {
         "": ["obs_1k", "obs_4k", "slow_1k", "slow_4k", "slow_16k", "noweight_dr_4k"],
@@ -3490,6 +3490,114 @@ def _projection_rows() -> tuple[SupportRow, ...]:
                     ["conditional-projection"],
                     families=(family,),
                     splitting=("stacked",),
+                    options={"outcome_by_arm": True},
+                    cells=measured,
+                    # Roadmap: P1.
+                    limits=[*common, *variant_limits[suffix]],
+                    **settings,
+                )
+            )
+    return tuple(rows)
+
+
+def _projection_composition_rows() -> tuple[SupportRow, ...]:
+    """The composition rows of ``projection-compositions`` (P1 part (a)): ``T49`` and ``T50``.
+
+    Each row is the key of one calibration group of the study: the in-sample fit with its Wald
+    and full-refit bootstrap intervals, a missing treatment fitted in sample through the
+    composite indicator (with and without missing outcomes), baseline strata, and
+    ``repeats=3``.  The rows were added because every declared verdict passed, with no failed
+    fit: every ``interval_calibration`` positive and both SE controls, every ``bias`` positive
+    and control, and the heterogeneity test's ``type_i_error`` and ``power`` cells under
+    ``repeats=3``.  The cross-fitted bootstrap (``boot_stacked_2k``) published its readings
+    without a verdict, so the stacked rows license the Wald interval only and a cross-fitted
+    bootstrap reads experimental.  The numbers are the committed results
+    (``tests/canonical/projection_compositions``).
+    """
+    common = [
+        "The study measures the pointwise intervals of the coefficients of the projection on "
+        "Linear(['W1', 'W3']), or Linear(['W1']) on the missing-treatment and strata laws, "
+        "with continuous modifiers on [-1, 1], binary outcomes, default targeting and one "
+        "outcome regression per arm (outcome_by_arm=True). The basis, the modifiers, the law "
+        "and n are not in the key, so another basis, law or n reads supported and rests on "
+        "the theory alone.",
+        "The interval covers the coefficients of the least-squares projection of the CATE on "
+        "the basis over the sample's modifier distribution, not the CATE where it lies outside "
+        "the span of the basis.",
+        "Every calibration group fits learners consistent for its law. The in-sample composite "
+        "and the in-sample log ratio read SE ratios 1 to 2% below 1 at n = 2,000 and 4,000 "
+        "(lowest 0.9765, upper end 0.9895, on the composite intercept with missing outcomes); "
+        "a diagnosis on fresh draws found the shortfall closes with n, to 0.993 at n = 16,000, "
+        "and that the shipped composite ATE shares it. Smaller n reads a larger shortfall.",
+        "The cross-fitted bootstrap reads experimental: on boot_stacked_2k it covers 0.927 to "
+        "0.952 with SE ratios of 0.965 to 1.006, published without a verdict. The plug-in "
+        "learner (method='ep') refuses a missing treatment and strata=. No comparator: no "
+        "maintained package fits a projection TMLE of the CATE with these compositions.",
+    ]
+    boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap"})
+    variants: dict[str, dict[str, Any]] = {
+        "in_sample": {"splitting": ("in_sample",), "kinds": boot},
+        "in_sample.missing_treatment": {"splitting": ("in_sample",), "missing": ("treatment",)},
+        "in_sample.missing_both": {
+            "splitting": ("in_sample",),
+            "missing": ("outcome", "treatment"),
+        },
+        "strata": {"splitting": ("stacked",), "qualifiers": ("strata",)},
+        "repeats": {"splitting": ("stacked", "repeated")},
+    }
+    variant_limits = {
+        "in_sample": [
+            "The study measures the in-sample Wald interval and the full-refit percentile "
+            "bootstrap with 200 replicates; a bootstrap interval shrunk by 0.70 about its median "
+            "reads SE ratios near 0.70 (cell insample_2k, shrunken_se_control)."
+        ],
+        "in_sample.missing_treatment": [
+            "The study measures a treatment recorded at random given the treatment and "
+            "covariates, P = expit(1 + 2 W3 - 0.5 A), fitted in sample through the composite "
+            "indicator. With cross-fitting a missing treatment refuses. A wrong outcome "
+            "regression was measured for bias only."
+        ],
+        "in_sample.missing_both": [
+            "The study measures a missing treatment and a missing outcome together, in sample, "
+            "through the composite indicator."
+        ],
+        "strata": [
+            "The study measures one binary stratum with probability 0.4, with the stratum "
+            "coefficients reported beside the marginal ones."
+        ],
+        "repeats": [
+            "The study measures repeats=3 with the median rule at GLM nuisances, where the split "
+            "displacement is under 1% of the SE, and an SE divided by sqrt(3) reads ratios near "
+            "0.58 (cell rep3_obs_4k, independent_splits_control). The heterogeneity test under "
+            "repeats=3 was measured on a known-mechanism law (cells rep3_null_2k, rep3_power_4k)."
+        ],
+    }
+    cells = {
+        "P13": {
+            "in_sample": ["insample_2k"],
+            "in_sample.missing_treatment": ["mtreat_4k"],
+            "in_sample.missing_both": ["mtreat_both_4k"],
+            "strata": ["strata_4k"],
+            "repeats": ["rep3_obs_4k"],
+        },
+        "P14": {
+            "in_sample": ["insample_crr_2k"],
+            "in_sample.missing_treatment": ["mtreat_crr_4k"],
+            "strata": ["strata_crr_4k"],
+            "repeats": ["rep3_crr_4k"],
+        },
+    }
+    rows = []
+    for family, row_id in (("P13", "T49"), ("P14", "T50")):
+        for suffix, settings in variants.items():
+            measured = cells[family].get(suffix)
+            if not measured:
+                continue
+            rows.append(
+                point_row(
+                    f"{row_id}.{suffix}",
+                    ["projection-compositions"],
+                    families=(family,),
                     options={"outcome_by_arm": True},
                     cells=measured,
                     # Roadmap: P1.
@@ -3818,6 +3926,7 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_categorical_point_rows(),
         *_adaptive_iptw_rows(),
         *_projection_rows(),
+        *_projection_composition_rows(),
         *_x76_stopping_point_rows(),
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),

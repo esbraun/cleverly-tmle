@@ -55,6 +55,15 @@ def test_the_arms_are_eleven_with_42_gated_rows() -> None:
     assert "rep3_sl_2k" not in study.GROUP_BY_LABEL
 
 
+def test_the_evidence_descriptions_name_each_group_with_calibration_arms() -> None:
+    # ``descriptions._PC_GROUPS`` words the arms of the method-evidence page; a group added to or
+    # dropped from the study must be added to or dropped from it.
+    from tests.studies.evidence import descriptions
+
+    armed = {group.label for group in study.GROUPS if group.arms}
+    assert set(descriptions._PC_GROUPS) == armed
+
+
 def test_every_cell_is_declared_once_and_the_record_reads_them() -> None:
     cells = [cell for names in study.PROPERTY_CELLS.values() for cell in names]
     assert len(cells) == len(set(cells))

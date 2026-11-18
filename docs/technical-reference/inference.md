@@ -707,15 +707,17 @@ laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap.
 a data-adaptive nuisance.
 
 A support row lists the `bootstrap` kind when a registered cell measured the percentile interval
-for that configuration. The rows `T01.binary`, `T31`, `G01` and `G11.nodes4` list it. A bootstrap
+for that configuration. The rows `T01.binary`, `T31`, `G01`, `G11.nodes4`, `T49.in_sample` and
+`T50.in_sample` list it. A bootstrap
 on any other fit keeps the interval names and carries the label `experimental`.
 
 This covers a
 cross-fitted point fit, whose replicates redraw the split; its label carries the reason that names
-[F2](../roadmap.md#f2-targeted-bootstrap-inference). It also covers the projection coefficients of
-a `ConditionalContrast` fit, in sample or cross-fitted, until the `projection-compositions` study
-is registered,
-a clustered fit, a competing-event fit, and every `DRTMLE` fit. Of these, the study measured only
+[F2](../roadmap.md#f2-targeted-bootstrap-inference). That includes the cross-fitted projection
+coefficients of a `ConditionalContrast` fit, whose in-sample bootstrap the
+[projection-compositions study](method-evidence/projection-compositions.md) measured. It also
+covers a clustered fit, a competing-event fit, and every `DRTMLE` fit. Of these, the full-refit
+bootstrap study measured only
 the in-sample clustered `LTMLE` bootstrap, in cells `boot_ey_clustered` and `boot_ate_clustered`.
 The contrast cell failed calibration, so its support row `G05.in_sample` lists the point kind
 alone.

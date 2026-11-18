@@ -1820,9 +1820,11 @@ the rule learner of the learned-rule value
 [the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)).
 
 The projection TMLE also fits a missing treatment in sample (through the composite indicator),
-`strata=`, `repeats` above 1 and the full-refit bootstrap; these read experimental until the
-`projection-compositions` study is registered. The EP rule's interval with a declared `sieve=` or
-`learner=` waits on the `learned-rule-ep-declared` study the same way.
+`strata=`, `repeats` above 1 and the full-refit bootstrap. The registered `projection-compositions`
+study measured these, and its support rows label them supported, except the bootstrap of a
+cross-fitted fit, which stays with [F2](#f2-targeted-bootstrap-inference). The EP rule's interval
+with a declared `sieve=` or `learner=` reads experimental until the declared
+`learned-rule-ep-declared` study is run and registered.
 
 What stays here is the compositions the shipped refusals name with this item: an intermediate and
 a continuous or vector treatment for `ConditionalContrast`; a conditional contrast from a method
