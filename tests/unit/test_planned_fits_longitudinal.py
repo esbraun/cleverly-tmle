@@ -115,7 +115,7 @@ def _two_node() -> CausalStudy:
     return CausalStudy(frame, design=LongitudinalTreatment(**COLUMNS))
 
 
-def _survival(n: int = 400, seed: int = 12) -> CausalStudy:
+def _survival(n: int = 400, seed: int = 12, baseline_only: bool = False) -> CausalStudy:
     frame, _ = make_longitudinal_survival(n=n, seed=seed)
     return CausalStudy(
         frame,
@@ -123,7 +123,7 @@ def _survival(n: int = 400, seed: int = 12) -> CausalStudy:
             outcome=["Y1", "Y2"],
             treatment=["A1", "A2"],
             baseline=["W1", "W2"],
-            time_varying=[[], ["L2"]],
+            time_varying=[[], []] if baseline_only else [[], ["L2"]],
             censoring=["C1", "C2"],
         ),
     )
@@ -283,6 +283,19 @@ STUDY_ROUTES: dict[str, tuple[Callable[[], CausalStudy], Any, Any, Callable[[], 
         RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0"),
         None,
         lambda: _learners(survival_model="hazard", targeting="one_step"),
+    ),
+    # A treatment at several nodes, with and without covariates after baseline (X70 (b2)).
+    "hazard_multinode_time_varying": (
+        _survival,
+        RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0"),
+        None,
+        lambda: _learners(survival_model="hazard", targeting="one_step"),
+    ),
+    "hazard_multinode": (
+        lambda: _survival(baseline_only=True),
+        RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0"),
+        None,
+        _hazard,
     ),
     "survival_ctmle": (
         lambda: _point_survival(),
