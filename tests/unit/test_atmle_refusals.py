@@ -60,7 +60,7 @@ def no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     def spy(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("the adaptive TMLE engine was reached")
 
-    monkeypatch.setattr("cleverly.estimators.atmle_result.fit_adaptive_tmle", spy)
+    monkeypatch.setattr("cleverly.estimators.atmle_result._fit_checked", spy)
 
 
 def _code(error: pytest.ExceptionInfo[CapabilityError]) -> RefusalReason:
