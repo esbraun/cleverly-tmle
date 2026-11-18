@@ -427,12 +427,37 @@ def collect(checkpoints: Path = CHECKPOINTS, output: Path = OUTPUT) -> pd.DataFr
     columns = [*COLUMNS, "pilot_set"]
     frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
     frame = frame.reindex(columns=columns)
+    _refuse_mixed_sets(frame)
     latest = frame.groupby(["label", "replicate"])["pilot_set"].transform("max")
     frame["superseded"] = frame["pilot_set"] < latest
     frame = frame.sort_values(["label", "replicate", "pilot_set", "reading"], ignore_index=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output, index=False)
     return frame
+
+
+def _refuse_mixed_sets(frame: pd.DataFrame) -> None:
+    """Refuse a fold that would put two code versions in one reading.
+
+    A label a later set reruns must cover every replicate an earlier set holds, or the rows it
+    leaves out would stay current beside the rerun ones; and one set holds each
+    ``(label, replicate, reading)`` once.
+    """
+    duplicated = frame.duplicated(["pilot_set", "label", "replicate", "reading"], keep=False)
+    if duplicated.any():
+        first = frame.loc[duplicated].iloc[0]
+        raise ValueError(
+            f"pilot set {first['pilot_set']} holds {first['label']} replicate "
+            f"{first['replicate']} reading {first['reading']!r} more than once"
+        )
+    for (rank, label), rows in frame.groupby(["pilot_set", "label"]):
+        earlier = frame.loc[(frame["label"] == label) & (frame["pilot_set"] < rank), "replicate"]
+        missing = sorted(set(earlier) - set(rows["replicate"]))
+        if missing:
+            raise ValueError(
+                f"pilot set {rank} reruns {label} without replicates {missing[:5]}"
+                f"{' ...' if len(missing) > 5 else ''} that an earlier set holds"
+            )
 
 
 def load(path: Path = OUTPUT) -> pd.DataFrame:

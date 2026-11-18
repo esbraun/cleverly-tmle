@@ -917,25 +917,66 @@ def test_the_committed_readings_match_their_recomputation() -> None:
     assert json.loads(json.dumps(recomputed)) == json.loads(pilot.READINGS.read_text())
 
 
+def _pilot_sets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sets: tuple[dict[str, Any], ...]
+) -> Path:
+    """Write one checkpoint directory per set, ``{label: [(replicate, estimate), ...]}``."""
+    first = tmp_path / pilot.PILOT_SETS[0]
+    for name, labels in zip(pilot.PILOT_SETS, sets, strict=False):
+        directory = tmp_path / name
+        directory.mkdir()
+        for label, draws in labels.items():
+            rows = [
+                dict.fromkeys(pilot.COLUMNS)
+                | {"label": label, "replicate": r, "reading": "a", "estimate": e}
+                for r, e in draws
+            ]
+            (directory / f"{label}.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows)
+            )
+    monkeypatch.setattr(pilot, "ARTIFACTS", tmp_path)
+    monkeypatch.setattr(pilot, "CHECKPOINTS", first)
+    return first
+
+
 def test_a_later_pilot_set_supersedes_a_draw(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A draw a later set repeats keeps its earlier rows, marked, and reads only the new ones."""
-    first, later = tmp_path / "pilot-checkpoints", tmp_path / "pilot-checkpoints-c"
-    for directory, estimates in ((first, (1.0, 2.0)), (later, (3.0,))):
-        directory.mkdir()
-        rows = [
-            dict.fromkeys(pilot.COLUMNS)
-            | {"label": "x", "replicate": r, "reading": "a", "estimate": e}
-            for r, e in enumerate(estimates)
-        ]
-        (directory / "x.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    monkeypatch.setattr(pilot, "ARTIFACTS", tmp_path)
-    monkeypatch.setattr(pilot, "CHECKPOINTS", first)
+    first = _pilot_sets(
+        tmp_path,
+        monkeypatch,
+        ({"x": [(0, 1.0), (1, 2.0)], "y": [(0, 5.0)]}, {"x": [(0, 3.0), (1, 4.0), (2, 6.0)]}),
+    )
     folded = pilot.collect(first, tmp_path / "pilot.csv.gz")
-    assert folded["superseded"].tolist() == [True, False, False]
-    current = pilot.load(tmp_path / "pilot.csv.gz")
-    assert current.sort_values("replicate")["estimate"].tolist() == [3.0, 2.0]
+    marked = folded.set_index(["label", "replicate", "pilot_set"])["superseded"]
+    assert marked.to_dict() == {
+        ("x", 0, 0): True,
+        ("x", 0, 1): False,
+        ("x", 1, 0): True,
+        ("x", 1, 1): False,
+        ("x", 2, 1): False,
+        ("y", 0, 0): False,
+    }
+    current = pilot.load(tmp_path / "pilot.csv.gz").sort_values(["label", "replicate"])
+    assert current["estimate"].tolist() == [3.0, 4.0, 6.0, 5.0]
+
+
+def test_a_later_set_that_reruns_part_of_a_label_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replicate 1 would stay current on the earlier code beside the rerun replicate 0."""
+    first = _pilot_sets(tmp_path, monkeypatch, ({"x": [(0, 1.0), (1, 2.0)]}, {"x": [(0, 3.0)]}))
+    with pytest.raises(ValueError, match="without replicates \\[1\\]"):
+        pilot.collect(first, tmp_path / "pilot.csv.gz")
+
+
+def test_a_set_holding_a_reading_twice_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _pilot_sets(tmp_path, monkeypatch, ({"x": [(0, 1.0), (0, 2.0)]},))
+    with pytest.raises(ValueError, match="more than once"):
+        pilot.collect(first, tmp_path / "pilot.csv.gz")
 
 
 def _synthetic_pilot() -> pd.DataFrame:
