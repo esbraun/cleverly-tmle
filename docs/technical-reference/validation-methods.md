@@ -841,8 +841,9 @@ $R$ is the indicator of the rows the representer reads. On complete data $R$ is 
 [Second mechanisms and strata of the bound](#omitted-variable-bounds-robustness-value-benchmark-and-contours) defines $R$ for the other
 fits. The two primitives are exposed as `elements()`.
 
-The bounds and their confidence limits are formed on the identity scale for every target. On an
-unclustered mean of a yes/no outcome, whose reported interval is on the logit scale
+The bounds and their confidence limits are formed on the identity scale for every target. Where the reported interval is formed otherwise, on an unclustered
+mean of a yes/no outcome (the logit scale), a bounded difference of two such means (MOVER) or an
+unclustered estimate of a continuous outcome (the skew-widened t)
 ([small-sample scale](inference.md#small-sample-scale)), the limits at zero strength are therefore
 identity-scale limits and do not reduce to the reported interval.
 
@@ -965,7 +966,7 @@ the draws as the table states. One draw reproduces the shipped bound exactly.
 | --- | --- |
 | each bound | the median of $\psi_r \mp S B_r$, with $S$ the confounding strength |
 | `max_bias` | the median of $B_r$ |
-| each one-sided limit | the median edge $\tilde t$ of the draws, extended by the quantile times $\sqrt{\operatorname{median}_r\{\hat\sigma_r^2 + (t_r - \tilde t)^2\}}$ |
+| each one-sided limit | the median edge $\tilde t$ of the draws, extended by the estimate's interval rule at the standard error $\sqrt{\operatorname{median}_r\{\hat\sigma_r^2 + (t_r - \tilde t)^2\}}$ |
 | `rv` | the strength at which the median bound reaches the null |
 | the confidence-limit robustness value | the strength at which the combined limit reaches the null |
 | each `contour` cell | the median bound at that cell |
@@ -1285,6 +1286,15 @@ Cinelli, Newey, Sharma and Syrgkanis (2026) gives them. The curve of a limit is 
 estimate plus or minus the strength times the curve of the bias scale. The standard error is the
 square root of `influence_variance` of that curve, which sums the rows of each cluster on a
 clustered fit. The table gives each curve per row, with weights $w$ of mean one.
+
+Each limit extends its bound by the bounded estimate's own interval rule at that standard error,
+read through `cleverly.inference.interval_reference`: the t reference of a clustered fit, the
+logit scale of a binary mean, the skew-widened t of an unclustered continuous outcome (with the
+degrees of freedom and acceleration of the limit's curve on one draw), and each side's MOVER
+multiple of the standard error for a bounded difference. At zero strength on one draw the two
+limits at level $1 - \alpha/2$ are therefore the estimate's `ci`. Each rule converges to the normal
+quantile, so Theorem 4's asymptotic one-sided coverage is unchanged; the shape is a
+finite-sample choice that the registered studies measured with the normal quantile.
 
 Theorem 4 inherits Lemma 3's DML conditions. They include cross-fitting, the cited DML
 assumptions, and $o_P(n^{-1/4})$ $L^2$ rates for the outcome regression and representer. The
@@ -2654,7 +2664,11 @@ of that paper, because the published version was not read.
 with $z = \Phi^{-1}(1 - (1 - \text{level})/2)$. By the union bound it covers the identified set
 with asymptotic probability at least `level`. Each standard error is the variance of the side's
 influence curve, summed within clusters on a clustered fit. A fit with `repeats > 1` applies the
-median rule to each side. The interval of Imbens and Manski (2004) for the parameter alone is
+median rule to each side. Each limit is the matching side of the bounded estimate's own interval
+rule about that end (`cleverly.inference.interval_reference`), so a binary mean, a bounded
+difference and a continuous outcome take the logit, MOVER and skew-widened t shapes of their
+`ci` in place of the normal $z$; each converges to $z$, which leaves the union-bound coverage
+unchanged asymptotically. The interval of Imbens and Manski (2004) for the parameter alone is
 narrower and is not shipped.
 
 **Reference distribution.** A clustered fit below the few-cluster threshold replaces $z$ with

@@ -1,0 +1,58 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 0,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/binary_active",
+      "properties/ladder_500",
+      "properties/ladder_2000",
+      "properties/ladder_8000",
+      "properties/shared_prognosis",
+      "properties/kappa_law",
+      "properties/bounds_active",
+      "properties/auto_bounds",
+      "properties/bounded_outcome",
+      "properties/pseudo_true",
+      "properties/generated_design",
+      "properties/sharp_null",
+      "properties/power"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 0,
+    "seconds_capture": 6.06,
+    "seconds_fit": 1.88,
+    "stage": "refits",
+    "study": "ctmle-oat-per-arm-parametric"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 14,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/binary_active",
+      "properties/ladder_500",
+      "properties/ladder_2000",
+      "properties/ladder_8000",
+      "properties/shared_prognosis",
+      "properties/kappa_law",
+      "properties/bounds_active",
+      "properties/auto_bounds",
+      "properties/bounded_outcome",
+      "properties/pseudo_true",
+      "properties/generated_design",
+      "properties/sharp_null",
+      "properties/power"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 42,
+    "seconds_capture": 6.54,
+    "seconds_fit": 113.09,
+    "stage": "scope",
+    "study": "ctmle-oat-per-arm-parametric"
+  }
+}

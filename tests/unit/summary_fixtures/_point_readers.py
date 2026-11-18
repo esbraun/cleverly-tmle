@@ -146,8 +146,19 @@ def estimate_values(estimate: Any, level: str = "95%") -> dict[str, Any]:
     else:
         values[vocabulary.SPREAD_LABELS["plugin_std_err"]] = estimate.plugin_std_error
     values[vocabulary.SUPPORT] = estimate.support.label
-    values[vocabulary.DF] = estimate.reference_df if estimate.reference_df else "normal"
+    values[vocabulary.DF] = _df_value(estimate)
     return values
+
+
+def _df_value(estimate: Any) -> Any:
+    """The df cell: the t reference's df, a skew-widened t's df (its floor and ``+`` at
+    250 and above), or ``normal``."""
+    if estimate.reference_df:
+        return estimate.reference_df
+    if estimate.interval_scale == "skew_t" and estimate.effective_df is not None:
+        df = float(estimate.effective_df)
+        return df if df < 250 else "250+"
+    return "normal"
 
 
 def read_estimate(estimate: Any, text: str) -> None:

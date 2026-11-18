@@ -16,7 +16,8 @@ O5    ``shift``            :mod:`tests.discrete_law_shift`, on its dose atoms   
 ====  ===================  ====================================================  ===========
 
 As in ``omitted-variable-bound-se``, each row reads one end of a bound as an estimate of its
-population value, and recovers the standard error from the reported one-sided limit.  Every
+population value, with the standard error of that end's own influence curve
+(:func:`end_standard_errors`), checked against the reported one-sided limit.  Every
 truth is a closed form of the law's tables.  Every nuisance is a saturated logistic model, so
 each fit is correctly specified.
 """
@@ -33,6 +34,8 @@ import pandas as pd
 from scipy import stats
 
 from cleverly.estimators import TMLE
+from cleverly.inference import interval_reference
+from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Shift, Static, Stochastic
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
@@ -56,9 +59,8 @@ SEED = 20262321
 #: rerun and its results accepted as drawn.
 RESAMPLING_SEED = 20262325
 
-#: The two-sided 95% multiplier of each row's interval, and the bound's one-sided multiplier.
+#: The two-sided 95% multiplier of each row's interval.
 TWO_SIDED = float(stats.norm.ppf(0.975))
-ONE_SIDED = float(stats.norm.ppf(0.95))
 
 ENDS = ("lower", "upper")
 COVARIATES = ("W1", "W2")
@@ -170,9 +172,9 @@ CONFIGURATION = {
     "strength": {
         cell: {"cf_y": spec.cf_y, "cf_d": spec.cf_d, "rho": 1.0} for cell, spec in CELLS.items()
     },
-    "primary_row": "estimate = one end of the bound; std_error = (lower - ci_lower) / z_0.95 "
-    "for a lower end and (ci_upper - upper) / z_0.95 for an upper end; interval = estimate "
-    "+/- 1.959964 std_error",
+    "primary_row": "estimate = one end of the bound; std_error = the influence standard error "
+    "of that end's curve, which reproduces the reported one-sided limit under the estimate's "
+    "interval rule; interval = estimate +/- 1.959964 std_error",
     "truth": "closed forms of the law tables (sensitivity_limit_laws)",
 }
 
@@ -313,8 +315,54 @@ def parameter_result(cell: str, fitted: Any, label: str) -> tuple[Any, str]:
     return fitted, reference[0]
 
 
+#: How closely the limit read at the rebuilt standard error must reproduce the reported one.
+LIMIT_TOLERANCE = 1e-12
+
+
+def end_standard_errors(result: Any, name: str, bounds: Any) -> dict[str, float]:
+    """The standard error of each end of one bound: the influence SE of the end's own curve.
+
+    Each end's curve is the estimate's curve plus the signed strength times the curve of the
+    maximal bias.  The limit reads the estimate's interval rule about the end at this standard
+    error (:func:`~cleverly.inference.interval_reference`), which is not always the normal
+    rule, so a standard error read back off the limit with a normal quantile is not the end's.
+    The read here must reproduce the reported limit, or the harness stops: that ties the
+    standard error to the package's own and fails if the end's curve or rule moves.
+    """
+    if len(result.repeats) != 1:
+        raise RuntimeError(f"{name}: the bound reads {len(result.repeats)} draws, not one")
+    estimate = result[name]
+    elements = omitted_variable_module.sensitivity_elements(result, name)
+    assert elements.psi_max_bias is not None
+    curve = np.asarray(estimate.influence_curve, dtype=float)
+    bias = bounds.confounding_strength * np.asarray(elements.psi_max_bias, dtype=float)
+    out: dict[str, float] = {}
+    for end, sign, point, reported in (
+        ("lower", -1.0, bounds.lower, bounds.ci_lower),
+        ("upper", 1.0, bounds.upper, bounds.ci_upper),
+    ):
+        end_curve = curve + sign * bias
+        se = float(np.sqrt(influence_variance(end_curve, result.data.cluster)))
+        read = interval_reference(
+            estimate,
+            level=bounds.level,
+            sided="one",
+            psi=point,
+            std_error=se,
+            influence_curve=end_curve,
+        )
+        limit = read.lower if sign < 0 else read.upper
+        if not abs(limit - reported) <= LIMIT_TOLERANCE * max(1.0, abs(reported)):
+            raise RuntimeError(
+                f"{name}: the {end} limit read at the rebuilt standard error is {limit!r}, "
+                f"not the reported {reported!r}"
+            )
+        out[end] = se
+    return out
+
+
 def bound_values(cell: str, fitted: Any, label: str) -> dict[str, tuple[float, float]]:
-    """Each end of one bound and its standard error, read back from the reported limit."""
+    """Each end of one bound and its own standard error (:func:`end_standard_errors`)."""
     spec = CELLS[cell]
     result, name = parameter_result(cell, fitted, label)
     bounds = omitted_variable_module.omitted_variable_bounds(
@@ -324,10 +372,8 @@ def bound_values(cell: str, fitted: Any, label: str) -> dict[str, tuple[float, f
         raise RuntimeError(
             f"{cell} {label}: the bound's features {bounds.features} are not ({spec.rule!r},)"
         )
-    return {
-        "lower": (bounds.lower, (bounds.lower - bounds.ci_lower) / ONE_SIDED),
-        "upper": (bounds.upper, (bounds.ci_upper - bounds.upper) / ONE_SIDED),
-    }
+    errors = end_standard_errors(result, name, bounds)
+    return {"lower": (bounds.lower, errors["lower"]), "upper": (bounds.upper, errors["upper"])}
 
 
 def _row(

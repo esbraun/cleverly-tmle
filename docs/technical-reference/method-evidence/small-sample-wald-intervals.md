@@ -9,12 +9,14 @@ the estimate reads holds one observed outcome value in its stratum
 (`cleverly.inference.constant_outcome_cells`), or when a bounded estimate lies on or outside its
 bounds.
 
-The shipped intervals are unchanged. The study computes the rule from the public functions the
-default would read (`tests/studies/small_sample_wald.py`, `rule_interval`), so it measures the
-rule before any default reads it. **Only bounded means are supported.** The run refutes the rule
-for bounded differences with one arm near its bound and for skewed continuous outcomes, and the
-logistic working-model coefficients of a small stratum stay red on their SE. [Result](#result)
-names each refuted class and its owner.
+The study computed the rule from the public functions (`tests/studies/small_sample_wald.py`,
+`rule_interval`), so it measured the rule before any default read it. **Only bounded means are
+supported**, and the default now reads the rule's logit interval for them. The run refutes the
+rule for bounded differences with one arm near its bound and for skewed continuous outcomes, and
+the logistic working-model coefficients of a small stratum stay red on their SE. [Result](#result)
+names each refuted class and its owner. For the two refuted classes the default reads the
+asymmetric intervals that [asymmetric-wald](asymmetric-wald-intervals.md) measured on new held-out
+laws.
 
 **No canonical implementation is compared.** No published implementation applies a range-logit
 or moment-df interval to a TMLE influence curve with these withholding triggers, so no comparison
@@ -25,10 +27,10 @@ was run. The absence does not block the row, and a zero-row equivalence artifact
 | setting | declaration |
 | --- | --- |
 | primary | 1,000 fits of the binary-outcome law with three unequal strata of `canonical-stratified-tmle` at n = 2,000, its `ey[1][V=2]` (truth 0.9358) and `ate[V=2]`. The primary rows publish the rule's interval, a withheld one as the point, so the primary measures the correction. The shipped interval of the same fits is in `primary-shipped.csv`, which no verdict reads |
-| owner and diagnosis cells | `boundary_mean` at n = 2,000 and 8,000 on the law of the primary; the logit-MSM treatment coefficient and the identity-MSM W coefficient of stratum 2 on the alternating laws of the stratified MSM studies; and four diagnosis laws that chose the rule: a rare binary outcome (`rare_ey0`), a Student t error on 3 df (`student_ey1`, `student_ate`) and a lognormal error of skewness 2.0 (`lognormal06_ey1`) |
+| owner and diagnosis cells | `boundary_mean` at n = 2,000 and 8,000 on the law of the primary; the logit-MSM treatment coefficient and the identity-MSM W coefficient of stratum 2 on the alternating laws of the stratified MSM studies; and four diagnosis laws that chose the rule: a rare binary outcome (`rare_ey0`), a Student t error on 3 df (`student_ey1`, `student_ate`) and a lognormal error of skewness 2.3 (`lognormal06_ey1`) |
 | held-out cells | three laws declared before any fit on them, each with exact truths. H1: a sparse treated arm with no strata, treated mean near 1. H2: a continuous outcome with a point mass at 0 and a gamma part, in stratum V = 2 of three, fitted with a saturated cell-mean outcome model. H3: a logistic working MSM $(1, a, W)$ in stratum 2 of about 300 rows. `tests/studies/small_sample_laws.py` defines every law |
 | non-H1 cells | law L of `drtmle-one-inconsistent-nuisance` at n = 4,000 under a wrong outcome regression: two arm means with a cross-fitted logistic treatment model, and a control whose treatment model converges slower than root n |
-| reported rows | the same laws at n = 500 and 1,000, the in-sample and cross-fitted random-forest pair, the no-harm cells of three owner studies, the DR-TMLE stratum, the lognormal law of skewness 6.2, and every control re-reading of the gated cells |
+| reported rows | the same laws at n = 500 and 1,000, the in-sample and cross-fitted random-forest pair, the no-harm cells of three owner studies, the DR-TMLE stratum, the lognormal law of skewness 11.2, and every control re-reading of the gated cells |
 | verdicts | a positive coverage cell passes when its lower leg's 99% Clopper-Pearson lower end is at least 0.92, counting lost and withheld fits as misses, and its shown fits' 99% upper end is at most 0.98. `boundary_mean` and `student_ey1` also need the exact conditional 99.5% lower bound of the paired gain over the normal interval above 1/2. A non-H1 positive cell needs its lower leg's lower end at least 0.92 and the control its coverage's upper end below 0.90 |
 | property budget | 2,000 replications per group (1,000 for the forest pair and the slow-mechanism control) |
 | seeds | `seed=2026111201` and `resampling_seed=2026111202`; every group draws from its own stream, keyed by its label |
@@ -95,8 +97,8 @@ one red gated cell was 0.094, most of it `lognormal06_ey1` (0.057).
 | `control` | `logit_msm_v2_a__capped_t_binary_control` | diagnostic | the alternating binary law, logistic working MSM (1, a, W), treatment coefficient in V = 2, n = 2,000: the same fits read under a Student t interval on the identity scale at max(df, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9541 to 0.9756, shown 0.9541 to 0.9756 | reported |
 | `control` | `logit_msm_v2_a__kish_control` | diagnostic | the alternating binary law, logistic working MSM (1, a, W), treatment coefficient in V = 2, n = 2,000: the same fits read under a Student t interval on the identity scale at max(Kish count, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9599 to 0.9798, shown 0.9599 to 0.9798 | reported |
 | `control` | `logit_msm_v2_a__normal_reference_control` | diagnostic | the alternating binary law, logistic working MSM (1, a, W), treatment coefficient in V = 2, n = 2,000: the same fits read under the normal interval on the identity scale | reported with no verdict; a falsifier may read it | lower leg 0.9339 to 0.9600, shown 0.9339 to 0.9600 | reported |
-| `control` | `lognormal06_ey1__kish_control` | diagnostic | a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, n = 2,000: the same fits read under a Student t interval on the identity scale at max(Kish count, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9289 to 0.9560, shown 0.9289 to 0.9560 | reported |
-| `control` | `lognormal06_ey1__normal_reference_control` | diagnostic | a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, n = 2,000: the same fits read under the normal interval on the identity scale | reported with no verdict; a falsifier may read it | lower leg 0.9064 to 0.9376, shown 0.9064 to 0.9376 | reported |
+| `control` | `lognormal06_ey1__kish_control` | diagnostic | a continuous outcome with a lognormal error of skewness 2.3, treated mean in V = 2, n = 2,000: the same fits read under a Student t interval on the identity scale at max(Kish count, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9289 to 0.9560, shown 0.9289 to 0.9560 | reported |
+| `control` | `lognormal06_ey1__normal_reference_control` | diagnostic | a continuous outcome with a lognormal error of skewness 2.3, treated mean in V = 2, n = 2,000: the same fits read under the normal interval on the identity scale | reported with no verdict; a falsifier may read it | lower leg 0.9064 to 0.9376, shown 0.9064 to 0.9376 | reported |
 | `control` | `rare_ey0__capped_t_binary_control` | diagnostic | a rare binary outcome, three strata, untreated mean in V = 2, n = 2,000: the same fits read under a Student t interval on the identity scale at max(df, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9355 to 0.9613, shown 0.9355 to 0.9613 | reported |
 | `control` | `rare_ey0__kish_control` | diagnostic | a rare binary outcome, three strata, untreated mean in V = 2, n = 2,000: the same fits read under a Student t interval on the identity scale at max(Kish count, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9513 to 0.9734, shown 0.9513 to 0.9734 | reported |
 | `control` | `rare_ey0__logit_t_control` | diagnostic | a rare binary outcome, three strata, untreated mean in V = 2, n = 2,000: the same fits read under a Student t interval on the range-logit scale at max(df, 5) | reported with no verdict; a falsifier may read it | lower leg 0.9570 to 0.9777, shown 0.9570 to 0.9777 | reported |
@@ -110,7 +112,7 @@ one red gated cell was 0.094, most of it `lognormal06_ey1` (0.057).
 | `corrected_coverage` | `identity_msm_v2_w` | positive | the alternating Beta-outcome law, identity working MSM, W coefficient in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9507 to 0.9730, shown 0.9507 to 0.9730 | pass |
 | `corrected_coverage` | `logit_msm_v2_a` | positive | the alternating binary law, logistic working MSM (1, a, W), treatment coefficient in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9339 to 0.9600, shown 0.9339 to 0.9600 | pass |
 | `diagnosis_bounded` | `rare_ey0` | positive | a rare binary outcome, three strata, untreated mean in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9389 to 0.9639, shown 0.9389 to 0.9639 | pass |
-| `diagnosis_continuous` | `lognormal06_ey1` | positive | a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9178 to 0.9471, shown 0.9178 to 0.9471 | **fail** |
+| `diagnosis_continuous` | `lognormal06_ey1` | positive | a continuous outcome with a lognormal error of skewness 2.3, treated mean in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9178 to 0.9471, shown 0.9178 to 0.9471 | **fail** |
 | `diagnosis_continuous` | `student_ate` | positive | a continuous outcome with a Student t error on 3 df, effect in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9378 to 0.9630, shown 0.9378 to 0.9630 | pass |
 | `diagnosis_continuous` | `student_ey1` | positive | a continuous outcome with a Student t error on 3 df, treated mean in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98, and the exact 99.5% lower bound of the paired gain over the normal interval above 1/2 | lower leg 0.9339 to 0.9600, shown 0.9339 to 0.9600, paired gain 37 against 0, lower bound 0.8666 | pass |
 | `heldout_coverage` | `ho_hurdle_ate` | positive | held-out law H2, a continuous outcome with a point mass at 0 and a gamma part, effect in V = 2, n = 2,000: the rule's interval | the lower leg's 99% lower end at least 0.92, lost and withheld fits as misses, and the shown fits' 99% upper end at most 0.98 | lower leg 0.9339 to 0.9600, shown 0.9349 to 0.9608 | pass |
@@ -138,7 +140,7 @@ one red gated cell was 0.094, most of it `lognormal06_ey1` (0.057).
 | `reported` | `leverage_crossfit_ey1` | diagnostic | the stratified law of `canonical-stratified-tmle`, stratified TMLE with a random-forest outcome model, cross-fitted, treated mean in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs, and the SE-ratio interval containing 1 | lower leg 0.9342 to 0.9694, shown 0.9342 to 0.9694 | reported |
 | `reported` | `leverage_in_sample_ate` | diagnostic | the stratified law of `canonical-stratified-tmle`, stratified TMLE with a random-forest outcome model, in sample, effect in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs, and the SE-ratio interval containing 1 | lower leg 0.9237 to 0.9619, shown 0.9237 to 0.9619 | reported |
 | `reported` | `leverage_in_sample_ey1` | diagnostic | the stratified law of `canonical-stratified-tmle`, stratified TMLE with a random-forest outcome model, in sample, treated mean in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs, and the SE-ratio interval containing 1 | lower leg 0.9295 to 0.9661, shown 0.9295 to 0.9661 | reported |
-| `reported` | `lognormal_ey1` | diagnostic | a continuous outcome with a lognormal error of skewness 6.2, treated mean in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs | lower leg 0.8804 to 0.9156, shown 0.8804 to 0.9156 | reported |
+| `reported` | `lognormal_ey1` | diagnostic | a continuous outcome with a lognormal error of skewness 11.2, treated mean in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs | lower leg 0.8804 to 0.9156, shown 0.8804 to 0.9156 | reported |
 | `reported` | `mar_multi_arm_ate` | diagnostic | the three-arm law with missing outcomes of `canonical-multi-arm-mar-drtmle`, low against high, n = 2,000: the rule's interval | reported with no verdict: both legs | lower leg 0.9451 to 0.9687, shown 0.9451 to 0.9687 | reported |
 | `reported` | `rare_ate` | diagnostic | a rare binary outcome, three strata, effect in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs | lower leg 0.9162 to 0.9457, shown 0.9355 to 0.9614 | reported |
 | `reported` | `rare_ey1` | diagnostic | a rare binary outcome, three strata, treated mean in V = 2, n = 2,000: the rule's interval | reported with no verdict: both legs | lower leg 0.9322 to 0.9586, shown 0.9521 to 0.9742 | reported |
@@ -172,21 +174,25 @@ rule withholds the interval there.
 | owner | cells | reading |
 | --- | --- | --- |
 | `X8-logit-small-stratum` | `heldout_coverage/ho_logit_msm_a`, `heldout_coverage/ho_logit_msm_w` | the logistic working-model coefficients of H3's stratum 2 cover 0.935 and 0.8835 under the normal reference, with SE ratios of 0.941 and 0.889 and coverage of 0.949 and 0.9495 at the empirical SD. A post-run diagnosis on fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) found the fitted curve tracking H3's exact efficient influence function at n = 400,000, with root-n SE within 1% of the efficiency SD. The SE ratios of 0.945 and 0.891 at n = 2,000 rise to 1.025 and 0.989 at n = 8,000. The reading is the O(1/n) SE shortfall this owner already holds on the alternating law |
-| `F3-difference-near-bound` | `heldout_coverage/ho_sparse_treat_ate` | H1's difference covers 0.9285 with an SE ratio of 0.985 and coverage of 0.956 at the empirical SD. Its interval lies above the truth in 0.0555 of fits and below it in 0.016, and the shipped normal interval on the same fits covers 0.926. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) the treated arm, whose mean sits near 1, carries a median 0.907 of the difference's variance. The rule's premise that a difference escapes the coupling of estimate and SE near a bound is refuted |
-| `F3-skewed-continuous` | `heldout_coverage/ho_hurdle_ey1`, `diagnosis_continuous/lognormal06_ey1` | the moment-df t covers 0.9304 on H2, over the completed fits, and 0.9335 on the lognormal law of skewness 2.0, with coverage of 0.947 and 0.9545 at the empirical SD. The misses are one-sided (0.055 against 0.015 and 0.055 against 0.0115), which no symmetric df corrects. On H2 a second part adds to the skewness: the saturated outcome model's smallest stratum-2 cell holds about 6.5 rows, and its leverage shrinks the residuals. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) a hand-built curve matches the fit's, and dividing each residual by the cell's leverage moves the SE ratio of `ey[1][V=2]` from 0.934 to 0.966 |
+| `F3-normal-reference` (formerly `F3-difference-near-bound`) | `heldout_coverage/ho_sparse_treat_ate` | H1's difference covers 0.9285 with an SE ratio of 0.985 and coverage of 0.956 at the empirical SD. Its interval lies above the truth in 0.0555 of fits and below it in 0.016, and the shipped normal interval on the same fits covers 0.926. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) the treated arm, whose mean sits near 1, carries a median 0.907 of the difference's variance. The rule's premise that a difference escapes the coupling of estimate and SE near a bound is refuted |
+| `F3-normal-reference` (formerly `F3-skewed-continuous`) | `heldout_coverage/ho_hurdle_ey1`, `diagnosis_continuous/lognormal06_ey1` | the moment-df t covers 0.9304 on H2, over the completed fits, and 0.9335 on the lognormal law of skewness 2.3, with coverage of 0.947 and 0.9545 at the empirical SD. The misses are one-sided (0.055 against 0.015 and 0.055 against 0.0115), which no symmetric df corrects. On H2 a second part adds to the skewness: the saturated outcome model's smallest stratum-2 cell holds about 6.5 rows, and its leverage shrinks the residuals. On fresh draws ([`tests/diagnostics/fix3_postrun/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/fix3_postrun)) a hand-built curve matches the fit's, and dividing each residual by the cell's leverage moves the SE ratio of `ey[1][V=2]` from 0.934 to 0.966 |
 
 Three declared falsifiers fired, each on a red cell: the composition falsifier on
 `ho_sparse_treat_ate`, the df falsifier on `ho_hurdle_ey1` and the binary-coefficient falsifier on
 `ho_logit_msm_a`. A falsifier fires only when its control passes on the same fits, so a passing
 control there is selected and not out-of-sample evidence for it. No falsifier fired on a bounded
 mean. Every reported row keeps its `passed` reading in `properties.csv`, and the diagnostic rows at
-n = 500, the DR-TMLE stratum, the lognormal law of skewness 6.2 and `rare_ate` read as the
+n = 500, the DR-TMLE stratum, the lognormal law of skewness 11.2 and `rare_ate` read as the
 declaration expected.
 
 **Cells this study does not close.** The owner `strata-boundary-mean` keeps the band cell of
 `canonical-stratified-tmle`. Its two primary truth rows and its pointwise cell moved to
 `F3-normal-reference` when the shipped default took the rule for bounded means. They stay as the
 record of the identity interval, beside an audit file that recomputes them under the shipped rule.
+This study's three refuted cells moved to `F3-normal-reference` in the same way when the shipped
+default took correlated MOVER for bounded differences and the skew-widened t for continuous
+targets, which [asymmetric-wald](asymmetric-wald-intervals.md) measured on fresh seeds of the
+same laws. They stay as the record of the rule this study refuted.
 
 ## Measured values
 
@@ -215,7 +221,7 @@ from the committed results and checked at the precision printed.
 | `properties[heldout_coverage/ho_sparse_treat_ate]:coverage` | 0.9285 | held-out difference near a bound |
 | `properties[heldout_coverage/ho_sparse_treat_ate]:se_ratio` | 0.9846 | its SE ratio |
 | `properties[heldout_coverage/ho_hurdle_ey1]:coverage` | 0.9304 | held-out skewed continuous mean, over the completed fits |
-| `properties[diagnosis_continuous/lognormal06_ey1]:coverage` | 0.9335 | lognormal mean, skewness 2.0 |
+| `properties[diagnosis_continuous/lognormal06_ey1]:coverage` | 0.9335 | lognormal mean, skewness 2.3 |
 | `properties[heldout_coverage/ho_logit_msm_a]:coverage` | 0.9350 | held-out logit-MSM treatment coefficient |
 | `properties[heldout_coverage/ho_logit_msm_w]:coverage` | 0.8835 | held-out logit-MSM W coefficient |
 | `properties[heldout_coverage/ho_logit_msm_w]:se_ratio` | 0.8893 | its SE ratio |
@@ -249,9 +255,9 @@ from the committed results and checked at the precision printed.
 
 | limitation | what it means for use |
 | --- | --- |
-| The shipped intervals are unchanged | The study measures the rule computed from public functions. No shipped fit reports the rule's interval until the default reads it |
-| Bounded differences | Refuted when one arm sits near its bound and carries most of the difference's variance (`F3-difference-near-bound`). Differences keep the normal interval on the identity scale, which is as red on that law |
-| Skewed continuous outcomes | Refuted at moderate skewness in a small stratum, and on H2 also by a saturated learner's leverage on cells of about 6.5 rows (`F3-skewed-continuous`). Continuous targets keep the normal reference |
+| The rule measured before the default read it | The study measured the rule computed from public functions. The default reads it for bounded means only |
+| Bounded differences | Refuted when one arm sits near its bound and carries most of the difference's variance. A bounded difference now takes correlated MOVER, measured by [asymmetric-wald](asymmetric-wald-intervals.md), and this study's committed row stays as the record of the refuted rule (`F3-normal-reference`) |
+| Skewed continuous outcomes | Refuted at moderate skewness in a small stratum, and on H2 also by a saturated learner's leverage on cells of about 6.5 rows. A continuous target now takes the skew-widened t, measured by [asymmetric-wald](asymmetric-wald-intervals.md), and this study's committed rows stay as the record of the refuted rule (`F3-normal-reference`) |
 | Binary working-model coefficients | Keep the normal reference. In a stratum of about 300 rows their SE falls short at O(1/n) (`X8-logit-small-stratum`), and no t reference repairs it |
 | Withheld intervals | At n = 500 the rule withholds about a tenth of the intervals of the boundary mean, each counted as a miss. The interval shown on the other fits covers, and a withheld interval is a claim limit, not a coverage |
 | Held-out laws now seen | H1 to H3 have been looked at. A revised rule chosen because it wins on them is in-sample, so it needs its own declaration on new held-out laws |

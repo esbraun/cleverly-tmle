@@ -25,7 +25,8 @@ Each row records four quantities, each with its reported standard error.
     The corrected :math:`E_n[\hat\alpha^2] - \hat B`, with the same standard error as
     ``nu2_raw``, because the correction leaves the curve unchanged.
 ``lower``, ``upper``
-    The bound ends, with the standard error read back off the reported limit.
+    The bound ends, with the influence standard error of each end's own curve, which must
+    reproduce the reported limit under the estimate's interval rule.
 
 A replicate the package refuses keeps ``nu2_raw`` and records the refusal key.  Its corrected
 quantities are missing, and the reading counts the refusals.
@@ -59,6 +60,7 @@ from __future__ import annotations
 import argparse
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -66,6 +68,7 @@ from scipy import stats
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import TMLE
+from cleverly.inference import interval_reference
 from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity import omitted_variable as ov
 from cleverly.utils.parallel import map_parallel
@@ -86,6 +89,8 @@ ROWS = ("nu2_raw", "nu2", "lower", "upper")
 #: The truth each row estimates.
 TRUTH_OF = {"nu2_raw": "nu2", "nu2": "nu2", "lower": "lower", "upper": "upper"}
 CRITICAL = 1.959964
+#: How closely the limit read at the rebuilt standard error must reproduce the reported one.
+LIMIT_TOLERANCE = 1e-12
 LABEL = "x26-crossfit-bias"
 
 
@@ -140,10 +145,46 @@ def parameter_values(result: object, token: str) -> dict[str, float | str]:
     out["nu2"] = float(elements.nu2)
     out["nu2_se"] = out["nu2_raw_se"]
     out["lower"] = float(bounds.lower)
-    out["lower_se"] = float((bounds.lower - bounds.ci_lower) / study.ONE_SIDED)
     out["upper"] = float(bounds.upper)
-    out["upper_se"] = float((bounds.ci_upper - bounds.upper) / study.ONE_SIDED)
+    out["lower_se"], out["upper_se"] = end_standard_errors(result, name, elements, bounds)
     return out
+
+
+def end_standard_errors(result: Any, name: str, elements: Any, bounds: Any) -> tuple[float, float]:
+    """The standard error of each bound end: the influence SE of the end's own curve.
+
+    The limit reads the estimate's interval rule about the end (the skew-widened t under the
+    linear outcome model of both fittings), so a standard error read back with a normal
+    quantile is not the end's.  The read
+    at the rebuilt standard error must reproduce the reported limit, or the run stops.
+    """
+    if len(result.repeats) != 1:
+        raise RuntimeError(f"the bound of {name!r} reads more than one draw")
+    estimate = result[name]
+    curve = np.asarray(estimate.influence_curve, dtype=float)
+    bias = bounds.confounding_strength * np.asarray(elements.psi_max_bias, dtype=float)
+    errors = []
+    for sign, point, reported in (
+        (-1.0, bounds.lower, bounds.ci_lower),
+        (1.0, bounds.upper, bounds.ci_upper),
+    ):
+        end_curve = curve + sign * bias
+        se = float(np.sqrt(influence_variance(end_curve, result.data.cluster)))
+        read = interval_reference(
+            estimate,
+            level=bounds.level,
+            sided="one",
+            psi=point,
+            std_error=se,
+            influence_curve=end_curve,
+        )
+        limit = read.lower if sign < 0 else read.upper
+        if abs(limit - reported) > LIMIT_TOLERANCE * max(1.0, abs(reported)):
+            raise RuntimeError(
+                f"the limit of {name!r} at the rebuilt standard error is not reported"
+            )
+        errors.append(se)
+    return errors[0], errors[1]
 
 
 def replicate_rows(n: int, replicate: int) -> list[dict[str, float | int | str]]:

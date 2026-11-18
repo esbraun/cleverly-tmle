@@ -652,11 +652,13 @@ class LearnedRules:
 
     Parameters
     ----------
-    assignments : tuple of FloatArray
-        Per outer fold, the ``(n, 2)`` arm codes of the fold's rule pair on every row.  The
+    assignments : tuple of numpy.ndarray
+        Per outer fold, the ``(n, 2)`` int8 arm codes of the fold's rule pair on every row.  The
         second column is ``d^{d_1(L_1)}_2(H_2)``, the second-node rule of the first-node arm
         the pair assigns.  It is 0 on a row censored after the first node, which no estimate
-        reads.
+        reads.  The codes are 0 and 1, so the float plans built from them
+        (:meth:`stitched`, :meth:`~cleverly.longitudinal.regimen.Plan.with_assignment`) hold
+        the same values as float codes would.
     blips : tuple of FloatArray
         Per outer fold, the ``(n, 2)`` blips behind the rules: column 0 is
         ``Qbar_1(L_1, 1) - Qbar_1(L_1, 0)`` and column 1 is
@@ -669,10 +671,25 @@ class LearnedRules:
         The outer split.
     """
 
-    assignments: tuple[FloatArray, ...]
+    assignments: tuple[np.ndarray, ...]
     blips: tuple[FloatArray, ...]
     second_node_blips: tuple[FloatArray, ...]
     folds: Folds
+
+    def codes_only(self) -> LearnedRules:
+        """These rules without the blips, which only the record and witnesses read.
+
+        The fit builds its record first and then carries only the codes and the split through
+        the recursion, so the per-fold blips (``4 n`` floats per fold) are not held there.
+
+        Returns
+        -------
+        LearnedRules
+            The same codes and split, with empty ``blips`` and ``second_node_blips``.
+        """
+        return LearnedRules(
+            assignments=self.assignments, blips=(), second_node_blips=(), folds=self.folds
+        )
 
     def stitched(self) -> FloatArray:
         """Return each row's arm codes from the fold that held it out.
@@ -825,7 +842,7 @@ def learn_fold_rules(
 
     def run_fold(
         fold: int, train: IntArray
-    ) -> tuple[tuple[FloatArray, FloatArray, FloatArray], PhaseProfile | None]:
+    ) -> tuple[tuple[np.ndarray, FloatArray, FloatArray], PhaseProfile | None]:
         rows = np.zeros(data.n, dtype=bool)
         rows[train] = True
         with collect_phases(wanted) as profile:
@@ -839,7 +856,10 @@ def learn_fold_rules(
                 fold=fold,
                 bounds=bounds,
             )
-        return learned, profile
+        # The rule codes are 0 and 1 (``_rule``): int8 holds them exactly at an eighth of
+        # the bytes, while every fold's output waits for the others.
+        assignment, blips, second = learned
+        return (assignment.astype(np.int8), blips, second), profile
 
     jobs = [(fold, train) for fold, (train, _) in enumerate(folds)]
     with phase("outer_fold_recursion"):
@@ -1105,7 +1125,7 @@ def _quantiles(values: FloatArray) -> tuple[float, ...]:
     )
 
 
-def _disagreement(columns: FloatArray, rows: BoolArray) -> float:
+def _disagreement(columns: np.ndarray, rows: BoolArray) -> float:
     if not rows.any():
         return 0.0
     picked = columns[:, rows]
@@ -1138,7 +1158,9 @@ def learned_regimen_record(
         The record.
     """
     folds = rules.folds
-    assignments = np.stack(rules.assignments)
+    # int8 codes, stacked as they are: the treated shares and the disagreement read 0/1
+    # values, which compare and sum exactly in either dtype.
+    assignments = np.stack(rules.assignments).astype(np.int8, copy=False)
     blips = np.stack(rules.blips)
     uncensored = plan.with_assignment(np.zeros_like(plan.values)).masks(data).uncensored[:, 1]
     first_arm = np.asarray(data.node_codes(1), dtype=float)
@@ -1175,6 +1197,6 @@ def learned_regimen_record(
         seed=seed,
         fold_sizes=tuple(int(np.sum(folds.assignment == fold)) for fold in range(folds.n_folds)),
         nodes=nodes,
-        fold_rules=assignments.astype(np.int8),
+        fold_rules=assignments,
         fold_blips=blips,
     )

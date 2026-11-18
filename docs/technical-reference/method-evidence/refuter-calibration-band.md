@@ -56,7 +56,7 @@ The primary phase checks the fit that the rule reads. It does not calibrate the 
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; TMLE of a capped +0.5 shift at five folds | `ate` | average treatment effect | `cleverly` fit that the band-rank placebo rule reads | -0.0024 to 0.0078 | 0.9500 | 1.0145 | **fail** |
+| law P: a continuous dose in a band [L(W), U(W)] whose location and width read W; TMLE of a capped +0.5 shift at five folds | `ate` | average treatment effect | `cleverly` fit that the band-rank placebo rule reads | -0.0024 to 0.0078 | 0.9550 | 1.0145 | **fail** |
 <!-- /generated -->
 
 ## Theory properties
@@ -70,13 +70,13 @@ The cell name gives the configuration, then the reading.
 | --- | --- | --- | --- | --- | --- | --- |
 | `refuter_power` | `LJ1__placebo_stale_rows` | control | LTMLE of a dose shift at three nodes on the pricing-shaped law L: the placebo t rule, with a declared share of stale rows | at least 38 detections in 50 trials | detections 49 of 50 | pass |
 | `refuter_power` | `PJ1__placebo_stale_rows` | control | TMLE of a capped dose shift on law P: the placebo t rule, with a declared share of stale rows | at least 38 detections in 50 trials | detections 50 of 50 | pass |
-| `refuter_size` | `LJ1__placebo` | positive | LTMLE of a dose shift at three nodes on the pricing-shaped law L: the placebo t rule against the exact band-rank null | no more than 20 rejections in 200 trials | rejections 12 of 200 | pass |
+| `refuter_size` | `LJ1__placebo` | positive | LTMLE of a dose shift at three nodes on the pricing-shaped law L: the placebo t rule against the exact band-rank null | no more than 20 rejections in 200 trials | rejections 11 of 200 | pass |
 | `refuter_size` | `PJ1__placebo` | positive | TMLE of a capped dose shift on law P: the placebo t rule against the exact band-rank null | no more than 20 rejections in 200 trials | rejections 10 of 200 | pass |
 <!-- /generated -->
 
 ## Result
 
-All four property cells pass. The size cells reject in 10 (PJ1) and 12 (LJ1) of 200 trials, below
+All four property cells pass. The size cells reject in 10 (PJ1) and 11 (LJ1) of 200 trials, below
 the limit of 20. The power cells detect the defect in 50 (PJ1) and 49 (LJ1) of 50 trials, above the
 floor of 38. The registry `VERDICT_EVIDENCE` therefore holds one placebo row for each cell. Each
 row's scope is the configuration that its cells recorded in `cells.csv`.
@@ -84,9 +84,10 @@ row's scope is the configuration that its cells recorded in `cells.csv`.
 `tests/unit/test_refuter_calibration_band_registry.py` checks each scope against the passing cells
 of the committed run.
 
-The primary truth row is red. The primary phase has 200 replications, which cannot resolve its
-coverage floor or bias margin. The coverage limit is 0.8960, below the floor of 0.90. The bias
-interval, -0.0024 to 0.0078 in outcome units, crosses the margin of 0.0070 in the same units. The SE-ratio interval contains 1. The [red-cell ledger](red-cells.md)
+The primary truth row is red on its bias leg. The primary phase has 200 replications, which
+cannot resolve its bias margin. The bias interval, -0.0024 to 0.0078 in outcome units, contains 0
+and crosses the margin of 0.0070 in the same units. The coverage limit is 0.9027, above the floor
+of 0.90, and the SE-ratio interval contains 1. The [red-cell ledger](red-cells.md)
 names the owner.
 
 ## Measured values
@@ -105,7 +106,7 @@ from the committed results and checked at the precision printed.
 | `property_cells_total` | 4 | repeated-sampling property cells |
 | `property_cells_passed` | 4 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0978 | largest absolute primary bias in empirical standard deviations |
-| `min_coverage` | 0.9500 | lowest measured primary-study coverage |
+| `min_coverage` | 0.9550 | lowest measured primary-study coverage |
 | `min_se_ratio_ci_lower` | 0.9052 | lowest bootstrap primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.1631 | highest bootstrap primary SE-ratio endpoint |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
@@ -146,7 +147,7 @@ from the committed results and checked at the precision printed.
 | The study learners only | Both rows name the fingerprint of `QuadraticLogistic`, a learner class of the study module in `tests/studies`. A user fit gets a verdict only through a learner with that exact fingerprint. In practice a banded user fit stays descriptive |
 | The classifier ratio only | `ratio="density"` ran in no cell, so that reading stays descriptive |
 | The stale-row power is approximate | The probe sizes the population shift of the placebo. The shift of one trial varies about it. LJ1's stale-row cell detected 49 of 50 |
-| The primary phase is under-resolved | 200 replications cannot put the 99% coverage limit above 0.90. The truth row is red with an owner, and no rule row reads it |
+| The primary phase is under-resolved | 200 replications cannot put the 99% bias interval inside its margin. The truth row is red with an owner, and no rule row reads it |
 
 ## Reproduction
 

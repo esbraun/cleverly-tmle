@@ -1,0 +1,55 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 360,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 720,
+    "seconds_capture": 0.52,
+    "seconds_fit": 506.73,
+    "stage": "refits",
+    "study": "composite-missing-drtmle"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 30,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 46,
+    "seconds_capture": 0.53,
+    "seconds_fit": 67.86,
+    "stage": "scope",
+    "study": "composite-missing-drtmle"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "corrected_mar_inference/composite_three_arm_ate_low__mechanism_drift",
+      "corrected_mar_inference/composite_three_arm_ate_mid__both_correct",
+      "interval_calibration/ate__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 4000,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 8,
+    "rows": 8000,
+    "seconds_capture": 0.6,
+    "seconds_fit": 3670.76,
+    "stage": "settle",
+    "study": "composite-missing-drtmle"
+  }
+}

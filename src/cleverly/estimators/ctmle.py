@@ -3548,7 +3548,7 @@ default="greedy"
         if chosen_risks:
             treatment_risk = float(np.mean(chosen_risks))
         else:
-            columns = np.array([propensity.column_for(float(arm)) for arm in data.treatment])
+            columns = propensity.columns_for(data.treatment)
             observed = propensity.values[everything, columns]
             treatment_risk = float(
                 -np.sum(data.weights * np.log(np.clip(observed, _LOSS_EPS, 1.0)))
@@ -3662,9 +3662,7 @@ default="greedy"
             }
         else:
             propensity = Propensity(factors["treatment"], arms)
-            observed_columns = np.array(
-                [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
-            )
+            observed_columns = propensity.columns_for(data.treatment)
             observed_probability = propensity.values[np.arange(data.n), observed_columns]
             risk = float(
                 -np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0)))
@@ -4862,9 +4860,7 @@ class _Selector:
         loss = self.loss(targeted, rows)
         penalty = self.penalty(targeted, submodel, rows) if self.est.penalty else 0.0
         g = np.clip(propensity.values[rows], _LOSS_EPS, 1.0 - _LOSS_EPS)
-        columns = np.array(
-            [propensity.column_for(float(arm)) for arm in self.data.treatment[rows]], dtype=int
-        )
+        columns = propensity.columns_for(self.data.treatment[rows])
         w = self.data.weights[rows]
         treatment_risk = float(-np.sum(w * np.log(g[np.arange(rows.size), columns])))
         return _Candidate(
