@@ -124,7 +124,9 @@ def test_rows_are_the_full_designs_rows(case: tuple[str, CausalData, Any, float 
 def test_the_row_design_holds_no_copy_of_the_covariates() -> None:
     frame = _frame()
     data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=_covariates(frame))
-    assert data.counterfactual_rows(1.0).covariates is data.covariates
+    design = data.counterfactual_rows(1.0)
+    assert isinstance(design, RowDesign)
+    assert design.covariates is data.covariates
 
 
 # --- refusals -----------------------------------------------------------------------------
@@ -155,7 +157,7 @@ def test_refusals_are_the_full_designs_refusals(
         data.counterfactual_rows(value, intermediate_value=level)
     assert type(lazy.value) is type(full.value)
     assert str(lazy.value) == str(full.value)
-    assert isinstance(full.value, (DataError, Exception))
+    assert isinstance(full.value, (DataError, CapabilityError))
 
 
 # --- whole fits against the materialized route -------------------------------------------
@@ -529,3 +531,48 @@ def test_only_the_observed_design_reaches_the_cross_fit_whole(
         assert all(
             isinstance(design, RowDesign) for key, design in designs.items() if key != "observed"
         )
+
+
+#: Fits whose counterfactual designs reach more than the outcome regression, and the least
+#: number of cross-fits each must hand a ``RowDesign``.
+SECONDARY_ROUTES = {
+    "missing outcomes": 2,  # the outcome regression and the missingness mechanism
+    "intermediate": 2,  # the outcome regression and the intermediate mechanism
+    "adaptive IPTW, missing outcomes": 1,  # fit_fold_mechanisms' missingness slabs
+    "foldwise DR-TMLE": 2,  # the outcome regression and fit_inner_designs
+}
+
+
+@pytest.mark.parametrize("name", list(SECONDARY_ROUTES))
+def test_every_reader_of_the_designs_gets_rows(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each cross-fit that predicts at a counterfactual treatment is handed a ``RowDesign``.
+
+    The whole-fit equality above would pass if one of these readers went back to whole
+    designs, so the route is counted per reader here.
+    """
+    routed: list[int] = []
+    original = _nuisance.cross_fit_companion
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        designs = kwargs["predict_designs"].values()
+        if any(isinstance(design, RowDesign) for design in designs):
+            routed.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_nuisance, "cross_fit_companion", spy)
+    FITS[name]()
+    assert len(routed) >= SECONDARY_ROUTES[name]
+
+
+def test_a_process_pool_fit_takes_the_row_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pool builds rows in its workers; the parent must still have made row designs."""
+    made: list[int] = []
+    original = CausalData.counterfactual_rows
+
+    def counting(self: CausalData, *args: Any, **kwargs: Any) -> Any:
+        made.append(1)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(CausalData, "counterfactual_rows", counting)
+    _parallel_fit()
+    assert made

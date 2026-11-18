@@ -94,7 +94,7 @@ __all__ = [
 #: asked for (:class:`~cleverly.data.causal_data.RowDesign`).
 Design: TypeAlias = "FloatArray | RowDesign"
 
-CompanionDesign: TypeAlias = "FloatArray | RowDesign | Sequence[FloatArray]"
+CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 
 #: A reduction of one fold's companion predictions, applied inside the fold worker: it takes
 #: the fold index and the fold model's predictions by companion name, and returns the arrays
@@ -1327,8 +1327,6 @@ def _companion_matrix(design: CompanionDesign, fold: int) -> FloatArray:
     """One matrix from a companion design: the design itself, or this fold's entry."""
     if isinstance(design, np.ndarray):
         return design
-    if isinstance(design, RowDesign):
-        return design.rows(None)
     return np.asarray(design[fold], dtype=float)
 
 
