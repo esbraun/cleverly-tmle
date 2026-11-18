@@ -34,9 +34,7 @@ import contextvars
 import logging
 import threading
 import time
-from collections import deque
 from collections.abc import Callable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Final, Literal, Protocol
@@ -44,6 +42,8 @@ from typing import Any, Final, Literal, Protocol
 import numpy as np
 
 from .._typing import FloatArray, IntArray
+from .._warnings import merge, recording
+from ..utils.parallel import map_parallel
 from . import _targeting as T
 
 _LOG = logging.getLogger(__name__)
@@ -74,11 +74,13 @@ def for_blocks(
 ) -> None:
     """Run ``work(k)`` for every block ``k`` and ``commit(k, result)`` in block order.
 
-    With ``n_jobs`` above one the work runs on that many threads, each block in a copy of the
-    caller's context (so NumPy's error state reaches it), at most ``2 * n_jobs`` blocks ahead
-    of the next commit; a block that finishes early waits for the blocks before it.  Commits
-    always run on the calling thread.  The error of the earliest failing block, in block order,
-    is raised here once the blocks already started have finished.
+    With ``n_jobs`` above one the work runs on that many threads through
+    :func:`cleverly.utils.parallel.map_parallel`, ``2 * n_jobs`` blocks at a time, each block in
+    a copy of the caller's context (so NumPy's error state reaches it) under a warning recorder
+    of its own; the batch's warnings and results are merged and committed in block order once
+    all of them have finished.  Commits always run on the calling
+    thread.  The error of the earliest failing block, in block order, is raised here once its
+    batch has finished.
 
     Parameters
     ----------
@@ -95,23 +97,33 @@ def for_blocks(
         for k in range(count):
             commit(k, work(k))
         return
+    base = contextvars.copy_context()
+
+    def run(k: int) -> tuple[bool, Any, tuple[Any, ...]]:
+        # The block runs in the caller's context, so its package warnings would reach the
+        # caller's recorder from several threads at once; a recorder of its own keeps them,
+        # and they are merged in block order below.
+        def recorded() -> tuple[bool, Any, tuple[Any, ...]]:
+            with recording() as records:
+                try:
+                    value = work(k)
+                except Exception as error:  # raised in block order below
+                    return False, error, tuple(records)
+            return True, value, tuple(records)
+
+        return base.copy().run(recorded)
+
     depth = 2 * n_jobs
-    with ThreadPoolExecutor(max_workers=n_jobs, thread_name_prefix="cleverly-walk") as pool:
-        pending: deque[Future[Any]] = deque()
-        submitted = 0
-        try:
-            for k in range(count):
-                while submitted < count and submitted - k < depth:
-                    context = contextvars.copy_context()
-                    pending.append(pool.submit(context.run, work, submitted))
-                    submitted += 1
-                result = pending.popleft().result()
-                commit(k, result)
-                del result
-        except BaseException:
-            for future in pending:
-                future.cancel()
-            raise
+    for start in range(0, count, depth):
+        batch = map_parallel(
+            run, list(range(start, min(start + depth, count))), n_jobs=n_jobs, prefer="threads"
+        )
+        for k, (ok, value, records) in enumerate(batch, start):
+            merge(records)
+            if not ok:
+                raise value
+            commit(k, value)
+        del batch
 
 
 def chunk_size(n: int, causes: int, times: int) -> int:

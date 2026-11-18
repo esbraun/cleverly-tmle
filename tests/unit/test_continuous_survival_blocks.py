@@ -643,6 +643,24 @@ def test_for_blocks_commits_in_block_order_with_a_bounded_lead() -> None:
     assert max(lead) < 2 * 3
 
 
+@pytest.mark.parametrize("n_jobs", [1, 3])
+def test_each_block_s_warnings_reach_the_caller_in_block_order(n_jobs: int) -> None:
+    """Threads finish out of order; their package warnings are merged in block order."""
+    from cleverly._warnings import recording
+    from cleverly._warnings import warn as package_warn
+
+    def work(k: int) -> int:
+        time.sleep(0.002 * (11 - k))  # later blocks finish first
+        package_warn(f"block {k}", UserWarning)
+        return k
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with recording() as records:
+            _chunked.for_blocks(12, work, lambda k, value: None, n_jobs=n_jobs)
+    assert [record.message for record in records] == [f"block {k}" for k in range(12)]
+
+
 @pytest.mark.parametrize("value", [0, -2, 1.5, True, "2"])
 def test_n_jobs_is_a_positive_integer_or_minus_one(value: Any) -> None:
     with pytest.raises(ValueError, match="n_jobs"):
