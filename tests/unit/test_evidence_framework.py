@@ -163,6 +163,24 @@ def test_calibration_verdicts_read_a_bandless_study_on_the_se_ratio_alone() -> N
     assert list(inert["passed"]) == [True, True, False]
 
 
+def test_a_diagnostic_calibration_row_states_no_verdict() -> None:
+    """A diagnostic row publishes its intervals and passes; the same intervals fail a positive."""
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 2,
+            "cell": ["optimal__L", "nonexc__L"],
+            "role": ["diagnostic", "positive"],
+            "se_ratio_ci_lower": [0.60, 0.60],
+            "se_ratio_ci_upper": [0.70, 0.70],
+            "coverage_ci_lower": [0.70, 0.70],
+            "coverage_ci_upper": [0.80, 0.80],
+            "passed": [False, False],
+        }
+    )
+    calibration_verdicts(summary, margins=Margins(), efficiency_band=None, positive_suffix="L")
+    assert list(summary["passed"]) == [True, False]
+
+
 def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
     """The control of the other direction, which the omitted-variable bound study declares.
 

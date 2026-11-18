@@ -1437,6 +1437,114 @@ def fit_models(
     )
 
 
+def plan_models(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    settings: GFormulaSettings,
+    *,
+    nominal: bool = False,
+) -> list[tuple[str, str, Any]]:
+    """The fits :func:`fit_models` makes, counted without fitting.
+
+    One fit per modelled covariate, hazard or outcome node and natural-treatment node, on
+    the same rows; a binary or categorical response with one class present fits nothing.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans, which decide the natural-treatment models.
+    settings : GFormulaSettings
+        The learners.
+    nominal : bool
+        Count each fit at the learner's nominal counts, with no one-class skip: a bootstrap
+        replicate's.
+
+    Returns
+    -------
+    list of tuple
+        ``(role, name, Count)`` per fitted model, with ``role`` one of ``"covariate"``,
+        ``"hazard"``, ``"outcome"`` and ``"treatment"`` and ``name`` the printed name of the
+        learner the model fits (a GLM for a Gaussian response, whatever was passed).
+    """
+    from .._planned_fits import count_learner
+    from .._summary._learners import learner_name
+
+    variables = resolve_covariates(data, settings.covariate_types)
+    weights = np.asarray(data.weights, dtype=float)
+    out: list[tuple[str, str, Any]] = []
+
+    def one(role: str, template: Learner | None, y: FloatArray, rows: BoolArray, kind: str) -> None:
+        use = rows & (weights > 0.0) & np.isfinite(y)
+        if not np.any(use):
+            raise DataError(
+                f"the {role} model: no fit row has a positive weight and an observed value"
+            )
+        values = y[use]
+        if kind in ("binary", "multi") and not nominal and np.unique(values).size == 1:
+            return
+        learner = GLM() if template is None else template
+        target = values if kind != "normal" else None
+        out.append((role, learner_name(learner), count_learner(learner, target, nominal=nominal)))
+
+    for node in range(2, data.n_times + 1):
+        rows = data.uncensored_through(node - 1) & data.event_free_through(node - 1)
+        block = data.time_varying[node - 1]
+        for variable in variables[node - 1]:
+            if not variable.modelled:
+                continue
+            if variable.kind == "categorical":
+                kind, y = "multi", variable.observed_codes(block).astype(float)
+            elif variable.kind == "binary":
+                kind, y = "binary", variable.observed_values(block)
+            else:
+                kind, y = "normal", variable.observed_values(block)
+            if kind == "normal" and not (
+                settings.covariate_learner is None or isinstance(settings.covariate_learner, GLM)
+            ):
+                raise normal_learner_refusal("covariate_learner", variable.name)
+            template = None if kind == "normal" else settings.covariate_learner
+            one("covariate", template, np.where(rows, y, np.nan), rows, kind)
+    if data.is_survival:
+        for node in range(1, data.n_times + 1):
+            rows = data.uncensored_through(node) & data.event_free_through(node - 1)
+            if data.cause_event is None:
+                codes = data.event[:, node - 1].astype(float)  # type: ignore[index]
+            else:
+                happened = data.cause_event[:, node - 1, :]
+                codes = np.where(happened.any(axis=1), happened.argmax(axis=1) + 1.0, 0.0)
+            one("hazard", settings.hazard_learner, np.where(rows, codes, np.nan), rows, "multi")
+    else:
+        rows = data.uncensored_through(data.n_times) & np.isfinite(data.outcome)
+        y = np.nan_to_num(data.outcome, nan=0.0).astype(float)
+        one("outcome", settings.outcome_learner, np.where(rows, y, np.nan), rows, "mean")
+    needs = natural_nodes(data, plans)
+    known = declared_natural(data, plans)
+    for node, stacked in sorted(needs.items()):
+        if node in known:
+            continue
+        rows = (
+            data.uncensored_through(node - 1)
+            & data.event_free_through(node - 1)
+            & np.isfinite(data.treatment[:, node - 1])
+        )
+        continuous = data.is_continuous_node(node)
+        n_levels = 0 if continuous else len(data.treatment_levels[node - 1])
+        template = settings.treatment_learner if stacked else None
+        if continuous and stacked and not (template is None or isinstance(template, GLM)):
+            raise normal_learner_refusal("treatment_learner", data.treatment_names[node - 1])
+        kind = "normal" if continuous else ("binary" if n_levels == 2 else "multi")
+        one(
+            "treatment",
+            None if kind == "normal" else template,
+            np.where(rows, data.treatment[:, node - 1], np.nan),
+            rows,
+            kind,
+        )
+    return out
+
+
 def normal_learner_refusal(argument: str, name: str) -> CapabilityError:
     """The refusal of a learner that is not a GLM on a Gaussian response.
 

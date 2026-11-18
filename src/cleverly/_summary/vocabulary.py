@@ -164,6 +164,8 @@ def interval_label(level: float) -> str:
 SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "std_err": "std. error",
+        # A repeated projection fit's standard error without the spread between splits.
+        "se_without_displacement": "std. error without split spread",
         "plugin_std_err": "plug-in SE (diagnostic)",
         "ci_lower": "CI lower",
         "ci_upper": "CI upper",
@@ -1170,6 +1172,7 @@ EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
         "mtp": "shifted-treatment mean",
         "effect_modification": "conditional-contrast projection",
         "effect_modification_ratio": "log-ratio conditional-contrast projection",
+        "effect_modification_ratio_strata": "log-ratio conditional-contrast projection by stratum",
     }
 )
 
@@ -3811,6 +3814,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "learners_failed": "warning",
         "ensemble_risk": "note",
         "fit_cautions": "warning",
+        "fit_cautions_listed": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
         "guard_scope": "note",
@@ -3914,6 +3918,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "fit_cautions": (
             "The fits of {names} carry warnings that change how to read their rows; print "
             "each with result.fits[name].summary()."
+        ),
+        "fit_cautions_listed": (
+            "The fits of {names} carry warnings that change how to read their rows. This run "
+            "kept no fits (keep_fits=False), so they are listed here: {listing}"
         ),
         "stacked_interval": (
             "Each interval is pointwise and comes from one stacked estimating equation of "
@@ -4228,6 +4236,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "law_outcome_binomial": (
             "The outcome flips for a share of units, those highest on the simulated cause, "
             "set by the outcome strength."
+        ),
+        "law_outcome_panel_hazard": (
+            "Each unit's per-node event log-odds shifts by the outcome strength times its "
+            "value of the simulated cause, and censoring is redrawn where the treatment "
+            "changed."
+        ),
+        "law_outcome_continuous_hazard": (
+            "Each unit's cause-specific log-hazards ({causes}) shift by the outcome strength "
+            "times its value of the simulated cause; event and censoring times are redrawn "
+            "from the replay's Cox fits, and censoring is redrawn where the treatment changed."
         ),
         "law_outcome_logit": (
             "The outcome moves on the log-odds scale of its declared bounds, so it stays "
@@ -4914,3 +4932,43 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_NOTE_TEXTS})
+
+# ----------------------------------------------------------------- planned fits (X106 I)
+
+PLANNED_FITS_TITLE: Final = "Planned model fits"
+PLANNED_FITS_TOTAL: Final = "Model fits"
+PLANNED_CANDIDATE_TOTAL: Final = "Candidate fits"
+PLANNED_BOUND: Final = "Count"
+PLANNED_BOUND_TEXT: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "exact", False: "upper bound, at least {low} model fits"}
+)
+PLANNED_FOLDS: Final = "Folds"
+PLANNED_FOLDS_TEXT: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "realized": "the ones the fit uses (seeded)",
+        "outer realized": "outer folds as the fit uses them; inner folds drawn afresh",
+        "one draw": "one draw; the fit draws its own (no random_state)",
+    }
+)
+PLANNED_ROWS_TITLE: Final = "Fits by model"
+PLANNED_ROW_COLUMNS: Final = ("model", "fits", "candidate fits", "what and how often")
+PLANNED_LEARNERS_TITLE: Final = "Learners"
+PLANNED_LEARNER_COLUMNS: Final = ("model", "learner")
+PLANNED_CANDIDATES_TITLE: Final = "Fits by candidate"
+PLANNED_CANDIDATE_COLUMNS: Final = ("candidate", "fits", "own CV folds")
+PLANNED_UPPER_MARK: Final = "at most {fits}"
+SECTION_MULTIPLIERS: Final = "Where the counts come from"
+SECTION_PLANNED_NOTES: Final = "What the counts include"
+SECTION_UNPREVIEWED: Final = "Checks left to the fit"
+PLANNED_UNPREVIEWED_LEAD: Final = (
+    "These checks read a fitted tuner, so estimate() runs them after the count stops:"
+)
+PLANNED_NO_NOTES: Final = (
+    "The correction step that follows the model fits fits no learner and is not counted."
+)
+HEADER_LABELS = HEADER_LABELS | {
+    PLANNED_FITS_TOTAL,
+    PLANNED_CANDIDATE_TOTAL,
+    PLANNED_BOUND,
+    PLANNED_FOLDS,
+}

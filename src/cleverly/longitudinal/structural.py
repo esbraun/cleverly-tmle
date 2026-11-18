@@ -38,6 +38,7 @@ from typing import Any, ClassVar
 import numpy as np
 from scipy import stats
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
@@ -2144,7 +2145,7 @@ class StructuralNestedMeanResult:
 
     Attributes
     ----------
-    assessment_cache : dict
+    assessment_cache : AssessmentCache
         Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
         constructed result owns its own cache.
 
@@ -2173,7 +2174,9 @@ class StructuralNestedMeanResult:
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, as
     #: on :class:`~cleverly.longitudinal.LongitudinalResult`, so a mapping handed to the
     #: constructor by ``dataclasses.replace`` cannot answer for another fit.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False
+    )
 
     #: The assessment family: one declaration per assessment operation in
     #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`. A structural fit is not a

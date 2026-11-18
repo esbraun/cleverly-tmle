@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
+from .._assessment_cache import AssessmentCache
 from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._refusal import RefusalReason
 from .._support import Support, combine_support
@@ -664,8 +665,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     ratio of the fit. ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of
     :attr:`data` (the placebo on a contrast, the random common cause and the subset tests, all
     descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting walk at other
-    floors from refitted initial hazards. The simulated common cause and every other
-    sensitivity analysis refuse with their reason and roadmap item.
+    floors from refitted initial hazards. ``sensitivity.simulated_confounding()`` refits
+    :attr:`estimator` once per cell on event and censoring times redrawn from the replay's own
+    Cox fits under a simulated common cause, reusing the fit's fold plan under its own seed
+    (descriptive). Every other sensitivity analysis refuses with its reason and roadmap item.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -682,7 +685,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False
+    )
 
     #: The assessment family: one declaration per assessment operation in
     #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`.

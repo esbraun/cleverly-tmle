@@ -206,14 +206,14 @@ predicted rates, in small steps, until the risks satisfy the equations that make
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
 about ten seconds at 1,000 people.
 
-The fit's memory grows with the number of people times the number of distinct event and
-censoring times up to the last horizon, so when times rarely repeat it grows with the square of
-the number of people. With one kind of event, 100,000 people and a last horizon that covers most
-follow-up times, it would need about 1 TB. Before fitting anything, the fit predicts how much
-memory it needs and stops with an error when that is more than the machine has free; on macOS,
-which does not report free memory, it checks only a limit you set. The error spells the
-`ContinuousSurvivalTMLE` call that runs the same fit, whose `max_memory_bytes=` sets the limit,
-as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+The fit works through the people in small groups, so its memory grows with the number of people
+and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
+people and two horizons, it needs about 0.3 GB. Before fitting anything, it checks that the
+machine has that much free and stops with an error when it does not; on macOS, which does not
+report free memory, it checks only a limit you set. Between passes it keeps as many groups as the
+free memory holds and recomputes the rest, so a larger limit makes a large fit faster and never
+changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
+whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
 competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
@@ -707,7 +707,7 @@ not record could change the answer.
 | call | what it does | where it runs |
 | --- | --- | --- |
 | `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")`. On a fit with exact times, name the two arms' risks of one event at one target time, such as `("cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]")` |
-| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not |
+| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not, and a fit with exact times |
 
 `simulated_confounding` returns a surface: one estimate for each pair of confounder strengths in
 the grid you pass. To read it, find the weakest confounder at which the estimate crosses zero, and judge
@@ -722,6 +722,15 @@ changed, and a person whose event the confounder removes stays in follow-up on f
 grid cell with both strengths at zero gives the original estimate.
 [The stress surface](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 gives the replay and its checks.
+
+On a fit with exact times, the confounder scales each person's event rate of every event type
+up or down, and new event and censoring times are drawn from models the analysis fits for this
+purpose. Censoring is again drawn afresh only where the treatment changed, and both strengths at
+zero give back the recorded times and the original estimate. Each grid cell other than that one
+refits the whole analysis, so a 3 by 3 grid costs 8 refits: seconds at a few hundred people, and
+minutes for a large cross-fitted fit. The surface prints numbers, not a pass or fail.
+[Continuous-time survival replay](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+gives the law and its checks.
 :::
 
 Both analyses, and the checks that generate new outcomes (`dummy_outcome`, `simulated_outcome`,

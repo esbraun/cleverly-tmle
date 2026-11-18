@@ -659,3 +659,45 @@ estimate or standard error, the run log records no failed replicate, and the stu
 primary `failures.csv`. So no bound decided any primary verdict, and a run at 0.01 would write the
 same rows. The property phase's own bound, `property_failure_bound` 0.05, is a separate key and is
 unchanged.
+
+## Unit weights dropped from the EP final learner
+
+`final_stage` in `src/cleverly/estimators/ep.py` now passes no `sample_weight` to a declared
+final learner when every observation weight is 1. With a weight vector, scikit-learn's
+histogram gradient booster bins through its weighted percentile; without one, it bins through
+`np.percentile` with the `averaged_inverted_cdf` method, which gives the same bin edges at unit
+weights, and its gradients and hessians are the same sums of ones. The edit therefore changes
+no fit of `ep-cate`'s greedy learner or of `learned-rule-ep`, whose manifests record `ep.py`.
+The evidence: `tests/unit/test_learned_rule_ep_declared_design.py` checks equal predictions
+of the declared booster with unit weights and with none, and a probe of the declared `L`
+curve at n = 4,000 and n = 16,000 found the estimate, the standard error, every fold rule and
+every fold value equal under both, while the fit took 14 s against 32 s and 32 s against
+52 s. Weighted fits pass their weights as before.
+
+## Main merged into `projection-compositions` after its run
+
+The declared run of `projection-compositions` ran at `07943c57`. Merging main afterwards changed
+seven modules its manifest records: `src/cleverly/effect_curves.py`,
+`src/cleverly/estimators/tmle.py`, `src/cleverly/estimators/_strata.py`,
+`src/cleverly/estimators/base.py`, `src/cleverly/inference/influence.py`,
+`src/cleverly/inference/results.py` and `src/cleverly/inference/multiplier.py`. Main's edits add
+the known-mechanism declaration check, the constant-outcome and few-cluster paths, the external
+known score, the boundary-node bootstrap and multiplier refusals, the conditional forms and the
+range interval; each defaults off or is unreachable from a projection fit. The evidence: at
+seed 0 every one of the study's 13 groups, fitted through `fit_group` at `07943c57` and at the
+merge, gives the same point, standard error, bootstrap interval, control value and heterogeneity
+statistic to 12 significant digits.
+
+Two later edits touched recorded modules, and main was merged again before the pull request
+merged. In `tmle.py` the stratified pass renames only the stratified log-ratio group, so the
+natural-course group keeps its own name; no projection fit has a natural-course group. In
+`results.py` the bootstrap of an estimate that is itself experimental keeps its own reason before
+the cross-fitted one, which changes support text only. The second merge of main changed no other
+recorded module. The same seed-0 fits of all 13 groups after both edits and the second merge match
+the first merge's output line for line.
+
+## Registration edits after the `projection-compositions` run (P1)
+
+Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_compositions_properties.py`,
+a constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the measured-values
+table. It is read by no verdict, seed or fit, so a regeneration would write the same rows.

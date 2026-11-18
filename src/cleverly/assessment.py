@@ -33,10 +33,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     )
 
 from ._assessment_cache import (
+    _EVICTION_RULE,
     _RETAIN_PACKED,
+    AssessmentCache,
+    CacheEntry,
     _cache_key,
     _cached,
+    _file,
     _frame_payload,
+    _is_evictable,
     _normalize,
     _pack_cached,
     _result_backend,
@@ -117,10 +122,12 @@ __all__ = [
     "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
+    "AssessmentCache",
     "AssessmentCapability",
     "AssessmentItem",
     "AssessmentReport",
     "AssessmentStatus",
+    "CacheEntry",
     "DiagnosticReport",
     "DiagnosticsFacade",
     "LongitudinalDiagnostics",
@@ -679,7 +686,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
     ),
     # The continuous-time survival TMLE (X6, X101). Its diagnostics read the engine's own
-    # record; the refutation and the truncation curve refit the stored estimator.
+    # record; the refutation and the truncation curve refit the stored estimator, and so does
+    # the simulated common cause among the sensitivity rows.
     _capability(
         "support",
         CONTINUOUS_SURVIVAL_FAMILY,
@@ -2859,12 +2867,20 @@ class _CapabilityFacade:
             def compute() -> Any:
                 return _evalue_from_selection(self._result, selection)
 
-        report = _cached(self._result, f"{self._attribute}.{operation}", (), effective, compute)
+        name = f"{self._attribute}.{operation}"
+        report = _cached(self._result, name, (), effective, compute)
         resolved = _bound_arguments(bound, report)
         if _normalize(resolved) != _normalize(effective):
-            self._result.assessment_cache[
-                _cache_key(f"{self._attribute}.{operation}", (), resolved)
-            ] = _pack_cached(report, _result_backend(self._result))
+            # The alias is pinned when the answer it repeats is kept and pinned. An answer the
+            # budget did not keep leaves an evictable alias, which the budget drops as well.
+            cache = self._result.assessment_cache
+            primary = _cache_key(name, (), effective)
+            _file(
+                cache,
+                _cache_key(name, (), resolved),
+                _pack_cached(report, _result_backend(self._result)),
+                evictable=primary not in cache or _is_evictable(cache, primary),
+            )
         return report
 
 
@@ -5089,11 +5105,13 @@ _AUGMENTED_TRIAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _augmented_tria
 
 
 def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
-    """Every sensitivity row of a continuous-time survival fit but the E-value, each refused.
+    """Every refused sensitivity row of a continuous-time survival fit.
 
-    The omitted-variable, marginal and tilt rows name F16 and the simulated common cause X101
+    The omitted-variable, marginal and tilt rows name F16
     (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).  The E-value
-    reads the fit's risk ratio, so :meth:`SensitivityFacade._evalue_row` builds its row.
+    reads the fit's risk ratio and the simulated common cause refits the stored estimator
+    (X101 part (b)), so :meth:`SensitivityFacade._evalue_row` and
+    :meth:`SensitivityFacade._continuous_simulated_row` build their rows.
     """
     return tuple(
         _capability(
@@ -5106,11 +5124,11 @@ def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             refusal=continuous_survival_refusal(row.operation),
         )
         for row in _STRUCTURAL_SENSITIVITY
-        if row.operation != "evalue"
+        if row.operation not in ("evalue", "simulated_confounding")
     )
 
 
-#: The refused sensitivity declarations of a continuous-time survival fit (X101).
+#: The refused sensitivity declarations of a continuous-time survival fit.
 _CONTINUOUS_SURVIVAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
     _continuous_survival_sensitivity_rows()
 )
@@ -5188,7 +5206,16 @@ class SensitivityFacade(_CapabilityFacade):
         if family == AUGMENTED_TRIAL_FAMILY:
             return _AUGMENTED_TRIAL_SENSITIVITY
         if family == CONTINUOUS_SURVIVAL_FAMILY:
-            return (*_CONTINUOUS_SURVIVAL_SENSITIVITY, self._evalue_row())
+            refused = {row.operation: row for row in _CONTINUOUS_SURVIVAL_SENSITIVITY}
+            refused["simulated_confounding"] = self._continuous_simulated_row()
+            return (
+                *(
+                    refused[row.operation]
+                    for row in _STRUCTURAL_SENSITIVITY
+                    if row.operation in refused
+                ),
+                self._evalue_row(),
+            )
         if family == "point" and _is_projection(self._result):
             # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
             # axis it has no entry for.
@@ -5411,6 +5438,35 @@ class SensitivityFacade(_CapabilityFacade):
                 roadmap=cached.roadmap,
             )
         return selected
+
+    def _continuous_simulated_row(self) -> AssessmentCapability:
+        """The ``simulated_confounding`` row of a continuous-time survival fit (X101 part (b)).
+
+        The surface replays event and censoring times under a latent shift of the
+        cause-specific hazards and refits the stored estimator in every cell.  It is refused
+        only on a result that holds no estimator or data.
+        """
+        from .sensitivity._simulated_confounding_continuous import (
+            continuous_survival_simulated_refusal,
+        )
+
+        refusal = continuous_survival_simulated_refusal(self._result)
+        return _capability(
+            "simulated_confounding",
+            CONTINUOUS_SURVIVAL_FAMILY,
+            artifacts=("fitted estimator configuration", "analysis data"),
+            execution="refit",
+            deterministic=False,
+            cost="expensive",
+            interpretation="estimate movement under a simulated common cause",
+            available=refusal is None,
+            status=AssessmentStatus.PASSED if refusal is None else AssessmentStatus.UNAVAILABLE,
+            refusal=refusal,
+            # A continuous-time fit reports no bare ``ate``, so the call names its estimand.
+            requires_arguments=("grid", "estimand"),
+            accepts_random_state=True,
+            requires_replay="refit_nuisances",
+        )
 
     def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
         from .sensitivity.evalue import _DERIVED_RR, _EValueRefusal
@@ -5660,6 +5716,11 @@ class SensitivityFacade(_CapabilityFacade):
         function, _ = self._routed_callable(operation)
         if not _defaults_to_ambiguous_estimand(function):
             return ()
+        if operation == "simulated_confounding" and _family(self._result) == (
+            CONTINUOUS_SURVIVAL_FAMILY
+        ):
+            # Every reported continuous-time estimate runs, so each one is a candidate.
+            return tuple(self._result.estimates)
         if operation == "simulated_confounding":
             from .sensitivity._simulated_confounding_request import (
                 _eligible_binary_parameter_names,
@@ -6040,3 +6101,40 @@ class SensitivityFacade(_CapabilityFacade):
             supplied=self._validated_arguments(arguments, random_state),
             random_state=random_state,
         )
+
+
+# ------------------------------------------------------------------------- cache eviction
+
+#: Operations whose answer is computed again bit for bit from stored artifacts and stored
+#: answers alone. A combined report reads its rows back from their own entries.
+_EVICTABLE_OPERATIONS: frozenset[str] = frozenset(
+    {"validate", "diagnostics.influence", "diagnostics.run_all", "sensitivity.run_all"}
+)
+
+
+def _cache_eviction_rule(
+    result: Any, operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]
+) -> bool:
+    """Whether an answer to this request may be dropped from a budgeted cache.
+
+    Only a request that resolves to a ``summarize`` or ``retarget`` row declared
+    deterministic from saved artifacts qualifies. Every refit is kept, whatever its seed: a
+    seed fixes only the randomness the package routes through it, and a learner's nested
+    splitter or a user callback can read global state. A bound under an assumed consistent
+    mechanism refits the treatment learner on a selecting C-TMLE fit, so it is kept too.
+    """
+    if operation in _EVICTABLE_OPERATIONS:
+        return True
+    surface, _, name = operation.partition(".")
+    if surface not in ("diagnostics", "sensitivity"):
+        return False
+    if kwargs.get("assume_consistent_mechanism"):
+        return False
+    facade = getattr(result, surface)
+    if name not in {row.operation for row in facade.capabilities}:
+        return False
+    row = facade._capability_for_arguments(name, dict(kwargs))
+    return row.execution in ("summarize", "retarget") and bool(row.deterministic_from_saved)
+
+
+_EVICTION_RULE[:] = [_cache_eviction_rule]

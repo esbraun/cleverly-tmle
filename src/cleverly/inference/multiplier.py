@@ -187,6 +187,7 @@ not a free one.
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
@@ -205,6 +206,7 @@ from .._inference_status import (
 from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
+from ..utils.random import note_fresh_entropy
 from .cluster import cluster_sums
 from .delta import Transform
 from .influence import ParameterEstimate, kish_count, with_precedent_status
@@ -477,6 +479,39 @@ _MAMMEN_HIGH = (_ROOT5 + 1.0) / 2.0
 _MAMMEN_THRESHOLD = np.uint32(round(_MAMMEN_PROB * 2**32))
 
 
+def _uint32_words(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarray:
+    """``rng.integers(0, 2**32, shape, dtype=np.uint32)``, read straight from the generator.
+
+    For the full ``uint32`` range ``Generator.integers`` returns the bit generator's 32-bit
+    draws one by one, and :class:`numpy.random.PCG64` makes those by splitting each 64-bit
+    output into its low then its high half.  That is the little-endian ``uint32`` view of
+    ``random_raw``, which skips the per-element bounded-integer path: the same words, and
+    the generator state left exactly as ``integers`` leaves it (its unbuffered ``uinteger``
+    slot included), with the word kernel about 1.8 times as fast on a band-sized block.  It
+    holds only when no half word is buffered from an earlier odd-length draw and this draw has
+    even length (so none is left buffered for the next), on a little-endian machine.  Anything
+    else takes ``integers`` itself.
+    ``tests/unit/test_multiplier_words.py`` pins the equality on the NumPy that CI resolves.
+    """
+    size = int(np.prod(shape))
+    generator = rng.bit_generator
+    if (
+        type(generator) is np.random.PCG64
+        and size % 2 == 0
+        and sys.byteorder == "little"
+        and not generator.state["has_uint32"]
+    ):
+        words = generator.random_raw(size // 2).view(np.uint32)
+        if size:
+            # ``integers`` leaves the last word's high half in the (unbuffered) ``uinteger``
+            # slot; write it there too, so the state is the same dict on both routes.
+            state = generator.state
+            state["uinteger"] = int(words[-1])
+            generator.state = state
+        return words.reshape(shape)
+    return rng.integers(0, 2**32, size=shape, dtype=np.uint32)
+
+
 def _fill_multipliers(rng: np.random.Generator, out: FloatArray, kind: MultiplierKind) -> None:
     """Fill ``out`` with mean-zero, unit-variance multipliers, allocating nothing large.
 
@@ -512,7 +547,7 @@ def _fill_multipliers(rng: np.random.Generator, out: FloatArray, kind: Multiplie
         # merely close: LOW - HIGH and (LOW - HIGH) + HIGH are both representable doubles,
         # so neither step rounds, and a clear flag gives -0.0 + HIGH == HIGH (both pinned in
         # the tests).  ``out`` must be float64, as both callers allocate it.
-        flags = rng.integers(0, 2**32, size=out.shape, dtype=np.uint32) < _MAMMEN_THRESHOLD
+        flags = _uint32_words(rng, out.shape) < _MAMMEN_THRESHOLD
         np.multiply(flags, _MAMMEN_LOW - _MAMMEN_HIGH, out=out)
         np.add(out, _MAMMEN_HIGH, out=out)
         return
@@ -594,6 +629,8 @@ def multiplier_critical_value(
     if not usable.any():
         return float("nan")
 
+    if random_state is None:
+        note_fresh_entropy()
     rng = np.random.default_rng(random_state)
     if kind == "normal":
         statistics = _normal_statistics(

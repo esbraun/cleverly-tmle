@@ -237,6 +237,65 @@ class CategoricalEncoding:
     generated: tuple[str, ...]
 
 
+class RowDesign:
+    """A counterfactual design matrix that is built for the rows asked, not held whole.
+
+    :meth:`CausalData.counterfactual_rows` makes one.  It holds the treatment block the
+    counterfactual value sets, a reference to the covariates and the intermediate level, so
+    a cross-fitted prediction builds one fold's rows at a time instead of every key keeping
+    an ``(n, width)`` copy of the covariates for the whole fit.  Every block is row-wise, so
+    :meth:`rows` returns, byte for byte, ``CausalData.counterfactual_design(...)[index]``.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        ``(n, k)`` treatment block, already encoded and validated.
+    covariates : ndarray
+        ``(n, p)`` covariates, shared with the data and never written.
+    level : float or None
+        The intermediate level of the last column, or ``None`` for no such column.
+    """
+
+    __slots__ = ("covariates", "level", "treatment")
+
+    def __init__(self, treatment: FloatArray, covariates: FloatArray, level: float | None):
+        self.treatment = treatment
+        self.covariates = covariates
+        self.level = level
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """``(n, width)`` of the design this stands for."""
+        extra = 0 if self.level is None else 1
+        return (
+            int(self.covariates.shape[0]),
+            int(self.treatment.shape[1] + self.covariates.shape[1] + extra),
+        )
+
+    def rows(self, index: IntArray | None = None) -> FloatArray:
+        """The design at ``index``, or the whole design for ``None``.
+
+        Parameters
+        ----------
+        index : ndarray or None
+            Row positions.
+
+        Returns
+        -------
+        ndarray
+            ``(len(index), width)`` float matrix, a new array in the memory order of
+            ``counterfactual_design(...)[index]`` (C order for an index; for ``None`` the
+            order of the full design, which follows the covariates').
+        """
+        if index is None:
+            blocks = [self.treatment, self.covariates]
+        else:
+            blocks = [self.treatment[index], self.covariates[index]]
+        if self.level is not None:
+            blocks.append(np.full((blocks[0].shape[0], 1), float(self.level)))
+        return np.hstack(blocks)
+
+
 @dataclass(frozen=True)
 class CausalData:
     """Validated inputs for a point-treatment causal estimator.
@@ -1364,6 +1423,17 @@ class CausalData:
         codes and doses each row is set to, as a :class:`~cleverly.interventions.JointPolicy`
         assigns them.
         """
+        return np.hstack(
+            self._counterfactual_blocks(treatment_value, intermediate_value=intermediate_value)
+        )
+
+    def _counterfactual_blocks(
+        self,
+        treatment_value: float | FloatArray,
+        *,
+        intermediate_value: float | None = None,
+    ) -> list[FloatArray]:
+        """The validated column blocks of :meth:`counterfactual_design`, in order."""
         if self.treatment_kind == "vector":
             assigned = np.asarray(treatment_value, dtype=float)
             if not np.all(np.isfinite(assigned)):
@@ -1408,7 +1478,42 @@ class CausalData:
                     "the design would be one column wider than the outcome model's."
                 )
             blocks.append(np.full((self.n, 1), float(intermediate_value)))
-        return np.hstack(blocks)
+        return blocks
+
+    def counterfactual_rows(
+        self,
+        treatment_value: float | FloatArray,
+        *,
+        intermediate_value: float | None = None,
+    ) -> RowDesign | FloatArray:
+        """:meth:`counterfactual_design`, built for the rows a prediction asks for.
+
+        The same validation runs here and now, at the call site that used to build the full
+        design, so a bad value is refused at the same point.  What comes back holds the
+        treatment block and a reference to the covariates rather than a copy, and
+        :meth:`RowDesign.rows` returns exactly the rows of :meth:`counterfactual_design`,
+        with the same memory order.  A vector treatment gets the full design itself: its
+        component block is checked against the whole sample, and its fits are small.
+
+        Parameters
+        ----------
+        treatment_value : float or ndarray
+            As :meth:`counterfactual_design`.
+        intermediate_value : float or None
+            As :meth:`counterfactual_design`.
+
+        Returns
+        -------
+        RowDesign or ndarray
+            The design, built on demand; the full design for a vector treatment.
+        """
+        if self.treatment_kind == "vector":
+            return self.counterfactual_design(
+                treatment_value, intermediate_value=intermediate_value
+            )
+        blocks = self._counterfactual_blocks(treatment_value, intermediate_value=intermediate_value)
+        level = None if intermediate_value is None else float(intermediate_value)
+        return RowDesign(blocks[0], blocks[1], level)
 
     def missingness_design(self) -> FloatArray:
         """``[A, W]`` -- the conditioning set for ``P(Delta = 1 | A, W)``.

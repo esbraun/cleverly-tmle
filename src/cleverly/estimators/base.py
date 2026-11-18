@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import (
     InferenceStatus,
     is_labelled,
+    supplies_inference,
 )
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
@@ -27,6 +29,7 @@ from .._warnings import FitWarning
 from ..data.causal_data import CausalData
 from ..exceptions import (
     CapabilityError,
+    DataError,
     RefusalReason,
     refuse_after_repeats,
     refuse_inference,
@@ -44,6 +47,7 @@ from ..inference.influence import (
     minimum_reference_df,
     spread_name,
     stamp_inference,
+    with_precedent_status,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
@@ -51,6 +55,7 @@ from ..inference.results import (
     RepeatSpread,
     estimate_covariance,
     estimate_curves,
+    median_covariance,
     ratio_contrast,
     ratio_function,
     refuse_odds_ratio,
@@ -527,7 +532,7 @@ class TMLEResult:
 
     Attributes
     ----------
-    assessment_cache : dict
+    assessment_cache : AssessmentCache
         Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
         constructed result owns its own cache. A result derived with
         :func:`dataclasses.replace` therefore starts empty and cannot serve the original
@@ -609,7 +614,7 @@ class TMLEResult:
     #: original's cached verdicts under a different method stamp.  A constructed result
     #: now owns an empty cache, and joblib persistence restores the saved mapping with the
     #: instance state rather than through ``__init__``.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+    assessment_cache: AssessmentCache = field(default_factory=AssessmentCache, init=False)
 
     #: Which family of assessment declarations applies to this result.  A class constant
     #: rather than a property: the family is a property of the result *type*, and nothing
@@ -868,6 +873,16 @@ class TMLEResult:
         ndarray
             Covariance matrix in the requested order.
         """
+        draws = self._projection_draws()
+        if self._median_draws > 1 and draws:
+            chosen = select_estimates(self.estimates, names)
+            if all(name in draws[0] for name in chosen):
+                # The matrix rule over each draw's coefficient covariance (P1 plan 2.3). A
+                # draw that withholds inference withholds the matrix too.
+                withheld = self._withheld_projection_status(chosen)
+                if withheld is not None:
+                    refuse_inference(withheld, operation="covariance()")
+                return median_covariance(draws, chosen, cluster=self.data.cluster)
         refuse_after_repeats(
             self._median_draws,
             operation="covariance()",
@@ -880,6 +895,55 @@ class TMLEResult:
             alternative="Fit one split or inspect each entry in result.repeats.",
         )
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
+
+    def _withheld_projection_status(self, names: Sequence[str]) -> str | None:
+        """The first status among ``names`` that supplies no inference, or ``None``.
+
+        It reads the reported estimates and, on a repeated projection fit, each name's
+        precedent status over the draws (:func:`with_precedent_status`), so a coefficient
+        that withholds inference in one draw withholds the matrix, the test and the curve's
+        intervals of the median report.
+        """
+        draws = self._projection_draws()
+        stamped = with_precedent_status(draws)[0] if self._median_draws > 1 and draws else {}
+        for name in names:
+            for estimate in (self.estimates.get(name), stamped.get(name)):
+                if estimate is not None and not supplies_inference(estimate.inference):
+                    return str(estimate.inference)
+        return None
+
+    def _projection_draws(self) -> tuple[Mapping[str, ParameterEstimate], ...]:
+        """Each draw's projection estimates, or ``()`` on a fit that is not a projection."""
+        draws = tuple(repeat.projection for repeat in self.repeats)
+        if not draws or any(draw is None for draw in draws):
+            return ()
+        return draws  # type: ignore[return-value]
+
+    @property
+    def se_without_displacement(self) -> dict[str, float]:
+        r"""Each projection coefficient's standard error without the split displacement.
+
+        On a projection fit with ``repeats`` above 1 the reported standard error of
+        coefficient :math:`j` is the median rule
+        :math:`\{\operatorname{median}_r(\sigma_{j,r}^2 + d_{j,r}^2)\}^{1/2}`, with
+        :math:`d_{j,r}` draw :math:`r`'s distance from the median point.  This is
+        :math:`\operatorname{median}_r \sigma_{j,r}`, the same rule with
+        :math:`d_{j,r} = 0`; the gap between the two is what the split variability adds.
+        Empty on any other fit.
+
+        Returns
+        -------
+        dict of str to float
+            One standard error per coefficient name.
+        """
+        draws = self._projection_draws()
+        if len(draws) < 2:
+            return {}
+        return {
+            name: float(np.median([draw[name].std_error for draw in draws]))
+            for name in draws[0]
+            if name in self.estimates
+        }
 
     def contrast(
         self,
@@ -1309,6 +1373,8 @@ class TMLEResult:
         ``std_err`` and ``inference`` is present in any frame, so a consumer that has to
         tell the two apart has a total test.  A fit that divided by a declared known
         treatment mechanism adds a ``treatment_mechanism`` column that reads ``"known"``.
+        A projection fit with ``repeats`` above 1 adds ``se_without_displacement``
+        (:attr:`se_without_displacement`).
 
         Returns
         -------
@@ -1332,6 +1398,10 @@ class TMLEResult:
             payload["simultaneous_upper"] = [
                 bands.get(name, (None, None))[1] for name in self.estimates
             ]
+        without = self.se_without_displacement
+        if without:
+            # Only on a repeated projection fit, which also prints it in the summary.
+            payload["se_without_displacement"] = [without.get(name) for name in self.estimates]
         if self.intermediate_value is not None:
             payload["intermediate"] = [self.intermediate_value] * len(rows)
         if self.config.treatment_mechanism == "known":
@@ -1430,15 +1500,21 @@ class TMLEResult:
             rows.append(row)
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
-    def _projection_names(self) -> tuple[Any, tuple[str, ...]]:
+    def _projection_names(self, stratum: Any = None) -> tuple[Any, tuple[str, ...]]:
         """The evaluated projection of a conditional contrast and its reported names.
+
+        ``stratum`` is a baseline stratum's label as the fit prints it, such as
+        ``"S=1"``; ``None`` reads the marginal names.
 
         Raises
         ------
         CapabilityError
             If this fit projects no conditional contrast.
+        DataError
+            If ``stratum`` is not a stratum label of this fit.
         """
         from ..targets import parameter_name
+        from ..targets.base import stratum_alias
 
         contrast = self.nuisance.effect_modification
         if self.config.parameter_axis != "effect_modification" or contrast is None:
@@ -1451,7 +1527,20 @@ class TMLEResult:
                 ),
             )
         stem = "cate_projection" if contrast.scale == "difference" else "log_crr_projection"
-        return contrast, tuple(parameter_name(stem, arm=term) for term in contrast.terms)
+        names = tuple(parameter_name(stem, arm=term) for term in contrast.terms)
+        if stratum is None:
+            return contrast, names
+        labels = (
+            [self.data.stratum_label(code) for code in range(self.data.n_strata)]
+            if self.data.has_strata
+            else []
+        )
+        if str(stratum) not in labels:
+            raise DataError(
+                f"stratum={stratum!r} is not a baseline stratum of this fit; its strata are "
+                f"{labels}"
+            )
+        return contrast, tuple(stratum_alias(name, stratum) for name in names)
 
     def _projection_coefficients(self, scale: str) -> Any:
         """:meth:`coefficients` of a conditional contrast's projection."""
@@ -1489,7 +1578,7 @@ class TMLEResult:
             rows.append(row)
         return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
-    def heterogeneity_test(self) -> Any:
+    def heterogeneity_test(self, stratum: Any = None) -> Any:
         """The joint Wald test that every non-constant coefficient of the projection is zero.
 
         The degrees of freedom are the number of non-constant basis terms; the intercept
@@ -1497,6 +1586,15 @@ class TMLEResult:
         clustered fit gets the cluster-level test.  A small p-value says the conditional
         contrast varies along the declared basis.  A large one does not say the contrast is
         constant: it can vary in a direction the basis cannot express.
+
+        On a fit with ``repeats`` above 1 the statistic reads the reported (median)
+        coefficients and their matrix-rule covariance (:meth:`covariance`).
+
+        Parameters
+        ----------
+        stratum : str or None
+            A baseline stratum's label as the fit prints it, such as ``"S=1"``, to test that
+            stratum's coefficients; ``None`` tests the marginal coefficients.
 
         Returns
         -------
@@ -1511,16 +1609,11 @@ class TMLEResult:
         """
         from ..effect_curves import heterogeneity_test
 
-        contrast, names = self._projection_names()
-        refuse_after_repeats(
-            self._median_draws,
-            operation="heterogeneity_test()",
-            text="The test reads a joint covariance, and the median report is no draw's report.",
-            reason=RefusalReason.INFERENCE_GAP,
-            alternative="Fit one split.",
-        )
-        for name in names:
-            refuse_inference(self.estimates[name].inference, operation="heterogeneity_test()")
+        contrast, names = self._projection_names(stratum)
+        withheld = self._withheld_projection_status(names)
+        if withheld is not None:
+            refuse_inference(withheld, operation="heterogeneity_test()")
+        tested = [names[j] for j in range(len(names)) if j not in contrast.intercept_columns]
         return heterogeneity_test(
             self.estimates,
             names,
@@ -1528,6 +1621,9 @@ class TMLEResult:
             contrast.intercept_columns,
             scale=contrast.scale,
             cluster=self.data.cluster,
+            covariance=(
+                np.asarray(self.covariance(tested)) if self._median_draws > 1 and tested else None
+            ),
         )
 
     def effect_curve(
@@ -1538,6 +1634,7 @@ class TMLEResult:
         n_replicates: int = 1000,
         kind: str = "rademacher",
         random_state: int | None = None,
+        stratum: Any = None,
     ) -> Any:
         """The projection curve of a conditional contrast, with a band over ``grid``.
 
@@ -1559,36 +1656,52 @@ class TMLEResult:
             The multiplier distribution.
         random_state : int or None
             Seed for the draws.
+        stratum : str or None
+            A baseline stratum's label as the fit prints it, such as ``"S=1"``, for that
+            stratum's curve; ``None`` gives the marginal curve.
 
         Returns
         -------
         EffectCurveResult
-            The fitted curve.
+            The fitted curve.  On a fit with ``repeats`` above 1 the curve at a point is
+            the median rule over the draws' curves at that point, and the band is the
+            median of the draws' critical values around it.
 
         Raises
         ------
         CapabilityError
             If this fit projects no conditional contrast.
         """
-        from ..effect_curves import EffectCurveResult, ProjectionCurve
+        from ..effect_curves import EffectCurveResult, ProjectionCurve, ProjectionDraw
 
-        contrast, names = self._projection_names()
-        refuse_after_repeats(
-            self._median_draws,
-            operation="effect_curve()",
-            text="The curve reads a joint covariance, and the median report is no draw's report.",
-            reason=RefusalReason.INFERENCE_GAP,
-            alternative="Fit one split.",
-        )
+        contrast, names = self._projection_names(stratum)
         spec = contrast.spec
         beta = np.array([self.estimates[name].psi for name in names])
+        draws = (
+            tuple(
+                ProjectionDraw(
+                    beta=np.array([draw[name].psi for name in names]),
+                    covariance=estimate_covariance(draw, list(names), cluster=self.data.cluster),
+                    influence=np.column_stack(
+                        [np.asarray(draw[name].influence_curve) for name in names]
+                    ),
+                )
+                for draw in with_precedent_status(self._projection_draws())
+            )
+            if self._median_draws > 1
+            else ()
+        )
         curve = ProjectionCurve(
             basis=spec.basis,
             modifiers=spec.modifiers,
             scale=contrast.scale,
             terms=tuple(contrast.terms),
             beta=beta,
-            covariance=np.asarray(self.covariance(list(names))),
+            covariance=(
+                median_covariance(self._projection_draws(), list(names), cluster=self.data.cluster)
+                if draws
+                else estimate_covariance(self.estimates, list(names), cluster=self.data.cluster)
+            ),
             influence=np.column_stack(
                 [np.asarray(self.estimates[name].influence_curve) for name in names]
             ),
@@ -1601,6 +1714,8 @@ class TMLEResult:
                 else None
             ),
             covariance_rule=self.estimates[names[0]].covariance_rule,
+            draws=draws,
+            inference=self._withheld_projection_status(names) or "influence_curve",
         )
         band = (
             None
@@ -1626,10 +1741,11 @@ class TMLEResult:
             modifiers=spec.modifiers,
             model=curve,
             scale=contrast.scale,
-            in_sample=contrast.design @ beta,
+            in_sample=curve.at_design(contrast.design),
             target_sentence=(
                 f"the projection of the {stem} given {given} onto the declared basis "
                 f"({', '.join(contrast.terms)})"
+                + ("" if stratum is None else f", within the baseline stratum {stratum}")
             ),
             inference_status=str(self.inference_status),
             status=support.label,

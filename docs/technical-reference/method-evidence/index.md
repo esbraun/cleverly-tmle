@@ -90,6 +90,7 @@ learned-rule-intermediate
 learned-rule-optimal-compositions
 learned-regimen-ltmle
 conditional-projection
+projection-compositions
 ep-cate
 ep-crr
 ep-assessment

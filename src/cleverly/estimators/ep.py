@@ -44,7 +44,7 @@ import copy
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from scipy.special import expit, logit
@@ -54,10 +54,17 @@ from .._warnings import attach
 from ..bases import Constant, Modifiers, Sieve, resolve
 from ..data.causal_data import CausalData
 from ..data.known_mechanism import divides_by_declaration
-from ..effect_modification import EffectModification, modifier_frame
+from ..effect_modification import (
+    EffectModification,
+    effect_modification_ep_refusal,
+    modifier_frame,
+)
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..learners._fitting import clone_learner, fit_learner, seed_unset
 from ..learners.parametric import logistic_newton
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._planned_fits import PlannedFits
 
 __all__ = [
     "EP_INTERVAL_REFUSAL",
@@ -385,7 +392,13 @@ def final_stage(
         contrast = debiased.contrast
         if learner is not None:
             assert values is not None
-            fitted = fit_learner(clone_learner(learner), _learner_input(values), contrast, w)
+            # Unit weights are no weights. Passing them changes no fit, but it sends
+            # scikit-learn's histogram booster through weighted-percentile binning, which
+            # doubles its cost (tests/unit/test_learned_rule_ep_declared_design.py).
+            unit = bool(np.all(w == 1.0))
+            fitted = fit_learner(
+                clone_learner(learner), _learner_input(values), contrast, None if unit else w
+            )
             return None, fitted
         root = np.sqrt(w)
         beta = np.linalg.lstsq(design * root[:, None], contrast * root, rcond=None)[0]
@@ -1127,11 +1140,15 @@ class EPEstimator:
         Raises
         ------
         CapabilityError
-            If a fixed or scheduled size exceeds the family's largest member, or a basis
-            reads an undeclared domain or level (R3).
+            If the data hold a missing treatment or baseline strata (R7-ep-mt,
+            R7-ep-strata), a fixed or scheduled size exceeds the family's largest member,
+            or a basis reads an undeclared domain or level (R3).
         DataError
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
+        data_refusal = effect_modification_ep_refusal(data)
+        if data_refusal is not None:
+            raise CapabilityError.from_refusal(data_refusal)
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
         for size in self.sizes(data.n):
             refusal = size_refusal(size, self.effect_modification.basis, data.n)
@@ -1249,6 +1266,82 @@ class EPEstimator:
         )
         return EPFit(data, outer, self, curve, debiased, record)
 
+    def _planned_fits(self, data: CausalData) -> PlannedFits:
+        """The learner fits :meth:`fit` would make on ``data``, counted unfitted.
+
+        The outer nuisances are the point TMLE's preview.  Under ``size="cv"`` each outer
+        fold previews its inner TMLE on the fold's training rows, with ``INNER_FOLDS``
+        folds and the seed :func:`refit_seed` gives the fold.  A declared final learner
+        fits once per size in each such fold, then once at the chosen size.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        PlannedFits
+            The record.
+        """
+        from .._planned_fits import Count, PlanBuilder, count_learner
+        from .._summary._learners import learner_name
+        from .tmle import TMLE
+
+        self.check(data)
+        engine = TMLE(**self._nuisance_kwargs())
+        outer = engine._planned_fits(data)
+        builder = PlanBuilder()
+        builder.absorb(outer, lambda scope: scope)
+        for name, value in outer.multipliers:
+            builder.multiply(name, value)
+        sizes = self.sizes(data.n)
+        fixed = outer.folds == "realized"
+        final = (
+            None
+            if self.final_learner is None or self.effect_modification.scale != "difference"
+            else seed_unset(self.final_learner, self.tmle_kwargs.get("random_state"))
+        )
+        label = learner_name(self.final_learner)
+
+        def curves(n: int, times: int) -> Count:
+            if final is None or times == 0:
+                return Count()
+            return count_learner(final, np.linspace(0.0, 1.0, n), seed_fixed=fixed).scaled(times)
+
+        selection = 0
+        if self.mode == "cv":
+            folds, _ = engine._plan_draws(data)[0]
+            assignment = np.asarray(folds.assignment)
+            base = self.tmle_kwargs.get("random_state")
+            for fold in np.unique(assignment):
+                train = np.flatnonzero(assignment != fold)
+                inner = TMLE(
+                    **self._nuisance_kwargs(
+                        n_folds=INNER_FOLDS,
+                        random_state=refit_seed(base, int(fold)),
+                        split_plan=None,
+                    )
+                )._planned_fits(data.subset(train))
+                builder.absorb(
+                    inner, lambda scope: f"{scope}, EP size step's inner TMLE, per outer fold"
+                )
+                selection += inner.total_fits
+                count = curves(train.size, len(sizes))
+                builder.add(
+                    "final_learner",
+                    "EP final learner at each size, per outer fold",
+                    label,
+                    count,
+                )
+                selection += count.fits
+            builder.multiply("sieve sizes", len(sizes))
+            builder.search("EP sieve sizes", len(sizes), False, selection)
+        builder.add(
+            "final_learner", "EP final learner at the chosen size", label, curves(data.n, 1)
+        )
+        return builder.build(outer.folds)
+
     def refit(self, data: CausalData, *, random_state: int | None = None) -> EPFit:
         """Run the whole fit again on ``data``, nuisances and size selection included.
 
@@ -1264,13 +1357,21 @@ class EPEstimator:
         EPFit
             The refit.
         """
+        return self._refit_estimator(random_state).fit(data)
+
+    def _planned_refit(self, data: CausalData, *, random_state: int | None = None) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted."""
+        return self._refit_estimator(random_state)._planned_fits(data)
+
+    def _refit_estimator(self, random_state: int | None) -> EPEstimator:
+        """The configured copy :meth:`refit` fits."""
         estimator = copy.copy(self)
         estimator.tmle_kwargs = dict(self.tmle_kwargs)
         if random_state is not None:
             estimator.tmle_kwargs["random_state"] = random_state
         # A refit on other rows cannot reuse a split plan realised on these rows.
         estimator.tmle_kwargs["split_plan"] = None
-        return estimator.fit(data)
+        return estimator
 
     def with_basis(self, basis: Any) -> EPEstimator:
         """A copy whose sieve family is ``basis``, with the same size rule.

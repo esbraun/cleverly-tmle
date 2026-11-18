@@ -541,6 +541,11 @@ engine and is refused. A hazard clipped at $10^{-12}$ inside the loss is counted
 so the clip is a backstop. The default cumulative bound `g_bounds=(0.01, 1.0)` applies, while the
 paper truncated nothing.
 
+Each selection record also counts the search's work. `target_solves` holds the hazard targeting
+solves of the full-data path and of each selection fold's path, and `candidate_pairs` the distinct
+mechanism pairs each path targeted. Regimens on one arm share that arm's search, so their
+records report the same counts, and a sum over regimens counts that search once per regimen.
+
 **Contrasts.** Each arm has its own selection, so a contrast combines two selected curves by the
 delta method. `ate_regimen[...]` is the risk difference, and `ratio(..., view="survival")` is the
 paper's (6). The paper's printed (22) and (23) are not used. Each horizon is selected separately,

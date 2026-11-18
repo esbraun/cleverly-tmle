@@ -39,7 +39,7 @@ from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
-from scipy import integrate, stats
+from scipy import integrate, optimize, stats
 from scipy.special import expit
 
 #: The arm-specific coefficient of :math:`Z X_4` in the cause-1 log hazard.
@@ -52,6 +52,8 @@ OMEGA_POSITIVITY = (6.0, -1.0, 1.0)
 CENSORING_RATE = 0.15
 #: The dependent-censoring coefficients on :math:`(X_3, Z)`.
 CENSORING_DEPENDENCE = (0.5, 0.5)
+#: The arm coefficient of the cause-2 log hazard.
+CAUSE2_ARM = -0.5
 #: The target times: the quartiles of the observed event times under the base law.
 TIMES = (0.46, 1.12, 2.32)
 ARMS = {"treated": 1, "control": 0}
@@ -61,13 +63,41 @@ BASELINE = ("X1", "X2", "X3", "X4")
 
 
 def rates(
-    x1: np.ndarray, x2: np.ndarray, x3: np.ndarray, z: np.ndarray | float
+    x1: np.ndarray,
+    x2: np.ndarray,
+    x3: np.ndarray,
+    z: np.ndarray | float,
+    *,
+    beta: float = BETA,
+    cause2_arm: float = CAUSE2_ARM,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """The cause hazards :math:`(h_1, h_2)` given the arm and the covariates."""
+    """The cause hazards :math:`(h_1, h_2)` given the arm and the covariates.
+
+    ``beta`` and ``cause2_arm`` are the arm-specific coefficient of the cause-1 log hazard and
+    the arm coefficient of the cause-2 log hazard; the registered law reads the defaults.
+    """
     x4 = (np.asarray(x3) < 1.0).astype(float)
-    h1 = np.exp(-1.5 + x1 - x2 + 0.5 * x3 - 1.0 * z + BETA * z * x4)
-    h2 = np.exp(-2.0 - x1 + x2 - 0.5 * x3 - 0.5 * z)
+    h1 = np.exp(-1.5 + x1 - x2 + 0.5 * x3 - 1.0 * z + beta * z * x4)
+    h2 = np.exp(-2.0 - x1 + x2 - 0.5 * x3 + cause2_arm * z)
     return np.asarray(h1, dtype=float), np.asarray(h2, dtype=float)
+
+
+def treatment_intercept(share: float) -> float:
+    """The intercept of the treatment logit at which :math:`P(Z = 1)` equals ``share``.
+
+    The default law has no intercept and treats about half the units; a sample drawn with
+    ``treated_share`` adds this intercept to the logit of :data:`OMEGA`.
+    """
+    nodes, weights = _x3_rule()
+
+    def gap(intercept: float) -> float:
+        total = 0.0
+        for x1, x2 in ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)):
+            index = OMEGA[0] * x1 + OMEGA[1] * x2 + OMEGA[2] * nodes + intercept
+            total += float(weights @ expit(index)) / 3.0
+        return total - share
+
+    return float(optimize.brentq(gap, -10.0, 10.0, xtol=1e-14))
 
 
 def sample(
@@ -76,6 +106,9 @@ def sample(
     *,
     positivity: bool = False,
     dependent_censoring: bool = False,
+    treated_share: float | None = None,
+    beta: float = BETA,
+    cause2_arm: float = CAUSE2_ARM,
 ) -> pd.DataFrame:
     """One draw as a frame with ``time``, ``event``, ``Z`` and ``X1`` to ``X4``.
 
@@ -89,6 +122,13 @@ def sample(
         Draw the treatment with :data:`OMEGA_POSITIVITY`.
     dependent_censoring : bool
         Censor at the rate that depends on :math:`X_3` and :math:`Z`.
+    treated_share : float or None
+        Shift the treatment logit by :func:`treatment_intercept` so that this share of the
+        population is treated; ``None`` keeps the registered law's (about one half).
+    beta : float
+        The arm-specific coefficient of the cause-1 log hazard (:func:`rates`).
+    cause2_arm : float
+        The arm coefficient of the cause-2 log hazard (:func:`rates`).
 
     Returns
     -------
@@ -100,8 +140,11 @@ def sample(
     x1, x2 = (factor == 1).astype(float), (factor == 2).astype(float)
     x3 = rng.normal(size=n)
     w = OMEGA_POSITIVITY if positivity else OMEGA
-    z = rng.binomial(1, expit(w[0] * x1 + w[1] * x2 + w[2] * x3)).astype(float)
-    h1, h2 = rates(x1, x2, x3, z)
+    index = w[0] * x1 + w[1] * x2 + w[2] * x3
+    if treated_share is not None:
+        index = index + treatment_intercept(treated_share)
+    z = rng.binomial(1, expit(index)).astype(float)
+    h1, h2 = rates(x1, x2, x3, z, beta=beta, cause2_arm=cause2_arm)
     event_time = rng.exponential(1.0 / (h1 + h2))
     cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
     rate = np.full(n, CENSORING_RATE)
@@ -121,13 +164,17 @@ def sample(
     )
 
 
-def risk(z: int, cause: int, t: float) -> float:
+def risk(
+    z: int, cause: int, t: float, *, beta: float = BETA, cause2_arm: float = CAUSE2_ARM
+) -> float:
     """:math:`E\\,F_j(t \\mid z, X)`, by quadrature over :math:`X_3` split at 1."""
     total = 0.0
     for x1, x2 in ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)):
 
         def integrand(x3: float, x1: float = x1, x2: float = x2) -> float:
-            h1, h2 = rates(np.array(x1), np.array(x2), np.array(x3), z)
+            h1, h2 = rates(
+                np.array(x1), np.array(x2), np.array(x3), z, beta=beta, cause2_arm=cause2_arm
+            )
             h = h1 + h2
             hj = h1 if cause == 1 else h2
             return float(hj / h * (1.0 - np.exp(-h * t)) * stats.norm.pdf(x3))
@@ -148,13 +195,19 @@ def difference_name(cause: str, t: float) -> str:
     return f"ate_regimen[treated vs control, {cause} @ t={t:g}]"
 
 
-def truth(times: tuple[float, ...] = TIMES) -> dict[str, float]:
+def truth(
+    times: tuple[float, ...] = TIMES, *, beta: float = BETA, cause2_arm: float = CAUSE2_ARM
+) -> dict[str, float]:
     """Every arm's risk of each cause at each time, and the risk differences.
 
     Parameters
     ----------
     times : tuple of float
         The target times.
+    beta : float
+        The arm-specific coefficient of the cause-1 log hazard (:func:`rates`).
+    cause2_arm : float
+        The arm coefficient of the cause-2 log hazard (:func:`rates`).
 
     Returns
     -------
@@ -165,7 +218,7 @@ def truth(times: tuple[float, ...] = TIMES) -> dict[str, float]:
     for arm, z in ARMS.items():
         for code, cause in CAUSES.items():
             for t in times:
-                out[level_name(arm, cause, t)] = risk(z, code, t)
+                out[level_name(arm, cause, t)] = risk(z, code, t, beta=beta, cause2_arm=cause2_arm)
     for cause in CAUSES.values():
         for t in times:
             out[difference_name(cause, t)] = (
@@ -204,7 +257,14 @@ def _x3_rule(nodes: int = 200) -> tuple[np.ndarray, np.ndarray]:
     return np.concatenate(points), np.concatenate(weights)
 
 
-def efficiency_sd(cause: int, t: float, nodes: int = 200) -> dict[str, float]:
+def efficiency_sd(
+    cause: int,
+    t: float,
+    nodes: int = 200,
+    *,
+    beta: float = BETA,
+    cause2_arm: float = CAUSE2_ARM,
+) -> dict[str, float]:
     r""":math:`\sqrt{E D^2}` of each arm's risk of ``cause`` at ``t`` and of its difference.
 
     On the base law (censoring at the constant rate :data:`CENSORING_RATE`, treatment by
@@ -230,6 +290,10 @@ def efficiency_sd(cause: int, t: float, nodes: int = 200) -> dict[str, float]:
         The target time.
     nodes : int
         Nodes per rule piece.
+    beta : float
+        The arm-specific coefficient of the cause-1 log hazard (:func:`rates`).
+    cause2_arm : float
+        The arm coefficient of the cause-2 log hazard (:func:`rates`).
 
     Returns
     -------
@@ -246,7 +310,14 @@ def efficiency_sd(cause: int, t: float, nodes: int = 200) -> dict[str, float]:
     for z in (0, 1):
         totals, levels = [], []
         for x1, x2 in ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)):
-            h1, h2 = rates(np.full_like(x3, x1), np.full_like(x3, x2), x3, z)
+            h1, h2 = rates(
+                np.full_like(x3, x1),
+                np.full_like(x3, x2),
+                x3,
+                z,
+                beta=beta,
+                cause2_arm=cause2_arm,
+            )
             h = h1 + h2
             hj = h1 if cause == 1 else h2
             p1 = expit(OMEGA[0] * x1 + OMEGA[1] * x2 + OMEGA[2] * x3)

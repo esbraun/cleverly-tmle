@@ -46,8 +46,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.survival import _targeting
-from cleverly.survival import engine as engine_module
+from cleverly.survival import _chunked, _targeting
 from cleverly.utils.parallel import map_parallel
 from cleverly.validation._failures import recordable
 from tests.parallel import STUDY_JOBS
@@ -115,23 +114,55 @@ def risks_targeted_only(risk_rows: int) -> Iterator[None]:
         While open, a fit's restricted means are the plug-ins at the risk-targeted hazards,
         and its record's standardized scores include their scores there.
     """
-    original = engine_module.walk
+    original = _chunked.run_walk
 
-    def walk(problem: Any, dlam: Any, **options: Any) -> Any:
-        initial = np.array(dlam, copy=True)
-        risks = replace(problem, target_weights=problem.target_weights[:risk_rows])
-        result = original(risks, dlam, **options)
-        return replace(
-            result,
-            evaluation=_targeting.evaluate(problem, result.dlam),
-            initial=_targeting.evaluate(problem, initial),
-        )
+    class _Risks:
+        """The plan with only its risk rows, so the walk targets the risks alone."""
 
-    engine_module.walk = walk
+        def __init__(self, plan: Any) -> None:
+            self.plan = plan
+            self.n = plan.n
+            self.n_targets = plan.n_targets // plan.fit.target_weights.shape[0] * risk_rows
+            self.bounds = plan.bounds
+
+        def problem(self, k: int) -> Any:
+            problem = self.plan.problem(k)
+            return replace(problem, target_weights=problem.target_weights[:risk_rows])
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.plan, name)
+
+    def run_walk(plan: Any, **options: Any) -> Any:
+        rows: dict[str, list[Any]] = {"initial": [], "targeted": []}
+        final = options.pop("final", None)
+
+        def evaluate_all(k: int, lo: int, hi: int, state: Any) -> None:
+            problem = plan.problem(k)
+            rows["targeted"].append(
+                _targeting.evaluate_rows(problem, state.jumps, state.survival, state.incidence)
+            )
+            jumps = plan.initial(k)
+            rows["initial"].append(
+                _targeting.evaluate_rows(problem, jumps, *_targeting.curves(jumps))
+            )
+            if final is not None:
+                final(k, lo, hi, state)
+
+        run = original(_Risks(plan), final=evaluate_all, **options)
+
+        def summary(name: str) -> Any:
+            parts = np.concatenate([p for p, _ in rows[name]])
+            plugins = np.concatenate([q for _, q in rows[name]])
+            return _targeting.summarize(parts, plugins)
+
+        run.result = replace(run.result, evaluation=summary("targeted"), initial=summary("initial"))
+        return run
+
+    _chunked.run_walk = run_walk
     try:
         yield
     finally:
-        engine_module.walk = original
+        _chunked.run_walk = original
 
 
 def _walk_index(arm: str, cause: str) -> int:
