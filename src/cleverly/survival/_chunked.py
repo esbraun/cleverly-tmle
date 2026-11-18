@@ -413,8 +413,8 @@ class _Walker:
             return state
         slot = self.slots[k]
         if slot is None or slot is state or len(self.bounds) == 1:
-            # One block runs on the calling thread, and the dense walk's initial jumps are the
-            # caller's array, which must not be written.
+            # The dense walk (one block) starts from the caller's own jumps, which must not be
+            # written.
             self.slots[k] = state
             return state
         # Each step is written into the kept arrays.  New arrays would come from the malloc
