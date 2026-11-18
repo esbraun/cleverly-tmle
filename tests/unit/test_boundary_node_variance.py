@@ -598,7 +598,8 @@ def test_a_fit_without_a_flagged_node_is_unchanged(monkeypatch: pytest.MonkeyPat
 
 
 #: ``psi``, ``std_error`` and ``ci`` of two estimates of ``_frame()``, recorded from the commit
-#: before the supplement (``709e2207``) with the learners of ``_fit``, by fit path. The fixture
+#: before the supplement (``709e2207``) with the learners of ``_fit``, by fit path; the
+#: difference's ``ci`` is re-recorded under its MOVER interval (Fix-3 PR 3). The fixture
 #: flags no node. The tolerance admits library rounding only.
 PRE_SUPPLEMENT: dict[bool, dict[str, tuple[float, float, tuple[float, float]]]] = {
     False: {
@@ -610,7 +611,7 @@ PRE_SUPPLEMENT: dict[bool, dict[str, tuple[float, float, tuple[float, float]]]] 
         "ate_regimen[control vs treated @ t=3]": (
             -0.11442882504741175,
             0.04445029202003762,
-            (-0.20154979650897364, -0.027307853585849848),
+            (-0.19987962394011713, -0.02649230460910286),
         ),
     },
     True: {
@@ -622,7 +623,7 @@ PRE_SUPPLEMENT: dict[bool, dict[str, tuple[float, float, tuple[float, float]]]] 
         "ate_regimen[control vs treated @ t=3]": (
             -0.11457490292560912,
             0.04449399759972208,
-            (-0.20178153574927601, -0.027368270101942233),
+            (-0.20009795305893147, -0.026548236108115617),
         ),
     },
 }
@@ -630,7 +631,11 @@ PRE_SUPPLEMENT: dict[bool, dict[str, tuple[float, float, tuple[float, float]]]] 
 
 @pytest.mark.parametrize("hazard", [False, True], ids=["iterated_mean", "hazard"])
 def test_a_fit_without_a_flagged_node_matches_the_pre_supplement_commit(hazard: bool) -> None:
-    """m4: off the event, the estimate, its SE and its interval are those of ``709e2207``."""
+    """m4: off the event, the estimate and its SE are those of ``709e2207``.
+
+    The difference's interval is the correlated MOVER of its two means (Fix-3 PR 3), recorded
+    from this fit; its estimate and standard error are the pre-supplement witness.
+    """
     result = _fit(_frame(), hazard=hazard)
     assert boundary_node_parameters(result) == ()
     for name, (psi, std_error, ci) in PRE_SUPPLEMENT[hazard].items():

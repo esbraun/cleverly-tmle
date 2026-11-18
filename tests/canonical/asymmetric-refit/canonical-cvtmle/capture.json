@@ -1,0 +1,36 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 220,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/shared",
+      "properties/fold_policy"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 13,
+    "rows": 340,
+    "seconds_capture": 0.16,
+    "seconds_fit": 268.86,
+    "stage": "refits",
+    "study": "canonical-cvtmle"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 17,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/shared",
+      "properties/fold_policy"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 1,
+    "rows": 27,
+    "seconds_capture": 0.15,
+    "seconds_fit": 9.59,
+    "stage": "scope",
+    "study": "canonical-cvtmle"
+  }
+}

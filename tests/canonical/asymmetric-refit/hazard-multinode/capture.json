@@ -1,0 +1,34 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 180,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 5,
+    "rows": 460,
+    "seconds_capture": 1.55,
+    "seconds_fit": 67.02,
+    "stage": "refits",
+    "study": "hazard-multinode"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 19,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 78,
+    "seconds_capture": 1.73,
+    "seconds_fit": 75.16,
+    "stage": "scope",
+    "study": "hazard-multinode"
+  }
+}

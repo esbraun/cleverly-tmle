@@ -2645,6 +2645,9 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         "failures 32 of 10000 (worst case fails)",
     ),
     "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
+    "C10.in_sample": (
+        "ctmle-derivative-coverage-draws: bias -0.0030 to 0.0013, coverage 0.9263, SE ratio 0.9318",
+    ),
     "D01": (
         "RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",
         "RM18-one-sided-bias: bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888",
@@ -2680,7 +2683,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G03": (
         (
-            "RM18-ordinary-weighted: coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, "
+            "RM18-ordinary-weighted: coverage 0.9241 to 0.9499, SE ratio 0.9263 to 0.9985, "
             "empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to"
             " 0.9899"
         ),
@@ -6889,8 +6892,15 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     "small-sample-wald": (
         "It measures the small-sample Wald interval rule, computed from the public inference "
         "functions. The shipped default reads the rule's logit interval for an unclustered mean "
-        "of a yes/no outcome. No shipped fit reports the rule's intervals for a difference or a "
-        "continuous outcome, so no row names them."
+        "of a yes/no outcome; asymmetric-wald measures the intervals that replaced the rule's "
+        "for a difference and a continuous outcome. An interval rule is no fit configuration, "
+        "so no row names it."
+    ),
+    "asymmetric-wald": (
+        "It measures the interval constructions the shipped default reads for a bounded "
+        "difference (correlated MOVER) and an unclustered continuous-outcome target (the "
+        "skew-widened t), across fits. An interval rule is no fit configuration, and each fit's "
+        "support row keeps citing the studies of that fit, so no row names it."
     ),
     "dose-response": (
         "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "

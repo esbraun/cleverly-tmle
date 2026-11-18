@@ -370,7 +370,7 @@ def check(namespace: dict[str, Any]) -> None:
     readmission_t2 = differences["readmission", 2]
     # "turns the small positive estimate (0.0223) into a negative one (-0.0157)".
     assert eliminated_t2.psi < 0.0 < readmission_t2.psi
-    # "The interval (-0.0589, 0.0276) contains both 0.0024 and -0.0403".
+    # "The interval (-0.0596, 0.0267) contains both 0.0024 and -0.0403".
     assert covers(eliminated_t2, death_first)
     assert covers(eliminated_t2, population["ate_regimen[always vs never, readmission @ t=2]"])
     # "mostly by raising the never-schedule risk from 0.2285 to 0.2858, since more patients die

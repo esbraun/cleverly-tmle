@@ -1,0 +1,7 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,lc1/ate,0,0.19961826062667992,0.019731368695440957,0.19961826062667992,0.019731368695440954,ok,own,,,,,,,,,,,,
+scope,property,greedy_late_confounder/lc3_greedy,0,0,0.026591998470028969,0,0.026591998470028969,ok,own,,,,,,,,,,,,
+scope,property,late_confounder_stop/lc3_ordered,0,0.24439999592308098,0.022699913571251128,0.24439999592308098,0.022699913571251128,ok,own,,,,,,,,,,,,
+scope,property,ordered_whole_path/lc3_ordered,0,0.12316157537778355,0.0344222806076806,0.12316157537778355,0.034422280607680593,ok,own,,,,,,,,,,,,
+scope,property,patience_bias/lc1_greedy,0,0.19507125686125087,0.019469149673075632,0.19507125686125087,0.019469149673075632,ok,own,,,,,,,,,,,,
+scope,property,patience_witness/lc1_greedy,0,0.19507125686125087,0.019469149673075632,0.19507125686125087,0.019469149673075632,ok,own,,,,,,,,,,,,

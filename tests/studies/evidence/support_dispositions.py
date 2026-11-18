@@ -83,6 +83,9 @@ LIMIT_OWNERS = frozenset(
         "adaptive-iptw-finite-sample",
         "adaptive-iptw-composite-l3",
         "X39-below-tail-size",
+        # Fix-3 PR 3: one boundary fit under correlated MOVER on one draw set; the SE ratio is
+        # the same as R ctmle's, which passes on the same estimates.
+        "ctmle-derivative-coverage-draws",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -540,6 +543,16 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "",
     ),
     (
+        "ctmle-derivative",
+        "truth",
+        "cleverly-ctmle-derivative/binary_declared_pair/ate",
+        "C10.in_sample",
+        ("wald",),
+        LIMIT,
+        "ctmle-derivative-coverage-draws: bias -0.0030 to 0.0013, coverage 0.9263, SE ratio 0.9318",
+        "",
+    ),
+    (
         "composite-missing-drtmle",
         "truth",
         "cleverly-composite-drtmle/three_arm_mar_outcome_and_treatment/ey[high]",
@@ -596,7 +609,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "G03",
         ("wald",),
         LIMIT,
-        "RM18-ordinary-weighted: coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899",
+        "RM18-ordinary-weighted: coverage 0.9241 to 0.9499, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899",
         "",
     ),
     (
@@ -617,16 +630,6 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         ("point",),
         LIMIT,
         "RM18-ordinary-weighted: bias -0.0027 to 0.0075, margin 0.0172",
-        "",
-    ),
-    (
-        "weighted-ltmle",
-        "property",
-        "type_i_error/static__sharp_null",
-        "G03",
-        ("wald",),
-        EXPERIMENTAL,
-        "",
         "",
     ),
     (

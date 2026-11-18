@@ -163,8 +163,9 @@ POST_FLIP = {
         "X70 part (b1), first registered 2026-11-14 from a run at 5aeef06, after the flip",
     ),
     "hazard-time-varying-multinode": (
-        "10d19ab9d584974ddbd1a78a98ea54f4a05f0698",
-        "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip",
+        "6fe1bac59025fe460078e82410bd2f0881b3d2da",
+        "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip; "
+        "regenerated at 6fe1bac under the shipped intervals (Fix-3 PR 3)",
     ),
 }
 #: The text that shows a study's band options are explicit, for each excluded study.

@@ -60,7 +60,9 @@ def test_the_binned_loo_error_is_the_exact_loo_on_the_binned_representation() ->
     left, lw, rw, binned = _kernel._bin(xs, ys, xs[0], width)
     for bandwidth in _kernel.bandwidth_grid(xs, width)[::5]:
         kernel = _kernel._kernel(float(bandwidth), width)
-        fast = _kernel._loo_error(ys, left, lw, rw, _kernel._convolve(binned, kernel), kernel)
+        fast = _kernel._loo_error(
+            ys, left, left + 1, lw, rw, _kernel._convolve(binned, kernel), kernel
+        )
         assert fast == pytest.approx(_brute_loo(x, y, float(bandwidth)), abs=1e-12)
 
 

@@ -1,25 +1,25 @@
 === hazard-time-varying-multinode declared run
-command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/hazard_time_varying_multinode/regenerate.py --output /tmp/htvm-run-3 --jobs 4
-commit: 10d19ab9d584974ddbd1a78a98ea54f4a05f0698; upstream 10d19ab9d584974ddbd1a78a98ea54f4a05f0698
+command: /home/esbraun/cleverly-tmle/.venv/bin/python /home/esbraun/cleverly-tmle/tests/canonical/hazard_time_varying_multinode/regenerate.py --output /home/esbraun/fix3-htvm-out-2 --jobs 16
+commit: 6fe1bac59025fe460078e82410bd2f0881b3d2da; upstream 6fe1bac59025fe460078e82410bd2f0881b3d2da
 clean tree: True
-cleverly 0.2.5 from /home/user/cleverly-tmle/src/cleverly/__init__.py
-python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
-installed distributions: 117, sha256 e8b13bf1f94386b10a931c837a9edc46ee17de9cb73e6550a4f58505fadedbf0
+cleverly 0.2.6 from /home/esbraun/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 08925798f659aa0ae12edfa573bd69d86d24af003a8801847547121ec5be6cf7
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-cores: 4
-started: 2026-11-15T02:47:28+00:00
-note: resumed from /root/.cache/cleverly/runs/hazard-time-varying-multinode/924f616337b8, reused the Python phase
-finished: 2026-11-15T03:58:57+00:00
-wall seconds: 4288.4
+cores: 16
+started: 2026-11-18T10:00:15+00:00
+note: resumed from /home/esbraun/.cache/cleverly/runs/hazard-time-varying-multinode/c3deef012d16, reused the Python phase
+finished: 2026-11-18T11:17:32+00:00
+wall seconds: 4223.9
 exit code: 0
 sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
-sha256 manifest.json: d00490d3f00d0488442ee468c147aefeb9d51b67869b158abeefed64996a1d61
-sha256 performance-tests.csv: aa2d711e64f60006ed0976695b803b93eee52a17c3255366d2af6b90b11e93bb
-sha256 properties.csv: 50feebd472dcac4677dfb5189335e814e1f4bb7d4d399220c0ccdccd31cae934
-sha256 property-failure-accounting.csv: 19f7c068aeb6571373f80797df6f4abe632f3c4771a17c1aea3c509c21ce8706
+sha256 manifest.json: 83a8c6cf03e2ffe68077939a56d04fbf1b4ab1ae1fe207dbb49a3c787ed0d1d4
+sha256 performance-tests.csv: ad45657d75c2314bd469032c7a96a61b5d76aa7df6ef257d0e97bf095677e8b2
+sha256 properties.csv: c5a83848f0fb164e4300a2d26bb34069022f151759990c1b5c5f822ec26440a9
+sha256 property-failure-accounting.csv: 4242c14d24b1a4dbec4b23ae029bd73c23654c3980f6ae4be146970c0e831bde
 sha256 property-failure-witnesses.parquet: 45d8533b08cab4895205bda351a414d0badf343219ce33d946cf634ebcb16428
 sha256 property-failures.csv: 5005fb8d71628a825d25423a8edb7c7e80e4f60da790af74275e38c87a470bc9
-sha256 property-replicates.parquet: b2d9417b85fe10ee702c6b4f9bb3bf60d836c87b275a7b5fb48a153d907a88e4
-sha256 replicates.parquet: d2ecb8fe41d6f87f72c2116b142d7be1f2b4b8a8d895dab2775aa41de89fa1cd
-sha256 summary.csv: 87ca4438127c7b56745d55cf424684f8f71e9dbb86c77feb41c085541c2187f1
+sha256 property-replicates.parquet: 6bf6b2994ab0779a71310b0adfcf41323321baa13a27230d7d098c59ebca45c0
+sha256 replicates.parquet: 734a02f5d3ade098904b21247e75d4db57a1ef9f5d6c41b81dccba6b0332ebad
+sha256 summary.csv: 41cd0b47e5b1681d59491593a73024a130463ad6cd38aa0362806f5b4a230cf8
 

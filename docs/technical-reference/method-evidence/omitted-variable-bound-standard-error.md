@@ -5,7 +5,13 @@ This study validates the standard error of the one-sided limits of the omitted-v
 (2026)](../validation-methods.md#standard-error-of-the-omitted-variable-bound) gives those limits.
 For the ATT and the ATC, the curve of $\nu^2$ carries the influence term of the estimated share of
 the conditioning arm, which RM22 added. The study reads each bound as an estimate of a known
-population value. It reads the bound's standard error back off the reported limit.
+population value, with the standard error of that end's own influence curve.
+
+The committed rows were written when each limit was the end plus or minus `z_0.95` standard errors,
+so the standard error read back off the limit then is this one. The limits now read the estimate's
+own interval rule (the skew-widened t on this continuous outcome). The row interval stays the normal
+one. The interval audits judge the committed rows under the shipped rule, in
+`tests/canonical/asymmetric-audit-screen.csv` and `tests/canonical/interval-audit-screen.csv`.
 
 **No canonical implementation is compared.** DoubleML omits the share term. The R package
 `dml.sensemakr` carries it. It estimates the share out of fold, and at its commit `58ac44d` it
@@ -21,7 +27,7 @@ equivalence artifact records the absence of a comparator.
 | estimator of $\nu^2$ | the default, which resolves to the doubly robust estimator |
 | strength | $c_Y = 0.5$, $c_D = 0.3$, $\rho = 1$ |
 | primary estimands | the lower and the upper bound of the ATT, the ATC and the ATE |
-| primary standard error | `(lower - ci_lower) / z_0.95` for a lower bound, and `(ci_upper - upper) / z_0.95` for an upper bound |
+| primary standard error | the influence standard error of the end's own curve: the estimate's curve plus the signed strength times the curve of the maximal bias. The harness checks that the estimate's interval rule reproduces the reported limit at this standard error |
 | primary interval | the bound plus or minus 1.959964 standard errors |
 | truth | closed form. $\nu^2$ is $4 e^{0.07}$ for the ATT and the ATC and $2 + 2 e^{0.07}$ for the ATE, and $\sigma^2 = 1$ |
 | control | the same fits, with the standard error from the curve of $\nu^2$ without the share term. That is the curve before RM22 |

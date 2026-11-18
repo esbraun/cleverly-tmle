@@ -523,6 +523,8 @@ def ep_fold_curve(
     from ..bases import Sieve
     from ..effect_modification import modifier_frame
     from ..estimators.ep import (
+        FitState,
+        SieveDesigns,
         cross_validated_risks,
         curve_from_pieces,
         nuisance_pieces,
@@ -540,11 +542,25 @@ def ep_fold_curve(
     pair = (float(treated), float(control))
     width = float(np.diff(nuisance.scaler.unscale_levels(np.array([0.0, 1.0])))[0])
 
-    def curve(rows: CausalData, fitted: NuisanceEstimates, size: int) -> Any:
-        basis = sieve_member(family, size, modifiers)
+    def state(rows: CausalData, fitted: NuisanceEstimates, shared: Any = None) -> FitState:
+        """What every size's curve reads off one nuisance fit, each read once on first use;
+        ``shared`` is the resolved family when several sizes read these rows."""
         values = modifier_frame(rows, columns)
-        design = np.asarray(basis.evaluate(values, modifiers), dtype=float)
-        pieces = nuisance_pieces(rows, fitted, pair=pair, g_bounds=g_bounds, alpha=alpha)
+        return FitState(
+            lambda: nuisance_pieces(rows, fitted, pair=pair, g_bounds=g_bounds, alpha=alpha),
+            SieveDesigns(shared, modifiers, values),
+            values,
+            width,
+        )
+
+    def curve(
+        rows: CausalData, fitted: NuisanceEstimates, size: int, cached: FitState | None = None
+    ) -> Any:
+        cached = state(rows, fitted) if cached is None else cached
+        basis = sieve_member(family, size, modifiers)
+        values = cached.values
+        design = cached.designs.at(basis)
+        pieces = cached.pieces
         try:
             return curve_from_pieces(
                 pieces,
@@ -577,15 +593,30 @@ def ep_fold_curve(
         return curve(inner, nuisance, size), EPRuleRecord(mode, (size,), (), size)
 
     sizes = tuple(range(1, int(family.max_size) + 1))
+    # The family is shared across sizes only when there are several. Resolving it can raise
+    # only for an Indicators with no levels, which the public call refuses before any fit.
+    resolved = sieve_member(family, int(family.max_size), modifiers) if len(sizes) > 1 else None
     seeds: list[int] = []
 
     def fit_fold(index: int, train: np.ndarray) -> Any:
         refit = refit_seed(seed, index)
         seeds.append(refit)
         rows, fitted = _size_step_nuisance(inner, train, fit_inner, refit, fold)
-        # Both sides on the scaled outcome: the curve's prediction is on the outcome's own
-        # scale, b - a times the scaled contrast.
-        return lambda size, held: curve(rows, fitted, size).predict(held) / width
+        cached = state(rows, fitted, resolved)
+        held_designs: list[tuple[Any, Any]] = []
+
+        def predict(size: int, held: Any) -> np.ndarray:
+            fold_curve = curve(rows, fitted, size, cached)
+            # Both sides on the scaled outcome: the curve's prediction is on the outcome's
+            # own scale, b - a times the scaled contrast.
+            if fold_curve.learner is not None:
+                return fold_curve.predict(held) / width  # a declared learner reads no basis
+            # cross_validated_risks passes one held-out mapping for every size of a fold.
+            if not held_designs or held_designs[-1][0] is not held:
+                held_designs[:] = [(held, SieveDesigns(resolved, modifiers, held))]
+            return fold_curve._predict(held, held_designs[-1][1].at(fold_curve.basis)) / width
+
+        return predict
 
     splits = [
         (index, np.asarray(train), np.asarray(test)) for index, (train, test) in enumerate(folds)

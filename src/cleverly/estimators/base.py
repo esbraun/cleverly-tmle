@@ -1708,6 +1708,12 @@ class TMLEResult:
             cluster=self.data.cluster,
             reference_df=minimum_reference_df([self.estimates[name] for name in names]),
             rule_widened=any(self.estimates[name].rule_widened for name in names),
+            outcome_family=(
+                families.pop()
+                if len(families := {self.estimates[name].outcome_family for name in names}) == 1
+                else None
+            ),
+            covariance_rule=self.estimates[names[0]].covariance_rule,
             draws=draws,
             inference=self._withheld_projection_status(names) or "influence_curve",
         )
