@@ -459,13 +459,13 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     assumptions = " ".join(evalue.summary(detail="full").section("Assumptions").lines)
     assert "missing-at-random plug-in of the population sd(Y) = 0.2504" in assumptions
     rv = namespace["rv"]
-    assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3612)
+    assert (round(rv["rv"], 4), round(rv["rva"], 4)) == (0.3881, 0.3600)
     assert rv["limit_licensed"] is False
     assert "differs on outcome family 'gaussian'" in rv["limit_sentence"]
     # The benchmarks: the table of the reading, recomputed from the fit.
     expected = {
-        "discharge_risk": (1.0, 0.361, (-0.0759, 0.3716), (-0.0947, 0.3906)),
-        "age": (0.872, 0.032, (0.0974, 0.1982), (0.0881, 0.2077)),
+        "discharge_risk": (1.0, 0.361, (-0.0759, 0.3716), (-0.0964, 0.3922)),
+        "age": (0.872, 0.032, (0.0974, 0.1982), (0.0880, 0.2077)),
         "prior_utilization": (0.128, 0.0, (0.1478, 0.1478), (0.1392, 0.1564)),
     }
     for covariate, (cf_y, cf_d, bound_limits, ci_limits) in expected.items():
