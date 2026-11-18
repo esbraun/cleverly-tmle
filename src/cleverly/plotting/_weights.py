@@ -248,7 +248,7 @@ def weights(
     from .._refusal import RefusalReason
     from ..exceptions import CapabilityError, DataError
     from ..longitudinal.estimator import LongitudinalResult
-    from ..longitudinal.weights import node_weights
+    from ..longitudinal.weights import weight_summary
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(result, ContinuousSurvivalResult):
@@ -297,8 +297,10 @@ def weights(
             )
     else:
         names = _chosen_regimens(regimens, held)
+    # Per-node summaries, read node by node from the fit: the same values node_weights
+    # gives, without its four (n, T) arrays per regimen.
     series = [
-        node_weights(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
+        weight_summary(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
         for name in names
     ]
     first = series[0]
@@ -319,7 +321,7 @@ def weights(
         offset = (index - (count - 1) / 2.0) * step
         stats, positions, peaks = [], [], []
         for node, time in enumerate(times):
-            used = item.used[item.followed[:, node], node]
+            used = item.nodes[node].used
             zero = int(np.sum(used == 0.0))
             if zero:
                 zeros.append(
@@ -376,7 +378,7 @@ def weights(
                         gid=_core.GID_SERIES_LABEL,
                     )
         for node, time in enumerate(times):
-            share = float(item.share_beyond_bounds[node])
+            share = item.nodes[node].share
             if (
                 not _capped(item.node_kinds, node)
                 or not item.unit_weights
@@ -409,8 +411,8 @@ def weights(
                 color=_core.SECONDARY_INK,
                 gid="cleverly-tail-share",
             )
-        effective = item.effective_n
-        followers = item.followed.sum(axis=0).astype(float)
+        effective = np.asarray([summary.effective_n for summary in item.nodes], dtype=float)
+        followers = np.asarray([summary.followers for summary in item.nodes], dtype=float)
         bottom.plot(
             times,
             followers,
@@ -448,7 +450,9 @@ def weights(
     bottom.set_xlabel(time_label)
     bottom.set_xticks(list(times))
     bottom.set_xlim(times[0] - 0.7, times[-1] + 0.7)
-    bottom.set_ylim(0.0, max(float(item.followed.sum(axis=0).max()) for item in series) * 1.1)
+    bottom.set_ylim(
+        0.0, max(float(max(summary.followers for summary in item.nodes)) for item in series) * 1.1
+    )
     cause_words = f", cause {first.cause}" if first.cause is not None else ""
     _core.header(
         top,
